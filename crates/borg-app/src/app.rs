@@ -1,16 +1,23 @@
 use std::{
+    io::Write as _,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
-use borg_core::{AMBIENT_FRAME, AppState, Appearance, Effect, Msg, Pace, ShellView, Side, Viewer, update, viewer_size};
+use borg_core::{
+    AMBIENT_FRAME, AppState, Appearance, Content, Effect, Image, Msg, Pace, ShellView, Side, Viewer, update,
+    viewer_size,
+};
+use borg_gfx::{Capabilities, Graphics, Output, decode, is_picture};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
 use borg_ui::{Palette, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
 use borg_view::{FileSource, Pager};
 use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures::StreamExt;
+use jiff::Zoned;
 use ratatui::{DefaultTerminal, layout::Size};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -39,9 +46,10 @@ pub struct App {
     themes: ThemeSet,
     config_dir: Option<ConfigDir>,
     config: Config,
-    home: Option<std::path::PathBuf>,
+    home: Option<PathBuf>,
     state_dir: Option<StateDir>,
     pending: Vec<Effect>,
+    graphics: Graphics,
 }
 
 enum Flow {
@@ -50,7 +58,7 @@ enum Flow {
 }
 
 impl App {
-    pub fn start(launch: &Launch, size: Size) -> Result<Self> {
+    pub fn start(launch: &Launch, size: Size, capabilities: Capabilities) -> Result<Self> {
         let grid = GridSize { cols: size.width, rows: size.height };
         let now = Instant::now();
         let appearance = appearance(launch);
@@ -86,12 +94,16 @@ impl App {
             home: launch.home.clone(),
             state_dir: launch.state_dir.clone(),
             pending,
+            graphics: Graphics::new(capabilities),
         })
     }
 
     pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let result = self.event_loop(terminal).await;
         self.save_session();
+        let backend = terminal.backend_mut();
+        backend.write_all(&self.graphics.reset())?;
+        backend.flush()?;
         result
     }
 
@@ -162,17 +174,36 @@ impl App {
     fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
         self.state.settle();
         let clock = local_now();
+        let mut output = self.draw_frame(terminal, &clock, now)?;
+        if output.repaint {
+            terminal.clear()?;
+            output = self.draw_frame(terminal, &clock, now)?;
+        }
+        if !output.bytes.is_empty() {
+            let backend = terminal.backend_mut();
+            backend.write_all(&output.bytes)?;
+            backend.flush()?;
+        }
+        if let Some(error) = self.graphics.take_errors().first() {
+            self.state.notice = Some(format!("{error}"));
+        }
+        Ok(())
+    }
+
+    fn draw_frame(&mut self, terminal: &mut DefaultTerminal, clock: &Zoned, now: Instant) -> Result<Output> {
         let scene = Scene {
             state: &self.state,
             screen: self.emulator.screen(),
             palette: &self.palette,
             themes: &self.themes,
-            clock: &clock,
+            clock,
             now,
             home: self.home.as_deref(),
+            pixels: self.graphics.capabilities().protocol.pixels(),
         };
-        terminal.draw(|frame| draw(frame, &scene))?;
-        Ok(())
+        let mut placements = Vec::new();
+        let frame = terminal.draw(|frame| placements = draw(frame, &scene))?;
+        Ok(self.graphics.frame(&placements, frame.buffer))
     }
 
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
@@ -261,19 +292,21 @@ impl App {
         }
     }
 
-    fn open_viewer(&self, path: std::path::PathBuf) {
+    fn open_viewer(&self, path: PathBuf) {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
+        let cell = self.graphics.capabilities().cell;
+        let bounds = (pixels(width, cell.width), pixels(height, cell.height));
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let opened = FileSource::open(&path)
-                .and_then(|source| Pager::new(Arc::new(source), width, height))
-                .map(|pager| Msg::Opened(Viewer { path: path.clone(), pager }))
-                .unwrap_or_else(|e| Msg::Notice(format!("{}: {e}", path.display())));
+            let content = if is_picture(&path) { picture(&path, bounds) } else { text(&path, width, height) };
+            let opened = content
+                .map(|content| Msg::Opened(Viewer { path: path.clone(), content }))
+                .unwrap_or_else(|e| Msg::Notice(format!("{}: {e:#}", path.display())));
             let _ = messages.send(opened);
         });
     }
 
-    fn list(&mut self, side: Side, generation: u64, dir: std::path::PathBuf) {
+    fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
         let mut batches = self.backend.list(&dir);
         let messages = self.messages.clone();
         let task = tokio::spawn(async move {
@@ -296,6 +329,21 @@ impl App {
             previous.abort();
         }
     }
+}
+
+fn pixels(cells: usize, cell: u16) -> u32 {
+    u32::try_from(cells).unwrap_or(u32::MAX).saturating_mul(u32::from(cell))
+}
+
+fn picture(path: &Path, bounds: (u32, u32)) -> Result<Content> {
+    let bytes = std::fs::metadata(path)?.len();
+    let decoded = decode(path, bounds)?;
+    Ok(Content::Image(Image { picture: decoded.picture, original: decoded.original, format: decoded.format, bytes }))
+}
+
+fn text(path: &Path, width: usize, height: usize) -> Result<Content> {
+    let source = FileSource::open(path)?;
+    Ok(Content::Text(Pager::new(Arc::new(source), width, height)?))
 }
 
 fn appearance(launch: &Launch) -> Appearance {

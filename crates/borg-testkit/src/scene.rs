@@ -1,6 +1,7 @@
 use std::{fmt::Write as _, path::PathBuf, time::Instant};
 
 use borg_core::{AppState, EVEN_SPLIT, Effect, Msg, PanelSetup, Settings, ShellView, Side, Startup, update};
+use borg_gfx::Placement;
 use borg_term::{Emulator, Foreground, GridSize};
 use borg_ui::{Palette, Scene, ThemeSet, draw};
 use borg_vfs::Entry;
@@ -19,6 +20,7 @@ pub struct Stage {
     pub clock: Zoned,
     pub started: Instant,
     pub home: Option<PathBuf>,
+    pub pixels: bool,
 }
 
 impl Stage {
@@ -51,6 +53,7 @@ impl Stage {
             clock,
             started,
             home: None,
+            pixels: false,
         };
         stage.shell(b"\x1b]133;A\x07$ \x1b]133;B\x07");
         Ok(stage)
@@ -75,6 +78,10 @@ impl Stage {
     }
 
     pub fn render(&mut self, at: Instant) -> anyhow::Result<Buffer> {
+        self.compose(at).map(|(buffer, _)| buffer)
+    }
+
+    pub fn compose(&mut self, at: Instant) -> anyhow::Result<(Buffer, Vec<Placement>)> {
         self.state.settle();
         let screen = self.emulator.screen();
         let size = (screen.cols(), screen.rows());
@@ -87,9 +94,11 @@ impl Stage {
             clock: &self.clock,
             now: at,
             home: self.home.as_deref(),
+            pixels: self.pixels,
         };
-        terminal.draw(|frame| draw(frame, &scene))?;
-        Ok(terminal.backend().buffer().clone())
+        let mut placements = Vec::new();
+        terminal.draw(|frame| placements = draw(frame, &scene))?;
+        Ok((terminal.backend().buffer().clone(), placements))
     }
 }
 

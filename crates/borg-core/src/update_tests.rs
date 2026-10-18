@@ -43,6 +43,13 @@ fn idle_prompt() -> ShellView {
     ShellView { prompt: PromptState::Empty, foreground: Foreground::Shell, mode: TermMode::empty() }
 }
 
+fn text(viewer: &crate::Viewer) -> &borg_view::Pager {
+    match &viewer.content {
+        crate::Content::Text(pager) => pager,
+        crate::Content::Image(_) => panic!("expected a text viewer"),
+    }
+}
+
 fn quiet() -> Settings {
     Settings { preferences: crate::Preferences { splash: false, ..crate::Preferences::DEFAULT }, ..Settings::default() }
 }
@@ -462,14 +469,18 @@ fn viewer_keys_scroll_wrap_and_close() {
     let content: Vec<u8> = (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
-    update(&mut state, Msg::Opened(crate::Viewer { path: PathBuf::from("/home/log"), pager }), now);
+    update(
+        &mut state,
+        Msg::Opened(crate::Viewer { path: PathBuf::from("/home/log"), content: crate::Content::Text(pager) }),
+        now,
+    );
 
     press(&mut state, now, key(KeyCode::End));
-    let last = state.viewer.as_ref().and_then(|v| v.pager.rows().last().cloned());
+    let last = state.viewer.as_ref().and_then(|v| text(v).rows().last().cloned());
     assert_eq!(last.as_deref(), Some("row 100"));
 
     press(&mut state, now, key(KeyCode::Char('w')));
-    assert!(state.viewer.as_ref().is_some_and(|v| !v.pager.wrapped()));
+    assert!(state.viewer.as_ref().is_some_and(|v| !text(v).wrapped()));
 
     let effects = press(&mut state, now, key(KeyCode::Char('l')));
     assert!(effects.is_empty(), "viewer must not leak keys to the shell");
@@ -599,4 +610,28 @@ fn closed_overlays_fade_out_and_new_ones_fade_in() {
     press(&mut state, gone, key(KeyCode::F(9)));
     assert!(state.leaving.is_none());
     assert!(state.overlay_fade.is_animating(gone));
+}
+
+fn image_viewer(state: &mut AppState, name: &str, now: Instant) {
+    let picture = borg_gfx::Picture::from_rgba(1, 1, vec![0, 0, 0, 255]).unwrap_or_else(|e| panic!("{e}"));
+    let image = crate::Image { picture, original: (1, 1), format: "png", bytes: 1 };
+    let path = state.active_panel().dir().join(name);
+    update(state, Msg::Opened(crate::Viewer { path, content: crate::Content::Image(image) }), now);
+}
+
+#[test]
+fn image_viewer_steps_through_pictures_in_the_folder() {
+    let (mut state, now) = setup_with(vec![file("a.png"), file("b.txt"), file("c.jpg"), file("d.gif")]);
+    image_viewer(&mut state, "a.png", now);
+
+    let next = press(&mut state, now, key(KeyCode::Right));
+    assert_eq!(next, vec![Effect::View(PathBuf::from("/home/c.jpg"))]);
+    assert!(matches!(state.active_panel().hovered(), Some(crate::Row::Entry(entry)) if entry.name == "c.jpg"));
+
+    image_viewer(&mut state, "d.gif", now);
+    assert!(press(&mut state, now, key(KeyCode::Right)).is_empty());
+    assert_eq!(press(&mut state, now, key(KeyCode::Left)), vec![Effect::View(PathBuf::from("/home/c.jpg"))]);
+
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
 }

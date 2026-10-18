@@ -2,6 +2,7 @@ use std::{env, fs, io, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use borg_core::{AfterCommand, Preferences};
+use borg_gfx::Preference;
 use serde::{Deserialize, Serialize};
 
 use crate::store::write_atomically;
@@ -29,6 +30,7 @@ pub struct Config {
     pub screensaver_after: Option<u64>,
     pub delight: Option<bool>,
     pub unlocked: Option<Vec<String>>,
+    pub graphics: Option<String>,
 }
 
 impl Config {
@@ -56,6 +58,10 @@ impl Config {
         self.screensaver_after.map(Duration::from_secs)
     }
 
+    pub fn graphics(&self) -> Result<Preference, String> {
+        self.graphics.as_deref().map_or(Ok(Preference::default()), str::parse)
+    }
+
     pub fn unlocked(&self) -> &[String] {
         self.unlocked.as_deref().unwrap_or_default()
     }
@@ -74,6 +80,7 @@ impl Config {
             screensaver_after: self.screensaver_after,
             delight: Some(prefs.delight),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
+            graphics: self.graphics.clone(),
         }
     }
 }

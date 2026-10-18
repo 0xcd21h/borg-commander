@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use borg_gfx::Placement;
 use borg_term::Screen;
 use borg_ui::{Palette, Rgb, draw_screen};
 use ratatui::{buffer::Buffer, layout::Rect, style::Modifier};
@@ -20,6 +21,7 @@ pub struct Snapshot {
     buffer: Buffer,
     palette: Palette,
     cursor: Option<(u16, u16)>,
+    placements: Vec<Placement>,
 }
 
 impl Snapshot {
@@ -28,11 +30,23 @@ impl Snapshot {
         let mut buffer = Buffer::empty(area);
         draw_screen(screen, area, &mut buffer);
         let cursor = screen.cursor_visible().then(|| screen.cursor());
-        Self { buffer, palette: palette.clone(), cursor }
+        Self { buffer, palette: palette.clone(), cursor, placements: Vec::new() }
     }
 
     pub fn from_buffer(buffer: Buffer, palette: &Palette, cursor: Option<(u16, u16)>) -> Self {
-        Self { buffer, palette: palette.clone(), cursor }
+        Self { buffer, palette: palette.clone(), cursor, placements: Vec::new() }
+    }
+
+    pub fn with_placements(self, placements: Vec<Placement>) -> Self {
+        Self { placements, ..self }
+    }
+
+    pub(crate) fn placements(&self) -> &[Placement] {
+        &self.placements
+    }
+
+    pub fn raster(&self) -> Result<image::RgbImage> {
+        render::raster(self)
     }
 
     pub fn cols(&self) -> u16 {

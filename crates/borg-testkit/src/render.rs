@@ -7,7 +7,9 @@ use image::{Rgb as Pixel, RgbImage};
 use ratatui::style::Modifier;
 use unicode_width::UnicodeWidthStr;
 
-use crate::Snapshot;
+use borg_gfx::{CellSize, Placement, fit};
+
+use crate::{Snapshot, snapshot::CellStyle};
 
 const FONT_REGULAR: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 const FONT_BOLD: &[u8] = include_bytes!("../assets/DejaVuSansMono-Bold.ttf");
@@ -15,6 +17,7 @@ const FONT_PX: f32 = 18.0;
 const MARGIN: u32 = 14;
 const UNDERLINE_OFFSET: f32 = 2.0;
 const WIDTH_PROBE: char = 'M';
+const ALPHA_MAX: f32 = 255.0;
 const EIGHTHS: f32 = 8.0;
 const LOWER_EIGHTHS: std::ops::RangeInclusive<char> = '\u{2581}'..='\u{2588}';
 const LEFT_EIGHTHS: std::ops::RangeInclusive<char> = '\u{2589}'..='\u{258f}';
@@ -30,6 +33,14 @@ struct Grid {
 }
 
 pub fn png(snapshot: &Snapshot, path: &Path) -> Result<()> {
+    let image = raster(snapshot)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    image.save(path).with_context(|| format!("writing {}", path.display()))
+}
+
+pub fn raster(snapshot: &Snapshot) -> Result<RgbImage> {
     let regular = FontRef::try_from_slice(FONT_REGULAR).context("loading regular font")?;
     let bold = FontRef::try_from_slice(FONT_BOLD).context("loading bold font")?;
     let scale = PxScale::from(FONT_PX);
@@ -44,8 +55,32 @@ pub fn png(snapshot: &Snapshot, path: &Path) -> Result<()> {
     let width = u32::from(snapshot.cols()) * grid.cell_w + MARGIN * 2;
     let height = u32::from(snapshot.rows()) * grid.cell_h + MARGIN * 2;
     let mut image = RgbImage::from_pixel(width, height, pixel(palette.background));
+    let cells = cells(snapshot, &grid);
 
+    for cell in &cells {
+        fill(&mut image, cell.rect.0, cell.rect.1, cell.rect.2, cell.rect.3, cell.style.bg);
+    }
+    let (under, over): (Vec<&Placement>, Vec<&Placement>) =
+        snapshot.placements().iter().partition(|placement| placement.z < 0);
+    under.into_iter().for_each(|placement| blit(&mut image, placement, &grid));
+    for cell in &cells {
+        let font = if cell.style.bold { &bold } else { &regular };
+        draw_cell(&mut image, font, scale, cell, &grid);
+    }
+    over.into_iter().for_each(|placement| blit(&mut image, placement, &grid));
+    Ok(image)
+}
+
+struct Painted {
+    symbol: String,
+    style: CellStyle,
+    underlined: bool,
+    rect: (u32, u32, u32, u32),
+}
+
+fn cells(snapshot: &Snapshot, grid: &Grid) -> Vec<Painted> {
     let buffer = snapshot.buffer();
+    let mut painted = Vec::new();
     for y in 0..snapshot.rows() {
         let mut covered = 0;
         for x in 0..snapshot.cols() {
@@ -59,40 +94,65 @@ pub fn png(snapshot: &Snapshot, path: &Path) -> Result<()> {
             if snapshot.cursor() == Some((x, y)) {
                 std::mem::swap(&mut style.fg, &mut style.bg);
             }
-
-            let origin_x = MARGIN + u32::from(x) * grid.cell_w;
-            let origin_y = MARGIN + u32::from(y) * grid.cell_h;
             let span = u32::try_from(cell.symbol().width().max(1)).unwrap_or(1);
-            fill(&mut image, origin_x, origin_y, grid.cell_w * span, grid.cell_h, style.bg);
+            let origin = (MARGIN + u32::from(x) * grid.cell_w, MARGIN + u32::from(y) * grid.cell_h);
+            painted.push(Painted {
+                symbol: cell.symbol().to_owned(),
+                style,
+                underlined: cell.modifier.contains(Modifier::UNDERLINED),
+                rect: (origin.0, origin.1, grid.cell_w * span, grid.cell_h),
+            });
+        }
+    }
+    painted
+}
 
-            let font = if style.bold { &bold } else { &regular };
-            let cell_rect = (origin_x, origin_y, grid.cell_w, grid.cell_h);
-            if let Some(segments) = cell.symbol().chars().next().and_then(box_segments) {
-                draw_box(&mut image, cell_rect, segments, style.fg);
-                continue;
-            }
-            if let Some(dots) = cell.symbol().chars().next().filter(|c| BRAILLE.contains(c)) {
-                draw_braille(&mut image, cell_rect, u32::from(dots) - u32::from(*BRAILLE.start()), style.fg);
-                continue;
-            }
-            if let Some(block) = cell.symbol().chars().next().and_then(block_fraction) {
-                draw_block(&mut image, cell_rect, block, style.fg);
-                continue;
-            }
-            for ch in cell.symbol().chars().filter(|c| !c.is_whitespace()) {
-                draw_glyph(&mut image, font, scale, ch, (origin_x, origin_y), &grid, style.fg);
-            }
-            if cell.modifier.contains(Modifier::UNDERLINED) {
-                let line_y = origin_y + (grid.ascent + UNDERLINE_OFFSET) as u32;
-                fill(&mut image, origin_x, line_y, grid.cell_w * span, 1, style.fg);
+fn draw_cell(image: &mut RgbImage, font: &FontRef<'_>, scale: PxScale, cell: &Painted, grid: &Grid) {
+    let (x, y, width, _) = cell.rect;
+    let cell_rect = (x, y, grid.cell_w, grid.cell_h);
+    let first = cell.symbol.chars().next();
+    if let Some(segments) = first.and_then(box_segments) {
+        draw_box(image, cell_rect, segments, cell.style.fg);
+        return;
+    }
+    if let Some(dots) = first.filter(|c| BRAILLE.contains(c)) {
+        draw_braille(image, cell_rect, u32::from(dots) - u32::from(*BRAILLE.start()), cell.style.fg);
+        return;
+    }
+    if let Some(block) = first.and_then(block_fraction) {
+        draw_block(image, cell_rect, block, cell.style.fg);
+        return;
+    }
+    for ch in cell.symbol.chars().filter(|c| !c.is_whitespace()) {
+        draw_glyph(image, font, scale, ch, (x, y), grid, cell.style.fg);
+    }
+    if cell.underlined {
+        let line_y = y + (grid.ascent + UNDERLINE_OFFSET) as u32;
+        fill(image, x, line_y, width, 1, cell.style.fg);
+    }
+}
+
+fn blit(image: &mut RgbImage, placement: &Placement, grid: &Grid) {
+    let picture = &placement.picture;
+    let cell = CellSize {
+        width: u16::try_from(grid.cell_w).unwrap_or(u16::MAX),
+        height: u16::try_from(grid.cell_h).unwrap_or(u16::MAX),
+    };
+    let fit = fit(picture.width(), picture.height(), placement.area, cell);
+    let left = MARGIN + u32::from(fit.area.x) * grid.cell_w + u32::from(fit.offset.0);
+    let top = MARGIN + u32::from(fit.area.y) * grid.cell_h + u32::from(fit.offset.1);
+    let (width, height) = fit.size;
+    for ty in 0..height {
+        for tx in 0..width {
+            let [r, g, b, a] = picture.pixel(tx * picture.width() / width, ty * picture.height() / height);
+            let (px, py) = (left + tx, top + ty);
+            if px < image.width() && py < image.height() {
+                let under = image.get_pixel(px, py);
+                let blended = Rgb::new(under[0], under[1], under[2]).mix(Rgb::new(r, g, b), f32::from(a) / ALPHA_MAX);
+                image.put_pixel(px, py, pixel(blended));
             }
         }
     }
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    image.save(path).with_context(|| format!("writing {}", path.display()))
 }
 
 fn draw_glyph(

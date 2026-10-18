@@ -1,5 +1,6 @@
 use std::{io, path::PathBuf};
 
+use borg_gfx::{Picture, is_picture};
 use borg_view::Pager;
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -10,22 +11,51 @@ const WRAP_KEY: char = 'w';
 const QUIT_KEY: char = 'q';
 const PAGE_KEY: char = ' ';
 const LINE: usize = 1;
+const NEXT_KEY: char = 'n';
+const PREVIOUS_KEY: char = 'p';
+
+#[derive(Debug, Clone)]
+pub struct Image {
+    pub picture: Picture,
+    pub original: (u32, u32),
+    pub format: &'static str,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone)]
+pub enum Content {
+    Text(Pager),
+    Image(Image),
+}
 
 #[derive(Debug, Clone)]
 pub struct Viewer {
     pub path: PathBuf,
-    pub pager: Pager,
+    pub content: Content,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Next,
+    Previous,
 }
 
 pub fn viewer_size(cols: u16, rows: u16) -> (usize, usize) {
     (usize::from(cols), usize::from(rows.saturating_sub(STATUS_ROWS)))
 }
 
+fn is_close(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Esc | KeyCode::F(3 | 10) | KeyCode::Char(QUIT_KEY))
+}
+
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     let Some(viewer) = state.viewer.as_mut() else { return Vec::new() };
-    let pager = &mut viewer.pager;
+    let pager = match &mut viewer.content {
+        Content::Text(pager) => pager,
+        Content::Image(_) => return on_image_key(state, key.code),
+    };
     let result: io::Result<bool> = match key.code {
-        KeyCode::Esc | KeyCode::F(3 | 10) | KeyCode::Char(QUIT_KEY) => Ok(false),
+        code if is_close(code) => Ok(false),
         KeyCode::Down => pager.scroll_down(LINE).map(|()| true),
         KeyCode::Up => pager.scroll_up(LINE).map(|()| true),
         KeyCode::PageDown | KeyCode::Char(PAGE_KEY) => pager.page_down().map(|()| true),
@@ -49,9 +79,46 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     Vec::new()
 }
 
+fn on_image_key(state: &mut AppState, code: KeyCode) -> Vec<Effect> {
+    let step = match code {
+        code if is_close(code) => {
+            state.viewer = None;
+            return Vec::new();
+        }
+        KeyCode::Right | KeyCode::Down | KeyCode::PageDown | KeyCode::Char(PAGE_KEY | NEXT_KEY) => Step::Next,
+        KeyCode::Left | KeyCode::Up | KeyCode::PageUp | KeyCode::Backspace | KeyCode::Char(PREVIOUS_KEY) => {
+            Step::Previous
+        }
+        _ => return Vec::new(),
+    };
+    sibling(state, step).into_iter().map(Effect::View).collect()
+}
+
+fn sibling(state: &mut AppState, step: Step) -> Option<PathBuf> {
+    let current = state.viewer.as_ref()?.path.file_name()?.to_str()?.to_owned();
+    let panel = state.panels.get_mut(state.active.index())?;
+    let pictures: Vec<&str> = panel
+        .entries()
+        .iter()
+        .filter(|entry| !entry.is_dir() && is_picture(std::path::Path::new(&entry.name)))
+        .map(|entry| entry.name.as_str())
+        .collect();
+    let here = pictures.iter().position(|name| *name == current)?;
+    let target = match step {
+        Step::Next => pictures.get(here + 1),
+        Step::Previous => here.checked_sub(1).and_then(|index| pictures.get(index)),
+    }?
+    .to_string();
+    panel.point_at(&target);
+    Some(panel.dir().join(target))
+}
+
 pub(crate) fn resize(state: &mut AppState) {
     let (width, height) = viewer_size(state.cols, state.rows);
-    let failed = state.viewer.as_mut().and_then(|viewer| viewer.pager.resize(width, height).err());
+    let failed = state.viewer.as_mut().and_then(|viewer| match &mut viewer.content {
+        Content::Text(pager) => pager.resize(width, height).err(),
+        Content::Image(_) => None,
+    });
     if let Some(error) = failed {
         state.notice = Some(format!("viewer: {error}"));
         state.viewer = None;

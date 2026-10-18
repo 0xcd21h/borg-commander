@@ -329,6 +329,11 @@ impl Panel {
         self.clamp();
     }
 
+    pub fn point_at(&mut self, name: &str) {
+        self.focus = None;
+        self.restore(Some(Anchor::Name(name.to_owned())));
+    }
+
     pub fn toggle_mark(&mut self) {
         let Some(name) = self.hovered_entry().map(|entry| entry.name.clone()) else { return };
         if !self.marks.remove(&name) {

@@ -40,4 +40,4 @@ pub use state::{
     ShellStatus, ShellView, Side, Startup, View,
 };
 pub use update::update;
-pub use viewer::{Viewer, viewer_size};
+pub use viewer::{Content, Image, Viewer, viewer_size};

@@ -1,7 +1,8 @@
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use borg_core::{Motion, Settings, Startup};
+use borg_gfx::{Capabilities, Hints, Preference, probe};
 use borg_ui::ThemeSet;
 
 use crate::{
@@ -17,6 +18,7 @@ const ENV_SSH: [&str; 2] = ["SSH_CONNECTION", "SSH_TTY"];
 const TRUECOLOR_MARKERS: [&str; 2] = ["truecolor", "24bit"];
 const POSIX_SHELL: &str = "/bin/sh";
 const APP_DIR: &str = "borg-commander";
+const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone)]
 pub struct Launch {
@@ -30,6 +32,7 @@ pub struct Launch {
     pub state_dir: Option<StateDir>,
     pub startup: Startup,
     pub restored: Option<Vec<u8>>,
+    pub graphics: Preference,
     pub warnings: Vec<String>,
 }
 
@@ -68,6 +71,11 @@ impl Launch {
             .then(|| state_dir.as_ref().and_then(StateDir::load_terminal))
             .flatten();
 
+        let graphics = config.graphics().unwrap_or_else(|error| {
+            warnings.push(error);
+            Preference::Off
+        });
+
         let builtin = ThemeSet::builtin()?;
         let (themes, errors) = match &config_dir {
             Some(dir) => builtin.with_user_dir(&dir.themes()),
@@ -86,9 +94,18 @@ impl Launch {
             state_dir,
             startup,
             restored,
+            graphics,
             warnings,
         })
     }
+}
+
+pub fn capabilities(preference: Preference) -> Capabilities {
+    if preference == Preference::Off {
+        return Capabilities::CELLS;
+    }
+    let replies = probe(PROBE_TIMEOUT).unwrap_or_default();
+    Capabilities::choose(preference, &replies, Hints::from_env(|name| env::var(name).ok()))
 }
 
 fn truecolor() -> bool {

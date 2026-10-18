@@ -102,9 +102,13 @@ fn ctrl(c: char) -> Msg {
 }
 
 fn check(name: &str, stage: &Stage, buffer: Buffer) -> Result<()> {
+    check_with(name, stage, buffer, Vec::new())
+}
+
+fn check_with(name: &str, stage: &Stage, buffer: Buffer, placements: Vec<borg_gfx::Placement>) -> Result<()> {
     if let Some(dir) = env::var_os(ENV_SCREENSHOTS) {
         let path = PathBuf::from(dir).join(SCREENSHOT_DIR).join(name).with_extension("png");
-        Snapshot::from_buffer(buffer.clone(), &stage.palette, None).save_png(&path)?;
+        Snapshot::from_buffer(buffer.clone(), &stage.palette, None).with_placements(placements).save_png(&path)?;
     }
     insta::assert_snapshot!(name, describe(&buffer));
     Ok(())
@@ -200,7 +204,10 @@ fn viewer_wraps_and_unwraps() -> Result<()> {
         .collect();
     let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
     let pager = borg_view::Pager::new(Arc::new(text.into_bytes()), width, height)?;
-    stage.send(Msg::Opened(borg_core::Viewer { path: PathBuf::from("/var/log/app.log"), pager }));
+    stage.send(Msg::Opened(borg_core::Viewer {
+        path: PathBuf::from("/var/log/app.log"),
+        content: borg_core::Content::Text(pager),
+    }));
     let wrapped = stage.render(stage.started)?;
     check("viewer_wrapped", &stage, wrapped)?;
 
@@ -396,4 +403,46 @@ fn dialogs_fade_out() -> Result<()> {
     borg_core::update(&mut stage.state, key(KeyCode::Esc), closing);
     let buffer = stage.render(closing + Motion::LOCAL.fade / 3)?;
     check("dialog_fading_out", &stage, buffer)
+}
+
+fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
+    let pixel = |x: u32, y: u32| {
+        let t = y as f32 / height as f32;
+        let (dx, dy) = (x as f32 - width as f32 * 0.5, y as f32 - height as f32 * 0.62);
+        let sun = (dx * dx + dy * dy).sqrt() < height as f32 * 0.22;
+        let sky = [255.0 * (0.25 + 0.75 * t), 80.0 + 60.0 * t, 160.0 * (1.0 - t) + 40.0];
+        let [r, g, b] = if sun { [255.0, 210.0, 90.0] } else { sky };
+        [r as u8, g as u8, b as u8, u8::MAX]
+    };
+    let rgba = (0..height).flat_map(|y| (0..width).flat_map(move |x| pixel(x, y))).collect();
+    Ok(borg_gfx::Picture::from_rgba(width, height, rgba)?)
+}
+
+fn open_picture(stage: &mut Stage) -> Result<()> {
+    let image =
+        borg_core::Image { picture: sunset(320, 180)?, original: (3840, 2160), format: "jpg", bytes: 2_411_724 };
+    let path = PathBuf::from("/home/me/projects/borg/sunset.jpg");
+    stage.send(Msg::Opened(borg_core::Viewer { path, content: borg_core::Content::Image(image) }));
+    Ok(())
+}
+
+#[test]
+fn picture_viewer_draws_half_blocks_without_graphics() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    open_picture(&mut stage)?;
+    let (buffer, placements) = stage.compose(stage.started)?;
+    anyhow::ensure!(placements.is_empty(), "cells mode must not place images");
+    ensure_text(&buffer, "3840×2160 · JPG · 2.3M")?;
+    check("picture_cells", &stage, buffer)
+}
+
+#[test]
+fn picture_viewer_places_pixels_with_graphics() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.pixels = true;
+    open_picture(&mut stage)?;
+    let (buffer, placements) = stage.compose(stage.started)?;
+    anyhow::ensure!(placements.len() == 1, "expected one placement, got {placements:?}");
+    anyhow::ensure!(!describe(&buffer).contains('▀'), "pixel mode must leave the picture area to the terminal");
+    check_with("picture_pixels", &stage, buffer, placements)
 }

@@ -11,6 +11,7 @@ rust-version.workspace = true
 ab_glyph     = { workspace = true }
 anyhow       = { workspace = true }
 borg-core    = { workspace = true }
+borg-gfx     = { workspace = true }
 borg-term    = { workspace = true }
 borg-ui      = { workspace = true }
 crossterm    = { workspace = true }
@@ -23,6 +24,7 @@ borg-vfs     = { workspace = true }
 jiff         = { workspace = true }
 
 [dev-dependencies]
+borg-gfx  = { workspace = true }
 borg-view = { workspace = true }
 insta     = { workspace = true }
 

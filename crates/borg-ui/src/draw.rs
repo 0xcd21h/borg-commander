@@ -1,6 +1,7 @@
 use std::{path::Path, time::Instant};
 
 use borg_core::{AppState, Layout, Overlay, Side, View, menus};
+use borg_gfx::Placement;
 use borg_term::Screen;
 use jiff::Zoned;
 use ratatui::{
@@ -40,6 +41,7 @@ pub struct Scene<'a> {
     pub clock: &'a Zoned,
     pub now: Instant,
     pub home: Option<&'a Path>,
+    pub pixels: bool,
 }
 
 impl Scene<'_> {
@@ -56,35 +58,35 @@ impl Scene<'_> {
     }
 }
 
-pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) {
+pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
     let area = frame.area();
     let theme = scene.theme_at(scene.state.appearance.current());
-    let cursor = compose(frame.buffer_mut(), scene, theme, area);
+    let (cursor, placements) = compose(frame.buffer_mut(), scene, theme, area);
     if !scene.state.settings.truecolor {
         fx::quantize(frame.buffer_mut(), scene.palette);
     }
     if let Some(position) = cursor {
         frame.set_cursor_position(position);
     }
+    placements
 }
 
-fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> Option<Position> {
+fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
     let state = scene.state;
     if let Some(viewer) = &state.viewer {
-        draw_viewer(viewer, theme, area, buf);
-        return None;
+        return (None, draw_viewer(viewer, theme, scene.pixels, area, buf));
     }
     if state.screensaver {
         art_view::draw_screensaver(&scene.look(theme), area, buf);
-        return None;
+        return (None, Vec::new());
     }
     let cursor = draw_main(buf, scene, area);
     match state.splash_progress(scene.now) {
         Some(progress) => {
             splash(buf, scene, theme, progress, area);
-            None
+            (None, Vec::new())
         }
-        None => cursor,
+        None => (cursor, Vec::new()),
     }
 }
 

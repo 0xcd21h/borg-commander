@@ -654,3 +654,24 @@ fn marking_seven_of_nine() -> Result<()> {
     app.checkpoint("assimilated")?;
     Ok(())
 }
+
+#[test]
+fn f3_on_a_picture_shows_it_and_steps_to_the_next() -> Result<()> {
+    let fixture = Fixture::new()?;
+    for (name, shade) in [("a.png", 40u8), ("b.png", 200u8)] {
+        let rgba = (0..32 * 16).flat_map(|_| [shade, 90, 255 - shade, 255]).collect();
+        let picture = borg_gfx::Picture::from_rgba(32, 16, rgba)?;
+        fs::write(fixture.work().join(name), picture.png()?)?;
+    }
+    let mut app = Session::builder(BORG, &fixture).label("picture").spawn()?;
+    app.wait_text("2 items")?;
+    app.send(keys::down())?.send(keys::f(3))?;
+    let first = app.wait_text("32×16 · PNG")?;
+    ensure!(first.contains("▀") && first.contains("a.png"), "picture not drawn\n{}", first.text());
+    app.send(keys::right())?;
+    app.wait_until("second picture", |s| s.contains("b.png · 32×16"))?;
+    app.send(keys::esc())?;
+    let panels = app.wait_text("2 items")?;
+    ensure!(highlighted(&panels, "b.png"), "panel cursor should follow the viewer\n{}", panels.text());
+    Ok(())
+}
