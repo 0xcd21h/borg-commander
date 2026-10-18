@@ -1,0 +1,168 @@
+use std::sync::mpsc::{Receiver, Sender, channel};
+
+use alacritty_terminal::{
+    event::{Event, EventListener},
+    grid::Dimensions,
+    index::{Column, Line, Point},
+    term::{Config, Term, TermMode, cell::Cell},
+    vte::ansi::{Processor, Rgb},
+};
+
+use crate::{GridSize, OscScanner, ShellSignal};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptState {
+    Empty,
+    Typed,
+    Unknown,
+}
+
+#[derive(Clone)]
+pub struct Replies(Sender<String>);
+
+impl EventListener for Replies {
+    fn send_event(&self, event: Event) {
+        if let Event::PtyWrite(text) = event {
+            let _ = self.0.send(text);
+        }
+    }
+}
+
+pub struct Emulator {
+    term: Term<Replies>,
+    parser: Processor,
+    scanner: OscScanner,
+    replies: Receiver<String>,
+    input_start: Option<Point>,
+}
+
+impl Emulator {
+    pub fn new(size: GridSize, scrollback: usize) -> Self {
+        let (tx, replies) = channel();
+        let config = Config { scrolling_history: scrollback, ..Config::default() };
+        Self {
+            term: Term::new(config, &size, Replies(tx)),
+            parser: Processor::new(),
+            scanner: OscScanner::default(),
+            replies,
+            input_start: None,
+        }
+    }
+
+    pub fn feed(&mut self, bytes: &[u8]) -> Vec<ShellSignal> {
+        let marks = self.scanner.scan(bytes);
+        let mut consumed = 0;
+        for (end, signal) in &marks {
+            self.parser.advance(&mut self.term, &bytes[consumed..*end]);
+            consumed = *end;
+            self.track(signal);
+        }
+        self.parser.advance(&mut self.term, &bytes[consumed..]);
+        marks.into_iter().map(|(_, signal)| signal).collect()
+    }
+
+    pub fn drain_replies(&self) -> Vec<String> {
+        self.replies.try_iter().collect()
+    }
+
+    pub fn resize(&mut self, size: GridSize) {
+        self.term.resize(size);
+        self.input_start = None;
+    }
+
+    pub fn mode(&self) -> TermMode {
+        *self.term.mode()
+    }
+
+    pub fn screen(&self) -> Screen<'_> {
+        Screen { term: &self.term }
+    }
+
+    pub fn prompt_state(&self) -> PromptState {
+        let Some(start) = self.input_start else { return PromptState::Unknown };
+        let cursor = self.term.grid().cursor.point;
+        let blank = |cell: &Cell| cell.c == ' ' || cell.c == '\0';
+
+        if cursor == start && blank(&self.term.grid()[cursor]) { PromptState::Empty } else { PromptState::Typed }
+    }
+
+    fn track(&mut self, signal: &ShellSignal) {
+        self.input_start = match signal {
+            ShellSignal::InputStart => Some(self.term.grid().cursor.point),
+            ShellSignal::PromptStart | ShellSignal::CommandStart | ShellSignal::CommandEnd { .. } => None,
+            ShellSignal::Cwd { .. } => self.input_start,
+        };
+    }
+}
+
+pub struct Screen<'a> {
+    term: &'a Term<Replies>,
+}
+
+impl Screen<'_> {
+    pub fn cols(&self) -> u16 {
+        u16::try_from(self.term.grid().columns()).unwrap_or(u16::MAX)
+    }
+
+    pub fn rows(&self) -> u16 {
+        u16::try_from(self.term.grid().screen_lines()).unwrap_or(u16::MAX)
+    }
+
+    pub fn cell(&self, col: u16, row: u16) -> &Cell {
+        &self.term.grid()[Point::new(Line(i32::from(row)), Column(usize::from(col)))]
+    }
+
+    pub fn cursor(&self) -> (u16, u16) {
+        let point = self.term.grid().cursor.point;
+        let row = u16::try_from(point.line.0).unwrap_or_default();
+        let col = u16::try_from(point.column.0).unwrap_or_default();
+        (col, row)
+    }
+
+    pub fn cursor_visible(&self) -> bool {
+        self.term.mode().contains(TermMode::SHOW_CURSOR)
+    }
+
+    pub fn color(&self, index: usize) -> Option<Rgb> {
+        self.term.colors()[index]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SIZE: GridSize = GridSize { cols: 20, rows: 4 };
+
+    #[test]
+    fn tracks_empty_and_typed_prompt() {
+        let mut emulator = Emulator::new(SIZE, 0);
+        assert_eq!(emulator.prompt_state(), PromptState::Unknown);
+
+        emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+        assert_eq!(emulator.prompt_state(), PromptState::Empty);
+
+        emulator.feed(b"ls");
+        assert_eq!(emulator.prompt_state(), PromptState::Typed);
+
+        emulator.feed(b"\x08\x08");
+        assert_eq!(emulator.prompt_state(), PromptState::Typed);
+
+        emulator.feed(b"\x1b[K");
+        assert_eq!(emulator.prompt_state(), PromptState::Empty);
+    }
+
+    #[test]
+    fn forgets_prompt_when_command_runs() {
+        let mut emulator = Emulator::new(SIZE, 0);
+        emulator.feed(b"$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07");
+        assert_eq!(emulator.prompt_state(), PromptState::Unknown);
+    }
+
+    #[test]
+    fn reports_signals_in_order() {
+        let mut emulator = Emulator::new(SIZE, 0);
+        let signals = emulator.feed(b"\x1b]133;D;0\x07\x1b]133;A\x07");
+        assert_eq!(signals, vec![ShellSignal::CommandEnd { exit: Some(0) }, ShellSignal::PromptStart]);
+    }
+}

@@ -1,0 +1,19 @@
+[package]
+name                 = "borg-ui"
+description          = "Rendering and compositing for borg-commander"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+borg-core     = { workspace = true }
+borg-term     = { workspace = true }
+borg-vfs      = { workspace = true }
+crossterm     = { workspace = true }
+jiff          = { workspace = true }
+ratatui       = { workspace = true }
+unicode-width = { workspace = true }
+
+[lints]
+workspace = true
