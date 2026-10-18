@@ -11,10 +11,10 @@ use borg_core::{
     AMBIENT_FRAME, AppState, Appearance, Content, Effect, Image, JobCommand, Msg, Pace, ShellView, Side, Viewer,
     update, viewer_size,
 };
-use borg_gfx::{Capabilities, Graphics, Output, Protocol, decode, is_picture};
+use borg_gfx::{Capabilities, Graphics, Output, Protocol, TerminalColors, decode, is_picture};
 use borg_jobs::{Control, Spec, run};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
-use borg_ui::{Palette, Pixels, Scene, ThemeSet, draw, local_now};
+use borg_ui::{Palette, Pixels, Rgb, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
 use borg_view::{FileSource, Pager};
 use crossterm::{
@@ -33,7 +33,7 @@ use tokio::{
 
 use crate::{
     config::{Config, ConfigDir},
-    launch::Launch,
+    launch::{self, Launch},
     session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
 };
 
@@ -65,7 +65,7 @@ enum Flow {
 }
 
 impl App {
-    pub fn start(launch: &Launch, size: Size, capabilities: Capabilities) -> Result<Self> {
+    pub fn start(launch: &Launch, size: Size, detected: launch::Terminal) -> Result<Self> {
         let grid = GridSize { cols: size.width, rows: size.height };
         let now = Instant::now();
         let appearance = appearance(launch);
@@ -94,14 +94,14 @@ impl App {
             messages,
             inbox,
             listings: [None, None],
-            palette: Palette::default(),
+            palette: palette(&detected.colors),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
             config: launch.config.clone(),
             home: launch.home.clone(),
             state_dir: launch.state_dir.clone(),
             pending,
-            graphics: Graphics::new(capabilities),
+            graphics: Graphics::new(detected.capabilities),
             jobs: HashMap::new(),
         })
     }
@@ -361,6 +361,16 @@ impl App {
         if let Some(previous) = self.listings[side.index()].replace(task) {
             previous.abort();
         }
+    }
+}
+
+fn palette(colors: &TerminalColors) -> Palette {
+    let base = Palette::default();
+    let rgb = |[r, g, b]: [u8; 3]| Rgb::new(r, g, b);
+    Palette {
+        ansi: std::array::from_fn(|index| colors.ansi[index].map_or(base.ansi[index], rgb)),
+        foreground: colors.foreground.map_or(base.foreground, rgb),
+        background: colors.background.map_or(base.background, rgb),
     }
 }
 

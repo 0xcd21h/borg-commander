@@ -17,7 +17,6 @@ use crossterm::{
     terminal::supports_keyboard_enhancement,
 };
 
-use borg_gfx::Capabilities;
 use ratatui::DefaultTerminal;
 
 use crate::{app::App, launch::Launch};
@@ -73,8 +72,8 @@ async fn main() -> Result<ExitCode> {
         execute!(stdout(), PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES))?;
     }
 
-    let capabilities = launch::capabilities(launch.graphics);
-    let result = run(&launch, &mut terminal, capabilities).await;
+    let detected = launch::terminal(launch.graphics);
+    let result = run(&launch, &mut terminal, detected).await;
 
     if enhanced {
         execute!(stdout(), PopKeyboardEnhancementFlags)?;
@@ -84,6 +83,6 @@ async fn main() -> Result<ExitCode> {
     result.map(|()| ExitCode::SUCCESS)
 }
 
-async fn run(launch: &Launch, terminal: &mut DefaultTerminal, capabilities: Capabilities) -> Result<()> {
-    App::start(launch, terminal.size()?, capabilities)?.run(terminal).await
+async fn run(launch: &Launch, terminal: &mut DefaultTerminal, detected: launch::Terminal) -> Result<()> {
+    App::start(launch, terminal.size()?, detected)?.run(terminal).await
 }

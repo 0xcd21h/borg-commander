@@ -15,6 +15,15 @@ const KITTY_OK: &str = "\x1b_Gi=31;OK";
 const CELL_QUERY: &str = "\x1b[16t";
 const CELL_REPLY: &str = "\x1b[6;";
 const DEVICE_QUERY: &str = "\x1b[c";
+const OSC: &str = "\x1b]";
+const FOREGROUND_SLOT: &str = "10";
+const BACKGROUND_SLOT: &str = "11";
+const PALETTE_SLOT: &str = "4";
+const ANSI_COLORS: usize = 16;
+const RGB_PREFIX: &str = "rgb:";
+const STRING_TERMINATOR: &str = "\x1b\\";
+const BELL: char = '\u{7}';
+const ESCAPE: char = '\u{1b}';
 const DEVICE_REPLY: &str = "\x1b[?";
 const SIXEL_FEATURE: &str = "4";
 const READ_CHUNK: usize = 1024;
@@ -106,11 +115,55 @@ impl Hints {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalColors {
+    pub foreground: Option<[u8; 3]>,
+    pub background: Option<[u8; 3]>,
+    pub ansi: [Option<[u8; 3]>; ANSI_COLORS],
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Replies {
     pub kitty: bool,
     pub sixel: bool,
     pub cell: Option<CellSize>,
+    pub colors: TerminalColors,
     pub complete: bool,
+}
+
+fn channel(hex: &str) -> Option<u8> {
+    let digits = u32::try_from(hex.len()).ok().filter(|n| (1..=4).contains(n))?;
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    let max = 16u32.pow(digits) - 1;
+    u8::try_from(value * u32::from(u8::MAX) / max).ok()
+}
+
+fn rgb(spec: &str) -> Option<[u8; 3]> {
+    let mut parts = spec.strip_prefix(RGB_PREFIX)?.split('/').map(channel);
+    Some([parts.next()??, parts.next()??, parts.next()??])
+}
+
+fn color_replies(text: &str) -> TerminalColors {
+    let mut colors = TerminalColors::default();
+    for reply in text.split(OSC).skip(1) {
+        let body = reply.split([BELL, ESCAPE]).next().unwrap_or_default();
+        let fields: Vec<&str> = body.split(';').collect();
+        match fields.as_slice() {
+            [FOREGROUND_SLOT, spec] => colors.foreground = rgb(spec),
+            [BACKGROUND_SLOT, spec] => colors.background = rgb(spec),
+            [PALETTE_SLOT, index, spec] => {
+                if let Some(slot) = index.parse::<usize>().ok().and_then(|i| colors.ansi.get_mut(i)) {
+                    *slot = rgb(spec);
+                }
+            }
+            _ => {}
+        }
+    }
+    colors
+}
+
+fn color_queries() -> String {
+    let palette: String = (0..ANSI_COLORS).map(|i| format!("{OSC}{PALETTE_SLOT};{i};?{STRING_TERMINATOR}")).collect();
+    format!("{OSC}{FOREGROUND_SLOT};?{STRING_TERMINATOR}{OSC}{BACKGROUND_SLOT};?{STRING_TERMINATOR}{palette}")
 }
 
 impl Replies {
@@ -124,6 +177,7 @@ impl Replies {
                 let (height, width) = sizes.split_once(';')?;
                 cell(width.parse().ok()?, height.parse().ok()?)
             }),
+            colors: color_replies(&text),
             complete: device.is_some(),
         }
     }
@@ -140,7 +194,7 @@ fn winsize_cell() -> Option<CellSize> {
 
 pub fn probe(timeout: Duration) -> io::Result<Replies> {
     let mut out = io::stdout();
-    out.write_all(format!("{KITTY_QUERY}{CELL_QUERY}{DEVICE_QUERY}").as_bytes())?;
+    out.write_all(format!("{KITTY_QUERY}{CELL_QUERY}{}{DEVICE_QUERY}", color_queries()).as_bytes())?;
     out.flush()?;
 
     let deadline = Instant::now() + timeout;
@@ -176,12 +230,30 @@ mod tests {
         let replies = Replies::parse(b"\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[?62;4;22c");
         assert_eq!(
             replies,
-            Replies { kitty: true, sixel: true, cell: Some(CellSize { width: 10, height: 20 }), complete: true }
+            Replies {
+                kitty: true,
+                sixel: true,
+                cell: Some(CellSize { width: 10, height: 20 }),
+                complete: true,
+                ..Replies::default()
+            }
         );
 
         let plain = Replies::parse(b"\x1b[?6c");
         assert_eq!(plain, Replies { complete: true, ..Replies::default() });
         assert!(!Replies::parse(b"\x1b[6;20;10t").complete);
+    }
+
+    #[test]
+    fn parses_terminal_colour_replies() {
+        let replies = Replies::parse(
+            b"\x1b]10;rgb:0000/0000/0000\x1b\\\x1b]11;rgb:ffff/fefe/f0f0\x07\x1b]4;4;rgb:80/a0/f0\x1b\\\x1b[?62c",
+        );
+        assert_eq!(replies.colors.foreground, Some([0, 0, 0]));
+        assert_eq!(replies.colors.background, Some([255, 254, 240]));
+        assert_eq!(replies.colors.ansi[4], Some([128, 160, 240]));
+        assert_eq!(replies.colors.ansi[0], None);
+        assert!(replies.complete);
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use borg_core::{Motion, Settings, Startup};
-use borg_gfx::{Capabilities, Hints, Preference, probe};
+use borg_gfx::{Capabilities, Hints, Preference, TerminalColors, probe};
 use borg_ui::ThemeSet;
 
 use crate::{
@@ -100,12 +100,16 @@ impl Launch {
     }
 }
 
-pub fn capabilities(preference: Preference) -> Capabilities {
-    if preference == Preference::Off {
-        return Capabilities::CELLS;
-    }
+#[derive(Debug, Clone, Copy)]
+pub struct Terminal {
+    pub capabilities: Capabilities,
+    pub colors: TerminalColors,
+}
+
+pub fn terminal(preference: Preference) -> Terminal {
     let replies = probe(PROBE_TIMEOUT).unwrap_or_default();
-    Capabilities::choose(preference, &replies, Hints::from_env(|name| env::var(name).ok()))
+    let capabilities = Capabilities::choose(preference, &replies, Hints::from_env(|name| env::var(name).ok()));
+    Terminal { capabilities, colors: replies.colors }
 }
 
 fn truecolor() -> bool {
