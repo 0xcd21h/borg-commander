@@ -49,18 +49,6 @@ impl ArchiveFormat {
     }
 }
 
-pub fn copy<'a>(sources: impl IntoIterator<Item = &'a str>, dest: &Path) -> CommandLine {
-    CommandLine::program("cp").flag("-R").flag("-i").locals(sources).path(dest)
-}
-
-pub fn move_to<'a>(sources: impl IntoIterator<Item = &'a str>, dest: &Path) -> CommandLine {
-    CommandLine::program("mv").flag("-i").locals(sources).path(dest)
-}
-
-pub fn remove<'a>(sources: impl IntoIterator<Item = &'a str>) -> CommandLine {
-    CommandLine::program("rm").flag("-r").flag("-f").locals(sources)
-}
-
 pub fn mkdir(name: &str) -> CommandLine {
     CommandLine::program("mkdir").flag("-p").local(name)
 }
@@ -108,12 +96,9 @@ mod tests {
     }
 
     #[test]
-    fn builds_file_operations() {
-        let dest = Path::new("/other side");
-        assert_eq!(text(&copy(["a", "b c"], dest)), "cp -R -i './a' './b c' '/other side'");
-        assert_eq!(text(&move_to(["a"], dest)), "mv -i './a' '/other side'");
-        assert_eq!(text(&remove(["-rf"])), "rm -r -f './-rf'");
+    fn builds_shell_commands() {
         assert_eq!(text(&mkdir("new/dir")), "mkdir -p './new/dir'");
+        assert_eq!(text(&mkdir("-rf")), "mkdir -p './-rf'");
     }
 
     #[test]

@@ -116,7 +116,7 @@ pub(crate) fn animate(state: &mut AppState, before: &[Before; 2], now: Instant) 
 
 pub(crate) fn ambient(state: &AppState, now: Instant) -> bool {
     let loading = state.panels.iter().any(|panel| panel.listing() == &Listing::Loading);
-    let working = state.operation.is_some() && state.shell.running;
+    let working = (state.operation.is_some() && state.shell.running) || !state.jobs.is_empty();
     let empty_art = state.settings.preferences.delight
         && Side::ALL.iter().any(|side| {
             let panel = state.panel(*side);

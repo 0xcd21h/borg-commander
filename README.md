@@ -47,6 +47,10 @@ shell, and back again.
   pattern, Tab to switch panels.
 - **Quick find.** `Ctrl-S` and type: the cursor jumps to matches, matches light up, Ctrl-A
   marks them all.
+- **Copying done properly.** Copy, move and delete run in the background with live progress,
+  speed and time left, ask what to do when a file already exists (overwrite, skip, keep both,
+  or the same for all), keep permissions, timestamps and symlinks, and never leave half-copied
+  files behind. Pause or cancel from the Jobs list.
 - **Big folders, big files.** Folders with hundreds of thousands of entries stream in; the
   viewer opens a 5 GB log instantly and keeps memory flat.
 - **Pictures.** F3 on an image shows it in Kitty, Ghostty, WezTerm, iTerm2 and Sixel
@@ -109,6 +113,7 @@ a Nerd Font.
 | Alt-. | Show hidden files |
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
+| Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | F1 | About |
 | F2 | File menu |
 | F3 | View (text or picture) |
@@ -134,6 +139,23 @@ command line is empty. Once you type something they belong to the shell again.
 | Ctrl-A | Mark every match |
 | Enter, Esc | Close and stay on the match |
 | Ctrl-S on an empty bar | Bring back the last search |
+
+### Copy, move and delete
+
+F5, F6 and F8 start a background job; you can keep working (or use the shell) while it runs.
+Progress, speed and the time left show in the footer of the panel being written to. When a
+file already exists borg asks:
+
+| Key | Answer |
+| --- | --- |
+| o | Overwrite |
+| s | Skip |
+| k | Keep both (the copy gets a numbered name) |
+| a / n | Overwrite all / skip all for the rest of this job |
+| c, Esc | Cancel the job |
+
+Files are written under a temporary name and renamed into place when complete, so a cancelled
+or failed copy never leaves a half-written file. Moves within one disk are instant renames.
 
 ### Viewer
 

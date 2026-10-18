@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     io::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
@@ -7,10 +8,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use borg_core::{
-    AMBIENT_FRAME, AppState, Appearance, Content, Effect, Image, Msg, Pace, ShellView, Side, Viewer, update,
-    viewer_size,
+    AMBIENT_FRAME, AppState, Appearance, Content, Effect, Image, JobCommand, Msg, Pace, ShellView, Side, Viewer,
+    update, viewer_size,
 };
 use borg_gfx::{Capabilities, Graphics, Output, Protocol, decode, is_picture};
+use borg_jobs::{Control, Spec, run};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
 use borg_ui::{Palette, Pixels, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
@@ -50,6 +52,7 @@ pub struct App {
     state_dir: Option<StateDir>,
     pending: Vec<Effect>,
     graphics: Graphics,
+    jobs: HashMap<u64, Arc<Control>>,
 }
 
 enum Flow {
@@ -95,6 +98,7 @@ impl App {
             state_dir: launch.state_dir.clone(),
             pending,
             graphics: Graphics::new(capabilities),
+            jobs: HashMap::new(),
         })
     }
 
@@ -276,10 +280,32 @@ impl App {
                 Effect::Write(bytes) => self.pty.write(&bytes)?,
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
+                Effect::StartJob { id, spec } => self.start_job(id, spec),
+                Effect::JobControl { id, command } => self.control_job(id, command),
                 Effect::Quit => return Ok(Flow::Quit),
             }
         }
         Ok(Flow::Continue)
+    }
+
+    fn start_job(&mut self, id: u64, spec: Spec) {
+        let running: Vec<u64> = self.state.jobs.iter().map(|job| job.id).collect();
+        self.jobs.retain(|id, _| running.contains(id));
+        let control = Arc::new(Control::default());
+        self.jobs.insert(id, Arc::clone(&control));
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            run(&spec, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+        });
+    }
+
+    fn control_job(&self, id: u64, command: JobCommand) {
+        let Some(control) = self.jobs.get(&id) else { return };
+        match command {
+            JobCommand::Pause(paused) => control.set_paused(paused),
+            JobCommand::Cancel => control.cancel(),
+            JobCommand::Answer(decision) => control.answer(decision),
+        }
     }
 
     fn save_config(&self) {

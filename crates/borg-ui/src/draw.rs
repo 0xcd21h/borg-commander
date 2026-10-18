@@ -16,10 +16,11 @@ use crate::{
     blend::crossfade,
     dialog_view,
     fx::{self, Unfold},
+    job_view,
     keybar::draw_keybar,
     look::Look,
     menu_view,
-    panel_view::{PanelScene, draw_panel},
+    panel_view::{Activity, PanelScene, draw_panel},
     picker_view::draw_picker,
     status_view::draw_status,
     term_view, underlay,
@@ -170,7 +171,13 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
     let look = scene.look(theme);
     let layout = state.layout(scene.now);
     let styles = &theme.styles;
-    let activity = state.operation.as_ref().filter(|_| state.shell.running).map(|op| (op.side, op.label));
+    let activities = Side::ALL.map(|side| {
+        let job = state.jobs.iter().rev().find(|job| job.shown_on == side);
+        job.map(|job| job_view::activity(job, scene.now)).or_else(|| {
+            let operation = state.operation.as_ref().filter(|op| state.shell.running && op.side == side)?;
+            Some(Activity { label: format!("{}…", operation.label), fraction: None })
+        })
+    });
 
     let mut cards = Vec::new();
     let backdrop = match &state.overlay {
@@ -191,7 +198,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
             active,
             area: rect,
             motion: &state.motions[side.index()],
-            activity: activity.filter(|(busy, _)| *busy == side).map(|(_, label)| label),
+            activity: activities[side.index()].clone(),
             delight: state.settings.preferences.delight,
             icons: state.settings.preferences.icons,
             icon_spacing: state.settings.preferences.icon_spacing,
@@ -214,7 +221,9 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
             cards.extend(underlay::panel(&spec, &look, cell));
         }
         if !active && theme.effects.inactive_dim > FULLY_HIDDEN {
-            fx::fade_to_background(&mut buf, rect, theme.effects.inactive_dim, scene.palette);
+            let busy = activities[side.index()].is_some();
+            let dimmed = Rect { height: rect.height.saturating_sub(u16::from(busy)), ..rect };
+            fx::fade_to_background(&mut buf, dimmed, theme.effects.inactive_dim, scene.palette);
         }
     }
     if let Some(status) = layout.status {
@@ -363,6 +372,18 @@ fn paint_overlay(
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
+        Overlay::Question(question) => {
+            let rect = state
+                .jobs
+                .iter()
+                .find(|job| job.id == question.id)
+                .map(|job| job_view::draw_question(job, *question, look, screen, buf))
+                .unwrap_or_default();
+            (rect, None, Unfold::FromCenter)
+        }
+        Overlay::Jobs(list) => {
+            (job_view::draw_jobs(*list, &state.jobs, look, scene.now, screen, buf), None, Unfold::FromCenter)
+        }
     };
     let reach = UNFOLD_FLOOR + (FULLY_SHOWN - UNFOLD_FLOOR) * progress;
     let shown = before.map_or(rect, |before| fx::reveal(buf, &before, rect, reach, unfold));

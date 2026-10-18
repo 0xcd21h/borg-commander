@@ -7,9 +7,11 @@ use borg_term::{Foreground, PromptState, ShellSignal, TermMode};
 use borg_vfs::{Entry, EntryKind};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
+
 use crate::{
-    Action, AppState, Effect, ListingMode, Msg, Overlay, PanelSetup, Settings, ShellView, Side, SortKey, Startup,
-    ThemeChoice, View, menus, state::REVEAL_DELAY, update,
+    Action, AppState, Effect, JobCommand, ListingMode, Msg, Overlay, PanelSetup, Settings, ShellView, Side, SortKey,
+    Startup, ThemeChoice, View, menus, state::REVEAL_DELAY, update,
 };
 
 const COLS: u16 = 80;
@@ -272,7 +274,7 @@ fn plus_opens_pattern_prompt_and_selects_matches() {
 }
 
 #[test]
-fn copy_prompts_for_destination_and_runs_in_shell() {
+fn copy_prompts_for_destination_and_starts_a_job() {
     let (mut state, now) = setup_with(vec![file("a"), file("b c")]);
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, key(KeyCode::Insert));
@@ -283,16 +285,89 @@ fn copy_prompts_for_destination_and_runs_in_shell() {
     assert_eq!(prompt.label, "Copy 2 items to");
 
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    assert_eq!(writes(&effects), " cp -R -i './a' './b c' '/tmp'\r");
-    assert!(state.shell.running);
+    let sources = vec![PathBuf::from("/home/a"), PathBuf::from("/home/b c")];
+    assert_eq!(effects, vec![Effect::StartJob { id: 0, spec: Spec::Copy { sources, target: PathBuf::from("/tmp") } }]);
+    assert_eq!(state.jobs.len(), 1);
+    assert_eq!(state.jobs[0].shown_on, Side::Right);
     assert_eq!(state.view, View::Panels);
+    assert_eq!(state.pace(now + std::time::Duration::from_secs(1)), Some(crate::Pace::Ambient));
+}
+
+fn start_copy(state: &mut AppState, now: Instant) -> u64 {
+    press(state, now, key(KeyCode::Down));
+    press(state, now, key(KeyCode::F(5)));
+    let effects = press(state, now, key(KeyCode::Enter));
+    let Some(Effect::StartJob { id, .. }) = effects.first() else { panic!("expected a job") };
+    *id
+}
+
+#[test]
+fn job_progress_conflicts_and_completion() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = start_copy(&mut state, now);
+    let progress = Progress {
+        done: Totals { files: 0, bytes: 50 },
+        total: Totals { files: 1, bytes: 200 },
+        current: PathBuf::from("/home/a"),
+    };
+    update(&mut state, Msg::Job { id, event: Event::Progress(progress) }, now);
+    assert_eq!(state.jobs[0].fraction(), Some(0.25));
+
+    let ask = Ask::Conflict { source: "/home/a".into(), target: "/tmp/a".into(), sizes: (200, 10), newer: true };
+    update(&mut state, Msg::Job { id, event: Event::Asking(ask) }, now);
+    assert!(matches!(state.overlay, Some(Overlay::Question(question)) if question.id == id));
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert_eq!(effects, vec![Effect::JobControl { id, command: JobCommand::Answer(Decision::KeepBoth) }]);
+    assert!(state.overlay.is_none());
+
+    let done = Outcome::Done { done: Totals { files: 1, bytes: 200 }, skipped: 0 };
+    let effects = update(&mut state, Msg::Job { id, event: Event::Finished(done) }, now);
+    assert!(state.jobs.is_empty());
+    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
+    assert_eq!(effects.iter().filter(|e| matches!(e, Effect::List { .. })).count(), 2);
+}
+
+#[test]
+fn questions_wait_for_open_dialogs_and_esc_cancels_the_job() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = start_copy(&mut state, now);
+    press(&mut state, now, key(KeyCode::F(7)));
+    let failure = Ask::Failure { path: "/home/a".into(), message: "denied".into() };
+    update(&mut state, Msg::Job { id, event: Event::Asking(failure) }, now);
+    assert!(matches!(state.overlay, Some(Overlay::Prompt(_))));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(matches!(state.overlay, Some(Overlay::Question(_))));
+    let effects = press(&mut state, now, key(KeyCode::Esc));
+    assert_eq!(effects, vec![Effect::JobControl { id, command: JobCommand::Answer(Decision::Cancel) }]);
+}
+
+#[test]
+fn jobs_list_pauses_and_cancels_and_quitting_asks_first() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = start_copy(&mut state, now);
+    crate::actions::perform(&mut state, Action::Jobs, now);
+    assert_eq!(
+        press(&mut state, now, key(KeyCode::Char('p'))),
+        vec![Effect::JobControl { id, command: JobCommand::Pause(true) }]
+    );
+    assert!(state.jobs[0].paused);
+    assert_eq!(
+        press(&mut state, now, key(KeyCode::Char('c'))),
+        vec![Effect::JobControl { id, command: JobCommand::Cancel }]
+    );
+    press(&mut state, now, key(KeyCode::Esc));
+
+    assert!(press(&mut state, now, key(KeyCode::F(10))).is_empty());
+    assert!(matches!(state.overlay, Some(Overlay::Confirm(_))));
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    assert_eq!(effects, vec![Effect::JobControl { id, command: JobCommand::Cancel }, Effect::Quit]);
 }
 
 #[test]
 fn slow_operations_reveal_the_shell_and_return_afterwards() {
     let (mut state, now) = setup_with(vec![file("a")]);
-    press(&mut state, now, key(KeyCode::Down));
-    press(&mut state, now, key(KeyCode::F(5)));
+    press(&mut state, now, key(KeyCode::F(7)));
+    type_text(&mut state, now, "slow");
     press(&mut state, now, key(KeyCode::Enter));
     assert_eq!(state.wake_at(), Some(now + REVEAL_DELAY));
 
@@ -307,11 +382,11 @@ fn slow_operations_reveal_the_shell_and_return_afterwards() {
 #[test]
 fn failed_operations_leave_a_notice() {
     let (mut state, now) = setup_with(vec![file("a")]);
-    press(&mut state, now, key(KeyCode::Down));
-    press(&mut state, now, key(KeyCode::F(8)));
+    press(&mut state, now, key(KeyCode::F(7)));
+    type_text(&mut state, now, "taken");
     press(&mut state, now, key(KeyCode::Enter));
     update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(1) }), now);
-    assert_eq!(state.notice.as_deref(), Some("delete failed (exit 1) · Ctrl-O shows the output"));
+    assert_eq!(state.notice.as_deref(), Some("mkdir failed (exit 1) · Ctrl-O shows the output"));
 }
 
 #[test]
@@ -325,7 +400,9 @@ fn delete_confirms_and_can_be_cancelled() {
 
     press(&mut state, now, key(KeyCode::F(8)));
     let effects = press(&mut state, now, key(KeyCode::Char('y')));
-    assert_eq!(writes(&effects), " rm -r -f './a'\r");
+    let spec = Spec::Delete { sources: vec![PathBuf::from("/home/a")] };
+    assert_eq!(effects, vec![Effect::StartJob { id: 0, spec }]);
+    assert_eq!(state.jobs[0].shown_on, Side::Left);
 }
 
 #[test]
@@ -352,8 +429,8 @@ fn mkdir_focuses_the_new_directory_after_it_is_created() {
 fn operations_wait_for_an_idle_shell() {
     let (mut state, now) = setup_with(vec![file("a")]);
     state.shell.running = true;
-    press(&mut state, now, key(KeyCode::Down));
-    press(&mut state, now, key(KeyCode::F(8)));
+    press(&mut state, now, key(KeyCode::F(7)));
+    type_text(&mut state, now, "later");
     assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
     assert!(state.notice.is_some());
 }

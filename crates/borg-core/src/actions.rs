@@ -18,11 +18,26 @@ const PAGE_DOWN: isize = 1;
 const SELECT_ALL: &str = "*";
 const SHELL_NOT_READY: &str = "Shell is busy · finish or clear the command line first";
 const NOTHING_SELECTED: &str = "Nothing selected";
+const QUIT_TITLE: &str = "Quit";
+
+fn plural(count: usize, noun: &str) -> String {
+    if count == 1 { format!("1 {noun} is") } else { format!("{count} {noun}s are") }
+}
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
     let side = state.active;
     match action {
+        Action::Quit if !state.jobs.is_empty() => {
+            state.overlay = Some(Overlay::Confirm(Confirm {
+                title: QUIT_TITLE,
+                message: format!("{} still running. Quit and cancel?", plural(state.jobs.len(), "job")),
+                purpose: ConfirmPurpose::Quit,
+                accept: false,
+            }));
+            Vec::new()
+        }
         Action::Quit => vec![Effect::Quit],
+        Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => toggle_shell(state),
         Action::SwitchPanel => {
             state.active = side.other();

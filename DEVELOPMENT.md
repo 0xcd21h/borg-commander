@@ -38,6 +38,7 @@ crates/
   borg-vfs      file system access: streaming directory listings
   borg-view     the pager behind F3: constant memory on files of any size
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
+  borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
 
@@ -62,10 +63,16 @@ SSH), ambient frames (80 ms for spinners and art) or none at all.
 
 ### File operations
 
-Copy, move, delete, mkdir and archive actions are built by `borg_core::command::CommandLine`
-(with shell quoting) and run in the embedded shell, hidden at first. If a command takes longer
-than 600 ms the shell is revealed so prompts like `cp -i` can be answered, and the panels come
-back when it finishes.
+Copy, move and delete are background jobs. `borg_core` emits `Effect::StartJob` with a
+`borg_jobs::Spec`; the app runs `borg_jobs::run` on a blocking thread and feeds its `Event`s
+(scanning, progress, questions, finished) back as `Msg::Job`. Questions become a dialog once no
+other dialog is open; answers, pause and cancel travel back as `Effect::JobControl` to the job's
+`Control`. The engine is synchronous and fully tested on temporary folders
+(`crates/borg-jobs/tests/engine.rs`).
+
+Mkdir and archive actions are built by `borg_core::command::CommandLine` (with shell quoting)
+and run in the embedded shell, hidden at first. If a command takes longer than 600 ms the shell
+is revealed, and the panels come back when it finishes.
 
 ### Rendering pipeline
 

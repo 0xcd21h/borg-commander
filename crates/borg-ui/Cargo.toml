@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 borg-core     = { workspace = true }
 borg-gfx      = { workspace = true }
+borg-jobs     = { workspace = true }
 borg-term     = { workspace = true }
 borg-vfs      = { workspace = true }
 borg-view     = { workspace = true }

@@ -82,6 +82,10 @@ fn panels_ready(s: &Snapshot) -> bool {
     s.lines().first().is_some_and(|top| top.starts_with(TOP_LEFT_CORNERS)) && prompt(s).starts_with('$')
 }
 
+fn status(snapshot: &Snapshot) -> String {
+    snapshot.lines()[usize::from(snapshot.rows() - PROMPT_FROM_BOTTOM - 1)].trim_end().to_owned()
+}
+
 fn left_panel(s: &Snapshot) -> String {
     let half = usize::from(s.cols() / 2);
     s.lines().iter().map(|line| line.chars().take(half).collect::<String>()).collect::<Vec<_>>().join("\n")
@@ -688,5 +692,27 @@ fn ctrl_s_finds_files_as_you_type() -> Result<()> {
     app.wait_gone("find:")?;
     app.send(keys::f(3))?;
     app.wait_text("hello")?;
+    Ok(())
+}
+
+#[test]
+fn copying_onto_an_existing_file_asks_and_can_keep_both() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.file("beta/notes.txt", "older\n")?;
+    let mut app = start(&fixture, "conflict")?;
+    app.send(keys::tab())?.send(keys::down())?.send(keys::down())?.send(keys::enter())?;
+    app.wait_until("right panel inside beta", |s| s.lines()[0].contains("beta") && s.contains("1 item"))?;
+    app.send(keys::tab())?;
+    app.send(keys::key(KeyCode::End))?.send(keys::up())?;
+    app.wait_until("cursor on notes", |s| status(s).ends_with("notes.txt"))?;
+    app.send(keys::f(5))?;
+    app.wait_until("destination prompt", |s| s.contains("Copy \"notes.txt\" to") && s.contains("/work/beta"))?;
+    app.send(keys::enter())?;
+    app.wait_text("Already exists")?;
+    app.send("k")?;
+    app.wait_until("copied with a new name", |_| fixture.work().join("beta/notes (2).txt").is_file())?;
+    app.wait_text("Copied 1 file")?;
+    ensure!(fs::read_to_string(fixture.work().join("beta/notes.txt"))? == "older\n", "the existing file must stay");
+    ensure!(fs::read_to_string(fixture.work().join("beta/notes (2).txt"))? == "hello\n", "the copy keeps its content");
     Ok(())
 }

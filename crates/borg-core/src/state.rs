@@ -6,8 +6,8 @@ use std::{
 use borg_term::{Foreground, PromptState, TermMode};
 
 use crate::{
-    About, Appearance, Easing, Effect, Fade, Find, Layout, LineInput, ListingMode, Motion, Pace, Panel, PanelMotion,
-    Picker, Settings, Sort, Viewer,
+    About, Appearance, Easing, Effect, Fade, Find, Job, JobList, Layout, LineInput, ListingMode, Motion, Pace, Panel,
+    PanelMotion, Picker, Question, Settings, Sort, Viewer,
     layout::{Chrome, EVEN_SPLIT, clamp_split},
     settings::SPLASH_DURATION,
 };
@@ -129,6 +129,7 @@ pub struct Prompt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmPurpose {
     Delete { sources: Vec<String> },
+    Quit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,6 +144,8 @@ pub struct Confirm {
 pub enum Overlay {
     About(About),
     Find(Find),
+    Question(Question),
+    Jobs(JobList),
     Themes(Picker),
     Menu(MenuCursor),
     Prompt(Prompt),
@@ -212,6 +215,8 @@ pub struct AppState {
     pub overlay_fade: Fade,
     pub leaving: Option<Leaving>,
     pub last_find: Option<String>,
+    pub jobs: Vec<Job>,
+    pub next_job: u64,
     pub splash_until: Option<Instant>,
     pub idle_since: Instant,
     pub screensaver: bool,
@@ -259,6 +264,8 @@ impl AppState {
             overlay_fade: Fade::settled(TRANSPARENT, now),
             leaving: None,
             last_find: None,
+            jobs: Vec::new(),
+            next_job: 0,
             splash_until: None,
             idle_since: now,
             screensaver: false,

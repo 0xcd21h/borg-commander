@@ -2,10 +2,13 @@ use std::{path::PathBuf, time::Instant};
 
 use crossterm::event::{KeyCode, KeyEvent};
 
+use borg_jobs::Spec;
+
 use crate::{
-    AppState, Confirm, ConfirmPurpose, Effect, MenuCursor, Overlay, Pattern, Picker, Prompt, PromptPurpose,
+    AppState, Confirm, ConfirmPurpose, Effect, JobKind, MenuCursor, Overlay, Pattern, Picker, Prompt, PromptPurpose,
     actions::{self, run_operation},
     input::Edit,
+    jobs,
     menu::menus,
     ops::{self, ArchiveFormat},
 };
@@ -19,6 +22,8 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
     match state.overlay.clone() {
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
+        Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
+        Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
@@ -141,12 +146,12 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             }
         },
         PromptPurpose::Copy { sources } => {
-            let dest = resolve(state, text);
-            run_operation(state, "copy", &ops::copy(sources.iter().map(String::as_str), &dest), None, now)
+            let sources = jobs::paths(state.active_panel().dir(), &sources);
+            jobs::start(state, JobKind::Copy, Spec::Copy { sources, target: resolve(state, text) }, now)
         }
         PromptPurpose::Move { sources } => {
-            let dest = resolve(state, text);
-            run_operation(state, "move", &ops::move_to(sources.iter().map(String::as_str), &dest), None, now)
+            let sources = jobs::paths(state.active_panel().dir(), &sources);
+            jobs::start(state, JobKind::Move, Spec::Move { sources, target: resolve(state, text) }, now)
         }
     }
 }
@@ -166,7 +171,13 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
     state.overlay = None;
     match (decided, confirm.purpose) {
         (Some(true), ConfirmPurpose::Delete { sources }) => {
-            run_operation(state, "delete", &ops::remove(sources.iter().map(String::as_str)), None, now)
+            let sources = jobs::paths(state.active_panel().dir(), &sources);
+            jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
+        }
+        (Some(true), ConfirmPurpose::Quit) => {
+            let mut effects = jobs::cancel_all(state);
+            effects.push(Effect::Quit);
+            effects
         }
         _ => Vec::new(),
     }

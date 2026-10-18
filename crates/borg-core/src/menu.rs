@@ -64,7 +64,7 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
     vec![
         panel_menu("Left", state, Side::Left),
         file_menu(state),
-        command_menu(),
+        command_menu(state),
         options_menu(state),
         panel_menu("Right", state, Side::Right),
     ]
@@ -125,11 +125,12 @@ fn file_menu(state: &AppState) -> Menu {
     }
 }
 
-fn command_menu() -> Menu {
+fn command_menu(state: &AppState) -> Menu {
     Menu {
         title: "Command",
         entries: vec![
             item("Find in folder", "C-s", Action::Find),
+            when(item("Jobs…", "M-j", Action::Jobs), !state.jobs.is_empty()),
             item("Swap panels", "C-u", Action::SwapPanels),
             item("Equal panel widths", "", Action::EqualizePanels),
             item("Widen left panel", "M-S-→", Action::NudgeSplit(crate::keymap::SPLIT_STEP)),

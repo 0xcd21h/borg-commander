@@ -531,3 +531,44 @@ fn pixel_cursor_glides_between_rows() -> Result<()> {
     );
     Ok(())
 }
+
+fn running_copy(stage: &mut Stage) -> Result<u64> {
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::F(5)));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let Some(borg_core::Effect::StartJob { id, .. }) = effects.first() else { anyhow::bail!("copy must start a job") };
+    let progress = borg_jobs::Progress {
+        done: borg_jobs::Totals { files: 41, bytes: 1_610_612_736 },
+        total: borg_jobs::Totals { files: 120, bytes: 4_294_967_296 },
+        current: PathBuf::from("/home/me/projects/borg/build.sh"),
+    };
+    stage.send(Msg::Job { id: *id, event: borg_jobs::Event::Progress(progress) });
+    Ok(*id)
+}
+
+#[test]
+fn copy_job_progress_and_conflict() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let id = running_copy(&mut stage)?;
+    let later = stage.started + Duration::from_secs(20);
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Copying 37% · 77M/s · 0:34")?;
+    check("job_progress", &stage, buffer)?;
+
+    let ask = borg_jobs::Ask::Conflict {
+        source: PathBuf::from("/home/me/projects/borg/build.sh"),
+        target: PathBuf::from("/var/log/build.sh"),
+        sizes: (310, 128),
+        newer: true,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(ask) });
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Overwrite all")?;
+    check("job_conflict", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('s')));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "p pause · c cancel")?;
+    check("job_list", &stage, buffer)
+}

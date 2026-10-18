@@ -5,6 +5,7 @@ mod draw;
 mod format;
 mod fx;
 mod icons;
+mod job_view;
 mod keybar;
 mod kinds;
 mod look;

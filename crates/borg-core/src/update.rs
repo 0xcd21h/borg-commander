@@ -48,7 +48,9 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             state.notice = Some(text);
             Vec::new()
         }
+        Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
     };
+    crate::jobs::surface_questions(state);
 
     state.sync_fade(now);
     state.sync_overlay(overlay, now);

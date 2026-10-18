@@ -50,18 +50,27 @@ const SLIDE_SHARE: f32 = 0.3;
 const SLIDE_FADE: f32 = 0.8;
 const GLOW_FALLOFF: f32 = 0.5;
 const COMET_WIDTH: u16 = 14;
+const PROGRESS_FILL: char = '━';
+const PROGRESS_TRACK: char = '─';
+const PROGRESS_TRACK_FADE: f32 = 0.4;
 const STAR_PACE: f32 = 0.35;
 const SEVEN: usize = 7;
 const NINE: usize = 9;
 const ASSIMILATE_FROM: usize = 2;
 const SEVEN_OF_NINE: &str = "Seven of Nine";
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Activity {
+    pub label: String,
+    pub fraction: Option<f32>,
+}
+
 pub struct PanelScene<'a> {
     pub panel: &'a Panel,
     pub active: bool,
     pub area: Rect,
     pub motion: &'a PanelMotion,
-    pub activity: Option<&'a str>,
+    pub activity: Option<Activity>,
     pub delight: bool,
     pub icons: bool,
     pub icon_spacing: u8,
@@ -145,8 +154,12 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     if let Some(gradient) = shiny {
         fx::gradient_text(buf, edge(area.bottom().saturating_sub(1), footer_width), gradient);
     }
-    if scene.activity.is_some() || scene.panel.listing() == &Listing::Loading {
-        draw_comet(look, area, footer_width, buf);
+    match scene.activity.as_ref().and_then(|activity| activity.fraction) {
+        Some(fraction) => draw_progress(look, area, footer_width, fraction, buf),
+        None if scene.activity.is_some() || scene.panel.listing() == &Listing::Loading => {
+            draw_comet(look, area, footer_width, buf);
+        }
+        None => {}
     }
     if let Some((direction, progress)) = scene.motion.slide(scene.now) {
         slide(body.inner, direction, progress, look, buf);
@@ -206,8 +219,8 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         let glyph = Span::styled(fx::orbit(look.t).to_string(), styles.footer.fg(look.accent().from.into()));
         Line::from(vec![Span::styled(" ", styles.footer), glyph, Span::styled(format!(" {text} "), styles.footer)])
     };
-    let line = match (scene.activity, panel.listing()) {
-        (Some(label), _) => spinning(format!("{label}…")),
+    let line = match (&scene.activity, panel.listing()) {
+        (Some(activity), _) => spinning(activity.label.clone()),
         (None, Listing::Loading) => spinning(format!("loading… {}", panel.received())),
         (None, Listing::Ready) => Line::styled(format!(" {} ", format::count(panel.received(), "item")), styles.footer),
         (None, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
@@ -242,6 +255,22 @@ fn draw_comet(look: &Look<'_>, area: Rect, footer_width: usize, buf: &mut Buffer
         let base = look.palette.foreground_of(cell.fg);
         let color = base.mix(gradient.at(f32::from(x - start) / span), intensity);
         cell.set_char(glyph).set_fg(color.into());
+    }
+}
+
+fn draw_progress(look: &Look<'_>, area: Rect, footer_width: usize, fraction: f32, buf: &mut Buffer) {
+    let start = area.x + 1 + u16::try_from(footer_width).unwrap_or(u16::MAX).saturating_add(GAP);
+    let room = area.right().saturating_sub(start + GAP + 1);
+    let y = area.bottom().saturating_sub(1);
+    let filled = (fraction.clamp(0.0, 1.0) * f32::from(room)).round() as u16;
+    let gradient = look.accent();
+    let track = look.fg(look.styles().border).mix(look.background(), PROGRESS_TRACK_FADE);
+    let span = f32::from(room.saturating_sub(1).max(1));
+    for (offset, x) in (start..start + room).enumerate() {
+        let lit = u16::try_from(offset).unwrap_or(u16::MAX) < filled;
+        let (glyph, color) =
+            if lit { (PROGRESS_FILL, gradient.at(offset as f32 / span)) } else { (PROGRESS_TRACK, track) };
+        buf[(x, y)].set_char(glyph).set_fg(color.into());
     }
 }
 

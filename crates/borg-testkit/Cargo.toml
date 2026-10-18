@@ -26,6 +26,7 @@ jiff         = { workspace = true }
 
 [dev-dependencies]
 borg-gfx  = { workspace = true }
+borg-jobs = { workspace = true }
 borg-view = { workspace = true }
 insta     = { workspace = true }
 

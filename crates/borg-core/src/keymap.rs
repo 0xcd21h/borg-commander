@@ -51,6 +51,7 @@ pub enum Action {
     ToggleDelight,
     ToggleIcons,
     TogglePixelChrome,
+    Jobs,
     Find,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),
@@ -132,6 +133,7 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('*'), NONE, Action::InvertSelection, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('u'), CTRL, Action::SwapPanels, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('s'), CTRL, Action::Find, Scope::PanelsEmptyLine),
+    bind(KeyCode::Char('j'), ALT, Action::Jobs, Scope::Panels),
     bind(KeyCode::Left, ALT_SHIFT, Action::NudgeSplit(-SPLIT_STEP), Scope::Panels),
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];

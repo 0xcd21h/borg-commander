@@ -4,7 +4,9 @@ use borg_term::ShellSignal;
 use borg_vfs::Entry;
 use crossterm::event::KeyEvent;
 
-use crate::{ShellView, Side, Viewer};
+use borg_jobs::{Event, Spec};
+
+use crate::{JobCommand, ShellView, Side, Viewer};
 
 #[derive(Debug)]
 pub enum Msg {
@@ -20,6 +22,7 @@ pub enum Msg {
     Opened(Viewer),
     ShellExited,
     Notice(String),
+    Job { id: u64, event: Event },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,5 +31,7 @@ pub enum Effect {
     Write(Vec<u8>),
     View(PathBuf),
     SaveConfig,
+    StartJob { id: u64, spec: Spec },
+    JobControl { id: u64, command: JobCommand },
     Quit,
 }
