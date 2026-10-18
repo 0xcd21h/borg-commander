@@ -82,6 +82,7 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.shell.captured() {
         return forward(state, key);
     }
+    let key = &function_alias(*key);
     if state.viewer.is_some() {
         return crate::viewer::on_key(state, key);
     }
@@ -93,6 +94,18 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match keymap::lookup(key, state.view, state.shell.line_empty()) {
         Some(action) => actions::perform(state, action, now),
         None => forward(state, key),
+    }
+}
+
+const ALT_FUNCTION_KEYS: &str = "1234567890";
+
+fn function_alias(key: KeyEvent) -> KeyEvent {
+    match key.code {
+        KeyCode::Char(digit) if key.modifiers == KeyModifiers::ALT => ALT_FUNCTION_KEYS
+            .find(digit)
+            .and_then(|index| u8::try_from(index + 1).ok())
+            .map_or(key, |n| KeyEvent::new(KeyCode::F(n), KeyModifiers::NONE)),
+        _ => key,
     }
 }
 

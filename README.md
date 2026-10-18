@@ -151,6 +151,11 @@ a Nerd Font.
 Tab, Enter, Home, End, Left, Right and the selection keys act on the panels only while the
 command line is empty. Once you type something they belong to the shell again.
 
+**No F-keys?** Some terminals keep them for themselves (VS Code's terminal uses F1, F5 and
+F11, for example). Alt-1 … Alt-9 work as F1 … F9 and Alt-0 as F10; pressing Esc and then the
+digit does the same. In VS Code you can also set
+`"terminal.integrated.sendKeybindingsToShell": true` to let the F-keys through.
+
 ### Quick find
 
 `Ctrl-S`, then type. Matching is smart-case and globs such as `*.png` work too.

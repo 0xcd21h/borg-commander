@@ -777,3 +777,13 @@ fn repeated_shell_directory_reports_do_not_pull_panels_back() {
     assert!(update(&mut state, Msg::Signal(again), now).is_empty());
     assert_eq!(state.active_panel().destination(), entered);
 }
+
+#[test]
+fn alt_digits_stand_in_for_function_keys() {
+    let (mut state, now) = setup();
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('9'), KeyModifiers::ALT));
+    assert!(matches!(state.overlay, Some(Overlay::Menu(_))));
+    press(&mut state, now, key(KeyCode::Esc));
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('0'), KeyModifiers::ALT));
+    assert_eq!(effects, vec![Effect::Quit]);
+}

@@ -25,7 +25,7 @@ expression: describe(&buffer)
 $
 1Help   2File   3View   4Edit   5Copy   6Move   7Mkdir  8Delete 9Menu   10Quit  ^OShell
 --- styles ---
-  0: 0-0 White Blue BOLD | 1-1 Black Cyan BOLD | 2-2 Black Cyan NONE | 3-5 Cyan Blue BOLD | 6-13 Black Cyan NONE | 14-16 Cyan Blue BOLD | 17-21 Black Cyan BOLD | 22-44 White Blue BOLD | 45-47 LightCyan Blue NONE | 48-50 Cyan Blue NONE | 51-53 LightCyan Blue NONE | 54-56 Cyan Blue NONE | 57-89 LightCyan Blue NONE
+  0: 0-0 White Blue BOLD | 1-1 Black Cyan BOLD | 2-2 Black Cyan NONE | 3-5 Cyan Cyan NONE | 6-13 Black Cyan NONE | 14-16 Cyan Cyan NONE | 17-21 Black Cyan BOLD | 22-44 White Blue BOLD | 45-47 LightCyan Blue NONE | 48-50 Cyan Blue NONE | 51-53 LightCyan Blue NONE | 54-56 Cyan Blue NONE | 57-89 LightCyan Blue NONE
   1: 0-0 White Blue BOLD | 1-1 LightCyan Blue NONE | 2-4 White Blue BOLD | 5-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-46 LightCyan Blue NONE | 47-49 LightCyan Blue BOLD | 50-89 LightCyan Blue NONE
   2: 0-0 White Blue BOLD | 1-1 LightCyan Blue NONE | 2-6 White Blue BOLD | 7-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-46 LightCyan Blue NONE | 47-54 White Blue BOLD | 55-89 LightCyan Blue NONE
   3: 0-0 White Blue BOLD | 1-1 Black Cyan NONE | 2-5 Black Cyan BOLD | 6-43 Black Cyan NONE | 44-44 White Blue BOLD | 45-46 LightCyan Blue NONE | 47-55 White Blue NONE | 56-89 LightCyan Blue NONE

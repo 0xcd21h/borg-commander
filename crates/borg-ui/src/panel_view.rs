@@ -186,6 +186,7 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style) -> Line<'a>
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2);
     let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), scene.home), width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);
+    let separator = Style { fg: separator.fg, ..style.remove_modifier(Modifier::BOLD) };
     let spans = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {
         let lead = (index > 0).then(|| Span::styled(CRUMB_SEPARATOR, separator));
         let crumb_style = if index == last { style } else { style.remove_modifier(Modifier::BOLD) };
