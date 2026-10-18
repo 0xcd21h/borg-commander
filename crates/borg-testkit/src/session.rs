@@ -187,6 +187,14 @@ impl Session {
         self.wait_until(&format!("{text:?} to disappear"), |s| !s.contains(text))
     }
 
+    pub fn pump(&mut self, duration: Duration) -> Result<()> {
+        let deadline = Instant::now() + duration;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|left| !left.is_zero()) {
+            self.receive(left.min(POLL))?;
+        }
+        Ok(())
+    }
+
     pub fn settle(&mut self) -> Result<Snapshot> {
         let deadline = Instant::now() + self.timeout;
         let mut quiet_since = Instant::now();

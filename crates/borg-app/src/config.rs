@@ -29,6 +29,7 @@ pub struct Config {
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
     pub delight: Option<bool>,
+    pub icons: Option<bool>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
 }
@@ -51,6 +52,7 @@ impl Config {
             splash: self.startup_animation.unwrap_or(base.splash),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
             delight: self.delight.unwrap_or(base.delight),
+            icons: self.icons.unwrap_or(base.icons),
         }
     }
 
@@ -79,6 +81,7 @@ impl Config {
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
             delight: Some(prefs.delight),
+            icons: Some(prefs.icons),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
         }

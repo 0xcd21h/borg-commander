@@ -37,6 +37,10 @@ impl Snapshot {
         Self { buffer, palette: palette.clone(), cursor, placements: Vec::new() }
     }
 
+    pub fn same_screen(&self, other: &Self) -> bool {
+        self.buffer == other.buffer && self.cursor == other.cursor
+    }
+
     pub fn with_placements(self, placements: Vec<Placement>) -> Self {
         Self { placements, ..self }
     }

@@ -14,7 +14,7 @@ use ratatui::{
 use crate::{
     CursorShape, format,
     fx::{self, Gradient},
-    kinds,
+    icons, kinds,
     look::Look,
     theme::Styles,
 };
@@ -22,7 +22,8 @@ use crate::{
 const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
 const BAR_WIDTH: u16 = 5;
-const MARKER_WIDTH: u16 = 1;
+const NO_MARKER: char = ' ';
+const ICON_GAP: char = ' ';
 const GAP: u16 = 1;
 const SHOW_DATE_FROM: u16 = 40;
 const SHOW_SIZE_FROM: u16 = 24;
@@ -59,6 +60,7 @@ pub struct PanelScene<'a> {
     pub motion: &'a PanelMotion,
     pub activity: Option<&'a str>,
     pub delight: bool,
+    pub icons: bool,
     pub home: Option<&'a Path>,
     pub clock: &'a Zoned,
     pub now: Instant,
@@ -250,7 +252,7 @@ fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize,
             cursor_row = Some((full, content, fill, pill));
         }
         let bar = bar_fraction(row, panel.largest());
-        draw_full_row(row, &columns, content, tone, scene.clock, bar, look, buf);
+        draw_full_row(row, &columns, content, tone, scene, bar, look, buf);
     }
     if let Some((full, content, fill, pill)) = cursor_row {
         paint_cursor(scene.active, full, content, fill, pill, body, look, buf);
@@ -311,7 +313,7 @@ fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize
         let y = body.content.y + u16::try_from(slot % rows).unwrap_or(u16::MAX);
         let area = Rect { x: column.x, y, width: column.width.saturating_sub(separator), height: 1 };
         let tone = Tone::of(panel, row, index, scene.active, look.styles());
-        draw_name(row, area, tone, buf);
+        draw_name(row, area, tone, scene.icons, buf);
         if tone.fill.is_some()
             && let Some(pair) = look.theme.effects.cursor_gradient.filter(|_| scene.active)
         {
@@ -399,7 +401,7 @@ fn draw_full_row(
     columns: &Columns,
     area: Rect,
     tone: Tone,
-    clock: &Zoned,
+    scene: &PanelScene<'_>,
     bar: Option<f32>,
     look: &Look<'_>,
     buf: &mut Buffer,
@@ -408,13 +410,13 @@ fn draw_full_row(
         Row::Parent => (PARENT_LABEL.to_owned(), String::new()),
         Row::Entry(entry) => (
             if entry.is_dir() { DIR_LABEL.to_owned() } else { format::size(entry.size) },
-            format::modified(entry.modified, clock),
+            format::modified(entry.modified, scene.clock),
         ),
     };
 
     let [name, bar_cell, size_cell, date_cell] = columns.split(area);
     if let Some(cell) = name {
-        draw_name(row, cell, tone, buf);
+        draw_name(row, cell, tone, scene.icons, buf);
     }
     if let (Some(cell), Some(fraction)) = (bar_cell, bar) {
         draw_bar(cell, fraction, look, buf);
@@ -441,16 +443,22 @@ fn draw_bar(area: Rect, fraction: f32, look: &Look<'_>, buf: &mut Buffer) {
     }
 }
 
-fn draw_name(row: Row<'_>, area: Rect, tone: Tone, buf: &mut Buffer) {
+fn draw_name(row: Row<'_>, area: Rect, tone: Tone, icons: bool, buf: &mut Buffer) {
     if let Some(fill) = tone.fill {
         buf.set_style(area, fill);
     }
-    let (marker, name) = match row {
-        Row::Parent => (' ', PARENT_NAME),
-        Row::Entry(entry) => (marker(entry), entry.name.as_str()),
+    let name = match row {
+        Row::Parent => PARENT_NAME,
+        Row::Entry(entry) => entry.name.as_str(),
     };
-    let width = usize::from(area.width.saturating_sub(MARKER_WIDTH));
-    Line::styled(format!("{marker}{}", format::truncate_end(name, width)), tone.name).render(area, buf);
+    let lead = match (icons, row) {
+        (true, Row::Parent) => format!("{}{ICON_GAP}", icons::parent()),
+        (true, Row::Entry(entry)) => format!("{}{ICON_GAP}", icons::icon(entry)),
+        (false, Row::Parent) => NO_MARKER.to_string(),
+        (false, Row::Entry(entry)) => marker(entry).to_string(),
+    };
+    let width = usize::from(area.width).saturating_sub(lead.chars().count());
+    Line::styled(format!("{lead}{}", format::truncate_end(name, width)), tone.name).render(area, buf);
 }
 
 fn marker(entry: &Entry) -> char {

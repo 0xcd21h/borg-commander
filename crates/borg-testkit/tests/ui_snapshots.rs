@@ -446,3 +446,13 @@ fn picture_viewer_places_pixels_with_graphics() -> Result<()> {
     anyhow::ensure!(!describe(&buffer).contains('▀'), "pixel mode must leave the picture area to the terminal");
     check_with("picture_pixels", &stage, buffer, placements)
 }
+
+#[test]
+fn nerd_font_icons() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    let neon = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap_or_default();
+    stage.state.appearance.select(neon, stage.started, Duration::ZERO);
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    check("icons", &stage, buffer)
+}

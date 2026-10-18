@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontRef, GlyphId, PxScale, ScaleFont, point};
 use anyhow::{Context, Result};
 use borg_ui::Rgb;
 use image::{Rgb as Pixel, RgbImage};
@@ -13,11 +13,13 @@ use crate::{Snapshot, snapshot::CellStyle};
 
 const FONT_REGULAR: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 const FONT_BOLD: &[u8] = include_bytes!("../assets/DejaVuSansMono-Bold.ttf");
+const FONT_SYMBOLS: &[u8] = include_bytes!("../assets/SymbolsNerdFontMono-Regular.ttf");
 const FONT_PX: f32 = 18.0;
 const MARGIN: u32 = 14;
 const UNDERLINE_OFFSET: f32 = 2.0;
 const WIDTH_PROBE: char = 'M';
 const ALPHA_MAX: f32 = 255.0;
+const MISSING_GLYPH: GlyphId = GlyphId(0);
 const EIGHTHS: f32 = 8.0;
 const LOWER_EIGHTHS: std::ops::RangeInclusive<char> = '\u{2581}'..='\u{2588}';
 const LEFT_EIGHTHS: std::ops::RangeInclusive<char> = '\u{2589}'..='\u{258f}';
@@ -43,6 +45,7 @@ pub fn png(snapshot: &Snapshot, path: &Path) -> Result<()> {
 pub fn raster(snapshot: &Snapshot) -> Result<RgbImage> {
     let regular = FontRef::try_from_slice(FONT_REGULAR).context("loading regular font")?;
     let bold = FontRef::try_from_slice(FONT_BOLD).context("loading bold font")?;
+    let symbols = FontRef::try_from_slice(FONT_SYMBOLS).context("loading symbols font")?;
     let scale = PxScale::from(FONT_PX);
     let metrics = regular.as_scaled(scale);
     let grid = Grid {
@@ -65,7 +68,7 @@ pub fn raster(snapshot: &Snapshot) -> Result<RgbImage> {
     under.into_iter().for_each(|placement| blit(&mut image, placement, &grid));
     for cell in &cells {
         let font = if cell.style.bold { &bold } else { &regular };
-        draw_cell(&mut image, font, scale, cell, &grid);
+        draw_cell(&mut image, [font, &symbols], scale, cell, &grid);
     }
     over.into_iter().for_each(|placement| blit(&mut image, placement, &grid));
     Ok(image)
@@ -107,7 +110,7 @@ fn cells(snapshot: &Snapshot, grid: &Grid) -> Vec<Painted> {
     painted
 }
 
-fn draw_cell(image: &mut RgbImage, font: &FontRef<'_>, scale: PxScale, cell: &Painted, grid: &Grid) {
+fn draw_cell(image: &mut RgbImage, fonts: [&FontRef<'_>; 2], scale: PxScale, cell: &Painted, grid: &Grid) {
     let (x, y, width, _) = cell.rect;
     let cell_rect = (x, y, grid.cell_w, grid.cell_h);
     let first = cell.symbol.chars().next();
@@ -124,6 +127,7 @@ fn draw_cell(image: &mut RgbImage, font: &FontRef<'_>, scale: PxScale, cell: &Pa
         return;
     }
     for ch in cell.symbol.chars().filter(|c| !c.is_whitespace()) {
+        let font = fonts.into_iter().find(|font| font.glyph_id(ch) != MISSING_GLYPH).unwrap_or(fonts[0]);
         draw_glyph(image, font, scale, ch, (x, y), grid, cell.style.fg);
     }
     if cell.underlined {

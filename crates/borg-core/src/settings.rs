@@ -33,6 +33,7 @@ pub struct Preferences {
     pub splash: bool,
     pub screensaver: bool,
     pub delight: bool,
+    pub icons: bool,
 }
 
 impl Preferences {
@@ -46,6 +47,7 @@ impl Preferences {
         splash: true,
         screensaver: false,
         delight: true,
+        icons: false,
     };
 }
 

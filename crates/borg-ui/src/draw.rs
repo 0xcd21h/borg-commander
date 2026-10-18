@@ -153,6 +153,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Buffer, Option<
             motion: &state.motions[side.index()],
             activity: activity.filter(|(busy, _)| *busy == side).map(|(_, label)| label),
             delight: state.settings.preferences.delight,
+            icons: state.settings.preferences.icons,
             home: scene.home,
             clock: scene.clock,
             now: scene.now,

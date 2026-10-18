@@ -49,6 +49,7 @@ pub enum Action {
     ToggleSplash,
     ToggleScreensaver,
     ToggleDelight,
+    ToggleIcons,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),
     SetSort(Side, SortKey),

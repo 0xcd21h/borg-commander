@@ -4,6 +4,7 @@ mod dialog_view;
 mod draw;
 mod format;
 mod fx;
+mod icons;
 mod keybar;
 mod kinds;
 mod look;

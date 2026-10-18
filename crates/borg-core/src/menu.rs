@@ -148,6 +148,7 @@ fn options_menu(state: &AppState) -> Menu {
         entries: vec![
             item("Theme…", "", Action::PickTheme),
             MenuEntry::Separator,
+            check("File icons (Nerd Font)", "", Action::ToggleIcons, prefs.icons),
             check("Status line", "", Action::ToggleStatusLine, prefs.status_line),
             check("Menu bar always visible", "", Action::ToggleMenuBar, prefs.menu_bar),
             check("Animations", "", Action::ToggleAnimations, prefs.animations),

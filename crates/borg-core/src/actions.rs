@@ -100,6 +100,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             preference(state, |prefs| prefs.screensaver = !prefs.screensaver)
         }
         Action::ToggleDelight => preference(state, |prefs| prefs.delight = !prefs.delight),
+        Action::ToggleIcons => preference(state, |prefs| prefs.icons = !prefs.icons),
         Action::ToggleReturnToPanels => preference(state, |prefs| {
             prefs.after_command = match prefs.after_command {
                 AfterCommand::ShowShell => AfterCommand::ReturnToPanels,
