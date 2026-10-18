@@ -8,8 +8,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use borg_core::{
-    AMBIENT_FRAME, AppState, Appearance, Content, Effect, Image, JobCommand, Msg, Pace, ShellView, Side, Viewer,
-    update, viewer_size,
+    AMBIENT_FRAME, AppState, Appearance, Aside, Content, Effect, Image, JobCommand, Msg, Pace, Peeked, ShellView, Side,
+    Viewer, update, viewer_size,
 };
 use borg_gfx::{Capabilities, Graphics, Output, Protocol, TerminalColors, decode, is_picture};
 use borg_jobs::{Control, Spec, run};
@@ -34,6 +34,7 @@ use tokio::{
 use crate::{
     config::{Config, ConfigDir},
     launch::{self, Launch},
+    peek,
     session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
 };
 
@@ -289,6 +290,7 @@ impl App {
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
                 Effect::JobControl { id, command } => self.control_job(id, command),
+                Effect::Peek { aside, path, size } => self.peek(aside, path, size),
                 Effect::Quit => return Ok(Flow::Quit),
             }
         }
@@ -331,11 +333,21 @@ impl App {
         let bounds = (span(width, cell.width), span(height, cell.height));
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let content = if is_picture(&path) { picture(&path, bounds) } else { text(&path, width, height) };
+            let content =
+                if is_picture(&path) { picture(&path, bounds).map(Content::Image) } else { text(&path, width, height) };
             let opened = content
                 .map(|content| Msg::Opened(Viewer { path: path.clone(), content }))
                 .unwrap_or_else(|e| Msg::Notice(format!("{}: {e:#}", path.display())));
             let _ = messages.send(opened);
+        });
+    }
+
+    fn peek(&self, aside: Aside, path: PathBuf, size: (usize, usize)) {
+        let cell = self.graphics.capabilities().cell;
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let peek = peek::peek(aside, &path, size, (cell.width, cell.height));
+            let _ = messages.send(Msg::Peeked(Peeked { aside, path, peek }));
         });
     }
 
@@ -382,14 +394,14 @@ fn pixels(capabilities: Capabilities, chrome: bool) -> Pixels {
     }
 }
 
-fn span(cells: usize, cell: u16) -> u32 {
+pub(crate) fn span(cells: usize, cell: u16) -> u32 {
     u32::try_from(cells).unwrap_or(u32::MAX).saturating_mul(u32::from(cell))
 }
 
-fn picture(path: &Path, bounds: (u32, u32)) -> Result<Content> {
+pub(crate) fn picture(path: &Path, bounds: (u32, u32)) -> Result<Image> {
     let bytes = std::fs::metadata(path)?.len();
     let decoded = decode(path, bounds)?;
-    Ok(Content::Image(Image { picture: decoded.picture, original: decoded.original, format: decoded.format, bytes }))
+    Ok(Image { picture: decoded.picture, original: decoded.original, format: decoded.format, bytes })
 }
 
 fn text(path: &Path, width: usize, height: usize) -> Result<Content> {

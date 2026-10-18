@@ -6,8 +6,8 @@ use std::{
 use borg_term::{Foreground, PromptState, TermMode};
 
 use crate::{
-    About, Appearance, Easing, Effect, Fade, Find, Job, JobList, Layout, LineInput, ListingMode, Motion, Pace, Panel,
-    PanelMotion, Picker, Question, Settings, Sort, Viewer,
+    About, Appearance, Aside, Easing, Effect, Fade, Find, Job, JobList, Layout, LineInput, ListingMode, Motion, Pace,
+    Panel, PanelMotion, Peeked, Picker, Question, Settings, Sort, Viewer,
     layout::{Chrome, EVEN_SPLIT, clamp_split},
     settings::SPLASH_DURATION,
 };
@@ -222,6 +222,9 @@ pub struct AppState {
     pub leaving: Option<Leaving>,
     pub last_find: Option<String>,
     pub jobs: Vec<Job>,
+    pub aside: Option<Aside>,
+    pub peeked: Option<Peeked>,
+    pub(crate) peeking: Option<(Aside, PathBuf)>,
     pub next_job: u64,
     pub splash_until: Option<Instant>,
     pub idle_since: Instant,
@@ -272,6 +275,9 @@ impl AppState {
             leaving: None,
             last_find: None,
             jobs: Vec::new(),
+            aside: None,
+            peeked: None,
+            peeking: None,
             next_job: 0,
             splash_until: None,
             idle_since: now,

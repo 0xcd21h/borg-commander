@@ -818,3 +818,64 @@ fn alt_a_types_folder_paths_onto_the_command_line() {
     let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('A'), KeyModifiers::ALT | KeyModifiers::SHIFT));
     assert_eq!(writes(&effects), "'/tmp' ");
 }
+
+fn peeks(effects: &[Effect]) -> Vec<(crate::Aside, PathBuf)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Peek { aside, path, .. } => Some((*aside, path.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn quick_view_asks_for_the_hovered_file_once_and_follows_the_cursor() {
+    let (mut state, now) = setup_with(vec![file("a.txt"), file("b.txt")]);
+    press(&mut state, now, key(KeyCode::Home));
+    let effects = press(&mut state, now, ctrl('q'));
+    assert_eq!(state.aside, Some(crate::Aside::QuickView));
+    assert_eq!(peeks(&effects), vec![(crate::Aside::QuickView, PathBuf::from("/"))], "the parent row shows its folder");
+    assert!(peeks(&update(&mut state, Msg::Tick, now)).is_empty(), "a pending request is not repeated");
+
+    let effects = press(&mut state, now, key(KeyCode::End));
+    assert_eq!(peeks(&effects), vec![(crate::Aside::QuickView, PathBuf::from("/home/b.txt"))]);
+
+    let stale = crate::Peeked {
+        aside: crate::Aside::QuickView,
+        path: PathBuf::from("/home/a.txt"),
+        peek: crate::Peek::Text(vec!["old".into()]),
+    };
+    update(&mut state, Msg::Peeked(stale), now);
+    assert!(state.peeked.is_none(), "results for a file the cursor left are dropped");
+
+    let fresh = crate::Peeked {
+        aside: crate::Aside::QuickView,
+        path: PathBuf::from("/home/b.txt"),
+        peek: crate::Peek::Text(vec!["new".into()]),
+    };
+    update(&mut state, Msg::Peeked(fresh), now);
+    assert!(state.peeked.is_some());
+    assert!(peeks(&update(&mut state, Msg::Tick, now)).is_empty());
+}
+
+#[test]
+fn info_replaces_quick_view_and_toggles_off() {
+    let (mut state, now) = setup_with(vec![file("a.txt")]);
+    press(&mut state, now, ctrl('q'));
+    let effects = press(&mut state, now, ctrl('l'));
+    assert_eq!(state.aside, Some(crate::Aside::Info));
+    assert!(peeks(&effects).iter().all(|(aside, _)| *aside == crate::Aside::Info));
+    assert!(!peeks(&effects).is_empty());
+    press(&mut state, now, ctrl('l'));
+    assert_eq!(state.aside, None);
+    assert!(state.peeked.is_none());
+}
+
+#[test]
+fn tab_stays_on_the_listing_while_the_other_side_shows_a_preview() {
+    let (mut state, now) = setup();
+    press(&mut state, now, ctrl('q'));
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(state.active, Side::Left);
+}

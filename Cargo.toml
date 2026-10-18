@@ -28,7 +28,7 @@ jiff               = "0.2"
 libc               = "0.2"
 portable-pty       = "0.9"
 ratatui            = "0.30"
-rustix             = { version = "1", features = ["process", "termios", "event", "stdio"] }
+rustix             = { version = "1", features = ["process", "termios", "event", "stdio", "fs"] }
 serde              = { version = "1", features = ["derive"] }
 thiserror          = "2"
 tempfile           = "3"
@@ -49,6 +49,7 @@ tokio              = { version = "1", features = ["rt-multi-thread", "macros", "
 tokio-stream       = "0.1"
 toml               = "1"
 unicode-width      = "0.2"
+uzers              = "0.12"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

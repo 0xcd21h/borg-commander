@@ -39,10 +39,13 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Quit => vec![Effect::Quit],
         Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => toggle_shell(state),
+        Action::SwitchPanel if state.aside.is_some() => Vec::new(),
         Action::SwitchPanel => {
             state.active = side.other();
             Vec::new()
         }
+        Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
+        Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::Up => moved(state, |panel| panel.move_by(LINE_UP)),
         Action::Down => moved(state, |panel| panel.move_by(LINE_DOWN)),
         Action::PageUp => moved(state, |panel| panel.page(PAGE_UP)),

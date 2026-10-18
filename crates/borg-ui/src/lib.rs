@@ -1,4 +1,5 @@
 mod art_view;
+mod aside_view;
 mod blend;
 mod dialog_view;
 mod draw;

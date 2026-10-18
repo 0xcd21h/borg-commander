@@ -1,6 +1,7 @@
 mod actions;
 mod anim;
 mod appearance;
+mod aside;
 mod command;
 mod delight;
 mod find;
@@ -25,6 +26,7 @@ mod update_tests;
 
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
+pub use aside::{Aside, Facts, Nature, Peek, Peeked};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use find::{Find, Query, summary as find_summary};
 pub use input::LineInput;

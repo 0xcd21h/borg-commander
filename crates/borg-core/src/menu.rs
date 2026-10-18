@@ -130,6 +130,8 @@ fn command_menu(state: &AppState) -> Menu {
         title: "Command",
         entries: vec![
             item("Find in folder", "C-s", Action::Find),
+            check("Quick view", "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
+            check("Info", "C-l", Action::Info, state.aside == Some(crate::Aside::Info)),
             when(item("Jobs…", "M-j", Action::Jobs), !state.jobs.is_empty()),
             item("Swap panels", "C-u", Action::SwapPanels),
             item("Equal panel widths", "", Action::EqualizePanels),

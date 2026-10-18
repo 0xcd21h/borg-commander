@@ -52,9 +52,11 @@ pub fn permissions(entry: &Entry) -> String {
         EntryKind::Other => 's',
         EntryKind::File => UNSET,
     };
-    std::iter::once(kind)
-        .chain(PERMISSION_BITS.iter().map(|(bit, c)| if entry.permissions & bit != 0 { *c } else { UNSET }))
-        .collect()
+    std::iter::once(kind).chain(rwx(entry.permissions).chars()).collect()
+}
+
+pub fn rwx(bits: u32) -> String {
+    PERMISSION_BITS.iter().map(|(bit, c)| if bits & bit != 0 { *c } else { UNSET }).collect()
 }
 
 #[cfg(test)]

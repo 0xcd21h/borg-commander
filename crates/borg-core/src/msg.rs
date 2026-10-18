@@ -6,7 +6,7 @@ use crossterm::event::KeyEvent;
 
 use borg_jobs::{Event, Spec};
 
-use crate::{JobCommand, ShellView, Side, Viewer};
+use crate::{Aside, JobCommand, Peeked, ShellView, Side, Viewer};
 
 #[derive(Debug)]
 pub enum Msg {
@@ -23,6 +23,7 @@ pub enum Msg {
     ShellExited,
     Notice(String),
     Job { id: u64, event: Event },
+    Peeked(Peeked),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,5 +34,6 @@ pub enum Effect {
     SaveConfig,
     StartJob { id: u64, spec: Spec },
     JobControl { id: u64, command: JobCommand },
+    Peek { aside: Aside, path: PathBuf, size: (usize, usize) },
     Quit,
 }

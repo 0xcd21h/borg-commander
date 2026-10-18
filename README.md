@@ -131,6 +131,8 @@ a Nerd Font.
 | Tab | Switch panel |
 | Ctrl-O | Show the shell / back to the panels |
 | Ctrl-S | Quick find in the folder |
+| Ctrl-Q | Quick view: the other panel previews the file under the cursor (text, picture or folder) |
+| Ctrl-L | Info: the other panel shows size, mode, owner, dates and free space |
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line |

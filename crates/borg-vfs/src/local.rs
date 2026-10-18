@@ -31,8 +31,12 @@ impl Backend for Local {
     }
 }
 
+pub fn entries(dir: &Path) -> io::Result<impl Iterator<Item = Entry>> {
+    Ok(fs::read_dir(dir)?.filter_map(Result::ok).filter_map(to_entry))
+}
+
 fn stream_dir(dir: &Path, batch_size: usize, tx: &mpsc::Sender<io::Result<Vec<Entry>>>) {
-    let reader = match fs::read_dir(dir) {
+    let reader = match entries(dir) {
         Ok(reader) => reader,
         Err(e) => {
             let _ = tx.blocking_send(Err(e));
@@ -41,7 +45,7 @@ fn stream_dir(dir: &Path, batch_size: usize, tx: &mpsc::Sender<io::Result<Vec<En
     };
 
     let mut batch = Vec::with_capacity(batch_size);
-    for entry in reader.filter_map(Result::ok).filter_map(to_entry) {
+    for entry in reader {
         batch.push(entry);
         if batch.len() < batch_size {
             continue;

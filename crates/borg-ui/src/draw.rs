@@ -13,6 +13,7 @@ use ratatui::{
 
 use crate::{
     Palette, Theme, ThemeSet, art_view,
+    aside_view::{AsideScene, draw_aside},
     blend::crossfade,
     dialog_view,
     fx::{self, Unfold},
@@ -190,9 +191,27 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
         _ => None,
     };
     let mut panel_cursor = None;
+    let aside_side = state.aside.map(|_| state.active.other());
     for side in Side::ALL {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
+        let aside = state.aside.filter(|_| aside_side == Some(side));
+        if let Some(aside) = aside {
+            let shown = AsideScene {
+                aside,
+                peeked: state.peeked.as_ref(),
+                area: rect,
+                icons: state.settings.preferences.icons,
+                icon_spacing: state.settings.preferences.icon_spacing,
+                underlay: underlay.is_some(),
+                pictures: scene.pixels.pictures(),
+                clock: scene.clock,
+            };
+            let pictures = draw_aside(&shown, &look, &mut buf);
+            if underlay.is_some() || state.overlay.is_none() {
+                cards.extend(pictures);
+            }
+        }
         let panel = PanelScene {
             panel: state.panel(side),
             active,
@@ -208,19 +227,22 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
             clock: scene.clock,
             now: scene.now,
         };
-        panel_cursor = draw_panel(&panel, &look, &mut buf).or(panel_cursor);
+        if aside.is_none() {
+            panel_cursor = draw_panel(&panel, &look, &mut buf).or(panel_cursor);
+        }
         if let Some(cell) = underlay {
             let spec = underlay::PanelCards {
                 panel: state.panel(side),
                 motion: &state.motions[side.index()],
                 area: rect,
                 active,
+                pill: aside.is_none(),
                 dim: backdrop,
                 now: scene.now,
             };
             cards.extend(underlay::panel(&spec, &look, cell));
         }
-        if !active && theme.effects.inactive_dim > FULLY_HIDDEN {
+        if !active && aside.is_none() && theme.effects.inactive_dim > FULLY_HIDDEN {
             let busy = activities[side.index()].is_some();
             let dimmed = Rect { height: rect.height.saturating_sub(u16::from(busy)), ..rect };
             fx::fade_to_background(&mut buf, dimmed, theme.effects.inactive_dim, scene.palette);

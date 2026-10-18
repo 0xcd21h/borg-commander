@@ -696,6 +696,21 @@ fn ctrl_s_finds_files_as_you_type() -> Result<()> {
 }
 
 #[test]
+fn quick_view_and_info_replace_the_other_panel() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "aside")?;
+    app.send(keys::ctrl('s'))?.send("note")?.send(keys::enter())?;
+    app.wait_until("cursor on notes", |s| status(s).ends_with("notes.txt"))?;
+    app.send(keys::ctrl('q'))?;
+    app.wait_until("quick view of notes", |s| s.contains("Quick view · notes.txt") && s.contains("hello"))?;
+    app.send(keys::ctrl('l'))?;
+    app.wait_until("info about notes", |s| s.contains("Info · notes.txt") && s.contains("6 bytes"))?;
+    app.send(keys::ctrl('l'))?;
+    app.wait_gone("Info · notes.txt")?;
+    Ok(())
+}
+
+#[test]
 fn copying_onto_an_existing_file_asks_and_can_keep_both() -> Result<()> {
     let fixture = fixture()?;
     fixture.file("beta/notes.txt", "older\n")?;

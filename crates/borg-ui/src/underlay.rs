@@ -11,6 +11,7 @@ use ratatui::{
 use crate::{Rgb, look::Look, panel_view::geometry};
 
 const PANEL_Z: i32 = -40;
+pub(crate) const PICTURE_Z: i32 = -39;
 const PANEL_HIGHLIGHT_Z: i32 = -38;
 const OVERLAY_HIGHLIGHT_Z: i32 = -9;
 const HIGHLIGHT_RADIUS_SHARE: f32 = 0.3;
@@ -33,6 +34,7 @@ pub struct PanelCards<'a> {
     pub motion: &'a PanelMotion,
     pub area: Rect,
     pub active: bool,
+    pub pill: bool,
     pub dim: f32,
     pub now: Instant,
 }
@@ -103,7 +105,9 @@ pub fn panel(cards: &PanelCards<'_>, look: &Look<'_>, cell: CellSize) -> Vec<Pla
     };
     let origin = (pixels(area.x, cell.width), pixels(area.y, cell.height));
     let mut placed: Vec<Placement> = place(Shape::Card(card), origin, cell, PANEL_Z).into_iter().collect();
-    placed.extend(cursor(cards, look, cell));
+    if cards.pill {
+        placed.extend(cursor(cards, look, cell));
+    }
     placed
 }
 

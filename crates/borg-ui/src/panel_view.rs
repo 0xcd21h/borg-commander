@@ -28,7 +28,7 @@ const DATE_WIDTH: u16 = 12;
 const BAR_WIDTH: u16 = 5;
 const NO_MARKER: char = ' ';
 const FIND_LABEL: &str = " find: ";
-const ICON_GAP: char = ' ';
+pub(crate) const ICON_GAP: char = ' ';
 const GAP: u16 = 1;
 const SHOW_DATE_FROM: u16 = 40;
 const SHOW_SIZE_FROM: u16 = 24;
@@ -658,7 +658,7 @@ fn marker(entry: &Entry) -> char {
     }
 }
 
-fn style_of(entry: &Entry, styles: &Styles<Style>) -> Style {
+pub(crate) fn style_of(entry: &Entry, styles: &Styles<Style>) -> Style {
     match entry.kind {
         EntryKind::Dir => styles.dir,
         EntryKind::Symlink { .. } => styles.link,

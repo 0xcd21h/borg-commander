@@ -573,6 +573,88 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     check("job_list", &stage, buffer)
 }
 
+fn peek(stage: &mut Stage, aside: borg_core::Aside, peek: borg_core::Peek) -> Result<()> {
+    let panel = stage.state.active_panel();
+    let Some(borg_core::Row::Entry(entry)) = panel.hovered() else { anyhow::bail!("the cursor must be on an entry") };
+    let path = panel.dir().join(&entry.name);
+    stage.send(Msg::Peeked(borg_core::Peeked { aside, path, peek }));
+    Ok(())
+}
+
+fn hover(stage: &mut Stage, name: &str) {
+    stage.send(key(KeyCode::Home));
+    while stage.state.active_panel().hovered_entry().is_none_or(|entry| entry.name != name) {
+        stage.send(key(KeyCode::Down));
+    }
+}
+
+#[test]
+fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    hover(&mut stage, "Cargo.toml");
+    stage.send(ctrl('q'));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Quick view")?;
+    let manifest = ["[package]", "name = \"borg\"", "version = \"0.1.0\"", "", "[dependencies]", "ratatui = \"0.30\""];
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(manifest.map(String::from).to_vec()))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Quick view · Cargo.toml")?;
+    ensure_text(&buffer, "ratatui = \"0.30\"")?;
+    check("quick_view_text", &stage, buffer)?;
+
+    hover(&mut stage, "src");
+    let entries = vec![
+        entry("ui", EntryKind::Dir, 4096, RECENT, false),
+        entry("main.rs", EntryKind::File, 2_048, RECENT, false),
+        entry("lib.rs", EntryKind::File, 12_288, RECENT, false),
+    ];
+    let folder = borg_core::Peek::Folder { folders: 1, files: 2, bytes: 14_336, entries };
+    peek(&mut stage, borg_core::Aside::QuickView, folder)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 folder · 2 files · 14K")?;
+    check("quick_view_folder", &stage, buffer)?;
+
+    hover(&mut stage, "README.md");
+    stage.pixels = borg_ui::Pixels::Pictures;
+    let image =
+        borg_core::Image { picture: sunset(320, 180)?, original: (3840, 2160), format: "jpg", bytes: 2_411_724 };
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Picture(image))?;
+    let (buffer, placements) = stage.compose(stage.started)?;
+    anyhow::ensure!(placements.len() == 1, "the picture is placed once, got {placements:?}");
+    ensure_text(&buffer, "3840×2160 · JPG · 2.3M")?;
+    stage.send(key(KeyCode::F(8)));
+    let (_, placements) = stage.compose(stage.started)?;
+    anyhow::ensure!(placements.is_empty(), "a dialog hides the picture when cells cannot cover it");
+    Ok(())
+}
+
+#[test]
+fn info_panel_lists_file_facts() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    hover(&mut stage, "build.sh");
+    stage.send(ctrl('l'));
+    let facts = borg_core::Facts {
+        nature: borg_core::Nature::File,
+        size: 310,
+        permissions: 0o755,
+        owner: "me".into(),
+        group: "staff".into(),
+        modified: at(RECENT),
+        accessed: at(RECENT),
+        created: at(OLD),
+        inode: 1_234_567,
+        links: 1,
+        items: None,
+        disk: Some((128_849_018_880, 499_963_174_912)),
+    };
+    peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "rwxr-xr-x 0755")?;
+    ensure_text(&buffer, "me:staff")?;
+    ensure_text(&buffer, "120G of 466G")?;
+    check("info_panel", &stage, buffer)
+}
+
 #[test]
 #[ignore = "timing report, run with --ignored --nocapture"]
 fn frame_cost() -> Result<()> {

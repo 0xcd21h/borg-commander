@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod launch;
+mod peek;
 mod session;
 mod store;
 mod update;

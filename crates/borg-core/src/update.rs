@@ -49,7 +49,13 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
+        Msg::Peeked(peeked) => {
+            crate::aside::receive(state, peeked);
+            Vec::new()
+        }
     };
+    let mut effects = effects;
+    effects.extend(crate::aside::sync(state));
     crate::jobs::surface_questions(state);
 
     state.sync_fade(now);
