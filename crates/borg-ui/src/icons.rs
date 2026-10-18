@@ -1,100 +1,102 @@
+use std::{collections::HashMap, str::FromStr, sync::OnceLock};
+
 use borg_vfs::{Entry, EntryKind};
+use ratatui::style::Color;
+use serde::Deserialize;
 
-use crate::kinds::{self, Kind};
-
-const PARENT: char = '\u{f148}';
-const FOLDER: char = '\u{f07b}';
-const FOLDER_LINK: char = '\u{f482}';
-const FILE: char = '\u{f15b}';
-const FILE_LINK: char = '\u{f481}';
-const EXECUTABLE: char = '\u{f489}';
-const SPECIAL: char = '\u{f128}';
-const CODE: char = '\u{f121}';
-const IMAGE: char = '\u{f1c5}';
-const ARCHIVE: char = '\u{f1c6}';
-const DOCUMENT: char = '\u{f15c}';
-const MEDIA: char = '\u{f1c8}';
-const CONFIG: char = '\u{e615}';
+const TABLE: &str = include_str!("../icons/devicons.toml");
+const PARENT: &str = "\u{f148}";
+const FOLDER: &str = "\u{f07b}";
+const FOLDER_LINK: &str = "\u{f482}";
+const FILE: &str = "\u{f15b}";
+const FILE_LINK: &str = "\u{f481}";
+const EXECUTABLE: &str = "\u{f489}";
+const SPECIAL: &str = "\u{f128}";
 const EXTENSION_SEPARATOR: char = '.';
 
-const BY_NAME: [(&str, char); 10] = [
-    (".git", '\u{e5fb}'),
-    (".github", '\u{e5fd}'),
-    ("node_modules", '\u{e5fa}'),
-    (".gitignore", '\u{e702}'),
-    (".gitattributes", '\u{e702}'),
-    ("dockerfile", '\u{f308}'),
-    ("makefile", '\u{e779}'),
-    ("cargo.toml", '\u{e7a8}'),
-    ("cargo.lock", '\u{e7a8}'),
-    ("license", '\u{f0219}'),
-];
-
-const BY_EXTENSION: [(&str, char); 30] = [
-    ("rs", '\u{e7a8}'),
-    ("py", '\u{e606}'),
-    ("js", '\u{e74e}'),
-    ("mjs", '\u{e74e}'),
-    ("ts", '\u{e628}'),
-    ("tsx", '\u{e7ba}'),
-    ("jsx", '\u{e7ba}'),
-    ("go", '\u{e627}'),
-    ("c", '\u{e61e}'),
-    ("h", '\u{e61e}'),
-    ("cpp", '\u{e61d}'),
-    ("java", '\u{e738}'),
-    ("kt", '\u{e634}'),
-    ("swift", '\u{e755}'),
-    ("rb", '\u{e739}'),
-    ("php", '\u{e73d}'),
-    ("lua", '\u{e620}'),
-    ("html", '\u{e736}'),
-    ("css", '\u{e749}'),
-    ("sh", '\u{f489}'),
-    ("zsh", '\u{f489}'),
-    ("fish", '\u{f489}'),
-    ("md", '\u{e73e}'),
-    ("json", '\u{e60b}'),
-    ("toml", '\u{e615}'),
-    ("yaml", '\u{e615}'),
-    ("yml", '\u{e615}'),
-    ("lock", '\u{f023}'),
-    ("pdf", '\u{f1c1}'),
-    ("log", '\u{f18d}'),
-];
-
-pub fn parent() -> char {
-    PARENT
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Icon {
+    pub glyph: &'static str,
+    pub color: Option<Color>,
 }
 
-fn lookup<const N: usize>(table: &[(&str, char); N], key: &str) -> Option<char> {
-    table.iter().find(|(name, _)| *name == key).map(|(_, icon)| *icon)
-}
-
-fn by_kind(kind: Kind) -> char {
-    match kind {
-        Kind::Code => CODE,
-        Kind::Image => IMAGE,
-        Kind::Archive => ARCHIVE,
-        Kind::Document => DOCUMENT,
-        Kind::Media => MEDIA,
-        Kind::Config => CONFIG,
+impl Icon {
+    const fn plain(glyph: &'static str) -> Self {
+        Self { glyph, color: None }
     }
 }
 
-pub fn icon(entry: &Entry) -> char {
-    let lower = entry.name.to_ascii_lowercase();
-    let named = lookup(&BY_NAME, &lower);
+#[derive(Deserialize)]
+struct Rule {
+    name: String,
+    text: String,
+    fg: String,
+}
+
+#[derive(Default, Deserialize)]
+struct Table {
+    dirs: Vec<Rule>,
+    files: Vec<Rule>,
+    exts: Vec<Rule>,
+}
+
+struct Stored {
+    glyph: String,
+    color: Option<Color>,
+}
+
+impl Stored {
+    fn icon(&'static self) -> Icon {
+        Icon { glyph: &self.glyph, color: self.color }
+    }
+}
+
+struct IconSet {
+    dirs: HashMap<String, Stored>,
+    files: HashMap<String, Stored>,
+    exts: HashMap<String, Stored>,
+}
+
+fn index(rules: Vec<Rule>) -> HashMap<String, Stored> {
+    rules
+        .into_iter()
+        .map(|rule| (rule.name.to_lowercase(), Stored { glyph: rule.text, color: Color::from_str(&rule.fg).ok() }))
+        .collect()
+}
+
+fn set() -> &'static IconSet {
+    static SET: OnceLock<IconSet> = OnceLock::new();
+    SET.get_or_init(|| {
+        let table: Table = toml::from_str(TABLE).unwrap_or_default();
+        IconSet { dirs: index(table.dirs), files: index(table.files), exts: index(table.exts) }
+    })
+}
+
+fn by_extension(set: &'static IconSet, name: &str) -> Option<Icon> {
+    name.char_indices()
+        .skip(1)
+        .filter(|(_, c)| *c == EXTENSION_SEPARATOR)
+        .find_map(|(at, _)| set.exts.get(&name[at + EXTENSION_SEPARATOR.len_utf8()..]).map(Stored::icon))
+}
+
+pub fn parent() -> Icon {
+    Icon::plain(PARENT)
+}
+
+pub fn icon(entry: &Entry) -> Icon {
+    let set = set();
+    let name = entry.name.to_lowercase();
     match entry.kind {
-        EntryKind::Dir => named.unwrap_or(FOLDER),
-        EntryKind::Symlink { to_dir: true } => FOLDER_LINK,
-        EntryKind::Symlink { to_dir: false } => FILE_LINK,
-        EntryKind::Other => SPECIAL,
-        EntryKind::File => named
-            .or_else(|| lower.rsplit_once(EXTENSION_SEPARATOR).and_then(|(_, ext)| lookup(&BY_EXTENSION, ext)))
-            .or_else(|| entry.executable.then_some(EXECUTABLE))
-            .or_else(|| kinds::classify(&entry.name).map(by_kind))
-            .unwrap_or(FILE),
+        EntryKind::Dir => set.dirs.get(&name).map_or(Icon::plain(FOLDER), Stored::icon),
+        EntryKind::Symlink { to_dir: true } => Icon::plain(FOLDER_LINK),
+        EntryKind::Symlink { to_dir: false } => Icon::plain(FILE_LINK),
+        EntryKind::Other => Icon::plain(SPECIAL),
+        EntryKind::File => set
+            .files
+            .get(&name)
+            .map(Stored::icon)
+            .or_else(|| by_extension(set, &name))
+            .unwrap_or(Icon::plain(if entry.executable { EXECUTABLE } else { FILE })),
     }
 }
 
@@ -107,14 +109,24 @@ mod tests {
     }
 
     #[test]
-    fn picks_icons_by_name_extension_and_kind() {
-        assert_eq!(icon(&entry("main.rs", EntryKind::File, false)), '\u{e7a8}');
-        assert_eq!(icon(&entry("Cargo.toml", EntryKind::File, false)), '\u{e7a8}');
-        assert_eq!(icon(&entry(".git", EntryKind::Dir, false)), '\u{e5fb}');
-        assert_eq!(icon(&entry("src", EntryKind::Dir, false)), FOLDER);
-        assert_eq!(icon(&entry("photo.webp", EntryKind::File, false)), IMAGE);
-        assert_eq!(icon(&entry("run", EntryKind::File, true)), EXECUTABLE);
-        assert_eq!(icon(&entry("notes", EntryKind::File, false)), FILE);
-        assert_eq!(icon(&entry("latest", EntryKind::Symlink { to_dir: false }, false)), FILE_LINK);
+    fn the_embedded_table_loads() {
+        let set = set();
+        assert!(set.dirs.len() > 10 && set.files.len() > 100 && set.exts.len() > 100);
+    }
+
+    #[test]
+    fn icons_carry_their_own_colours() {
+        let rust = icon(&entry("main.rs", EntryKind::File, false));
+        assert_eq!(rust.color, Some(Color::Rgb(0xde, 0xa5, 0x84)));
+        let typings = icon(&entry("next-env.d.ts", EntryKind::File, false));
+        assert_ne!(typings, icon(&entry("app.ts", EntryKind::File, false)));
+        assert_eq!(
+            icon(&entry("Dockerfile", EntryKind::File, false)),
+            icon(&entry("dockerfile", EntryKind::File, false))
+        );
+        assert_eq!(icon(&entry(".git", EntryKind::Dir, false)).color, Some(Color::Rgb(0x00, 0xbc, 0xd4)));
+        assert_eq!(icon(&entry("src", EntryKind::Dir, false)), Icon::plain(FOLDER));
+        assert_eq!(icon(&entry("run", EntryKind::File, true)), Icon::plain(EXECUTABLE));
+        assert_eq!(icon(&entry("notes", EntryKind::File, false)), Icon::plain(FILE));
     }
 }

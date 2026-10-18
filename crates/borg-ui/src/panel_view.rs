@@ -493,12 +493,19 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buff
         Row::Entry(entry) => entry.name.as_str(),
     };
     let lead = match (decor.icons, row) {
-        (true, Row::Parent) => format!("{}{ICON_GAP}", icons::parent()),
-        (true, Row::Entry(entry)) => format!("{}{ICON_GAP}", icons::icon(entry)),
-        (false, Row::Parent) => NO_MARKER.to_string(),
-        (false, Row::Entry(entry)) => marker(entry).to_string(),
+        (true, Row::Parent) => Some(icons::parent()),
+        (true, Row::Entry(entry)) => Some(icons::icon(entry)),
+        (false, _) => None,
     };
-    let width = usize::from(area.width).saturating_sub(lead.chars().count());
+    let lead = match (lead, row) {
+        (Some(icon), _) => {
+            let color = icon.color.filter(|_| tone.fill.is_none());
+            Span::styled(format!("{}{ICON_GAP}", icon.glyph), color.map_or(tone.name, |fg| tone.name.fg(fg)))
+        }
+        (None, Row::Parent) => Span::styled(NO_MARKER.to_string(), tone.name),
+        (None, Row::Entry(entry)) => Span::styled(marker(entry).to_string(), tone.name),
+    };
+    let width = usize::from(area.width).saturating_sub(lead.width());
     let shown = format::truncate_end(name, width);
     let hits = match row {
         Row::Entry(entry) => decor.query.as_ref().and_then(|query| query.hits(entry)).unwrap_or_default(),
@@ -509,7 +516,7 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buff
     } else {
         tone.name.patch(decor.highlight)
     };
-    let spans = std::iter::once(Span::styled(lead, tone.name)).chain(highlighted(&shown, &hits, tone.name, highlight));
+    let spans = std::iter::once(lead).chain(highlighted(&shown, &hits, tone.name, highlight));
     Line::from(spans.collect::<Vec<_>>()).render(area, buf);
 }
 
