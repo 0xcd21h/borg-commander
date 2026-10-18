@@ -166,7 +166,7 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
         }
         ShellSignal::CommandEnd { .. } => Vec::new(),
         ShellSignal::Cwd { path, .. } => {
-            let follow = path != state.active_panel().destination();
+            let follow = path != state.shell.cwd && path != state.active_panel().destination();
             state.shell.cwd = path.clone();
             if follow { vec![state.navigate(state.active, path, None)] } else { Vec::new() }
         }

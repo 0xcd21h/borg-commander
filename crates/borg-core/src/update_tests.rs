@@ -685,3 +685,18 @@ fn quick_find_needs_an_empty_command_line() {
     assert!(state.overlay.is_none());
     assert_eq!(writes(&effects), "\u{13}");
 }
+
+#[test]
+fn repeated_shell_directory_reports_do_not_pull_panels_back() {
+    let (mut state, now) = setup();
+    let shell_dir = state.shell.cwd.clone();
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(matches!(effects.first(), Some(Effect::List { .. })));
+    let entered = state.active_panel().destination().to_path_buf();
+
+    let again = ShellSignal::Cwd { path: shell_dir, host: String::new() };
+    assert!(update(&mut state, Msg::Signal(again), now).is_empty());
+    assert_eq!(state.active_panel().destination(), entered);
+}
