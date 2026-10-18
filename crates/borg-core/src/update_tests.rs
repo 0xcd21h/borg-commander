@@ -922,3 +922,17 @@ fn paste_lands_in_the_composer_with_its_newlines() {
     let Some(Overlay::Composer(composer)) = &state.overlay else { panic!("composer closed") };
     assert_eq!(composer.text(), "a\nb");
 }
+
+#[test]
+fn menu_bar_reopens_where_it_was_left() {
+    let (mut state, now) = setup();
+    press(&mut state, now, key(KeyCode::F(9)));
+    press(&mut state, now, key(KeyCode::Right));
+    press(&mut state, now, key(KeyCode::Right));
+    press(&mut state, now, key(KeyCode::Down));
+    let Some(Overlay::Menu(left_at)) = state.overlay else { panic!("menu must be open") };
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+    press(&mut state, now, key(KeyCode::F(9)));
+    assert_eq!(state.overlay, Some(Overlay::Menu(left_at)));
+}

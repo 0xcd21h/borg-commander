@@ -8,6 +8,7 @@ const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 2;
 const MENU_TITLES: &str = "Left    File    Command    Options    Right";
+const MENU_NAMES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
@@ -54,10 +55,17 @@ fn open_theme_picker(app: &mut Session) -> Result<()> {
     Ok(())
 }
 
+fn open_menu_index(snapshot: &Snapshot) -> Option<usize> {
+    let bar = snapshot.style_at(0, 0).bg;
+    MENU_NAMES.iter().position(|name| snapshot.find(name).is_some_and(|(x, y)| snapshot.style_at(x, y).bg != bar))
+}
+
 fn open_menu(app: &mut Session, index: usize, item: &str) -> Result<()> {
     app.send(keys::f(9))?;
     app.wait_text(MENU_TITLES)?;
-    (0..index).try_for_each(|_| app.send(keys::right()).map(drop))?;
+    let current = open_menu_index(&app.settle()?).ok_or_else(|| anyhow::anyhow!("no menu is open"))?;
+    let steps = (index + MENU_NAMES.len() - current) % MENU_NAMES.len();
+    (0..steps).try_for_each(|_| app.send(keys::right()).map(drop))?;
     app.wait_text(item)?;
     Ok(())
 }

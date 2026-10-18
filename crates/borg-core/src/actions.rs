@@ -78,7 +78,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             effects.push(Effect::SaveConfig);
             effects
         }
-        Action::OpenMenuBar => open_menu(state, if side == Side::Left { 0 } else { menus(state).len() - 1 }),
+        Action::OpenMenuBar => open_menu_bar(state, side),
         Action::OpenFileMenu => open_menu(state, FILE_MENU),
         Action::About => {
             state.overlay = Some(Overlay::About(crate::About::default()));
@@ -176,6 +176,22 @@ fn open_menu(state: &mut AppState, menu: usize) -> Vec<Effect> {
     let item = menus(state).get(menu).and_then(crate::Menu::first_enabled);
     state.overlay = Some(Overlay::Menu(MenuCursor { menu, item }));
     Vec::new()
+}
+
+fn open_menu_bar(state: &mut AppState, side: Side) -> Vec<Effect> {
+    let all = menus(state);
+    let resumed = state.last_menu.and_then(|last| {
+        let menu = all.get(last.menu)?;
+        let usable = |index: &usize| menu.item(*index).is_some_and(|item| item.enabled);
+        Some(MenuCursor { item: last.item.filter(usable).or_else(|| menu.first_enabled()), ..last })
+    });
+    match resumed {
+        Some(cursor) => {
+            state.overlay = Some(Overlay::Menu(cursor));
+            Vec::new()
+        }
+        None => open_menu(state, if side == Side::Left { 0 } else { all.len() - 1 }),
+    }
 }
 
 fn prompt(state: &mut AppState, title: &'static str, label: &str, value: &str, purpose: PromptPurpose) -> Vec<Effect> {
