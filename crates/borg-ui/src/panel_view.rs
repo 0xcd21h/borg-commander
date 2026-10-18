@@ -14,7 +14,9 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    CursorShape, format,
+    CursorShape,
+    blend::crossfade,
+    format,
     fx::{self, Gradient},
     icons, kinds,
     look::Look,
@@ -46,8 +48,7 @@ const BAR_FULL: char = '━';
 const BAR_HALF: char = '╸';
 const BAR_STEPS: usize = 2;
 const BAR_VISIBILITY: f32 = 0.7;
-const SLIDE_SHARE: f32 = 0.3;
-const SLIDE_FADE: f32 = 0.8;
+const SLIDE_SHARE: f32 = 0.35;
 const GLOW_FALLOFF: f32 = 0.5;
 const COMET_WIDTH: u16 = 14;
 const PROGRESS_FILL: char = '━';
@@ -140,13 +141,11 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
         fx::erase_border(buf, area);
     }
 
-    let scroll = scene.motion.scroll(scene.now, scene.panel.scroll());
-    match scene.panel.mode() {
-        ListingMode::Full => draw_full(scene, look, body, scroll, buf),
-        ListingMode::Brief => draw_brief(scene, look, body, scroll, border, buf),
-    }
-    if scene.panel.listing() == &Listing::Ready && scene.panel.entries().is_empty() {
-        draw_empty(scene, look, body, buf);
+    match (scene.motion.slide(scene.now), scene.panel.previous()) {
+        (Some((direction, progress)), Some(previous)) => {
+            slide(scene, previous, Motion { direction, progress, border }, look, body, buf);
+        }
+        _ => draw_body(scene, look, body, Some(border), buf),
     }
 
     let edge = |y: u16, width: usize| Rect { x: area.x + 1, y, width: u16::try_from(width).unwrap_or(0), height: 1 };
@@ -160,9 +159,6 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
             draw_comet(look, area, footer_width, buf);
         }
         None => {}
-    }
-    if let Some((direction, progress)) = scene.motion.slide(scene.now) {
-        slide(body.inner, direction, progress, look, buf);
     }
     scene.find.map(|(find, _)| {
         let typed: String = find.input.text().chars().take(find.input.cursor_chars()).collect();
@@ -275,16 +271,69 @@ fn draw_progress(look: &Look<'_>, area: Rect, footer_width: usize, fraction: f32
     }
 }
 
-fn slide(inner: Rect, direction: SlideDirection, progress: f32, look: &Look<'_>, buf: &mut Buffer) {
-    let distance = f32::from(inner.width) * SLIDE_SHARE * (1.0 - progress);
-    let dx = match direction {
-        SlideDirection::Forward => distance.round() as i32,
-        SlideDirection::Back => -(distance.round() as i32),
+fn draw_body(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, separators: Option<Style>, buf: &mut Buffer) {
+    let scroll = scene.motion.scroll(scene.now, scene.panel.scroll());
+    match scene.panel.mode() {
+        ListingMode::Full => draw_full(scene, look, body, scroll, buf),
+        ListingMode::Brief => draw_brief(scene, look, body, scroll, separators, buf),
+    }
+    if scene.panel.listing() == &Listing::Ready && scene.panel.entries().is_empty() {
+        draw_empty(scene, look, body, buf);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Motion {
+    direction: SlideDirection,
+    progress: f32,
+    border: Style,
+}
+
+fn layer(scene: &PanelScene<'_>, look: &Look<'_>, body: Body) -> Buffer {
+    let mut layer = Buffer::empty(scene.area);
+    layer.set_style(scene.area, look.styles().panel);
+    draw_body(scene, look, body, None, &mut layer);
+    layer
+}
+
+fn slide(scene: &PanelScene<'_>, previous: &Panel, motion: Motion, look: &Look<'_>, body: Body, buf: &mut Buffer) {
+    let departed = PanelScene {
+        panel: previous,
+        active: scene.active,
+        area: scene.area,
+        motion: scene.motion,
+        activity: None,
+        delight: scene.delight,
+        icons: scene.icons,
+        icon_spacing: scene.icon_spacing,
+        find: None,
+        underlay: scene.underlay,
+        home: scene.home,
+        clock: scene.clock,
+        now: scene.now,
+    };
+    let mut incoming = layer(scene, look, body);
+    let mut outgoing = layer(&departed, look, body);
+    let distance = f32::from(body.inner.width) * SLIDE_SHARE;
+    let (arriving, leaving) = match motion.direction {
+        SlideDirection::Forward => (distance * (1.0 - motion.progress), -distance * motion.progress),
+        SlideDirection::Back => (-distance * (1.0 - motion.progress), distance * motion.progress),
     };
     let mut fill = Cell::default();
     fill.set_style(look.styles().panel);
-    fx::shift(buf, inner, dx, &fill);
-    fx::fade_to_background(buf, inner, (1.0 - progress) * SLIDE_FADE, look.palette);
+    fx::shift(&mut incoming, body.inner, arriving.round() as i32, &fill);
+    fx::shift(&mut outgoing, body.inner, leaving.round() as i32, &fill);
+    let mut mixed = Buffer::empty(scene.area);
+    crossfade(&incoming, &outgoing, motion.progress, look.palette, &mut mixed);
+    let inner = body.inner.intersection(buf.area);
+    for y in inner.top()..inner.bottom() {
+        for x in inner.left()..inner.right() {
+            buf[(x, y)] = mixed[(x, y)].clone();
+        }
+    }
+    if scene.panel.mode() == ListingMode::Brief {
+        draw_separators(scene.panel, body, motion.border, buf);
+    }
 }
 
 fn draw_empty(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, buf: &mut Buffer) {
@@ -368,7 +417,14 @@ fn paint_cursor(
     }
 }
 
-fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize, border: Style, buf: &mut Buffer) {
+fn draw_brief(
+    scene: &PanelScene<'_>,
+    look: &Look<'_>,
+    body: Body,
+    scroll: usize,
+    separators: Option<Style>,
+    buf: &mut Buffer,
+) {
     let panel = scene.panel;
     let columns = panel.mode().columns();
     let constraints = (0..columns).map(|_| Constraint::Ratio(1, u32::try_from(columns).unwrap_or(1)));
@@ -389,6 +445,15 @@ fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize
         }
     }
 
+    if let Some(border) = separators {
+        draw_separators(panel, body, border, buf);
+    }
+}
+
+fn draw_separators(panel: &Panel, body: Body, border: Style, buf: &mut Buffer) {
+    let columns = panel.mode().columns();
+    let constraints = (0..columns).map(|_| Constraint::Ratio(1, u32::try_from(columns).unwrap_or(1)));
+    let cells = Layout::horizontal(constraints).split(body.content);
     for column in cells.iter().take(columns.saturating_sub(1)) {
         let x = column.x + column.width.saturating_sub(1);
         (body.content.y..body.content.bottom()).for_each(|y| {

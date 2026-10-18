@@ -96,11 +96,19 @@ pub(crate) fn animate(state: &mut AppState, before: &[Before; 2], now: Instant) 
                 direction,
                 progress: Fade::settled(SETTLED, now).toward(ARRIVED, now, duration, Easing::OutCubic),
             });
+            if motion.slide(now).is_none() {
+                state.panels[side.index()].forget_previous();
+            }
+            let motion = &mut state.motions[side.index()];
             motion.scroll = Fade::settled(scroll as f32, now);
             motion.cursor = Fade::settled(cursor as f32, now);
             motion.arrived = now;
             continue;
         }
+        if motion.slide(now).is_none() {
+            state.panels[side.index()].forget_previous();
+        }
+        let motion = &mut state.motions[side.index()];
         if cursor != previous.cursor {
             let from = motion.cursor(now, previous.cursor);
             motion.cursor = Fade::settled(from, now).toward(cursor as f32, now, glide, Easing::OutCubic);

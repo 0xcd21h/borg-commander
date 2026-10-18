@@ -96,6 +96,7 @@ pub struct Panel {
     focus: Option<Anchor>,
     replacing: bool,
     largest: u64,
+    previous: Option<Box<Panel>>,
 }
 
 impl Panel {
@@ -116,6 +117,7 @@ impl Panel {
             focus: None,
             replacing: false,
             largest: 0,
+            previous: None,
         }
     }
 
@@ -137,6 +139,14 @@ impl Panel {
 
     pub fn largest(&self) -> u64 {
         self.largest
+    }
+
+    pub fn previous(&self) -> Option<&Panel> {
+        self.previous.as_deref()
+    }
+
+    pub(crate) fn forget_previous(&mut self) {
+        self.previous = None;
     }
 
     pub fn mode(&self) -> ListingMode {
@@ -401,18 +411,36 @@ impl Panel {
 
     fn commit(&mut self) {
         let Some(incoming) = self.incoming.take() else { return };
-        self.dir = incoming.dir;
         self.generation = incoming.generation;
         self.focus = incoming.focus;
         self.replacing = incoming.refresh;
         self.pending.clear();
         self.listing = Listing::Loading;
         if !incoming.refresh {
-            self.marks.clear();
-            self.entries.clear();
+            let departed = Panel {
+                dir: std::mem::replace(&mut self.dir, incoming.dir),
+                generation: self.generation,
+                entries: std::mem::take(&mut self.entries),
+                pending: Vec::new(),
+                cursor: self.cursor,
+                scroll: self.scroll,
+                rows: self.rows,
+                mode: self.mode,
+                sort: self.sort,
+                marks: std::mem::take(&mut self.marks),
+                listing: Listing::Ready,
+                incoming: None,
+                focus: None,
+                replacing: false,
+                largest: self.largest,
+                previous: None,
+            };
+            self.previous = Some(Box::new(departed));
             self.largest = 0;
             self.cursor = 0;
             self.scroll = 0;
+        } else {
+            self.dir = incoming.dir;
         }
     }
 
