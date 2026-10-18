@@ -5,7 +5,7 @@ use ratatui::{
 
 use crate::{Palette, Rgb};
 
-const SHADOW_STRENGTH: f32 = 0.55;
+const SHADOW_STRENGTH: f32 = 0.35;
 const SHADOW_WIDTH: u16 = 2;
 const BOX_DRAWING: std::ops::RangeInclusive<char> = '\u{2500}'..='\u{257f}';
 

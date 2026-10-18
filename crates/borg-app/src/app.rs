@@ -17,7 +17,11 @@ use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
 use borg_ui::{Palette, Pixels, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
 use borg_view::{FileSource, Pager};
-use crossterm::event::{Event, EventStream, KeyEventKind};
+use crossterm::{
+    event::{Event, EventStream, KeyEventKind},
+    queue,
+    terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
+};
 use futures::StreamExt;
 use jiff::Zoned;
 use ratatui::{DefaultTerminal, layout::Size};
@@ -181,16 +185,16 @@ impl App {
     fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
         self.state.settle();
         let clock = local_now();
+        queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
         let mut output = self.draw_frame(terminal, &clock, now)?;
         if output.repaint {
             terminal.clear()?;
             output = self.draw_frame(terminal, &clock, now)?;
         }
-        if !output.bytes.is_empty() {
-            let backend = terminal.backend_mut();
-            backend.write_all(&output.bytes)?;
-            backend.flush()?;
-        }
+        let backend = terminal.backend_mut();
+        backend.write_all(&output.bytes)?;
+        queue!(backend, EndSynchronizedUpdate)?;
+        backend.flush()?;
         if let Some(error) = self.graphics.take_errors().first() {
             self.state.notice = Some(format!("{error}"));
         }

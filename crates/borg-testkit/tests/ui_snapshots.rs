@@ -572,3 +572,27 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     ensure_text(&buffer, "p pause · c cancel")?;
     check("job_list", &stage, buffer)
 }
+
+#[test]
+#[ignore = "timing report, run with --ignored --nocapture"]
+fn frame_cost() -> Result<()> {
+    let big = GridSize { cols: 220, rows: 60 };
+    for id in ["midnight", "neon", "paper"] {
+        let mut stage = stage(big, Motion::LOCAL)?;
+        select_theme(&mut stage, id);
+        let rounds = 60u32;
+        let start = std::time::Instant::now();
+        for i in 0..rounds {
+            stage.send(key(if i % 2 == 0 { KeyCode::Down } else { KeyCode::Up }));
+            stage.render(stage.started + Duration::from_secs(5))?;
+        }
+        let plain = start.elapsed() / rounds;
+        stage.send(key(KeyCode::F(8)));
+        let start = std::time::Instant::now();
+        for _ in 0..rounds {
+            stage.render(stage.started + Motion::LOCAL.fade / 2)?;
+        }
+        println!("{id}: cursor move {plain:?} per frame, dialog fading {:?} per frame", start.elapsed() / rounds);
+    }
+    Ok(())
+}

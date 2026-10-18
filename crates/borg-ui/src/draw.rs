@@ -287,6 +287,7 @@ fn draw_overlay(
     }
     let Some(overlay) = state.overlay.as_ref() else { return (None, surfaces) };
     let opacity = state.overlay_fade.value(scene.now);
+    backdrop(scene, look, layout, overlay, buf);
     let solid = underlay && opacity >= CURSOR_HANDOFF;
     let (cursor, shown) = layer(scene, look, layout, buf, overlay, opacity, solid);
     if solid {
@@ -318,6 +319,31 @@ fn layer(
     painted
 }
 
+fn bar_of(layout: &Layout, overlay: &Overlay) -> Option<Rect> {
+    let open = matches!(overlay, Overlay::Menu(_));
+    layout.menu.or_else(|| open.then_some(Rect { height: 1, ..layout.screen }))
+}
+
+fn backdrop(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, overlay: &Overlay, buf: &mut Buffer) {
+    let screen = layout.screen;
+    let bar = bar_of(layout, overlay);
+    let (amount, area) = match overlay {
+        Overlay::Find(_) => return,
+        Overlay::Menu(_) => {
+            let below = bar.map_or(screen.y, |bar| bar.bottom());
+            (MENU_BACKDROP, Rect { y: below, height: screen.bottom().saturating_sub(below), ..screen })
+        }
+        _ => (BACKDROP, screen),
+    };
+    fx::fade_to_background(buf, area, amount, scene.palette);
+    if let (Some(bar), Overlay::Menu(cursor)) = (bar, overlay) {
+        menu_view::draw_menu_bar(&menus(scene.state), Some(cursor.menu), bar, look.theme, buf);
+    }
+    if matches!(overlay, Overlay::About(_)) && scene.state.raining(scene.now) {
+        art_view::draw_rain_backdrop(look, screen, buf);
+    }
+}
+
 fn paint_overlay(
     scene: &Scene<'_>,
     look: &Look<'_>,
@@ -335,21 +361,7 @@ fn paint_overlay(
         Overlay::Menu(cursor) => Some(*cursor),
         _ => None,
     };
-    let bar = layout.menu.or_else(|| open.map(|_| Rect { height: 1, ..screen }));
-    let (amount, backdrop) = match overlay {
-        Overlay::Menu(_) => {
-            let below = bar.map_or(screen.y, |bar| bar.bottom());
-            (MENU_BACKDROP, Rect { y: below, height: screen.bottom().saturating_sub(below), ..screen })
-        }
-        _ => (BACKDROP, screen),
-    };
-    fx::darken(buf, backdrop, amount, scene.palette);
-    if let (Some(bar), Some(cursor)) = (bar, open) {
-        menu_view::draw_menu_bar(&all, Some(cursor.menu), bar, theme, buf);
-    }
-    if matches!(overlay, Overlay::About(_)) && state.raining(scene.now) {
-        art_view::draw_rain_backdrop(look, screen, buf);
-    }
+    let bar = bar_of(layout, overlay);
 
     let before = (progress < FULLY_SHOWN).then(|| buf.clone());
     let (rect, cursor, unfold) = match overlay {
