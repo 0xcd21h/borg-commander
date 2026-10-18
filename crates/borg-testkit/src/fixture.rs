@@ -21,8 +21,9 @@ const RUNTIME: &str = "run";
 const STATE: &str = "state";
 const EXECUTABLE_MODE: u32 = 0o755;
 
-const SHELL_RC: [(&str, &str); 3] = [
+const SHELL_RC: [(&str, &str); 4] = [
     (".bashrc", "PS1='$ '\n"),
+    (".zshenv", "skip_global_compinit=1\n"),
     (".zshrc", "PROMPT='$ '\nRPROMPT=''\nPROMPT_EOL_MARK=''\n"),
     (".config/fish/config.fish", "set -g fish_greeting ''\nfunction fish_prompt\n    printf '$ '\nend\n"),
 ];

@@ -33,8 +33,13 @@ const ENV_CONFIG_DIR: &str = "BORG_CONFIG_DIR";
 const ENV_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 const ENV_STATE_DIR: &str = "BORG_STATE_DIR";
 const PASSTHROUGH_ENV: [&str; 1] = [ENV_PATH];
-const FIXED_ENV: [(&str, &str); 4] =
-    [("TERM", "xterm-256color"), ("TZ", "UTC"), ("LANG", "C.UTF-8"), ("LC_ALL", "C.UTF-8")];
+const FIXED_ENV: [(&str, &str); 5] = [
+    ("TERM", "xterm-256color"),
+    ("TZ", "UTC"),
+    ("LANG", "C.UTF-8"),
+    ("LC_ALL", "C.UTF-8"),
+    ("BASH_SILENCE_DEPRECATION_WARNING", "1"),
+];
 const TRUECOLOR_ENV: (&str, &str) = ("COLORTERM", "truecolor");
 
 enum Output {

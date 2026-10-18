@@ -198,17 +198,26 @@ fn enter_runs_executables() -> Result<()> {
 
 #[test]
 fn full_screen_programs_capture_every_key() -> Result<()> {
+    const KEY_GRABBER: &str = "keygrab.sh";
+    const SCRIPT: &str = r#"printf '\033[?1049h\033[Hwaiting-for-key'
+stty raw -echo
+key=$(dd bs=1 count=1 2>/dev/null)
+stty sane
+printf '\033[?1049l'
+echo "got=$(printf '%s' "$key" | od -An -tu1 | tr -d ' ')"
+"#;
+    const CTRL_O_CODE: &str = "got=15";
+
     let fixture = fixture()?;
+    let script = fixture.home().join(KEY_GRABBER);
+    fs::write(&script, SCRIPT)?;
     let mut app = start(&fixture, "fullscreen")?;
 
-    app.send("less notes.txt")?.send(keys::enter())?;
-    app.wait_text("(END)")?;
+    app.send(format!("sh '{}'", script.display()))?.send(keys::enter())?;
+    app.wait_until("full-screen program running", |s| s.contains("waiting-for-key") && !s.contains(READY))?;
     app.send(keys::ctrl('o'))?;
-    let screen = app.settle()?;
-    ensure!(screen.contains("hello") && !screen.contains(READY), "ctrl-o escaped less\n{}", screen.text());
+    app.wait_until("ctrl-o delivered to the program", |s| s.contains(CTRL_O_CODE) && !s.contains(READY))?;
 
-    app.send("q")?;
-    app.wait_gone("(END)")?;
     app.send(keys::ctrl('o'))?;
     app.wait_text(READY)?;
     Ok(())
@@ -314,8 +323,9 @@ fn borg_refuses_to_start_inside_itself() -> Result<()> {
     let mut app = start(&fixture, "nested")?;
 
     app.send(format!("'{BORG}'; echo nested-exit=$?"))?.send(keys::enter())?;
-    let screen = app.wait_text("nested-exit=1")?;
-    ensure!(screen.contains("borg is already running"), "missing explanation\n{}", screen.text());
+    app.wait_until("refusal with explanation", |s| {
+        s.contains("nested-exit=1") && s.contains("borg is already running")
+    })?;
     app.send(keys::ctrl('o'))?;
     app.wait_text(READY)?;
     Ok(())
