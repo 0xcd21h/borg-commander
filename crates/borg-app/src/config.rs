@@ -34,6 +34,7 @@ pub struct Config {
     pub pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
+    pub update_check: Option<bool>,
 }
 
 impl Config {
@@ -70,6 +71,10 @@ impl Config {
         self.graphics.as_deref().map_or(Ok(Preference::default()), str::parse)
     }
 
+    pub fn update_check(&self) -> bool {
+        self.update_check.unwrap_or(true)
+    }
+
     pub fn unlocked(&self) -> &[String] {
         self.unlocked.as_deref().unwrap_or_default()
     }
@@ -92,6 +97,7 @@ impl Config {
             pixel_chrome: Some(prefs.pixel_chrome),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
+            update_check: self.update_check,
         }
     }
 }

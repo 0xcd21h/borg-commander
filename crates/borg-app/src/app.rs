@@ -117,6 +117,9 @@ impl App {
         let mut last_draw = Instant::now() - self.state.settings.motion.frame;
         let mut animating = false;
 
+        if let Some(dir) = self.state_dir.clone().filter(|_| self.config.update_check()) {
+            crate::update::check_in_background(dir, self.messages.clone());
+        }
         let initial = std::mem::take(&mut self.pending);
         if let Flow::Quit = self.apply(initial)? {
             return Ok(());

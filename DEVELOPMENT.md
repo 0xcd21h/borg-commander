@@ -184,6 +184,39 @@ the release binary in a PTY, plays a list of key presses and records the screen 
 only the pixels that changed, which keeps the file small. The README demo uses JetBrains Mono
 through `BORG_SCREENSHOT_FONT`.
 
+## Versions and releases
+
+borg uses semantic versioning. The version lives once, in `[workspace.package]` of the root
+`Cargo.toml`, and every crate inherits it. To release:
+
+1. Bump `version` in `Cargo.toml`, run `cargo check` so `Cargo.lock` follows, and commit.
+2. Tag the commit with the same version and push the tag:
+
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+`.github/workflows/release.yml` then:
+
+- checks that the tag matches the crate version (`scripts/check-version.sh`),
+- builds static Linux binaries (musl, x86_64 and arm64, with `cargo zigbuild`) and macOS
+  binaries (Intel and Apple Silicon),
+- packages each as `borg-<version>-<target>.tar.gz` with a `.sha256` file
+  (`scripts/package.sh`),
+- creates the GitHub release with generated notes and attaches everything,
+- renders the Homebrew formula from `packaging/homebrew/borg-commander.rb.in`
+  (`scripts/homebrew-formula.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
+  to the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`).
+
+One-time setup for Homebrew: create the public repository `homebrew-tap` and add a
+fine-grained token with *Contents: read and write* on it as the `HOMEBREW_TAP_TOKEN` secret of
+this repository. Users then install with `brew install 0xcd21h/tap/borg-commander`.
+
+`borg update` and the daily check live in `crates/borg-update`: they read the latest release
+from the GitHub API, pick the archive for the target borg was built for (`BORG_TARGET`, set by
+`crates/borg-app/build.rs`), verify the checksum and swap the binary in place.
+
 ## Conventions
 
 - No comments in code: names, types and small functions carry the meaning.

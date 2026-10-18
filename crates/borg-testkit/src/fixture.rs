@@ -21,8 +21,7 @@ const RUNTIME: &str = "run";
 const STATE: &str = "state";
 const EXECUTABLE_MODE: u32 = 0o755;
 const CONFIG_FILE: &str = "config.toml";
-const SPLASH_KEY: &str = "startup-animation";
-const QUIET_CONFIG: &str = "startup-animation = false\n";
+const QUIET: [(&str, &str); 2] = [("startup-animation", "false"), ("update-check", "false")];
 
 const SHELL_RC: [(&str, &str); 4] = [
     (".bashrc", "PS1='$ '\n"),
@@ -48,7 +47,9 @@ impl Fixture {
     }
 
     pub fn configure(&self, body: &str) -> io::Result<()> {
-        let quiet = if body.lines().any(|line| line.trim_start().starts_with(SPLASH_KEY)) { "" } else { QUIET_CONFIG };
+        let mentioned = |key: &str| body.lines().any(|line| line.trim_start().starts_with(key));
+        let quiet: String =
+            QUIET.iter().filter(|(key, _)| !mentioned(key)).map(|(key, value)| format!("{key} = {value}\n")).collect();
         write_file(&self.config_file(), format!("{quiet}{body}").as_bytes())
     }
 

@@ -1,6 +1,7 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -16,6 +17,7 @@ const DOT_STATE: [&str; 2] = [".local", "state"];
 const APP_DIR: &str = "borg-commander";
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
+const UPDATE_CHECK_FILE: &str = "update-check";
 pub const RESTORED_LINES: usize = 2000;
 pub const RESTORED_MARKER: &[u8] = b"\r\n\x1b[2m-- restored from the previous session --\x1b[0m\r\n";
 
@@ -137,6 +139,20 @@ impl StateDir {
         }
     }
 
+    pub fn update_check_due(&self, now: SystemTime, every: Duration) -> bool {
+        let last = fs::read_to_string(self.0.join(UPDATE_CHECK_FILE))
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .map(|secs| UNIX_EPOCH + Duration::from_secs(secs));
+        last.is_none_or(|last| now.duration_since(last).is_ok_and(|age| age >= every))
+    }
+
+    pub fn record_update_check(&self, now: SystemTime) -> Result<()> {
+        self.ensure()?;
+        let secs = now.duration_since(UNIX_EPOCH).map(|age| age.as_secs()).unwrap_or_default();
+        write_atomically(&self.0.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
+    }
+
     fn ensure(&self) -> Result<()> {
         fs::create_dir_all(&self.0).with_context(|| format!("creating {}", self.0.display()))
     }
@@ -203,6 +219,18 @@ impl From<SortName> for SortKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_checks_are_due_once_a_day() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let state = StateDir(dir.path().join("state"));
+        let day = Duration::from_secs(86_400);
+        let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        assert!(state.update_check_due(now, day));
+        state.record_update_check(now).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!state.update_check_due(now + day / 2, day));
+        assert!(state.update_check_due(now + day, day));
+    }
 
     fn saved(left: &Path, right: &Path) -> Session {
         let panel = |dir: &Path, focus: &str| PanelState {

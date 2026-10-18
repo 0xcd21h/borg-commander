@@ -65,13 +65,37 @@ shell, and back again.
 
 ### Install
 
-You need a recent Rust toolchain (1.97 or newer). Then:
+With Homebrew (macOS and Linux):
+
+```sh
+brew install 0xcd21h/tap/borg-commander
+```
+
+With the install script (macOS and Linux, Intel and ARM; installs to `~/.local/bin`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install.sh | sh
+```
+
+Or from source with Rust 1.97 or newer:
 
 ```sh
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-This installs a single binary called `borg`. Prebuilt binaries and Homebrew are on the way.
+Every option installs a single binary called `borg`. Prebuilt binaries are also attached to each
+[GitHub release](https://github.com/0xcd21h/borg-commander/releases).
+
+### Update
+
+```sh
+borg update
+```
+
+borg checks for a new release once a day in the background and tells you when one is out
+(turn that off with `update-check = false`). `borg update` downloads the new version, checks
+its SHA-256 and replaces itself. If borg came from Homebrew or cargo it tells you the
+matching upgrade command instead. `borg --version` prints the version.
 
 ### Run
 
@@ -182,6 +206,7 @@ startup-animation = true
 screensaver = false
 screensaver-after = 300     # seconds of idle time
 delight = true              # little surprises
+update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 pixel-chrome = true         # pixel-drawn panels where the terminal supports it
 ```

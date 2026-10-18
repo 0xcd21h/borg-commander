@@ -3,6 +3,7 @@ mod config;
 mod launch;
 mod session;
 mod store;
+mod update;
 
 use std::{env, io::stdout, process::ExitCode};
 
@@ -21,11 +22,43 @@ use ratatui::DefaultTerminal;
 
 use crate::{app::App, launch::Launch};
 
+const USAGE_ERROR: u8 = 2;
+
+const USAGE: &str = "usage: borg [update | --version | --help]
+
+  borg            open the commander in the current folder
+  borg update     update borg to the latest release
+  borg --version  print the version";
+
 const NESTED_MESSAGE: &str =
     "borg is already running in this terminal. Press Ctrl-O to get back to it, or type `exit` to close this shell.";
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
+    match env::args().nth(1).as_deref() {
+        None => {}
+        Some("--version" | "-V") => {
+            println!("borg {}", update::VERSION);
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some("--help" | "-h") => {
+            println!("{USAGE}");
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some("update") => {
+            return Ok(match tokio::task::spawn_blocking(update::run).await? {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("borg update failed: {error:#}");
+                    ExitCode::FAILURE
+                }
+            });
+        }
+        Some(other) => {
+            eprintln!("borg: unknown argument {other:?}\n\n{USAGE}");
+            return Ok(ExitCode::from(USAGE_ERROR));
+        }
+    }
     if env::var_os(borg_term::SESSION_MARKER).is_some() {
         eprintln!("{NESTED_MESSAGE}");
         return Ok(ExitCode::FAILURE);
