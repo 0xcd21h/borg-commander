@@ -4,8 +4,8 @@ use std::{
 };
 
 use tiny_skia::{
-    Color, FillRule, GradientStop, LinearGradient, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Point, Shader,
-    SpreadMode, Stroke as Line, Transform,
+    Color, FillRule, FilterQuality, GradientStop, LinearGradient, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint,
+    Point, Shader, SpreadMode, Stroke as Line, Transform,
 };
 
 use crate::{GfxError, Picture};
@@ -14,6 +14,7 @@ const KAPPA: f32 = 0.552_284_8;
 const BLUR_PASSES: usize = 3;
 const CACHE_LIMIT: usize = 96;
 const CHANNELS: usize = 4;
+const GLOW_DOWNSAMPLE: u32 = 4;
 const HALF: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -164,13 +165,16 @@ fn card(card: &Card) -> Option<Pixmap> {
     );
 
     if let Some(glow) = card.glow {
-        let mut halo = Pixmap::new(w.max(1), h.max(1))?;
+        let factor = GLOW_DOWNSAMPLE as f32;
+        let down = Transform::from_scale(1.0 / factor, 1.0 / factor);
+        let mut halo = Pixmap::new(w.div_ceil(GLOW_DOWNSAMPLE).max(1), h.div_ceil(GLOW_DOWNSAMPLE).max(1))?;
         let line = Line { width: glow.reach as f32 * 2.0, ..Line::default() };
-        halo.stroke_path(&body, &paint(Shader::SolidColor(glow.color.color())), &line, Transform::identity(), None);
-        blur(&mut halo, glow.reach);
+        halo.stroke_path(&body, &paint(Shader::SolidColor(glow.color.color())), &line, down, None);
+        blur(&mut halo, glow.reach.div_ceil(GLOW_DOWNSAMPLE));
         let mut clip = Mask::new(w.max(1), h.max(1))?;
         clip.fill_path(&body, FillRule::Winding, true, Transform::identity());
-        pixmap.draw_pixmap(0, 0, halo.as_ref(), &PixmapPaint::default(), Transform::identity(), Some(&clip));
+        let smooth = PixmapPaint { quality: FilterQuality::Bilinear, ..PixmapPaint::default() };
+        pixmap.draw_pixmap(0, 0, halo.as_ref(), &smooth, Transform::from_scale(factor, factor), Some(&clip));
     }
 
     if let Some(stroke) = card.border {

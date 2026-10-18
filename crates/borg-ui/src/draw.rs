@@ -248,7 +248,6 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
                 area: rect,
                 active,
                 pill: aside.is_none(),
-                dim: backdrop,
                 now: scene.now,
             };
             cards.extend(underlay::panel(&spec, &look, cell));
@@ -276,6 +275,9 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
         let dimmed = backdrop > FULLY_HIDDEN;
         for rect in layout.panels.iter().copied().filter(|_| !dimmed) {
             cards.extend(underlay::highlights(&buf, rect, &panel_base, underlay::Layer::Panel, &look, cell));
+        }
+        if let Some(overlay) = state.overlay.as_ref().filter(|_| dimmed) {
+            cards.extend(underlay::scrim(backdrop_area(&layout, overlay), backdrop, &look));
         }
         cards.extend(shown.iter().flat_map(|surface| match surface {
             Surface::Card(rect) => {
@@ -357,18 +359,26 @@ fn bar_of(layout: &Layout, overlay: &Overlay) -> Option<Rect> {
     layout.menu.or_else(|| open.then_some(Rect { height: 1, ..layout.screen }))
 }
 
+fn backdrop_area(layout: &Layout, overlay: &Overlay) -> Rect {
+    let screen = layout.screen;
+    match overlay {
+        Overlay::Menu(_) => {
+            let below = bar_of(layout, overlay).map_or(screen.y, |bar| bar.bottom());
+            Rect { y: below, height: screen.bottom().saturating_sub(below), ..screen }
+        }
+        _ => screen,
+    }
+}
+
 fn backdrop(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, overlay: &Overlay, buf: &mut Buffer) {
     let screen = layout.screen;
     let bar = bar_of(layout, overlay);
-    let (amount, area) = match overlay {
+    let amount = match overlay {
         Overlay::Find(_) | Overlay::Composer(_) => return,
-        Overlay::Menu(_) => {
-            let below = bar.map_or(screen.y, |bar| bar.bottom());
-            (MENU_BACKDROP, Rect { y: below, height: screen.bottom().saturating_sub(below), ..screen })
-        }
-        _ => (BACKDROP, screen),
+        Overlay::Menu(_) => MENU_BACKDROP,
+        _ => BACKDROP,
     };
-    fx::fade_to_background(buf, area, amount, scene.palette);
+    fx::fade_to_background(buf, backdrop_area(layout, overlay), amount, scene.palette);
     if let (Some(bar), Overlay::Menu(cursor)) = (bar, overlay) {
         menu_view::draw_menu_bar(&menus(scene.state), Some(cursor.menu), bar, look.theme, buf);
     }

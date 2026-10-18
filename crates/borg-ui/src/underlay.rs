@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use borg_core::{ListingMode, Panel, PanelMotion};
-use borg_gfx::{Axis, Card, CellSize, Fill, Glow, Placement, Rgba, Shadow, Shape, Stroke, draw};
+use borg_gfx::{Axis, Card, CellSize, Fill, Glow, Picture, Placement, Rgba, Shadow, Shape, Stroke, draw};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -17,17 +17,20 @@ const OVERLAY_HIGHLIGHT_Z: i32 = -9;
 const HIGHLIGHT_RADIUS_SHARE: f32 = 0.3;
 const HALO_Z: i32 = -35;
 const CURSOR_Z: i32 = -30;
+const SCRIM_Z: i32 = -25;
 const SHADOW_Z: i32 = -20;
 const OVERLAY_Z: i32 = -10;
 const OPAQUE: u8 = u8::MAX;
+const MAX_CARD_PIXELS: f32 = 1_000_000.0;
 const RADIUS_SHARE: f32 = 0.42;
 const PILL_RADIUS_SHARE: f32 = 0.5;
 const BORDER_DIVISOR: u16 = 9;
 const LIFT: f32 = 0.06;
-const BREATH_STEPS: f32 = 6.0;
 const HALO_STRENGTH: f32 = 0.9;
 const SHADOW_STRENGTH: f32 = 0.6;
-const SHADOW_DROP_SHARE: f32 = 0.35;
+const SHADOW_ROWS: u16 = 1;
+const SHADOW_COLUMNS: u16 = 2;
+const MAX_SHADOW_PIXELS: f32 = 160_000.0;
 
 pub struct PanelCards<'a> {
     pub panel: &'a Panel,
@@ -35,7 +38,6 @@ pub struct PanelCards<'a> {
     pub area: Rect,
     pub active: bool,
     pub pill: bool,
-    pub dim: f32,
     pub now: Instant,
 }
 
@@ -63,16 +65,33 @@ fn place(shape: Shape, origin_px: (u32, u32), cell: CellSize, z: i32) -> Option<
     Some(Placement::exact(picture, (x, y), (offset_x, offset_y), z))
 }
 
+fn density(size: (u32, u32)) -> f32 {
+    let area = size.0 as f32 * size.1 as f32;
+    (MAX_CARD_PIXELS / area.max(1.0)).sqrt().min(1.0)
+}
+
+fn shrunk(card: Card, density: f32) -> Card {
+    let px = |value: u32| ((value as f32 * density).round() as u32).max(1);
+    Card {
+        size: (px(card.size.0), px(card.size.1)),
+        radius: px(card.radius),
+        border: card.border.map(|stroke| Stroke { width: px(stroke.width), ..stroke }),
+        glow: card.glow.map(|glow| Glow { reach: px(glow.reach), ..glow }),
+        ..card
+    }
+}
+
+fn stretched(card: Card, area: Rect, z: i32) -> Option<Placement> {
+    let picture = draw(&Shape::Card(shrunk(card, density(card.size)))).ok()?;
+    Some(Placement::stretched(picture, area, z))
+}
+
 fn border_width(cell: CellSize) -> u32 {
     u32::from((cell.width / BORDER_DIVISOR).max(1))
 }
 
-fn quantized(value: f32) -> f32 {
-    (value * BREATH_STEPS).round() / BREATH_STEPS
-}
-
-fn background(look: &Look<'_>, dim: f32) -> [Rgb; 2] {
-    let base = look.background().mix(Rgb::BLACK, dim);
+fn background(look: &Look<'_>) -> [Rgb; 2] {
+    let base = look.background();
     [base.mix(Rgb::WHITE, LIFT), base]
 }
 
@@ -83,28 +102,22 @@ pub fn panel(cards: &PanelCards<'_>, look: &Look<'_>, cell: CellSize) -> Vec<Pla
     let size = (pixels(area.width, cell.width), pixels(area.height, cell.height));
     let border = match (cards.active, effects.border_gradient) {
         (true, Some(pair)) => {
-            let gradient = look.gradient(pair).brightened(quantized(look.breath()));
+            let gradient = look.gradient(pair);
             [gradient.from, gradient.to]
         }
         (true, None) => [look.fg(styles.border_active); 2],
         (false, _) => [look.fg(styles.border).mix(look.background(), effects.inactive_dim); 2],
     };
-    let glow = (cards.active && effects.glow > 0.0).then(|| Glow {
-        color: rgba(look.accent().from, effects.glow * quantized(look.breath())),
-        reach: u32::from(cell.width),
-    });
+    let glow = (cards.active && effects.glow > 0.0)
+        .then(|| Glow { color: rgba(look.accent().from, effects.glow), reach: u32::from(cell.width) });
     let card = Card {
         size,
         radius: (f32::from(cell.height) * RADIUS_SHARE) as u32,
-        fill: Fill { colors: background(look, cards.dim).map(solid), axis: Axis::Vertical },
-        border: Some(Stroke {
-            colors: border.map(|rgb| solid(rgb.mix(Rgb::BLACK, cards.dim))),
-            width: border_width(cell),
-        }),
+        fill: Fill { colors: background(look).map(solid), axis: Axis::Vertical },
+        border: Some(Stroke { colors: border.map(solid), width: border_width(cell) }),
         glow,
     };
-    let origin = (pixels(area.x, cell.width), pixels(area.y, cell.height));
-    let mut placed: Vec<Placement> = place(Shape::Card(card), origin, cell, PANEL_Z).into_iter().collect();
+    let mut placed: Vec<Placement> = stretched(card, area, PANEL_Z).into_iter().collect();
     if cards.pill {
         placed.extend(cursor(cards, look, cell));
     }
@@ -176,11 +189,7 @@ fn cursor(cards: &PanelCards<'_>, look: &Look<'_>, cell: CellSize) -> Vec<Placem
 pub fn overlay(rect: Rect, look: &Look<'_>, cell: CellSize) -> Vec<Placement> {
     let styles = look.styles();
     let size = (pixels(rect.width, cell.width), pixels(rect.height, cell.height));
-    let origin = (pixels(rect.x, cell.width), pixels(rect.y, cell.height));
-    let blur = u32::from(cell.height);
-    let drop = (f32::from(cell.height) * SHADOW_DROP_SHARE) as u32;
     let radius = (f32::from(cell.height) * RADIUS_SHARE) as u32;
-    let shadow = Shadow { size, radius, blur, color: rgba(Rgb::BLACK, SHADOW_STRENGTH) };
     let surface = look.bg(styles.overlay);
     let border = look.fg(styles.overlay_border);
     let card = Card {
@@ -190,11 +199,23 @@ pub fn overlay(rect: Rect, look: &Look<'_>, cell: CellSize) -> Vec<Placement> {
         border: Some(Stroke { colors: [solid(border); 2], width: border_width(cell) }),
         glow: None,
     };
-    let shadow_origin = ((origin.0 + drop).saturating_sub(blur), (origin.1 + drop).saturating_sub(blur));
-    place(Shape::Shadow(shadow), shadow_origin, cell, SHADOW_Z)
-        .into_iter()
-        .chain(place(Shape::Card(card), origin, cell, OVERLAY_Z))
-        .collect()
+    shadow(rect, radius, cell).into_iter().chain(stretched(card, rect, OVERLAY_Z)).collect()
+}
+
+fn shadow(rect: Rect, radius: u32, cell: CellSize) -> Option<Placement> {
+    let area = Rect {
+        x: rect.x.saturating_sub(SHADOW_COLUMNS),
+        y: rect.y,
+        width: rect.width + SHADOW_COLUMNS * 2,
+        height: rect.height + SHADOW_ROWS * 2,
+    };
+    let full = (pixels(area.width, cell.width), pixels(area.height, cell.height));
+    let scale = density(full).min((MAX_SHADOW_PIXELS / (full.0 as f32 * full.1 as f32).max(1.0)).sqrt());
+    let px = |value: u32| ((value as f32 * scale).round() as u32).max(1);
+    let blur = px(pixels(SHADOW_ROWS, cell.height));
+    let size = (px(full.0).saturating_sub(blur * 2).max(1), px(full.1).saturating_sub(blur * 2).max(1));
+    let spec = Shadow { size, radius: px(radius), blur, color: rgba(Rgb::BLACK, SHADOW_STRENGTH) };
+    Some(Placement::stretched(draw(&Shape::Shadow(spec)).ok()?, area, SHADOW_Z))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,6 +263,12 @@ pub fn highlights(
         }
     }
     placed
+}
+
+pub fn scrim(area: Rect, amount: f32, look: &Look<'_>) -> Option<Placement> {
+    let Rgba(pixel) = rgba(look.background(), amount);
+    let picture = Picture::from_rgba(1, 1, pixel.to_vec()).ok()?;
+    Some(Placement::stretched(picture, area, SCRIM_Z))
 }
 
 pub fn strip(rect: Rect, style: Style, look: &Look<'_>, cell: CellSize) -> Vec<Placement> {
