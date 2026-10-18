@@ -675,3 +675,18 @@ fn f3_on_a_picture_shows_it_and_steps_to_the_next() -> Result<()> {
     ensure!(highlighted(&panels, "b.png"), "panel cursor should follow the viewer\n{}", panels.text());
     Ok(())
 }
+
+#[test]
+fn ctrl_s_finds_files_as_you_type() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "find")?;
+    app.send(keys::ctrl('s'))?;
+    app.wait_text("find:")?;
+    app.send("note")?;
+    app.wait_until("cursor on notes", |s| highlighted(s, "notes.txt") && s.contains("1/1"))?;
+    app.send(keys::enter())?;
+    app.wait_gone("find:")?;
+    app.send(keys::f(3))?;
+    app.wait_text("hello")?;
+    Ok(())
+}

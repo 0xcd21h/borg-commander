@@ -129,6 +129,7 @@ fn command_menu() -> Menu {
     Menu {
         title: "Command",
         entries: vec![
+            item("Find in folder", "C-s", Action::Find),
             item("Swap panels", "C-u", Action::SwapPanels),
             item("Equal panel widths", "", Action::EqualizePanels),
             item("Widen left panel", "M-S-→", Action::NudgeSplit(crate::keymap::SPLIT_STEP)),

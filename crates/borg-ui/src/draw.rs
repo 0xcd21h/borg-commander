@@ -143,6 +143,11 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Buffer, Option<
     let styles = &theme.styles;
     let activity = state.operation.as_ref().filter(|_| state.shell.running).map(|op| (op.side, op.label));
 
+    let finding = match &state.overlay {
+        Some(Overlay::Find(find)) => Some((find, borg_core::find_summary(state, find))),
+        _ => None,
+    };
+    let mut panel_cursor = None;
     for side in Side::ALL {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
@@ -154,11 +159,12 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Buffer, Option<
             activity: activity.filter(|(busy, _)| *busy == side).map(|(_, label)| label),
             delight: state.settings.preferences.delight,
             icons: state.settings.preferences.icons,
+            find: finding.filter(|(find, _)| find.side == side),
             home: scene.home,
             clock: scene.clock,
             now: scene.now,
         };
-        draw_panel(&panel, &look, &mut buf);
+        panel_cursor = draw_panel(&panel, &look, &mut buf).or(panel_cursor);
         if !active && theme.effects.inactive_dim > FULLY_HIDDEN {
             fx::fade_to_background(&mut buf, rect, theme.effects.inactive_dim, scene.palette);
         }
@@ -171,7 +177,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Buffer, Option<
     term_view::draw_row(&scene.screen, cursor_row, layout.prompt.y, layout.prompt, &mut buf);
     draw_keybar(layout.keybar, styles, state.notice.as_deref(), &mut buf);
 
-    let cursor = draw_overlay(scene, &look, &layout, &mut buf);
+    let cursor = draw_overlay(scene, &look, &layout, &mut buf).or(panel_cursor);
     (buf, cursor)
 }
 
@@ -198,7 +204,7 @@ fn layer(
     overlay: &Overlay,
     opacity: f32,
 ) -> Option<Position> {
-    if opacity <= FULLY_HIDDEN {
+    if opacity <= FULLY_HIDDEN || matches!(overlay, Overlay::Find(_)) {
         return None;
     }
     let mut over = buf.clone();
@@ -264,6 +270,7 @@ fn paint_overlay(
         }
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
+        Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
     };
     let reach = UNFOLD_FLOOR + (FULLY_SHOWN - UNFOLD_FLOOR) * progress;
     let shown = before.map_or(rect, |before| fx::reveal(buf, &before, rect, reach, unfold));

@@ -6,8 +6,8 @@ use std::{
 use borg_term::{Foreground, PromptState, TermMode};
 
 use crate::{
-    About, Appearance, Easing, Effect, Fade, Layout, LineInput, ListingMode, Motion, Pace, Panel, PanelMotion, Picker,
-    Settings, Sort, Viewer,
+    About, Appearance, Easing, Effect, Fade, Find, Layout, LineInput, ListingMode, Motion, Pace, Panel, PanelMotion,
+    Picker, Settings, Sort, Viewer,
     layout::{Chrome, EVEN_SPLIT, clamp_split},
     settings::SPLASH_DURATION,
 };
@@ -142,6 +142,7 @@ pub struct Confirm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
     About(About),
+    Find(Find),
     Themes(Picker),
     Menu(MenuCursor),
     Prompt(Prompt),
@@ -210,6 +211,7 @@ pub struct AppState {
     pub motions: [PanelMotion; 2],
     pub overlay_fade: Fade,
     pub leaving: Option<Leaving>,
+    pub last_find: Option<String>,
     pub splash_until: Option<Instant>,
     pub idle_since: Instant,
     pub screensaver: bool,
@@ -256,6 +258,7 @@ impl AppState {
             motions: [PanelMotion::settled(now); 2],
             overlay_fade: Fade::settled(TRANSPARENT, now),
             leaving: None,
+            last_find: None,
             splash_until: None,
             idle_since: now,
             screensaver: false,

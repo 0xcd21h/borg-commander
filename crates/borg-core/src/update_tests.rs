@@ -635,3 +635,53 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.viewer.is_none());
 }
+
+fn ctrl_key(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+fn hovered_name(state: &AppState) -> Option<String> {
+    state.active_panel().hovered_entry().map(|entry| entry.name.clone())
+}
+
+#[test]
+fn quick_find_jumps_cycles_marks_and_remembers() {
+    let (mut state, now) =
+        setup_with(vec![file("app.js"), file("main.rs"), file("next.config.js"), file("package.json"), file("README")]);
+    press(&mut state, now, ctrl_key('s'));
+    assert!(matches!(state.overlay, Some(Overlay::Find(_))));
+
+    type_text(&mut state, now, "js");
+    assert_eq!(hovered_name(&state).as_deref(), Some("app.js"));
+    let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
+    assert_eq!(crate::find_summary(&state, &find), (1, 3));
+
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(hovered_name(&state).as_deref(), Some("next.config.js"));
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(hovered_name(&state).as_deref(), Some("app.js"));
+    press(&mut state, now, key(KeyCode::Up));
+    assert_eq!(hovered_name(&state).as_deref(), Some("package.json"));
+
+    press(&mut state, now, ctrl_key('a'));
+    assert_eq!(state.active_panel().marked_count(), 3);
+
+    press(&mut state, now, key(KeyCode::Enter));
+    assert!(state.overlay.is_none());
+    assert_eq!(hovered_name(&state).as_deref(), Some("package.json"));
+
+    press(&mut state, now, ctrl_key('s'));
+    press(&mut state, now, ctrl_key('s'));
+    let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
+    assert_eq!(find.input.text(), "js");
+}
+
+#[test]
+fn quick_find_needs_an_empty_command_line() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    state.shell.observed.prompt = PromptState::Typed;
+    let effects = press(&mut state, now, ctrl_key('s'));
+    assert!(state.overlay.is_none());
+    assert_eq!(writes(&effects), "\u{13}");
+}

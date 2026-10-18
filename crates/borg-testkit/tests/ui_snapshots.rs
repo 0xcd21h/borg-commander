@@ -456,3 +456,16 @@ fn nerd_font_icons() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     check("icons", &stage, buffer)
 }
+
+#[test]
+fn quick_find_highlights_matches() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    stage.send(ctrl('s'));
+    chars("o").for_each(|msg| {
+        stage.send(msg);
+    });
+    stage.send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "find: o  2/4")?;
+    check("quick_find", &stage, buffer)
+}

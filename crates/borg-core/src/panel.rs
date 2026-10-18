@@ -15,6 +15,13 @@ const EXTENSION_SEPARATOR: char = '.';
 const INITIAL_GENERATION: u64 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seek {
+    Here,
+    Next,
+    Previous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row<'a> {
     Parent,
     Entry(&'a Entry),
@@ -329,6 +336,31 @@ impl Panel {
         self.clamp();
     }
 
+    pub fn seek(&mut self, step: Seek, accept: impl Fn(&Entry) -> bool) -> bool {
+        let count = self.entries.len();
+        if count == 0 {
+            return false;
+        }
+        let offset = self.parent_rows();
+        let here = self.cursor.checked_sub(offset);
+        let (start, forward) = match (step, here) {
+            (Seek::Here, Some(here)) => (here, true),
+            (Seek::Next, Some(here)) => ((here + 1) % count, true),
+            (Seek::Previous, Some(here)) => ((here + count - 1) % count, false),
+            (Seek::Here | Seek::Next, None) => (0, true),
+            (Seek::Previous, None) => (count - 1, false),
+        };
+        let order =
+            (0..count).map(|step| if forward { (start + step) % count } else { (start + count - step) % count });
+        let found = order.into_iter().find(|index| self.entries.get(*index).is_some_and(&accept));
+        if let Some(index) = found {
+            self.focus = None;
+            self.cursor = index + offset;
+            self.clamp();
+        }
+        found.is_some()
+    }
+
     pub fn point_at(&mut self, name: &str) {
         self.focus = None;
         self.restore(Some(Anchor::Name(name.to_owned())));
@@ -342,8 +374,12 @@ impl Panel {
     }
 
     pub fn mark_matching(&mut self, pattern: &Pattern, mark: bool) -> usize {
+        self.mark_where(|entry| pattern.matches(entry), mark)
+    }
+
+    pub fn mark_where(&mut self, accept: impl Fn(&Entry) -> bool, mark: bool) -> usize {
         let names: Vec<String> =
-            self.entries.iter().filter(|entry| pattern.matches(entry)).map(|entry| entry.name.clone()).collect();
+            self.entries.iter().filter(|entry| accept(entry)).map(|entry| entry.name.clone()).collect();
         let count = names.len();
         names.into_iter().for_each(|name| {
             if mark {

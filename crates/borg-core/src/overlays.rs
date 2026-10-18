@@ -18,6 +18,7 @@ const REJECT_KEY: char = 'n';
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
+        Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
@@ -27,12 +28,15 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
 }
 
 pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
-    if let Some(Overlay::Prompt(prompt)) = state.overlay.as_mut() {
-        let line = text.lines().next().unwrap_or_default();
-        line.chars().for_each(|c| {
-            prompt.input.apply(&KeyEvent::from(KeyCode::Char(c)));
-        });
-    }
+    let line = text.lines().next().unwrap_or_default();
+    let input = match state.overlay.as_mut() {
+        Some(Overlay::Prompt(prompt)) => &mut prompt.input,
+        Some(Overlay::Find(find)) => &mut find.input,
+        _ => return Vec::new(),
+    };
+    line.chars().for_each(|c| {
+        input.apply(&KeyEvent::from(KeyCode::Char(c)));
+    });
     Vec::new()
 }
 

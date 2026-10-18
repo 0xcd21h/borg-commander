@@ -1,15 +1,17 @@
 use std::{path::Path, time::Instant};
 
-use borg_core::{EMPTY_ART_WINDOW, Listing, ListingMode, Panel, PanelMotion, Row, SlideDirection};
+use borg_core::{EMPTY_ART_WINDOW, Find, Listing, ListingMode, Panel, PanelMotion, Query, Row, SlideDirection};
 use borg_vfs::{Entry, EntryKind};
 use jiff::Zoned;
 use ratatui::{
     buffer::{Buffer, Cell},
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Widget},
 };
+
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     CursorShape, format,
@@ -23,6 +25,7 @@ const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
 const BAR_WIDTH: u16 = 5;
 const NO_MARKER: char = ' ';
+const FIND_LABEL: &str = " find: ";
 const ICON_GAP: char = ' ';
 const GAP: u16 = 1;
 const SHOW_DATE_FROM: u16 = 40;
@@ -61,6 +64,7 @@ pub struct PanelScene<'a> {
     pub activity: Option<&'a str>,
     pub delight: bool,
     pub icons: bool,
+    pub find: Option<(&'a Find, (usize, usize))>,
     pub home: Option<&'a Path>,
     pub clock: &'a Zoned,
     pub now: Instant,
@@ -90,13 +94,16 @@ impl Body {
     }
 }
 
-pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
+pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> Option<Position> {
     let styles = look.styles();
     let area = scene.area;
     let (border, title_style) =
         if scene.active { (styles.border_active, styles.title_active) } else { (styles.border, styles.title) };
     let title = title(scene, title_style, styles.separator);
-    let (footer, shiny) = footer(scene, look);
+    let (footer, shiny) = match scene.find {
+        Some((find, counts)) => (find_bar(find, counts, look), None),
+        None => footer(scene, look),
+    };
     let title_width = title.width();
     let footer_width = footer.width();
     let block = Block::bordered()
@@ -129,6 +136,22 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     if let Some((direction, progress)) = scene.motion.slide(scene.now) {
         slide(body.inner, direction, progress, look, buf);
     }
+    scene.find.map(|(find, _)| {
+        let typed: String = find.input.text().chars().take(find.input.cursor_chars()).collect();
+        let column = FIND_LABEL.width() + typed.width() + 1;
+        Position::new(area.x + u16::try_from(column).unwrap_or(u16::MAX), area.bottom().saturating_sub(1))
+    })
+}
+
+fn find_bar<'a>(find: &Find, (current, total): (usize, usize), look: &Look<'_>) -> Line<'a> {
+    let styles = look.styles();
+    let count = if find.input.text().is_empty() { String::new() } else { format!(" {current}/{total} ") };
+    let count_style = if total == 0 && !find.input.text().is_empty() { styles.notice } else { styles.footer };
+    Line::from(vec![
+        Span::styled(FIND_LABEL, styles.footer.fg(look.accent().from.into())),
+        Span::styled(format!("{} ", find.input.text()), styles.input),
+        Span::styled(count, count_style),
+    ])
 }
 
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style) -> Line<'a> {
@@ -313,7 +336,7 @@ fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize
         let y = body.content.y + u16::try_from(slot % rows).unwrap_or(u16::MAX);
         let area = Rect { x: column.x, y, width: column.width.saturating_sub(separator), height: 1 };
         let tone = Tone::of(panel, row, index, scene.active, look.styles());
-        draw_name(row, area, tone, scene.icons, buf);
+        draw_name(row, area, tone, &Decor::of(scene, look), buf);
         if tone.fill.is_some()
             && let Some(pair) = look.theme.effects.cursor_gradient.filter(|_| scene.active)
         {
@@ -416,7 +439,7 @@ fn draw_full_row(
 
     let [name, bar_cell, size_cell, date_cell] = columns.split(area);
     if let Some(cell) = name {
-        draw_name(row, cell, tone, scene.icons, buf);
+        draw_name(row, cell, tone, &Decor::of(scene, look), buf);
     }
     if let (Some(cell), Some(fraction)) = (bar_cell, bar) {
         draw_bar(cell, fraction, look, buf);
@@ -443,7 +466,25 @@ fn draw_bar(area: Rect, fraction: f32, look: &Look<'_>, buf: &mut Buffer) {
     }
 }
 
-fn draw_name(row: Row<'_>, area: Rect, tone: Tone, icons: bool, buf: &mut Buffer) {
+struct Decor {
+    icons: bool,
+    query: Option<Query>,
+    highlight: Style,
+}
+
+impl Decor {
+    fn of(scene: &PanelScene<'_>, look: &Look<'_>) -> Self {
+        Self {
+            icons: scene.icons,
+            query: scene.find.map(|(find, _)| Query::parse(find.input.text())),
+            highlight: Style::new()
+                .fg(look.fg(look.styles().marked).into())
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        }
+    }
+}
+
+fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buffer) {
     if let Some(fill) = tone.fill {
         buf.set_style(area, fill);
     }
@@ -451,14 +492,40 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, icons: bool, buf: &mut Buffer
         Row::Parent => PARENT_NAME,
         Row::Entry(entry) => entry.name.as_str(),
     };
-    let lead = match (icons, row) {
+    let lead = match (decor.icons, row) {
         (true, Row::Parent) => format!("{}{ICON_GAP}", icons::parent()),
         (true, Row::Entry(entry)) => format!("{}{ICON_GAP}", icons::icon(entry)),
         (false, Row::Parent) => NO_MARKER.to_string(),
         (false, Row::Entry(entry)) => marker(entry).to_string(),
     };
     let width = usize::from(area.width).saturating_sub(lead.chars().count());
-    Line::styled(format!("{lead}{}", format::truncate_end(name, width)), tone.name).render(area, buf);
+    let shown = format::truncate_end(name, width);
+    let hits = match row {
+        Row::Entry(entry) => decor.query.as_ref().and_then(|query| query.hits(entry)).unwrap_or_default(),
+        Row::Parent => Vec::new(),
+    };
+    let highlight = if tone.fill.is_some() {
+        tone.name.add_modifier(decor.highlight.add_modifier)
+    } else {
+        tone.name.patch(decor.highlight)
+    };
+    let spans = std::iter::once(Span::styled(lead, tone.name)).chain(highlighted(&shown, &hits, tone.name, highlight));
+    Line::from(spans.collect::<Vec<_>>()).render(area, buf);
+}
+
+fn highlighted<'a>(text: &str, hits: &[std::ops::Range<usize>], plain: Style, lit: Style) -> Vec<Span<'a>> {
+    let mut spans = Vec::new();
+    let mut at = 0;
+    for hit in hits
+        .iter()
+        .filter(|hit| hit.end <= text.len() && text.is_char_boundary(hit.start) && text.is_char_boundary(hit.end))
+    {
+        spans.push(Span::styled(text[at..hit.start].to_owned(), plain));
+        spans.push(Span::styled(text[hit.start..hit.end].to_owned(), lit));
+        at = hit.end;
+    }
+    spans.push(Span::styled(text[at..].to_owned(), plain));
+    spans
 }
 
 fn marker(entry: &Entry) -> char {

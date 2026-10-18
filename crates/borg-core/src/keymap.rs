@@ -50,6 +50,7 @@ pub enum Action {
     ToggleScreensaver,
     ToggleDelight,
     ToggleIcons,
+    Find,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),
     SetSort(Side, SortKey),
@@ -129,6 +130,7 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('-'), NONE, Action::UnselectGroup, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('*'), NONE, Action::InvertSelection, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('u'), CTRL, Action::SwapPanels, Scope::PanelsEmptyLine),
+    bind(KeyCode::Char('s'), CTRL, Action::Find, Scope::PanelsEmptyLine),
     bind(KeyCode::Left, ALT_SHIFT, Action::NudgeSplit(-SPLIT_STEP), Scope::Panels),
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];
