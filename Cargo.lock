@@ -256,6 +256,7 @@ dependencies = [
  "borg-vfs",
  "borg-view",
  "crossterm",
+ "gif",
  "image",
  "insta",
  "jiff",

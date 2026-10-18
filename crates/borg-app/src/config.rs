@@ -1,7 +1,7 @@
 use std::{env, fs, io, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
-use borg_core::{AfterCommand, Preferences};
+use borg_core::{AfterCommand, ICON_SPACING, Preferences};
 use borg_gfx::Preference;
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +30,7 @@ pub struct Config {
     pub screensaver_after: Option<u64>,
     pub delight: Option<bool>,
     pub icons: Option<bool>,
+    pub icon_spacing: Option<u8>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
 }
@@ -53,6 +54,9 @@ impl Config {
             screensaver: self.screensaver.unwrap_or(base.screensaver),
             delight: self.delight.unwrap_or(base.delight),
             icons: self.icons.unwrap_or(base.icons),
+            icon_spacing: self
+                .icon_spacing
+                .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
         }
     }
 
@@ -82,6 +86,7 @@ impl Config {
             screensaver_after: self.screensaver_after,
             delight: Some(prefs.delight),
             icons: Some(prefs.icons),
+            icon_spacing: self.icon_spacing,
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
         }

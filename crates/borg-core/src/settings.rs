@@ -3,6 +3,7 @@ use std::time::Duration;
 pub const DEFAULT_SCREENSAVER_AFTER: Duration = Duration::from_secs(300);
 pub const SPLASH_DURATION: Duration = Duration::from_millis(1600);
 pub const AMBIENT_FRAME: Duration = Duration::from_millis(80);
+pub const ICON_SPACING: std::ops::RangeInclusive<u8> = 1..=3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AfterCommand {
@@ -34,6 +35,7 @@ pub struct Preferences {
     pub screensaver: bool,
     pub delight: bool,
     pub icons: bool,
+    pub icon_spacing: u8,
 }
 
 impl Preferences {
@@ -48,6 +50,7 @@ impl Preferences {
         screensaver: false,
         delight: true,
         icons: false,
+        icon_spacing: *ICON_SPACING.start(),
     };
 }
 

@@ -64,6 +64,7 @@ pub struct PanelScene<'a> {
     pub activity: Option<&'a str>,
     pub delight: bool,
     pub icons: bool,
+    pub icon_spacing: u8,
     pub find: Option<(&'a Find, (usize, usize))>,
     pub home: Option<&'a Path>,
     pub clock: &'a Zoned,
@@ -468,6 +469,7 @@ fn draw_bar(area: Rect, fraction: f32, look: &Look<'_>, buf: &mut Buffer) {
 
 struct Decor {
     icons: bool,
+    gap: String,
     query: Option<Query>,
     highlight: Style,
 }
@@ -476,6 +478,7 @@ impl Decor {
     fn of(scene: &PanelScene<'_>, look: &Look<'_>) -> Self {
         Self {
             icons: scene.icons,
+            gap: ICON_GAP.to_string().repeat(usize::from(scene.icon_spacing)),
             query: scene.find.map(|(find, _)| Query::parse(find.input.text())),
             highlight: Style::new()
                 .fg(look.fg(look.styles().marked).into())
@@ -500,7 +503,7 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buff
     let lead = match (lead, row) {
         (Some(icon), _) => {
             let color = icon.color.filter(|_| tone.fill.is_none());
-            Span::styled(format!("{}{ICON_GAP}", icon.glyph), color.map_or(tone.name, |fg| tone.name.fg(fg)))
+            Span::styled(format!("{}{}", icon.glyph, decor.gap), color.map_or(tone.name, |fg| tone.name.fg(fg)))
         }
         (None, Row::Parent) => Span::styled(NO_MARKER.to_string(), tone.name),
         (None, Row::Entry(entry)) => Span::styled(marker(entry).to_string(), tone.name),

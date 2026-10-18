@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ab_glyph::{Font, FontRef, GlyphId, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont, point};
 use anyhow::{Context, Result};
 use borg_ui::Rgb;
 use image::{Rgb as Pixel, RgbImage};
@@ -15,6 +15,10 @@ const FONT_REGULAR: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 const FONT_BOLD: &[u8] = include_bytes!("../assets/DejaVuSansMono-Bold.ttf");
 const FONT_SYMBOLS: &[u8] = include_bytes!("../assets/SymbolsNerdFontMono-Regular.ttf");
 const FONT_PX: f32 = 18.0;
+const ENV_FONT: &str = "BORG_SCREENSHOT_FONT";
+const ENV_FONT_BOLD: &str = "BORG_SCREENSHOT_FONT_BOLD";
+const SYMBOL_SPAN: f32 = 1.4;
+const SYMBOL_HEIGHT_FILL: f32 = 0.72;
 const MARGIN: u32 = 14;
 const UNDERLINE_OFFSET: f32 = 2.0;
 const WIDTH_PROBE: char = 'M';
@@ -42,10 +46,35 @@ pub fn png(snapshot: &Snapshot, path: &Path) -> Result<()> {
     image.save(path).with_context(|| format!("writing {}", path.display()))
 }
 
+struct Fonts {
+    regular: FontArc,
+    bold: FontArc,
+    symbols: FontArc,
+}
+
+fn embedded(bytes: &'static [u8]) -> Result<FontArc> {
+    FontArc::try_from_slice(bytes).context("loading embedded font")
+}
+
+fn from_env(name: &str) -> Result<Option<FontArc>> {
+    let Some(path) = std::env::var_os(name) else { return Ok(None) };
+    let bytes = std::fs::read(&path).with_context(|| format!("reading font {}", path.display()))?;
+    FontArc::try_from_vec(bytes).map(Some).with_context(|| format!("parsing font {}", path.display()))
+}
+
+fn fonts() -> Result<Fonts> {
+    let custom = from_env(ENV_FONT)?;
+    let bold = match (from_env(ENV_FONT_BOLD)?, &custom) {
+        (Some(bold), _) => bold,
+        (None, Some(regular)) => regular.clone(),
+        (None, None) => embedded(FONT_BOLD)?,
+    };
+    let regular = custom.map_or_else(|| embedded(FONT_REGULAR), Ok)?;
+    Ok(Fonts { regular, bold, symbols: embedded(FONT_SYMBOLS)? })
+}
+
 pub fn raster(snapshot: &Snapshot) -> Result<RgbImage> {
-    let regular = FontRef::try_from_slice(FONT_REGULAR).context("loading regular font")?;
-    let bold = FontRef::try_from_slice(FONT_BOLD).context("loading bold font")?;
-    let symbols = FontRef::try_from_slice(FONT_SYMBOLS).context("loading symbols font")?;
+    let Fonts { regular, bold, symbols } = fonts()?;
     let scale = PxScale::from(FONT_PX);
     let metrics = regular.as_scaled(scale);
     let grid = Grid {
@@ -68,7 +97,7 @@ pub fn raster(snapshot: &Snapshot) -> Result<RgbImage> {
     under.into_iter().for_each(|placement| blit(&mut image, placement, &grid));
     for cell in &cells {
         let font = if cell.style.bold { &bold } else { &regular };
-        draw_cell(&mut image, [font, &symbols], scale, cell, &grid);
+        draw_cell(&mut image, font, &symbols, scale, cell, &grid);
     }
     over.into_iter().for_each(|placement| blit(&mut image, placement, &grid));
     Ok(image)
@@ -110,7 +139,7 @@ fn cells(snapshot: &Snapshot, grid: &Grid) -> Vec<Painted> {
     painted
 }
 
-fn draw_cell(image: &mut RgbImage, fonts: [&FontRef<'_>; 2], scale: PxScale, cell: &Painted, grid: &Grid) {
+fn draw_cell(image: &mut RgbImage, text: &FontArc, symbols: &FontArc, scale: PxScale, cell: &Painted, grid: &Grid) {
     let (x, y, width, _) = cell.rect;
     let cell_rect = (x, y, grid.cell_w, grid.cell_h);
     let first = cell.symbol.chars().next();
@@ -127,8 +156,11 @@ fn draw_cell(image: &mut RgbImage, fonts: [&FontRef<'_>; 2], scale: PxScale, cel
         return;
     }
     for ch in cell.symbol.chars().filter(|c| !c.is_whitespace()) {
-        let font = fonts.into_iter().find(|font| font.glyph_id(ch) != MISSING_GLYPH).unwrap_or(fonts[0]);
-        draw_glyph(image, font, scale, ch, (x, y), grid, cell.style.fg);
+        if text.glyph_id(ch) == MISSING_GLYPH && symbols.glyph_id(ch) != MISSING_GLYPH {
+            draw_symbol(image, symbols, scale, ch, cell_rect, cell.style.fg);
+        } else {
+            draw_glyph(image, text, scale, ch, (x, y), grid, cell.style.fg);
+        }
     }
     if cell.underlined {
         let line_y = y + (grid.ascent + UNDERLINE_OFFSET) as u32;
@@ -159,9 +191,35 @@ fn blit(image: &mut RgbImage, placement: &Placement, grid: &Grid) {
     }
 }
 
+fn draw_symbol(image: &mut RgbImage, font: &FontArc, scale: PxScale, ch: char, cell: (u32, u32, u32, u32), color: Rgb) {
+    let (x, y, width, height) = cell;
+    let Some(probe) = font.outline_glyph(font.glyph_id(ch).with_scale_and_position(scale, point(0.0, 0.0))) else {
+        return;
+    };
+    let bounds = probe.px_bounds();
+    let (glyph_w, glyph_h) = (bounds.width().max(1.0), bounds.height().max(1.0));
+    let span = width as f32 * SYMBOL_SPAN;
+    let shrink = (span / glyph_w).min(height as f32 * SYMBOL_HEIGHT_FILL / glyph_h);
+    let scaled = PxScale { x: scale.x * shrink, y: scale.y * shrink };
+    let Some(outline) = font.outline_glyph(font.glyph_id(ch).with_scale_and_position(scaled, point(0.0, 0.0))) else {
+        return;
+    };
+    let fitted = outline.px_bounds();
+    let left = x as f32 + (span - fitted.width()) / 2.0;
+    let top = y as f32 + (height as f32 - fitted.height()) / 2.0;
+    outline.draw(|gx, gy, coverage| {
+        let (px, py) = ((left + gx as f32) as u32, (top + gy as f32) as u32);
+        if px < image.width() && py < image.height() {
+            let under = image.get_pixel(px, py);
+            let blended = Rgb::new(under[0], under[1], under[2]).mix(color, coverage);
+            image.put_pixel(px, py, pixel(blended));
+        }
+    });
+}
+
 fn draw_glyph(
     image: &mut RgbImage,
-    font: &FontRef<'_>,
+    font: &FontArc,
     scale: PxScale,
     ch: char,
     (origin_x, origin_y): (u32, u32),

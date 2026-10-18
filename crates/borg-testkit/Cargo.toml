@@ -15,6 +15,7 @@ borg-gfx     = { workspace = true }
 borg-term    = { workspace = true }
 borg-ui      = { workspace = true }
 crossterm    = { workspace = true }
+gif          = { workspace = true }
 image        = { workspace = true }
 portable-pty = { workspace = true }
 ratatui      = { workspace = true }

@@ -35,7 +35,8 @@ pub use msg::{Effect, Msg};
 pub use panel::{Listing, ListingMode, Panel, Row, Seek, Sort, SortKey, order};
 pub use pattern::{Pattern, PatternError};
 pub use settings::{
-    AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, Motion, Preferences, SPLASH_DURATION, Settings,
+    AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, SPLASH_DURATION,
+    Settings,
 };
 pub use state::{
     AppState, Confirm, ConfirmPurpose, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt, PromptPurpose,
