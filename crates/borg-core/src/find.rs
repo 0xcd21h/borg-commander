@@ -143,13 +143,17 @@ mod tests {
         Entry { name: name.into(), kind: EntryKind::File, size: 0, modified: None, executable: false, permissions: 0 }
     }
 
+    fn spans(query: &str, name: &str) -> Option<Vec<(usize, usize)>> {
+        Query::parse(query).hits(&entry(name)).map(|hits| hits.into_iter().map(|hit| (hit.start, hit.end)).collect())
+    }
+
     #[test]
     fn smart_case_substring_with_highlight_ranges() {
-        assert_eq!(Query::parse("js").hits(&entry("next.config.JS")), Some(Vec::from([12..14])));
-        assert_eq!(Query::parse("JS").hits(&entry("next.config.js")), None);
-        assert_eq!(Query::parse("o").hits(&entry("foo")), Some(vec![1..2, 2..3]));
-        assert_eq!(Query::parse("é").hits(&entry("cafÉ.txt")), Some(Vec::from([3..5])));
-        assert_eq!(Query::parse("").hits(&entry("x")), None);
+        assert_eq!(spans("js", "next.config.JS"), Some(vec![(12, 14)]));
+        assert_eq!(spans("JS", "next.config.js"), None);
+        assert_eq!(spans("o", "foo"), Some(vec![(1, 2), (2, 3)]));
+        assert_eq!(spans("é", "cafÉ.txt"), Some(vec![(3, 5)]));
+        assert_eq!(spans("", "x"), None);
     }
 
     #[test]
