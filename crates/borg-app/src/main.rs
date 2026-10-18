@@ -1,4 +1,5 @@
 mod app;
+mod config;
 mod launch;
 
 use std::io::stdout;

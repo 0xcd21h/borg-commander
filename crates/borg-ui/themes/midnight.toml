@@ -1,0 +1,23 @@
+name = "Midnight"
+
+[styles]
+panel = { bg = "reset" }
+border = { fg = "dark-gray" }
+border-active = { fg = "cyan" }
+title = { fg = "gray" }
+title-active = { fg = "white", bold = true }
+dir = { fg = "light-blue", bold = true }
+file = { fg = "gray" }
+executable = { fg = "light-green" }
+link = { fg = "cyan" }
+other = { fg = "yellow" }
+meta = { fg = "dark-gray" }
+cursor = { fg = "white", bg = "24" }
+cursor-inactive = { bg = "236" }
+footer = { fg = "dark-gray" }
+notice = { fg = "light-red" }
+key = { fg = "white" }
+key-label = { fg = "black", bg = "cyan" }
+overlay = { fg = "gray", bg = "235" }
+overlay-border = { fg = "cyan", bg = "235" }
+overlay-selected = { fg = "black", bg = "cyan", bold = true }

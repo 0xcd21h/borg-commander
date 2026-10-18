@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+┌ /home/me/projects/borg ───────────────────┐┌ /var/log ─────────────────────────────────┐
+│ ..                         UP             ││ ..                         UP             │
+│/docs                      DIR Jun  1  2024││/journal                   DIR Jan 10 09:30│
+│/src                       DIR Jan 10 09:30││ auth.log                  86K Jun  1  2024│
+│~target                    DIR Jan 10 09:30││ dmesg.0                  5.0G Jun  1  2024│
+│*build.sh                  310 Jan 10 09:30││ kern.log                 717K Jan 10 09:30│
+│ Cargo.toml               1234 Jan 10 09:30││ syslog                   2.3M Jan 10 09:30│
+│@latest.log                  9 Jan 10 09:30││                                           │
+│ README.md                 47K Jun  1  2024││                                           │
+│?socket                      0 Jun  1  2024││                                           │
+│ 日本語メモ.txt           2048 Jan 10 09:30││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+└ 9 items ──────────────────────────────────┘└ 5 items ──────────────────────────────────┘
+$
+^OShell   9Theme   10Quit
+--- styles ---
+  0: 0-0 White Blue BOLD | 1-24 Black Cyan BOLD | 25-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  1: 0-23 White Blue BOLD | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-45 LightCyan Blue NONE | 46-68 LightCyan Blue BOLD | 69-89 LightCyan Blue NONE
+  2: 0-23 White Blue BOLD | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-45 LightCyan Blue NONE | 46-68 White Blue BOLD | 69-89 LightCyan Blue NONE
+  3: 0-0 White Blue BOLD | 1-23 Black Cyan BOLD | 24-43 Black Cyan NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  4: 0-0 White Blue BOLD | 1-23 LightMagenta Blue NONE | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  5: 0-0 White Blue BOLD | 1-23 LightGreen Blue BOLD | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  6: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  7: 0-0 White Blue BOLD | 1-23 LightMagenta Blue NONE | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  8: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+  9: 0-0 White Blue BOLD | 1-23 Yellow Blue NONE | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 10: 0-0 White Blue BOLD | 1-2 LightCyan Blue NONE | 3-3 Reset Reset NONE | 4-4 LightCyan Blue NONE | 5-5 Reset Reset NONE | 6-6 LightCyan Blue NONE | 7-7 Reset Reset NONE | 8-8 LightCyan Blue NONE | 9-9 Reset Reset NONE | 10-10 LightCyan Blue NONE | 11-11 Reset Reset NONE | 12-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 11: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 12: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 13: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 14: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 15: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 16: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 17: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 18: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 19: 0-0 White Blue BOLD | 1-9 LightCyan Blue BOLD | 10-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 20: 0-89 Reset Reset NONE
+ 21: 0-1 White Black NONE | 2-8 Black Cyan NONE | 9-9 Reset Reset NONE | 10-10 White Black NONE | 11-17 Black Cyan NONE | 18-18 Reset Reset NONE | 19-20 White Black NONE | 21-27 Black Cyan NONE | 28-89 Reset Reset NONE

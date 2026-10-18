@@ -12,5 +12,8 @@ borg-vfs  = { workspace = true }
 crossterm = { workspace = true }
 ratatui   = { workspace = true }
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [lints]
 workspace = true

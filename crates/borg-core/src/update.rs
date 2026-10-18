@@ -4,7 +4,7 @@ use borg_term::{ShellSignal, encode_key, encode_paste};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    Action, AfterCommand, AppState, Effect, Msg, Row, Side, View, keymap,
+    Action, AfterCommand, AppState, Effect, Msg, Picker, Row, Side, View, keymap,
     quote::{cd_command, insert_word, run_command},
 };
 
@@ -15,7 +15,7 @@ const PAGE_DOWN: isize = 1;
 
 pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let effects = match msg {
-        Msg::Key(key) => on_key(state, &key),
+        Msg::Key(key) => on_key(state, &key, now),
         Msg::Paste(text) => on_paste(state, &text),
         Msg::Resize { cols, rows } => {
             state.resize(cols, rows);
@@ -34,17 +34,29 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             state.shell.observed = view;
             Vec::new()
         }
+        Msg::ShellOutput(view) => {
+            state.shell.observed = view;
+            state.shell.unechoed = false;
+            Vec::new()
+        }
         Msg::Signal(signal) => on_signal(state, signal),
         Msg::ShellExited => vec![Effect::Quit],
+        Msg::Notice(text) => {
+            state.notice = Some(text);
+            Vec::new()
+        }
     };
 
     state.sync_fade(now);
     effects
 }
 
-fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
+fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.shell.captured() {
         return forward(state, key);
+    }
+    if let Some(picker) = state.picker {
+        return on_picker_key(state, picker, key, now);
     }
 
     state.notice = None;
@@ -57,7 +69,7 @@ fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     let mut effects = prepare_shell(state);
     effects.push(Effect::Write(encode_paste(text, state.shell.observed.mode)));
-    state.shell.typed = true;
+    state.shell.mark_typed();
     effects
 }
 
@@ -84,6 +96,37 @@ fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
             state.settings.show_hidden = !state.settings.show_hidden;
             Side::ALL.into_iter().map(|side| state.reload(side)).collect()
         }
+        Action::PickTheme => {
+            let current = state.appearance.current();
+            state.picker = Some(Picker { selected: current, original: current });
+            Vec::new()
+        }
+    }
+}
+
+fn on_picker_key(state: &mut AppState, picker: Picker, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let last = state.appearance.choices().len().saturating_sub(1);
+    let preview = |state: &mut AppState, selected: usize| {
+        state.appearance.select(selected, now, state.settings.motion.fade);
+        state.picker = Some(Picker { selected, ..picker });
+        Vec::new()
+    };
+
+    match key.code {
+        KeyCode::Up => preview(state, picker.selected.saturating_sub(1)),
+        KeyCode::Down => preview(state, (picker.selected + 1).min(last)),
+        KeyCode::Home => preview(state, 0),
+        KeyCode::End => preview(state, last),
+        KeyCode::Enter => {
+            state.picker = None;
+            state.appearance.current_id().map(|id| Effect::SaveTheme(id.to_owned())).into_iter().collect()
+        }
+        KeyCode::Esc => {
+            state.picker = None;
+            state.appearance.select(picker.original, now, state.settings.motion.fade);
+            Vec::new()
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -143,7 +186,7 @@ fn insert_name(state: &mut AppState, side: Side) -> Vec<Effect> {
     let word = insert_word(&entry.name);
     let mut effects = prepare_shell(state);
     effects.push(Effect::Write(word));
-    state.shell.typed = true;
+    state.shell.mark_typed();
     effects
 }
 
@@ -155,11 +198,11 @@ fn forward(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
 
     match key.code {
         KeyCode::Enter => {
-            state.shell.typed = false;
+            state.shell.submit();
             state.view = View::Shell;
         }
-        KeyCode::Char('c' | 'u') if key.modifiers == KeyModifiers::CONTROL => state.shell.typed = false,
-        KeyCode::Char(_) if !key.modifiers.contains(KeyModifiers::CONTROL) => state.shell.typed = true,
+        KeyCode::Char('c' | 'u') if key.modifiers == KeyModifiers::CONTROL => state.shell.clear_line(),
+        KeyCode::Char(_) if !key.modifiers.contains(KeyModifiers::CONTROL) => state.shell.mark_typed(),
         _ => {}
     }
     effects
@@ -183,7 +226,8 @@ fn sync_cwd(state: &mut AppState) -> Option<Effect> {
 fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
     match signal {
         ShellSignal::PromptStart | ShellSignal::InputStart => {
-            state.shell.typed = false;
+            state.shell.clear_line();
+            state.shell.integrated = true;
             Vec::new()
         }
         ShellSignal::CommandStart => {
@@ -214,7 +258,7 @@ mod tests {
     use borg_vfs::{Entry, EntryKind};
 
     use super::*;
-    use crate::{Settings, ShellView};
+    use crate::{Appearance, Settings, ShellView, ThemeChoice};
 
     const COLS: u16 = 80;
     const ROWS: u16 = 24;
@@ -237,8 +281,15 @@ mod tests {
 
     fn setup() -> (AppState, Instant) {
         let now = Instant::now();
-        let (mut state, effects) =
-            AppState::new([PathBuf::from("/home"), PathBuf::from("/tmp")], COLS, ROWS, Settings::default(), now);
+        let themes = ["midnight", "classic", "paper"].map(|id| ThemeChoice { id: id.into(), name: id.into() }).to_vec();
+        let (mut state, effects) = AppState::new(
+            [PathBuf::from("/home"), PathBuf::from("/tmp")],
+            COLS,
+            ROWS,
+            Settings::default(),
+            Appearance::new(themes, 0),
+            now,
+        );
         for effect in effects {
             let Effect::List { side, generation, .. } = effect else { continue };
             update(&mut state, Msg::Batch { side, generation, entries: vec![dir("me")] }, now);
@@ -286,6 +337,30 @@ mod tests {
     }
 
     #[test]
+    fn keys_typed_before_echo_still_count_as_typed() {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Key(key(KeyCode::Char('l'))), now);
+        update(&mut state, Msg::Key(key(KeyCode::Char('s'))), now);
+        update(&mut state, Msg::Observe(idle_prompt()), now);
+
+        let effects = update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+        assert_eq!(writes(&effects), b"\r");
+        assert_eq!(state.view, View::Shell);
+    }
+
+    #[test]
+    fn echo_releases_pending_keystrokes() {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Key(key(KeyCode::Char('x'))), now);
+        update(&mut state, Msg::Key(key(KeyCode::Backspace)), now);
+        update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+
+        let effects = update(&mut state, Msg::Key(key(KeyCode::Tab)), now);
+        assert!(effects.is_empty());
+        assert_eq!(state.active, Side::Right);
+    }
+
+    #[test]
     fn tab_switches_panels_only_on_empty_line() {
         let (mut state, now) = setup();
         update(&mut state, Msg::Key(key(KeyCode::Tab)), now);
@@ -325,6 +400,54 @@ mod tests {
         let effects = update(&mut state, Msg::Signal(signal), now);
         assert!(matches!(effects.as_slice(), [Effect::List { side: Side::Left, dir, .. }] if dir == Path::new("/var")));
         assert_eq!(state.shell.cwd, Path::new("/var"));
+    }
+
+    #[test]
+    fn theme_picker_previews_and_saves() {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Key(key(KeyCode::F(9))), now);
+        assert!(state.picker.is_some());
+
+        update(&mut state, Msg::Key(key(KeyCode::Down)), now);
+        assert_eq!(state.appearance.current_id(), Some("classic"));
+        assert!(state.is_animating(now));
+
+        let effects = update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+        assert_eq!(effects, vec![Effect::SaveTheme("classic".into())]);
+        assert!(state.picker.is_none());
+    }
+
+    #[test]
+    fn theme_picker_escape_restores_original() {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Key(key(KeyCode::F(9))), now);
+        update(&mut state, Msg::Key(key(KeyCode::End)), now);
+        assert_eq!(state.appearance.current_id(), Some("paper"));
+
+        let effects = update(&mut state, Msg::Key(key(KeyCode::Esc)), now);
+        assert!(effects.is_empty());
+        assert_eq!(state.appearance.current_id(), Some("midnight"));
+    }
+
+    #[test]
+    fn shells_without_command_start_mark_still_refresh_panels() {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Signal(ShellSignal::PromptStart), now);
+        update(&mut state, Msg::Key(key(KeyCode::Char('x'))), now);
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+        assert!(state.shell.running);
+
+        let effects = update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+        assert_eq!(effects.iter().filter(|e| matches!(e, Effect::List { .. })).count(), 2);
+        assert!(!state.shell.running);
+    }
+
+    #[test]
+    fn shells_without_integration_never_look_busy() {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Key(key(KeyCode::Char('x'))), now);
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+        assert!(!state.shell.running);
     }
 
     #[test]

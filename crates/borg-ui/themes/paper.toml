@@ -1,0 +1,24 @@
+name = "Paper"
+extends = "midnight"
+
+[styles]
+panel = { fg = "#3b3a36", bg = "#f7f5ef" }
+border = { fg = "#c9c4b8", bg = "#f7f5ef" }
+border-active = { fg = "#5a7fa6", bg = "#f7f5ef" }
+title = { fg = "#8a857a", bg = "#f7f5ef" }
+title-active = { fg = "#2b2a27", bg = "#f7f5ef", bold = true }
+dir = { fg = "#2f5d8a", bg = "#f7f5ef", bold = true }
+file = { fg = "#3b3a36", bg = "#f7f5ef" }
+executable = { fg = "#3d7a3a", bg = "#f7f5ef" }
+link = { fg = "#8a4f9e", bg = "#f7f5ef" }
+other = { fg = "#9a6a12", bg = "#f7f5ef" }
+meta = { fg = "#a39e92", bg = "#f7f5ef" }
+cursor = { fg = "#ffffff", bg = "#5a7fa6" }
+cursor-inactive = { bg = "#e6e1d6" }
+footer = { fg = "#a39e92", bg = "#f7f5ef" }
+notice = { fg = "#b03a2e", bg = "#f7f5ef", bold = true }
+key = { fg = "#3b3a36", bg = "#f7f5ef" }
+key-label = { fg = "#ffffff", bg = "#5a7fa6" }
+overlay = { fg = "#3b3a36", bg = "#ece8de" }
+overlay-border = { fg = "#5a7fa6", bg = "#ece8de" }
+overlay-selected = { fg = "#ffffff", bg = "#5a7fa6", bold = true }

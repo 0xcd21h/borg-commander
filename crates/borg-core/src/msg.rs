@@ -14,13 +14,16 @@ pub enum Msg {
     Batch { side: Side, generation: u64, entries: Vec<Entry> },
     Listed { side: Side, generation: u64, error: Option<String> },
     Observe(ShellView),
+    ShellOutput(ShellView),
     Signal(ShellSignal),
     ShellExited,
+    Notice(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     List { side: Side, generation: u64, dir: PathBuf },
     Write(Vec<u8>),
+    SaveTheme(String),
     Quit,
 }

@@ -1,4 +1,5 @@
 mod anim;
+mod appearance;
 mod keymap;
 mod layout;
 mod msg;
@@ -9,6 +10,7 @@ mod state;
 mod update;
 
 pub use anim::{Easing, Fade};
+pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use keymap::{Action, Binding, KEYMAP, Scope};
 pub use layout::Layout;
 pub use msg::{Effect, Msg};

@@ -13,6 +13,9 @@ borg-vfs      = { workspace = true }
 crossterm     = { workspace = true }
 jiff          = { workspace = true }
 ratatui       = { workspace = true }
+serde         = { workspace = true }
+thiserror     = { workspace = true }
+toml          = { workspace = true }
 unicode-width = { workspace = true }
 
 [lints]

@@ -13,5 +13,8 @@ crossterm          = { workspace = true }
 portable-pty       = { workspace = true }
 tokio              = { workspace = true }
 
+[dev-dependencies]
+proptest  = { workspace = true }
+
 [lints]
 workspace = true

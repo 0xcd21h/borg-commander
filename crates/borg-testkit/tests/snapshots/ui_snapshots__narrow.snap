@@ -1,0 +1,29 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+┌ …/me/projects/borg ┐┌ /var/log ──────────┐
+│ ..                 ││ ..                 │
+│/docs               ││/journal            │
+│/src                ││ auth.log           │
+│~target             ││ dmesg.0            │
+│*build.sh           ││ kern.log           │
+│ Cargo.toml         ││ syslog             │
+│@latest.log         ││                    │
+│ README.md          ││                    │
+└ 9 items ───────────┘└ 5 items ───────────┘
+$
+^OShell   9Theme   10Quit
+--- styles ---
+  0: 0-0 Cyan Reset NONE | 1-20 White Reset BOLD | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-32 Gray Reset NONE | 33-43 DarkGray Reset NONE
+  1: 0-0 Cyan Reset NONE | 1-20 White Indexed(24) BOLD | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 LightBlue Indexed(236) BOLD | 43-43 DarkGray Reset NONE
+  2: 0-0 Cyan Reset NONE | 1-20 LightBlue Reset BOLD | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 LightBlue Reset BOLD | 43-43 DarkGray Reset NONE
+  3: 0-0 Cyan Reset NONE | 1-20 LightBlue Reset BOLD | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 Gray Reset NONE | 43-43 DarkGray Reset NONE
+  4: 0-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 Gray Reset NONE | 43-43 DarkGray Reset NONE
+  5: 0-0 Cyan Reset NONE | 1-20 LightGreen Reset NONE | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 Gray Reset NONE | 43-43 DarkGray Reset NONE
+  6: 0-0 Cyan Reset NONE | 1-20 Gray Reset NONE | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 Gray Reset NONE | 43-43 DarkGray Reset NONE
+  7: 0-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 Reset Reset NONE | 43-43 DarkGray Reset NONE
+  8: 0-0 Cyan Reset NONE | 1-20 Gray Reset NONE | 21-21 Cyan Reset NONE | 22-22 DarkGray Reset NONE | 23-42 Reset Reset NONE | 43-43 DarkGray Reset NONE
+  9: 0-0 Cyan Reset NONE | 1-9 DarkGray Reset NONE | 10-21 Cyan Reset NONE | 22-43 DarkGray Reset NONE
+ 10: 0-43 Reset Reset NONE
+ 11: 0-1 White Reset NONE | 2-8 Black Cyan NONE | 9-9 Reset Reset NONE | 10-10 White Reset NONE | 11-17 Black Cyan NONE | 18-18 Reset Reset NONE | 19-20 White Reset NONE | 21-27 Black Cyan NONE | 28-43 Reset Reset NONE

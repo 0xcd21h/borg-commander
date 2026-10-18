@@ -2,6 +2,9 @@ use std::{env, path::PathBuf};
 
 use anyhow::{Context, Result};
 use borg_core::{Motion, Settings};
+use borg_ui::ThemeSet;
+
+use crate::config::{Config, ConfigDir};
 
 const ENV_SHELL: &str = "SHELL";
 const ENV_COLORTERM: &str = "COLORTERM";
@@ -17,6 +20,10 @@ pub struct Launch {
     pub cwd: PathBuf,
     pub runtime_dir: PathBuf,
     pub settings: Settings,
+    pub config_dir: Option<ConfigDir>,
+    pub config: Config,
+    pub themes: ThemeSet,
+    pub warnings: Vec<String>,
 }
 
 impl Launch {
@@ -24,7 +31,22 @@ impl Launch {
         let shell = env::var_os(ENV_SHELL).map_or_else(|| PathBuf::from(POSIX_SHELL), PathBuf::from);
         let cwd = env::current_dir().context("reading current directory")?;
         let settings = Settings { motion: motion(), ..Settings::default() };
-        Ok(Self { shell, cwd, runtime_dir: runtime_dir(), settings })
+        let config_dir = ConfigDir::locate();
+
+        let (config, mut warnings) = match config_dir.as_ref().map(ConfigDir::load) {
+            Some(Ok(config)) => (config, Vec::new()),
+            Some(Err(e)) => (Config::default(), vec![format!("{e:#}")]),
+            None => (Config::default(), Vec::new()),
+        };
+
+        let builtin = ThemeSet::builtin()?;
+        let (themes, errors) = match &config_dir {
+            Some(dir) => builtin.with_user_dir(&dir.themes()),
+            None => (builtin, Vec::new()),
+        };
+        warnings.extend(errors.iter().map(ToString::to_string));
+
+        Ok(Self { shell, cwd, runtime_dir: runtime_dir(), settings, config_dir, config, themes, warnings })
     }
 }
 

@@ -2,7 +2,7 @@ use std::{path::PathBuf, time::Instant};
 
 use borg_term::{Foreground, PromptState, TermMode};
 
-use crate::{Easing, Effect, Fade, Layout, Panel, Settings};
+use crate::{Appearance, Easing, Effect, Fade, Layout, Panel, Picker, Settings};
 
 const OPAQUE: f32 = 1.0;
 const TRANSPARENT: f32 = 0.0;
@@ -56,6 +56,8 @@ pub struct ShellStatus {
     pub cwd: PathBuf,
     pub running: bool,
     pub typed: bool,
+    pub unechoed: bool,
+    pub integrated: bool,
 }
 
 impl ShellStatus {
@@ -67,9 +69,24 @@ impl ShellStatus {
         self.running || self.observed.foreground == Foreground::Program
     }
 
+    pub(crate) fn mark_typed(&mut self) {
+        self.typed = true;
+        self.unechoed = true;
+    }
+
+    pub(crate) fn clear_line(&mut self) {
+        self.typed = false;
+        self.unechoed = false;
+    }
+
+    pub(crate) fn submit(&mut self) {
+        self.clear_line();
+        self.running |= self.integrated;
+    }
+
     pub fn line_empty(&self) -> bool {
         match self.observed.prompt {
-            PromptState::Empty => true,
+            PromptState::Empty => !self.unechoed,
             PromptState::Typed => false,
             PromptState::Unknown => !self.typed,
         }
@@ -86,15 +103,31 @@ pub struct AppState {
     pub layout: Layout,
     pub settings: Settings,
     pub notice: Option<String>,
+    pub appearance: Appearance,
+    pub picker: Option<Picker>,
     generation: u64,
 }
 
 impl AppState {
-    pub fn new(dirs: [PathBuf; 2], cols: u16, rows: u16, settings: Settings, now: Instant) -> (Self, Vec<Effect>) {
+    pub fn new(
+        dirs: [PathBuf; 2],
+        cols: u16,
+        rows: u16,
+        settings: Settings,
+        appearance: Appearance,
+        now: Instant,
+    ) -> (Self, Vec<Effect>) {
         let layout = Layout::new(cols, rows);
         let viewport = layout.viewport();
         let [left, right] = dirs;
-        let shell = ShellStatus { observed: ShellView::default(), cwd: left.clone(), running: false, typed: false };
+        let shell = ShellStatus {
+            observed: ShellView::default(),
+            cwd: left.clone(),
+            running: false,
+            typed: false,
+            unechoed: false,
+            integrated: false,
+        };
 
         let mut state = Self {
             panels: [Panel::new(left.clone(), 0, viewport), Panel::new(right.clone(), 0, viewport)],
@@ -105,6 +138,8 @@ impl AppState {
             layout,
             settings,
             notice: None,
+            appearance,
+            picker: None,
             generation: 0,
         };
 
@@ -130,7 +165,7 @@ impl AppState {
     }
 
     pub fn is_animating(&self, now: Instant) -> bool {
-        self.fade.is_animating(now)
+        self.fade.is_animating(now) || self.appearance.is_animating(now)
     }
 
     pub fn settle(&mut self) {

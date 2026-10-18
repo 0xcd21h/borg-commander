@@ -1,0 +1,99 @@
+use std::{
+    fs::{self, File},
+    io,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use tempfile::TempDir;
+
+const FIXED_EPOCH_SECS: u64 = 1_614_834_360;
+
+pub fn fixed_mtime() -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(FIXED_EPOCH_SECS)
+}
+
+const WORK: &str = "work";
+const HOME: &str = "home";
+const CONFIG: &str = "config";
+const RUNTIME: &str = "run";
+const EXECUTABLE_MODE: u32 = 0o755;
+
+const SHELL_RC: [(&str, &str); 3] = [
+    (".bashrc", "PS1='$ '\n"),
+    (".zshrc", "PROMPT='$ '\nRPROMPT=''\nPROMPT_EOL_MARK=''\n"),
+    (".config/fish/config.fish", "set -g fish_greeting ''\nfunction fish_prompt\n    printf '$ '\nend\n"),
+];
+
+pub struct Fixture {
+    root: TempDir,
+}
+
+impl Fixture {
+    pub fn new() -> io::Result<Self> {
+        let root = tempfile::Builder::new().prefix("borg-e2e-").tempdir()?;
+        let fixture = Self { root };
+        [WORK, HOME, CONFIG, RUNTIME].iter().try_for_each(|dir| fs::create_dir_all(fixture.root.path().join(dir)))?;
+        SHELL_RC.iter().try_for_each(|(name, body)| write_file(&fixture.home().join(name), body.as_bytes()))?;
+        Ok(fixture)
+    }
+
+    pub fn work(&self) -> PathBuf {
+        self.root.path().join(WORK)
+    }
+
+    pub fn home(&self) -> PathBuf {
+        self.root.path().join(HOME)
+    }
+
+    pub fn config(&self) -> PathBuf {
+        self.root.path().join(CONFIG)
+    }
+
+    pub fn runtime(&self) -> PathBuf {
+        self.root.path().join(RUNTIME)
+    }
+
+    pub fn dir(&self, relative: &str) -> io::Result<PathBuf> {
+        let path = self.work().join(relative);
+        fs::create_dir_all(&path)?;
+        Ok(path)
+    }
+
+    pub fn file(&self, relative: &str, contents: &str) -> io::Result<PathBuf> {
+        let path = self.work().join(relative);
+        write_file(&path, contents.as_bytes())?;
+        Ok(path)
+    }
+
+    pub fn executable(&self, relative: &str, contents: &str) -> io::Result<PathBuf> {
+        let path = self.file(relative, contents)?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(EXECUTABLE_MODE))?;
+        Ok(path)
+    }
+
+    pub fn many(&self, relative: &str, count: usize) -> io::Result<PathBuf> {
+        let dir = self.dir(relative)?;
+        (0..count).try_for_each(|i| File::create(dir.join(format!("item_{i:06}.dat"))).map(drop))?;
+        Ok(dir)
+    }
+
+    pub fn freeze(&self) -> io::Result<()> {
+        freeze(&self.work())
+    }
+}
+
+fn write_file(path: &Path, contents: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, contents)
+}
+
+fn freeze(path: &Path) -> io::Result<()> {
+    if path.is_dir() {
+        fs::read_dir(path)?.filter_map(Result::ok).try_for_each(|entry| freeze(&entry.path()))?;
+    }
+    File::open(path)?.set_modified(fixed_mtime())
+}

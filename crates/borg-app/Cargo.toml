@@ -20,7 +20,14 @@ crossterm = { workspace = true }
 futures   = { workspace = true }
 ratatui   = { workspace = true }
 rustix    = { workspace = true }
+serde     = { workspace = true }
 tokio     = { workspace = true }
+toml      = { workspace = true }
+
+[dev-dependencies]
+anyhow       = { workspace = true }
+borg-testkit = { workspace = true }
+crossterm    = { workspace = true }
 
 [lints]
 workspace = true

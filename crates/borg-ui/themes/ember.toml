@@ -1,0 +1,24 @@
+name = "Ember"
+extends = "midnight"
+
+[styles]
+panel = { fg = "#d8cbbd", bg = "#1c1715" }
+border = { fg = "#4a3c34", bg = "#1c1715" }
+border-active = { fg = "#e8925b", bg = "#1c1715" }
+title = { fg = "#8c7a6c", bg = "#1c1715" }
+title-active = { fg = "#f4e6d8", bg = "#1c1715", bold = true }
+dir = { fg = "#f0b27a", bg = "#1c1715", bold = true }
+file = { fg = "#d8cbbd", bg = "#1c1715" }
+executable = { fg = "#a9c77a", bg = "#1c1715" }
+link = { fg = "#7fbcb4", bg = "#1c1715" }
+other = { fg = "#e6c36a", bg = "#1c1715" }
+meta = { fg = "#6e5d51", bg = "#1c1715" }
+cursor = { fg = "#1c1715", bg = "#e8925b", bold = true }
+cursor-inactive = { bg = "#33281f" }
+footer = { fg = "#6e5d51", bg = "#1c1715" }
+notice = { fg = "#ff7a66", bg = "#1c1715", bold = true }
+key = { fg = "#d8cbbd", bg = "#1c1715" }
+key-label = { fg = "#1c1715", bg = "#e8925b" }
+overlay = { fg = "#d8cbbd", bg = "#2a221d" }
+overlay-border = { fg = "#e8925b", bg = "#2a221d" }
+overlay-selected = { fg = "#1c1715", bg = "#e8925b", bold = true }

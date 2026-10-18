@@ -4,9 +4,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use borg_core::{AppState, Effect, Msg, ShellView, Side, update};
+use borg_core::{AppState, Appearance, Effect, Msg, ShellView, Side, ThemeChoice, update};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
-use borg_ui::{Palette, Scene, Theme, draw};
+use borg_ui::{Palette, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
 use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures::StreamExt;
@@ -17,7 +17,10 @@ use tokio::{
     time::sleep_until,
 };
 
-use crate::launch::Launch;
+use crate::{
+    config::{Config, ConfigDir},
+    launch::Launch,
+};
 
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
@@ -31,7 +34,9 @@ pub struct App {
     inbox: UnboundedReceiver<Msg>,
     listings: [Option<JoinHandle<()>>; 2],
     palette: Palette,
-    theme: Theme,
+    themes: ThemeSet,
+    config_dir: Option<ConfigDir>,
+    config: Config,
     pending: Vec<Effect>,
 }
 
@@ -45,7 +50,10 @@ impl App {
         let grid = GridSize { cols: size.width, rows: size.height };
         let now = Instant::now();
         let dirs = [launch.cwd.clone(), launch.cwd.clone()];
-        let (state, pending) = AppState::new(dirs, size.width, size.height, launch.settings.clone(), now);
+        let appearance = appearance(launch);
+        let (mut state, pending) =
+            AppState::new(dirs, size.width, size.height, launch.settings.clone(), appearance, now);
+        state.notice = launch.warnings.first().cloned();
 
         let command = shell_command(&launch.shell, &launch.cwd, &launch.runtime_dir).context("preparing shell")?;
         let (pty_tx, pty_events) = unbounded_channel();
@@ -62,7 +70,9 @@ impl App {
             inbox,
             listings: [None, None],
             palette: Palette::default(),
-            theme: Theme::default(),
+            themes: launch.themes.clone(),
+            config_dir: launch.config_dir.clone(),
+            config: launch.config.clone(),
             pending,
         })
     }
@@ -107,11 +117,13 @@ impl App {
 
     fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
         self.state.settle();
+        let clock = local_now();
         let scene = Scene {
             state: &self.state,
             screen: self.emulator.screen(),
             palette: &self.palette,
-            theme: &self.theme,
+            themes: &self.themes,
+            clock: &clock,
             now,
         };
         terminal.draw(|frame| draw(frame, &scene))?;
@@ -121,11 +133,11 @@ impl App {
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                self.observe()?;
+                self.observe(Msg::Observe)?;
                 self.dispatch(Msg::Key(key))
             }
             Event::Paste(text) => {
-                self.observe()?;
+                self.observe(Msg::Observe)?;
                 self.dispatch(Msg::Paste(text))
             }
             Event::Resize(cols, rows) => {
@@ -144,7 +156,7 @@ impl App {
             flow = self.consume(next)?;
         }
         match flow {
-            Flow::Continue => self.observe(),
+            Flow::Continue => self.observe(Msg::ShellOutput),
             Flow::Quit => Ok(Flow::Quit),
         }
     }
@@ -167,13 +179,13 @@ impl App {
         }
     }
 
-    fn observe(&mut self) -> Result<Flow> {
+    fn observe(&mut self, message: fn(ShellView) -> Msg) -> Result<Flow> {
         let view = ShellView {
             prompt: self.emulator.prompt_state(),
             foreground: self.pty.foreground(),
             mode: self.emulator.mode(),
         };
-        self.dispatch(Msg::Observe(view))
+        self.dispatch(message(view))
     }
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
@@ -186,10 +198,19 @@ impl App {
             match effect {
                 Effect::List { side, generation, dir } => self.list(side, generation, dir),
                 Effect::Write(bytes) => self.pty.write(&bytes)?,
+                Effect::SaveTheme(id) => self.save_theme(id),
                 Effect::Quit => return Ok(Flow::Quit),
             }
         }
         Ok(Flow::Continue)
+    }
+
+    fn save_theme(&mut self, id: String) {
+        self.config.theme = Some(id);
+        let saved = self.config_dir.as_ref().map(|dir| dir.save(&self.config));
+        if let Some(Err(e)) = saved {
+            let _ = self.messages.send(Msg::Notice(format!("{e:#}")));
+        }
     }
 
     fn list(&mut self, side: Side, generation: u64, dir: std::path::PathBuf) {
@@ -215,4 +236,15 @@ impl App {
             previous.abort();
         }
     }
+}
+
+fn appearance(launch: &Launch) -> Appearance {
+    let choices = launch
+        .themes
+        .themes()
+        .iter()
+        .map(|theme| ThemeChoice { id: theme.id.clone(), name: theme.name.clone() })
+        .collect();
+    let current = launch.config.theme.as_deref().and_then(|id| launch.themes.position(id)).unwrap_or_default();
+    Appearance::new(choices, current)
 }

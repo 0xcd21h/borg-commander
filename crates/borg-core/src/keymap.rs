@@ -18,6 +18,7 @@ pub enum Action {
     Leave,
     InsertName,
     ToggleHidden,
+    PickTheme,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +61,7 @@ const ALT: KeyModifiers = KeyModifiers::ALT;
 
 pub const KEYMAP: &[Binding] = &[
     labeled(bind(KeyCode::Char('o'), CTRL, Action::ToggleShell, Scope::Anywhere), "Shell"),
+    labeled(bind(KeyCode::F(9), NONE, Action::PickTheme, Scope::Panels), "Theme"),
     labeled(bind(KeyCode::F(10), NONE, Action::Quit, Scope::Panels), "Quit"),
     bind(KeyCode::Tab, NONE, Action::SwitchPanel, Scope::PanelsEmptyLine),
     bind(KeyCode::Up, NONE, Action::Up, Scope::Panels),

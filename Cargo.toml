@@ -11,6 +11,7 @@ rust-version = "1.97"
 [workspace.dependencies]
 borg-core = { path = "crates/borg-core" }
 borg-term = { path = "crates/borg-term" }
+borg-testkit = { path = "crates/borg-testkit" }
 borg-ui   = { path = "crates/borg-ui" }
 borg-vfs  = { path = "crates/borg-vfs" }
 
@@ -23,9 +24,16 @@ libc               = "0.2"
 portable-pty       = "0.9"
 ratatui            = "0.30"
 rustix             = { version = "1", features = ["process"] }
+serde              = { version = "1", features = ["derive"] }
 thiserror          = "2"
+tempfile           = "3"
+proptest           = "1"
+insta              = "1"
+ab_glyph           = "0.2"
+image              = { version = "0.25", default-features = false, features = ["png"] }
 tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
 tokio-stream       = "0.1"
+toml               = "1"
 unicode-width      = "0.2"
 
 [workspace.lints.rust]

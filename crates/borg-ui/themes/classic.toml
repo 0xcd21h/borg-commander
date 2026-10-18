@@ -1,0 +1,24 @@
+name = "Classic"
+extends = "midnight"
+
+[styles]
+panel = { fg = "light-cyan", bg = "blue" }
+border = { fg = "light-cyan", bg = "blue" }
+border-active = { fg = "white", bg = "blue", bold = true }
+title = { fg = "light-cyan", bg = "blue" }
+title-active = { fg = "black", bg = "cyan" }
+dir = { fg = "white", bg = "blue", bold = true }
+file = { fg = "light-cyan", bg = "blue" }
+executable = { fg = "light-green", bg = "blue", bold = true }
+link = { fg = "light-magenta", bg = "blue" }
+other = { fg = "yellow", bg = "blue" }
+meta = { fg = "light-cyan", bg = "blue" }
+cursor = { fg = "black", bg = "cyan" }
+cursor-inactive = { fg = "light-cyan", bg = "blue" }
+footer = { fg = "light-cyan", bg = "blue" }
+notice = { fg = "white", bg = "red", bold = true }
+key = { fg = "white", bg = "black" }
+key-label = { fg = "black", bg = "cyan" }
+overlay = { fg = "black", bg = "gray" }
+overlay-border = { fg = "white", bg = "gray", bold = true }
+overlay-selected = { fg = "black", bg = "cyan" }
