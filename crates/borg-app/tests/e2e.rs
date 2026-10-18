@@ -227,10 +227,10 @@ echo "got=$(printf '%s' "$key" | od -An -tu1 | tr -d ' ')"
     app.send(format!("sh '{}'", script.display()))?.send(keys::enter())?;
     app.wait_until("full-screen program running", |s| s.contains("waiting-for-key") && !s.contains(READY))?;
     app.send(keys::ctrl('o'))?;
-    app.wait_until("ctrl-o delivered to the program", |s| s.contains(CTRL_O_CODE) && !s.contains(READY))?;
+    app.wait_until("panels back once the program exits", |s| s.contains(READY) && !s.contains("waiting-for-key"))?;
 
     app.send(keys::ctrl('o'))?;
-    app.wait_text(READY)?;
+    app.wait_until("ctrl-o was delivered to the program", |s| s.contains(CTRL_O_CODE) && !s.contains(READY))?;
     Ok(())
 }
 
