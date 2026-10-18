@@ -1,6 +1,8 @@
 use std::{fmt::Write as _, path::PathBuf, time::Instant};
 
-use borg_core::{AppState, Appearance, Effect, Msg, Settings, ShellView, ThemeChoice, update};
+use borg_core::{
+    AppState, Appearance, EVEN_SPLIT, Effect, Msg, PanelSetup, Settings, ShellView, Side, Startup, ThemeChoice, update,
+};
 use borg_term::{Emulator, Foreground, GridSize};
 use borg_ui::{Palette, Scene, ThemeSet, draw};
 use borg_vfs::Entry;
@@ -32,7 +34,7 @@ impl Stage {
         let choices = themes.themes().iter().map(|t| ThemeChoice { id: t.id.clone(), name: t.name.clone() }).collect();
         let started = Instant::now();
         let (mut state, effects) =
-            AppState::new(dirs, size.cols, size.rows, settings, Appearance::new(choices, 0), started);
+            AppState::new(startup(dirs), size.cols, size.rows, settings, Appearance::new(choices, 0), started);
 
         let mut listings = listings.into_iter();
         for effect in effects {
@@ -141,4 +143,8 @@ fn style_runs(buffer: &Buffer, y: u16) -> Vec<String> {
         }
     }
     runs
+}
+
+fn startup(dirs: [PathBuf; 2]) -> Startup {
+    Startup { panels: dirs.map(PanelSetup::at), active: Side::Left, split: EVEN_SPLIT }
 }

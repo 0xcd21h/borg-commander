@@ -1,10 +1,13 @@
 use std::{env, path::PathBuf};
 
 use anyhow::{Context, Result};
-use borg_core::{Motion, Settings};
+use borg_core::{Motion, Settings, Startup};
 use borg_ui::ThemeSet;
 
-use crate::config::{Config, ConfigDir};
+use crate::{
+    config::{Config, ConfigDir},
+    session::StateDir,
+};
 
 const ENV_SHELL: &str = "SHELL";
 const ENV_COLORTERM: &str = "COLORTERM";
@@ -17,12 +20,14 @@ const APP_DIR: &str = "borg-commander";
 #[derive(Debug, Clone)]
 pub struct Launch {
     pub shell: PathBuf,
-    pub cwd: PathBuf,
     pub runtime_dir: PathBuf,
     pub settings: Settings,
     pub config_dir: Option<ConfigDir>,
     pub config: Config,
     pub themes: ThemeSet,
+    pub state_dir: Option<StateDir>,
+    pub startup: Startup,
+    pub restored: Option<Vec<u8>>,
     pub warnings: Vec<String>,
 }
 
@@ -30,14 +35,29 @@ impl Launch {
     pub fn detect() -> Result<Self> {
         let shell = env::var_os(ENV_SHELL).map_or_else(|| PathBuf::from(POSIX_SHELL), PathBuf::from);
         let cwd = env::current_dir().context("reading current directory")?;
-        let settings = Settings { motion: motion(), ..Settings::default() };
         let config_dir = ConfigDir::locate();
-
         let (config, mut warnings) = match config_dir.as_ref().map(ConfigDir::load) {
             Some(Ok(config)) => (config, Vec::new()),
             Some(Err(e)) => (Config::default(), vec![format!("{e:#}")]),
             None => (Config::default(), Vec::new()),
         };
+        let settings = Settings { motion: motion(), preferences: config.preferences(), ..Settings::default() };
+
+        let state_dir = StateDir::locate();
+        let session = match state_dir.as_ref().map(StateDir::load_session) {
+            Some(Ok(session)) => session,
+            Some(Err(e)) => {
+                warnings.push(format!("{e:#}"));
+                None
+            }
+            None => None,
+        };
+        let startup = session.map_or_else(|| Startup::at(cwd.clone()), |session| session.startup(&cwd));
+        let restored = settings
+            .preferences
+            .restore_terminal
+            .then(|| state_dir.as_ref().and_then(StateDir::load_terminal))
+            .flatten();
 
         let builtin = ThemeSet::builtin()?;
         let (themes, errors) = match &config_dir {
@@ -46,7 +66,18 @@ impl Launch {
         };
         warnings.extend(errors.iter().map(ToString::to_string));
 
-        Ok(Self { shell, cwd, runtime_dir: runtime_dir(), settings, config_dir, config, themes, warnings })
+        Ok(Self {
+            shell,
+            runtime_dir: runtime_dir(),
+            settings,
+            config_dir,
+            config,
+            themes,
+            state_dir,
+            startup,
+            restored,
+            warnings,
+        })
     }
 }
 

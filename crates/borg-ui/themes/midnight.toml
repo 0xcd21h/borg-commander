@@ -21,3 +21,12 @@ key-label = { fg = "black", bg = "cyan" }
 overlay = { fg = "gray", bg = "235" }
 overlay-border = { fg = "cyan", bg = "235" }
 overlay-selected = { fg = "black", bg = "cyan", bold = true }
+input = { fg = "white", bg = "238" }
+marked = { fg = "yellow", bold = true }
+marked-cursor = { fg = "yellow", bg = "24", bold = true }
+status = { fg = "gray", bg = "235" }
+menu = { fg = "black", bg = "cyan" }
+menu-selected = { fg = "white", bg = "24", bold = true }
+menu-disabled = { fg = "dark-gray", bg = "cyan" }
+viewer = { fg = "gray", bg = "reset" }
+viewer-status = { fg = "black", bg = "cyan" }

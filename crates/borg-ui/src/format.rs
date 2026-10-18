@@ -31,6 +31,21 @@ pub fn modified(time: Option<SystemTime>, now: &Zoned) -> String {
     local.strftime(format).to_string()
 }
 
+pub fn count(n: usize, noun: &str) -> String {
+    if n == 1 { format!("{n} {noun}") } else { format!("{n} {noun}s") }
+}
+
+pub fn marked_summary(marked: usize, files: usize, bytes: u64, folders: usize) -> String {
+    let mut parts = vec![format!("{marked} marked")];
+    if files > 0 {
+        parts.push(format!("{}, {}", count(files, "file"), size(bytes)));
+    }
+    if folders > 0 {
+        parts.push(count(folders, "folder"));
+    }
+    parts.join(" · ")
+}
+
 pub fn now() -> Zoned {
     Zoned::now().with_time_zone(TimeZone::system())
 }
@@ -80,6 +95,13 @@ mod tests {
         assert_eq!(size(10_240), "10K");
         assert_eq!(size(1_572_864), "1.5M");
         assert_eq!(size(5 * 1024 * 1024 * 1024), "5.0G");
+    }
+
+    #[test]
+    fn summarises_marked_entries() {
+        assert_eq!(marked_summary(2, 0, 0, 2), "2 marked · 2 folders");
+        assert_eq!(marked_summary(3, 2, 12_288, 1), "3 marked · 2 files, 12K · 1 folder");
+        assert_eq!(marked_summary(1, 1, 310, 0), "1 marked · 1 file, 310");
     }
 
     #[test]

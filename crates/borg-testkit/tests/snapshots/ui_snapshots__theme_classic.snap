@@ -20,10 +20,10 @@ expression: describe(&buffer)
 │                                           ││                                           │
 │                                           ││                                           │
 │                                           ││                                           │
-│                                           ││                                           │
 └ 9 items ──────────────────────────────────┘└ 5 items ──────────────────────────────────┘
+ drw-r--r--     DIR  2026-01-10 09:30  src
 $
-^OShell   9Theme   10Quit
+2File    3View    4Edit    5Copy    6Move    7Mkdir   8Delete  9Menu    10Quit   ^OShell
 --- styles ---
   0: 0-0 White Blue BOLD | 1-24 Black Cyan BOLD | 25-44 White Blue BOLD | 45-89 LightCyan Blue NONE
   1: 0-23 White Blue BOLD | 24-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-45 LightCyan Blue NONE | 46-68 LightCyan Blue BOLD | 69-89 LightCyan Blue NONE
@@ -43,7 +43,7 @@ $
  15: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
  16: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
  17: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
- 18: 0-0 White Blue BOLD | 1-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-89 LightCyan Blue NONE
- 19: 0-0 White Blue BOLD | 1-9 LightCyan Blue BOLD | 10-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 18: 0-0 White Blue BOLD | 1-9 LightCyan Blue BOLD | 10-44 White Blue BOLD | 45-89 LightCyan Blue NONE
+ 19: 0-89 LightCyan Blue NONE
  20: 0-89 Reset Reset NONE
- 21: 0-1 White Black NONE | 2-8 Black Cyan NONE | 9-9 Reset Reset NONE | 10-10 White Black NONE | 11-17 Black Cyan NONE | 18-18 Reset Reset NONE | 19-20 White Black NONE | 21-27 Black Cyan NONE | 28-89 Reset Reset NONE
+ 21: 0-0 White Black NONE | 1-8 Black Cyan NONE | 9-9 White Black NONE | 10-17 Black Cyan NONE | 18-18 White Black NONE | 19-26 Black Cyan NONE | 27-27 White Black NONE | 28-35 Black Cyan NONE | 36-36 White Black NONE | 37-44 Black Cyan NONE | 45-45 White Black NONE | 46-53 Black Cyan NONE | 54-54 White Black NONE | 55-62 Black Cyan NONE | 63-63 White Black NONE | 64-71 Black Cyan NONE | 72-73 White Black NONE | 74-80 Black Cyan NONE | 81-82 White Black NONE | 83-89 Black Cyan NONE

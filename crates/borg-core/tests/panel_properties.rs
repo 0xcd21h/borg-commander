@@ -1,10 +1,10 @@
 use std::{cmp::Ordering, collections::BTreeMap, path::PathBuf};
 
-use borg_core::{Panel, Row};
+use borg_core::{ListingMode, Panel, Row, Sort, SortKey, order};
 use borg_vfs::{Entry, EntryKind};
 use proptest::prelude::*;
 
-const VIEWPORT: usize = 7;
+const ROWS: usize = 7;
 const GENERATION: u64 = 1;
 
 #[derive(Debug, Clone)]
@@ -20,12 +20,14 @@ fn entries() -> impl Strategy<Value = Vec<Entry>> {
     let name = "[a-cA-C._]{1,4}";
     proptest::collection::btree_map(name, any::<bool>(), 0..80).prop_map(|map: BTreeMap<String, bool>| {
         map.into_iter()
-            .map(|(name, dir)| Entry {
+            .enumerate()
+            .map(|(i, (name, dir))| Entry {
+                size: (i as u64 * 7919) % 97,
+                modified: None,
                 name,
                 kind: if dir { EntryKind::Dir } else { EntryKind::File },
-                size: 0,
-                modified: None,
                 executable: false,
+                permissions: 0o644,
             })
             .collect()
     })
@@ -41,8 +43,10 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
-fn sort_key(entry: &Entry) -> (bool, String, String) {
-    (!entry.is_dir(), entry.name.to_lowercase(), entry.name.clone())
+fn layout() -> impl Strategy<Value = (Sort, ListingMode)> {
+    let key = prop_oneof![Just(SortKey::Name), Just(SortKey::Extension), Just(SortKey::Size), Just(SortKey::Modified)];
+    let mode = prop_oneof![Just(ListingMode::Full), Just(ListingMode::Brief)];
+    (key, any::<bool>(), mode).prop_map(|(key, reverse, mode)| (Sort { key, reverse }, mode))
 }
 
 fn apply(panel: &mut Panel, op: &Op) {
@@ -56,14 +60,16 @@ fn apply(panel: &mut Panel, op: &Op) {
 }
 
 fn check_invariants(panel: &Panel) -> Result<(), TestCaseError> {
-    let keys: Vec<_> = panel.entries().iter().map(sort_key).collect();
-    prop_assert!(keys.windows(2).all(|w| w[0].cmp(&w[1]) != Ordering::Greater), "entries out of order");
+    let sort = panel.sort();
+    let entries = panel.entries();
+    prop_assert!(entries.windows(2).all(|w| order(&w[0], &w[1], sort) != Ordering::Greater), "entries out of order");
+    prop_assert!(entries.windows(2).all(|w| !w[1].is_dir() || w[0].is_dir()), "directories must come first");
     if panel.is_empty() {
         return Ok(());
     }
     prop_assert!(panel.cursor() < panel.len());
     prop_assert!(panel.scroll() <= panel.cursor());
-    prop_assert!(panel.cursor() < panel.scroll() + VIEWPORT);
+    prop_assert!(panel.cursor() < panel.scroll() + panel.capacity());
     Ok(())
 }
 
@@ -74,8 +80,9 @@ proptest! {
         cuts in proptest::collection::vec(any::<prop::sample::Index>(), 0..6),
         ops in proptest::collection::vec(op(), 0..40),
         show_hidden in any::<bool>(),
+        (sort, mode) in layout(),
     ) {
-        let mut panel = Panel::new(PathBuf::from("/"), 0, VIEWPORT);
+        let mut panel = Panel::new(PathBuf::from("/"), ROWS, mode, sort);
         panel.navigate(PathBuf::from("/data"), GENERATION, None);
 
         let mut points: Vec<usize> = cuts.iter().map(|c| c.index(all.len() + 1)).collect();
@@ -100,8 +107,13 @@ proptest! {
     }
 
     #[test]
-    fn hovered_entry_survives_new_batches(first in entries(), second in entries(), steps in 0isize..20) {
-        let mut panel = Panel::new(PathBuf::from("/"), 0, VIEWPORT);
+    fn hovered_entry_survives_new_batches(
+        first in entries(),
+        second in entries(),
+        steps in 0isize..20,
+        (sort, mode) in layout(),
+    ) {
+        let mut panel = Panel::new(PathBuf::from("/"), ROWS, mode, sort);
         panel.navigate(PathBuf::from("/data"), GENERATION, None);
         panel.receive(GENERATION, first.clone(), true);
         panel.finish(GENERATION, None);

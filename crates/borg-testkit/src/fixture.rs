@@ -18,6 +18,7 @@ const WORK: &str = "work";
 const HOME: &str = "home";
 const CONFIG: &str = "config";
 const RUNTIME: &str = "run";
+const STATE: &str = "state";
 const EXECUTABLE_MODE: u32 = 0o755;
 
 const SHELL_RC: [(&str, &str); 3] = [
@@ -27,32 +28,38 @@ const SHELL_RC: [(&str, &str); 3] = [
 ];
 
 pub struct Fixture {
-    root: TempDir,
+    _guard: TempDir,
+    root: PathBuf,
 }
 
 impl Fixture {
     pub fn new() -> io::Result<Self> {
-        let root = tempfile::Builder::new().prefix("borg-e2e-").tempdir()?;
-        let fixture = Self { root };
-        [WORK, HOME, CONFIG, RUNTIME].iter().try_for_each(|dir| fs::create_dir_all(fixture.root.path().join(dir)))?;
+        let guard = tempfile::Builder::new().prefix("borg-e2e-").tempdir()?;
+        let root = guard.path().canonicalize()?;
+        let fixture = Self { _guard: guard, root };
+        [WORK, HOME, CONFIG, RUNTIME, STATE].iter().try_for_each(|dir| fs::create_dir_all(fixture.root.join(dir)))?;
         SHELL_RC.iter().try_for_each(|(name, body)| write_file(&fixture.home().join(name), body.as_bytes()))?;
         Ok(fixture)
     }
 
     pub fn work(&self) -> PathBuf {
-        self.root.path().join(WORK)
+        self.root.join(WORK)
     }
 
     pub fn home(&self) -> PathBuf {
-        self.root.path().join(HOME)
+        self.root.join(HOME)
     }
 
     pub fn config(&self) -> PathBuf {
-        self.root.path().join(CONFIG)
+        self.root.join(CONFIG)
     }
 
     pub fn runtime(&self) -> PathBuf {
-        self.root.path().join(RUNTIME)
+        self.root.join(RUNTIME)
+    }
+
+    pub fn state(&self) -> PathBuf {
+        self.root.join(STATE)
     }
 
     pub fn dir(&self, relative: &str) -> io::Result<PathBuf> {

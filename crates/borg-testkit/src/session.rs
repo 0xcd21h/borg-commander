@@ -17,6 +17,7 @@ use crate::{Fixture, Shell, Snapshot};
 const DEFAULT_COLS: u16 = 100;
 const DEFAULT_ROWS: u16 = 30;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const ENV_TIMEOUT: &str = "BORG_TEST_TIMEOUT_SECS";
 const QUIET: Duration = Duration::from_millis(250);
 const POLL: Duration = Duration::from_millis(10);
 const READ_CHUNK: usize = 64 * 1024;
@@ -30,6 +31,7 @@ const ENV_HOME: &str = "HOME";
 const ENV_SHELL: &str = "SHELL";
 const ENV_CONFIG_DIR: &str = "BORG_CONFIG_DIR";
 const ENV_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
+const ENV_STATE_DIR: &str = "BORG_STATE_DIR";
 const PASSTHROUGH_ENV: [&str; 1] = [ENV_PATH];
 const FIXED_ENV: [(&str, &str); 4] =
     [("TERM", "xterm-256color"), ("TZ", "UTC"), ("LANG", "C.UTF-8"), ("LC_ALL", "C.UTF-8")];
@@ -95,6 +97,7 @@ impl<'a> SessionBuilder<'a> {
         cmd.env(ENV_SHELL, &shell);
         cmd.env(ENV_CONFIG_DIR, self.fixture.config());
         cmd.env(ENV_RUNTIME_DIR, self.fixture.runtime());
+        cmd.env(ENV_STATE_DIR, self.fixture.state());
         cmd.cwd(self.cwd.unwrap_or_else(|| self.fixture.work()));
 
         let child = pair.slave.spawn_command(cmd).context("spawning borg")?;
@@ -141,7 +144,7 @@ impl Session {
             cols: DEFAULT_COLS,
             rows: DEFAULT_ROWS,
             truecolor: true,
-            timeout: DEFAULT_TIMEOUT,
+            timeout: configured_timeout(),
             label: String::from("session"),
         }
     }
@@ -255,6 +258,10 @@ fn pump(mut reader: Box<dyn Read + Send>, tx: &std::sync::mpsc::Sender<Output>) 
         }
     }
     let _ = tx.send(Output::Closed);
+}
+
+fn configured_timeout() -> Duration {
+    env::var(ENV_TIMEOUT).ok().and_then(|secs| secs.parse().ok()).map_or(DEFAULT_TIMEOUT, Duration::from_secs)
 }
 
 fn frame(snapshot: &Snapshot) -> String {

@@ -74,6 +74,10 @@ impl Emulator {
         *self.term.mode()
     }
 
+    pub fn export_ansi(&self, max_lines: usize) -> Vec<u8> {
+        crate::export::export(&self.term, max_lines)
+    }
+
     pub fn screen(&self) -> Screen<'_> {
         Screen { term: &self.term }
     }
@@ -99,7 +103,7 @@ pub struct Screen<'a> {
     term: &'a Term<Replies>,
 }
 
-impl Screen<'_> {
+impl<'a> Screen<'a> {
     pub fn cols(&self) -> u16 {
         u16::try_from(self.term.grid().columns()).unwrap_or(u16::MAX)
     }
@@ -108,7 +112,7 @@ impl Screen<'_> {
         u16::try_from(self.term.grid().screen_lines()).unwrap_or(u16::MAX)
     }
 
-    pub fn cell(&self, col: u16, row: u16) -> &Cell {
+    pub fn cell(&self, col: u16, row: u16) -> &'a Cell {
         &self.term.grid()[Point::new(Line(i32::from(row)), Column(usize::from(col)))]
     }
 
@@ -157,6 +161,38 @@ mod tests {
         let mut emulator = Emulator::new(SIZE, 0);
         emulator.feed(b"$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07");
         assert_eq!(emulator.prompt_state(), PromptState::Unknown);
+    }
+
+    #[test]
+    fn exported_output_replays_into_identical_screen() {
+        let mut original = Emulator::new(SIZE, 100);
+        original.feed(b"plain\r\n\x1b[1;31mred bold\x1b[0m and \x1b[38;5;208morange\x1b[0m\r\n\x1b[44m bg \x1b[0m");
+        let exported = original.export_ansi(100);
+
+        let mut restored = Emulator::new(SIZE, 100);
+        restored.feed(&exported);
+
+        let text = |e: &Emulator, row: u16| -> String {
+            (0..SIZE.cols).map(|col| e.screen().cell(col, row).c).collect::<String>().trim_end().to_owned()
+        };
+        for row in 0..3 {
+            assert_eq!(text(&restored, row), text(&original, row));
+            for col in 0..SIZE.cols {
+                let (a, b) = (original.screen().cell(col, row), restored.screen().cell(col, row));
+                assert_eq!((a.fg, a.bg, a.flags), (b.fg, b.bg, b.flags), "cell {col},{row}");
+            }
+        }
+    }
+
+    #[test]
+    fn export_keeps_only_the_most_recent_lines() {
+        let mut emulator = Emulator::new(SIZE, 100);
+        (1..=10).for_each(|i| {
+            emulator.feed(format!("line {i}\r\n").as_bytes());
+        });
+        let exported = String::from_utf8(emulator.export_ansi(3)).unwrap_or_default();
+        assert_eq!(exported.matches("line").count(), 3);
+        assert!(exported.starts_with("line 8"));
     }
 
     #[test]

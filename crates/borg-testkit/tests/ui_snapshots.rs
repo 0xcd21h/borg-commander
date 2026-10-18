@@ -25,7 +25,7 @@ fn at(secs: u64) -> Option<SystemTime> {
 }
 
 fn entry(name: &str, kind: EntryKind, size: u64, modified: u64, executable: bool) -> Entry {
-    Entry { name: name.into(), kind, size, modified: at(modified), executable }
+    Entry { name: name.into(), kind, size, modified: at(modified), executable, permissions: 0o644 }
 }
 
 fn project() -> Vec<Entry> {
@@ -127,4 +127,66 @@ fn narrow_terminal_drops_columns() -> Result<()> {
     let mut stage = stage(NARROW, Motion::STILL)?;
     let buffer = stage.render(stage.started)?;
     check("narrow", &stage, buffer)
+}
+
+#[test]
+fn brief_listing_with_marks() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    stage.send(key(KeyCode::Insert)).send(key(KeyCode::Down)).send(key(KeyCode::Insert));
+    stage.state.panels[0].set_mode(borg_core::ListingMode::Brief);
+    let buffer = stage.render(stage.started)?;
+    check("brief_marked", &stage, buffer)
+}
+
+#[test]
+fn file_menu_open() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::F(2)));
+    let buffer = stage.render(stage.started)?;
+    check("file_menu", &stage, buffer)
+}
+
+#[test]
+fn copy_and_delete_dialogs() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::F(5)));
+    let copy = stage.render(stage.started)?;
+    check("copy_dialog", &stage, copy)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(8)));
+    let delete = stage.render(stage.started)?;
+    check("delete_dialog", &stage, delete)
+}
+
+#[test]
+fn viewer_wraps_and_unwraps() -> Result<()> {
+    use std::sync::Arc;
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let text: String = (1..=40)
+        .map(|i| if i == 3 { format!("{i:>3} {}\n", "long ".repeat(30)) } else { format!("{i:>3} log line\n") })
+        .collect();
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(text.into_bytes()), width, height)?;
+    stage.send(Msg::Opened(borg_core::Viewer { path: PathBuf::from("/var/log/app.log"), pager }));
+    let wrapped = stage.render(stage.started)?;
+    check("viewer_wrapped", &stage, wrapped)?;
+
+    stage.send(key(KeyCode::Char('w'))).send(key(KeyCode::Right));
+    let unwrapped = stage.render(stage.started)?;
+    check("viewer_unwrapped", &stage, unwrapped)
+}
+
+#[test]
+fn widened_left_panel() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let widen = KeyEvent::new(KeyCode::Right, KeyModifiers::ALT | KeyModifiers::SHIFT);
+    (0..6).for_each(|_| {
+        stage.send(Msg::Key(widen));
+    });
+    let buffer = stage.render(stage.started)?;
+    check("widened", &stage, buffer)
 }

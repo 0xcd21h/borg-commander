@@ -7,26 +7,34 @@ use ratatui::{
     text::{Line, Span},
     widgets::Widget,
 };
+use unicode_width::UnicodeWidthStr;
 
-use crate::theme::Styles;
+use crate::{format, theme::Styles};
 
 const CONTROL_PREFIX: char = '^';
 const ALT_PREFIX: &str = "M-";
-const LABEL_WIDTH: usize = 7;
 
 pub fn draw_keybar(area: Rect, styles: &Styles<Style>, notice: Option<&str>, buf: &mut Buffer) {
-    let keys = KEYMAP.iter().filter_map(|binding| {
-        let label = binding.label?;
-        Some([
-            Span::styled(key_name(binding.code, binding.modifiers), styles.key),
-            Span::styled(format!("{label:<LABEL_WIDTH$}"), styles.key_label),
-            Span::raw(" "),
-        ])
-    });
-    Line::from(keys.flatten().collect::<Vec<_>>()).render(area, buf);
+    let items: Vec<(String, &str)> =
+        KEYMAP.iter().filter_map(|binding| Some((key_name(binding.code, binding.modifiers), binding.label?))).collect();
+    let count = u16::try_from(items.len().max(1)).unwrap_or(u16::MAX);
+    let slot = usize::from(area.width / count);
+
+    let spans: Vec<Span<'_>> = items
+        .iter()
+        .flat_map(|(key, label)| {
+            let room = slot.saturating_sub(key.width());
+            [
+                Span::styled(key.clone(), styles.key),
+                Span::styled(format!("{:<room$}", format::truncate_end(label, room)), styles.key_label),
+            ]
+        })
+        .collect();
+    Line::from(spans).render(area, buf);
 
     if let Some(notice) = notice {
-        Line::styled(notice.to_owned(), styles.notice).right_aligned().render(area, buf);
+        let width = usize::from(area.width);
+        Line::styled(format::truncate_end(notice, width), styles.notice).right_aligned().render(area, buf);
     }
 }
 

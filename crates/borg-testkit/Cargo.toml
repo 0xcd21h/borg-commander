@@ -23,6 +23,7 @@ borg-vfs     = { workspace = true }
 jiff         = { workspace = true }
 
 [dev-dependencies]
+borg-view = { workspace = true }
 insta     = { workspace = true }
 
 [lints]

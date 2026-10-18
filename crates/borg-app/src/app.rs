@@ -4,10 +4,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use borg_core::{AppState, Appearance, Effect, Msg, ShellView, Side, ThemeChoice, update};
+use borg_core::{AppState, Appearance, Effect, Msg, ShellView, Side, ThemeChoice, Viewer, update, viewer_size};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
 use borg_ui::{Palette, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
+use borg_view::{FileSource, Pager};
 use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures::StreamExt;
 use ratatui::{DefaultTerminal, layout::Size};
@@ -20,6 +21,7 @@ use tokio::{
 use crate::{
     config::{Config, ConfigDir},
     launch::Launch,
+    session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
 };
 
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
@@ -36,7 +38,7 @@ pub struct App {
     palette: Palette,
     themes: ThemeSet,
     config_dir: Option<ConfigDir>,
-    config: Config,
+    state_dir: Option<StateDir>,
     pending: Vec<Effect>,
 }
 
@@ -49,19 +51,25 @@ impl App {
     pub fn start(launch: &Launch, size: Size) -> Result<Self> {
         let grid = GridSize { cols: size.width, rows: size.height };
         let now = Instant::now();
-        let dirs = [launch.cwd.clone(), launch.cwd.clone()];
         let appearance = appearance(launch);
         let (mut state, pending) =
-            AppState::new(dirs, size.width, size.height, launch.settings.clone(), appearance, now);
+            AppState::new(launch.startup.clone(), size.width, size.height, launch.settings.clone(), appearance, now);
         state.notice = launch.warnings.first().cloned();
 
-        let command = shell_command(&launch.shell, &launch.cwd, &launch.runtime_dir).context("preparing shell")?;
+        let mut emulator = Emulator::new(grid, state.settings.scrollback);
+        if let Some(restored) = &launch.restored {
+            emulator.feed(restored);
+            emulator.feed(RESTORED_MARKER);
+        }
+
+        let shell_dir = state.active_panel().dir().to_path_buf();
+        let command = shell_command(&launch.shell, &shell_dir, &launch.runtime_dir).context("preparing shell")?;
         let (pty_tx, pty_events) = unbounded_channel();
         let pty = Pty::spawn(command, grid, pty_tx)?;
         let (messages, inbox) = unbounded_channel();
 
         Ok(Self {
-            emulator: Emulator::new(grid, state.settings.scrollback),
+            emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
             pty,
@@ -72,12 +80,18 @@ impl App {
             palette: Palette::default(),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
-            config: launch.config.clone(),
+            state_dir: launch.state_dir.clone(),
             pending,
         })
     }
 
     pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        let result = self.event_loop(terminal).await;
+        self.save_session();
+        result
+    }
+
+    async fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let mut input = EventStream::new();
         let mut dirty = true;
         let mut last_draw = Instant::now() - self.state.settings.motion.frame;
@@ -97,6 +111,7 @@ impl App {
             }
 
             let deadline = if dirty { last_draw + frame } else { now + IDLE_WAIT };
+            let wake = self.state.wake_at();
             let flow = tokio::select! {
                 event = input.next() => match event {
                     Some(Ok(event)) => self.on_terminal_event(event)?,
@@ -106,6 +121,7 @@ impl App {
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if dirty => Flow::Continue,
+                () = sleep_until(wake.unwrap_or(now + IDLE_WAIT).into()), if wake.is_some() => self.dispatch(Msg::Tick)?,
             };
 
             if let Flow::Quit = flow {
@@ -113,6 +129,16 @@ impl App {
             }
             dirty = true;
         }
+    }
+
+    fn save_session(&self) {
+        let Some(dir) = &self.state_dir else { return };
+        let _ = dir.save_session(&Session::capture(&self.state));
+        let _ = if self.state.settings.preferences.restore_terminal {
+            dir.save_terminal(&self.emulator.export_ansi(RESTORED_LINES))
+        } else {
+            dir.forget_terminal()
+        };
     }
 
     fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
@@ -198,19 +224,32 @@ impl App {
             match effect {
                 Effect::List { side, generation, dir } => self.list(side, generation, dir),
                 Effect::Write(bytes) => self.pty.write(&bytes)?,
-                Effect::SaveTheme(id) => self.save_theme(id),
+                Effect::View(path) => self.open_viewer(path),
+                Effect::SaveConfig => self.save_config(),
                 Effect::Quit => return Ok(Flow::Quit),
             }
         }
         Ok(Flow::Continue)
     }
 
-    fn save_theme(&mut self, id: String) {
-        self.config.theme = Some(id);
-        let saved = self.config_dir.as_ref().map(|dir| dir.save(&self.config));
+    fn save_config(&self) {
+        let config = Config::capture(self.state.appearance.current_id(), &self.state.settings.preferences);
+        let saved = self.config_dir.as_ref().map(|dir| dir.save(&config));
         if let Some(Err(e)) = saved {
             let _ = self.messages.send(Msg::Notice(format!("{e:#}")));
         }
+    }
+
+    fn open_viewer(&self, path: std::path::PathBuf) {
+        let (width, height) = viewer_size(self.state.cols, self.state.rows);
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let opened = FileSource::open(&path)
+                .and_then(|source| Pager::new(Arc::new(source), width, height))
+                .map(|pager| Msg::Opened(Viewer { path: path.clone(), pager }))
+                .unwrap_or_else(|e| Msg::Notice(format!("{}: {e}", path.display())));
+            let _ = messages.send(opened);
+        });
     }
 
     fn list(&mut self, side: Side, generation: u64, dir: std::path::PathBuf) {

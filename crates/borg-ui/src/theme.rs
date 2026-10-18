@@ -4,13 +4,17 @@ use std::{
     str::FromStr,
 };
 
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::{
+    style::{Color, Modifier, Style},
+    widgets::BorderType,
+};
 use serde::Deserialize;
 
 const THEME_EXTENSION: &str = "toml";
 
-const BUILTIN: [(&str, &str); 4] = [
+const BUILTIN: [(&str, &str); 5] = [
     ("midnight", include_str!("../themes/midnight.toml")),
+    ("aurora", include_str!("../themes/aurora.toml")),
     ("classic", include_str!("../themes/classic.toml")),
     ("paper", include_str!("../themes/paper.toml")),
     ("ember", include_str!("../themes/ember.toml")),
@@ -72,6 +76,15 @@ styles! {
     overlay,
     overlay_border,
     overlay_selected,
+    input,
+    marked,
+    marked_cursor,
+    status,
+    menu,
+    menu_selected,
+    menu_disabled,
+    viewer,
+    viewer_status,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -122,11 +135,33 @@ impl StyleSpec {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Border {
+    #[default]
+    Plain,
+    Rounded,
+    Double,
+    Thick,
+}
+
+impl From<Border> for BorderType {
+    fn from(border: Border) -> Self {
+        match border {
+            Border::Plain => Self::Plain,
+            Border::Rounded => Self::Rounded,
+            Border::Double => Self::Double,
+            Border::Thick => Self::Thick,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ThemeFile {
     name: String,
     extends: Option<String>,
+    border: Option<Border>,
     #[serde(default)]
     styles: Styles<Option<StyleSpec>>,
 }
@@ -135,6 +170,7 @@ struct ThemeFile {
 pub struct Theme {
     pub id: String,
     pub name: String,
+    pub border: Border,
     pub styles: Styles<Style>,
 }
 
@@ -186,17 +222,22 @@ impl ThemeSet {
 
         let file: ThemeFile =
             toml::from_str(source).map_err(|source| ThemeError::Parse { id: id.to_owned(), source })?;
-        let base = match &file.extends {
+        let (border, styles) = match &file.extends {
             Some(base) => {
                 let index = self
                     .position(base)
                     .ok_or_else(|| ThemeError::UnknownBase { id: id.to_owned(), base: base.clone() })?;
-                self.themes[index].styles.clone()
+                (self.themes[index].border, self.themes[index].styles.clone())
             }
-            None => Styles::default(),
+            None => (Border::default(), Styles::default()),
         };
 
-        self.themes.push(Theme { id: id.to_owned(), name: file.name, styles: file.styles.over(&base) });
+        self.themes.push(Theme {
+            id: id.to_owned(),
+            name: file.name,
+            border: file.border.unwrap_or(border),
+            styles: file.styles.over(&styles),
+        });
         Ok(())
     }
 }
@@ -220,7 +261,7 @@ mod tests {
     fn builtin_themes_parse() {
         let set = ThemeSet::builtin().unwrap_or_else(|e| panic!("{e}"));
         let ids: Vec<_> = set.themes().iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(ids, ["midnight", "classic", "paper", "ember"]);
+        assert_eq!(ids, ["midnight", "aurora", "classic", "paper", "ember"]);
     }
 
     #[test]
@@ -244,6 +285,19 @@ mod tests {
         let classic = &set.themes()[set.position("classic").unwrap_or_default()];
         assert_eq!(mine.styles.cursor, Style::new().fg(Color::Rgb(255, 0, 0)).add_modifier(Modifier::BOLD));
         assert_eq!(mine.styles.panel, classic.styles.panel);
+    }
+
+    #[test]
+    fn border_style_is_inherited_and_overridable() {
+        let mut set = ThemeSet::builtin().unwrap_or_else(|e| panic!("{e}"));
+        set.add("soft", "name = \"Soft\"\nextends = \"aurora\"\n").unwrap_or_else(|e| panic!("{e}"));
+        set.add("boxy", "name = \"Boxy\"\nextends = \"aurora\"\nborder = \"double\"\n")
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        let border = |id: &str| set.themes()[set.position(id).unwrap_or_default()].border;
+        assert_eq!(border("midnight"), Border::Plain);
+        assert_eq!(border("soft"), Border::Rounded);
+        assert_eq!(border("boxy"), Border::Double);
     }
 
     #[test]

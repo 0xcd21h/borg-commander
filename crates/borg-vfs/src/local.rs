@@ -68,6 +68,7 @@ fn to_entry(entry: DirEntry) -> Option<Entry> {
         size: effective.len(),
         modified: effective.modified().ok(),
         executable: is_executable(effective),
+        permissions: permissions(&own),
     })
 }
 
@@ -94,4 +95,16 @@ fn is_executable(meta: &Metadata) -> bool {
 #[cfg(not(unix))]
 fn is_executable(_: &Metadata) -> bool {
     false
+}
+
+#[cfg(unix)]
+fn permissions(meta: &Metadata) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    const PERMISSION_BITS: u32 = 0o7777;
+    meta.permissions().mode() & PERMISSION_BITS
+}
+
+#[cfg(not(unix))]
+fn permissions(_: &Metadata) -> u32 {
+    0
 }

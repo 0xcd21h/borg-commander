@@ -22,3 +22,12 @@ key-label = { fg = "black", bg = "cyan" }
 overlay = { fg = "black", bg = "gray" }
 overlay-border = { fg = "white", bg = "gray", bold = true }
 overlay-selected = { fg = "black", bg = "cyan" }
+input = { fg = "black", bg = "cyan" }
+marked = { fg = "yellow", bg = "blue", bold = true }
+marked-cursor = { fg = "yellow", bg = "cyan", bold = true }
+status = { fg = "light-cyan", bg = "blue" }
+menu = { fg = "black", bg = "cyan" }
+menu-selected = { fg = "white", bg = "black" }
+menu-disabled = { fg = "dark-gray", bg = "cyan" }
+viewer = { fg = "light-cyan", bg = "blue" }
+viewer-status = { fg = "black", bg = "cyan" }

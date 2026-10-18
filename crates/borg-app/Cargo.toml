@@ -16,6 +16,7 @@ borg-core = { workspace = true }
 borg-term = { workspace = true }
 borg-ui   = { workspace = true }
 borg-vfs  = { workspace = true }
+borg-view = { workspace = true }
 crossterm = { workspace = true }
 futures   = { workspace = true }
 ratatui   = { workspace = true }

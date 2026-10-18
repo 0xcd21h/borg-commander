@@ -22,3 +22,12 @@ key-label = { fg = "#1c1715", bg = "#e8925b" }
 overlay = { fg = "#d8cbbd", bg = "#2a221d" }
 overlay-border = { fg = "#e8925b", bg = "#2a221d" }
 overlay-selected = { fg = "#1c1715", bg = "#e8925b", bold = true }
+input = { fg = "#f4e6d8", bg = "#3a2e26" }
+marked = { fg = "#ffd27a", bg = "#1c1715", bold = true }
+marked-cursor = { fg = "#1c1715", bg = "#ffd27a", bold = true }
+status = { fg = "#a89382", bg = "#241d19" }
+menu = { fg = "#d8cbbd", bg = "#2a221d" }
+menu-selected = { fg = "#1c1715", bg = "#e8925b", bold = true }
+menu-disabled = { fg = "#5c4d42", bg = "#2a221d" }
+viewer = { fg = "#d8cbbd", bg = "#1c1715" }
+viewer-status = { fg = "#1c1715", bg = "#e8925b" }

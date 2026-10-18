@@ -1,8 +1,10 @@
 mod app;
 mod config;
 mod launch;
+mod session;
+mod store;
 
-use std::io::stdout;
+use std::{env, io::stdout, process::ExitCode};
 
 use anyhow::Result;
 use crossterm::{
@@ -18,8 +20,16 @@ use ratatui::DefaultTerminal;
 
 use crate::{app::App, launch::Launch};
 
+const NESTED_MESSAGE: &str =
+    "borg is already running in this terminal. Press Ctrl-O to get back to it, or type `exit` to close this shell.";
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<ExitCode> {
+    if env::var_os(borg_term::SESSION_MARKER).is_some() {
+        eprintln!("{NESTED_MESSAGE}");
+        return Ok(ExitCode::FAILURE);
+    }
+
     let launch = Launch::detect()?;
     let mut terminal = ratatui::try_init()?;
 
@@ -36,7 +46,7 @@ async fn main() -> Result<()> {
     }
     execute!(stdout(), DisableBracketedPaste)?;
     ratatui::restore();
-    result
+    result.map(|()| ExitCode::SUCCESS)
 }
 
 async fn run(launch: &Launch, terminal: &mut DefaultTerminal) -> Result<()> {

@@ -5,7 +5,7 @@ use std::{
 
 use portable_pty::CommandBuilder;
 
-const ENV_MARKER: &str = "BORG_COMMANDER";
+pub const SESSION_MARKER: &str = "BORG_COMMANDER";
 const ENV_INTEGRATION_DIR: &str = "BORG_INTEGRATION_DIR";
 const ENV_USER_ZDOTDIR: &str = "BORG_USER_ZDOTDIR";
 const ENV_ZDOTDIR: &str = "ZDOTDIR";
@@ -56,7 +56,7 @@ pub fn shell_command(program: &Path, cwd: &Path, runtime_dir: &Path) -> io::Resu
 
     let mut cmd = CommandBuilder::new(program);
     cmd.cwd(cwd);
-    cmd.env(ENV_MARKER, env!("CARGO_PKG_VERSION"));
+    cmd.env(SESSION_MARKER, env!("CARGO_PKG_VERSION"));
     cmd.env(ENV_TERM, TERM_NAME);
     cmd.env(ENV_INTEGRATION_DIR, &integration_dir);
 

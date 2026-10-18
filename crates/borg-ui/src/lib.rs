@@ -1,15 +1,19 @@
 mod blend;
+mod dialog_view;
 mod draw;
 mod format;
 mod keybar;
+mod menu_view;
 mod palette;
 mod panel_view;
 mod picker_view;
+mod status_view;
 mod term_view;
 mod theme;
+mod viewer_view;
 
 pub use draw::{Scene, draw};
 pub use format::now as local_now;
 pub use palette::{Palette, Rgb};
 pub use term_view::draw_screen;
-pub use theme::{Styles, Theme, ThemeError, ThemeSet};
+pub use theme::{Border, Styles, Theme, ThemeError, ThemeSet};

@@ -1,4 +1,5 @@
 mod emulator;
+mod export;
 mod integration;
 mod keys;
 mod osc;
@@ -15,7 +16,7 @@ pub use alacritty_terminal::{
     vte::ansi::{Color, NamedColor, Rgb},
 };
 pub use emulator::{Emulator, PromptState, Screen};
-pub use integration::{ShellKind, shell_command};
+pub use integration::{SESSION_MARKER, ShellKind, shell_command};
 pub use keys::{encode_key, encode_paste};
 pub use osc::OscScanner;
 pub use pty::{Foreground, Pty, PtyEvent};

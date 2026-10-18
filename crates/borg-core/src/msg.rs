@@ -4,7 +4,7 @@ use borg_term::ShellSignal;
 use borg_vfs::Entry;
 use crossterm::event::KeyEvent;
 
-use crate::{ShellView, Side};
+use crate::{ShellView, Side, Viewer};
 
 #[derive(Debug)]
 pub enum Msg {
@@ -16,6 +16,8 @@ pub enum Msg {
     Observe(ShellView),
     ShellOutput(ShellView),
     Signal(ShellSignal),
+    Tick,
+    Opened(Viewer),
     ShellExited,
     Notice(String),
 }
@@ -24,6 +26,7 @@ pub enum Msg {
 pub enum Effect {
     List { side: Side, generation: u64, dir: PathBuf },
     Write(Vec<u8>),
-    SaveTheme(String),
+    View(PathBuf),
+    SaveConfig,
     Quit,
 }

@@ -1,10 +1,10 @@
-use std::{
-    env, fs, io,
-    path::{Path, PathBuf},
-};
+use std::{env, fs, io, path::PathBuf};
 
 use anyhow::{Context, Result};
+use borg_core::{AfterCommand, Preferences};
 use serde::{Deserialize, Serialize};
+
+use crate::store::write_atomically;
 
 const ENV_CONFIG_DIR: &str = "BORG_CONFIG_DIR";
 const ENV_XDG_CONFIG: &str = "XDG_CONFIG_HOME";
@@ -15,9 +15,46 @@ const CONFIG_FILE: &str = "config.toml";
 const THEMES_DIR: &str = "themes";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Config {
     pub theme: Option<String>,
+    pub status_line: Option<bool>,
+    pub menu_bar: Option<bool>,
+    pub animations: Option<bool>,
+    pub show_hidden: Option<bool>,
+    pub return_to_panels: Option<bool>,
+    pub restore_terminal: Option<bool>,
+}
+
+impl Config {
+    pub fn preferences(&self) -> Preferences {
+        let base = Preferences::default();
+        let after_command = match self.return_to_panels {
+            Some(true) => AfterCommand::ReturnToPanels,
+            Some(false) => AfterCommand::ShowShell,
+            None => base.after_command,
+        };
+        Preferences {
+            after_command,
+            show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
+            status_line: self.status_line.unwrap_or(base.status_line),
+            menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
+            animations: self.animations.unwrap_or(base.animations),
+            restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
+        }
+    }
+
+    pub fn capture(theme: Option<&str>, prefs: &Preferences) -> Self {
+        Self {
+            theme: theme.map(str::to_owned),
+            status_line: Some(prefs.status_line),
+            menu_bar: Some(prefs.menu_bar),
+            animations: Some(prefs.animations),
+            show_hidden: Some(prefs.show_hidden),
+            return_to_panels: Some(prefs.after_command == AfterCommand::ReturnToPanels),
+            restore_terminal: Some(prefs.restore_terminal),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +83,7 @@ impl ConfigDir {
 
     pub fn save(&self, config: &Config) -> Result<()> {
         fs::create_dir_all(&self.0).with_context(|| format!("creating {}", self.0.display()))?;
-        write_atomically(&self.file(), &toml::to_string(config)?)
+        write_atomically(&self.file(), toml::to_string(config)?.as_bytes())
     }
 
     fn file(&self) -> PathBuf {
@@ -54,8 +91,31 @@ impl ConfigDir {
     }
 }
 
-fn write_atomically(path: &Path, contents: &str) -> Result<()> {
-    let staging = path.with_extension("toml.part");
-    fs::write(&staging, contents).with_context(|| format!("writing {}", staging.display()))?;
-    fs::rename(&staging, path).with_context(|| format!("replacing {}", path.display()))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_keys_fall_back_to_defaults() {
+        let config: Config = toml::from_str("theme = \"aurora\"\nmenu-bar = true\n").unwrap_or_default();
+        let prefs = config.preferences();
+        assert!(prefs.menu_bar);
+        assert_eq!(prefs.status_line, Preferences::default().status_line);
+        assert_eq!(config.theme.as_deref(), Some("aurora"));
+    }
+
+    #[test]
+    fn captured_preferences_round_trip() {
+        let prefs =
+            Preferences { menu_bar: true, after_command: AfterCommand::ReturnToPanels, ..Preferences::default() };
+        let text = toml::to_string(&Config::capture(Some("ember"), &prefs)).unwrap_or_default();
+        let back: Config = toml::from_str(&text).unwrap_or_default();
+        assert_eq!(back.preferences(), prefs);
+        assert!(text.contains("return-to-panels = true"));
+    }
+
+    #[test]
+    fn rejects_unknown_keys() {
+        assert!(toml::from_str::<Config>("colour = 1").is_err());
+    }
 }

@@ -9,8 +9,11 @@ rust-version.workspace = true
 [dependencies]
 borg-term = { workspace = true }
 borg-vfs  = { workspace = true }
+borg-view = { workspace = true }
 crossterm = { workspace = true }
+globset   = { workspace = true }
 ratatui   = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

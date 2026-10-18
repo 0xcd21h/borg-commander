@@ -1,11 +1,18 @@
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use borg_term::{Foreground, PromptState, TermMode};
 
-use crate::{Appearance, Easing, Effect, Fade, Layout, Panel, Picker, Settings};
+use crate::{
+    Appearance, Easing, Effect, Fade, Layout, LineInput, ListingMode, Motion, Panel, Picker, Settings, Sort, Viewer,
+    layout::{Chrome, EVEN_SPLIT, clamp_split},
+};
 
 const OPAQUE: f32 = 1.0;
 const TRANSPARENT: f32 = 0.0;
+pub const REVEAL_DELAY: Duration = Duration::from_millis(600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
@@ -93,6 +100,87 @@ impl ShellStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MenuCursor {
+    pub menu: usize,
+    pub item: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromptPurpose {
+    Select,
+    Unselect,
+    Mkdir,
+    Compress { sources: Vec<String> },
+    Copy { sources: Vec<String> },
+    Move { sources: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prompt {
+    pub title: &'static str,
+    pub label: String,
+    pub input: LineInput,
+    pub purpose: PromptPurpose,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfirmPurpose {
+    Delete { sources: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confirm {
+    pub title: &'static str,
+    pub message: String,
+    pub purpose: ConfirmPurpose,
+    pub accept: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Overlay {
+    Themes(Picker),
+    Menu(MenuCursor),
+    Prompt(Prompt),
+    Confirm(Confirm),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Operation {
+    pub label: &'static str,
+    pub side: Side,
+    pub reveal_at: Instant,
+    pub revealed: bool,
+    pub focus: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PanelSetup {
+    pub dir: PathBuf,
+    pub focus: Option<String>,
+    pub mode: ListingMode,
+    pub sort: Sort,
+}
+
+impl PanelSetup {
+    pub fn at(dir: PathBuf) -> Self {
+        Self { dir, focus: None, mode: ListingMode::default(), sort: Sort::default() }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Startup {
+    pub panels: [PanelSetup; 2],
+    pub active: Side,
+    pub split: f32,
+}
+
+impl Startup {
+    pub fn at(dir: PathBuf) -> Self {
+        Self { panels: [PanelSetup::at(dir.clone()), PanelSetup::at(dir)], active: Side::Left, split: EVEN_SPLIT }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub panels: [Panel; 2],
@@ -100,51 +188,62 @@ pub struct AppState {
     pub view: View,
     pub shell: ShellStatus,
     pub fade: Fade,
-    pub layout: Layout,
+    pub split: Fade,
+    pub cols: u16,
+    pub rows: u16,
     pub settings: Settings,
     pub notice: Option<String>,
     pub appearance: Appearance,
-    pub picker: Option<Picker>,
+    pub overlay: Option<Overlay>,
+    pub operation: Option<Operation>,
+    pub viewer: Option<Viewer>,
     generation: u64,
 }
 
 impl AppState {
     pub fn new(
-        dirs: [PathBuf; 2],
+        startup: Startup,
         cols: u16,
         rows: u16,
         settings: Settings,
         appearance: Appearance,
         now: Instant,
     ) -> (Self, Vec<Effect>) {
-        let layout = Layout::new(cols, rows);
-        let viewport = layout.viewport();
-        let [left, right] = dirs;
+        let active_dir = startup.panels[startup.active.index()].dir.clone();
         let shell = ShellStatus {
             observed: ShellView::default(),
-            cwd: left.clone(),
+            cwd: active_dir,
             running: false,
             typed: false,
             unechoed: false,
             integrated: false,
         };
+        let panels = startup.panels.clone().map(|setup| Panel::new(setup.dir, 0, setup.mode, setup.sort));
 
         let mut state = Self {
-            panels: [Panel::new(left.clone(), 0, viewport), Panel::new(right.clone(), 0, viewport)],
-            active: Side::Left,
+            panels,
+            active: startup.active,
             view: View::Panels,
             shell,
             fade: Fade::settled(OPAQUE, now),
-            layout,
+            split: Fade::settled(clamp_split(startup.split, cols), now),
+            cols,
+            rows,
             settings,
             notice: None,
             appearance,
-            picker: None,
+            overlay: None,
+            operation: None,
+            viewer: None,
             generation: 0,
         };
+        state.refit();
 
-        let effects =
-            Side::ALL.into_iter().zip([left, right]).map(|(side, dir)| state.navigate(side, dir, None)).collect();
+        let effects = Side::ALL
+            .into_iter()
+            .zip(startup.panels)
+            .map(|(side, setup)| state.navigate(side, setup.dir, setup.focus))
+            .collect();
         (state, effects)
     }
 
@@ -156,6 +255,23 @@ impl AppState {
         self.panel(self.active)
     }
 
+    pub fn chrome(&self) -> Chrome {
+        let prefs = &self.settings.preferences;
+        Chrome { menu_bar: prefs.menu_bar, status_line: prefs.status_line }
+    }
+
+    pub fn layout(&self, now: Instant) -> Layout {
+        Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now))
+    }
+
+    pub fn split_target(&self) -> f32 {
+        self.split.target()
+    }
+
+    pub fn motion(&self) -> Motion {
+        self.settings.effective_motion()
+    }
+
     pub fn effective_view(&self) -> View {
         if self.shell.captured() { View::Shell } else { self.view }
     }
@@ -165,7 +281,11 @@ impl AppState {
     }
 
     pub fn is_animating(&self, now: Instant) -> bool {
-        self.fade.is_animating(now) || self.appearance.is_animating(now)
+        self.fade.is_animating(now) || self.split.is_animating(now) || self.appearance.is_animating(now)
+    }
+
+    pub fn wake_at(&self) -> Option<Instant> {
+        self.operation.as_ref().filter(|op| !op.revealed).map(|op| op.reveal_at)
     }
 
     pub fn settle(&mut self) {
@@ -176,9 +296,9 @@ impl AppState {
         &mut self.panels[side.index()]
     }
 
-    pub(crate) fn navigate(&mut self, side: Side, dir: PathBuf, focus_child: Option<String>) -> Effect {
+    pub(crate) fn navigate(&mut self, side: Side, dir: PathBuf, focus: Option<String>) -> Effect {
         let generation = self.next_generation();
-        self.panel_mut(side).navigate(dir.clone(), generation, focus_child);
+        self.panel_mut(side).navigate(dir.clone(), generation, focus);
         Effect::List { side, generation, dir }
     }
 
@@ -189,20 +309,38 @@ impl AppState {
         Effect::List { side, generation, dir: panel.destination().to_path_buf() }
     }
 
+    pub(crate) fn reload_all(&mut self) -> Vec<Effect> {
+        Side::ALL.into_iter().map(|side| self.reload(side)).collect()
+    }
+
     pub(crate) fn sync_fade(&mut self, now: Instant) {
         let target = match self.effective_view() {
             View::Panels => OPAQUE,
             View::Shell => TRANSPARENT,
         };
         if (self.fade.target() - target).abs() > f32::EPSILON {
-            self.fade = self.fade.toward(target, now, self.settings.motion.fade, Easing::InOutCubic);
+            self.fade = self.fade.toward(target, now, self.motion().fade, Easing::InOutCubic);
         }
     }
 
-    pub(crate) fn resize(&mut self, cols: u16, rows: u16) {
-        self.layout = Layout::new(cols, rows);
-        let viewport = self.layout.viewport();
-        self.panels.iter_mut().for_each(|panel| panel.set_viewport(viewport));
+    pub(crate) fn set_split(&mut self, split: f32, now: Instant) {
+        let target = clamp_split(split, self.cols);
+        if (self.split.target() - target).abs() > f32::EPSILON {
+            self.split = self.split.toward(target, now, self.motion().fade, Easing::OutCubic);
+        }
+    }
+
+    pub(crate) fn resize(&mut self, cols: u16, rows: u16, now: Instant) {
+        self.cols = cols;
+        self.rows = rows;
+        self.split = Fade::settled(clamp_split(self.split.target(), cols), now);
+        self.refit();
+        crate::viewer::resize(self);
+    }
+
+    pub(crate) fn refit(&mut self) {
+        let rows = Layout::new(self.cols, self.rows, self.chrome(), EVEN_SPLIT).panel_rows();
+        self.panels.iter_mut().for_each(|panel| panel.set_rows(rows));
     }
 
     fn next_generation(&mut self) -> u64 {

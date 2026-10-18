@@ -18,8 +18,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     env:
-      CARGO_TERM_COLOR: always
+      CARGO_TERM_COLOR: never
       BORG_SCREENSHOTS: ${{ github.workspace }}/target/screenshots
+      BORG_TEST_TIMEOUT_SECS: "30"
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +45,16 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p target
+          cargo test --workspace --no-fail-fast 2>&1 | tee target/test-output.txt
+
+      - name: Report test failures
+        if: failure()
+        shell: bash
+        run: scripts/report-test-failures.sh target/test-output.txt
 
       - name: Upload screenshots
         if: always()

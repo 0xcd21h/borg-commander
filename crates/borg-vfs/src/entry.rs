@@ -21,6 +21,7 @@ pub struct Entry {
     pub size: u64,
     pub modified: Option<SystemTime>,
     pub executable: bool,
+    pub permissions: u32,
 }
 
 impl Entry {
