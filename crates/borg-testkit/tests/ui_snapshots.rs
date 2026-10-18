@@ -353,7 +353,7 @@ fn loading_shows_spinner_and_comet() -> Result<()> {
 }
 
 #[test]
-fn entering_a_folder_slides_the_listing() -> Result<()> {
+fn entering_a_folder_shows_the_new_listing_at_once() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
     stage.send(key(KeyCode::Down));
     let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
@@ -362,8 +362,10 @@ fn entering_a_folder_slides_the_listing() -> Result<()> {
     };
     stage.send(Msg::Batch { side, generation, entries: logs() });
     stage.send(Msg::Listed { side, generation, error: None });
-    let buffer = stage.render(stage.started + Motion::LOCAL.fade / 3)?;
-    check("slide_forward", &stage, buffer)
+    let early = describe(&stage.render(stage.started + Motion::LOCAL.fade / 3)?);
+    let late = describe(&stage.render(stage.started + Motion::LOCAL.fade * 2)?);
+    anyhow::ensure!(early == late, "the listing must not animate in:\n{early}");
+    Ok(())
 }
 
 #[test]
@@ -695,29 +697,4 @@ fn frame_cost() -> Result<()> {
         println!("{id}: cursor move {plain:?} per frame, dialog fading {:?} per frame", start.elapsed() / rounds);
     }
     Ok(())
-}
-
-#[test]
-fn brief_slide_keeps_the_separator_still() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::LOCAL)?;
-    stage.state.panels[0].set_mode(borg_core::ListingMode::Brief);
-    stage.send(key(KeyCode::Down));
-    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
-    let Some(borg_core::Effect::List { side, generation, .. }) = effects.into_iter().next() else {
-        anyhow::bail!("entering a folder must list it");
-    };
-    stage.send(Msg::Batch { side, generation, entries: logs() });
-    stage.send(Msg::Listed { side, generation, error: None });
-    let buffer = stage.render(stage.started + Motion::LOCAL.fade / 2)?;
-    let text = describe(&buffer);
-    let separator_column =
-        text.lines().nth(5).and_then(|line| line.char_indices().filter(|(_, c)| *c == '│').nth(1)).map(|(i, _)| i);
-    let still = stage.render(stage.started + Motion::LOCAL.fade * 2)?;
-    let resting = describe(&still)
-        .lines()
-        .nth(5)
-        .and_then(|line| line.char_indices().filter(|(_, c)| *c == '│').nth(1))
-        .map(|(i, _)| i);
-    anyhow::ensure!(separator_column == resting, "separator moved: {separator_column:?} vs {resting:?}\n{text}");
-    check("slide_brief", &stage, buffer)
 }

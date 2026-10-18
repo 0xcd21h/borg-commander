@@ -11,7 +11,7 @@ mod stars;
 
 pub use cube::draw_cube;
 pub use logo::{LOGO, draw_logo, logo_width};
-pub use motion::{Unfold, reveal, shift};
+pub use motion::{Unfold, reveal};
 pub use paint::{
     Gradient, erase_border, fade_to_background, glow, gradient_border, gradient_fill, gradient_text, shadow,
 };

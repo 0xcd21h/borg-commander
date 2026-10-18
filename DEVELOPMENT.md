@@ -78,7 +78,7 @@ is revealed, and the panels come back when it finishes.
 
 - `panel_view` draws panels: breadcrumbs, rows, icons, the cursor, size bars and spinners.
 - `fx/` holds the effects engine: gradients, glow, dimming, shadows, the braille canvas and
-  cube, the starfield, glyph rain, spinners, slides and unfolds, and 256-colour quantising.
+  cube, the starfield, glyph rain, spinners, unfolds, and 256-colour quantising.
 - `blend::crossfade` mixes two buffers per cell. It powers the shell fade, theme previews and
   overlay fades.
 - Themes are TOML files in `crates/borg-ui/themes/`. `ThemeSet` loads them, resolves

@@ -14,7 +14,7 @@ c o m m a n d e r
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" alt="borg-commander in action: splash, icons, quick find, folder slides, themes, pictures" width="900">
+  <img src="docs/demo.gif" alt="borg-commander in action: splash, icons, quick find, themes, pictures" width="900">
 </p>
 
 ---
@@ -56,7 +56,7 @@ shell, and back again.
 - **Pictures.** F3 on an image shows it in Kitty, Ghostty, WezTerm, iTerm2 and Sixel
   terminals, and as colour blocks everywhere else.
 - **Good looking.** Rounded borders, gradients and a Neon theme that breathes, Nerd Font icons
-  coloured per file type, smooth fades and slides, and themes you can switch live.
+  coloured per file type, smooth fades, and themes you can switch live.
 - **Works over SSH.** Animations adapt to the connection, colours adapt to the terminal.
 - **Remembers.** Folders, cursor, split and (optionally) your shell scrollback come back next
   time.

@@ -660,18 +660,6 @@ fn screensaver_starts_after_idle_and_wakes_on_a_key() {
 }
 
 #[test]
-fn entering_a_child_folder_slides_forward_and_back() {
-    let (mut state, now) = setup();
-    press(&mut state, now, key(KeyCode::Down));
-    let effects = press(&mut state, now, key(KeyCode::Enter));
-    let Some(Effect::List { side, generation, .. }) = effects.first().cloned() else { panic!("expected listing") };
-    update(&mut state, Msg::Batch { side, generation, entries: vec![] }, now);
-    let slide = state.motions[side.index()].slide(now);
-    assert_eq!(slide.map(|(direction, _)| direction), Some(crate::SlideDirection::Forward));
-    assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
-}
-
-#[test]
 fn closed_overlays_fade_out_and_new_ones_fade_in() {
     let mut settings = quiet();
     settings.motion = crate::Motion::LOCAL;
