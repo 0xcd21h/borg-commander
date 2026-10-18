@@ -38,7 +38,7 @@ pub fn draw_keybar(area: Rect, styles: &Styles<Style>, notice: Option<&str>, buf
     }
 }
 
-fn key_name(code: KeyCode, modifiers: KeyModifiers) -> String {
+pub fn key_name(code: KeyCode, modifiers: KeyModifiers) -> String {
     let base = match code {
         KeyCode::F(n) => n.to_string(),
         KeyCode::Char(c) => c.to_ascii_uppercase().to_string(),

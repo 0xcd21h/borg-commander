@@ -1,5 +1,9 @@
 use std::time::Duration;
 
+pub const DEFAULT_SCREENSAVER_AFTER: Duration = Duration::from_secs(300);
+pub const SPLASH_DURATION: Duration = Duration::from_millis(1600);
+pub const AMBIENT_FRAME: Duration = Duration::from_millis(80);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AfterCommand {
     ShowShell,
@@ -26,18 +30,28 @@ pub struct Preferences {
     pub menu_bar: bool,
     pub animations: bool,
     pub restore_terminal: bool,
+    pub splash: bool,
+    pub screensaver: bool,
+    pub delight: bool,
+}
+
+impl Preferences {
+    pub const DEFAULT: Self = Self {
+        after_command: AfterCommand::ShowShell,
+        show_hidden: false,
+        status_line: true,
+        menu_bar: false,
+        animations: true,
+        restore_terminal: false,
+        splash: true,
+        screensaver: false,
+        delight: true,
+    };
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self {
-            after_command: AfterCommand::ShowShell,
-            show_hidden: false,
-            status_line: true,
-            menu_bar: false,
-            animations: true,
-            restore_terminal: false,
-        }
+        Self::DEFAULT
     }
 }
 
@@ -45,6 +59,8 @@ impl Default for Preferences {
 pub struct Settings {
     pub preferences: Preferences,
     pub motion: Motion,
+    pub truecolor: bool,
+    pub screensaver_after: Duration,
     pub listing_batch: usize,
     pub scrollback: usize,
 }
@@ -57,6 +73,13 @@ impl Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { preferences: Preferences::default(), motion: Motion::LOCAL, listing_batch: 2048, scrollback: 10_000 }
+        Self {
+            preferences: Preferences::default(),
+            motion: Motion::LOCAL,
+            truecolor: true,
+            screensaver_after: DEFAULT_SCREENSAVER_AFTER,
+            listing_batch: 2048,
+            scrollback: 10_000,
+        }
     }
 }

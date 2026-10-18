@@ -17,6 +17,7 @@ const REJECT_KEY: char = 'n';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
+        Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),

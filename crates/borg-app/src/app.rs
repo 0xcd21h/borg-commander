@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use borg_core::{AppState, Appearance, Effect, Msg, ShellView, Side, ThemeChoice, Viewer, update, viewer_size};
+use borg_core::{AMBIENT_FRAME, AppState, Appearance, Effect, Msg, Pace, ShellView, Side, Viewer, update, viewer_size};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
 use borg_ui::{Palette, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
@@ -38,6 +38,8 @@ pub struct App {
     palette: Palette,
     themes: ThemeSet,
     config_dir: Option<ConfigDir>,
+    config: Config,
+    home: Option<std::path::PathBuf>,
     state_dir: Option<StateDir>,
     pending: Vec<Effect>,
 }
@@ -80,6 +82,8 @@ impl App {
             palette: Palette::default(),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
+            config: launch.config.clone(),
+            home: launch.home.clone(),
             state_dir: launch.state_dir.clone(),
             pending,
         })
@@ -95,6 +99,7 @@ impl App {
         let mut input = EventStream::new();
         let mut dirty = true;
         let mut last_draw = Instant::now() - self.state.settings.motion.frame;
+        let mut animating = false;
 
         let initial = std::mem::take(&mut self.pending);
         if let Flow::Quit = self.apply(initial)? {
@@ -103,14 +108,20 @@ impl App {
 
         loop {
             let now = Instant::now();
-            let frame = self.state.settings.motion.frame;
-            if dirty && now >= last_draw + frame {
+            let pace = self.pace(now);
+            let frame = match pace {
+                Some(Pace::Ambient) => AMBIENT_FRAME,
+                Some(Pace::Smooth) | None => self.state.settings.motion.frame,
+            };
+            if (dirty || animating) && now >= last_draw + frame {
                 self.render(terminal, now)?;
                 last_draw = now;
-                dirty = self.state.is_animating(now);
+                dirty = false;
+                animating = self.pace(now).is_some();
             }
 
-            let deadline = if dirty { last_draw + frame } else { now + IDLE_WAIT };
+            let redraw = dirty || animating;
+            let deadline = if redraw { last_draw + frame } else { now + IDLE_WAIT };
             let wake = self.state.wake_at();
             let flow = tokio::select! {
                 event = input.next() => match event {
@@ -120,7 +131,7 @@ impl App {
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
-                () = sleep_until(deadline.into()), if dirty => Flow::Continue,
+                () = sleep_until(deadline.into()), if redraw => Flow::Continue,
                 () = sleep_until(wake.unwrap_or(now + IDLE_WAIT).into()), if wake.is_some() => self.dispatch(Msg::Tick)?,
             };
 
@@ -129,6 +140,13 @@ impl App {
             }
             dirty = true;
         }
+    }
+
+    fn pace(&self, now: Instant) -> Option<Pace> {
+        let theme = self.themes.find(self.state.appearance.current_id());
+        let breathing =
+            theme.effects.breathe && self.state.settings.truecolor && self.state.motion().fade > Duration::ZERO;
+        self.state.pace(now).or(breathing.then_some(Pace::Ambient))
     }
 
     fn save_session(&self) {
@@ -151,6 +169,7 @@ impl App {
             themes: &self.themes,
             clock: &clock,
             now,
+            home: self.home.as_deref(),
         };
         terminal.draw(|frame| draw(frame, &scene))?;
         Ok(())
@@ -233,7 +252,9 @@ impl App {
     }
 
     fn save_config(&self) {
-        let config = Config::capture(self.state.appearance.current_id(), &self.state.settings.preferences);
+        let appearance = &self.state.appearance;
+        let config =
+            self.config.capture(appearance.current_id(), &self.state.settings.preferences, appearance.unlocked());
         let saved = self.config_dir.as_ref().map(|dir| dir.save(&config));
         if let Some(Err(e)) = saved {
             let _ = self.messages.send(Msg::Notice(format!("{e:#}")));
@@ -278,12 +299,5 @@ impl App {
 }
 
 fn appearance(launch: &Launch) -> Appearance {
-    let choices = launch
-        .themes
-        .themes()
-        .iter()
-        .map(|theme| ThemeChoice { id: theme.id.clone(), name: theme.name.clone() })
-        .collect();
-    let current = launch.config.theme.as_deref().and_then(|id| launch.themes.position(id)).unwrap_or_default();
-    Appearance::new(choices, current)
+    launch.themes.appearance(launch.config.theme.as_deref(), launch.config.unlocked())
 }

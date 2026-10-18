@@ -6,12 +6,19 @@ use crossterm::event::KeyCode;
 
 const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
-const CONFIG_FILE: &str = "config.toml";
 const PROMPT_FROM_BOTTOM: u16 = 2;
 const MENU_TITLES: &str = "Left    File    Command    Options    Right";
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
+const FIRST_KEY: &str = "1Help";
+const SPLASH_SUBTITLE: &str = "c o m m a n d e r";
+const UNLOCK: &str = "borg";
+const SEVEN: usize = 7;
+const CREW: [&str; 9] =
+    ["1.drone", "2.drone", "3.drone", "4.drone", "5.drone", "6.drone", "7.drone", "8.drone", "9.drone"];
+const TOP_LEFT_CORNERS: [char; 4] = ['┌', '╭', '┏', '╔'];
+const TOP_RIGHT_CORNERS: [char; 4] = ['┐', '╮', '┓', '╗'];
 
 fn fixture() -> Result<Fixture> {
     let fixture = Fixture::new()?;
@@ -72,7 +79,7 @@ fn choose(app: &mut Session, index: usize, item: &str) -> Result<()> {
 }
 
 fn panels_ready(s: &Snapshot) -> bool {
-    s.lines().first().is_some_and(|top| top.starts_with('┌')) && prompt(s).starts_with('$')
+    s.lines().first().is_some_and(|top| top.starts_with(TOP_LEFT_CORNERS)) && prompt(s).starts_with('$')
 }
 
 fn left_panel(s: &Snapshot) -> String {
@@ -244,11 +251,12 @@ fn theme_picker_previews_saves_and_restores_on_restart() -> Result<()> {
     open_theme_picker(&mut app)?;
     app.send(keys::down())?;
     app.wait_until("aurora preview", |s| s.style_of("notes.txt").map(|c| c.bg) != before)?;
-    let classic_bg = app.checkpoint("picker")?.style_of("notes.txt").map(|s| s.bg);
+    app.checkpoint("picker")?;
 
     app.send(keys::enter())?;
     app.wait_gone("Enter keep")?;
-    let saved = fs::read_to_string(fixture.config().join(CONFIG_FILE))?;
+    let chosen_bg = app.settle()?.style_of("notes.txt").map(|s| s.bg);
+    let saved = fs::read_to_string(fixture.config_file())?;
     ensure!(saved.contains("theme = \"aurora\""), "config was {saved:?}");
 
     app.send(keys::f(10))?;
@@ -257,7 +265,7 @@ fn theme_picker_previews_saves_and_restores_on_restart() -> Result<()> {
 
     let mut again = start(&fixture, "theme-restored")?;
     let restored = again.settle()?;
-    ensure!(restored.style_of("notes.txt").map(|s| s.bg) == classic_bg, "theme not restored\n{}", restored.text());
+    ensure!(restored.style_of("notes.txt").map(|s| s.bg) == chosen_bg, "theme not restored\n{}", restored.text());
     Ok(())
 }
 
@@ -265,6 +273,7 @@ fn theme_picker_previews_saves_and_restores_on_restart() -> Result<()> {
 fn theme_picker_escape_reverts_preview() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "theme-escape")?;
+    let config = fs::read_to_string(fixture.config_file())?;
     let original = app.settle()?.style_of("notes.txt");
 
     open_theme_picker(&mut app)?;
@@ -272,7 +281,7 @@ fn theme_picker_escape_reverts_preview() -> Result<()> {
     app.wait_until("preview changed", |s| s.style_of("notes.txt") != original)?;
     app.send(keys::esc())?;
     app.wait_until("original theme back", |s| !s.contains("Enter keep") && s.style_of("notes.txt") == original)?;
-    ensure!(!fixture.config().join(CONFIG_FILE).exists(), "escape must not save");
+    ensure!(fs::read_to_string(fixture.config_file())? == config, "escape must not save");
     Ok(())
 }
 
@@ -301,8 +310,10 @@ fn resize_reflows_layout() -> Result<()> {
     app.resize(COLS, ROWS)?;
     app.wait_until("layout at new size", |s| {
         let lines = s.lines();
-        let top_fits = lines.first().is_some_and(|top| top.chars().count() == usize::from(COLS) && top.ends_with('┐'));
-        top_fits && lines[usize::from(ROWS - 1)].contains("Quit")
+        let top_fits = lines
+            .first()
+            .is_some_and(|top| top.chars().count() == usize::from(COLS) && top.ends_with(TOP_RIGHT_CORNERS));
+        top_fits && lines[usize::from(ROWS - 1)].starts_with(FIRST_KEY)
     })?;
     app.checkpoint("resized")?;
     Ok(())
@@ -402,8 +413,9 @@ fn file_operations_run_through_the_shell() -> Result<()> {
     app.send(keys::up())?;
     app.wait_until("cursor on notes", |s| highlighted(s, " notes.txt"))?;
     app.send(keys::f(5))?;
-    let dialog = app.wait_text("Copy \"notes.txt\" to")?;
-    ensure!(dialog.contains("/work/beta"), "destination should default to other panel\n{}", dialog.text());
+    app.wait_until("destination defaults to other panel", |s| {
+        s.contains("Copy \"notes.txt\" to") && s.contains("/work/beta")
+    })?;
     app.checkpoint("copy-dialog")?;
     app.send(keys::enter())?;
     app.wait_until("copy finished", |s| work.join("beta/notes.txt").is_file() && panels_ready(s))?;
@@ -503,7 +515,7 @@ fn status_line_shows_details_and_can_be_hidden() -> Result<()> {
 
     choose(&mut app, OPTIONS_MENU, "Status line")?;
     app.wait_gone("-rwxr-xr-x")?;
-    let saved = fs::read_to_string(fixture.config().join(CONFIG_FILE))?;
+    let saved = fs::read_to_string(fixture.config_file())?;
     ensure!(saved.contains("status-line = false"), "config was {saved:?}");
     Ok(())
 }
@@ -514,8 +526,10 @@ fn brief_listing_and_menu_bar() -> Result<()> {
     let mut app = start(&fixture, "brief")?;
 
     app.send(keys::f(9))?;
-    let menu = app.wait_text(MENU_TITLES)?;
-    ensure!(menu.contains("Full listing") && menu.contains("Sort by size"), "left menu\n{}", menu.text());
+    let menu = app.wait_until("left menu unfolded", |s| {
+        s.contains(MENU_TITLES) && s.contains("Full listing") && s.contains("Sort by size")
+    })?;
+    ensure!(menu.contains("Brief listing"), "left menu\n{}", menu.text());
     app.checkpoint("menu-open")?;
     app.send(keys::esc())?;
     app.wait_gone(MENU_TITLES)?;
@@ -533,7 +547,7 @@ fn brief_listing_and_menu_bar() -> Result<()> {
 fn panels_resize_with_alt_shift_arrows() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "split")?;
-    let corner = |s: &Snapshot| s.lines()[0].chars().position(|c| c == '┐');
+    let corner = |s: &Snapshot| s.lines()[0].chars().position(|c| TOP_RIGHT_CORNERS.contains(&c));
     let before = corner(&app.settle()?);
 
     const PRESSES: usize = 5;
@@ -577,9 +591,66 @@ fn session_and_shell_output_are_restored() -> Result<()> {
 #[test]
 fn modern_theme_uses_rounded_corners() -> Result<()> {
     let fixture = fixture()?;
-    fs::write(fixture.config().join(CONFIG_FILE), "theme = \"aurora\"\n")?;
+    fixture.configure("theme = \"aurora\"\n")?;
     let mut app = start(&fixture, "aurora")?;
     let screen = app.checkpoint("aurora")?;
     ensure!(screen.lines()[0].starts_with('╭'), "expected rounded corner\n{}", screen.text());
+    Ok(())
+}
+
+#[test]
+fn splash_plays_on_start_and_any_key_skips_it() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("startup-animation = true\n")?;
+    let mut app = Session::builder(BORG, &fixture).label("splash").spawn()?;
+    app.wait_text(SPLASH_SUBTITLE)?;
+    app.send(keys::down())?;
+    let panels = app.wait_until("panels after splash", |s| s.contains(READY) && !s.contains(SPLASH_SUBTITLE))?;
+    ensure!(highlighted(&panels, ".."), "the skipping key must not move the cursor\n{}", panels.text());
+    Ok(())
+}
+
+#[test]
+fn about_screen_unlocks_the_cube_theme() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "about")?;
+    app.send(keys::f(1))?;
+    app.wait_text("Resistance is futile.")?;
+    app.send(UNLOCK)?;
+    app.wait_text("Cube theme unlocked")?;
+    app.send(keys::esc())?;
+    app.wait_gone("Resistance is futile.")?;
+
+    let saved = fs::read_to_string(fixture.config_file())?;
+    ensure!(saved.contains("unlocked = [\"cube\"]"), "config was {saved:?}");
+    open_theme_picker(&mut app)?;
+    app.wait_text("Cube")?;
+    Ok(())
+}
+
+#[test]
+fn screensaver_starts_when_idle_and_a_key_wakes_it() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("screensaver = true\nscreensaver-after = 1\n")?;
+    let mut app = start(&fixture, "screensaver")?;
+    app.wait_gone(READY)?;
+    app.send(keys::down())?;
+    let panels = app.wait_text(READY)?;
+    ensure!(highlighted(&panels, ".."), "the waking key must not move the cursor\n{}", panels.text());
+    Ok(())
+}
+
+#[test]
+fn marking_seven_of_nine() -> Result<()> {
+    let fixture = Fixture::new()?;
+    CREW.iter().try_for_each(|name| fixture.file(name, "drone\n").map(drop))?;
+    let mut app = Session::builder(BORG, &fixture).label("seven-of-nine").spawn()?;
+    app.wait_text("9 items")?;
+    app.send(keys::down())?;
+    (0..SEVEN).try_for_each(|_| app.send(keys::key(KeyCode::Insert)).map(drop))?;
+    app.wait_text("Seven of Nine")?;
+    app.send(keys::key(KeyCode::Insert))?.send(keys::key(KeyCode::Insert))?;
+    app.wait_text("all 9 assimilated")?;
+    app.checkpoint("assimilated")?;
     Ok(())
 }

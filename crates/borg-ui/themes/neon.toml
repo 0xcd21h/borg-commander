@@ -1,0 +1,51 @@
+name = "Neon"
+extends = "midnight"
+border = "rounded"
+
+[effects]
+cursor = "pill"
+inactive-dim = 0.45
+accent = ["#ff4fd8", "#3ef0ff"]
+border-gradient = ["#ff4fd8", "#3ef0ff"]
+title-gradient = ["#ffb3f2", "#7af6ff"]
+cursor-gradient = ["#ff4fd8", "#7a5cff"]
+glow = 0.22
+breathe = true
+
+[styles]
+panel = { fg = "#d7d0ff", bg = "#0d0b1a" }
+border = { fg = "#2a2350", bg = "#0d0b1a" }
+border-active = { fg = "#ff4fd8", bg = "#0d0b1a" }
+title = { fg = "#5a5185", bg = "#0d0b1a" }
+title-active = { fg = "#ffffff", bg = "#0d0b1a", bold = true }
+dir = { fg = "#7af6ff", bg = "#0d0b1a", bold = true }
+file = { fg = "#d7d0ff", bg = "#0d0b1a" }
+executable = { fg = "#9dff7a", bg = "#0d0b1a" }
+link = { fg = "#ffb86b", bg = "#0d0b1a", italic = true }
+other = { fg = "#ffe66b", bg = "#0d0b1a" }
+meta = { fg = "#5a5185", bg = "#0d0b1a" }
+cursor = { fg = "#0d0b1a", bg = "#ff4fd8", bold = true }
+cursor-inactive = { bg = "#1d1838" }
+footer = { fg = "#5a5185", bg = "#0d0b1a" }
+notice = { fg = "#ff5f7a", bold = true }
+key = { fg = "#ff4fd8" }
+key-label = { fg = "#d7d0ff", bg = "#1d1838" }
+overlay = { fg = "#d7d0ff", bg = "#16122b" }
+overlay-border = { fg = "#3ef0ff", bg = "#16122b" }
+overlay-selected = { fg = "#0d0b1a", bg = "#3ef0ff", bold = true }
+input = { fg = "#ffffff", bg = "#2a2350" }
+marked = { fg = "#ffe66b", bg = "#0d0b1a", bold = true }
+marked-cursor = { fg = "#0d0b1a", bg = "#ffe66b", bold = true }
+status = { fg = "#9a90d0", bg = "#16122b" }
+menu = { fg = "#d7d0ff", bg = "#16122b" }
+menu-selected = { fg = "#0d0b1a", bg = "#ff4fd8", bold = true }
+menu-disabled = { fg = "#4a4275", bg = "#16122b" }
+viewer = { fg = "#d7d0ff", bg = "#0d0b1a" }
+viewer-status = { fg = "#0d0b1a", bg = "#3ef0ff" }
+separator = { fg = "#4a4275", bg = "#0d0b1a" }
+kind-code = { fg = "#ffd36b", bg = "#0d0b1a" }
+kind-image = { fg = "#ff8ae2", bg = "#0d0b1a" }
+kind-archive = { fg = "#ff6b8a", bg = "#0d0b1a" }
+kind-document = { fg = "#b3ffb0", bg = "#0d0b1a" }
+kind-media = { fg = "#b98aff", bg = "#0d0b1a" }
+kind-config = { fg = "#8affd8", bg = "#0d0b1a" }

@@ -10,6 +10,7 @@ use crate::{
 };
 
 const ENV_SHELL: &str = "SHELL";
+const ENV_HOME: &str = "HOME";
 const ENV_COLORTERM: &str = "COLORTERM";
 const ENV_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 const ENV_SSH: [&str; 2] = ["SSH_CONNECTION", "SSH_TTY"];
@@ -20,6 +21,7 @@ const APP_DIR: &str = "borg-commander";
 #[derive(Debug, Clone)]
 pub struct Launch {
     pub shell: PathBuf,
+    pub home: Option<PathBuf>,
     pub runtime_dir: PathBuf,
     pub settings: Settings,
     pub config_dir: Option<ConfigDir>,
@@ -41,7 +43,14 @@ impl Launch {
             Some(Err(e)) => (Config::default(), vec![format!("{e:#}")]),
             None => (Config::default(), Vec::new()),
         };
-        let settings = Settings { motion: motion(), preferences: config.preferences(), ..Settings::default() };
+        let defaults = Settings::default();
+        let settings = Settings {
+            motion: motion(),
+            truecolor: truecolor(),
+            preferences: config.preferences(),
+            screensaver_after: config.screensaver_after().unwrap_or(defaults.screensaver_after),
+            ..defaults
+        };
 
         let state_dir = StateDir::locate();
         let session = match state_dir.as_ref().map(StateDir::load_session) {
@@ -68,6 +77,7 @@ impl Launch {
 
         Ok(Self {
             shell,
+            home: env::var_os(ENV_HOME).map(PathBuf::from),
             runtime_dir: runtime_dir(),
             settings,
             config_dir,
@@ -81,10 +91,13 @@ impl Launch {
     }
 }
 
+fn truecolor() -> bool {
+    env::var(ENV_COLORTERM).is_ok_and(|value| TRUECOLOR_MARKERS.contains(&value.as_str()))
+}
+
 fn motion() -> Motion {
-    let truecolor = env::var(ENV_COLORTERM).is_ok_and(|value| TRUECOLOR_MARKERS.contains(&value.as_str()));
     let remote = ENV_SSH.iter().any(|name| env::var_os(name).is_some());
-    match (truecolor, remote) {
+    match (truecolor(), remote) {
         (false, _) => Motion::STILL,
         (true, true) => Motion::REMOTE,
         (true, false) => Motion::LOCAL,

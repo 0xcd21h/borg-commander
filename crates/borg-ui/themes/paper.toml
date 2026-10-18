@@ -1,6 +1,10 @@
 name = "Paper"
 extends = "midnight"
 
+[effects]
+inactive-dim = 0.25
+accent = ["#5a7fa6", "#b0601a"]
+
 [styles]
 panel = { fg = "#3b3a36", bg = "#f7f5ef" }
 border = { fg = "#c9c4b8", bg = "#f7f5ef" }
@@ -31,3 +35,10 @@ menu-selected = { fg = "#ffffff", bg = "#5a7fa6", bold = true }
 menu-disabled = { fg = "#b5b0a5", bg = "#e6e1d6" }
 viewer = { fg = "#3b3a36", bg = "#f7f5ef" }
 viewer-status = { fg = "#ffffff", bg = "#5a7fa6" }
+separator = { fg = "#c9c4b8", bg = "#f7f5ef" }
+kind-code = { fg = "#8a5a00", bg = "#f7f5ef" }
+kind-image = { fg = "#a03a7a", bg = "#f7f5ef" }
+kind-archive = { fg = "#b03a2e", bg = "#f7f5ef" }
+kind-document = { fg = "#2e6b4f", bg = "#f7f5ef" }
+kind-media = { fg = "#6a4fa6", bg = "#f7f5ef" }
+kind-config = { fg = "#7a6a3a", bg = "#f7f5ef" }

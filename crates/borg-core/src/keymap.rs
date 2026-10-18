@@ -21,6 +21,7 @@ pub enum Action {
     InsertName,
     ToggleHidden,
     OpenMenuBar,
+    About,
     OpenFileMenu,
     PickTheme,
     ToggleMark,
@@ -45,6 +46,9 @@ pub enum Action {
     ToggleMenuBar,
     ToggleAnimations,
     ToggleRestoreTerminal,
+    ToggleSplash,
+    ToggleScreensaver,
+    ToggleDelight,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),
     SetSort(Side, SortKey),
@@ -93,6 +97,7 @@ const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
 const ALT_SHIFT: KeyModifiers = KeyModifiers::ALT.union(KeyModifiers::SHIFT);
 
 pub const KEYMAP: &[Binding] = &[
+    labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), "Help"),
     labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), "File"),
     labeled(bind(KeyCode::F(3), NONE, Action::View, Scope::Panels), "View"),
     labeled(bind(KeyCode::F(4), NONE, Action::Edit, Scope::Panels), "Edit"),

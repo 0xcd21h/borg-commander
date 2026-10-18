@@ -135,6 +135,8 @@ fn command_menu() -> Menu {
             item("Widen right panel", "M-S-←", Action::NudgeSplit(-crate::keymap::SPLIT_STEP)),
             MenuEntry::Separator,
             item("Show shell", "C-o", Action::ToggleShell),
+            MenuEntry::Separator,
+            item("About borg", "F1", Action::About),
         ],
     }
 }
@@ -156,6 +158,10 @@ fn options_menu(state: &AppState) -> Menu {
                 prefs.after_command == AfterCommand::ReturnToPanels,
             ),
             check("Restore shell output on start", "", Action::ToggleRestoreTerminal, prefs.restore_terminal),
+            MenuEntry::Separator,
+            check("Startup animation", "", Action::ToggleSplash, prefs.splash),
+            check("Screensaver when idle", "", Action::ToggleScreensaver, prefs.screensaver),
+            check("Delight (easter eggs)", "", Action::ToggleDelight, prefs.delight),
         ],
     }
 }

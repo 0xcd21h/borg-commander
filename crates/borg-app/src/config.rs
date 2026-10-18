@@ -1,4 +1,4 @@
-use std::{env, fs, io, path::PathBuf};
+use std::{env, fs, io, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use borg_core::{AfterCommand, Preferences};
@@ -24,6 +24,11 @@ pub struct Config {
     pub show_hidden: Option<bool>,
     pub return_to_panels: Option<bool>,
     pub restore_terminal: Option<bool>,
+    pub startup_animation: Option<bool>,
+    pub screensaver: Option<bool>,
+    pub screensaver_after: Option<u64>,
+    pub delight: Option<bool>,
+    pub unlocked: Option<Vec<String>>,
 }
 
 impl Config {
@@ -41,10 +46,21 @@ impl Config {
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
             animations: self.animations.unwrap_or(base.animations),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
+            splash: self.startup_animation.unwrap_or(base.splash),
+            screensaver: self.screensaver.unwrap_or(base.screensaver),
+            delight: self.delight.unwrap_or(base.delight),
         }
     }
 
-    pub fn capture(theme: Option<&str>, prefs: &Preferences) -> Self {
+    pub fn screensaver_after(&self) -> Option<Duration> {
+        self.screensaver_after.map(Duration::from_secs)
+    }
+
+    pub fn unlocked(&self) -> &[String] {
+        self.unlocked.as_deref().unwrap_or_default()
+    }
+
+    pub fn capture(&self, theme: Option<&str>, prefs: &Preferences, unlocked: &[String]) -> Self {
         Self {
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),
@@ -53,6 +69,11 @@ impl Config {
             show_hidden: Some(prefs.show_hidden),
             return_to_panels: Some(prefs.after_command == AfterCommand::ReturnToPanels),
             restore_terminal: Some(prefs.restore_terminal),
+            startup_animation: Some(prefs.splash),
+            screensaver: Some(prefs.screensaver),
+            screensaver_after: self.screensaver_after,
+            delight: Some(prefs.delight),
+            unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
         }
     }
 }
@@ -108,9 +129,13 @@ mod tests {
     fn captured_preferences_round_trip() {
         let prefs =
             Preferences { menu_bar: true, after_command: AfterCommand::ReturnToPanels, ..Preferences::default() };
-        let text = toml::to_string(&Config::capture(Some("ember"), &prefs)).unwrap_or_default();
+        let original = Config { screensaver_after: Some(42), ..Config::default() };
+        let unlocked = ["cube".to_owned()];
+        let text = toml::to_string(&original.capture(Some("ember"), &prefs, &unlocked)).unwrap_or_default();
         let back: Config = toml::from_str(&text).unwrap_or_default();
         assert_eq!(back.preferences(), prefs);
+        assert_eq!(back.unlocked(), unlocked);
+        assert_eq!(back.screensaver_after(), Some(Duration::from_secs(42)));
         assert!(text.contains("return-to-panels = true"));
     }
 

@@ -53,6 +53,10 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::OpenMenuBar => open_menu(state, if side == Side::Left { 0 } else { menus(state).len() - 1 }),
         Action::OpenFileMenu => open_menu(state, FILE_MENU),
+        Action::About => {
+            state.overlay = Some(Overlay::About(crate::About::default()));
+            Vec::new()
+        }
         Action::PickTheme => {
             let current = state.appearance.current();
             state.overlay = Some(Overlay::Themes(Picker { selected: current, original: current }));
@@ -90,6 +94,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ToggleMenuBar => preference(state, |prefs| prefs.menu_bar = !prefs.menu_bar),
         Action::ToggleAnimations => preference(state, |prefs| prefs.animations = !prefs.animations),
         Action::ToggleRestoreTerminal => preference(state, |prefs| prefs.restore_terminal = !prefs.restore_terminal),
+        Action::ToggleSplash => preference(state, |prefs| prefs.splash = !prefs.splash),
+        Action::ToggleScreensaver => {
+            state.idle_since = now;
+            preference(state, |prefs| prefs.screensaver = !prefs.screensaver)
+        }
+        Action::ToggleDelight => preference(state, |prefs| prefs.delight = !prefs.delight),
         Action::ToggleReturnToPanels => preference(state, |prefs| {
             prefs.after_command = match prefs.after_command {
                 AfterCommand::ShowShell => AfterCommand::ReturnToPanels,

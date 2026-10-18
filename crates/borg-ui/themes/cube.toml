@@ -1,0 +1,51 @@
+name = "Cube"
+extends = "midnight"
+border = "thick"
+hidden = true
+
+[effects]
+cursor = "bar"
+inactive-dim = 0.5
+accent = ["#2bff5a", "#0a7f2a"]
+border-gradient = ["#5dff7a", "#0a7f2a"]
+title-gradient = ["#c8ffd2", "#2bff5a"]
+glow = 0.14
+breathe = true
+
+[styles]
+panel = { fg = "#5dff7a", bg = "#020602" }
+border = { fg = "#0f3317", bg = "#020602" }
+border-active = { fg = "#2bff5a", bg = "#020602" }
+title = { fg = "#1f6b2c", bg = "#020602" }
+title-active = { fg = "#c8ffd2", bg = "#020602", bold = true }
+dir = { fg = "#a4ffb4", bg = "#020602", bold = true }
+file = { fg = "#5dff7a", bg = "#020602" }
+executable = { fg = "#e6ff5d", bg = "#020602", bold = true }
+link = { fg = "#5dffd2", bg = "#020602" }
+other = { fg = "#ffd25d", bg = "#020602" }
+meta = { fg = "#1f6b2c", bg = "#020602" }
+cursor = { fg = "#020602", bg = "#2bff5a", bold = true }
+cursor-inactive = { bg = "#0b220f" }
+footer = { fg = "#1f6b2c", bg = "#020602" }
+notice = { fg = "#ff5d5d", bold = true }
+key = { fg = "#2bff5a" }
+key-label = { fg = "#020602", bg = "#1aa83b" }
+overlay = { fg = "#5dff7a", bg = "#061208" }
+overlay-border = { fg = "#2bff5a", bg = "#061208" }
+overlay-selected = { fg = "#020602", bg = "#2bff5a", bold = true }
+input = { fg = "#c8ffd2", bg = "#0f3317" }
+marked = { fg = "#e6ff5d", bg = "#020602", bold = true }
+marked-cursor = { fg = "#020602", bg = "#e6ff5d", bold = true }
+status = { fg = "#3fbf5a", bg = "#061208" }
+menu = { fg = "#5dff7a", bg = "#061208" }
+menu-selected = { fg = "#020602", bg = "#2bff5a", bold = true }
+menu-disabled = { fg = "#1f6b2c", bg = "#061208" }
+viewer = { fg = "#5dff7a", bg = "#020602" }
+viewer-status = { fg = "#020602", bg = "#2bff5a" }
+separator = { fg = "#1f6b2c", bg = "#020602" }
+kind-code = { fg = "#c8ff5d", bg = "#020602" }
+kind-image = { fg = "#5dffc0", bg = "#020602" }
+kind-archive = { fg = "#9dff5d", bg = "#020602" }
+kind-document = { fg = "#a4ffb4", bg = "#020602" }
+kind-media = { fg = "#5dffe6", bg = "#020602" }
+kind-config = { fg = "#7dcf8a", bg = "#020602" }

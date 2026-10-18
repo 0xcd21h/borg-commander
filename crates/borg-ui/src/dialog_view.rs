@@ -19,7 +19,7 @@ const NO: &str = "[ No ]";
 const BUTTON_GAP: &str = "   ";
 const PROMPT_HINT: &str = " Enter ok · Esc cancel ";
 
-pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Position {
+pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
     let styles = &theme.styles;
     let rect = centered(screen, dialog_width(screen), PROMPT_HEIGHT);
     let inner = frame(prompt.title, Some(PROMPT_HINT), theme, rect, buf);
@@ -36,10 +36,10 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     Line::styled(skip_columns(text, shift), styles.input).render(field, buf);
 
     let column = u16::try_from(before.width() - shift).unwrap_or(0);
-    Position::new(field.x + column, field.y)
+    (rect, Position::new(field.x + column, field.y))
 }
 
-pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) {
+pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
     let styles = &theme.styles;
     let rect = centered(screen, dialog_width(screen), CONFIRM_HEIGHT);
     let inner = frame(confirm.title, None, theme, rect, buf);
@@ -57,6 +57,7 @@ pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Bu
     Line::from(vec![Span::styled(YES, yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(NO, no)])
         .centered()
         .render(buttons, buf);
+    rect
 }
 
 fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut Buffer) -> Rect {
@@ -85,7 +86,7 @@ fn dialog_width(screen: Rect) -> u16 {
     screen.width.saturating_sub(MARGIN).min(MAX_WIDTH)
 }
 
-fn centered(area: Rect, width: u16, height: u16) -> Rect {
+pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let [row] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
     let [rect] = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center).areas(row);
     rect

@@ -49,7 +49,7 @@ pub fn draw_dropdown(
     theme: &Theme,
     screen: Rect,
     buf: &mut Buffer,
-) {
+) -> Rect {
     let styles = &theme.styles;
     let label_width = menu.entries.iter().map(entry_width).max().unwrap_or_default();
     let width = u16::try_from(label_width).unwrap_or(u16::MAX).saturating_add(BORDER);
@@ -86,6 +86,7 @@ pub fn draw_dropdown(
             }
         }
     }
+    rect
 }
 
 fn entry_width(entry: &MenuEntry) -> usize {

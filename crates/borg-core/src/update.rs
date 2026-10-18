@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::{AfterCommand, AppState, Effect, Msg, View, actions, command::CommandLine, keymap, overlays};
 
 pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
+    let before = crate::motion::before(state);
     let effects = match msg {
         Msg::Key(key) => on_key(state, &key, now),
         Msg::Paste(text) => on_paste(state, &text),
@@ -38,6 +39,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Tick => {
             reveal_slow_operation(state, now);
+            tick_timers(state, now);
             Vec::new()
         }
         Msg::ShellExited => vec![Effect::Quit],
@@ -48,10 +50,32 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     };
 
     state.sync_fade(now);
+    state.sync_overlay(now);
+    crate::motion::animate(state, &before, now);
     effects
 }
 
+fn tick_timers(state: &mut AppState, now: Instant) {
+    if state.splash_until.is_some_and(|until| now >= until) {
+        state.splash_until = None;
+    }
+    if state.rain_until.is_some_and(|until| now >= until) {
+        state.rain_until = None;
+    }
+    let due = state.idle_since + state.settings.screensaver_after;
+    if state.settings.preferences.screensaver && now >= due {
+        state.screensaver = true;
+    }
+}
+
 fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    state.idle_since = now;
+    let resting = state.splash_active(now) || state.screensaver;
+    state.splash_until = None;
+    state.screensaver = false;
+    if resting {
+        return Vec::new();
+    }
     if state.shell.captured() {
         return forward(state, key);
     }

@@ -15,6 +15,13 @@ const FONT_PX: f32 = 18.0;
 const MARGIN: u32 = 14;
 const UNDERLINE_OFFSET: f32 = 2.0;
 const WIDTH_PROBE: char = 'M';
+const EIGHTHS: f32 = 8.0;
+const LOWER_EIGHTHS: std::ops::RangeInclusive<char> = '\u{2581}'..='\u{2588}';
+const LEFT_EIGHTHS: std::ops::RangeInclusive<char> = '\u{2589}'..='\u{258f}';
+const BRAILLE: std::ops::RangeInclusive<char> = '\u{2800}'..='\u{28ff}';
+const BRAILLE_DOTS: [(u32, u32); 8] = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (0, 3), (1, 3)];
+const BRAILLE_COLUMNS: u32 = 2;
+const BRAILLE_ROWS: u32 = 4;
 
 struct Grid {
     cell_w: u32,
@@ -62,6 +69,14 @@ pub fn png(snapshot: &Snapshot, path: &Path) -> Result<()> {
             let cell_rect = (origin_x, origin_y, grid.cell_w, grid.cell_h);
             if let Some(segments) = cell.symbol().chars().next().and_then(box_segments) {
                 draw_box(&mut image, cell_rect, segments, style.fg);
+                continue;
+            }
+            if let Some(dots) = cell.symbol().chars().next().filter(|c| BRAILLE.contains(c)) {
+                draw_braille(&mut image, cell_rect, u32::from(dots) - u32::from(*BRAILLE.start()), style.fg);
+                continue;
+            }
+            if let Some(block) = cell.symbol().chars().next().and_then(block_fraction) {
+                draw_block(&mut image, cell_rect, block, style.fg);
                 continue;
             }
             for ch in cell.symbol().chars().filter(|c| !c.is_whitespace()) {
@@ -141,6 +156,35 @@ fn draw_box(image: &mut RgbImage, (x, y, w, h): (u32, u32, u32, u32), segments: 
     for (_, (sx, sy, sw, sh)) in spans.into_iter().filter(|(on, _)| *on) {
         fill(image, sx, sy, sw, sh, color);
     }
+}
+
+fn draw_braille(image: &mut RgbImage, (x, y, w, h): (u32, u32, u32, u32), bits: u32, color: Rgb) {
+    let (step_x, step_y) = (w / BRAILLE_COLUMNS, h / BRAILLE_ROWS);
+    let size = step_x.min(step_y).div_ceil(2).max(1);
+    for (bit, (col, row)) in BRAILLE_DOTS.into_iter().enumerate() {
+        if bits & (1 << bit) != 0 {
+            let cx = x + col * step_x + (step_x - size) / 2;
+            let cy = y + row * step_y + (step_y - size) / 2;
+            fill(image, cx, cy, size, size, color);
+        }
+    }
+}
+
+fn block_fraction(ch: char) -> Option<[f32; 4]> {
+    let eighth = |offset: u32| offset as f32 / EIGHTHS;
+    match ch {
+        '▀' => Some([0.0, 0.0, 1.0, 0.5]),
+        '▐' => Some([0.5, 0.0, 1.0, 1.0]),
+        c if LOWER_EIGHTHS.contains(&c) => Some([0.0, 1.0 - eighth(u32::from(c) - 0x2580), 1.0, 1.0]),
+        c if LEFT_EIGHTHS.contains(&c) => Some([0.0, 0.0, eighth(0x2590 - u32::from(c)), 1.0]),
+        _ => None,
+    }
+}
+
+fn draw_block(image: &mut RgbImage, (x, y, w, h): (u32, u32, u32, u32), [x0, y0, x1, y1]: [f32; 4], color: Rgb) {
+    let at = |origin: u32, size: u32, fraction: f32| origin + (size as f32 * fraction).round() as u32;
+    let (left, top, right, bottom) = (at(x, w, x0), at(y, h, y0), at(x, w, x1), at(y, h, y1));
+    fill(image, left, top, right - left, bottom - top, color);
 }
 
 fn fill(image: &mut RgbImage, x: u32, y: u32, w: u32, h: u32, color: Rgb) {

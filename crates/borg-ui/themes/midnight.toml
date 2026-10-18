@@ -1,4 +1,10 @@
 name = "Midnight"
+border = "rounded"
+
+[effects]
+cursor = "pill"
+inactive-dim = 0.3
+accent = ["#5fafd7", "#875fd7"]
 
 [styles]
 panel = { bg = "reset" }
@@ -30,3 +36,10 @@ menu-selected = { fg = "white", bg = "24", bold = true }
 menu-disabled = { fg = "dark-gray", bg = "cyan" }
 viewer = { fg = "gray", bg = "reset" }
 viewer-status = { fg = "black", bg = "cyan" }
+separator = { fg = "240" }
+kind-code = { fg = "222" }
+kind-image = { fg = "176" }
+kind-archive = { fg = "174" }
+kind-document = { fg = "151" }
+kind-media = { fg = "141" }
+kind-config = { fg = "180" }

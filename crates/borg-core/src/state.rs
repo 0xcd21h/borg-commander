@@ -6,8 +6,10 @@ use std::{
 use borg_term::{Foreground, PromptState, TermMode};
 
 use crate::{
-    Appearance, Easing, Effect, Fade, Layout, LineInput, ListingMode, Motion, Panel, Picker, Settings, Sort, Viewer,
+    About, Appearance, Easing, Effect, Fade, Layout, LineInput, ListingMode, Motion, Pace, Panel, PanelMotion, Picker,
+    Settings, Sort, Viewer,
     layout::{Chrome, EVEN_SPLIT, clamp_split},
+    settings::SPLASH_DURATION,
 };
 
 const OPAQUE: f32 = 1.0;
@@ -139,6 +141,7 @@ pub struct Confirm {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
+    About(About),
     Themes(Picker),
     Menu(MenuCursor),
     Prompt(Prompt),
@@ -197,6 +200,13 @@ pub struct AppState {
     pub overlay: Option<Overlay>,
     pub operation: Option<Operation>,
     pub viewer: Option<Viewer>,
+    pub epoch: Instant,
+    pub motions: [PanelMotion; 2],
+    pub overlay_fade: Fade,
+    pub splash_until: Option<Instant>,
+    pub idle_since: Instant,
+    pub screensaver: bool,
+    pub rain_until: Option<Instant>,
     generation: u64,
 }
 
@@ -235,8 +245,17 @@ impl AppState {
             overlay: None,
             operation: None,
             viewer: None,
+            epoch: now,
+            motions: [PanelMotion::settled(now); 2],
+            overlay_fade: Fade::settled(TRANSPARENT, now),
+            splash_until: None,
+            idle_since: now,
+            screensaver: false,
+            rain_until: None,
             generation: 0,
         };
+        let animated = state.motion().fade > Duration::ZERO;
+        state.splash_until = (state.settings.preferences.splash && animated).then_some(now + SPLASH_DURATION);
         state.refit();
 
         let effects = Side::ALL
@@ -280,12 +299,43 @@ impl AppState {
         self.fade.value(now)
     }
 
-    pub fn is_animating(&self, now: Instant) -> bool {
-        self.fade.is_animating(now) || self.split.is_animating(now) || self.appearance.is_animating(now)
+    pub fn pace(&self, now: Instant) -> Option<Pace> {
+        let smooth = self.fade.is_animating(now)
+            || self.split.is_animating(now)
+            || self.appearance.is_animating(now)
+            || self.overlay_fade.is_animating(now)
+            || self.motions.iter().any(|motion| motion.is_animating(now))
+            || self.splash_active(now);
+        if smooth {
+            Some(Pace::Smooth)
+        } else if crate::motion::ambient(self, now) {
+            Some(Pace::Ambient)
+        } else {
+            None
+        }
+    }
+
+    pub fn splash_active(&self, now: Instant) -> bool {
+        self.splash_until.is_some_and(|until| now < until)
+    }
+
+    pub fn splash_progress(&self, now: Instant) -> Option<f32> {
+        let until = self.splash_until.filter(|until| now < *until)?;
+        let elapsed = SPLASH_DURATION.saturating_sub(until.saturating_duration_since(now));
+        Some(elapsed.as_secs_f32() / SPLASH_DURATION.as_secs_f32())
+    }
+
+    pub fn raining(&self, now: Instant) -> bool {
+        self.rain_until.is_some_and(|until| now < until)
     }
 
     pub fn wake_at(&self) -> Option<Instant> {
-        self.operation.as_ref().filter(|op| !op.revealed).map(|op| op.reveal_at)
+        let reveal = self.operation.as_ref().filter(|op| !op.revealed).map(|op| op.reveal_at);
+        let splash = self.splash_until;
+        let rest = (self.settings.preferences.screensaver && !self.screensaver)
+            .then_some(self.idle_since + self.settings.screensaver_after);
+        let rain = self.rain_until;
+        [reveal, splash, rest, rain].into_iter().flatten().min()
     }
 
     pub fn settle(&mut self) {
@@ -311,6 +361,17 @@ impl AppState {
 
     pub(crate) fn reload_all(&mut self) -> Vec<Effect> {
         Side::ALL.into_iter().map(|side| self.reload(side)).collect()
+    }
+
+    pub(crate) fn sync_overlay(&mut self, now: Instant) {
+        let open = self.overlay.is_some();
+        let shown = self.overlay_fade.target() > TRANSPARENT;
+        if open && !shown {
+            self.overlay_fade =
+                Fade::settled(TRANSPARENT, now).toward(OPAQUE, now, self.motion().fade, Easing::OutCubic);
+        } else if !open && shown {
+            self.overlay_fade = Fade::settled(TRANSPARENT, now);
+        }
     }
 
     pub(crate) fn sync_fade(&mut self, now: Instant) {

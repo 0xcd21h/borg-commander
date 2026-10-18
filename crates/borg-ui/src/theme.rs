@@ -4,6 +4,7 @@ use std::{
     str::FromStr,
 };
 
+use borg_core::{Appearance, ThemeChoice};
 use ratatui::{
     style::{Color, Modifier, Style},
     widgets::BorderType,
@@ -12,12 +13,14 @@ use serde::Deserialize;
 
 const THEME_EXTENSION: &str = "toml";
 
-const BUILTIN: [(&str, &str); 5] = [
+const BUILTIN: [(&str, &str); 7] = [
     ("midnight", include_str!("../themes/midnight.toml")),
     ("aurora", include_str!("../themes/aurora.toml")),
+    ("neon", include_str!("../themes/neon.toml")),
     ("classic", include_str!("../themes/classic.toml")),
     ("paper", include_str!("../themes/paper.toml")),
     ("ember", include_str!("../themes/ember.toml")),
+    ("cube", include_str!("../themes/cube.toml")),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -85,6 +88,13 @@ styles! {
     menu_disabled,
     viewer,
     viewer_status,
+    separator,
+    kind_code,
+    kind_image,
+    kind_archive,
+    kind_document,
+    kind_media,
+    kind_config,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -156,6 +166,70 @@ impl From<Border> for BorderType {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CursorShape {
+    #[default]
+    Bar,
+    Pill,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Effects {
+    pub cursor: CursorShape,
+    pub inactive_dim: f32,
+    pub accent: [Color; 2],
+    pub border_gradient: Option<[Color; 2]>,
+    pub title_gradient: Option<[Color; 2]>,
+    pub cursor_gradient: Option<[Color; 2]>,
+    pub glow: f32,
+    pub breathe: bool,
+}
+
+impl Default for Effects {
+    fn default() -> Self {
+        Self {
+            cursor: CursorShape::Bar,
+            inactive_dim: 0.0,
+            accent: [Color::Cyan, Color::Blue],
+            border_gradient: None,
+            title_gradient: None,
+            cursor_gradient: None,
+            glow: 0.0,
+            breathe: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+struct EffectsSpec {
+    cursor: Option<CursorShape>,
+    inactive_dim: Option<f32>,
+    accent: Option<[ColorSpec; 2]>,
+    border_gradient: Option<[ColorSpec; 2]>,
+    title_gradient: Option<[ColorSpec; 2]>,
+    cursor_gradient: Option<[ColorSpec; 2]>,
+    glow: Option<f32>,
+    breathe: Option<bool>,
+}
+
+impl EffectsSpec {
+    fn over(self, base: Effects) -> Effects {
+        let pair = |spec: Option<[ColorSpec; 2]>| spec.map(|[ColorSpec(a), ColorSpec(b)]| [a, b]);
+        Effects {
+            cursor: self.cursor.unwrap_or(base.cursor),
+            inactive_dim: self.inactive_dim.unwrap_or(base.inactive_dim).clamp(0.0, 1.0),
+            accent: pair(self.accent).unwrap_or(base.accent),
+            border_gradient: pair(self.border_gradient).or(base.border_gradient),
+            title_gradient: pair(self.title_gradient).or(base.title_gradient),
+            cursor_gradient: pair(self.cursor_gradient).or(base.cursor_gradient),
+            glow: self.glow.unwrap_or(base.glow).clamp(0.0, 1.0),
+            breathe: self.breathe.unwrap_or(base.breathe),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ThemeFile {
@@ -163,14 +237,20 @@ struct ThemeFile {
     extends: Option<String>,
     border: Option<Border>,
     #[serde(default)]
+    hidden: bool,
+    #[serde(default)]
+    effects: EffectsSpec,
+    #[serde(default)]
     styles: Styles<Option<StyleSpec>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub id: String,
     pub name: String,
     pub border: Border,
+    pub hidden: bool,
+    pub effects: Effects,
     pub styles: Styles<Style>,
 }
 
@@ -207,8 +287,19 @@ impl ThemeSet {
         &self.themes
     }
 
-    pub fn theme(&self, index: usize) -> &Theme {
-        &self.themes[index.min(self.themes.len() - 1)]
+    pub fn appearance(&self, current: Option<&str>, unlocked: &[String]) -> Appearance {
+        let choice = |theme: &Theme| ThemeChoice { id: theme.id.clone(), name: theme.name.clone() };
+        let (visible, hidden): (Vec<&Theme>, Vec<&Theme>) =
+            self.themes.iter().partition(|theme| !theme.hidden || unlocked.contains(&theme.id));
+        let choices: Vec<ThemeChoice> = visible.into_iter().map(choice).collect();
+        let index = current.and_then(|id| choices.iter().position(|c| c.id == id)).unwrap_or_default();
+        let secret = hidden.into_iter().next().map(choice);
+        Appearance::new(choices, index).with_secret(secret, unlocked.to_vec())
+    }
+
+    pub fn find(&self, id: Option<&str>) -> &Theme {
+        let index = id.and_then(|id| self.position(id)).unwrap_or_default();
+        &self.themes[index]
     }
 
     pub fn position(&self, id: &str) -> Option<usize> {
@@ -222,20 +313,23 @@ impl ThemeSet {
 
         let file: ThemeFile =
             toml::from_str(source).map_err(|source| ThemeError::Parse { id: id.to_owned(), source })?;
-        let (border, styles) = match &file.extends {
+        let (border, effects, styles) = match &file.extends {
             Some(base) => {
                 let index = self
                     .position(base)
                     .ok_or_else(|| ThemeError::UnknownBase { id: id.to_owned(), base: base.clone() })?;
-                (self.themes[index].border, self.themes[index].styles.clone())
+                let base = &self.themes[index];
+                (base.border, base.effects, base.styles.clone())
             }
-            None => (Border::default(), Styles::default()),
+            None => (Border::default(), Effects::default(), Styles::default()),
         };
 
         self.themes.push(Theme {
             id: id.to_owned(),
             name: file.name,
             border: file.border.unwrap_or(border),
+            hidden: file.hidden,
+            effects: file.effects.over(effects),
             styles: file.styles.over(&styles),
         });
         Ok(())
@@ -261,7 +355,22 @@ mod tests {
     fn builtin_themes_parse() {
         let set = ThemeSet::builtin().unwrap_or_else(|e| panic!("{e}"));
         let ids: Vec<_> = set.themes().iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(ids, ["midnight", "aurora", "classic", "paper", "ember"]);
+        assert_eq!(ids, ["midnight", "aurora", "neon", "classic", "paper", "ember", "cube"]);
+        assert_eq!(set.themes().iter().filter(|t| t.hidden).map(|t| t.id.as_str()).collect::<Vec<_>>(), ["cube"]);
+    }
+
+    #[test]
+    fn hidden_themes_stay_secret_until_unlocked() {
+        let set = ThemeSet::builtin().unwrap_or_else(|e| panic!("{e}"));
+        let ids = |appearance: &Appearance| appearance.choices().iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let locked = set.appearance(Some("neon"), &[]);
+        assert!(!ids(&locked).contains(&"cube".to_owned()));
+        assert!(locked.has_secret());
+        assert_eq!(locked.current_id(), Some("neon"));
+
+        let unlocked = set.appearance(Some("cube"), &["cube".to_owned()]);
+        assert_eq!(unlocked.current_id(), Some("cube"));
+        assert!(!unlocked.has_secret());
     }
 
     #[test]
@@ -295,9 +404,21 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
 
         let border = |id: &str| set.themes()[set.position(id).unwrap_or_default()].border;
-        assert_eq!(border("midnight"), Border::Plain);
+        assert_eq!(border("classic"), Border::Plain);
         assert_eq!(border("soft"), Border::Rounded);
         assert_eq!(border("boxy"), Border::Double);
+    }
+
+    #[test]
+    fn effects_inherit_and_override() {
+        let mut set = ThemeSet::builtin().unwrap_or_else(|e| panic!("{e}"));
+        set.add("glowy", "name = \"Glowy\"\nextends = \"neon\"\n[effects]\nglow = 0.9\n")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let neon = &set.themes()[set.position("neon").unwrap_or_default()];
+        let glowy = &set.themes()[set.position("glowy").unwrap_or_default()];
+        assert!((glowy.effects.glow - 0.9).abs() < f32::EPSILON);
+        assert_eq!(glowy.effects.border_gradient, neon.effects.border_gradient);
+        assert_eq!(glowy.effects.cursor, CursorShape::Pill);
     }
 
     #[test]

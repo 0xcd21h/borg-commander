@@ -1,8 +1,6 @@
 use std::{fmt::Write as _, path::PathBuf, time::Instant};
 
-use borg_core::{
-    AppState, Appearance, EVEN_SPLIT, Effect, Msg, PanelSetup, Settings, ShellView, Side, Startup, ThemeChoice, update,
-};
+use borg_core::{AppState, EVEN_SPLIT, Effect, Msg, PanelSetup, Settings, ShellView, Side, Startup, update};
 use borg_term::{Emulator, Foreground, GridSize};
 use borg_ui::{Palette, Scene, ThemeSet, draw};
 use borg_vfs::Entry;
@@ -20,6 +18,7 @@ pub struct Stage {
     pub palette: Palette,
     pub clock: Zoned,
     pub started: Instant,
+    pub home: Option<PathBuf>,
 }
 
 impl Stage {
@@ -31,10 +30,9 @@ impl Stage {
         clock: Zoned,
     ) -> anyhow::Result<Self> {
         let themes = ThemeSet::builtin()?;
-        let choices = themes.themes().iter().map(|t| ThemeChoice { id: t.id.clone(), name: t.name.clone() }).collect();
         let started = Instant::now();
         let (mut state, effects) =
-            AppState::new(startup(dirs), size.cols, size.rows, settings, Appearance::new(choices, 0), started);
+            AppState::new(startup(dirs), size.cols, size.rows, settings, themes.appearance(None, &[]), started);
 
         let mut listings = listings.into_iter();
         for effect in effects {
@@ -52,6 +50,7 @@ impl Stage {
             palette: Palette::default(),
             clock,
             started,
+            home: None,
         };
         stage.shell(b"\x1b]133;A\x07$ \x1b]133;B\x07");
         Ok(stage)
@@ -87,6 +86,7 @@ impl Stage {
             themes: &self.themes,
             clock: &self.clock,
             now: at,
+            home: self.home.as_deref(),
         };
         terminal.draw(|frame| draw(frame, &scene))?;
         Ok(terminal.backend().buffer().clone())

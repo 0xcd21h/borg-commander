@@ -1,95 +1,340 @@
-use borg_core::{Listing, ListingMode, Panel, Row};
+use std::{path::Path, time::Instant};
+
+use borg_core::{EMPTY_ART_WINDOW, Listing, ListingMode, Panel, PanelMotion, Row, SlideDirection};
 use borg_vfs::{Entry, EntryKind};
 use jiff::Zoned;
 use ratatui::{
-    buffer::Buffer,
+    buffer::{Buffer, Cell},
     layout::{Constraint, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Widget},
 };
 
-use crate::{Theme, format, theme::Styles};
+use crate::{
+    CursorShape, format,
+    fx::{self, Gradient},
+    kinds,
+    look::Look,
+    theme::Styles,
+};
 
 const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
+const BAR_WIDTH: u16 = 5;
 const MARKER_WIDTH: u16 = 1;
 const GAP: u16 = 1;
-const FIRST_META_CELL: usize = 2;
-const META_STRIDE: usize = 2;
 const SHOW_DATE_FROM: u16 = 40;
 const SHOW_SIZE_FROM: u16 = 24;
+const SHOW_BARS_FROM: u16 = 50;
+const PAD_FROM: u16 = 20;
+const PADDING: u16 = 1;
 const TITLE_PADDING: usize = 2;
+const CRUMB_SEPARATOR: &str = " › ";
 const PARENT_NAME: &str = "..";
 const PARENT_LABEL: &str = "UP";
 const DIR_LABEL: &str = "DIR";
 const COLUMN_SEPARATOR: &str = "│";
+const EMPTY_CAPTION: &str = "empty";
+const LEFT_CAP: char = '▐';
+const RIGHT_CAP: char = '▌';
+const BAR_FULL: char = '━';
+const BAR_HALF: char = '╸';
+const BAR_STEPS: usize = 2;
+const BAR_VISIBILITY: f32 = 0.7;
+const SLIDE_SHARE: f32 = 0.3;
+const SLIDE_FADE: f32 = 0.8;
+const GLOW_FALLOFF: f32 = 0.5;
+const COMET_WIDTH: u16 = 14;
+const STAR_PACE: f32 = 0.35;
+const SEVEN: usize = 7;
+const NINE: usize = 9;
+const ASSIMILATE_FROM: usize = 2;
+const SEVEN_OF_NINE: &str = "Seven of Nine";
 
-pub fn draw_panel(panel: &Panel, active: bool, area: Rect, theme: &Theme, clock: &Zoned, buf: &mut Buffer) {
-    let styles = &theme.styles;
+pub struct PanelScene<'a> {
+    pub panel: &'a Panel,
+    pub active: bool,
+    pub area: Rect,
+    pub motion: &'a PanelMotion,
+    pub activity: Option<&'a str>,
+    pub delight: bool,
+    pub home: Option<&'a Path>,
+    pub clock: &'a Zoned,
+    pub now: Instant,
+}
+
+#[derive(Clone, Copy)]
+struct Body {
+    inner: Rect,
+    content: Rect,
+}
+
+impl Body {
+    fn of(inner: Rect) -> Self {
+        let gutter = if inner.width >= PAD_FROM { PADDING } else { 0 };
+        let content = Rect { x: inner.x + gutter, width: inner.width.saturating_sub(gutter * 2), ..inner };
+        Self { inner, content }
+    }
+
+    fn row(self, slot: usize) -> Option<(Rect, Rect)> {
+        let offset = u16::try_from(slot).ok().filter(|offset| *offset < self.inner.height)?;
+        let y = self.inner.y + offset;
+        Some((Rect { y, height: 1, ..self.inner }, Rect { y, height: 1, ..self.content }))
+    }
+
+    fn padded(self) -> bool {
+        self.content.width < self.inner.width
+    }
+}
+
+pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
+    let styles = look.styles();
+    let area = scene.area;
     let (border, title_style) =
-        if active { (styles.border_active, styles.title_active) } else { (styles.border, styles.title) };
-    let path = panel.dir().display().to_string();
-    let title = format::truncate_start(&path, usize::from(area.width).saturating_sub(TITLE_PADDING * 2));
+        if scene.active { (styles.border_active, styles.title_active) } else { (styles.border, styles.title) };
+    let title = title(scene, title_style, styles.separator);
+    let (footer, shiny) = footer(scene, look);
+    let title_width = title.width();
+    let footer_width = footer.width();
     let block = Block::bordered()
-        .border_type(theme.border.into())
+        .border_type(look.theme.border.into())
         .style(styles.panel)
         .border_style(border)
-        .title(Span::styled(format!(" {title} "), title_style))
-        .title_bottom(footer(panel, styles));
+        .title(title)
+        .title_bottom(footer);
 
-    let inner = block.inner(area);
+    let body = Body::of(block.inner(area));
     block.render(area, buf);
 
-    match panel.mode() {
-        ListingMode::Full => draw_full(panel, active, inner, styles, clock, buf),
-        ListingMode::Brief => draw_brief(panel, active, inner, styles, border, buf),
+    let scroll = scene.motion.scroll(scene.now, scene.panel.scroll());
+    match scene.panel.mode() {
+        ListingMode::Full => draw_full(scene, look, body, scroll, buf),
+        ListingMode::Brief => draw_brief(scene, look, body, scroll, border, buf),
+    }
+    if scene.panel.listing() == &Listing::Ready && scene.panel.entries().is_empty() {
+        draw_empty(scene, look, body, buf);
+    }
+
+    let edge = |y: u16, width: usize| Rect { x: area.x + 1, y, width: u16::try_from(width).unwrap_or(0), height: 1 };
+    decorate(scene, look, edge(area.y, title_width), buf);
+    if let Some(gradient) = shiny {
+        fx::gradient_text(buf, edge(area.bottom().saturating_sub(1), footer_width), gradient);
+    }
+    if scene.activity.is_some() || scene.panel.listing() == &Listing::Loading {
+        draw_comet(look, area, footer_width, buf);
+    }
+    if let Some((direction, progress)) = scene.motion.slide(scene.now) {
+        slide(body.inner, direction, progress, look, buf);
     }
 }
 
-fn draw_full(panel: &Panel, active: bool, inner: Rect, styles: &Styles<Style>, clock: &Zoned, buf: &mut Buffer) {
-    let columns = Columns::fit(inner.width);
-    for (index, row) in panel.visible() {
-        let offset = u16::try_from(index - panel.scroll()).unwrap_or(u16::MAX);
-        let line_area = Rect { y: inner.y + offset, height: 1, ..inner };
-        let look = Look::of(panel, row, index, active, styles);
-        draw_full_row(row, &columns, line_area, look, clock, buf);
+fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style) -> Line<'a> {
+    let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2);
+    let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), scene.home), width, CRUMB_SEPARATOR);
+    let last = crumbs.len().saturating_sub(1);
+    let spans = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {
+        let lead = (index > 0).then(|| Span::styled(CRUMB_SEPARATOR, separator));
+        let crumb_style = if index == last { style } else { style.remove_modifier(Modifier::BOLD) };
+        lead.into_iter().chain(std::iter::once(Span::styled(crumb, crumb_style)))
+    });
+    let pad = || Span::styled(" ", style);
+    Line::from(std::iter::once(pad()).chain(spans).chain(std::iter::once(pad())).collect::<Vec<_>>())
+}
+
+fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Gradient>) {
+    let styles = look.styles();
+    let panel = scene.panel;
+    let marked = panel.marked_count();
+    let total = panel.entries().len();
+    if marked > 0 {
+        let bytes: u64 = panel.marked().filter(|e| !e.is_dir()).map(|e| e.size).sum();
+        let summary =
+            if bytes > 0 { format!("{marked} marked · {}", format::size(bytes)) } else { format!("{marked} marked") };
+        let egg = match (scene.delight, marked, total) {
+            (true, SEVEN, NINE) => Some(SEVEN_OF_NINE.to_owned()),
+            (true, marked, total) if marked == total && total >= ASSIMILATE_FROM => {
+                Some(format!("all {total} assimilated · {}", format::size(bytes)))
+            }
+            _ => None,
+        };
+        let shiny = egg.is_some().then(|| look.accent());
+        return (Line::styled(format!(" {} ", egg.unwrap_or(summary)), styles.marked), shiny);
+    }
+
+    let spinning = |text: String| {
+        let glyph = Span::styled(fx::orbit(look.t).to_string(), styles.footer.fg(look.accent().from.into()));
+        Line::from(vec![Span::styled(" ", styles.footer), glyph, Span::styled(format!(" {text} "), styles.footer)])
+    };
+    let line = match (scene.activity, panel.listing()) {
+        (Some(label), _) => spinning(format!("{label}…")),
+        (None, Listing::Loading) => spinning(format!("loading… {}", panel.received())),
+        (None, Listing::Ready) => Line::styled(format!(" {} ", format::count(panel.received(), "item")), styles.footer),
+        (None, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
+    };
+    (line, None)
+}
+
+fn decorate(scene: &PanelScene<'_>, look: &Look<'_>, title: Rect, buf: &mut Buffer) {
+    if !scene.active {
+        return;
+    }
+    let effects = look.theme.effects;
+    if let Some(pair) = effects.border_gradient {
+        fx::gradient_border(buf, scene.area, look.gradient(pair).brightened(look.breath()));
+    }
+    if let Some(pair) = effects.title_gradient {
+        fx::gradient_text(buf, title, look.gradient(pair));
     }
 }
 
-fn draw_brief(panel: &Panel, active: bool, inner: Rect, styles: &Styles<Style>, border: Style, buf: &mut Buffer) {
+fn draw_comet(look: &Look<'_>, area: Rect, footer_width: usize, buf: &mut Buffer) {
+    let start = area.x + 1 + u16::try_from(footer_width).unwrap_or(u16::MAX).saturating_add(GAP);
+    let room = area.right().saturating_sub(start + 1).min(COMET_WIDTH);
+    let y = area.bottom().saturating_sub(1);
+    let gradient = look.accent();
+    let span = f32::from(room.saturating_sub(1).max(1));
+    for (x, (glyph, intensity)) in (start..start + room).zip(fx::comet(look.t, usize::from(room))) {
+        if intensity <= 0.0 {
+            continue;
+        }
+        let cell = &mut buf[(x, y)];
+        let base = look.palette.foreground_of(cell.fg);
+        let color = base.mix(gradient.at(f32::from(x - start) / span), intensity);
+        cell.set_char(glyph).set_fg(color.into());
+    }
+}
+
+fn slide(inner: Rect, direction: SlideDirection, progress: f32, look: &Look<'_>, buf: &mut Buffer) {
+    let distance = f32::from(inner.width) * SLIDE_SHARE * (1.0 - progress);
+    let dx = match direction {
+        SlideDirection::Forward => distance.round() as i32,
+        SlideDirection::Back => -(distance.round() as i32),
+    };
+    let mut fill = Cell::default();
+    fill.set_style(look.styles().panel);
+    fx::shift(buf, inner, dx, &fill);
+    fx::fade_to_background(buf, inner, (1.0 - progress) * SLIDE_FADE, look.palette);
+}
+
+fn draw_empty(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, buf: &mut Buffer) {
+    let used = u16::try_from(scene.panel.len()).unwrap_or(u16::MAX);
+    let art =
+        Rect { y: body.inner.y.saturating_add(used), height: body.inner.height.saturating_sub(used), ..body.inner };
+    if art.is_empty() {
+        return;
+    }
+    if scene.delight {
+        let drift = scene.now.saturating_duration_since(scene.motion.arrived).min(EMPTY_ART_WINDOW);
+        fx::draw_stars(buf, art, drift.as_secs_f32() * STAR_PACE, look.background());
+    }
+    let caption = Rect { y: art.y + art.height / 2, height: 1, ..art };
+    Line::styled(EMPTY_CAPTION, look.styles().meta).centered().render(caption, buf);
+}
+
+fn visible<'p>(panel: &'p Panel, scroll: usize) -> impl Iterator<Item = (usize, usize, Row<'p>)> {
+    let end = panel.len().min(scroll + panel.capacity());
+    (scroll..end).filter_map(move |index| panel.row(index).map(|row| (index - scroll, index, row)))
+}
+
+fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize, buf: &mut Buffer) {
+    let panel = scene.panel;
+    let columns = Columns::fit(body.content.width);
+    let mut cursor_row = None;
+    for (slot, index, row) in visible(panel, scroll) {
+        let Some((full, content)) = body.row(slot) else { continue };
+        let tone = Tone::of(panel, row, index, scene.active, look.styles());
+        if let Some(fill) = tone.fill {
+            let pill = look.theme.effects.cursor == CursorShape::Pill && body.padded();
+            buf.set_style(if pill { content } else { full }, fill);
+            cursor_row = Some((full, content, fill, pill));
+        }
+        let bar = bar_fraction(row, panel.largest());
+        draw_full_row(row, &columns, content, tone, scene.clock, bar, look, buf);
+    }
+    if let Some((full, content, fill, pill)) = cursor_row {
+        paint_cursor(scene.active, full, content, fill, pill, body, look, buf);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_cursor(
+    active: bool,
+    full: Rect,
+    content: Rect,
+    fill: Style,
+    pill: bool,
+    body: Body,
+    look: &Look<'_>,
+    buf: &mut Buffer,
+) {
+    let effects = look.theme.effects;
+    let gradient = effects.cursor_gradient.filter(|_| active).map(|pair| look.gradient(pair));
+    if let Some(gradient) = gradient {
+        fx::gradient_fill(buf, if pill { content } else { full }, gradient);
+    }
+    if pill && fill.bg.is_some() {
+        let ends = gradient.map_or_else(|| [look.bg(fill); 2], |g| [g.from, g.to]);
+        let panel = look.styles().panel;
+        let caps = [(full.x, LEFT_CAP, ends[0]), (full.right().saturating_sub(1), RIGHT_CAP, ends[1])];
+        for (x, glyph, color) in caps {
+            buf[(x, full.y)].set_char(glyph).set_style(panel).set_fg(color.into());
+        }
+    }
+    if active && effects.glow > 0.0 {
+        let color = gradient.map_or_else(|| look.bg(fill), |g| g.at(0.5));
+        let strength = effects.glow * look.breath();
+        let halo = |offset: i32| {
+            let y = i32::from(full.y) + offset;
+            u16::try_from(y)
+                .ok()
+                .filter(|y| *y >= body.inner.y && *y < body.inner.bottom())
+                .map(|y| Rect { y, ..content })
+        };
+        [-1, 1]
+            .into_iter()
+            .filter_map(halo)
+            .for_each(|rect| fx::glow(buf, rect, color, strength * GLOW_FALLOFF, look.palette));
+    }
+}
+
+fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize, border: Style, buf: &mut Buffer) {
+    let panel = scene.panel;
     let columns = panel.mode().columns();
     let constraints = (0..columns).map(|_| Constraint::Ratio(1, u32::try_from(columns).unwrap_or(1)));
-    let cells = Layout::horizontal(constraints).split(inner);
+    let cells = Layout::horizontal(constraints).split(body.content);
     let rows = panel.rows().max(1);
 
-    for (index, row) in panel.visible() {
-        let slot = index - panel.scroll();
+    for (slot, index, row) in visible(panel, scroll) {
         let Some(column) = cells.get(slot / rows) else { continue };
-        let separator = usize::from(slot / rows + 1 < columns);
-        let width = column.width.saturating_sub(u16::try_from(separator).unwrap_or(0));
-        let y = inner.y + u16::try_from(slot % rows).unwrap_or(u16::MAX);
-        let area = Rect { x: column.x, y, width, height: 1 };
-        let look = Look::of(panel, row, index, active, styles);
-        draw_name(row, area, look, buf);
+        let separator = u16::from(slot / rows + 1 < columns);
+        let y = body.content.y + u16::try_from(slot % rows).unwrap_or(u16::MAX);
+        let area = Rect { x: column.x, y, width: column.width.saturating_sub(separator), height: 1 };
+        let tone = Tone::of(panel, row, index, scene.active, look.styles());
+        draw_name(row, area, tone, buf);
+        if tone.fill.is_some()
+            && let Some(pair) = look.theme.effects.cursor_gradient.filter(|_| scene.active)
+        {
+            fx::gradient_fill(buf, area, look.gradient(pair));
+        }
     }
 
     for column in cells.iter().take(columns.saturating_sub(1)) {
         let x = column.x + column.width.saturating_sub(1);
-        (inner.y..inner.y + inner.height).for_each(|y| {
+        (body.content.y..body.content.bottom()).for_each(|y| {
             buf[(x, y)].set_symbol(COLUMN_SEPARATOR).set_style(border);
         });
     }
 }
 
 #[derive(Clone, Copy)]
-struct Look {
+struct Tone {
     name: Style,
     meta: Style,
     fill: Option<Style>,
 }
 
-impl Look {
+impl Tone {
     fn of(panel: &Panel, row: Row<'_>, index: usize, active: bool, styles: &Styles<Style>) -> Self {
         let marked = matches!(row, Row::Entry(entry) if panel.is_marked(entry));
         let base = match row {
@@ -112,6 +357,7 @@ impl Look {
 
 struct Columns {
     name: u16,
+    bar: Option<u16>,
     size: Option<u16>,
     date: Option<u16>,
 }
@@ -120,19 +366,44 @@ impl Columns {
     fn fit(width: u16) -> Self {
         let date = (width >= SHOW_DATE_FROM).then_some(DATE_WIDTH);
         let size = (width >= SHOW_SIZE_FROM).then_some(SIZE_WIDTH);
-        let reserved = [size, date].into_iter().flatten().map(|w| w + GAP).sum::<u16>();
-        Self { name: width.saturating_sub(reserved), size, date }
+        let bar = (width >= SHOW_BARS_FROM).then_some(BAR_WIDTH);
+        let reserved = [bar, size, date].into_iter().flatten().map(|w| w + GAP).sum::<u16>();
+        Self { name: width.saturating_sub(reserved), bar, size, date }
     }
 
-    fn constraints(&self) -> Vec<Constraint> {
-        let mut constraints = vec![Constraint::Length(self.name)];
-        constraints.extend(self.size.into_iter().flat_map(|w| [Constraint::Length(GAP), Constraint::Length(w)]));
-        constraints.extend(self.date.into_iter().flat_map(|w| [Constraint::Length(GAP), Constraint::Length(w)]));
-        constraints
+    fn split(&self, area: Rect) -> [Option<Rect>; 4] {
+        let mut x = area.x;
+        let mut next = |width: Option<u16>, gap: u16| {
+            width.map(|width| {
+                let rect = Rect { x: x + gap, width, ..area };
+                x = rect.right();
+                rect
+            })
+        };
+        [next(Some(self.name), 0), next(self.bar, GAP), next(self.size, GAP), next(self.date, GAP)]
     }
 }
 
-fn draw_full_row(row: Row<'_>, columns: &Columns, area: Rect, look: Look, clock: &Zoned, buf: &mut Buffer) {
+fn bar_fraction(row: Row<'_>, largest: u64) -> Option<f32> {
+    match row {
+        Row::Entry(entry) if !entry.is_dir() && largest > 0 => {
+            Some(((entry.size as f64).ln_1p() / (largest as f64).ln_1p()) as f32)
+        }
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_full_row(
+    row: Row<'_>,
+    columns: &Columns,
+    area: Rect,
+    tone: Tone,
+    clock: &Zoned,
+    bar: Option<f32>,
+    look: &Look<'_>,
+    buf: &mut Buffer,
+) {
     let (size, date) = match row {
         Row::Parent => (PARENT_LABEL.to_owned(), String::new()),
         Row::Entry(entry) => (
@@ -141,26 +412,37 @@ fn draw_full_row(row: Row<'_>, columns: &Columns, area: Rect, look: Look, clock:
         ),
     };
 
-    if let Some(fill) = look.fill {
-        buf.set_style(area, fill);
+    let [name, bar_cell, size_cell, date_cell] = columns.split(area);
+    if let Some(cell) = name {
+        draw_name(row, cell, tone, buf);
     }
-    let cells = Layout::horizontal(columns.constraints()).split(area);
-    draw_name(row, cells[0], look, buf);
-    let mut rest = cells.iter().skip(FIRST_META_CELL).step_by(META_STRIDE);
-    if columns.size.is_some()
-        && let Some(cell) = rest.next()
-    {
-        Line::styled(size, look.meta).right_aligned().render(*cell, buf);
+    if let (Some(cell), Some(fraction)) = (bar_cell, bar) {
+        draw_bar(cell, fraction, look, buf);
     }
-    if columns.date.is_some()
-        && let Some(cell) = rest.next()
-    {
-        Line::styled(date, look.meta).render(*cell, buf);
+    if let Some(cell) = size_cell {
+        Line::styled(size, tone.meta).right_aligned().render(cell, buf);
+    }
+    if let Some(cell) = date_cell {
+        Line::styled(date, tone.meta).render(cell, buf);
     }
 }
 
-fn draw_name(row: Row<'_>, area: Rect, look: Look, buf: &mut Buffer) {
-    if let Some(fill) = look.fill {
+fn draw_bar(area: Rect, fraction: f32, look: &Look<'_>, buf: &mut Buffer) {
+    let steps = (fraction.clamp(0.0, 1.0) * f32::from(area.width) * BAR_STEPS as f32).round() as usize;
+    let gradient = look.accent().dimmed(look.background(), BAR_VISIBILITY);
+    let span = f32::from(area.width.saturating_sub(1).max(1));
+    for (offset, x) in (area.left()..area.right()).enumerate() {
+        let glyph = match steps.saturating_sub(offset * BAR_STEPS).min(BAR_STEPS) {
+            0 => break,
+            BAR_STEPS => BAR_FULL,
+            _ => BAR_HALF,
+        };
+        buf[(x, area.y)].set_char(glyph).set_fg(gradient.at(offset as f32 / span).into());
+    }
+}
+
+fn draw_name(row: Row<'_>, area: Rect, tone: Tone, buf: &mut Buffer) {
+    if let Some(fill) = tone.fill {
         buf.set_style(area, fill);
     }
     let (marker, name) = match row {
@@ -168,7 +450,7 @@ fn draw_name(row: Row<'_>, area: Rect, look: Look, buf: &mut Buffer) {
         Row::Entry(entry) => (marker(entry), entry.name.as_str()),
     };
     let width = usize::from(area.width.saturating_sub(MARKER_WIDTH));
-    Line::styled(format!("{marker}{}", format::truncate_end(name, width)), look.name).render(area, buf);
+    Line::styled(format!("{marker}{}", format::truncate_end(name, width)), tone.name).render(area, buf);
 }
 
 fn marker(entry: &Entry) -> char {
@@ -188,22 +470,6 @@ fn style_of(entry: &Entry, styles: &Styles<Style>) -> Style {
         EntryKind::Symlink { .. } => styles.link,
         EntryKind::Other => styles.other,
         EntryKind::File if entry.executable => styles.executable,
-        EntryKind::File => styles.file,
-    }
-}
-
-fn footer<'a>(panel: &Panel, styles: &Styles<Style>) -> Line<'a> {
-    let marked = panel.marked_count();
-    if marked > 0 {
-        let bytes: u64 = panel.marked().filter(|e| !e.is_dir()).map(|e| e.size).sum();
-        let text =
-            if bytes > 0 { format!("{marked} marked · {}", format::size(bytes)) } else { format!("{marked} marked") };
-        return Line::styled(format!(" {text} "), styles.marked);
-    }
-    let count = panel.received();
-    match panel.listing() {
-        Listing::Loading => Line::styled(format!(" loading… {count} "), styles.footer),
-        Listing::Ready => Line::styled(format!(" {} ", format::count(count, "item")), styles.footer),
-        Listing::Failed(error) => Line::styled(format!(" {error} "), styles.notice),
+        EntryKind::File => kinds::classify(&entry.name).map_or(styles.file, |kind| kinds::style(kind, styles)),
     }
 }

@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{path::Path, time::SystemTime};
 
 use jiff::{Timestamp, Zoned, tz::TimeZone};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -9,6 +9,8 @@ const EXACT_LIMIT: u64 = 10_000;
 const RECENT_FORMAT: &str = "%b %e %H:%M";
 const OLD_FORMAT: &str = "%b %e  %Y";
 const ELLIPSIS: char = '…';
+const HOME_MARK: &str = "~";
+const ROOT_MARK: &str = "/";
 
 pub fn size(bytes: u64) -> String {
     if bytes < EXACT_LIMIT {
@@ -84,6 +86,35 @@ pub fn truncate_start(text: &str, width: usize) -> String {
     std::iter::once(ELLIPSIS).chain(kept).collect()
 }
 
+pub fn crumbs(path: &Path, home: Option<&Path>) -> Vec<String> {
+    let (head, rest) = match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) => (HOME_MARK, rest),
+        None => (ROOT_MARK, path.strip_prefix(ROOT_MARK).unwrap_or(path)),
+    };
+    std::iter::once(head.to_owned())
+        .chain(rest.components().map(|part| part.as_os_str().to_string_lossy().into_owned()))
+        .collect()
+}
+
+pub fn fit_crumbs(mut crumbs: Vec<String>, width: usize, separator: &str) -> Vec<String> {
+    let total = |crumbs: &[String]| {
+        crumbs.iter().map(|crumb| crumb.width()).sum::<usize>() + separator.width() * crumbs.len().saturating_sub(1)
+    };
+    let ellipsis = ELLIPSIS.to_string();
+    while total(&crumbs) > width && crumbs.len() > 2 {
+        match crumbs[1] == ellipsis {
+            false => crumbs[1] = ellipsis.clone(),
+            true if crumbs.len() > 3 => drop(crumbs.remove(2)),
+            true => break,
+        }
+    }
+    let overflow = total(&crumbs).saturating_sub(width);
+    if let Some(last) = crumbs.last_mut().filter(|_| overflow > 0) {
+        *last = truncate_start(last, last.width().saturating_sub(overflow));
+    }
+    crumbs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +141,23 @@ mod tests {
         assert_eq!(truncate_end("abc", 4), "abc");
         assert_eq!(truncate_start("/home/user/projects", 10), "…/projects");
         assert_eq!(truncate_end("日本語テキスト", 5), "日本…");
+    }
+
+    #[test]
+    fn builds_breadcrumbs_relative_to_home() {
+        let home = Path::new("/home/me");
+        assert_eq!(crumbs(Path::new("/home/me/projects/borg"), Some(home)), ["~", "projects", "borg"]);
+        assert_eq!(crumbs(Path::new("/home/me"), Some(home)), ["~"]);
+        assert_eq!(crumbs(Path::new("/usr/lib"), Some(home)), ["/", "usr", "lib"]);
+        assert_eq!(crumbs(Path::new("/"), None), ["/"]);
+    }
+
+    #[test]
+    fn collapses_breadcrumbs_from_the_middle() {
+        let all = crumbs(Path::new("/home/me/a/bbbb/cccc/dddd"), Some(Path::new("/home/me")));
+        assert_eq!(fit_crumbs(all.clone(), 40, " › "), all);
+        assert_eq!(fit_crumbs(all.clone(), 19, " › "), ["~", "…", "cccc", "dddd"]);
+        assert_eq!(fit_crumbs(all.clone(), 16, " › "), ["~", "…", "dddd"]);
+        assert_eq!(fit_crumbs(all, 10, " › "), ["~", "…", "…d"]);
     }
 }

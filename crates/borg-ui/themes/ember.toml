@@ -1,6 +1,12 @@
 name = "Ember"
 extends = "midnight"
 
+[effects]
+inactive-dim = 0.35
+accent = ["#ffd27a", "#e8925b"]
+border-gradient = ["#ffd27a", "#c4512b"]
+title-gradient = ["#fff1dc", "#f0b27a"]
+
 [styles]
 panel = { fg = "#d8cbbd", bg = "#1c1715" }
 border = { fg = "#4a3c34", bg = "#1c1715" }
@@ -31,3 +37,10 @@ menu-selected = { fg = "#1c1715", bg = "#e8925b", bold = true }
 menu-disabled = { fg = "#5c4d42", bg = "#2a221d" }
 viewer = { fg = "#d8cbbd", bg = "#1c1715" }
 viewer-status = { fg = "#1c1715", bg = "#e8925b" }
+separator = { fg = "#5c4d42", bg = "#1c1715" }
+kind-code = { fg = "#ffd27a", bg = "#1c1715" }
+kind-image = { fg = "#e79bb0", bg = "#1c1715" }
+kind-archive = { fg = "#ff7a66", bg = "#1c1715" }
+kind-document = { fg = "#b8d49a", bg = "#1c1715" }
+kind-media = { fg = "#c8a2e8", bg = "#1c1715" }
+kind-config = { fg = "#d9b98a", bg = "#1c1715" }

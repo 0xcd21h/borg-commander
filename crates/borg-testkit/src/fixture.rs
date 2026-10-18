@@ -20,6 +20,9 @@ const CONFIG: &str = "config";
 const RUNTIME: &str = "run";
 const STATE: &str = "state";
 const EXECUTABLE_MODE: u32 = 0o755;
+const CONFIG_FILE: &str = "config.toml";
+const SPLASH_KEY: &str = "startup-animation";
+const QUIET_CONFIG: &str = "startup-animation = false\n";
 
 const SHELL_RC: [(&str, &str); 4] = [
     (".bashrc", "PS1='$ '\n"),
@@ -40,7 +43,17 @@ impl Fixture {
         let fixture = Self { _guard: guard, root };
         [WORK, HOME, CONFIG, RUNTIME, STATE].iter().try_for_each(|dir| fs::create_dir_all(fixture.root.join(dir)))?;
         SHELL_RC.iter().try_for_each(|(name, body)| write_file(&fixture.home().join(name), body.as_bytes()))?;
+        fixture.configure("")?;
         Ok(fixture)
+    }
+
+    pub fn configure(&self, body: &str) -> io::Result<()> {
+        let quiet = if body.lines().any(|line| line.trim_start().starts_with(SPLASH_KEY)) { "" } else { QUIET_CONFIG };
+        write_file(&self.config_file(), format!("{quiet}{body}").as_bytes())
+    }
+
+    pub fn config_file(&self) -> PathBuf {
+        self.config().join(CONFIG_FILE)
     }
 
     pub fn work(&self) -> PathBuf {

@@ -22,12 +22,33 @@ pub struct Appearance {
     choices: Vec<ThemeChoice>,
     current: usize,
     previous: Option<(usize, Fade)>,
+    secret: Option<ThemeChoice>,
+    unlocked: Vec<String>,
 }
 
 impl Appearance {
     pub fn new(choices: Vec<ThemeChoice>, current: usize) -> Self {
         let current = current.min(choices.len().saturating_sub(1));
-        Self { choices, current, previous: None }
+        Self { choices, current, previous: None, secret: None, unlocked: Vec::new() }
+    }
+
+    pub fn with_secret(self, secret: Option<ThemeChoice>, unlocked: Vec<String>) -> Self {
+        Self { secret, unlocked, ..self }
+    }
+
+    pub fn unlocked(&self) -> &[String] {
+        &self.unlocked
+    }
+
+    pub fn has_secret(&self) -> bool {
+        self.secret.is_some()
+    }
+
+    pub fn unlock(&mut self) -> Option<&ThemeChoice> {
+        let secret = self.secret.take()?;
+        self.unlocked.push(secret.id.clone());
+        self.choices.push(secret);
+        self.choices.last()
     }
 
     pub fn choices(&self) -> &[ThemeChoice] {
@@ -78,6 +99,16 @@ mod tests {
         assert_eq!(appearance.current_id(), Some("t2"));
         assert_eq!(appearance.transition(now + duration / 2).map(|(from, _)| from), Some(0));
         assert_eq!(appearance.transition(now + duration), None);
+    }
+
+    #[test]
+    fn unlocking_reveals_the_secret_once() {
+        let secret = ThemeChoice { id: "cube".into(), name: "Cube".into() };
+        let mut appearance = Appearance::new(choices(2), 0).with_secret(Some(secret), Vec::new());
+        assert_eq!(appearance.unlock().map(|c| c.id.as_str()), Some("cube"));
+        assert_eq!(appearance.choices().len(), 3);
+        assert_eq!(appearance.unlocked(), ["cube"]);
+        assert!(appearance.unlock().is_none());
     }
 
     #[test]

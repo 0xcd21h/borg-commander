@@ -2,6 +2,15 @@ name = "Aurora"
 extends = "midnight"
 border = "rounded"
 
+[effects]
+cursor = "pill"
+inactive-dim = 0.35
+accent = ["#8aa4ff", "#c38aff"]
+border-gradient = ["#8aa4ff", "#c38aff"]
+title-gradient = ["#e6ebff", "#8aa4ff"]
+cursor-gradient = ["#8aa4ff", "#b48aff"]
+glow = 0.08
+
 [styles]
 panel = { fg = "#c8d0f0", bg = "#14161f" }
 border = { fg = "#2c3147", bg = "#14161f" }
@@ -32,3 +41,10 @@ menu-selected = { fg = "#0f1118", bg = "#8aa4ff", bold = true }
 menu-disabled = { fg = "#454c69", bg = "#1b1e2b" }
 viewer = { fg = "#c8d0f0", bg = "#14161f" }
 viewer-status = { fg = "#0f1118", bg = "#8aa4ff" }
+separator = { fg = "#454c69", bg = "#14161f" }
+kind-code = { fg = "#f0c27a", bg = "#14161f" }
+kind-image = { fg = "#f29ccf", bg = "#14161f" }
+kind-archive = { fg = "#ff8a9a", bg = "#14161f" }
+kind-document = { fg = "#a6e3a1", bg = "#14161f" }
+kind-media = { fg = "#cba6f7", bg = "#14161f" }
+kind-config = { fg = "#94e2d5", bg = "#14161f" }

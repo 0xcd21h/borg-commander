@@ -1,5 +1,10 @@
 name = "Classic"
 extends = "midnight"
+border = "plain"
+
+[effects]
+cursor = "bar"
+inactive-dim = 0.0
 
 [styles]
 panel = { fg = "light-cyan", bg = "blue" }
@@ -31,3 +36,10 @@ menu-selected = { fg = "white", bg = "black" }
 menu-disabled = { fg = "dark-gray", bg = "cyan" }
 viewer = { fg = "light-cyan", bg = "blue" }
 viewer-status = { fg = "black", bg = "cyan" }
+separator = { fg = "cyan", bg = "blue" }
+kind-code = { fg = "light-yellow", bg = "blue" }
+kind-image = { fg = "light-magenta", bg = "blue" }
+kind-archive = { fg = "light-red", bg = "blue" }
+kind-document = { fg = "white", bg = "blue" }
+kind-media = { fg = "light-magenta", bg = "blue" }
+kind-config = { fg = "light-cyan", bg = "blue" }

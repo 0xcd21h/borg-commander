@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use borg_core::{Motion, Msg, Settings};
+use borg_core::{Motion, Msg, Preferences, SPLASH_DURATION, Settings};
 use borg_term::GridSize;
 use borg_testkit::{Snapshot, Stage, describe};
 use borg_vfs::{Entry, EntryKind};
@@ -19,6 +19,9 @@ const SIZE: GridSize = GridSize { cols: 90, rows: 22 };
 const NARROW: GridSize = GridSize { cols: 44, rows: 12 };
 const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
+const HOME: &str = "/home/me";
+const FIRST_CONTACT_CLOCK: &str = "2026-04-05T12:00:00+00:00[UTC]";
+const QUIET: Preferences = Preferences { splash: false, ..Preferences::DEFAULT };
 
 fn at(secs: u64) -> Option<SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs))
@@ -53,15 +56,41 @@ fn logs() -> Vec<Entry> {
     ]
 }
 
+fn crew() -> Vec<Entry> {
+    ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+        .iter()
+        .map(|name| entry(&format!("{name}.drone"), EntryKind::File, 1_000, RECENT, false))
+        .collect()
+}
+
+fn staged(motion: Motion, preferences: Preferences, left: Vec<Entry>, clock: &str) -> Result<Stage> {
+    let settings = Settings { motion, preferences, ..Settings::default() };
+    let mut stage = Stage::new(
+        [PathBuf::from("/home/me/projects/borg"), PathBuf::from("/var/log")],
+        [left, logs()],
+        SIZE,
+        settings,
+        clock.parse()?,
+    )?;
+    stage.home = Some(PathBuf::from(HOME));
+    Ok(stage)
+}
+
 fn stage(size: GridSize, motion: Motion) -> Result<Stage> {
-    let settings = Settings { motion, ..Settings::default() };
-    Stage::new(
+    let settings = Settings { motion, preferences: QUIET, ..Settings::default() };
+    let mut stage = Stage::new(
         [PathBuf::from("/home/me/projects/borg"), PathBuf::from("/var/log")],
         [project(), logs()],
         size,
         settings,
         CLOCK.parse()?,
-    )
+    )?;
+    stage.home = Some(PathBuf::from(HOME));
+    Ok(stage)
+}
+
+fn chars(c: &str) -> impl Iterator<Item = Msg> + '_ {
+    c.chars().map(|c| key(KeyCode::Char(c)))
 }
 
 fn key(code: KeyCode) -> Msg {
@@ -85,7 +114,7 @@ fn check(name: &str, stage: &Stage, buffer: Buffer) -> Result<()> {
 fn every_builtin_theme() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
-    let ids: Vec<String> = stage.themes.themes().iter().map(|t| t.id.clone()).collect();
+    let ids: Vec<String> = stage.state.appearance.choices().iter().map(|t| t.id.clone()).collect();
 
     for (index, id) in ids.iter().enumerate() {
         stage.state.appearance.select(index, stage.started, Duration::ZERO);
@@ -189,4 +218,172 @@ fn widened_left_panel() -> Result<()> {
     });
     let buffer = stage.render(stage.started)?;
     check("widened", &stage, buffer)
+}
+
+#[test]
+fn splash_screen_midway() -> Result<()> {
+    let mut stage = staged(Motion::LOCAL, Preferences::DEFAULT, project(), CLOCK)?;
+    let buffer = stage.render(stage.started + SPLASH_DURATION / 2)?;
+    ensure_text(&buffer, "c o m m a n d e r")?;
+    check("splash", &stage, buffer)
+}
+
+#[test]
+fn splash_greets_on_first_contact_day() -> Result<()> {
+    let mut stage = staged(Motion::LOCAL, Preferences::DEFAULT, project(), FIRST_CONTACT_CLOCK)?;
+    let buffer = stage.render(stage.started + SPLASH_DURATION / 4)?;
+    ensure_text(&buffer, "First contact.")
+}
+
+#[test]
+fn about_screen_and_cube_unlock() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(1)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Resistance is futile.")?;
+    check("about", &stage, buffer)?;
+
+    chars("borg").for_each(|msg| {
+        stage.send(msg);
+    });
+    let unlocked = stage.state.appearance.choices().iter().any(|choice| choice.id == "cube");
+    anyhow::ensure!(unlocked, "typing borg in About must unlock the cube theme");
+    let cube = stage.state.appearance.choices().len() - 1;
+    stage.send(key(KeyCode::Esc));
+    stage.state.appearance.select(cube, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("theme_cube", &stage, buffer)
+}
+
+#[test]
+fn konami_code_starts_glyph_rain() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(1)));
+    [
+        KeyCode::Up,
+        KeyCode::Up,
+        KeyCode::Down,
+        KeyCode::Down,
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::Left,
+        KeyCode::Right,
+    ]
+    .into_iter()
+    .map(key)
+    .chain(chars("ba"))
+    .for_each(|msg| {
+        stage.send(msg);
+    });
+    anyhow::ensure!(stage.state.raining(stage.started), "konami must start the rain");
+    let buffer = stage.render(stage.started + Duration::from_millis(1500))?;
+    check("about_rain", &stage, buffer)
+}
+
+#[test]
+fn screensaver_after_idle() -> Result<()> {
+    let preferences = Preferences { screensaver: true, ..QUIET };
+    let mut stage = staged(Motion::LOCAL, preferences, project(), CLOCK)?;
+    stage.state.settings.screensaver_after = Duration::from_secs(5);
+    let later = stage.started + Duration::from_secs(6);
+    borg_core::update(&mut stage.state, Msg::Tick, later);
+    anyhow::ensure!(stage.state.screensaver, "screensaver must start after the idle period");
+    let buffer = stage.render(later)?;
+    check("screensaver", &stage, buffer)?;
+
+    borg_core::update(&mut stage.state, key(KeyCode::Char('x')), later);
+    anyhow::ensure!(!stage.state.screensaver, "a key must wake the screensaver");
+    Ok(())
+}
+
+#[test]
+fn seven_of_nine_and_assimilation() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, crew(), CLOCK)?;
+    stage.send(key(KeyCode::Down));
+    (0..7).for_each(|_| {
+        stage.send(key(KeyCode::Insert));
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Seven of Nine")?;
+    check("seven_of_nine", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Insert)).send(key(KeyCode::Insert));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "all 9 assimilated")
+}
+
+#[test]
+fn delight_switch_hides_easter_eggs() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { delight: false, ..QUIET }, crew(), CLOCK)?;
+    stage.send(key(KeyCode::Down));
+    (0..7).for_each(|_| {
+        stage.send(key(KeyCode::Insert));
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "7 marked")
+}
+
+#[test]
+fn empty_folder_shows_stars() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "empty")?;
+    check("empty_folder", &stage, buffer)
+}
+
+#[test]
+fn loading_shows_spinner_and_comet() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::Down));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let Some(borg_core::Effect::List { side, generation, .. }) = effects.into_iter().next() else {
+        anyhow::bail!("entering a folder must list it");
+    };
+    stage.send(Msg::Batch { side, generation, entries: logs() });
+    let buffer = stage.render(stage.started + Duration::from_millis(450))?;
+    ensure_text(&buffer, "loading…")?;
+    check("loading", &stage, buffer)
+}
+
+#[test]
+fn entering_a_folder_slides_the_listing() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::LOCAL)?;
+    stage.send(key(KeyCode::Down));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let Some(borg_core::Effect::List { side, generation, .. }) = effects.into_iter().next() else {
+        anyhow::bail!("entering a folder must list it");
+    };
+    stage.send(Msg::Batch { side, generation, entries: logs() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    let buffer = stage.render(stage.started + Motion::LOCAL.fade / 3)?;
+    check("slide_forward", &stage, buffer)
+}
+
+#[test]
+fn menu_unfolds() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::LOCAL)?;
+    stage.send(key(KeyCode::F(2)));
+    let buffer = stage.render(stage.started + Motion::LOCAL.fade / 3)?;
+    check("menu_unfolding", &stage, buffer)
+}
+
+#[test]
+fn without_truecolor_every_colour_is_indexed() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.settings.truecolor = false;
+    let neon = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap_or_default();
+    stage.state.appearance.select(neon, stage.started, Duration::ZERO);
+    stage.send(key(KeyCode::F(8)));
+    let buffer = stage.render(stage.started)?;
+    let truecolor = buffer.content.iter().any(|cell| {
+        matches!(cell.fg, ratatui::style::Color::Rgb(..)) || matches!(cell.bg, ratatui::style::Color::Rgb(..))
+    });
+    anyhow::ensure!(!truecolor, "256-colour terminals must not receive 24-bit colours");
+    Ok(())
+}
+
+fn ensure_text(buffer: &Buffer, needle: &str) -> Result<()> {
+    let text = describe(buffer);
+    anyhow::ensure!(text.contains(needle), "expected {needle:?} in\n{text}");
+    Ok(())
 }

@@ -43,7 +43,15 @@ fn idle_prompt() -> ShellView {
     ShellView { prompt: PromptState::Empty, foreground: Foreground::Shell, mode: TermMode::empty() }
 }
 
+fn quiet() -> Settings {
+    Settings { preferences: crate::Preferences { splash: false, ..crate::Preferences::DEFAULT }, ..Settings::default() }
+}
+
 fn setup_with(entries: Vec<Entry>) -> (AppState, Instant) {
+    setup_from(entries, quiet())
+}
+
+fn setup_from(entries: Vec<Entry>, settings: Settings) -> (AppState, Instant) {
     let now = Instant::now();
     let themes = ["midnight", "classic", "paper"].map(|id| ThemeChoice { id: id.into(), name: id.into() }).to_vec();
     let startup = Startup {
@@ -51,8 +59,7 @@ fn setup_with(entries: Vec<Entry>) -> (AppState, Instant) {
         active: Side::Left,
         split: crate::EVEN_SPLIT,
     };
-    let (mut state, effects) =
-        AppState::new(startup, COLS, ROWS, Settings::default(), crate::Appearance::new(themes, 0), now);
+    let (mut state, effects) = AppState::new(startup, COLS, ROWS, settings, crate::Appearance::new(themes, 0), now);
     for effect in effects {
         let Effect::List { side, generation, .. } = effect else { continue };
         update(&mut state, Msg::Batch { side, generation, entries: entries.clone() }, now);
@@ -120,7 +127,7 @@ fn enter_on_typed_line_runs_command_and_reveals_shell() {
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert_eq!(writes(&effects), "\r");
     assert_eq!(state.view, View::Shell);
-    assert!(state.is_animating(now));
+    assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
 }
 
 #[test]
@@ -390,7 +397,7 @@ fn split_nudges_animate_and_clamp() {
     let (mut state, now) = setup();
     press(&mut state, now, KeyEvent::new(KeyCode::Right, KeyModifiers::ALT | KeyModifiers::SHIFT));
     assert!(state.split_target() > crate::EVEN_SPLIT);
-    assert!(state.is_animating(now));
+    assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
 
     (0..100).for_each(|_| {
         crate::actions::perform(&mut state, Action::NudgeSplit(10), now);
@@ -468,4 +475,110 @@ fn viewer_keys_scroll_wrap_and_close() {
     assert!(effects.is_empty(), "viewer must not leak keys to the shell");
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.viewer.is_none());
+}
+
+fn secret() -> ThemeChoice {
+    ThemeChoice { id: "cube".into(), name: "Cube".into() }
+}
+
+fn chars(state: &mut AppState, now: Instant, text: &str) -> Vec<Effect> {
+    text.chars().flat_map(|c| press(state, now, key(KeyCode::Char(c)))).collect()
+}
+
+#[test]
+fn splash_is_skipped_by_a_key_that_does_nothing_else() {
+    let (mut state, now) = setup_from(vec![dir("me")], Settings::default());
+    assert!(state.splash_active(now));
+    let cursor = state.active_panel().cursor();
+    assert!(press(&mut state, now, key(KeyCode::Down)).is_empty());
+    assert!(!state.splash_active(now));
+    assert_eq!(state.active_panel().cursor(), cursor);
+    assert_eq!(state.pace(now), None);
+}
+
+#[test]
+fn splash_ends_on_its_own() {
+    let (mut state, now) = setup_from(vec![dir("me")], Settings::default());
+    assert_eq!(state.wake_at(), Some(now + crate::SPLASH_DURATION));
+    update(&mut state, Msg::Tick, now + crate::SPLASH_DURATION);
+    assert!(state.splash_until.is_none());
+}
+
+#[test]
+fn typing_borg_in_about_unlocks_the_secret_theme_once() {
+    let (mut state, now) = setup();
+    state.appearance = state.appearance.clone().with_secret(Some(secret()), Vec::new());
+    press(&mut state, now, key(KeyCode::F(1)));
+    assert!(matches!(state.overlay, Some(Overlay::About(_))));
+    assert_eq!(state.pace(now + std::time::Duration::from_secs(1)), Some(crate::Pace::Ambient));
+
+    assert_eq!(chars(&mut state, now, crate::UNLOCK_WORD), vec![Effect::SaveConfig]);
+    assert_eq!(state.appearance.unlocked(), ["cube"]);
+    assert!(chars(&mut state, now, crate::UNLOCK_WORD).is_empty());
+    assert_eq!(state.appearance.choices().iter().filter(|c| c.id == "cube").count(), 1);
+
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn konami_code_in_about_starts_rain_for_a_while() {
+    let (mut state, now) = setup();
+    press(&mut state, now, key(KeyCode::F(1)));
+    [
+        KeyCode::Up,
+        KeyCode::Up,
+        KeyCode::Down,
+        KeyCode::Down,
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::Left,
+        KeyCode::Right,
+    ]
+    .into_iter()
+    .for_each(|code| {
+        press(&mut state, now, key(code));
+    });
+    chars(&mut state, now, "ba");
+    assert!(state.raining(now));
+    let dry = now + crate::RAIN_DURATION;
+    update(&mut state, Msg::Tick, dry);
+    assert!(!state.raining(dry));
+}
+
+#[test]
+fn delight_off_keeps_about_plain() {
+    let mut settings = quiet();
+    settings.preferences.delight = false;
+    let (mut state, now) = setup_from(vec![dir("me")], settings);
+    state.appearance = state.appearance.clone().with_secret(Some(secret()), Vec::new());
+    press(&mut state, now, key(KeyCode::F(1)));
+    assert!(chars(&mut state, now, crate::UNLOCK_WORD).is_empty());
+    assert!(state.appearance.has_secret());
+}
+
+#[test]
+fn screensaver_starts_after_idle_and_wakes_on_a_key() {
+    let mut settings = quiet();
+    settings.preferences.screensaver = true;
+    let (mut state, now) = setup_from(vec![dir("me")], settings);
+    let due = now + state.settings.screensaver_after;
+    assert_eq!(state.wake_at(), Some(due));
+    update(&mut state, Msg::Tick, due);
+    assert!(state.screensaver);
+    assert!(press(&mut state, due, key(KeyCode::Down)).is_empty());
+    assert!(!state.screensaver);
+    assert_eq!(state.active_panel().cursor(), 0);
+}
+
+#[test]
+fn entering_a_child_folder_slides_forward_and_back() {
+    let (mut state, now) = setup();
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let Some(Effect::List { side, generation, .. }) = effects.first().cloned() else { panic!("expected listing") };
+    update(&mut state, Msg::Batch { side, generation, entries: vec![] }, now);
+    let slide = state.motions[side.index()].slide(now);
+    assert_eq!(slide.map(|(direction, _)| direction), Some(crate::SlideDirection::Forward));
+    assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
 }

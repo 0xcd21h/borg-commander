@@ -1,13 +1,13 @@
-use borg_core::Picker;
+use borg_core::{Picker, ThemeChoice};
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::Rect,
     text::Line,
     widgets::{Block, Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{Theme, ThemeSet};
+use crate::{Theme, dialog_view::centered};
 
 const TITLE: &str = " Theme ";
 const HINT: &str = " Enter keep · Esc cancel ";
@@ -15,9 +15,9 @@ const MIN_WIDTH: u16 = 28;
 const SIDE_PADDING: u16 = 6;
 const BORDER_ROWS: u16 = 2;
 
-pub fn draw_picker(picker: &Picker, themes: &ThemeSet, theme: &Theme, area: Rect, buf: &mut Buffer) {
+pub fn draw_picker(picker: &Picker, choices: &[ThemeChoice], theme: &Theme, area: Rect, buf: &mut Buffer) -> Rect {
     let styles = &theme.styles;
-    let names: Vec<&str> = themes.themes().iter().map(|theme| theme.name.as_str()).collect();
+    let names: Vec<&str> = choices.iter().map(|choice| choice.name.as_str()).collect();
     let widest = names.iter().map(|name| name.width()).max().unwrap_or_default();
     let width = u16::try_from(widest).unwrap_or(u16::MAX).saturating_add(SIDE_PADDING).max(MIN_WIDTH);
     let height = u16::try_from(names.len()).unwrap_or(u16::MAX).saturating_add(BORDER_ROWS);
@@ -43,10 +43,5 @@ pub fn draw_picker(picker: &Picker, themes: &ThemeSet, theme: &Theme, area: Rect
         buf.set_style(row, style);
         Line::styled(format!("  {name}"), style).render(row, buf);
     }
-}
-
-fn centered(area: Rect, width: u16, height: u16) -> Rect {
-    let [row] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
-    let [rect] = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center).areas(row);
     rect
 }
