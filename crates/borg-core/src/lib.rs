@@ -29,7 +29,7 @@ pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use find::{Find, Query, summary as find_summary};
 pub use input::LineInput;
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
-pub use keymap::{Action, Binding, KEYMAP, Scope};
+pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};
 pub use menu::{Menu, MenuEntry, MenuItem, menus};
 pub use motion::{EMPTY_ART_WINDOW, Pace, PanelMotion, SlideDirection};

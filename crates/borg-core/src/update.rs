@@ -25,11 +25,11 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Observe(view) => {
-            state.shell.observed = view;
+            state.shell.observe(view);
             Vec::new()
         }
         Msg::ShellOutput(view) => {
-            state.shell.observed = view;
+            state.shell.observe(view);
             state.shell.unechoed = false;
             Vec::new()
         }
@@ -189,14 +189,15 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
 }
 
 fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
+    let full_screen = std::mem::take(&mut state.shell.went_full_screen);
     let Some(operation) = state.operation.take() else {
-        if state.settings.preferences.after_command == AfterCommand::ReturnToPanels {
+        if full_screen || state.settings.preferences.after_command == AfterCommand::ReturnToPanels {
             state.view = View::Panels;
         }
         return state.reload_all();
     };
 
-    if operation.revealed {
+    if operation.revealed || full_screen {
         state.view = View::Panels;
     }
     match exit {

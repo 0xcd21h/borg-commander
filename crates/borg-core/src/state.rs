@@ -67,6 +67,7 @@ pub struct ShellStatus {
     pub typed: bool,
     pub unechoed: bool,
     pub integrated: bool,
+    pub went_full_screen: bool,
 }
 
 impl ShellStatus {
@@ -76,6 +77,11 @@ impl ShellStatus {
 
     pub fn busy(&self) -> bool {
         self.running || self.observed.foreground == Foreground::Program
+    }
+
+    pub(crate) fn observe(&mut self, view: ShellView) {
+        self.observed = view;
+        self.went_full_screen |= self.running && self.captured();
     }
 
     pub(crate) fn mark_typed(&mut self) {
@@ -241,6 +247,7 @@ impl AppState {
             typed: false,
             unechoed: false,
             integrated: false,
+            went_full_screen: false,
         };
         let panels = startup.panels.clone().map(|setup| Panel::new(setup.dir, 0, setup.mode, setup.sort));
 

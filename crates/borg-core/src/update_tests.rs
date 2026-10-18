@@ -787,3 +787,34 @@ fn alt_digits_stand_in_for_function_keys() {
     let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('0'), KeyModifiers::ALT));
     assert_eq!(effects, vec![Effect::Quit]);
 }
+
+#[test]
+fn panels_come_back_when_a_full_screen_program_exits() {
+    let (mut state, now) = setup();
+    state.shell.integrated = true;
+    type_text(&mut state, now, "vim");
+    update(&mut state, Msg::Observe(ShellView { prompt: PromptState::Typed, ..idle_prompt() }), now);
+    press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(state.view, View::Shell);
+
+    let editing = ShellView { foreground: Foreground::Program, mode: TermMode::ALT_SCREEN, ..idle_prompt() };
+    update(&mut state, Msg::ShellOutput(editing), now);
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.view, View::Panels);
+
+    type_text(&mut state, now, "ls");
+    update(&mut state, Msg::Observe(ShellView { prompt: PromptState::Typed, ..idle_prompt() }), now);
+    press(&mut state, now, key(KeyCode::Enter));
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.view, View::Shell, "plain commands keep showing their output");
+}
+
+#[test]
+fn alt_a_types_folder_paths_onto_the_command_line() {
+    let (mut state, now) = setup();
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+    assert_eq!(writes(&effects), "'/home' ");
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('A'), KeyModifiers::ALT | KeyModifiers::SHIFT));
+    assert_eq!(writes(&effects), "'/tmp' ");
+}

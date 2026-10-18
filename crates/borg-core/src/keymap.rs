@@ -19,6 +19,7 @@ pub enum Action {
     Descend,
     Leave,
     InsertName,
+    InsertPath(PathOf),
     ToggleHidden,
     OpenMenuBar,
     About,
@@ -100,6 +101,12 @@ const ALT: KeyModifiers = KeyModifiers::ALT;
 const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
 const ALT_SHIFT: KeyModifiers = KeyModifiers::ALT.union(KeyModifiers::SHIFT);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathOf {
+    Active,
+    Other,
+}
+
 pub const KEYMAP: &[Binding] = &[
     labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), "Help"),
     labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), "File"),
@@ -123,6 +130,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Right, NONE, Action::Descend, Scope::PanelsEmptyLine),
     bind(KeyCode::Left, NONE, Action::Leave, Scope::PanelsEmptyLine),
     bind(KeyCode::Enter, ALT, Action::InsertName, Scope::Panels),
+    bind(KeyCode::Char('a'), ALT, Action::InsertPath(PathOf::Active), Scope::Panels),
+    bind(KeyCode::Char('A'), ALT, Action::InsertPath(PathOf::Other), Scope::Panels),
     bind(KeyCode::Char('.'), ALT, Action::ToggleHidden, Scope::PanelsEmptyLine),
     bind(KeyCode::Insert, NONE, Action::ToggleMark, Scope::Panels),
     bind(KeyCode::Char('t'), CTRL, Action::ToggleMark, Scope::PanelsEmptyLine),

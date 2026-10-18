@@ -2,7 +2,7 @@ use std::{path::Path, time::Instant};
 
 use crate::{
     Action, AfterCommand, AppState, Confirm, ConfirmPurpose, Effect, LineInput, ListingMode, MenuCursor, Operation,
-    Overlay, Panel, Picker, Prompt, PromptPurpose, Row, Side, Sort, View,
+    Overlay, Panel, PathOf, Picker, Prompt, PromptPurpose, Row, Side, Sort, View,
     command::CommandLine,
     layout::EVEN_SPLIT,
     menu::{FILE_MENU, menus},
@@ -59,6 +59,14 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Descend => descend(state, side).into_iter().collect(),
         Action::Leave => leave(state, side).into_iter().collect(),
         Action::InsertName => insert_names(state, side),
+        Action::InsertPath(which) => {
+            let side = match which {
+                PathOf::Active => side,
+                PathOf::Other => side.other(),
+            };
+            let dir = state.panel(side).dir().to_path_buf();
+            type_words(state, CommandLine::default().path(&dir))
+        }
         Action::ToggleHidden => {
             let prefs = &mut state.settings.preferences;
             prefs.show_hidden = !prefs.show_hidden;
@@ -219,6 +227,10 @@ fn insert_names(state: &mut AppState, side: Side) -> Vec<Effect> {
         return Vec::new();
     }
     let words = names.iter().fold(CommandLine::default(), |line, name| line.arg(name.as_bytes()));
+    type_words(state, words)
+}
+
+fn type_words(state: &mut AppState, words: CommandLine) -> Vec<Effect> {
     let mut effects = prepare_shell(state);
     effects.push(Effect::Write([&words.line()[..], b" "].concat()));
     state.shell.mark_typed();
