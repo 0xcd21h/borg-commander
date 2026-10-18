@@ -136,6 +136,7 @@ a Nerd Font.
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line |
+| Shift-Enter, Ctrl-J | Multi-line command: edit in a box above the prompt; Enter adds a line, Alt-Enter (or Ctrl-Enter) runs, Esc puts it back on the prompt |
 | Alt-A / Alt-Shift-A | Put this panel's / the other panel's folder path on the command line |
 | Ctrl-P / Ctrl-N, Ctrl-R | Shell history: previous / next command, search (handled by your shell) |
 | Alt-. | Show hidden files |

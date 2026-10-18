@@ -130,6 +130,7 @@ fn command_menu(state: &AppState) -> Menu {
         title: "Command",
         entries: vec![
             item("Find in folder", "C-s", Action::Find),
+            when(item("Multi-line command", "S-Enter", Action::Compose), !state.shell.busy()),
             check("Quick view", "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
             check("Info", "C-l", Action::Info, state.aside == Some(crate::Aside::Info)),
             when(item("Jobs…", "M-j", Action::Jobs), !state.jobs.is_empty()),

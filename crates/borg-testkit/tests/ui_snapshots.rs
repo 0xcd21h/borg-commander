@@ -656,6 +656,24 @@ fn info_panel_lists_file_facts() -> Result<()> {
 }
 
 #[test]
+fn composer_grows_from_the_prompt() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(Msg::CommandLine("for f in *.log".into()));
+    stage.send(key(KeyCode::Enter));
+    chars("do gzip \"$f\"").for_each(|msg| {
+        stage.send(msg);
+    });
+    stage.send(key(KeyCode::Enter));
+    chars("done").for_each(|msg| {
+        stage.send(msg);
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "3 lines")?;
+    ensure_text(&buffer, "Alt-Enter run")?;
+    check("composer", &stage, buffer)
+}
+
+#[test]
 #[ignore = "timing report, run with --ignored --nocapture"]
 fn frame_cost() -> Result<()> {
     let big = GridSize { cols: 220, rows: 60 };

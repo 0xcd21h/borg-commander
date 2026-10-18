@@ -92,7 +92,7 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     rect
 }
 
-fn skip_columns(text: &str, columns: usize) -> String {
+pub(crate) fn skip_columns(text: &str, columns: usize) -> String {
     let mut skipped = 0;
     text.chars()
         .skip_while(|c| {

@@ -19,6 +19,7 @@ pub enum Action {
     Descend,
     Leave,
     InsertName,
+    Compose,
     QuickView,
     Info,
     InsertPath(PathOf),
@@ -66,16 +67,25 @@ pub enum Action {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
     Anywhere,
+    Prompt,
     Panels,
     PanelsEmptyLine,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Context {
+    pub view: View,
+    pub line_empty: bool,
+    pub at_prompt: bool,
+}
+
 impl Scope {
-    fn applies(self, view: View, line_empty: bool) -> bool {
+    fn applies(self, context: Context) -> bool {
         match self {
             Self::Anywhere => true,
-            Self::Panels => view == View::Panels,
-            Self::PanelsEmptyLine => view == View::Panels && line_empty,
+            Self::Prompt => context.at_prompt,
+            Self::Panels => context.view == View::Panels,
+            Self::PanelsEmptyLine => context.view == View::Panels && context.line_empty,
         }
     }
 }
@@ -132,6 +142,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Right, NONE, Action::Descend, Scope::PanelsEmptyLine),
     bind(KeyCode::Left, NONE, Action::Leave, Scope::PanelsEmptyLine),
     bind(KeyCode::Enter, ALT, Action::InsertName, Scope::Panels),
+    bind(KeyCode::Enter, SHIFT, Action::Compose, Scope::Prompt),
+    bind(KeyCode::Char('j'), CTRL, Action::Compose, Scope::Prompt),
     bind(KeyCode::Char('a'), ALT, Action::InsertPath(PathOf::Active), Scope::Panels),
     bind(KeyCode::Char('A'), ALT, Action::InsertPath(PathOf::Other), Scope::Panels),
     bind(KeyCode::Char('.'), ALT, Action::ToggleHidden, Scope::PanelsEmptyLine),
@@ -151,13 +163,10 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];
 
-pub fn lookup(key: &KeyEvent, view: View, line_empty: bool) -> Option<Action> {
+pub fn lookup(key: &KeyEvent, context: Context) -> Option<Action> {
     let modifiers = match key.code {
         KeyCode::Char(_) => key.modifiers - KeyModifiers::SHIFT,
         _ => key.modifiers,
     };
-    KEYMAP
-        .iter()
-        .find(|b| b.code == key.code && b.modifiers == modifiers && b.scope.applies(view, line_empty))
-        .map(|b| b.action)
+    KEYMAP.iter().find(|b| b.code == key.code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
 }

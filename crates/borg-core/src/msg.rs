@@ -24,6 +24,7 @@ pub enum Msg {
     Notice(String),
     Job { id: u64, event: Event },
     Peeked(Peeked),
+    CommandLine(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,5 +36,6 @@ pub enum Effect {
     StartJob { id: u64, spec: Spec },
     JobControl { id: u64, command: JobCommand },
     Peek { aside: Aside, path: PathBuf, size: (usize, usize) },
+    ReadCommandLine,
     Quit,
 }

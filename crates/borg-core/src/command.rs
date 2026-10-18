@@ -5,7 +5,7 @@ const ESCAPED_QUOTE: &[u8] = b"'\\''";
 const HISTORY_SKIP: &[u8] = b" ";
 const SEPARATOR: u8 = b' ';
 const LOCAL_PREFIX: &[u8] = b"./";
-const SUBMIT: &[u8] = b"\r";
+pub(crate) const SUBMIT: &[u8] = b"\r";
 
 pub fn quote(raw: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(raw.len() + 2);

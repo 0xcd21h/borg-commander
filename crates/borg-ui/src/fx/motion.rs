@@ -6,6 +6,7 @@ use ratatui::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unfold {
     Down,
+    Up,
     FromCenter,
 }
 
@@ -31,10 +32,11 @@ pub fn reveal(buf: &mut Buffer, before: &Buffer, rect: Rect, progress: f32, unfo
     let hidden = rect.height.saturating_sub(shown);
     let (top, bottom) = match unfold {
         Unfold::Down => (rect.top() + shown, rect.bottom()),
+        Unfold::Up => (rect.top(), rect.top() + hidden),
         Unfold::FromCenter => (rect.top(), rect.top() + hidden / 2),
     };
     let tail = match unfold {
-        Unfold::Down => rect.bottom()..rect.bottom(),
+        Unfold::Down | Unfold::Up => rect.bottom()..rect.bottom(),
         Unfold::FromCenter => rect.bottom() - (hidden - hidden / 2)..rect.bottom(),
     };
     for y in (top..bottom).chain(tail.clone()) {
@@ -44,6 +46,7 @@ pub fn reveal(buf: &mut Buffer, before: &Buffer, rect: Rect, progress: f32, unfo
     }
     let first = match unfold {
         Unfold::Down => rect.top(),
+        Unfold::Up => rect.top() + hidden,
         Unfold::FromCenter => rect.top() + hidden / 2,
     };
     Rect { y: first, height: shown, ..rect }

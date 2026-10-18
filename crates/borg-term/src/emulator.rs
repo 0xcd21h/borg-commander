@@ -4,8 +4,11 @@ use alacritty_terminal::{
     event::{Event, EventListener},
     grid::Dimensions,
     index::{Column, Line, Point},
-    term::{Config, Term, TermMode, cell::Cell},
-    vte::ansi::{Processor, Rgb},
+    term::{
+        Config, Term, TermMode,
+        cell::{Cell, Flags},
+    },
+    vte::ansi::{Color, NamedColor, Processor, Rgb},
 };
 
 use crate::{GridSize, OscScanner, ShellSignal};
@@ -90,6 +93,33 @@ impl Emulator {
         if cursor == start && blank(&self.term.grid()[cursor]) { PromptState::Empty } else { PromptState::Typed }
     }
 
+    pub fn command_line(&self) -> String {
+        let Some(start) = self.input_start else { return String::new() };
+        let grid = self.term.grid();
+        let cursor = grid.cursor.point;
+        let last_column = Column(grid.columns().saturating_sub(1));
+        let bottom = Line(i32::try_from(grid.screen_lines()).unwrap_or(i32::MAX) - 1);
+        let mut text = String::new();
+        let mut line = start.line;
+        loop {
+            let first = if line == start.line { start.column.0 } else { 0 };
+            for column in first..grid.columns() {
+                let point = Point::new(line, Column(column));
+                let cell = &grid[point];
+                if point >= cursor && suggested(cell) {
+                    return text.trim_end().to_owned();
+                }
+                if !cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                    text.push(if cell.c == BLANK { ' ' } else { cell.c });
+                }
+            }
+            if line >= bottom || !grid[Point::new(line, last_column)].flags.contains(Flags::WRAPLINE) {
+                return text.trim_end().to_owned();
+            }
+            line += 1;
+        }
+    }
+
     fn track(&mut self, signal: &ShellSignal) {
         self.input_start = match signal {
             ShellSignal::InputStart => Some(self.term.grid().cursor.point),
@@ -97,6 +127,17 @@ impl Emulator {
             ShellSignal::Cwd { .. } => self.input_start,
         };
     }
+}
+
+const BLANK: char = '\0';
+const SUGGESTION_INDEX: u8 = 8;
+
+fn suggested(cell: &Cell) -> bool {
+    cell.flags.contains(Flags::DIM)
+        || matches!(
+            cell.fg,
+            Color::Named(NamedColor::BrightBlack | NamedColor::DimForeground) | Color::Indexed(SUGGESTION_INDEX)
+        )
 }
 
 pub struct Screen<'a> {
@@ -154,6 +195,17 @@ mod tests {
 
         emulator.feed(b"\x1b[K");
         assert_eq!(emulator.prompt_state(), PromptState::Empty);
+    }
+
+    #[test]
+    fn reads_the_typed_command_without_autosuggestions() {
+        let mut emulator = Emulator::new(GridSize { cols: 24, rows: 4 }, 0);
+        emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+        assert_eq!(emulator.command_line(), "");
+        emulator.feed(b"echo a long line that wraps");
+        assert_eq!(emulator.command_line(), "echo a long line that wraps");
+        emulator.feed(b"\x1b[90m --suggested\x1b[0m\x1b[12D");
+        assert_eq!(emulator.command_line(), "echo a long line that wraps");
     }
 
     #[test]

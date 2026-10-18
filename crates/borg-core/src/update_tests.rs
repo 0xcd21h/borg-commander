@@ -879,3 +879,58 @@ fn tab_stays_on_the_listing_while_the_other_side_shows_a_preview() {
     press(&mut state, now, key(KeyCode::Tab));
     assert_eq!(state.active, Side::Left);
 }
+
+fn open_composer(state: &mut AppState, now: Instant, line: &str) {
+    let effects = press(state, now, shift(KeyCode::Enter));
+    assert!(effects.contains(&Effect::ReadCommandLine), "{effects:?}");
+    update(state, Msg::CommandLine(line.into()), now);
+    assert!(matches!(state.overlay, Some(Overlay::Composer(_))));
+}
+
+#[test]
+fn composer_runs_several_lines_as_one_command() {
+    let (mut state, now) = setup();
+    let pasting = ShellView { mode: TermMode::BRACKETED_PASTE, ..idle_prompt() };
+    update(&mut state, Msg::Observe(pasting), now);
+    open_composer(&mut state, now, "for f in *");
+    press(&mut state, now, key(KeyCode::Enter));
+    type_text(&mut state, now, "do echo $f; done");
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT));
+    assert_eq!(writes(&effects), "\x05\x15\x1b[200~for f in *\ndo echo $f; done\x1b[201~\r");
+    assert!(state.overlay.is_none());
+    assert_eq!(state.view, View::Shell);
+}
+
+#[test]
+fn escape_puts_the_text_back_on_the_prompt() {
+    let (mut state, now) = setup();
+    open_composer(&mut state, now, "git status");
+    type_text(&mut state, now, " -s");
+    let effects = press(&mut state, now, key(KeyCode::Esc));
+    assert_eq!(writes(&effects), "\x05\x15git status -s");
+    assert!(!state.shell.line_empty());
+
+    open_composer(&mut state, now, "git status -s");
+    press(&mut state, now, key(KeyCode::Enter));
+    let effects = press(&mut state, now, key(KeyCode::Esc));
+    assert!(writes(&effects).is_empty(), "without bracketed paste a newline would run the command");
+}
+
+#[test]
+fn composer_keys_go_to_a_busy_program() {
+    let (mut state, now) = setup();
+    let busy = ShellView { foreground: Foreground::Program, ..idle_prompt() };
+    update(&mut state, Msg::Observe(busy), now);
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
+    assert!(!effects.contains(&Effect::ReadCommandLine));
+    assert_eq!(writes(&effects), "\n");
+}
+
+#[test]
+fn paste_lands_in_the_composer_with_its_newlines() {
+    let (mut state, now) = setup();
+    open_composer(&mut state, now, "");
+    update(&mut state, Msg::Paste("a\nb".into()), now);
+    let Some(Overlay::Composer(composer)) = &state.overlay else { panic!("composer closed") };
+    assert_eq!(composer.text(), "a\nb");
+}

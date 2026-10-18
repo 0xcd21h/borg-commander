@@ -154,6 +154,26 @@ fn typed_command_runs_in_shell_and_ctrl_o_returns() -> Result<()> {
 }
 
 #[test]
+fn composer_edits_and_runs_several_lines() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "composer")?;
+    app.send("echo first-$((1+1))")?;
+    app.wait_until("command in prompt row", |s| prompt(s) == "$ echo first-$((1+1))")?;
+    app.send(keys::ctrl('j'))?;
+    app.wait_until("composer prefilled", |s| s.contains("1 line") && s.contains("1 echo first-$((1+1))"))?;
+    app.send(keys::enter())?.send("echo second-$((2+2))")?;
+    app.wait_text("2 lines")?;
+    app.send(keys::alt(KeyCode::Enter))?;
+    app.wait_until("both lines ran", |s| s.contains("first-2") && s.contains("second-4"))?;
+    app.wait_gone(READY)?;
+    app.send(keys::ctrl('j'))?;
+    app.wait_text("Esc back to prompt")?;
+    app.send("echo third")?.send(keys::key(KeyCode::Esc))?;
+    app.wait_until("text back on the prompt", |s| !s.contains("Esc back to prompt") && s.contains("$ echo third"))?;
+    Ok(())
+}
+
+#[test]
 fn shell_cd_moves_active_panel() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "shell-cd")?;

@@ -44,6 +44,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.active = side.other();
             Vec::new()
         }
+        Action::Compose => vec![Effect::ReadCommandLine],
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::Up => moved(state, |panel| panel.move_by(LINE_UP)),

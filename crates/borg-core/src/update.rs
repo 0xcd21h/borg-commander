@@ -53,6 +53,10 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::aside::receive(state, peeked);
             Vec::new()
         }
+        Msg::CommandLine(text) => {
+            crate::composer::open(text, state);
+            Vec::new()
+        }
     };
     let mut effects = effects;
     effects.extend(crate::aside::sync(state));
@@ -97,7 +101,9 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     }
 
     state.notice = None;
-    match keymap::lookup(key, state.view, state.shell.line_empty()) {
+    let context =
+        keymap::Context { view: state.view, line_empty: state.shell.line_empty(), at_prompt: !state.shell.busy() };
+    match keymap::lookup(key, context) {
         Some(action) => actions::perform(state, action, now),
         None => forward(state, key),
     }
