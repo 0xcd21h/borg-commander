@@ -145,10 +145,10 @@ mod tests {
 
     #[test]
     fn smart_case_substring_with_highlight_ranges() {
-        assert_eq!(Query::parse("js").hits(&entry("next.config.JS")), Some(vec![12..14]));
+        assert_eq!(Query::parse("js").hits(&entry("next.config.JS")), Some(Vec::from([12..14])));
         assert_eq!(Query::parse("JS").hits(&entry("next.config.js")), None);
         assert_eq!(Query::parse("o").hits(&entry("foo")), Some(vec![1..2, 2..3]));
-        assert_eq!(Query::parse("é").hits(&entry("cafÉ.txt")), Some(vec![3..5]));
+        assert_eq!(Query::parse("é").hits(&entry("cafÉ.txt")), Some(Vec::from([3..5])));
         assert_eq!(Query::parse("").hits(&entry("x")), None);
     }
 
