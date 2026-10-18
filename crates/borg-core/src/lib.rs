@@ -36,8 +36,8 @@ pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, Motion, Preferences, SPLASH_DURATION, Settings,
 };
 pub use state::{
-    AppState, Confirm, ConfirmPurpose, MenuCursor, Operation, Overlay, PanelSetup, Prompt, PromptPurpose, ShellStatus,
-    ShellView, Side, Startup, View,
+    AppState, Confirm, ConfirmPurpose, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt, PromptPurpose,
+    ShellStatus, ShellView, Side, Startup, View,
 };
 pub use update::update;
 pub use viewer::{Viewer, viewer_size};

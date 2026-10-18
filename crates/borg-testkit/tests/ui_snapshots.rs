@@ -387,3 +387,13 @@ fn ensure_text(buffer: &Buffer, needle: &str) -> Result<()> {
     anyhow::ensure!(text.contains(needle), "expected {needle:?} in\n{text}");
     Ok(())
 }
+
+#[test]
+fn dialogs_fade_out() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::LOCAL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
+    let closing = stage.started + Motion::LOCAL.fade;
+    borg_core::update(&mut stage.state, key(KeyCode::Esc), closing);
+    let buffer = stage.render(closing + Motion::LOCAL.fade / 3)?;
+    check("dialog_fading_out", &stage, buffer)
+}

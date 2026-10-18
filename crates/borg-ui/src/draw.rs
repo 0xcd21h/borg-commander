@@ -30,6 +30,7 @@ const CURSOR_HANDOFF: f32 = 0.5;
 const BACKDROP: f32 = 0.45;
 const MENU_BACKDROP: f32 = 0.25;
 const SPLASH_FADE_FROM: f32 = 0.7;
+const UNFOLD_FLOOR: f32 = 0.4;
 
 pub struct Scene<'a> {
     pub state: &'a AppState,
@@ -173,25 +174,58 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Buffer, Option<
 
 fn draw_overlay(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, buf: &mut Buffer) -> Option<Position> {
     let state = scene.state;
+    let all = menus(state);
+    if let Some(bar) = layout.menu {
+        menu_view::draw_menu_bar(&all, None, bar, look.theme, buf);
+    }
+    if let Some(leaving) = state.leaving.as_ref().filter(|leaving| leaving.fade.is_animating(scene.now)) {
+        layer(scene, look, layout, buf, &leaving.overlay, leaving.fade.value(scene.now));
+    }
+    let overlay = state.overlay.as_ref()?;
+    let opacity = state.overlay_fade.value(scene.now);
+    let cursor = layer(scene, look, layout, buf, overlay, opacity);
+    cursor.filter(|_| opacity >= CURSOR_HANDOFF)
+}
+
+fn layer(
+    scene: &Scene<'_>,
+    look: &Look<'_>,
+    layout: &Layout,
+    buf: &mut Buffer,
+    overlay: &Overlay,
+    opacity: f32,
+) -> Option<Position> {
+    if opacity <= FULLY_HIDDEN {
+        return None;
+    }
+    let mut over = buf.clone();
+    let cursor = paint_overlay(scene, look, layout, &mut over, overlay, opacity);
+    if opacity >= FULLY_SHOWN {
+        *buf = over;
+    } else {
+        let under = buf.clone();
+        crossfade(&over, &under, opacity, scene.palette, buf);
+    }
+    cursor
+}
+
+fn paint_overlay(
+    scene: &Scene<'_>,
+    look: &Look<'_>,
+    layout: &Layout,
+    buf: &mut Buffer,
+    overlay: &Overlay,
+    progress: f32,
+) -> Option<Position> {
+    let state = scene.state;
     let theme = look.theme;
     let screen = layout.screen;
     let all = menus(state);
-    let open = match &state.overlay {
-        Some(Overlay::Menu(cursor)) => Some(*cursor),
+    let open = match overlay {
+        Overlay::Menu(cursor) => Some(*cursor),
         _ => None,
     };
     let bar = layout.menu.or_else(|| open.map(|_| Rect { height: 1, ..screen }));
-    let draw_bar = |buf: &mut Buffer| {
-        if let Some(bar) = bar {
-            menu_view::draw_menu_bar(&all, open.map(|c| c.menu), bar, theme, buf);
-        }
-    };
-
-    let Some(overlay) = &state.overlay else {
-        draw_bar(buf);
-        return None;
-    };
-    let progress = state.overlay_fade.value(scene.now);
     let (amount, backdrop) = match overlay {
         Overlay::Menu(_) => {
             let below = bar.map_or(screen.y, |bar| bar.bottom());
@@ -199,8 +233,10 @@ fn draw_overlay(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, buf: &mut B
         }
         _ => (BACKDROP, screen),
     };
-    fx::darken(buf, backdrop, amount * progress, scene.palette);
-    draw_bar(buf);
+    fx::darken(buf, backdrop, amount, scene.palette);
+    if let (Some(bar), Some(cursor)) = (bar, open) {
+        menu_view::draw_menu_bar(&all, Some(cursor.menu), bar, theme, buf);
+    }
     if matches!(overlay, Overlay::About(_)) && state.raining(scene.now) {
         art_view::draw_rain_backdrop(look, screen, buf);
     }
@@ -226,7 +262,8 @@ fn draw_overlay(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, buf: &mut B
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
     };
-    let shown = before.map_or(rect, |before| fx::reveal(buf, &before, rect, progress, unfold));
+    let reach = UNFOLD_FLOOR + (FULLY_SHOWN - UNFOLD_FLOOR) * progress;
+    let shown = before.map_or(rect, |before| fx::reveal(buf, &before, rect, reach, unfold));
     fx::shadow(buf, shown, scene.palette);
     cursor
 }

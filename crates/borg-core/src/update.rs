@@ -7,6 +7,7 @@ use crate::{AfterCommand, AppState, Effect, Msg, View, actions, command::Command
 
 pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let before = crate::motion::before(state);
+    let overlay = state.overlay.clone();
     let effects = match msg {
         Msg::Key(key) => on_key(state, &key, now),
         Msg::Paste(text) => on_paste(state, &text),
@@ -50,7 +51,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     };
 
     state.sync_fade(now);
-    state.sync_overlay(now);
+    state.sync_overlay(overlay, now);
     crate::motion::animate(state, &before, now);
     effects
 }

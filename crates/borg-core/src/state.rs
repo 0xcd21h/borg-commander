@@ -148,6 +148,12 @@ pub enum Overlay {
     Confirm(Confirm),
 }
 
+#[derive(Debug, Clone)]
+pub struct Leaving {
+    pub overlay: Overlay,
+    pub fade: Fade,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Operation {
     pub label: &'static str,
@@ -203,6 +209,7 @@ pub struct AppState {
     pub epoch: Instant,
     pub motions: [PanelMotion; 2],
     pub overlay_fade: Fade,
+    pub leaving: Option<Leaving>,
     pub splash_until: Option<Instant>,
     pub idle_since: Instant,
     pub screensaver: bool,
@@ -248,6 +255,7 @@ impl AppState {
             epoch: now,
             motions: [PanelMotion::settled(now); 2],
             overlay_fade: Fade::settled(TRANSPARENT, now),
+            leaving: None,
             splash_until: None,
             idle_since: now,
             screensaver: false,
@@ -304,6 +312,7 @@ impl AppState {
             || self.split.is_animating(now)
             || self.appearance.is_animating(now)
             || self.overlay_fade.is_animating(now)
+            || self.leaving.as_ref().is_some_and(|leaving| leaving.fade.is_animating(now))
             || self.motions.iter().any(|motion| motion.is_animating(now))
             || self.splash_active(now);
         if smooth {
@@ -363,15 +372,23 @@ impl AppState {
         Side::ALL.into_iter().map(|side| self.reload(side)).collect()
     }
 
-    pub(crate) fn sync_overlay(&mut self, now: Instant) {
-        let open = self.overlay.is_some();
-        let shown = self.overlay_fade.target() > TRANSPARENT;
-        if open && !shown {
-            self.overlay_fade =
-                Fade::settled(TRANSPARENT, now).toward(OPAQUE, now, self.motion().fade, Easing::OutCubic);
-        } else if !open && shown {
-            self.overlay_fade = Fade::settled(TRANSPARENT, now);
+    pub(crate) fn sync_overlay(&mut self, previous: Option<Overlay>, now: Instant) {
+        let kind = |overlay: Option<&Overlay>| overlay.map(std::mem::discriminant);
+        if self.leaving.as_ref().is_some_and(|leaving| !leaving.fade.is_animating(now)) {
+            self.leaving = None;
         }
+        if kind(previous.as_ref()) == kind(self.overlay.as_ref()) {
+            return;
+        }
+        let duration = self.motion().fade;
+        let shown = self.overlay_fade.value(now);
+        self.leaving = previous.map(|overlay| Leaving {
+            overlay,
+            fade: Fade::settled(shown, now).toward(TRANSPARENT, now, duration, Easing::OutCubic),
+        });
+        let start = Fade::settled(TRANSPARENT, now);
+        self.overlay_fade =
+            if self.overlay.is_some() { start.toward(OPAQUE, now, duration, Easing::OutCubic) } else { start };
     }
 
     pub(crate) fn sync_fade(&mut self, now: Instant) {

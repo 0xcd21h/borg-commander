@@ -582,3 +582,21 @@ fn entering_a_child_folder_slides_forward_and_back() {
     assert_eq!(slide.map(|(direction, _)| direction), Some(crate::SlideDirection::Forward));
     assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
 }
+
+#[test]
+fn closed_overlays_fade_out_and_new_ones_fade_in() {
+    let mut settings = quiet();
+    settings.motion = crate::Motion::LOCAL;
+    let (mut state, now) = setup_from(vec![dir("me")], settings);
+    press(&mut state, now, key(KeyCode::F(1)));
+    let opened = now + crate::Motion::LOCAL.fade;
+    press(&mut state, opened, key(KeyCode::Esc));
+    let leaving = state.leaving.as_ref().map(|leaving| (&leaving.overlay, leaving.fade.value(opened)));
+    assert!(matches!(leaving, Some((Overlay::About(_), shown)) if shown > 0.99));
+    assert_eq!(state.pace(opened), Some(crate::Pace::Smooth));
+
+    let gone = opened + crate::Motion::LOCAL.fade;
+    press(&mut state, gone, key(KeyCode::F(9)));
+    assert!(state.leaving.is_none());
+    assert!(state.overlay_fade.is_animating(gone));
+}
