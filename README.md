@@ -161,9 +161,11 @@ to the panels. Full-screen programs (vim, less, htop…) return you to the panel
 they exit.
 
 **No F-keys?** Some terminals keep them for themselves (VS Code's terminal uses F1, F5 and
-F11, for example). Alt-1 … Alt-9 work as F1 … F9 and Alt-0 as F10; pressing Esc and then the
-digit does the same. In VS Code you can also set
-`"terminal.integrated.sendKeybindingsToShell": true` to let the F-keys through.
+F11, for example). Press Esc, then the digit: Esc 1 … Esc 9 are F1 … F9 and Esc 0 is F10.
+This works in every terminal. Alt-1 … Alt-0 do the same where Alt reaches the terminal; on
+macOS that needs Option as Meta (`"terminal.integrated.macOptionIsMeta": true` in VS Code).
+In VS Code you can also set `"terminal.integrated.sendKeybindingsToShell": true` to let the
+F-keys through.
 
 ### Quick find
 

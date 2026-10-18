@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use borg_term::{ShellSignal, encode_key, encode_paste};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -101,23 +101,48 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     }
 
     state.notice = None;
+    let pending = state.escaped.take().is_some_and(|at| now.saturating_duration_since(at) <= ESCAPE_WINDOW);
+    if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
+        state.escaped = Some(now);
+        return Vec::new();
+    }
+    let (key, mut effects) = match (pending, escaped_function(key)) {
+        (true, Some(function)) => (function, Vec::new()),
+        (true, None) if !state.shell.line_empty() => (*key, vec![Effect::Write(ESCAPE.to_vec())]),
+        _ => (*key, Vec::new()),
+    };
+    let key = &key;
     let context =
         keymap::Context { view: state.view, line_empty: state.shell.line_empty(), at_prompt: !state.shell.busy() };
-    match keymap::lookup(key, context) {
+    effects.extend(match keymap::lookup(key, context) {
         Some(action) => actions::perform(state, action, now),
         None => forward(state, key),
-    }
+    });
+    effects
 }
 
-const ALT_FUNCTION_KEYS: &str = "1234567890";
+const FUNCTION_DIGITS: &str = "1234567890";
+const ESCAPE_WINDOW: Duration = Duration::from_millis(1500);
+const ESCAPE: &[u8] = b"\x1b";
+
+fn function_key(digit: char) -> Option<KeyEvent> {
+    FUNCTION_DIGITS
+        .find(digit)
+        .and_then(|index| u8::try_from(index + 1).ok())
+        .map(|n| KeyEvent::new(KeyCode::F(n), KeyModifiers::NONE))
+}
 
 fn function_alias(key: KeyEvent) -> KeyEvent {
     match key.code {
-        KeyCode::Char(digit) if key.modifiers == KeyModifiers::ALT => ALT_FUNCTION_KEYS
-            .find(digit)
-            .and_then(|index| u8::try_from(index + 1).ok())
-            .map_or(key, |n| KeyEvent::new(KeyCode::F(n), KeyModifiers::NONE)),
+        KeyCode::Char(digit) if key.modifiers == KeyModifiers::ALT => function_key(digit).unwrap_or(key),
         _ => key,
+    }
+}
+
+fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
+    match key.code {
+        KeyCode::Char(digit) if key.modifiers == KeyModifiers::NONE => function_key(digit),
+        _ => None,
     }
 }
 

@@ -936,3 +936,27 @@ fn menu_bar_reopens_where_it_was_left() {
     press(&mut state, now, key(KeyCode::F(9)));
     assert_eq!(state.overlay, Some(Overlay::Menu(left_at)));
 }
+
+#[test]
+fn escape_then_digit_works_as_a_function_key() {
+    let (mut state, now) = setup();
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    press(&mut state, now, key(KeyCode::Char('9')));
+    assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "Esc 9 opens the menu bar like F9");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+
+    press(&mut state, now, key(KeyCode::Esc));
+    let later = now + std::time::Duration::from_secs(5);
+    let effects = press(&mut state, later, key(KeyCode::Char('9')));
+    assert_eq!(writes(&effects), "9", "a slow digit is just a digit");
+}
+
+#[test]
+fn escape_reaches_the_shell_when_the_line_has_text() {
+    let (mut state, now) = setup();
+    type_text(&mut state, now, "ls");
+    press(&mut state, now, key(KeyCode::Esc));
+    let effects = press(&mut state, now, key(KeyCode::Char('b')));
+    assert_eq!(writes(&effects), "\x1bb");
+}
