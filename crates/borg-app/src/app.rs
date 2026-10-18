@@ -10,9 +10,9 @@ use borg_core::{
     AMBIENT_FRAME, AppState, Appearance, Content, Effect, Image, Msg, Pace, ShellView, Side, Viewer, update,
     viewer_size,
 };
-use borg_gfx::{Capabilities, Graphics, Output, decode, is_picture};
+use borg_gfx::{Capabilities, Graphics, Output, Protocol, decode, is_picture};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
-use borg_ui::{Palette, Scene, ThemeSet, draw, local_now};
+use borg_ui::{Palette, Pixels, Scene, ThemeSet, draw, local_now};
 use borg_vfs::{Backend, Local};
 use borg_view::{FileSource, Pager};
 use crossterm::event::{Event, EventStream, KeyEventKind};
@@ -199,7 +199,7 @@ impl App {
             clock,
             now,
             home: self.home.as_deref(),
-            pixels: self.graphics.capabilities().protocol.pixels(),
+            pixels: pixels(self.graphics.capabilities(), self.state.settings.preferences.pixel_chrome),
         };
         let mut placements = Vec::new();
         let frame = terminal.draw(|frame| placements = draw(frame, &scene))?;
@@ -295,7 +295,7 @@ impl App {
     fn open_viewer(&self, path: PathBuf) {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
         let cell = self.graphics.capabilities().cell;
-        let bounds = (pixels(width, cell.width), pixels(height, cell.height));
+        let bounds = (span(width, cell.width), span(height, cell.height));
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
             let content = if is_picture(&path) { picture(&path, bounds) } else { text(&path, width, height) };
@@ -331,7 +331,15 @@ impl App {
     }
 }
 
-fn pixels(cells: usize, cell: u16) -> u32 {
+fn pixels(capabilities: Capabilities, chrome: bool) -> Pixels {
+    match capabilities.protocol {
+        Protocol::Kitty if chrome => Pixels::Underlay(capabilities.cell),
+        Protocol::Cells => Pixels::Off,
+        Protocol::Kitty | Protocol::Sixel | Protocol::Iterm => Pixels::Pictures,
+    }
+}
+
+fn span(cells: usize, cell: u16) -> u32 {
     u32::try_from(cells).unwrap_or(u32::MAX).saturating_mul(u32::from(cell))
 }
 

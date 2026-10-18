@@ -439,7 +439,7 @@ fn picture_viewer_draws_half_blocks_without_graphics() -> Result<()> {
 #[test]
 fn picture_viewer_places_pixels_with_graphics() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
-    stage.pixels = true;
+    stage.pixels = borg_ui::Pixels::Pictures;
     open_picture(&mut stage)?;
     let (buffer, placements) = stage.compose(stage.started)?;
     anyhow::ensure!(placements.len() == 1, "expected one placement, got {placements:?}");
@@ -468,4 +468,66 @@ fn quick_find_highlights_matches() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "find: o  2/4")?;
     check("quick_find", &stage, buffer)
+}
+
+fn underlay(stage: &mut Stage) -> Result<()> {
+    stage.pixels = borg_ui::Pixels::Underlay(borg_testkit::cell_size()?);
+    Ok(())
+}
+
+fn select_theme(stage: &mut Stage, id: &str) {
+    let index = stage.state.appearance.choices().iter().position(|c| c.id == id).unwrap_or_default();
+    stage.state.appearance.select(index, stage.started, Duration::ZERO);
+}
+
+#[test]
+fn pixel_drawn_panels() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    underlay(&mut stage)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    for id in ["neon", "midnight"] {
+        select_theme(&mut stage, id);
+        let (buffer, placements) = stage.compose(stage.started)?;
+        anyhow::ensure!(placements.iter().all(|p| p.z < 0), "chrome must sit under the text");
+        anyhow::ensure!(placements.len() >= 4, "expected panels and cursors, got {}", placements.len());
+        anyhow::ensure!(
+            !describe(&buffer).lines().next().unwrap_or_default().contains('╭'),
+            "borders are drawn in pixels"
+        );
+        check_with(&format!("pixels_{id}"), &stage, buffer, placements)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn pixel_drawn_dialog() -> Result<()> {
+    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    underlay(&mut stage)?;
+    select_theme(&mut stage, "neon");
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
+    let (buffer, placements) = stage.compose(stage.started)?;
+    check_with("pixels_dialog", &stage, buffer, placements)
+}
+
+#[test]
+fn pixel_cursor_glides_between_rows() -> Result<()> {
+    let mut stage = staged(Motion::LOCAL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    underlay(&mut stage)?;
+    select_theme(&mut stage, "neon");
+    let tops = |placements: &[borg_gfx::Placement]| -> Vec<(u16, u16)> {
+        placements
+            .iter()
+            .filter(|p| p.z == -30)
+            .map(|p| (p.area.y, p.fit(borg_gfx::CellSize { width: 1, height: 1 }).offset.1))
+            .collect()
+    };
+    let before = tops(&stage.compose(stage.started)?.1);
+    stage.send(key(KeyCode::Down));
+    let midway = tops(&stage.compose(stage.started + Motion::LOCAL.fade / 4)?.1);
+    let settled = tops(&stage.compose(stage.started + Motion::LOCAL.fade * 2)?.1);
+    anyhow::ensure!(
+        midway != before && midway != settled,
+        "the cursor should be between rows: {before:?} {midway:?} {settled:?}"
+    );
+    Ok(())
 }

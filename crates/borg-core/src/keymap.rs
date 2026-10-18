@@ -50,6 +50,7 @@ pub enum Action {
     ToggleScreensaver,
     ToggleDelight,
     ToggleIcons,
+    TogglePixelChrome,
     Find,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),

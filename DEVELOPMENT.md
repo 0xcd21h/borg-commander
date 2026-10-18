@@ -85,6 +85,17 @@ placed by id; Sixel and iTerm2 images are re-sent when something covers them and
 repaint when removed. Without a protocol the UI draws pictures with half blocks, which is also
 what tests see.
 
+### Pixel-drawn chrome
+
+With the Kitty protocol, `borg_ui::draw` also returns *underlay* placements: shape descriptions
+(`borg_gfx::Shape`: rounded cards, gradient strokes, inner glow, blurred shadows) rendered by
+tiny-skia and cached by value, placed at negative z so they sit under the text. The text layer
+drops its box-drawing borders in this mode, and any cell background that would be hidden under
+a card (buttons, menu selections, input fields) is redrawn as a small rounded highlight. The
+cursor pill follows `PanelMotion::cursor`, a fade over the cursor row, so it glides between rows
+using Kitty's sub-cell pixel offsets. Theme transitions and the shell fade fall back to the cell
+renderer for their few frames.
+
 ## Tests
 
 The suite has four layers, from fastest to slowest:

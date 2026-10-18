@@ -3,6 +3,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use crate::{Fit, GfxError, Picture};
 
 const KITTY_CHUNK: usize = 4096;
+pub const KITTY_FORGET_ALL: &str = "\x1b_Ga=d,d=A,q=2\x1b\\";
 const SAVE_CURSOR: &str = "\x1b7";
 const RESTORE_CURSOR: &str = "\x1b8";
 
@@ -28,12 +29,10 @@ pub fn kitty_transmit(picture: &Picture, image: u32) -> Result<String, GfxError>
         .collect())
 }
 
-pub fn kitty_place(fit: &Fit, image: u32, placement: u32, z: i32) -> String {
+pub fn kitty_place(fit: &Fit, image: u32, placement: u32, z: i32, scaled: bool) -> String {
     let (x, y) = fit.offset;
-    let body = format!(
-        "\x1b_Ga=p,i={image},p={placement},c={},r={},X={x},Y={y},C=1,z={z},q=2\x1b\\",
-        fit.area.width, fit.area.height
-    );
+    let cells = if scaled { format!("c={},r={},", fit.area.width, fit.area.height) } else { String::new() };
+    let body = format!("\x1b_Ga=p,i={image},p={placement},{cells}X={x},Y={y},C=1,z={z},q=2\x1b\\");
     at(fit, &body)
 }
 
@@ -83,7 +82,7 @@ mod tests {
         let transmit = kitty_transmit(&dot(), 7).unwrap_or_else(|e| panic!("{e}"));
         assert!(transmit.starts_with("\x1b_Ga=t,f=100,t=d,i=7,q=2,m=0;"));
         assert_eq!(
-            kitty_place(&FIT, 7, 3, -1),
+            kitty_place(&FIT, 7, 3, -1, true),
             "\x1b7\x1b[3;5H\x1b_Ga=p,i=7,p=3,c=3,r=1,X=1,Y=2,C=1,z=-1,q=2\x1b\\\x1b8"
         );
         assert_eq!(kitty_remove(7, 3), "\x1b_Ga=d,d=i,i=7,p=3,q=2\x1b\\");

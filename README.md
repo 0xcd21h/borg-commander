@@ -19,6 +19,19 @@ c o m m a n d e r
 
 ---
 
+## Pixel-drawn on Kitty and Ghostty
+
+In terminals that speak the Kitty graphics protocol (Kitty, Ghostty, WezTerm), borg draws its
+chrome in real pixels *underneath* the text: rounded cards with gradient borders and a soft
+neon glow, a cursor pill that glides between rows at pixel precision, and dialogs that cast
+blurred shadows. The text stays ordinary, crisp terminal text. Everywhere else you get the
+character-drawn look from the demo above.
+
+<p align="center">
+  <img src="docs/pixels-neon.png" alt="Pixel-drawn panels in the Neon theme" width="49%">
+  <img src="docs/pixels-dialog.png" alt="A pixel-drawn dialog with a soft shadow" width="49%">
+</p>
+
 ## What it is
 
 borg is a file manager for people who live in the terminal. Two panels sit on top of your
@@ -148,6 +161,7 @@ screensaver = false
 screensaver-after = 300     # seconds of idle time
 delight = true              # little surprises
 graphics = "auto"           # auto, kitty, sixel, iterm or off
+pixel-chrome = true         # pixel-drawn panels where the terminal supports it
 ```
 
 The session (folders, cursor, split, listing mode, sort) is kept in
@@ -181,6 +195,7 @@ It appears in the theme picker the next time borg starts.
 | Animations | smooth | lighter frame rate | as local |
 | Icons | with a Nerd Font | with a local Nerd Font | yes |
 | Pictures | Kitty, iTerm2, Sixel or colour blocks | same | colour blocks |
+| Pixel-drawn panels | Kitty protocol terminals | same | no |
 
 Picture support is detected at start-up. Set `graphics = "off"` (or a specific protocol) if
 detection guesses wrong.

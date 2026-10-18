@@ -3,7 +3,7 @@ use std::{fmt::Write as _, path::PathBuf, time::Instant};
 use borg_core::{AppState, EVEN_SPLIT, Effect, Msg, PanelSetup, Settings, ShellView, Side, Startup, update};
 use borg_gfx::Placement;
 use borg_term::{Emulator, Foreground, GridSize};
-use borg_ui::{Palette, Scene, ThemeSet, draw};
+use borg_ui::{Palette, Pixels, Scene, ThemeSet, draw};
 use borg_vfs::Entry;
 use jiff::Zoned;
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Style};
@@ -20,7 +20,7 @@ pub struct Stage {
     pub clock: Zoned,
     pub started: Instant,
     pub home: Option<PathBuf>,
-    pub pixels: bool,
+    pub pixels: Pixels,
 }
 
 impl Stage {
@@ -53,7 +53,7 @@ impl Stage {
             clock,
             started,
             home: None,
-            pixels: false,
+            pixels: Pixels::Off,
         };
         stage.shell(b"\x1b]133;A\x07$ \x1b]133;B\x07");
         Ok(stage)

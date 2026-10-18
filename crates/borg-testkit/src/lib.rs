@@ -9,6 +9,7 @@ mod snapshot;
 
 pub use fixture::{Fixture, fixed_mtime};
 pub use recorder::Recorder;
+pub use render::cell_size;
 pub use scene::{Stage, describe};
 pub use session::{Session, SessionBuilder};
 pub use shell::Shell;

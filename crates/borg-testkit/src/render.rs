@@ -7,7 +7,7 @@ use image::{Rgb as Pixel, RgbImage};
 use ratatui::style::Modifier;
 use unicode_width::UnicodeWidthStr;
 
-use borg_gfx::{CellSize, Placement, fit};
+use borg_gfx::{CellSize, Placement};
 
 use crate::{Snapshot, snapshot::CellStyle};
 
@@ -73,15 +73,24 @@ fn fonts() -> Result<Fonts> {
     Ok(Fonts { regular, bold, symbols: embedded(FONT_SYMBOLS)? })
 }
 
+fn grid(font: &FontArc, scale: PxScale) -> Grid {
+    let metrics = font.as_scaled(scale);
+    Grid {
+        cell_w: metrics.h_advance(font.glyph_id(WIDTH_PROBE)).ceil() as u32,
+        cell_h: (metrics.ascent() - metrics.descent()).ceil() as u32,
+        ascent: metrics.ascent(),
+    }
+}
+
+pub fn cell_size() -> Result<CellSize> {
+    let grid = grid(&fonts()?.regular, PxScale::from(FONT_PX));
+    Ok(CellSize { width: u16::try_from(grid.cell_w)?, height: u16::try_from(grid.cell_h)? })
+}
+
 pub fn raster(snapshot: &Snapshot) -> Result<RgbImage> {
     let Fonts { regular, bold, symbols } = fonts()?;
     let scale = PxScale::from(FONT_PX);
-    let metrics = regular.as_scaled(scale);
-    let grid = Grid {
-        cell_w: metrics.h_advance(regular.glyph_id(WIDTH_PROBE)).ceil() as u32,
-        cell_h: (metrics.ascent() - metrics.descent()).ceil() as u32,
-        ascent: metrics.ascent(),
-    };
+    let grid = grid(&regular, scale);
 
     let palette = snapshot.palette();
     let width = u32::from(snapshot.cols()) * grid.cell_w + MARGIN * 2;
@@ -174,7 +183,7 @@ fn blit(image: &mut RgbImage, placement: &Placement, grid: &Grid) {
         width: u16::try_from(grid.cell_w).unwrap_or(u16::MAX),
         height: u16::try_from(grid.cell_h).unwrap_or(u16::MAX),
     };
-    let fit = fit(picture.width(), picture.height(), placement.area, cell);
+    let fit = placement.fit(cell);
     let left = MARGIN + u32::from(fit.area.x) * grid.cell_w + u32::from(fit.offset.0);
     let top = MARGIN + u32::from(fit.area.y) * grid.cell_h + u32::from(fit.offset.1);
     let (width, height) = fit.size;

@@ -31,6 +31,7 @@ pub struct Config {
     pub delight: Option<bool>,
     pub icons: Option<bool>,
     pub icon_spacing: Option<u8>,
+    pub pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
 }
@@ -54,6 +55,7 @@ impl Config {
             screensaver: self.screensaver.unwrap_or(base.screensaver),
             delight: self.delight.unwrap_or(base.delight),
             icons: self.icons.unwrap_or(base.icons),
+            pixel_chrome: self.pixel_chrome.unwrap_or(base.pixel_chrome),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
@@ -87,6 +89,7 @@ impl Config {
             delight: Some(prefs.delight),
             icons: Some(prefs.icons),
             icon_spacing: self.icon_spacing,
+            pixel_chrome: Some(prefs.pixel_chrome),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
         }

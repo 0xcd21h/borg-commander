@@ -101,6 +101,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::ToggleDelight => preference(state, |prefs| prefs.delight = !prefs.delight),
         Action::Find => crate::find::open(state),
+        Action::TogglePixelChrome => preference(state, |prefs| prefs.pixel_chrome = !prefs.pixel_chrome),
         Action::ToggleIcons => preference(state, |prefs| prefs.icons = !prefs.icons),
         Action::ToggleReturnToPanels => preference(state, |prefs| {
             prefs.after_command = match prefs.after_command {

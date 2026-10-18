@@ -36,6 +36,7 @@ pub struct Preferences {
     pub delight: bool,
     pub icons: bool,
     pub icon_spacing: u8,
+    pub pixel_chrome: bool,
 }
 
 impl Preferences {
@@ -51,6 +52,7 @@ impl Preferences {
         delight: true,
         icons: false,
         icon_spacing: *ICON_SPACING.start(),
+        pixel_chrome: true,
     };
 }
 

@@ -47,7 +47,7 @@ fn draw_image(
     Line::styled(format!(" {}{details}", title(path, room)), style).render(status, buf);
     Line::styled(IMAGE_HINTS, style).right_aligned().render(status, buf);
     if pixels {
-        return vec![Placement { picture: image.picture.clone(), area: body, z: PICTURE_LAYER }];
+        return vec![Placement::fitted(image.picture.clone(), body, PICTURE_LAYER)];
     }
     draw_halfblocks(&image.picture, body, buf);
     Vec::new()

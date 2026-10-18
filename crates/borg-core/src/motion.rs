@@ -8,6 +8,7 @@ use crate::{AppState, Easing, Fade, Listing, Side};
 const SETTLED: f32 = 0.0;
 const ARRIVED: f32 = 1.0;
 const SCROLL_JUMP: usize = 1;
+const GLIDE_SHARE: f32 = 0.6;
 pub const EMPTY_ART_WINDOW: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,12 +33,13 @@ pub enum Pace {
 pub struct PanelMotion {
     pub slide: Option<Slide>,
     pub scroll: Fade,
+    pub cursor: Fade,
     pub arrived: Instant,
 }
 
 impl PanelMotion {
     pub fn settled(now: Instant) -> Self {
-        Self { slide: None, scroll: Fade::settled(SETTLED, now), arrived: now }
+        Self { slide: None, scroll: Fade::settled(SETTLED, now), cursor: Fade::settled(SETTLED, now), arrived: now }
     }
 
     pub fn slide(&self, now: Instant) -> Option<(SlideDirection, f32)> {
@@ -50,8 +52,12 @@ impl PanelMotion {
         if self.scroll.is_animating(now) { self.scroll.value(now).round().max(0.0) as usize } else { actual }
     }
 
+    pub fn cursor(&self, now: Instant, actual: usize) -> f32 {
+        if self.cursor.is_animating(now) { self.cursor.value(now) } else { actual as f32 }
+    }
+
     pub fn is_animating(&self, now: Instant) -> bool {
-        self.slide(now).is_some() || self.scroll.is_animating(now)
+        self.slide(now).is_some() || self.scroll.is_animating(now) || self.cursor.is_animating(now)
     }
 }
 
@@ -59,21 +65,23 @@ impl PanelMotion {
 pub(crate) struct Before {
     dir: PathBuf,
     scroll: usize,
+    cursor: usize,
 }
 
 pub(crate) fn before(state: &AppState) -> [Before; 2] {
     Side::ALL.map(|side| {
         let panel = state.panel(side);
-        Before { dir: panel.dir().to_path_buf(), scroll: panel.scroll() }
+        Before { dir: panel.dir().to_path_buf(), scroll: panel.scroll(), cursor: panel.cursor() }
     })
 }
 
 pub(crate) fn animate(state: &mut AppState, before: &[Before; 2], now: Instant) {
     let duration = state.motion().fade;
+    let glide = duration.mul_f32(GLIDE_SHARE);
     for side in Side::ALL {
         let previous = &before[side.index()];
         let panel = state.panel(side);
-        let (dir, scroll) = (panel.dir().to_path_buf(), panel.scroll());
+        let (dir, scroll, cursor) = (panel.dir().to_path_buf(), panel.scroll(), panel.cursor());
         let motion = &mut state.motions[side.index()];
 
         if dir != previous.dir {
@@ -89,8 +97,15 @@ pub(crate) fn animate(state: &mut AppState, before: &[Before; 2], now: Instant) 
                 progress: Fade::settled(SETTLED, now).toward(ARRIVED, now, duration, Easing::OutCubic),
             });
             motion.scroll = Fade::settled(scroll as f32, now);
+            motion.cursor = Fade::settled(cursor as f32, now);
             motion.arrived = now;
-        } else if scroll != previous.scroll
+            continue;
+        }
+        if cursor != previous.cursor {
+            let from = motion.cursor(now, previous.cursor);
+            motion.cursor = Fade::settled(from, now).toward(cursor as f32, now, glide, Easing::OutCubic);
+        }
+        if scroll != previous.scroll
             && (scroll.abs_diff(previous.scroll) > SCROLL_JUMP || motion.scroll.is_animating(now))
         {
             let from = motion.scroll(now, previous.scroll) as f32;

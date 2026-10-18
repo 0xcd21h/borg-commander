@@ -5,13 +5,51 @@ use ratatui::{
     layout::Rect,
 };
 
-use crate::{Capabilities, Fit, GfxError, Picture, Protocol, encode, fit};
+use crate::{Capabilities, CellSize, Fit, GfxError, Picture, Protocol, encode, fit};
+
+const IMAGE_BUDGET: usize = 192;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Anchor {
+    Fit,
+    Exact { offset: (u16, u16) },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
     pub picture: Picture,
     pub area: Rect,
     pub z: i32,
+    pub anchor: Anchor,
+}
+
+impl Placement {
+    pub fn fitted(picture: Picture, area: Rect, z: i32) -> Self {
+        Self { picture, area, z, anchor: Anchor::Fit }
+    }
+
+    pub fn exact(picture: Picture, origin: (u16, u16), offset: (u16, u16), z: i32) -> Self {
+        let area = Rect { x: origin.0, y: origin.1, width: 0, height: 0 };
+        Self { picture, area, z, anchor: Anchor::Exact { offset } }
+    }
+
+    pub fn fit(&self, cell: CellSize) -> Fit {
+        let (width, height) = (self.picture.width(), self.picture.height());
+        match self.anchor {
+            Anchor::Fit => fit(width, height, self.area, cell),
+            Anchor::Exact { offset } => {
+                let span = |offset: u16, pixels: u32, cell: u16| {
+                    u16::try_from((u32::from(offset) + pixels).div_ceil(u32::from(cell.max(1)))).unwrap_or(u16::MAX)
+                };
+                let area = Rect {
+                    width: span(offset.0, width, cell.width),
+                    height: span(offset.1, height, cell.height),
+                    ..self.area
+                };
+                Fit { area, offset, size: (width, height) }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -25,6 +63,7 @@ struct Key {
     picture: u64,
     fit: Fit,
     z: i32,
+    anchor: Anchor,
 }
 
 #[derive(Debug)]
@@ -73,9 +112,8 @@ impl Graphics {
     }
 
     fn key(&self, placement: &Placement) -> Key {
-        let picture = &placement.picture;
-        let fit = fit(picture.width(), picture.height(), placement.area, self.capabilities.cell);
-        Key { picture: picture.id(), fit, z: placement.z }
+        let fit = placement.fit(self.capabilities.cell);
+        Key { picture: placement.picture.id(), fit, z: placement.z, anchor: placement.anchor }
     }
 
     pub fn frame(&mut self, placements: &[Placement], buffer: &Buffer) -> Output {
@@ -99,6 +137,11 @@ impl Graphics {
     fn kitty(&mut self, placements: &[Placement]) -> Output {
         let wanted: Vec<(Key, &Placement)> = placements.iter().map(|p| (self.key(p), p)).collect();
         let mut out = String::new();
+        if self.images.len() > IMAGE_BUDGET {
+            out.push_str(encode::KITTY_FORGET_ALL);
+            self.images.clear();
+            self.shown.clear();
+        }
         let (kept, gone): (Vec<Shown>, Vec<Shown>) = std::mem::take(&mut self.shown)
             .into_iter()
             .partition(|shown| wanted.iter().any(|(key, _)| *key == shown.key));
@@ -131,7 +174,7 @@ impl Graphics {
             };
             let id = self.next_placement;
             self.next_placement += 1;
-            out.push_str(&encode::kitty_place(&key.fit, image, id, key.z));
+            out.push_str(&encode::kitty_place(&key.fit, image, id, key.z, key.anchor == Anchor::Fit));
             self.shown.push(Shown { key, placement: id, cells: Vec::new() });
         }
         Output { bytes: out.into_bytes(), repaint: false }
@@ -188,7 +231,7 @@ mod tests {
     fn kitty_transmits_once_and_only_diffs_placements() {
         let mut gfx = graphics(Protocol::Kitty);
         let buffer = Buffer::empty(Rect::new(0, 0, 20, 5));
-        let one = Placement { picture: picture(9), area: Rect::new(0, 0, 10, 4), z: 0 };
+        let one = Placement::fitted(picture(9), Rect::new(0, 0, 10, 4), 0);
 
         let first = text(&gfx.frame(std::slice::from_ref(&one), &buffer));
         assert!(first.contains("a=t,") && first.contains("a=p,"));
@@ -200,13 +243,17 @@ mod tests {
 
         let gone = text(&gfx.frame(&[], &buffer));
         assert!(gone.contains("a=d,d=i") && !gone.contains("a=p,"));
+
+        let exact = Placement::exact(picture(9), (3, 1), (4, 7), -2);
+        let native = text(&gfx.frame(&[exact], &buffer));
+        assert!(native.contains("\x1b[2;4H") && native.contains("X=4,Y=7,C=1,z=-2") && !native.contains(",c="));
     }
 
     #[test]
     fn inline_protocols_repaint_when_pictures_leave_and_redraw_when_covered() {
         let mut gfx = graphics(Protocol::Sixel);
         let mut buffer = Buffer::empty(Rect::new(0, 0, 20, 5));
-        let one = Placement { picture: picture(9), area: Rect::new(0, 0, 10, 4), z: 0 };
+        let one = Placement::fitted(picture(9), Rect::new(0, 0, 10, 4), 0);
 
         assert!(text(&gfx.frame(std::slice::from_ref(&one), &buffer)).contains("\x1bP"));
         assert!(gfx.frame(std::slice::from_ref(&one), &buffer).bytes.is_empty());
@@ -221,7 +268,7 @@ mod tests {
     #[test]
     fn cells_mode_emits_nothing() {
         let mut gfx = graphics(Protocol::Cells);
-        let one = Placement { picture: picture(1), area: Rect::new(0, 0, 4, 4), z: 0 };
+        let one = Placement::fitted(picture(1), Rect::new(0, 0, 4, 4), 0);
         let output = gfx.frame(&[one], &Buffer::empty(Rect::new(0, 0, 4, 4)));
         assert!(output.bytes.is_empty() && !output.repaint);
     }

@@ -15,9 +15,10 @@ mod picker_view;
 mod status_view;
 mod term_view;
 mod theme;
+mod underlay;
 mod viewer_view;
 
-pub use draw::{Scene, draw};
+pub use draw::{Pixels, Scene, draw};
 pub use format::now as local_now;
 pub use palette::{Palette, Rgb};
 pub use term_view::draw_screen;
