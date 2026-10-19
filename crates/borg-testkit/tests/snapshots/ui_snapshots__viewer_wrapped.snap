@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+  1 log line
+  2 log line
+  3 long long long long long long long long long long long long long long long long long l
+ong long long long long long long long long long long long long
+  4 log line
+  5 log line
+  6 log line
+  7 log line
+  8 log line
+  9 log line
+ 10 log line
+ 11 log line
+ 12 log line
+ 13 log line
+ 14 log line
+ 15 log line
+ 16 log line
+ 17 log line
+ 18 log line
+ 19 log line
+ 20 log line
+ /var/log/app.log 0/662 · 0% · wrap                        w wrap · ←→ scroll · Esc close
+--- styles ---
+  0: 0-89 Gray Reset NONE
+  1: 0-89 Gray Reset NONE
+  2: 0-89 Gray Reset NONE
+  3: 0-89 Gray Reset NONE
+  4: 0-89 Gray Reset NONE
+  5: 0-89 Gray Reset NONE
+  6: 0-89 Gray Reset NONE
+  7: 0-89 Gray Reset NONE
+  8: 0-89 Gray Reset NONE
+  9: 0-89 Gray Reset NONE
+ 10: 0-89 Gray Reset NONE
+ 11: 0-89 Gray Reset NONE
+ 12: 0-89 Gray Reset NONE
+ 13: 0-89 Gray Reset NONE
+ 14: 0-89 Gray Reset NONE
+ 15: 0-89 Gray Reset NONE
+ 16: 0-89 Gray Reset NONE
+ 17: 0-89 Gray Reset NONE
+ 18: 0-89 Gray Reset NONE
+ 19: 0-89 Gray Reset NONE
+ 20: 0-89 Gray Reset NONE
+ 21: 0-89 Black Cyan NONE

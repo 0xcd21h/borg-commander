@@ -1,0 +1,41 @@
+[package]
+name                 = "borg-app"
+description          = "A terminal-first file commander"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[[bin]]
+name = "borg"
+path = "src/main.rs"
+
+[dependencies]
+anyhow    = { workspace = true }
+borg-core = { workspace = true }
+borg-gfx  = { workspace = true }
+borg-jobs = { workspace = true }
+borg-update = { workspace = true }
+borg-term = { workspace = true }
+borg-ui   = { workspace = true }
+borg-vfs  = { workspace = true }
+borg-view = { workspace = true }
+crossterm = { workspace = true }
+futures   = { workspace = true }
+jiff      = { workspace = true }
+ratatui   = { workspace = true }
+rustix    = { workspace = true }
+serde     = { workspace = true }
+tokio     = { workspace = true }
+toml      = { workspace = true }
+uzers     = { workspace = true }
+
+[dev-dependencies]
+anyhow       = { workspace = true }
+tempfile     = { workspace = true }
+borg-gfx     = { workspace = true }
+borg-testkit = { workspace = true }
+crossterm    = { workspace = true }
+
+[lints]
+workspace = true

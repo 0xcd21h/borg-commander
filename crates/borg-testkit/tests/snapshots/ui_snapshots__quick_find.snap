@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+╭ ~ › projects › borg ──────────────────────╮╭ / › var › log ────────────────────────────╮
+│  ..                      UP              ││▐ ..                      UP             ▌│
+│  docs                   DIR Jun  1  2024 ││  journal                DIR Jan 10 09:30 │
+│  src                    DIR Jan 10 09:30 ││ 󰌱 auth.log               86K Jun  1  2024 │
+│  target                 DIR Jan 10 09:30 ││  dmesg.0               5.0G Jun  1  2024 │
+│  build.sh               310 Jan 10 09:30 ││ 󰌱 kern.log              717K Jan 10 09:30 │
+│▐ Cargo.toml            1234 Jan 10 09:30▌││  syslog                2.3M Jan 10 09:30 │
+│  latest.log               9 Jan 10 09:30 ││                                           │
+│ 󰂺 README.md              47K Jun  1  2024 ││                                           │
+│  socket                   0 Jun  1  2024 ││                                           │
+│ 󰈙 日本語メモ.txt        2048 Jan 10 09:30 ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+╰ find: o  2/4 ─────────────────────────────╯╰ 5 items ──────────────────────────────────╯
+ -rw-r--r--    1234  2026-01-10 09:30  Cargo.toml
+$
+F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
+--- styles ---
+  0: 0-0 Cyan Reset NONE | 1-1 White Reset BOLD | 2-2 White Reset NONE | 3-5 Indexed(240) Reset NONE | 6-13 White Reset NONE | 14-16 Indexed(240) Reset NONE | 17-21 White Reset BOLD | 22-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-47 Rgb(169, 169, 169) Reset NONE | 48-50 Rgb(71, 71, 71) Reset NONE | 51-53 Rgb(169, 169, 169) Reset NONE | 54-56 Rgb(71, 71, 71) Reset NONE | 57-60 Rgb(169, 169, 169) Reset NONE | 61-89 Rgb(80, 80, 80) Reset NONE
+  1: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-5 LightBlue Reset BOLD | 6-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(43, 43, 43) Reset NONE | 47-50 Rgb(56, 114, 178) Indexed(236) BOLD | 51-68 Rgb(157, 157, 157) Indexed(236) NONE | 69-74 Rgb(86, 86, 86) Indexed(236) NONE | 75-87 Rgb(157, 157, 157) Indexed(236) NONE | 88-88 Rgb(43, 43, 43) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  2: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-4 LightBlue Reset BOLD | 5-5 Rgb(229, 229, 16) Reset BOLD | UNDERLINED | 6-7 LightBlue Reset BOLD | 8-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(152, 152, 152) Reset NONE | 47-55 Rgb(50, 108, 173) Reset BOLD | 56-68 Rgb(152, 152, 152) Reset NONE | 69-74 Rgb(80, 80, 80) Reset NONE | 75-75 Rgb(152, 152, 152) Reset NONE | 76-87 Rgb(80, 80, 80) Reset NONE | 88-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  3: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-6 LightBlue Reset BOLD | 7-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(152, 152, 152) Reset NONE | 47-48 Rgb(164, 164, 164) Reset NONE | 49-56 Rgb(132, 160, 132) Reset NONE | 57-68 Rgb(152, 152, 152) Reset NONE | 69-74 Rgb(80, 80, 80) Reset NONE | 75-75 Rgb(152, 152, 152) Reset NONE | 76-87 Rgb(80, 80, 80) Reset NONE | 88-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  4: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-9 Cyan Reset NONE | 10-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(152, 152, 152) Reset NONE | 47-55 Rgb(169, 169, 169) Reset NONE | 56-68 Rgb(152, 152, 152) Reset NONE | 69-74 Rgb(80, 80, 80) Reset NONE | 75-75 Rgb(152, 152, 152) Reset NONE | 76-87 Rgb(80, 80, 80) Reset NONE | 88-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  5: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-3 Rgb(77, 90, 94) Reset NONE | 4-11 LightGreen Reset NONE | 12-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(152, 152, 152) Reset NONE | 47-48 Rgb(164, 164, 164) Reset NONE | 49-56 Rgb(132, 160, 132) Reset NONE | 57-68 Rgb(152, 152, 152) Reset NONE | 69-74 Rgb(80, 80, 80) Reset NONE | 75-75 Rgb(152, 152, 152) Reset NONE | 76-87 Rgb(80, 80, 80) Reset NONE | 88-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  6: 0-0 Cyan Reset NONE | 1-1 Rgb(0, 95, 135) Reset NONE | 2-7 White Indexed(24) NONE | 8-8 White Indexed(24) BOLD | UNDERLINED | 9-10 White Indexed(24) NONE | 11-11 White Indexed(24) BOLD | UNDERLINED | 12-42 White Indexed(24) NONE | 43-43 Rgb(0, 95, 135) Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(152, 152, 152) Reset NONE | 47-54 Rgb(169, 169, 169) Reset NONE | 55-68 Rgb(152, 152, 152) Reset NONE | 69-74 Rgb(80, 80, 80) Reset NONE | 75-75 Rgb(152, 152, 152) Reset NONE | 76-87 Rgb(80, 80, 80) Reset NONE | 88-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  7: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-11 Cyan Reset NONE | 12-12 Rgb(229, 229, 16) Reset BOLD | UNDERLINED | 13-13 Cyan Reset NONE | 14-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  8: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-3 Rgb(237, 237, 237) Reset NONE | 4-12 Indexed(151) Reset NONE | 13-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+  9: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-4 Yellow Reset NONE | 5-5 Rgb(229, 229, 16) Reset BOLD | UNDERLINED | 6-9 Yellow Reset NONE | 10-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 10: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-3 Rgb(137, 224, 81) Reset NONE | 4-4 Indexed(151) Reset NONE | 5-5 Reset Reset NONE | 6-6 Indexed(151) Reset NONE | 7-7 Reset Reset NONE | 8-8 Indexed(151) Reset NONE | 9-9 Reset Reset NONE | 10-10 Indexed(151) Reset NONE | 11-11 Reset Reset NONE | 12-12 Indexed(151) Reset NONE | 13-13 Reset Reset NONE | 14-17 Indexed(151) Reset NONE | 18-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-30 Reset Reset NONE | 31-42 DarkGray Reset NONE | 43-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 11: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 12: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 13: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 14: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 15: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 16: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 17: 0-0 Cyan Reset NONE | 1-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-88 Rgb(152, 152, 152) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
+ 18: 0-0 Cyan Reset NONE | 1-7 Rgb(95, 175, 215) Reset NONE | 8-9 White Indexed(238) NONE | 10-14 DarkGray Reset NONE | 15-44 Cyan Reset NONE | 45-89 Rgb(80, 80, 80) Reset NONE
+ 19: 0-89 Gray Indexed(235) NONE
+ 20: 0-89 Reset Reset NONE
+ 21: 0-1 White Reset NONE | 2-7 Black Cyan NONE | 8-9 White Reset NONE | 10-15 Black Cyan NONE | 16-17 White Reset NONE | 18-23 Black Cyan NONE | 24-25 White Reset NONE | 26-31 Black Cyan NONE | 32-33 White Reset NONE | 34-39 Black Cyan NONE | 40-41 White Reset NONE | 42-47 Black Cyan NONE | 48-49 White Reset NONE | 50-55 Black Cyan NONE | 56-57 White Reset NONE | 58-63 Black Cyan NONE | 64-65 White Reset NONE | 66-71 Black Cyan NONE | 72-74 White Reset NONE | 75-79 Black Cyan NONE | 80-81 White Reset NONE | 82-87 Black Cyan NONE | 88-89 Reset Reset NONE

@@ -1,0 +1,45 @@
+name = "Classic"
+extends = "midnight"
+border = "plain"
+
+[effects]
+cursor = "bar"
+inactive-dim = 0.0
+
+[styles]
+panel = { fg = "#55ffff", bg = "#000080" }
+border = { fg = "#55ffff", bg = "#000080" }
+border-active = { fg = "#ffffff", bg = "#000080", bold = true }
+title = { fg = "#55ffff", bg = "#000080" }
+title-active = { fg = "#000000", bg = "#00aaaa" }
+dir = { fg = "#ffffff", bg = "#000080", bold = true }
+file = { fg = "#55ffff", bg = "#000080" }
+executable = { fg = "#55ff55", bg = "#000080", bold = true }
+link = { fg = "#ff55ff", bg = "#000080" }
+other = { fg = "#ffff55", bg = "#000080" }
+meta = { fg = "#55ffff", bg = "#000080" }
+cursor = { fg = "#000000", bg = "#00aaaa" }
+cursor-inactive = { fg = "#55ffff", bg = "#000080" }
+footer = { fg = "#55ffff", bg = "#000080" }
+notice = { fg = "#ffffff", bg = "#aa0000", bold = true }
+key = { fg = "#ffffff", bg = "#000000" }
+key-label = { fg = "#000000", bg = "#00aaaa" }
+overlay = { fg = "#000000", bg = "#c0c0c0" }
+overlay-border = { fg = "#ffffff", bg = "#c0c0c0", bold = true }
+overlay-selected = { fg = "#000000", bg = "#00aaaa" }
+input = { fg = "#000000", bg = "#00aaaa" }
+marked = { fg = "#ffff55", bg = "#000080", bold = true }
+marked-cursor = { fg = "#ffff55", bg = "#00aaaa", bold = true }
+status = { fg = "#55ffff", bg = "#000080" }
+menu = { fg = "#000000", bg = "#00aaaa" }
+menu-selected = { fg = "#ffffff", bg = "#000000" }
+menu-disabled = { fg = "#666666", bg = "#00aaaa" }
+viewer = { fg = "#55ffff", bg = "#000080" }
+viewer-status = { fg = "#000000", bg = "#00aaaa" }
+separator = { fg = "#00aaaa", bg = "#000080" }
+kind-code = { fg = "#ffff55", bg = "#000080" }
+kind-image = { fg = "#ff55ff", bg = "#000080" }
+kind-archive = { fg = "#ff5555", bg = "#000080" }
+kind-document = { fg = "#ffffff", bg = "#000080" }
+kind-media = { fg = "#ff55ff", bg = "#000080" }
+kind-config = { fg = "#55ffff", bg = "#000080" }

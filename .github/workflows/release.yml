@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the crate version
+        shell: bash
+        run: scripts/check-version.sh "${GITHUB_REF_NAME}"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install zig (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pip3 install ziglang
+          cargo install --locked cargo-zigbuild
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: cargo zigbuild --release --locked -p borg-app --target ${{ matrix.target }}
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: cargo build --release --locked -p borg-app --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: scripts/package.sh "${GITHUB_REF_NAME#v}" "${{ matrix.target }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP: ${{ vars.HOMEBREW_TAP || '0xcd21h/homebrew-tap' }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+      - name: Render the Homebrew formula
+        shell: bash
+        run: scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" dist > borg-commander.rb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: borg-commander.rb
+
+      - name: Publish to the Homebrew tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        shell: bash
+        run: scripts/publish-formula.sh borg-commander.rb "${HOMEBREW_TAP}" "${GITHUB_REF_NAME}"

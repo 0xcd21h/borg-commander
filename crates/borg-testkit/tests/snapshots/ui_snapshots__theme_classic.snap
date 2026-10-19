@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+┌ ~ › projects › borg ──────────────────────┐┌ / › var › log ────────────────────────────┐
+│  ..                       UP              ││  ..                       UP              │
+│ /docs                    DIR Jun  1  2024 ││ /journal                 DIR Jan 10 09:30 │
+│ /src                     DIR Jan 10 09:30 ││  auth.log                86K Jun  1  2024 │
+│ ~target                  DIR Jan 10 09:30 ││  dmesg.0                5.0G Jun  1  2024 │
+│ *build.sh                310 Jan 10 09:30 ││  kern.log               717K Jan 10 09:30 │
+│  Cargo.toml             1234 Jan 10 09:30 ││  syslog                 2.3M Jan 10 09:30 │
+│ @latest.log                9 Jan 10 09:30 ││                                           │
+│  README.md               47K Jun  1  2024 ││                                           │
+│ ?socket                    0 Jun  1  2024 ││                                           │
+│  日本語メモ.txt         2048 Jan 10 09:30 ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+│                                           ││                                           │
+└ 9 items ──────────────────────────────────┘└ 5 items ──────────────────────────────────┘
+ drw-r--r--     DIR  2026-01-10 09:30  src
+$
+F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
+--- styles ---
+  0: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 2-2 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 3-5 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 6-13 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 14-16 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 17-21 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 22-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-47 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 48-50 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 51-53 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 54-56 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 57-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  1: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-4 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 5-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-46 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 47-49 Rgb(85, 255, 255) Rgb(0, 0, 128) BOLD | 50-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  2: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-6 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 7-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-46 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 47-54 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 55-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  3: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 2-5 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 6-43 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-46 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 47-55 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 56-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  4: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-8 Rgb(255, 85, 255) Rgb(0, 0, 128) NONE | 9-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  5: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-10 Rgb(85, 255, 85) Rgb(0, 0, 128) BOLD | 11-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-46 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 47-55 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 56-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  6: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  7: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-12 Rgb(255, 85, 255) Rgb(0, 0, 128) NONE | 13-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  8: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-11 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 12-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+  9: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-8 Rgb(255, 255, 85) Rgb(0, 0, 128) NONE | 9-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 10: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-3 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 4-4 Reset Reset NONE | 5-5 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 6-6 Reset Reset NONE | 7-7 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 8-8 Reset Reset NONE | 9-9 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 10-10 Reset Reset NONE | 11-11 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 12-12 Reset Reset NONE | 13-16 Rgb(255, 255, 255) Rgb(0, 0, 128) NONE | 17-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 11: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 12: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 13: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 14: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 15: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 16: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 17: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 18: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-9 Rgb(85, 255, 255) Rgb(0, 0, 128) BOLD | 10-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 19: 0-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
+ 20: 0-89 Reset Reset NONE
+ 21: 0-1 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 2-7 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 8-9 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 10-15 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 16-17 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 18-23 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 24-25 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 26-31 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 32-33 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 34-39 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 40-41 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 42-47 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 48-49 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 50-55 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 56-57 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 58-63 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 64-65 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 66-71 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 72-74 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 75-79 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 80-81 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 82-87 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 88-89 Reset Reset NONE

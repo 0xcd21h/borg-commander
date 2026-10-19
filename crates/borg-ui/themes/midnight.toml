@@ -1,0 +1,45 @@
+name = "Midnight"
+border = "rounded"
+
+[effects]
+cursor = "pill"
+inactive-dim = 0.3
+accent = ["#5fafd7", "#875fd7"]
+
+[styles]
+panel = { bg = "reset" }
+border = { fg = "dark-gray" }
+border-active = { fg = "cyan" }
+title = { fg = "gray" }
+title-active = { fg = "white", bold = true }
+dir = { fg = "light-blue", bold = true }
+file = { fg = "gray" }
+executable = { fg = "light-green" }
+link = { fg = "cyan" }
+other = { fg = "yellow" }
+meta = { fg = "dark-gray" }
+cursor = { fg = "white", bg = "24" }
+cursor-inactive = { bg = "236" }
+footer = { fg = "dark-gray" }
+notice = { fg = "light-red" }
+key = { fg = "white" }
+key-label = { fg = "black", bg = "cyan" }
+overlay = { fg = "gray", bg = "235" }
+overlay-border = { fg = "cyan", bg = "235" }
+overlay-selected = { fg = "black", bg = "cyan", bold = true }
+input = { fg = "white", bg = "238" }
+marked = { fg = "yellow", bold = true }
+marked-cursor = { fg = "yellow", bg = "24", bold = true }
+status = { fg = "gray", bg = "235" }
+menu = { fg = "black", bg = "cyan" }
+menu-selected = { fg = "white", bg = "24", bold = true }
+menu-disabled = { fg = "dark-gray", bg = "cyan" }
+viewer = { fg = "gray", bg = "reset" }
+viewer-status = { fg = "black", bg = "cyan" }
+separator = { fg = "240" }
+kind-code = { fg = "222" }
+kind-image = { fg = "176" }
+kind-archive = { fg = "174" }
+kind-document = { fg = "151" }
+kind-media = { fg = "141" }
+kind-config = { fg = "180" }

@@ -1,0 +1,22 @@
+[package]
+name                 = "borg-update"
+description          = "Release checks and self-update for borg-commander"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+flate2     = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+sha2       = { workspace = true }
+tar        = { workspace = true }
+thiserror  = { workspace = true }
+ureq       = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

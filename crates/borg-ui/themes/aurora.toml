@@ -1,0 +1,50 @@
+name = "Aurora"
+extends = "midnight"
+border = "rounded"
+
+[effects]
+cursor = "pill"
+inactive-dim = 0.35
+accent = ["#8aa4ff", "#c38aff"]
+border-gradient = ["#8aa4ff", "#c38aff"]
+title-gradient = ["#e6ebff", "#8aa4ff"]
+cursor-gradient = ["#8aa4ff", "#b48aff"]
+glow = 0.08
+
+[styles]
+panel = { fg = "#c8d0f0", bg = "#14161f" }
+border = { fg = "#2c3147", bg = "#14161f" }
+border-active = { fg = "#8aa4ff", bg = "#14161f" }
+title = { fg = "#5d6587", bg = "#14161f" }
+title-active = { fg = "#e6ebff", bg = "#14161f", bold = true }
+dir = { fg = "#8aa4ff", bg = "#14161f", bold = true }
+file = { fg = "#c8d0f0", bg = "#14161f" }
+executable = { fg = "#9fe08a", bg = "#14161f" }
+link = { fg = "#7fd8f0", bg = "#14161f", italic = true }
+other = { fg = "#f0c27a", bg = "#14161f" }
+meta = { fg = "#4d5577", bg = "#14161f" }
+cursor = { fg = "#0f1118", bg = "#8aa4ff", bold = true }
+cursor-inactive = { bg = "#1f2333" }
+footer = { fg = "#4d5577", bg = "#14161f" }
+notice = { fg = "#ff8a9a", bold = true }
+key = { fg = "#8aa4ff" }
+key-label = { fg = "#c8d0f0", bg = "#1f2333" }
+overlay = { fg = "#c8d0f0", bg = "#1b1e2b" }
+overlay-border = { fg = "#8aa4ff", bg = "#1b1e2b" }
+overlay-selected = { fg = "#0f1118", bg = "#8aa4ff", bold = true }
+input = { fg = "#e6ebff", bg = "#262b3d" }
+marked = { fg = "#ffcf6e", bg = "#14161f", bold = true }
+marked-cursor = { fg = "#0f1118", bg = "#ffcf6e", bold = true }
+status = { fg = "#8a93b8", bg = "#1b1e2b" }
+menu = { fg = "#c8d0f0", bg = "#1b1e2b" }
+menu-selected = { fg = "#0f1118", bg = "#8aa4ff", bold = true }
+menu-disabled = { fg = "#454c69", bg = "#1b1e2b" }
+viewer = { fg = "#c8d0f0", bg = "#14161f" }
+viewer-status = { fg = "#0f1118", bg = "#8aa4ff" }
+separator = { fg = "#454c69", bg = "#14161f" }
+kind-code = { fg = "#f0c27a", bg = "#14161f" }
+kind-image = { fg = "#f29ccf", bg = "#14161f" }
+kind-archive = { fg = "#ff8a9a", bg = "#14161f" }
+kind-document = { fg = "#a6e3a1", bg = "#14161f" }
+kind-media = { fg = "#cba6f7", bg = "#14161f" }
+kind-config = { fg = "#94e2d5", bg = "#14161f" }

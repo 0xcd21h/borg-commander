@@ -1,0 +1,24 @@
+[package]
+name                 = "borg-core"
+description          = "State model and update logic for borg-commander"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+borg-gfx  = { workspace = true }
+borg-jobs = { workspace = true }
+borg-term = { workspace = true }
+borg-vfs  = { workspace = true }
+borg-view = { workspace = true }
+crossterm = { workspace = true }
+globset   = { workspace = true }
+ratatui   = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

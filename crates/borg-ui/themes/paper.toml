@@ -1,0 +1,44 @@
+name = "Paper"
+extends = "midnight"
+
+[effects]
+inactive-dim = 0.25
+accent = ["#5a7fa6", "#b0601a"]
+
+[styles]
+panel = { fg = "#3b3a36", bg = "#f7f5ef" }
+border = { fg = "#c9c4b8", bg = "#f7f5ef" }
+border-active = { fg = "#5a7fa6", bg = "#f7f5ef" }
+title = { fg = "#8a857a", bg = "#f7f5ef" }
+title-active = { fg = "#2b2a27", bg = "#f7f5ef", bold = true }
+dir = { fg = "#2f5d8a", bg = "#f7f5ef", bold = true }
+file = { fg = "#3b3a36", bg = "#f7f5ef" }
+executable = { fg = "#3d7a3a", bg = "#f7f5ef" }
+link = { fg = "#8a4f9e", bg = "#f7f5ef" }
+other = { fg = "#9a6a12", bg = "#f7f5ef" }
+meta = { fg = "#a39e92", bg = "#f7f5ef" }
+cursor = { fg = "#ffffff", bg = "#5a7fa6" }
+cursor-inactive = { bg = "#e6e1d6" }
+footer = { fg = "#a39e92", bg = "#f7f5ef" }
+notice = { fg = "#b03a2e", bg = "#f7f5ef", bold = true }
+key = { fg = "#3b3a36", bg = "#f7f5ef" }
+key-label = { fg = "#ffffff", bg = "#5a7fa6" }
+overlay = { fg = "#3b3a36", bg = "#ece8de" }
+overlay-border = { fg = "#5a7fa6", bg = "#ece8de" }
+overlay-selected = { fg = "#ffffff", bg = "#5a7fa6", bold = true }
+input = { fg = "#2b2a27", bg = "#ffffff" }
+marked = { fg = "#b0601a", bg = "#f7f5ef", bold = true }
+marked-cursor = { fg = "#ffe9c7", bg = "#5a7fa6", bold = true }
+status = { fg = "#6b675e", bg = "#ece8de" }
+menu = { fg = "#3b3a36", bg = "#e6e1d6" }
+menu-selected = { fg = "#ffffff", bg = "#5a7fa6", bold = true }
+menu-disabled = { fg = "#b5b0a5", bg = "#e6e1d6" }
+viewer = { fg = "#3b3a36", bg = "#f7f5ef" }
+viewer-status = { fg = "#ffffff", bg = "#5a7fa6" }
+separator = { fg = "#c9c4b8", bg = "#f7f5ef" }
+kind-code = { fg = "#8a5a00", bg = "#f7f5ef" }
+kind-image = { fg = "#a03a7a", bg = "#f7f5ef" }
+kind-archive = { fg = "#b03a2e", bg = "#f7f5ef" }
+kind-document = { fg = "#2e6b4f", bg = "#f7f5ef" }
+kind-media = { fg = "#6a4fa6", bg = "#f7f5ef" }
+kind-config = { fg = "#7a6a3a", bg = "#f7f5ef" }

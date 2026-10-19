@@ -1,0 +1,18 @@
+[package]
+name                 = "borg-gfx"
+description          = "Terminal graphics protocols for borg-commander"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+base64    = { workspace = true }
+icy_sixel = { workspace = true }
+image     = { workspace = true }
+ratatui   = { workspace = true }
+rustix    = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

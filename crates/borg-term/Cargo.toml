@@ -1,0 +1,20 @@
+[package]
+name                 = "borg-term"
+description          = "Embedded shell sessions and terminal emulation for borg-commander"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+alacritty_terminal = { workspace = true }
+anyhow             = { workspace = true }
+crossterm          = { workspace = true }
+portable-pty       = { workspace = true }
+tokio              = { workspace = true }
+
+[dev-dependencies]
+proptest  = { workspace = true }
+
+[lints]
+workspace = true
