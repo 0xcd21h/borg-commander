@@ -90,7 +90,7 @@ Homebrew keeps them in `$(brew --prefix)/share/borg-commander/fonts`.
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line |
-| Shift-Enter, Ctrl-J | Multi-line command: edit in a box above the prompt; Enter adds a line, Alt-Enter (or Ctrl-Enter) runs, Esc puts it back on the prompt |
+| Shift-Enter, Ctrl-J | Insert a newline at the command-line cursor; Enter runs the command, Ctrl-C clears it |
 | Alt-A / Alt-Shift-A | Put this panel's / the other panel's folder path on the command line |
 | Shift-PgUp / Shift-PgDn | Scroll console output history |
 | Shift-Home / Shift-End | Oldest console output / back to the live prompt |
@@ -111,7 +111,9 @@ Homebrew keeps them in `$(brew --prefix)/share/borg-commander/fonts`.
 
 Tab, Enter, Home, End, Left, and Right act on the panels while the command line is empty.
 Once you type a command, those keys go to the shell. Ctrl-P, Ctrl-N, and Ctrl-R use your
-shell’s command history. Recalled multiline commands expand the prompt area and keep the cursor visible.
+shell’s command history. Shift-Enter (or Ctrl-J) inserts a newline without running the command.
+Typed and recalled multiline commands expand the same prompt area, shrinking the panels
+and keeping the cursor visible. The shell retains its usual editing and completion keys.
 
 If your terminal reserves F-keys, press **Esc, then a digit** within 1.5 seconds:
 Esc 1–9 are F1–F9; Esc 0 is F10. For example, Esc 9 opens the menus and Esc 5 copies.

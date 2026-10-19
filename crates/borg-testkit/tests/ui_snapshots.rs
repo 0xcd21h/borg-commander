@@ -601,21 +601,18 @@ fn info_panel_lists_file_facts() -> Result<()> {
 }
 
 #[test]
-fn composer_grows_from_the_prompt() -> Result<()> {
+fn typed_multiline_commands_share_the_prompt_area_with_history() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
-    stage.send(Msg::CommandLine("for f in *.log".into()));
-    stage.send(key(KeyCode::Enter));
-    chars("do gzip \"$f\"").for_each(|msg| {
-        stage.send(msg);
-    });
-    stage.send(key(KeyCode::Enter));
-    chars("done").for_each(|msg| {
-        stage.send(msg);
-    });
+    let before = stage.state.layout(stage.started).panels[0].height;
+    stage.shell(b"\x1b[20;1H\x1b]133;A\x07$ \x1b]133;B\x07for file in *.log; do");
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)));
+    stage.shell(b"\r\n    gzip \"$file\"\r\ndone");
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "3 lines")?;
-    ensure_text(&buffer, "Alt-Enter run")?;
-    check("composer", &stage, buffer)
+    assert!(stage.state.overlay.is_none());
+    assert_eq!(stage.state.layout(stage.started).panels[0].height, before - 2);
+    ensure_text(&buffer, "for file in *.log; do")?;
+    ensure_text(&buffer, "done")?;
+    check("inline_multiline_prompt", &stage, buffer)
 }
 
 #[test]

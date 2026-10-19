@@ -60,10 +60,6 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::aside::receive(state, peeked);
             Vec::new()
         }
-        Msg::CommandLine(text) => {
-            crate::composer::open(text, state);
-            Vec::new()
-        }
         Msg::GitStatus { side, generation, dir, result } => {
             crate::plugins::receive(state, side, generation, dir, result, now);
             Vec::new()

@@ -29,16 +29,11 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
-        Some(Overlay::Composer(composer)) => crate::composer::on_key(state, composer, key),
         None => Vec::new(),
     }
 }
 
 pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
-    if let Some(Overlay::Composer(composer)) = state.overlay.as_mut() {
-        composer.insert(text);
-        return Vec::new();
-    }
     let line = text.lines().next().unwrap_or_default();
     let input = match state.overlay.as_mut() {
         Some(Overlay::Prompt(prompt)) => &mut prompt.input,

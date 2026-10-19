@@ -158,7 +158,6 @@ pub enum Overlay {
     Menu(MenuCursor),
     Prompt(Prompt),
     Confirm(Confirm),
-    Composer(crate::Composer),
 }
 
 #[derive(Debug, Clone)]

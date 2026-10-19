@@ -1,7 +1,6 @@
 mod art_view;
 mod aside_view;
 mod blend;
-mod composer_view;
 mod dialog_view;
 mod document_view;
 mod draw;

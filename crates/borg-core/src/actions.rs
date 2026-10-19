@@ -47,7 +47,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.active = side.other();
             Vec::new()
         }
-        Action::Compose => vec![Effect::ReadCommandLine],
+        Action::InsertNewline => {
+            let mut effects = prepare_shell(state);
+            effects.push(Effect::Write(borg_term::encode_newline(state.shell.observed.mode)));
+            state.shell.mark_typed();
+            effects
+        }
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::Up => moved(state, |panel| panel.move_by(LINE_UP)),

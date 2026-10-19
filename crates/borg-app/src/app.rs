@@ -392,7 +392,6 @@ impl App {
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
                 Effect::JobControl { id, command } => self.control_job(id, command),
                 Effect::Peek { aside, path, size } => self.peek(aside, path, size),
-                Effect::ReadCommandLine => drop(self.messages.send(Msg::CommandLine(self.emulator.command_line()))),
                 Effect::Quit => return Ok(Flow::Quit),
             }
         }

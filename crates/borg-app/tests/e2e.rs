@@ -173,22 +173,43 @@ fn typed_command_runs_in_shell_and_ctrl_o_returns() -> Result<()> {
 }
 
 #[test]
-fn composer_edits_and_runs_several_lines() -> Result<()> {
-    let fixture = fixture()?;
-    let mut app = start(&fixture, "composer")?;
-    app.send("echo first-$((1+1))")?;
-    app.wait_until("command in prompt row", |s| prompt(s) == "$ echo first-$((1+1))")?;
-    app.send(keys::ctrl('j'))?;
-    app.wait_until("composer prefilled", |s| s.contains("1 line") && s.contains("1 echo first-$((1+1))"))?;
-    app.send(keys::enter())?.send("echo second-$((2+2))")?;
-    app.wait_text("2 lines")?;
-    app.send(keys::alt(KeyCode::Enter))?;
-    app.wait_until("both lines ran", |s| s.contains("first-2") && s.contains("second-4"))?;
-    app.wait_gone(READY)?;
-    app.send(keys::ctrl('j'))?;
-    app.wait_text("Esc back to prompt")?;
-    app.send("echo third")?.send(keys::key(KeyCode::Esc))?;
-    app.wait_until("text back on the prompt", |s| !s.contains("Esc back to prompt") && s.contains("$ echo third"))?;
+fn shift_enter_edits_the_shell_buffer_in_place_in_each_shell() -> Result<()> {
+    const FIRST: &str = "touch first-ran;";
+    const SECOND: &str = "touch second-ran";
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fixture.configure("")?;
+        let mut app = start_with(&fixture, &format!("inline-newline-{}", shell.program()), shell)?;
+        let baseline = app.wait_text(READY)?.find(READY).unwrap().1;
+        app.send(format!("{FIRST}{SECOND}"))?;
+        app.wait_text(SECOND)?;
+        app.send(keys::ctrl('a'))?.send(keys::right().repeat(FIRST.len()))?;
+        app.send(keys::with(KeyCode::Enter, crossterm::event::KeyModifiers::SHIFT))?;
+        let screen = app.wait_until("newline splits the command at its cursor", |s| {
+            s.find(FIRST).zip(s.find(SECOND)).is_some_and(|((_, first), (_, second))| second > first)
+        })?;
+        ensure!(screen.find(READY).unwrap().1 < baseline, "panels should shrink above the command");
+        ensure!(!screen.contains("Borg console"), "editing should keep the panels visible");
+        ensure!(!screen.contains("Alt-Enter run"), "newlines should use the shell prompt");
+        ensure!(!fixture.work().join("first-ran").exists(), "newline must not execute the first line");
+        ensure!(!fixture.work().join("second-ran").exists());
+        app.send(keys::key(KeyCode::Backspace))?;
+        app.wait_until("backspace joins the lines", |s| {
+            s.contains(&format!("{FIRST}{SECOND}")) && s.find(READY).is_some_and(|(_, y)| y == baseline)
+        })?;
+        app.send(keys::ctrl('j'))?;
+        app.wait_until("Ctrl-J inserts the same newline", |s| {
+            s.find(FIRST).zip(s.find(SECOND)).is_some_and(|((_, a), (_, b))| b > a)
+        })?;
+        app.send("printf 'INSERTED\\n'; ")?.send(keys::enter())?;
+        app.wait_until("both lines executed and panels restored", |s| {
+            panels_ready(s) && left_panel(s).contains("6 items")
+        })?;
+        ensure!(fixture.work().join("first-ran").exists());
+        ensure!(fixture.work().join("second-ran").exists());
+        let screen = app.snapshot();
+        ensure!(screen.find("6 items").unwrap().1 == baseline, "prompt should collapse after execution");
+    }
     Ok(())
 }
 
@@ -938,15 +959,15 @@ fn recalling_multiline_history_keeps_the_whole_command_visible_in_each_shell() -
         let fixture = fixture()?;
         fixture.configure("")?;
         let mut app = start_with(&fixture, &format!("multiline-{}", shell.program()), shell)?;
-        app.send(keys::ctrl('j'))?;
-        app.wait_text("1 line")?;
-        app.send(if shell == Shell::Fish { "begin" } else { "{" })?.send(keys::enter())?;
-        app.send("printf 'FIRST-HISTORY\\n';")?.send(keys::enter())?;
-        app.send("printf 'SECOND-HISTORY\\n';")?.send(keys::enter())?;
-        app.send("touch history-ready;")?.send(keys::enter())?;
-        app.send(if shell == Shell::Fish { "end" } else { "}" })?;
-        app.wait_until("five lines composed", |s| s.contains("5 lines") && s.contains("touch history-ready"))?;
-        app.send(keys::alt(KeyCode::Enter))?;
+        app.send(if shell == Shell::Fish { "begin" } else { "{" })?;
+        for line in ["printf 'FIRST-HISTORY\\n';", "printf 'SECOND-HISTORY\\n';", "touch history-ready;"] {
+            app.send(keys::ctrl('j'))?.send(line)?;
+        }
+        app.send(keys::ctrl('j'))?.send(if shell == Shell::Fish { "end" } else { "}" })?;
+        app.wait_until("five lines typed in the prompt", |s| {
+            s.contains("FIRST-HISTORY") && s.contains("SECOND-HISTORY") && s.contains("touch history-ready")
+        })?;
+        app.send(keys::enter())?;
         app.wait_until(&format!("multiline command completed in {}", shell.program()), |s| {
             panels_ready(s) && left_panel(s).contains("5 items") && prompt(s).trim() == "$"
         })?;

@@ -16,7 +16,6 @@ use crate::{
     Palette, Theme, ThemeSet, art_view,
     aside_view::{AsideScene, draw_aside},
     blend::crossfade,
-    composer_view::draw_composer,
     dialog_view,
     fx::{self, Unfold},
     job_view,
@@ -111,7 +110,6 @@ fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Positio
     let mut placements = Vec::new();
     if opacity <= FULLY_HIDDEN {
         draw_console(buf, scene, area);
-        cursor = composer_over_shell(buf, scene, area);
     } else if opacity >= FULLY_SHOWN {
         let chrome = chrome(scene, area);
         *buf = chrome.buf;
@@ -150,15 +148,6 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
         Span::styled(hint, theme.styles.key_label),
     ])
     .render(footer, buf);
-}
-
-fn composer_over_shell(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> Option<Position> {
-    let Some(Overlay::Composer(composer)) = &scene.state.overlay else { return None };
-    let theme = scene.theme_at(scene.state.appearance.current());
-    let (_, row) = scene.screen.cursor();
-    let anchor = Rect { y: area.y + row, height: 1, ..area };
-    let (_, position) = draw_composer(composer, &scene.look(theme), anchor, area, buf);
-    Some(position)
 }
 
 fn chrome(scene: &Scene<'_>, area: Rect) -> Chrome {
@@ -310,7 +299,7 @@ fn backdrop(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, overlay: &Overl
     let screen = layout.screen;
     let bar = bar_of(layout, overlay);
     let amount = match overlay {
-        Overlay::Find(_) | Overlay::Composer(_) => return,
+        Overlay::Find(_) => return,
         Overlay::Menu(_) => MENU_BACKDROP,
         _ => BACKDROP,
     };
@@ -361,10 +350,6 @@ fn paint_overlay(
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
-        Overlay::Composer(composer) => {
-            let (rect, position) = draw_composer(composer, look, layout.prompt, screen, buf);
-            (rect, Some(position), Unfold::Up)
-        }
         Overlay::Question(question) => {
             let rect = state
                 .jobs
