@@ -63,10 +63,15 @@ Panels and dialogs use terminal cells.
 Themes use fixed colours so terminal palette customisations do not change their appearance.
 Terminals without truecolour use the nearest colours in the 256-colour palette.
 
-File icons are always shown. Portable symbols are the default: `/` for folders, `@` for links,
-and `*` for executables. Release archives include **Borg Mono**, a monospace font with Nerd Font
-icons. Install the regular and bold fonts from `fonts/`, select Borg Mono in your terminal,
-and set `nerd-font = true` for the richer icons. Borg cannot change your terminal’s font.
+File icons are always shown. Ghostty uses the richer Nerd Font icons automatically. Other
+terminals default to portable symbols: `/` for folders, `@` for links, and `*` for executables.
+Set `icon-style = "nerd"` to use rich icons in another terminal with a suitable font, or
+`icon-style = "portable"` to force portable symbols. The default, `"auto"`, adapts to the terminal
+without saving that detection as a font preference.
+
+Release archives include **Borg Mono**, a monospace font with Nerd Font icons. Install the
+regular and bold fonts from `fonts/`, select Borg Mono in your terminal, and choose the
+`"nerd"` icon style. Borg cannot change your terminal’s font.
 The installer saves them in `${XDG_DATA_HOME:-~/.local/share}/borg-commander/fonts`;
 Homebrew keeps them in `$(brew --prefix)/share/borg-commander/fonts`.
 
@@ -159,7 +164,7 @@ Space or a click toggles a setting and saves it immediately. Esc closes the wind
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
-nerd-font = false           # set true after selecting Borg Mono or another Nerd Font
+icon-style = "auto"         # auto, nerd, or portable; Ghostty gets rich icons automatically
 icon-spacing = 1            # spaces after an icon, 1 to 3
 status-line = true
 menu-bar = false            # keep the menu bar visible

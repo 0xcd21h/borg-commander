@@ -4,7 +4,7 @@ Regular and bold monospace fonts combining DejaVu Sans Mono with the private-use
 from Symbols Nerd Font Mono. Icon advances match the text cell width.
 
 Install both `.ttf` files, select **Borg Mono** in your terminal preferences, and set
-`nerd-font = true` in Borg's config. Without that setting Borg uses portable symbols.
+`icon-style = "nerd"` in Borg's config. Automatic mode uses rich icons in Ghostty and portable symbols elsewhere.
 Borg does not install fonts or change terminal preferences automatically.
 
 The font sources and their licences are in `crates/borg-testkit/assets`. Both licences

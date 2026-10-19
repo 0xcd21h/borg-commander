@@ -15,6 +15,28 @@ const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
 const THEMES_DIR: &str = "themes";
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IconStyle {
+    #[default]
+    Auto,
+    Nerd,
+    Portable,
+}
+
+impl IconStyle {
+    fn nerd_font(self, program: Option<&str>, term: Option<&str>) -> bool {
+        match self {
+            Self::Nerd => true,
+            Self::Portable => false,
+            Self::Auto => match program {
+                Some(program) => program.eq_ignore_ascii_case("ghostty"),
+                None => term == Some("xterm-ghostty"),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Config {
@@ -35,7 +57,9 @@ pub struct Config {
     #[serde(skip_serializing)]
     pub icons: Option<bool>,
     pub icon_spacing: Option<u8>,
+    #[serde(skip_serializing)]
     pub nerd_font: Option<bool>,
+    pub icon_style: Option<IconStyle>,
     #[serde(rename = "pixel-chrome", skip_serializing)]
     pub _legacy_pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
@@ -44,7 +68,12 @@ pub struct Config {
 }
 
 impl Config {
+    #[cfg(test)]
     pub fn preferences(&self) -> Preferences {
+        self.preferences_for_terminal(None, None)
+    }
+
+    pub fn preferences_for_terminal(&self, program: Option<&str>, term: Option<&str>) -> Preferences {
         let base = Preferences::default();
         let after_command = match self.return_to_panels {
             Some(true) => AfterCommand::ReturnToPanels,
@@ -58,11 +87,15 @@ impl Config {
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
-            nerd_font: self.nerd_font.unwrap_or(base.nerd_font),
+            nerd_font: self.effective_icon_style().nerd_font(program, term),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
         }
+    }
+
+    fn effective_icon_style(&self) -> IconStyle {
+        self.icon_style.unwrap_or(if self.nerd_font == Some(true) { IconStyle::Nerd } else { IconStyle::Auto })
     }
 
     pub fn screensaver_after(&self) -> Option<Duration> {
@@ -96,7 +129,8 @@ impl Config {
             delight: None,
             icons: None,
             icon_spacing: self.icon_spacing,
-            nerd_font: Some(prefs.nerd_font),
+            nerd_font: None,
+            icon_style: Some(self.effective_icon_style()),
             _legacy_pixel_chrome: None,
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
@@ -200,6 +234,45 @@ mod retired_preferences_tests {
         for old in ["animations", "startup-animation", "delight", "icons"] {
             assert!(!saved.contains(old));
         }
-        assert!(saved.contains("nerd-font = false"));
+        assert!(saved.contains("icon-style = \"auto\""));
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+
+    #[test]
+    fn automatic_icons_follow_the_terminal() {
+        let config = Config::default();
+        assert!(config.preferences_for_terminal(Some("ghostty"), Some("xterm-256color")).nerd_font);
+        assert!(config.preferences_for_terminal(None, Some("xterm-ghostty")).nerd_font);
+        assert!(!config.preferences_for_terminal(Some("Apple_Terminal"), Some("xterm-256color")).nerd_font);
+        assert!(!config.preferences_for_terminal(None, Some("xterm-256color")).nerd_font);
+    }
+
+    #[test]
+    fn saved_fallback_migrates_to_auto_without_locking_icons_to_one_terminal() {
+        let config: Config = toml::from_str("nerd-font = false\n").unwrap();
+        let ghostty = config.preferences_for_terminal(Some("ghostty"), None);
+        assert!(ghostty.nerd_font);
+        let saved = toml::to_string(&config.capture(None, &ghostty, &[])).unwrap();
+        assert!(!saved.contains("nerd-font"));
+        let reloaded: Config = toml::from_str(&saved).unwrap();
+        assert_eq!(reloaded.icon_style, Some(IconStyle::Auto));
+        assert!(reloaded.preferences_for_terminal(Some("ghostty"), None).nerd_font);
+        assert!(!reloaded.preferences_for_terminal(Some("Apple_Terminal"), None).nerd_font);
+    }
+
+    #[test]
+    fn explicit_icon_style_overrides_terminal_detection() {
+        let portable: Config = toml::from_str("icon-style = \"portable\"\n").unwrap();
+        assert!(!portable.preferences_for_terminal(Some("ghostty"), None).nerd_font);
+        let nerd: Config = toml::from_str("icon-style = \"nerd\"\n").unwrap();
+        assert!(nerd.preferences_for_terminal(Some("Apple_Terminal"), None).nerd_font);
+        let legacy: Config = toml::from_str("nerd-font = true\n").unwrap();
+        let prefs = legacy.preferences_for_terminal(Some("Apple_Terminal"), None);
+        assert!(prefs.nerd_font);
+        assert_eq!(legacy.capture(None, &prefs, &[]).icon_style, Some(IconStyle::Nerd));
     }
 }

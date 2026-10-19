@@ -13,6 +13,8 @@ use crate::{
 const ENV_SHELL: &str = "SHELL";
 const ENV_HOME: &str = "HOME";
 const ENV_COLORTERM: &str = "COLORTERM";
+const ENV_TERM_PROGRAM: &str = "TERM_PROGRAM";
+const ENV_TERM: &str = "TERM";
 const ENV_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 const ENV_SSH: [&str; 2] = ["SSH_CONNECTION", "SSH_TTY"];
 const TRUECOLOR_MARKERS: [&str; 2] = ["truecolor", "24bit"];
@@ -50,7 +52,10 @@ impl Launch {
         let settings = Settings {
             motion: motion(),
             truecolor: truecolor(),
-            preferences: config.preferences(),
+            preferences: config.preferences_for_terminal(
+                env::var(ENV_TERM_PROGRAM).ok().as_deref(),
+                env::var(ENV_TERM).ok().as_deref(),
+            ),
             screensaver_after: config.screensaver_after().unwrap_or(defaults.screensaver_after),
             ..defaults
         };

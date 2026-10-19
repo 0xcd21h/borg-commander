@@ -953,3 +953,27 @@ fn recalling_multiline_history_keeps_the_whole_command_visible_in_each_shell() -
     }
     Ok(())
 }
+
+#[test]
+fn ghostty_icons_stay_rich_and_saved_settings_keep_portable_terminal_fallback() -> Result<()> {
+    const FOLDER_ICON: &str = "\u{f07b}";
+    let fixture = fixture()?;
+    fixture.configure("nerd-font = false\n")?;
+    let mut ghostty = Session::builder(BORG, &fixture).terminal_program("ghostty").label("ghostty-icons").spawn()?;
+    let screen = ghostty.wait_text(READY)?;
+    ensure!(screen.contains(FOLDER_ICON), "Ghostty should get rich folder icons\n{}", screen.text());
+    ghostty.wait_until("shell prompt", |s| prompt(s).starts_with('$'))?;
+    toggle_setting(&mut ghostty, "Status line")?;
+    let saved = fs::read_to_string(fixture.config_file())?;
+    ensure!(saved.contains("icon-style = \"auto\""), "automatic detection must stay automatic: {saved}");
+    ensure!(!saved.contains("nerd-font"), "obsolete detected preference should be removed: {saved}");
+    ghostty.send(keys::f(10))?;
+    ghostty.wait_exit()?;
+    drop(ghostty);
+    let mut portable =
+        Session::builder(BORG, &fixture).terminal_program("Apple_Terminal").label("portable-icons").spawn()?;
+    let screen = portable.wait_text(READY)?;
+    ensure!(!screen.contains(FOLDER_ICON), "Apple Terminal should keep portable icons");
+    ensure!(screen.contains("/ alpha"), "portable folder marker missing\n{}", screen.text());
+    Ok(())
+}
