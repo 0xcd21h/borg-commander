@@ -2,21 +2,20 @@ use std::{
     collections::HashMap,
     io::Write as _,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
 use borg_core::{
-    AMBIENT_FRAME, AppState, Appearance, Aside, Content, Effect, Image, JobCommand, Msg, Pace, Peeked, ShellView, Side,
-    View, Viewer, update, viewer_size,
+    AMBIENT_FRAME, AppState, Appearance, Aside, Effect, Image, JobCommand, Msg, Pace, ShellView, Side, View, Viewer,
+    update, viewer_size,
 };
-use borg_gfx::{Capabilities, Graphics, Output, Protocol, TerminalColors, decode, is_picture};
+use borg_gfx::{Capabilities, Graphics, Output, Protocol, TerminalColors, decode};
 use borg_jobs::{Control, Spec, run};
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, Scroll, encode_mouse, shell_command};
 use borg_ui::{Palette, Pixels, Rgb, Scene, ThemeSet, draw, local_now, mouse_input};
 use borg_vfs::{Backend, Local};
-use borg_view::{FileSource, Pager};
 use crossterm::{
     event::{Event, EventStream, KeyEventKind, MouseButton, MouseEvent, MouseEventKind},
     queue,
@@ -34,7 +33,7 @@ use tokio::{
 use crate::{
     config::{Config, ConfigDir},
     launch::{self, Launch},
-    peek,
+    preview,
     session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
 };
 
@@ -62,6 +61,7 @@ pub struct App {
     graphics: Graphics,
     jobs: HashMap<u64, Arc<Control>>,
     last_click: Option<(u16, u16, Instant)>,
+    preview: preview::Loader,
 }
 
 enum Flow {
@@ -90,6 +90,7 @@ impl App {
         let pty = Pty::spawn(command, grid, pty_tx)?;
         let (messages, inbox) = unbounded_channel();
 
+        let preview = preview::Loader::new(messages.clone());
         Ok(Self {
             emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
@@ -109,6 +110,7 @@ impl App {
             graphics: Graphics::new(detected.capabilities),
             jobs: HashMap::new(),
             last_click: None,
+            preview,
         })
     }
 
@@ -354,6 +356,9 @@ impl App {
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
         let effects = update(&mut self.state, msg, Instant::now());
+        if self.state.aside.is_none() || self.state.active_panel().hovered().is_none() {
+            self.preview.cancel();
+        }
         self.apply(effects)
     }
 
@@ -411,11 +416,14 @@ impl App {
     fn open_viewer(&self, path: PathBuf) {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
         let cell = self.graphics.capabilities().cell;
-        let bounds = (span(width, cell.width), span(height, cell.height));
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let content =
-                if is_picture(&path) { picture(&path, bounds).map(Content::Image) } else { text(&path, width, height) };
+            let content = crate::document::open(
+                &path,
+                (width, height),
+                (cell.width, cell.height),
+                Arc::new(AtomicBool::new(false)),
+            );
             let opened = content
                 .map(|content| Msg::Opened(Viewer { path: path.clone(), content }))
                 .unwrap_or_else(|e| Msg::Notice(format!("{}: {e:#}", path.display())));
@@ -423,13 +431,9 @@ impl App {
         });
     }
 
-    fn peek(&self, aside: Aside, path: PathBuf, size: (usize, usize)) {
+    fn peek(&mut self, aside: Aside, path: PathBuf, size: (usize, usize)) {
         let cell = self.graphics.capabilities().cell;
-        let messages = self.messages.clone();
-        tokio::task::spawn_blocking(move || {
-            let peek = peek::peek(aside, &path, size, (cell.width, cell.height));
-            let _ = messages.send(Msg::Peeked(Peeked { aside, path, peek }));
-        });
+        self.preview.request(aside, path, size, (cell.width, cell.height));
     }
 
     fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
@@ -482,11 +486,6 @@ pub(crate) fn picture(path: &Path, bounds: (u32, u32)) -> Result<Image> {
     let bytes = std::fs::metadata(path)?.len();
     let decoded = decode(path, bounds)?;
     Ok(Image { picture: decoded.picture, original: decoded.original, format: decoded.format, bytes })
-}
-
-fn text(path: &Path, width: usize, height: usize) -> Result<Content> {
-    let source = FileSource::open(path)?;
-    Ok(Content::Text(Pager::for_path(Arc::new(source), path, width, height)?))
 }
 
 fn appearance(launch: &Launch) -> Appearance {

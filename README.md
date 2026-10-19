@@ -146,7 +146,10 @@ Image protocols are used when available; other terminals display colour blocks.
 
 Ctrl-Q shows quick preview in the other panel. Tab focuses it; arrows, PgUp/PgDn, Home/End,
 and the mouse wheel scroll the document. Tab or Esc returns to the file list. Ctrl-L shows
-file information.
+file information. F3 expands a text preview into the viewer; closing it returns to the
+preview with your position, wrapping, and source mode preserved. Both use the same
+bounded file reader, so opening a large text file reads near the first page rather than
+loading the whole file.
 
 Both text viewers highlight common programming languages, markup, and configuration files,
 including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua,

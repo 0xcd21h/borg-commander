@@ -65,7 +65,7 @@ pub(crate) fn toggle(state: &mut AppState, aside: Aside) -> Vec<Effect> {
     Vec::new()
 }
 
-fn hovered_path(state: &AppState) -> Option<PathBuf> {
+pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
     let panel = state.active_panel();
     match panel.hovered()? {
         Row::Entry(entry) => Some(panel.dir().join(&entry.name)),
@@ -75,7 +75,11 @@ fn hovered_path(state: &AppState) -> Option<PathBuf> {
 
 pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
     let aside = state.aside?;
-    let path = hovered_path(state)?;
+    let Some(path) = hovered_path(state) else {
+        state.peeked = None;
+        state.peeking = None;
+        return None;
+    };
     let wanted = Some((aside, path.clone()));
     let shown = state.peeked.as_ref().map(|peeked| (peeked.aside, peeked.path.clone()));
     let layout = Layout::new(state.cols, state.rows, state.chrome(), state.split_target());
@@ -92,6 +96,7 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         }
         return None;
     }
+    state.peeked = None;
     if state.peeking == wanted {
         return None;
     }
@@ -118,7 +123,12 @@ pub(crate) fn on_key(state: &mut AppState, key: &crossterm::event::KeyEvent, now
         KeyCode::F(9) => return crate::actions::perform(state, crate::Action::OpenMenuBar, now),
         KeyCode::Char('q') if key.modifiers == KeyModifiers::CONTROL => return toggle(state, Aside::QuickView),
         KeyCode::F(3) => {
-            return state.peeked.as_ref().map(|peeked| vec![Effect::View(peeked.path.clone())]).unwrap_or_default();
+            return state
+                .peeked
+                .as_ref()
+                .map(|peeked| peeked.path.clone())
+                .map(|path| crate::viewer::open(state, path))
+                .unwrap_or_default();
         }
         _ => {
             if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()

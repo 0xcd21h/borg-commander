@@ -1,6 +1,8 @@
+use std::io;
+
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
-use crate::paint::{Paint, RichText, highlight};
+use crate::paint::{Paint, RichText, check_cancelled, highlight};
 
 const ACCENT: Paint = Paint {
     dark: Some([136, 192, 208]),
@@ -11,7 +13,8 @@ const ACCENT: Paint = Paint {
     dim: false,
 };
 
-pub(crate) fn render(source: &str) -> RichText {
+pub(crate) fn render(source: &str, cancelled: &impl Fn() -> bool) -> io::Result<RichText> {
+    check_cancelled(cancelled)?;
     let mut out = RichText::default();
     let mut paint = Paint::default();
     let mut stack = Vec::new();
@@ -22,6 +25,7 @@ pub(crate) fn render(source: &str) -> RichText {
     for event in
         Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS)
     {
+        check_cancelled(cancelled)?;
         match event {
             Event::Start(tag) => {
                 stack.push(paint);
@@ -96,7 +100,7 @@ pub(crate) fn render(source: &str) -> RichText {
                     }
                     TagEnd::CodeBlock => {
                         if let Some((language, text)) = code.take() {
-                            let rich = highlight(&text, &language, 0);
+                            let rich = highlight(&text, &language, 0, cancelled)?;
                             for (range, style) in rich.regions {
                                 out.push(&rich.text[range.start as usize..range.end as usize], style);
                             }
@@ -129,11 +133,30 @@ pub(crate) fn render(source: &str) -> RichText {
             _ => {}
         }
     }
-    out
+    Ok(out)
 }
 
 fn newline(out: &mut RichText) {
     if !out.text.is_empty() && !out.text.ends_with('\n') {
         out.push("\n", Paint::default());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn cancelled_formatting_stops_between_markdown_events() {
+        let polls = Cell::new(0);
+        let cancelled = || {
+            polls.set(polls.get() + 1);
+            polls.get() > 3
+        };
+        let result = render(&"# Heading\n\nParagraph\n\n".repeat(100), &cancelled);
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert_eq!(polls.get(), 4);
     }
 }

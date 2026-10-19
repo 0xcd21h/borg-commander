@@ -249,8 +249,8 @@ fn enter_runs_executables() -> Result<()> {
 #[test]
 fn full_screen_programs_capture_every_key() -> Result<()> {
     const KEY_GRABBER: &str = "keygrab.sh";
-    const SCRIPT: &str = r#"printf '\033[?1049h\033[Hwaiting-for-key'
-stty raw -echo
+    const SCRIPT: &str = r#"stty raw -echo
+printf '\033[?1049h\033[Hwaiting-for-key'
 key=$(dd bs=1 count=1 2>/dev/null)
 stty sane
 printf '\033[?1049l'
@@ -899,8 +899,15 @@ fn markdown_preview_scrolls_with_focus_and_toggles_source() -> Result<()> {
     app.wait_text("End of document")?;
     app.send(keys::tab())?.send(keys::f(3))?;
     app.wait_text("rendered")?;
+    app.wait_text("End of document")?;
     app.send("s")?;
     app.wait_text("# Preview title")?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_text("End of document")?;
+    app.send(keys::esc())?;
+    let screen = app.wait_text("Quick view · guide.md")?;
+    ensure!(!screen.contains("# Preview title"), "closing the viewer should preserve the scrolled position");
+    app.wait_text("End of document")?;
     Ok(())
 }
 

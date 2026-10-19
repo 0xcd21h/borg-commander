@@ -1,4 +1,4 @@
-use std::{ops::Range, path::Path, sync::OnceLock};
+use std::{io, ops::Range, path::Path, sync::OnceLock};
 
 use two_face::{
     re_exports::syntect::{easy::HighlightLines, highlighting::FontStyle, parsing::SyntaxSet},
@@ -66,7 +66,12 @@ pub(crate) fn syntax_name(path: &Path, first_line: &str) -> Option<String> {
         .map(|syntax| syntax.name.clone())
 }
 
-pub(crate) fn highlight(text: &str, language: &str, base: u64) -> RichText {
+pub(crate) fn check_cancelled(cancelled: &impl Fn() -> bool) -> io::Result<()> {
+    if cancelled() { Err(io::Error::new(io::ErrorKind::Interrupted, "document loading cancelled")) } else { Ok(()) }
+}
+
+pub(crate) fn highlight(text: &str, language: &str, base: u64, cancelled: &impl Fn() -> bool) -> io::Result<RichText> {
+    check_cancelled(cancelled)?;
     let set = syntaxes();
     let syntax = set
         .find_syntax_by_name(language)
@@ -76,6 +81,7 @@ pub(crate) fn highlight(text: &str, language: &str, base: u64) -> RichText {
     let mut light = HighlightLines::new(syntax, &themes()[EmbeddedThemeName::InspiredGithub]);
     let mut rich = RichText { base, ..RichText::default() };
     for line in text.split_inclusive('\n') {
+        check_cancelled(cancelled)?;
         if line.len() > MAX_HIGHLIGHT_LINE || line.as_bytes().contains(&0) {
             rich.push(line, Paint::default());
             continue;
@@ -112,5 +118,24 @@ pub(crate) fn highlight(text: &str, language: &str, base: u64) -> RichText {
             rich.push(line, Paint::default());
         }
     }
-    rich
+    Ok(rich)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn cancelled_highlighting_stops_between_lines() {
+        let polls = Cell::new(0);
+        let cancelled = || {
+            polls.set(polls.get() + 1);
+            polls.get() > 3
+        };
+        let result = highlight(&"let value = 42;\n".repeat(100), "Rust", 0, &cancelled);
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert_eq!(polls.get(), 4);
+    }
 }

@@ -5,6 +5,10 @@ pub trait Source: Send + Sync {
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize>;
 
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }

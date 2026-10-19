@@ -102,7 +102,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::SelectGroup => prompt(state, "Select group", "Files matching", SELECT_ALL, PromptPurpose::Select),
         Action::UnselectGroup => prompt(state, "Unselect group", "Files matching", SELECT_ALL, PromptPurpose::Unselect),
         Action::InvertSelection => moved(state, Panel::invert_marks),
-        Action::View => hovered_file(state).map(|path| vec![Effect::View(path)]).unwrap_or_default(),
+        Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
         Action::Edit => edit(state),
         Action::Copy => transfer(state, "Copy", |sources| PromptPurpose::Copy { sources }),
         Action::Move => transfer(state, "Move", |sources| PromptPurpose::Move { sources }),
@@ -224,7 +224,7 @@ fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
             let command = ops::run(&entry.name);
             interactive(state, &command)
         }
-        Some(Row::Entry(entry)) => vec![Effect::View(panel.dir().join(&entry.name))],
+        Some(Row::Entry(entry)) => crate::viewer::open(state, panel.dir().join(&entry.name)),
         None => Vec::new(),
     }
 }

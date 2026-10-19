@@ -4,7 +4,7 @@ use borg_gfx::{Picture, is_picture};
 use borg_view::Pager;
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::{AppState, Effect};
+use crate::{AppState, Aside, Effect, Peek, Peeked};
 
 pub const STATUS_ROWS: u16 = 1;
 const WRAP_KEY: char = 'w';
@@ -48,6 +48,27 @@ fn is_close(code: KeyCode) -> bool {
     matches!(code, KeyCode::Esc | KeyCode::F(3 | 10) | KeyCode::Char(QUIT_KEY))
 }
 
+pub(crate) fn open(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
+    if let Some(Peeked { aside: Aside::QuickView, path: shown, peek: Peek::Text(pager) }) = &state.peeked
+        && *shown == path
+    {
+        state.viewer = Some(Viewer { path, content: Content::Text(pager.clone()) });
+        resize(state);
+        return Vec::new();
+    }
+    vec![Effect::View(path)]
+}
+
+fn close(state: &mut AppState) {
+    if let Some(Viewer { path, content: Content::Text(pager) }) = state.viewer.take()
+        && state.aside == Some(Aside::QuickView)
+        && crate::aside::hovered_path(state).as_ref() == Some(&path)
+    {
+        state.peeked = Some(Peeked { aside: Aside::QuickView, path, peek: Peek::Text(pager) });
+        state.peeking = None;
+    }
+}
+
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     let Some(viewer) = state.viewer.as_mut() else { return Vec::new() };
     let pager = match &mut viewer.content {
@@ -58,7 +79,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
 
     match result {
         Ok(true) => {}
-        Ok(false) => state.viewer = None,
+        Ok(false) => close(state),
         Err(error) => {
             state.notice = Some(format!("viewer: {error}"));
             state.viewer = None;

@@ -814,6 +814,8 @@ fn quick_view_asks_for_the_hovered_file_once_and_follows_the_cursor() {
     update(&mut state, Msg::Peeked(fresh), now);
     assert!(state.peeked.is_some());
     assert!(peeks(&update(&mut state, Msg::Tick, now)).is_empty());
+    press(&mut state, now, key(KeyCode::Up));
+    assert!(state.peeked.is_none(), "the previous file must disappear while the next preview loads");
 }
 
 #[test]
@@ -1006,6 +1008,45 @@ fn preview_focus_scrolls_document_and_tab_returns_to_listing() {
     press(&mut state, now, key(KeyCode::Tab));
     assert!(!state.preview_focused);
     assert_eq!(state.active, Side::Left);
+}
+
+#[test]
+fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
+    for focused in [false, true] {
+        let (mut state, now) = setup_with(vec![file("guide.md")]);
+        press(&mut state, now, key(KeyCode::End));
+        press(&mut state, now, ctrl('q'));
+        let path = state.active_panel().dir().join("guide.md");
+        let source = (0..100).map(|n| format!("# Heading {n}\n\n")).collect::<String>();
+        let mut pager = borg_view::Pager::for_path(std::sync::Arc::new(source.into_bytes()), &path, 40, 10).unwrap();
+        pager.toggle_source().unwrap();
+        pager.toggle_wrap().unwrap();
+        pager.scroll_down(30).unwrap();
+        let offset = pager.offset();
+        update(
+            &mut state,
+            Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path, peek: crate::Peek::Text(pager) }),
+            now,
+        );
+        if focused {
+            press(&mut state, now, key(KeyCode::Tab));
+        }
+        let effects = press(&mut state, now, key(KeyCode::F(3)));
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::View(_))), "F3 must reuse the loaded document");
+        let pager = text(state.viewer.as_ref().unwrap());
+        assert_eq!(pager.offset(), offset);
+        assert!(!pager.formatted());
+        assert!(!pager.wrapped());
+        press(&mut state, now, key(KeyCode::PageDown));
+        let offset = text(state.viewer.as_ref().unwrap()).offset();
+        press(&mut state, now, key(KeyCode::Esc));
+        let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = &state.peeked else {
+            panic!("preview missing")
+        };
+        assert_eq!(pager.offset(), offset);
+        assert!(!pager.formatted());
+        assert!(!pager.wrapped());
+    }
 }
 
 #[test]

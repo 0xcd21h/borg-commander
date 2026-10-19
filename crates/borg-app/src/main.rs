@@ -1,7 +1,9 @@
 mod app;
 mod config;
+mod document;
 mod launch;
 mod peek;
+mod preview;
 mod session;
 mod store;
 mod update;

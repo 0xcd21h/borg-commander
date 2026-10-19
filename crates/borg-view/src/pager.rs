@@ -10,6 +10,7 @@ use crate::{
 
 const MARKDOWN_LIMIT: u64 = 2 * 1024 * 1024;
 const SYNTAX_CONTEXT: u64 = 256 * 1024;
+const SYNTAX_AHEAD: u64 = 4 * 1024;
 const TAB_WIDTH: usize = 8;
 
 pub const MAX_LINE: u64 = 64 * 1024;
@@ -56,6 +57,7 @@ pub struct Pager {
     decoration: Option<Arc<RichText>>,
     markdown: Option<Markdown>,
     formatted: bool,
+    after_page: Option<Position>,
 }
 
 impl fmt::Debug for Pager {
@@ -81,7 +83,13 @@ impl Pager {
         line_limit: u64,
         scan_limit: u64,
     ) -> io::Result<Self> {
-        let mut pager = Self {
+        let mut pager = Self::blank(source, width, height, line_limit, scan_limit);
+        pager.refresh()?;
+        Ok(pager)
+    }
+
+    fn blank(source: Arc<dyn Source>, width: usize, height: usize, line_limit: u64, scan_limit: u64) -> Self {
+        Self {
             source,
             line_limit: line_limit.max(1),
             scan_limit: scan_limit.max(line_limit),
@@ -96,13 +104,12 @@ impl Pager {
             decoration: None,
             markdown: None,
             formatted: false,
-        };
-        pager.refresh()?;
-        Ok(pager)
+            after_page: None,
+        }
     }
 
     pub fn for_path(source: Arc<dyn Source>, path: &Path, width: usize, height: usize) -> io::Result<Self> {
-        let mut pager = Self::new(source.clone(), width, height)?;
+        let mut pager = Self::blank(source.clone(), width, height, MAX_LINE, BACK_SCAN_LIMIT);
         let head = pager.read(0, FIRST_READ)?;
         let binary = head.contains(&0);
         pager.syntax = if binary {
@@ -116,7 +123,8 @@ impl Pager {
             .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdown" | "mkd"));
         if markdown && !binary && source.len() <= MARKDOWN_LIMIT {
             let bytes = pager.read(0, source.len())?;
-            let rendered = Arc::new(crate::markdown::render(&String::from_utf8_lossy(&bytes)));
+            let rendered =
+                Arc::new(crate::markdown::render(&String::from_utf8_lossy(&bytes), &|| source.is_cancelled())?);
             pager.source = Arc::new(rendered.text.as_bytes().to_vec());
             pager.markdown =
                 Some(Markdown { original: source, rendered, raw_top: pager.top, formatted_top: pager.top });
@@ -195,9 +203,32 @@ impl Pager {
         if self.width == width && self.height == height {
             return Ok(());
         }
+        let bottom = self.at_end() && self.top != (Position { line: 0, row: 0 });
+        let anchor = if self.wrap && self.top.row > 0 && self.width != width {
+            Some(
+                self.layout(self.line_at(self.top.line)?)?
+                    .iter()
+                    .take(self.top.row)
+                    .map(|row| row.chars().count())
+                    .sum::<usize>(),
+            )
+        } else {
+            None
+        };
         self.width = width;
         self.height = height;
-        self.top.row = 0;
+        if bottom {
+            self.top = self.last_top()?;
+        } else if let Some(mut anchor) = anchor {
+            for (row, text) in self.layout(self.line_at(self.top.line)?)?.iter().enumerate() {
+                self.top.row = row;
+                let count = text.chars().count();
+                if anchor < count {
+                    break;
+                }
+                anchor -= count;
+            }
+        }
         self.refresh()
     }
 
@@ -209,12 +240,11 @@ impl Pager {
     }
 
     pub fn scroll_down(&mut self, rows: usize) -> io::Result<()> {
-        let limit = self.last_top()?;
+        let mut after = self.after_page;
         for _ in 0..rows {
-            if self.top == limit {
-                break;
-            }
+            let Some(bottom) = after else { break };
             self.top = self.next_position(self.top)?.unwrap_or(self.top);
+            after = self.next_position(bottom)?;
         }
         self.refresh()
     }
@@ -264,7 +294,7 @@ impl Pager {
     }
 
     fn at_end(&self) -> bool {
-        self.last_top().is_ok_and(|last| last == self.top)
+        self.after_page.is_none()
     }
 
     fn refresh(&mut self) -> io::Result<()> {
@@ -276,14 +306,21 @@ impl Pager {
             let Some(current) = position else { break };
             let line = self.line_at(current.line)?;
             let layout = self.rich_layout(line)?;
-            for rich in layout.into_iter().skip(current.row).take(self.height - rows.len()) {
+            let shown = (layout.len().saturating_sub(current.row)).min(self.height - rows.len());
+            let more = current.row + shown < layout.len();
+            for rich in layout.into_iter().skip(current.row).take(shown) {
                 rows.push(rich.iter().map(|run| run.text.as_str()).collect());
                 rich_rows.push(rich);
             }
-            position = (line.next < self.len()).then_some(Position { line: line.next, row: 0 });
+            position = if more {
+                Some(Position { line: current.line, row: current.row + shown })
+            } else {
+                (line.next < self.len()).then_some(Position { line: line.next, row: 0 })
+            };
         }
         self.rows = rows;
         self.rich_rows = rich_rows;
+        self.after_page = position;
         Ok(())
     }
 
@@ -294,11 +331,13 @@ impl Pager {
         }
         let Some(language) = &self.syntax else { return Ok(()) };
         let mut end = self.top.line;
-        for _ in 0..=self.height {
-            if end >= self.len() {
-                break;
-            }
-            end = self.line_at(end)?.next;
+        let mut remaining = self.height;
+        let mut row = self.top.row;
+        while remaining > 0 && end < self.len() {
+            let line = self.line_at(end)?;
+            remaining = remaining.saturating_sub(self.row_count(line)?.saturating_sub(row));
+            end = line.next;
+            row = 0;
         }
         if self
             .decoration
@@ -308,11 +347,15 @@ impl Pager {
             return Ok(());
         }
         let start = self.top.line.saturating_sub(SYNTAX_CONTEXT);
-        let end = end.max(self.top.line + SYNTAX_CONTEXT).min(self.len());
+        let end = end.saturating_add(SYNTAX_AHEAD).min(self.len());
         let bytes = self.read(start, end)?;
         let skip = if start > 0 { bytes.iter().position(|b| *b == NEWLINE).map_or(0, |i| i + 1) } else { 0 };
-        self.decoration =
-            Some(Arc::new(paint::highlight(&String::from_utf8_lossy(&bytes[skip..]), language, start + skip as u64)));
+        self.decoration = Some(Arc::new(paint::highlight(
+            &String::from_utf8_lossy(&bytes[skip..]),
+            language,
+            start + skip as u64,
+            &|| self.source.is_cancelled(),
+        )?));
         Ok(())
     }
 
@@ -452,11 +495,13 @@ impl Pager {
     }
 
     fn byte_at(&self, offset: u64) -> io::Result<Option<u8>> {
+        paint::check_cancelled(&|| self.source.is_cancelled())?;
         let mut byte = [0];
         Ok((self.source.read_at(offset, &mut byte)? == 1).then_some(byte[0]))
     }
 
     fn read(&self, start: u64, end: u64) -> io::Result<Vec<u8>> {
+        paint::check_cancelled(&|| self.source.is_cancelled())?;
         let mut buf = vec![0; usize::try_from(end.saturating_sub(start)).unwrap_or(usize::MAX)];
         let read = self.source.read_at(start, &mut buf)?;
         buf.truncate(read);
@@ -525,6 +570,21 @@ mod tests {
         assert_eq!(view.rows(), ["89abcd"]);
         ok(view.scroll_left());
         assert_eq!(view.rows(), ["012345"]);
+    }
+
+    #[test]
+    fn resizing_keeps_the_wrapped_position_and_the_bottom_of_a_document() {
+        let mut view = pager("abcdefghij\nklmnopqrst\nuvwxyz\n", 2, 2);
+        ok(view.scroll_down(3));
+        assert_eq!(view.rows()[0], "gh");
+        ok(view.resize(4, 2));
+        assert_eq!(view.rows()[0], "efgh");
+        ok(view.resize(2, 3));
+        assert_eq!(view.rows()[0], "ef");
+        ok(view.end());
+        ok(view.resize(4, 2));
+        assert_eq!(view.rows().last().unwrap(), "yz");
+        assert_eq!(view.percent(), 100);
     }
 
     #[test]
