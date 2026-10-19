@@ -20,13 +20,16 @@ pub fn open(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<
         let bounds = (span(size.0, cell.0), span(size.1, cell.1));
         return picture(path, bounds).map(Content::Image);
     }
-    let source = Arc::new(LoadingSource { file: FileSource::open(path)?, cancelled });
-    Pager::for_path(source, path, size.0, size.1).map(Content::Text).map_err(Into::into)
+    let source = Arc::new(LoadingSource { file: FileSource::open(path)?, cancelled, loading: AtomicBool::new(true) });
+    let pager = Pager::for_path(source.clone(), path, size.0, size.1)?;
+    source.loading.store(false, Ordering::Relaxed);
+    Ok(Content::Text(pager))
 }
 
 struct LoadingSource {
     file: FileSource,
     cancelled: Arc<AtomicBool>,
+    loading: AtomicBool,
 }
 
 impl Source for LoadingSource {
@@ -42,7 +45,7 @@ impl Source for LoadingSource {
     }
 
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        self.loading.load(Ordering::Relaxed) && self.cancelled.load(Ordering::Relaxed)
     }
 }
 
@@ -77,5 +80,19 @@ mod tests {
             assert_eq!(preview.formatted(), viewer.formatted(), "{name}");
             assert_eq!(preview.language(), viewer.language(), "{name}");
         }
+    }
+
+    #[test]
+    fn completed_documents_remain_scrollable_after_the_load_is_cancelled() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("notes.txt");
+        fs::write(&path, "A line of text\n".repeat(100)).unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let Content::Text(mut pager) = open(&path, (45, 20), (8, 16), cancelled.clone()).unwrap() else {
+            panic!("expected text viewer")
+        };
+        cancelled.store(true, Ordering::Relaxed);
+        pager.page_down().unwrap();
+        assert!(pager.offset() > 0);
     }
 }
