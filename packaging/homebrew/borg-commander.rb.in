@@ -28,7 +28,8 @@ class BorgCommander < Formula
 
   def install
     bin.install "borg"
-    (share/"borg-commander").install "fonts", "SYNTAX-LICENSES.md"
+    (share/"borg-commander").install "fonts" if File.directory?("fonts")
+    (share/"borg-commander").install "SYNTAX-LICENSES.md" if File.file?("SYNTAX-LICENSES.md")
   end
 
   test do

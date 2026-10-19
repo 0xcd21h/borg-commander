@@ -324,8 +324,11 @@ impl Pager {
         let mut column = 0;
         for (index, c) in text.char_indices() {
             let offset = line.start + index as u64;
-            let paint =
-                self.decoration.as_ref().map_or(Paint::default(), |rich| rich.at(offset.saturating_sub(rich.base)));
+            let paint = self
+                .decoration
+                .as_ref()
+                .filter(|rich| offset >= rich.base)
+                .map_or(Paint::default(), |rich| rich.at(offset - rich.base));
             if c == '\t' {
                 let spaces = TAB_WIDTH - column % TAB_WIDTH;
                 cells.extend(std::iter::repeat_n((' ', 1, paint), spaces));

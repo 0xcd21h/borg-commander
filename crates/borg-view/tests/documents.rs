@@ -93,3 +93,13 @@ fn giant_lines_and_binary_content_use_plain_text_without_expensive_parsing() {
     assert!(!binary.formatted());
     assert!(binary.language().is_none());
 }
+
+#[test]
+fn giant_line_before_a_syntax_window_stays_unstyled_when_jumping_to_the_end() {
+    let source = format!("{}\nlet answer = 42;\n", "x".repeat(400_000));
+    let mut pager = document("generated.js", &source, 60, 3);
+    pager.end().unwrap();
+    assert!(pager.rows()[0].starts_with('x'));
+    assert!(pager.rich_rows()[0].iter().all(|run| run.paint.dark.is_none()));
+    assert!(pager.rich_rows().last().unwrap().iter().any(|run| run.paint.dark.is_some()));
+}
