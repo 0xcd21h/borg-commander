@@ -9,6 +9,8 @@ work="$(mktemp -d)"
 
 mkdir -p "${work}/${name}" "${out}"
 cp "target/${target}/release/borg" README.md LICENSE "${work}/${name}/"
+cp -R fonts "${work}/${name}/fonts"
+cp docs/SYNTAX-LICENSES.md "${work}/${name}/"
 tar -C "${work}" -czf "${out}/${name}.tar.gz" "${name}"
 (cd "${out}" && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256")
 rm -rf "${work}"

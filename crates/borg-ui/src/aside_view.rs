@@ -56,6 +56,7 @@ const DISK_LABEL: &str = "Free space";
 
 pub struct AsideScene<'a> {
     pub aside: Aside,
+    pub focused: bool,
     pub peeked: Option<&'a Peeked>,
     pub area: Rect,
     pub icons: bool,
@@ -81,10 +82,13 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     let block = Block::bordered()
         .border_type(look.theme.border.into())
         .style(styles.panel)
-        .border_style(styles.border)
+        .border_style(if scene.focused { styles.border_active } else { styles.border })
         .title(Line::styled(title, styles.title));
     let block = match shown.and_then(|peeked| footer(&peeked.peek)) {
-        Some(footer) => block.title_bottom(Line::styled(format!(" {footer} "), styles.footer)),
+        Some(footer) => block.title_bottom(Line::styled(
+            format!(" {}{footer} ", if scene.focused { "Focused · Tab back · " } else { "" }),
+            styles.footer,
+        )),
         None => block,
     };
     let inner = block.inner(scene.area);
@@ -103,8 +107,8 @@ fn content(peeked: &Peeked, scene: &AsideScene<'_>, look: &Look<'_>, body: Rect,
     let styles = look.styles();
     match &peeked.peek {
         Peek::Picture(image) => return picture(image, scene, body, buf),
-        Peek::Text(rows) if rows.is_empty() => centered(EMPTY, styles.meta, body, buf),
-        Peek::Text(rows) => lines(rows.iter().map(|row| Line::styled(row.as_str(), styles.panel)), body, buf),
+        Peek::Text(pager) if pager.is_empty() => centered(EMPTY, styles.meta, body, buf),
+        Peek::Text(pager) => crate::document_view::draw(pager, styles.panel, body, buf),
         Peek::Folder { entries, .. } => lines(entries.iter().map(|entry| listed(entry, scene, look)), body, buf),
         Peek::Info(facts) => info(facts, &peeked.path, scene.clock, look, body, buf),
         Peek::Binary => centered(BINARY, styles.meta, body, buf),
@@ -131,7 +135,12 @@ fn footer(peek: &Peek) -> Option<String> {
             let (width, height) = image.original;
             Some(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes)))
         }
-        Peek::Text(_) | Peek::Info(_) | Peek::Binary | Peek::Unavailable(_) => None,
+        Peek::Text(pager) => Some(format!(
+            "{}% · Tab focus{}",
+            pager.percent(),
+            if pager.markdown() { " · s source/render" } else { " · w wrap" }
+        )),
+        Peek::Info(_) | Peek::Binary | Peek::Unavailable(_) => None,
     }
 }
 
@@ -158,7 +167,7 @@ fn picture(image: &Image, scene: &AsideScene<'_>, body: Rect, buf: &mut Buffer) 
 
 fn listed<'a>(entry: &Entry, scene: &AsideScene<'_>, look: &Look<'_>) -> Line<'a> {
     let style = style_of(entry, look.styles());
-    let icon = scene.icons.then(|| icons::icon(entry));
+    let icon = Some(if scene.icons { icons::icon(entry) } else { icons::portable(entry) });
     let gap = ICON_GAP.to_string().repeat(usize::from(scene.icon_spacing));
     let lead = icon
         .map(|icon| Span::styled(format!("{}{gap}", icon.glyph), icon.color.map_or(style, |color| style.fg(color))));

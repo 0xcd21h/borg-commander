@@ -15,12 +15,11 @@ const FRAME: Duration = Duration::from_millis(90);
 const TAIL: Duration = Duration::from_secs(3);
 const COLS: u16 = 132;
 const ROWS: u16 = 36;
-const CONFIG: &str = "startup-animation = true\ntheme = \"neon\"\nicons = true\nmenu-bar = true\n";
+const CONFIG: &str = "theme = \"neon\"\nnerd-font = true\nreturn-to-panels = false\nmenu-bar = true\n";
 const TYPE_DELAY: Duration = Duration::from_millis(45);
 const SHORT: Duration = Duration::from_millis(350);
 const BEAT: Duration = Duration::from_millis(700);
 const LONG: Duration = Duration::from_millis(1400);
-const SPLASH: Duration = Duration::from_millis(2200);
 const PICTURE_SIZE: (u32, u32) = (480, 270);
 const PROJECT: [&str; 2] = ["projects", "borg"];
 const ASSETS: &str = "assets";
@@ -38,7 +37,10 @@ const SOURCES: [(&str, &str); 4] = [
 const FILES: [(&str, &str); 13] = [
     ("Cargo.toml", "[package]\nname = \"borg\"\n"),
     ("Cargo.lock", "version = 4\n"),
-    ("README.md", "# borg\n\nResistance is futile.\n"),
+    (
+        "README.md",
+        "# Borg\n\nA file manager with a shell behind the panels.\n\n## Quick preview\n\n- **Ctrl-Q** opens the preview\n- **Tab** focuses the document\n- Press `s` to switch to source\n\n```rust\nfn main() {\n    println!(\"Hello, Borg!\");\n}\n```\n",
+    ),
     ("LICENSE", "MIT\n"),
     ("Dockerfile", "FROM rust:1\n"),
     ("package.json", "{ \"name\": \"borg-web\" }\n"),
@@ -47,7 +49,7 @@ const FILES: [(&str, &str); 13] = [
     ("notes.txt", "We are the Borg.\nLower your shields and surrender your files.\n"),
     ("docs/guide.md", "# Guide\n"),
     ("docs/architecture.md", "# Architecture\n"),
-    ("CHANGELOG.md", "# 0.2.0\n\nMouse navigation, console scrollback, and fast terminal chrome.\n"),
+    ("CHANGELOG.md", "# 0.3.0\n\nMouse navigation, console scrollback, and fast terminal chrome.\n"),
     ("Makefile", "build:\n\tcargo build --release\n"),
 ];
 
@@ -147,8 +149,6 @@ fn main() -> Result<()> {
     let root = project(&fixture)?;
     let app = Session::builder(&binary, &fixture).cwd(root).size(COLS, ROWS).label("demo").spawn()?;
     let mut script = Script { app, recorder: Recorder::new(FRAME) };
-    script.app.wait_text("c o m m a n d e r")?;
-    script.recorder.record(&mut script.app, SPLASH)?;
 
     script.app.wait_text("README.md")?;
     script.app.wait_text("checksums.txt")?;
@@ -171,6 +171,9 @@ fn main() -> Result<()> {
         script.press(key, LONG)?;
     }
     script.press(keys::esc(), BEAT)?;
+    script.click("Options", SHORT)?.click("Settings…", LONG)?.press(keys::esc(), BEAT)?;
+    script.find("README")?.press(keys::ctrl('q'), LONG)?.press(keys::tab(), BEAT)?;
+    script.press("s", LONG)?.press("s", BEAT)?.press(keys::tab(), SHORT)?.press(keys::ctrl('q'), SHORT)?;
 
     script.type_text("printf 'Scan complete: deck %02d\\n' {1..70}", SHORT)?.press(keys::enter(), LONG)?;
     script.app.wait_text("Borg console")?;

@@ -12,6 +12,7 @@ pub const EVEN_SPLIT: f32 = 0.5;
 pub struct Chrome {
     pub menu_bar: bool,
     pub status_line: bool,
+    pub prompt_rows: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +34,7 @@ impl Layout {
             Constraint::Length(menu_rows),
             Constraint::Fill(1),
             Constraint::Length(status_rows),
-            Constraint::Length(PROMPT_ROWS),
+            Constraint::Length(chrome.prompt_rows.max(PROMPT_ROWS)),
             Constraint::Length(KEYBAR_ROWS),
         ])
         .areas(screen);
@@ -72,8 +73,8 @@ fn split_width(width: u16, split: f32) -> u16 {
 mod tests {
     use super::*;
 
-    const BARE: Chrome = Chrome { menu_bar: false, status_line: false };
-    const FULL: Chrome = Chrome { menu_bar: true, status_line: true };
+    const BARE: Chrome = Chrome { menu_bar: false, status_line: false, prompt_rows: 1 };
+    const FULL: Chrome = Chrome { menu_bar: true, status_line: true, prompt_rows: 1 };
 
     #[test]
     fn even_split_divides_width() {

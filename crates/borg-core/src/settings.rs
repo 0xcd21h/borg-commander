@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 pub const DEFAULT_SCREENSAVER_AFTER: Duration = Duration::from_secs(300);
-pub const SPLASH_DURATION: Duration = Duration::from_millis(1600);
 pub const AMBIENT_FRAME: Duration = Duration::from_millis(80);
 pub const ICON_SPACING: std::ops::RangeInclusive<u8> = 1..=3;
 
@@ -29,27 +28,21 @@ pub struct Preferences {
     pub show_hidden: bool,
     pub status_line: bool,
     pub menu_bar: bool,
-    pub animations: bool,
     pub restore_terminal: bool,
-    pub splash: bool,
     pub screensaver: bool,
-    pub delight: bool,
-    pub icons: bool,
+    pub nerd_font: bool,
     pub icon_spacing: u8,
 }
 
 impl Preferences {
     pub const DEFAULT: Self = Self {
-        after_command: AfterCommand::ShowShell,
+        after_command: AfterCommand::ReturnToPanels,
         show_hidden: false,
         status_line: true,
         menu_bar: false,
-        animations: true,
         restore_terminal: false,
-        splash: true,
-        screensaver: false,
-        delight: true,
-        icons: false,
+        screensaver: true,
+        nerd_font: false,
         icon_spacing: *ICON_SPACING.start(),
     };
 }
@@ -72,7 +65,7 @@ pub struct Settings {
 
 impl Settings {
     pub fn effective_motion(&self) -> Motion {
-        if self.preferences.animations { self.motion } else { Motion::STILL }
+        Motion::STILL
     }
 }
 

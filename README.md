@@ -13,7 +13,7 @@ Type commands at the bottom prompt; press Ctrl-O to switch between the panels an
 
 - Copy, move, and delete files in background jobs with progress and conflict prompts.
 - Find files by name or pattern, mark groups, and preview files in the other panel.
-- View text and images, or open files in your editor.
+- Preview source code with syntax highlighting, formatted Markdown, and images.
 - Use the keyboard or mouse. Esc followed by a digit works when F-keys are unavailable.
 - Save panel folders, sorting, and theme preferences between sessions.
 
@@ -60,13 +60,15 @@ Panels and dialogs use terminal cells.
 | **Paper** | **Ember** |
 | <img src="docs/themes/paper.png" alt="Paper theme" width="400"> | <img src="docs/themes/ember.png" alt="Ember theme" width="400"> |
 
-Classic uses fixed RGB colours, independent of the terminal’s ANSI palette settings.
-For other themes, terminal-default colours can vary with your terminal profile. When truecolour
-is unavailable, RGB colours are mapped to the 256-colour palette.
+Themes use fixed colours so terminal palette customisations do not change their appearance.
+Terminals without truecolour use the nearest colours in the 256-colour palette.
 
-File icons require a Nerd Font selected in your terminal. In this version, turn icons off
-with `icons = false` if the glyphs appear as boxes. The bundled test fonts are used to render
-these screenshots; they do not change your terminal’s font.
+File icons are always shown. Portable symbols are the default: `/` for folders, `@` for links,
+and `*` for executables. Release archives include **Borg Mono**, a monospace font with Nerd Font
+icons. Install the regular and bold fonts from `fonts/`, select Borg Mono in your terminal,
+and set `nerd-font = true` for the richer icons. Borg cannot change your terminal’s font.
+The installer saves them in `${XDG_DATA_HOME:-~/.local/share}/borg-commander/fonts`;
+Homebrew keeps them in `$(brew --prefix)/share/borg-commander/fonts`.
 
 ## Keys
 
@@ -75,7 +77,7 @@ these screenshots; they do not change your terminal’s font.
 | Up, Down, PgUp, PgDn, Home, End | Move |
 | Enter, Right | Open folder / run or view file |
 | Left | Go to the parent folder |
-| Tab | Switch panel |
+| Tab | Switch panel, or focus the quick preview / return to the file list |
 | Ctrl-O | Show the shell / back to the panels |
 | Ctrl-S | Quick find in the folder |
 | Ctrl-Q | Quick view: the other panel previews the file under the cursor (text, picture or folder) |
@@ -104,7 +106,7 @@ these screenshots; they do not change your terminal’s font.
 
 Tab, Enter, Home, End, Left, and Right act on the panels while the command line is empty.
 Once you type a command, those keys go to the shell. Ctrl-P, Ctrl-N, and Ctrl-R use your
-shell’s command history.
+shell’s command history. Recalled multiline commands expand the prompt area and keep the cursor visible.
 
 If your terminal reserves F-keys, press **Esc, then a digit** within 1.5 seconds:
 Esc 1–9 are F1–F9; Esc 0 is F10. For example, Esc 9 opens the menus and Esc 5 copies.
@@ -137,26 +139,34 @@ F3 opens the viewer. In text files, arrows and PgUp/PgDn scroll, `w` changes wra
 Esc or `q` closes. In images, Left/Right or `p`/`n` select the previous or next image.
 Image protocols are used when available; other terminals display colour blocks.
 
-Ctrl-Q shows quick preview in the other panel. Ctrl-L shows file information.
+Ctrl-Q shows quick preview in the other panel. Tab focuses it; arrows, PgUp/PgDn, Home/End,
+and the mouse wheel scroll the document. Tab or Esc returns to the file list. Ctrl-L shows
+file information.
+
+Both text viewers highlight common programming languages, markup, and configuration files,
+including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua,
+SQL, HTML/CSS, JSON, YAML, TOML, shell scripts, and Dockerfiles.
+Markdown opens formatted by default. Press `s` or F4 in either viewer to toggle source view.
+Headings, emphasis, lists, tasks, links, tables, and fenced code blocks are supported.
+Markdown files larger than 2 MiB open as source to keep memory bounded.
 F4 opens the selected file with `$VISUAL` or `$EDITOR`.
 
 ## Configuration
 
 Settings are saved in `~/.config/borg-commander/config.toml`, or the directory selected by
-`$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. Menu changes save the file automatically.
+`$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. F9 → Options → Settings opens checkboxes;
+Space or a click toggles a setting and saves it immediately. Esc closes the window.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
-icons = true                # Nerd Font file icons
+nerd-font = false           # set true after selecting Borg Mono or another Nerd Font
 icon-spacing = 1            # spaces after an icon, 1 to 3
 status-line = true
 menu-bar = false            # keep the menu bar visible
-animations = true
 show-hidden = false
-return-to-panels = false    # come back to the panels after a command finishes
+return-to-panels = true    # come back to the panels after a command finishes
 restore-terminal = false    # bring back the shell scrollback on the next start
-startup-animation = true
-screensaver = false
+screensaver = true
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -185,3 +195,6 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for builds, tests, screenshots, and demo re
 [MIT](LICENSE). Screenshot rendering uses bundled DejaVu Sans Mono and Symbols Nerd Font.
 The icon table comes from [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
 through [yazi](https://github.com/sxyazi/yazi). Font and icon licenses are included in the repository.
+
+Syntax definitions and highlighting themes come from [two-face](https://github.com/CosmicHorrorDev/two-face)
+and [bat](https://github.com/sharkdp/bat); their licences are in [SYNTAX-LICENSES.md](docs/SYNTAX-LICENSES.md).

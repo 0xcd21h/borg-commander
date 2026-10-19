@@ -77,11 +77,11 @@ impl Emulator {
         let marks = self.scanner.scan(bytes);
         let mut consumed = 0;
         for (end, signal) in &marks {
-            self.parser.advance(&mut self.term, &bytes[consumed..*end]);
+            self.advance(&bytes[consumed..*end]);
             consumed = *end;
             self.track(signal);
         }
-        self.parser.advance(&mut self.term, &bytes[consumed..]);
+        self.advance(&bytes[consumed..]);
         marks.into_iter().map(|(_, signal)| signal).collect()
     }
 
@@ -107,7 +107,7 @@ impl Emulator {
     }
 
     pub fn screen(&self) -> Screen<'_> {
-        Screen { term: &self.term }
+        Screen { term: &self.term, input_start: self.input_start }
     }
 
     pub fn prompt_state(&self) -> PromptState {
@@ -122,26 +122,67 @@ impl Emulator {
         let Some(start) = self.input_start else { return String::new() };
         let grid = self.term.grid();
         let cursor = grid.cursor.point;
-        let last_column = Column(grid.columns().saturating_sub(1));
-        let bottom = Line(i32::try_from(grid.screen_lines()).unwrap_or(i32::MAX) - 1);
+        let bottom = self.input_bottom();
         let mut text = String::new();
         let mut line = start.line;
         loop {
             let first = if line == start.line { start.column.0 } else { 0 };
+            let mut row = String::new();
             for column in first..grid.columns() {
                 let point = Point::new(line, Column(column));
                 let cell = &grid[point];
                 if point >= cursor && suggested(cell) {
-                    return text.trim_end().to_owned();
+                    break;
                 }
                 if !cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
-                    text.push(if cell.c == BLANK { ' ' } else { cell.c });
+                    row.push(if cell.c == BLANK { ' ' } else { cell.c });
+                    if let Some(zero) = cell.zerowidth() {
+                        row.extend(zero);
+                    }
                 }
             }
-            if line >= bottom || !grid[Point::new(line, last_column)].flags.contains(Flags::WRAPLINE) {
+            let wrapped = grid[Point::new(line, Column(grid.columns() - 1))].flags.contains(Flags::WRAPLINE);
+            text.push_str(if wrapped { &row } else { row.trim_end() });
+            if line >= bottom {
                 return text.trim_end().to_owned();
             }
+            if !wrapped {
+                text.push('\n');
+            }
             line += 1;
+        }
+    }
+
+    pub fn command_rows(&self) -> u16 {
+        self.screen().input_region().map_or(1, |(first, last)| last.saturating_sub(first) + 1)
+    }
+
+    fn input_bottom(&self) -> Line {
+        let (_, last) = self.screen().input_region().unwrap_or_else(|| {
+            let (_, row) = self.screen().cursor();
+            (row, row)
+        });
+        Line(i32::from(last))
+    }
+
+    fn advance(&mut self, bytes: &[u8]) {
+        if self.input_start.is_none() {
+            self.parser.advance(&mut self.term, bytes);
+            return;
+        }
+        for byte in bytes {
+            let bottom = self.term.grid().screen_lines() as i32 - 1;
+            self.term.vi_mode_cursor.point = Point::new(Line(bottom), Column(0));
+            self.parser.advance(&mut self.term, std::slice::from_ref(byte));
+            let scrolled = bottom - self.term.vi_mode_cursor.point.line.0;
+            if let Some(start) = self.input_start.as_mut() {
+                start.line -= scrolled;
+                let oldest = -(self.term.grid().history_size() as i32);
+                if start.line.0 < oldest {
+                    start.line = Line(oldest);
+                    start.column = Column(0);
+                }
+            }
         }
     }
 
@@ -167,9 +208,38 @@ fn suggested(cell: &Cell) -> bool {
 
 pub struct Screen<'a> {
     term: &'a Term<Replies>,
+    input_start: Option<Point>,
 }
 
 impl<'a> Screen<'a> {
+    pub fn input_region(&self) -> Option<(u16, u16)> {
+        let start = self.input_start?;
+        let grid = self.term.grid();
+        let cursor = grid.cursor.point;
+        let mut last = cursor.line.0.max(start.line.0).max(0) as u16;
+        while last + 1 < self.rows() {
+            let next = last + 1;
+            let nonblank = (0..self.cols()).any(|col| {
+                let c = self.live_cell(col, next).c;
+                c != ' ' && c != BLANK
+            });
+            if !nonblank {
+                break;
+            }
+            last = next;
+        }
+        Some((start.line.0.max(0) as u16, last))
+    }
+
+    pub fn prompt_top(&self, height: u16) -> u16 {
+        let (_, cursor) = self.cursor();
+        self.input_region().map_or(cursor, |(first, last)| {
+            first
+                .max(cursor.saturating_add(1).saturating_sub(height))
+                .min(last.saturating_add(1).saturating_sub(height).max(first))
+        })
+    }
+
     pub fn cols(&self) -> u16 {
         u16::try_from(self.term.grid().columns()).unwrap_or(u16::MAX)
     }
@@ -307,5 +377,35 @@ mod tests {
         let mut emulator = Emulator::new(SIZE, 0);
         let signals = emulator.feed(b"\x1b]133;D;0\x07\x1b]133;A\x07");
         assert_eq!(signals, vec![ShellSignal::CommandEnd { exit: Some(0) }, ShellSignal::PromptStart]);
+    }
+}
+
+#[cfg(test)]
+mod multiline_tests {
+    use super::*;
+
+    #[test]
+    fn tracks_wrapped_input_when_prompt_scrolls_up() {
+        let mut emulator = Emulator::new(GridSize { cols: 12, rows: 4 }, 100);
+        emulator.feed(b"output\r\noutput\r\noutput\r\n\x1b]133;A\x07$ \x1b]133;B\x07");
+        emulator.feed(b"echo a command with several wrapped rows");
+        assert_eq!(emulator.command_line(), "echo a command with several wrapped rows");
+        assert_eq!(emulator.command_rows(), 4);
+        assert_eq!(emulator.screen().input_region(), Some((0, 3)));
+        emulator.feed(b"\x1b[2A\x1b[3G");
+        assert_eq!(emulator.command_rows(), 4, "moving the cursor up preserves following input rows");
+        emulator.feed(b"\x1b]133;C\x07");
+        assert_eq!(emulator.command_rows(), 1);
+    }
+
+    #[test]
+    fn explicit_newlines_survive_command_recall() {
+        let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+        emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07printf first\r\nprintf second");
+        assert_eq!(emulator.command_line(), "printf first\nprintf second");
+        assert_eq!(emulator.command_rows(), 2);
+        emulator.feed(b"\x1b[1A\r\x1b[2C\x1b[J");
+        assert_eq!(emulator.command_rows(), 1);
+        assert_eq!(emulator.command_line(), "");
     }
 }

@@ -23,7 +23,7 @@ fn opens_and_jumps_through_a_five_gigabyte_file_without_loading_it() -> Result<(
     drop(file);
 
     let started = Instant::now();
-    let mut pager = Pager::new(Arc::new(FileSource::open(&path)?), 100, 20)?;
+    let mut pager = Pager::for_path(Arc::new(FileSource::open(&path)?), &path, 100, 20)?;
     assert_eq!(pager.len(), FIVE_GIB);
     assert_eq!(&pager.rows()[..2], ["first line", "second line"]);
 

@@ -38,8 +38,8 @@ fn quick_view(path: &Path, (width, height): (usize, usize), (cell_width, cell_he
     if is_binary(path)? {
         return Ok(Peek::Binary);
     }
-    let pager = Pager::new(Arc::new(FileSource::open(path)?), width, height)?;
-    Ok(Peek::Text(pager.rows().to_vec()))
+    let pager = Pager::for_path(Arc::new(FileSource::open(path)?), path, width, height)?;
+    Ok(Peek::Text(pager))
 }
 
 fn is_binary(path: &Path) -> Result<bool> {

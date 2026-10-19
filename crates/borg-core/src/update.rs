@@ -27,16 +27,22 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Observe(view) => {
             state.shell.observe(view);
+            state.refit();
             Vec::new()
         }
         Msg::ShellOutput(view) => {
             state.shell.observe(view);
             state.shell.unechoed = false;
+            state.refit();
             Vec::new()
         }
-        Msg::Signal(signal) => on_signal(state, signal),
+        Msg::Signal(signal) => {
+            state.idle_since = now;
+            on_signal(state, signal)
+        }
         Msg::Opened(viewer) => {
             state.viewer = Some(viewer);
+            crate::viewer::resize(state);
             Vec::new()
         }
         Msg::Tick => {
@@ -70,22 +76,18 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 }
 
 fn tick_timers(state: &mut AppState, now: Instant) {
-    if state.splash_until.is_some_and(|until| now >= until) {
-        state.splash_until = None;
-    }
     if state.rain_until.is_some_and(|until| now >= until) {
         state.rain_until = None;
     }
     let due = state.idle_since + state.settings.screensaver_after;
-    if state.settings.preferences.screensaver && now >= due {
+    if state.settings.preferences.screensaver && state.can_screensave() && now >= due {
         state.screensaver = true;
     }
 }
 
 fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     state.idle_since = now;
-    let resting = state.splash_active(now) || state.screensaver;
-    state.splash_until = None;
+    let resting = state.screensaver;
     state.screensaver = false;
     if resting {
         return Vec::new();
@@ -113,6 +115,9 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
         return overlays::on_key(state, key, now);
     }
 
+    if state.preview_focused && state.view == View::Panels {
+        return crate::aside::on_key(state, key, now);
+    }
     state.notice = None;
     let pending = state.escaped.take().is_some_and(|at| now.saturating_duration_since(at) <= ESCAPE_WINDOW);
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
@@ -226,7 +231,7 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
             state.shell.running = true;
             Vec::new()
         }
-        ShellSignal::CommandEnd { exit } if state.shell.running => {
+        ShellSignal::CommandEnd { exit } if state.shell.running || state.shell.integrated => {
             state.shell.running = false;
             finish_command(state, exit)
         }

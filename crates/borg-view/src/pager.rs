@@ -1,6 +1,16 @@
-use std::{fmt, io, sync::Arc};
+use std::{fmt, io, path::Path, sync::Arc};
 
-use crate::{Source, text};
+use unicode_width::UnicodeWidthChar;
+
+use crate::{
+    Paint, Run, Source,
+    paint::{self, RichText},
+    text,
+};
+
+const MARKDOWN_LIMIT: u64 = 2 * 1024 * 1024;
+const SYNTAX_CONTEXT: u64 = 256 * 1024;
+const TAB_WIDTH: usize = 8;
 
 pub const MAX_LINE: u64 = 64 * 1024;
 const BACK_SCAN_LIMIT: u64 = 1024 * 1024;
@@ -23,6 +33,14 @@ struct Position {
 }
 
 #[derive(Clone)]
+struct Markdown {
+    original: Arc<dyn Source>,
+    rendered: Arc<RichText>,
+    raw_top: Position,
+    formatted_top: Position,
+}
+
+#[derive(Clone)]
 pub struct Pager {
     source: Arc<dyn Source>,
     line_limit: u64,
@@ -33,6 +51,11 @@ pub struct Pager {
     width: usize,
     height: usize,
     rows: Vec<String>,
+    rich_rows: Vec<Vec<Run>>,
+    syntax: Option<String>,
+    decoration: Option<Arc<RichText>>,
+    markdown: Option<Markdown>,
+    formatted: bool,
 }
 
 impl fmt::Debug for Pager {
@@ -68,9 +91,71 @@ impl Pager {
             width,
             height,
             rows: Vec::new(),
+            rich_rows: Vec::new(),
+            syntax: None,
+            decoration: None,
+            markdown: None,
+            formatted: false,
         };
         pager.refresh()?;
         Ok(pager)
+    }
+
+    pub fn for_path(source: Arc<dyn Source>, path: &Path, width: usize, height: usize) -> io::Result<Self> {
+        let mut pager = Self::new(source.clone(), width, height)?;
+        let head = pager.read(0, FIRST_READ)?;
+        let binary = head.contains(&0);
+        pager.syntax = if binary {
+            None
+        } else {
+            paint::syntax_name(path, String::from_utf8_lossy(&head).lines().next().unwrap_or_default())
+        };
+        let markdown = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdown" | "mkd"));
+        if markdown && !binary && source.len() <= MARKDOWN_LIMIT {
+            let bytes = pager.read(0, source.len())?;
+            let rendered = Arc::new(crate::markdown::render(&String::from_utf8_lossy(&bytes)));
+            pager.source = Arc::new(rendered.text.as_bytes().to_vec());
+            pager.markdown =
+                Some(Markdown { original: source, rendered, raw_top: pager.top, formatted_top: pager.top });
+            pager.formatted = true;
+        }
+        pager.refresh()?;
+        Ok(pager)
+    }
+
+    pub fn rich_rows(&self) -> &[Vec<Run>] {
+        &self.rich_rows
+    }
+
+    pub fn markdown(&self) -> bool {
+        self.markdown.is_some()
+    }
+
+    pub fn formatted(&self) -> bool {
+        self.formatted
+    }
+
+    pub fn language(&self) -> Option<&str> {
+        self.syntax.as_deref()
+    }
+
+    pub fn toggle_source(&mut self) -> io::Result<()> {
+        let Some(markdown) = self.markdown.as_mut() else { return Ok(()) };
+        if self.formatted {
+            markdown.formatted_top = self.top;
+            self.top = markdown.raw_top;
+            self.source = markdown.original.clone();
+        } else {
+            markdown.raw_top = self.top;
+            self.top = markdown.formatted_top;
+            self.source = Arc::new(markdown.rendered.text.as_bytes().to_vec());
+        }
+        self.formatted = !self.formatted;
+        self.decoration = None;
+        self.refresh()
     }
 
     pub fn rows(&self) -> &[String] {
@@ -107,6 +192,9 @@ impl Pager {
     }
 
     pub fn resize(&mut self, width: usize, height: usize) -> io::Result<()> {
+        if self.width == width && self.height == height {
+            return Ok(());
+        }
         self.width = width;
         self.height = height;
         self.top.row = 0;
@@ -180,17 +268,97 @@ impl Pager {
     }
 
     fn refresh(&mut self) -> io::Result<()> {
+        self.decorate()?;
         let mut rows = Vec::with_capacity(self.height);
+        let mut rich_rows = Vec::with_capacity(self.height);
         let mut position = (!self.is_empty()).then_some(self.top);
         while rows.len() < self.height {
             let Some(current) = position else { break };
             let line = self.line_at(current.line)?;
-            let layout = self.layout(line)?;
-            rows.extend(layout.into_iter().skip(current.row).take(self.height - rows.len()));
+            let layout = self.rich_layout(line)?;
+            for rich in layout.into_iter().skip(current.row).take(self.height - rows.len()) {
+                rows.push(rich.iter().map(|run| run.text.as_str()).collect());
+                rich_rows.push(rich);
+            }
             position = (line.next < self.len()).then_some(Position { line: line.next, row: 0 });
         }
         self.rows = rows;
+        self.rich_rows = rich_rows;
         Ok(())
+    }
+
+    fn decorate(&mut self) -> io::Result<()> {
+        if self.formatted {
+            self.decoration = self.markdown.as_ref().map(|markdown| markdown.rendered.clone());
+            return Ok(());
+        }
+        let Some(language) = &self.syntax else { return Ok(()) };
+        let mut end = self.top.line;
+        for _ in 0..=self.height {
+            if end >= self.len() {
+                break;
+            }
+            end = self.line_at(end)?.next;
+        }
+        if self
+            .decoration
+            .as_ref()
+            .is_some_and(|rich| rich.base <= self.top.line && rich.base + rich.text.len() as u64 >= end)
+        {
+            return Ok(());
+        }
+        let start = self.top.line.saturating_sub(SYNTAX_CONTEXT);
+        let end = end.max(self.top.line + SYNTAX_CONTEXT).min(self.len());
+        let bytes = self.read(start, end)?;
+        let skip = if start > 0 { bytes.iter().position(|b| *b == NEWLINE).map_or(0, |i| i + 1) } else { 0 };
+        self.decoration =
+            Some(Arc::new(paint::highlight(&String::from_utf8_lossy(&bytes[skip..]), language, start + skip as u64)));
+        Ok(())
+    }
+
+    fn rich_layout(&self, line: Line) -> io::Result<Vec<Vec<Run>>> {
+        let bytes = self.read(line.start, line.end)?;
+        let text = String::from_utf8_lossy(&bytes);
+        let text = text.strip_suffix('\r').unwrap_or(&text);
+        let mut cells = Vec::new();
+        let mut column = 0;
+        for (index, c) in text.char_indices() {
+            let offset = line.start + index as u64;
+            let paint =
+                self.decoration.as_ref().map_or(Paint::default(), |rich| rich.at(offset.saturating_sub(rich.base)));
+            if c == '\t' {
+                let spaces = TAB_WIDTH - column % TAB_WIDTH;
+                cells.extend(std::iter::repeat_n((' ', 1, paint), spaces));
+                column += spaces;
+            } else {
+                let c = if c.is_control() { '·' } else { c };
+                let width = c.width().unwrap_or(0);
+                cells.push((c, width, paint));
+                column += width;
+            }
+        }
+        let mut rows = vec![Vec::<Run>::new()];
+        let mut used = 0;
+        let mut column = 0;
+        for (c, width, paint) in cells {
+            let start = column;
+            column += width;
+            if !self.wrap && (start < self.column || column > self.column.saturating_add(self.width)) {
+                continue;
+            }
+            if self.wrap && used + width > self.width.max(1) && used > 0 {
+                rows.push(Vec::new());
+                used = 0;
+            }
+            let row = rows.last_mut().unwrap();
+            if let Some(last) = row.last_mut().filter(|last| last.paint == paint) {
+                last.text.push(c);
+            } else {
+                row.push(Run { text: c.to_string(), paint });
+            }
+            used += width;
+        }
+        Ok(rows)
     }
 
     fn layout(&self, line: Line) -> io::Result<Vec<String>> {

@@ -9,7 +9,6 @@ use crate::{
     About, Appearance, Aside, Easing, Effect, Fade, Find, Job, JobList, Layout, LineInput, ListingMode, Motion, Pace,
     Panel, PanelMotion, Peeked, Picker, Question, Settings, Sort, Viewer,
     layout::{Chrome, EVEN_SPLIT, clamp_split},
-    settings::SPLASH_DURATION,
 };
 
 const OPAQUE: f32 = 1.0;
@@ -49,13 +48,14 @@ pub enum View {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShellView {
     pub prompt: PromptState,
+    pub command_rows: u16,
     pub foreground: Foreground,
     pub mode: TermMode,
 }
 
 impl Default for ShellView {
     fn default() -> Self {
-        Self { prompt: PromptState::Unknown, foreground: Foreground::Unknown, mode: TermMode::empty() }
+        Self { prompt: PromptState::Unknown, command_rows: 1, foreground: Foreground::Unknown, mode: TermMode::empty() }
     }
 }
 
@@ -153,6 +153,7 @@ pub enum Overlay {
     Question(Question),
     Jobs(JobList),
     Themes(Picker),
+    Settings { selected: usize },
     Menu(MenuCursor),
     Prompt(Prompt),
     Confirm(Confirm),
@@ -224,12 +225,12 @@ pub struct AppState {
     pub last_find: Option<String>,
     pub jobs: Vec<Job>,
     pub aside: Option<Aside>,
+    pub preview_focused: bool,
     pub(crate) last_menu: Option<MenuCursor>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
     pub(crate) peeking: Option<(Aside, PathBuf)>,
     pub next_job: u64,
-    pub splash_until: Option<Instant>,
     pub idle_since: Instant,
     pub screensaver: bool,
     pub rain_until: Option<Instant>,
@@ -279,19 +280,17 @@ impl AppState {
             last_find: None,
             jobs: Vec::new(),
             aside: None,
+            preview_focused: false,
             last_menu: None,
             escaped: None,
             peeked: None,
             peeking: None,
             next_job: 0,
-            splash_until: None,
             idle_since: now,
             screensaver: false,
             rain_until: None,
             generation: 0,
         };
-        let animated = state.motion().fade > Duration::ZERO;
-        state.splash_until = (state.settings.preferences.splash && animated).then_some(now + SPLASH_DURATION);
         state.refit();
 
         let effects = Side::ALL
@@ -312,7 +311,11 @@ impl AppState {
 
     pub fn chrome(&self) -> Chrome {
         let prefs = &self.settings.preferences;
-        Chrome { menu_bar: prefs.menu_bar, status_line: prefs.status_line }
+        Chrome {
+            menu_bar: prefs.menu_bar,
+            status_line: prefs.status_line,
+            prompt_rows: self.shell.observed.command_rows.max(1).min((self.rows / 2).max(1)),
+        }
     }
 
     pub fn layout(&self, now: Instant) -> Layout {
@@ -341,8 +344,7 @@ impl AppState {
             || self.appearance.is_animating(now)
             || self.overlay_fade.is_animating(now)
             || self.leaving.as_ref().is_some_and(|leaving| leaving.fade.is_animating(now))
-            || self.motions.iter().any(|motion| motion.is_animating(now))
-            || self.splash_active(now);
+            || self.motions.iter().any(|motion| motion.is_animating(now));
         if smooth {
             Some(Pace::Smooth)
         } else if crate::motion::ambient(self, now) {
@@ -352,27 +354,20 @@ impl AppState {
         }
     }
 
-    pub fn splash_active(&self, now: Instant) -> bool {
-        self.splash_until.is_some_and(|until| now < until)
-    }
-
-    pub fn splash_progress(&self, now: Instant) -> Option<f32> {
-        let until = self.splash_until.filter(|until| now < *until)?;
-        let elapsed = SPLASH_DURATION.saturating_sub(until.saturating_duration_since(now));
-        Some(elapsed.as_secs_f32() / SPLASH_DURATION.as_secs_f32())
-    }
-
     pub fn raining(&self, now: Instant) -> bool {
         self.rain_until.is_some_and(|until| now < until)
     }
 
+    pub fn can_screensave(&self) -> bool {
+        !self.shell.busy() && self.jobs.is_empty() && self.overlay.is_none() && self.viewer.is_none()
+    }
+
     pub fn wake_at(&self) -> Option<Instant> {
         let reveal = self.operation.as_ref().filter(|op| !op.revealed).map(|op| op.reveal_at);
-        let splash = self.splash_until;
-        let rest = (self.settings.preferences.screensaver && !self.screensaver)
+        let rest = (self.settings.preferences.screensaver && !self.screensaver && self.can_screensave())
             .then_some(self.idle_since + self.settings.screensaver_after);
         let rain = self.rain_until;
-        [reveal, splash, rest, rain].into_iter().flatten().min()
+        [reveal, rest, rain].into_iter().flatten().min()
     }
 
     pub fn settle(&mut self) {
@@ -410,7 +405,7 @@ impl AppState {
         }
         let duration = self.motion().fade;
         let shown = self.overlay_fade.value(now);
-        self.leaving = previous.map(|overlay| Leaving {
+        self.leaving = previous.filter(|_| !duration.is_zero()).map(|overlay| Leaving {
             overlay,
             fade: Fade::settled(shown, now).toward(TRANSPARENT, now, duration, Easing::OutCubic),
         });

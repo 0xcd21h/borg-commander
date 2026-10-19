@@ -146,28 +146,28 @@ fn command_menu(state: &AppState) -> Menu {
     }
 }
 
-fn options_menu(state: &AppState) -> Menu {
-    let prefs = &state.settings.preferences;
+fn options_menu(_state: &AppState) -> Menu {
     Menu {
         title: "Options",
-        entries: vec![
-            item("Theme…", "", Action::PickTheme),
-            MenuEntry::Separator,
-            check("File icons (Nerd Font)", "", Action::ToggleIcons, prefs.icons),
-            check("Status line", "", Action::ToggleStatusLine, prefs.status_line),
-            check("Menu bar always visible", "", Action::ToggleMenuBar, prefs.menu_bar),
-            check("Animations", "", Action::ToggleAnimations, prefs.animations),
-            check(
-                "Return to panels after command",
-                "",
-                Action::ToggleReturnToPanels,
-                prefs.after_command == AfterCommand::ReturnToPanels,
-            ),
-            check("Restore shell output on start", "", Action::ToggleRestoreTerminal, prefs.restore_terminal),
-            MenuEntry::Separator,
-            check("Startup animation", "", Action::ToggleSplash, prefs.splash),
-            check("Screensaver when idle", "", Action::ToggleScreensaver, prefs.screensaver),
-            check("Delight (easter eggs)", "", Action::ToggleDelight, prefs.delight),
-        ],
+        entries: vec![item("Theme…", "", Action::PickTheme), item("Settings…", "", Action::Settings)],
     }
+}
+
+pub fn settings_items(state: &AppState) -> Vec<MenuItem> {
+    let prefs = &state.settings.preferences;
+    [
+        ("Show hidden files", Action::ToggleHidden, prefs.show_hidden),
+        ("Status line", Action::ToggleStatusLine, prefs.status_line),
+        ("Menu bar always visible", Action::ToggleMenuBar, prefs.menu_bar),
+        (
+            "Return to panels after command",
+            Action::ToggleReturnToPanels,
+            prefs.after_command == AfterCommand::ReturnToPanels,
+        ),
+        ("Restore shell output on start", Action::ToggleRestoreTerminal, prefs.restore_terminal),
+        ("Screensaver when idle", Action::ToggleScreensaver, prefs.screensaver),
+    ]
+    .into_iter()
+    .map(|(label, action, checked)| MenuItem { label, hint: "", action, checked: Some(checked), enabled: true })
+    .collect()
 }

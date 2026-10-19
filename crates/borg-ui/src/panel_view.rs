@@ -69,7 +69,6 @@ pub struct PanelScene<'a> {
     pub area: Rect,
     pub motion: &'a PanelMotion,
     pub activity: Option<Activity>,
-    pub delight: bool,
     pub icons: bool,
     pub icon_spacing: u8,
     pub find: Option<(&'a Find, (usize, usize))>,
@@ -189,9 +188,9 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         let bytes: u64 = panel.marked().filter(|e| !e.is_dir()).map(|e| e.size).sum();
         let summary =
             if bytes > 0 { format!("{marked} marked · {}", format::size(bytes)) } else { format!("{marked} marked") };
-        let egg = match (scene.delight, marked, total) {
-            (true, SEVEN, NINE) => Some(SEVEN_OF_NINE.to_owned()),
-            (true, marked, total) if marked == total && total >= ASSIMILATE_FROM => {
+        let egg = match (marked, total) {
+            (SEVEN, NINE) => Some(SEVEN_OF_NINE.to_owned()),
+            (marked, total) if marked == total && total >= ASSIMILATE_FROM => {
                 Some(format!("all {total} assimilated · {}", format::size(bytes)))
             }
             _ => None,
@@ -277,7 +276,7 @@ fn draw_empty(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, buf: &mut Buf
     if art.is_empty() {
         return;
     }
-    if scene.delight {
+    {
         let drift = scene.now.saturating_duration_since(scene.motion.arrived).min(EMPTY_ART_WINDOW);
         fx::draw_stars(buf, art, drift.as_secs_f32() * STAR_PACE, look.background());
     }
@@ -532,7 +531,8 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buff
     let lead = match (decor.icons, row) {
         (true, Row::Parent) => Some(icons::parent()),
         (true, Row::Entry(entry)) => Some(icons::icon(entry)),
-        (false, _) => None,
+        (false, Row::Parent) => Some(icons::portable_parent()),
+        (false, Row::Entry(entry)) => Some(icons::portable(entry)),
     };
     let lead = match (lead, row) {
         (Some(icon), _) => {

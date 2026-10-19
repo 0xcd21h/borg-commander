@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+# Borg guide
+
+A **file manager** with `syntax highlighting`.
+
+- [x] Copy files
+- [ ] Read the guide
+
+```rust
+fn main() {
+    println!("Hello, Borg!");
+}
+```
+
+[Project](https://example.com/borg)
+
+
+
+
+
+
+
+ …ects/borg/guide.md 0/194 · 100% · wrap · source    s source/render · w wrap · Esc close
+--- styles ---
+  0: 0-11 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 12-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  1: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  2: 0-1 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 2-17 Rgb(216, 222, 233) Rgb(30, 30, 30) BOLD | 18-23 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 24-44 Rgb(143, 188, 187) Rgb(30, 30, 30) NONE | 45-45 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 46-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  3: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  4: 0-0 Rgb(129, 161, 193) Rgb(30, 30, 30) NONE | 1-15 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 16-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  5: 0-0 Rgb(129, 161, 193) Rgb(30, 30, 30) NONE | 1-19 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 20-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  6: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  7: 0-2 Rgb(143, 188, 187) Rgb(30, 30, 30) NONE | 3-6 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 7-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  8: 0-1 Rgb(129, 161, 193) Rgb(30, 30, 30) NONE | 2-2 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 3-6 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 7-10 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 11-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+  9: 0-12 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 13-26 Rgb(163, 190, 140) Rgb(30, 30, 30) NONE | 27-27 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 28-28 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 29-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 10: 0-0 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 1-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 11: 0-2 Rgb(143, 188, 187) Rgb(30, 30, 30) NONE | 3-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 12: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 13: 0-0 Rgb(129, 161, 193) Rgb(30, 30, 30) NONE | 1-7 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 8-8 Rgb(129, 161, 193) Rgb(30, 30, 30) NONE | 9-34 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 35-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 14: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 15: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 16: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 17: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 18: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 19: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 20: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
+ 21: 0-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE

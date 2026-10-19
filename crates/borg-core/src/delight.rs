@@ -40,9 +40,6 @@ pub(crate) fn on_about_key(state: &mut AppState, mut about: About, key: &KeyEven
     let konami = about.recent.ends_with(&KONAMI);
     state.overlay = Some(Overlay::About(about));
 
-    if !state.settings.preferences.delight {
-        return Vec::new();
-    }
     if konami {
         state.rain_until = Some(now + RAIN_DURATION);
         return Vec::new();

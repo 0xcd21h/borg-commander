@@ -268,7 +268,7 @@ impl App {
     fn on_mouse(&mut self, event: MouseEvent) -> Result<Flow> {
         let now = Instant::now();
         self.state.idle_since = now;
-        if self.state.splash_active(now) || self.state.screensaver {
+        if self.state.screensaver {
             return self.dispatch(Msg::Pointer(borg_core::Pointer::DismissMenu));
         }
         if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
@@ -345,6 +345,7 @@ impl App {
     fn observe(&mut self, message: fn(ShellView) -> Msg) -> Result<Flow> {
         let view = ShellView {
             prompt: self.emulator.prompt_state(),
+            command_rows: self.emulator.command_rows(),
             foreground: self.pty.foreground(),
             mode: self.emulator.mode(),
         };
@@ -485,7 +486,7 @@ pub(crate) fn picture(path: &Path, bounds: (u32, u32)) -> Result<Image> {
 
 fn text(path: &Path, width: usize, height: usize) -> Result<Content> {
     let source = FileSource::open(path)?;
-    Ok(Content::Text(Pager::new(Arc::new(source), width, height)?))
+    Ok(Content::Text(Pager::for_path(Arc::new(source), path, width, height)?))
 }
 
 fn appearance(launch: &Launch) -> Appearance {

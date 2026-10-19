@@ -21,16 +21,21 @@ pub struct Config {
     pub theme: Option<String>,
     pub status_line: Option<bool>,
     pub menu_bar: Option<bool>,
+    #[serde(skip_serializing)]
     pub animations: Option<bool>,
     pub show_hidden: Option<bool>,
     pub return_to_panels: Option<bool>,
     pub restore_terminal: Option<bool>,
+    #[serde(skip_serializing)]
     pub startup_animation: Option<bool>,
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
+    #[serde(skip_serializing)]
     pub delight: Option<bool>,
+    #[serde(skip_serializing)]
     pub icons: Option<bool>,
     pub icon_spacing: Option<u8>,
+    pub nerd_font: Option<bool>,
     #[serde(rename = "pixel-chrome", skip_serializing)]
     pub _legacy_pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
@@ -51,12 +56,9 @@ impl Config {
             show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
             status_line: self.status_line.unwrap_or(base.status_line),
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
-            animations: self.animations.unwrap_or(base.animations),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
-            splash: self.startup_animation.unwrap_or(base.splash),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
-            delight: self.delight.unwrap_or(base.delight),
-            icons: self.icons.unwrap_or(base.icons),
+            nerd_font: self.nerd_font.unwrap_or(base.nerd_font),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
@@ -84,16 +86,17 @@ impl Config {
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),
-            animations: Some(prefs.animations),
+            animations: None,
             show_hidden: Some(prefs.show_hidden),
             return_to_panels: Some(prefs.after_command == AfterCommand::ReturnToPanels),
             restore_terminal: Some(prefs.restore_terminal),
-            startup_animation: Some(prefs.splash),
+            startup_animation: None,
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
-            delight: Some(prefs.delight),
-            icons: Some(prefs.icons),
+            delight: None,
+            icons: None,
             icon_spacing: self.icon_spacing,
+            nerd_font: Some(prefs.nerd_font),
             _legacy_pixel_chrome: None,
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
@@ -177,5 +180,26 @@ mod tests {
     #[test]
     fn rejects_unknown_keys() {
         assert!(toml::from_str::<Config>("colour = 1").is_err());
+    }
+}
+
+#[cfg(test)]
+mod retired_preferences_tests {
+    use super::*;
+
+    #[test]
+    fn old_switches_are_ignored_and_new_defaults_are_saved() {
+        let config: Config =
+            toml::from_str("animations = true\nstartup-animation = true\ndelight = false\nicons = false\n").unwrap();
+        let prefs = config.preferences();
+        assert_eq!(prefs, Preferences::default());
+        assert_eq!(prefs.after_command, AfterCommand::ReturnToPanels);
+        assert!(prefs.screensaver);
+        assert!(!prefs.nerd_font);
+        let saved = toml::to_string(&config.capture(None, &prefs, &[])).unwrap();
+        for old in ["animations", "startup-animation", "delight", "icons"] {
+            assert!(!saved.contains(old));
+        }
+        assert!(saved.contains("nerd-font = false"));
     }
 }

@@ -54,19 +54,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         Content::Text(pager) => pager,
         Content::Image(_) => return on_image_key(state, key.code),
     };
-    let result: io::Result<bool> = match key.code {
-        code if is_close(code) => Ok(false),
-        KeyCode::Down => pager.scroll_down(LINE).map(|()| true),
-        KeyCode::Up => pager.scroll_up(LINE).map(|()| true),
-        KeyCode::PageDown | KeyCode::Char(PAGE_KEY) => pager.page_down().map(|()| true),
-        KeyCode::PageUp => pager.page_up().map(|()| true),
-        KeyCode::Home => pager.home().map(|()| true),
-        KeyCode::End => pager.end().map(|()| true),
-        KeyCode::Left => pager.scroll_left().map(|()| true),
-        KeyCode::Right => pager.scroll_right().map(|()| true),
-        KeyCode::F(2) | KeyCode::Char(WRAP_KEY) => pager.toggle_wrap().map(|()| true),
-        _ => Ok(true),
-    };
+    let result = if is_close(key.code) { Ok(false) } else { scroll(pager, key.code).map(|()| true) };
 
     match result {
         Ok(true) => {}
@@ -122,5 +110,21 @@ pub(crate) fn resize(state: &mut AppState) {
     if let Some(error) = failed {
         state.notice = Some(format!("viewer: {error}"));
         state.viewer = None;
+    }
+}
+
+pub(crate) fn scroll(pager: &mut Pager, code: KeyCode) -> io::Result<()> {
+    match code {
+        KeyCode::Down => pager.scroll_down(LINE),
+        KeyCode::Up => pager.scroll_up(LINE),
+        KeyCode::PageDown | KeyCode::Char(PAGE_KEY) => pager.page_down(),
+        KeyCode::PageUp => pager.page_up(),
+        KeyCode::Home => pager.home(),
+        KeyCode::End => pager.end(),
+        KeyCode::Left => pager.scroll_left(),
+        KeyCode::Right => pager.scroll_right(),
+        KeyCode::Char('s') | KeyCode::F(4) => pager.toggle_source(),
+        KeyCode::F(2) | KeyCode::Char(WRAP_KEY) => pager.toggle_wrap(),
+        _ => Ok(()),
     }
 }

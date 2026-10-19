@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use borg_core::{Motion, Msg, Preferences, SPLASH_DURATION, Settings};
+use borg_core::{Motion, Msg, Preferences, Settings};
 use borg_term::GridSize;
 use borg_testkit::{Snapshot, Stage, describe};
 use borg_vfs::{Entry, EntryKind};
@@ -20,8 +20,7 @@ const NARROW: GridSize = GridSize { cols: 44, rows: 12 };
 const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
-const FIRST_CONTACT_CLOCK: &str = "2026-04-05T12:00:00+00:00[UTC]";
-const QUIET: Preferences = Preferences { splash: false, ..Preferences::DEFAULT };
+const QUIET: Preferences = Preferences::DEFAULT;
 
 fn at(secs: u64) -> Option<SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs))
@@ -146,13 +145,13 @@ fn shell_view_shows_terminal() -> Result<()> {
 }
 
 #[test]
-fn crossfade_midpoint() -> Result<()> {
+fn shell_switch_is_immediate() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
     stage.shell(b"echo hi\r\nhi\r\n\x1b]133;A\x07$ \x1b]133;B\x07");
     stage.send(ctrl('o'));
     let midpoint = stage.started + Motion::LOCAL.fade / 2;
     let buffer = stage.render(midpoint)?;
-    check("crossfade_midpoint", &stage, buffer)
+    check("shell_switch_immediate", &stage, buffer)
 }
 
 #[test]
@@ -225,21 +224,6 @@ fn widened_left_panel() -> Result<()> {
     });
     let buffer = stage.render(stage.started)?;
     check("widened", &stage, buffer)
-}
-
-#[test]
-fn splash_screen_midway() -> Result<()> {
-    let mut stage = staged(Motion::LOCAL, Preferences::DEFAULT, project(), CLOCK)?;
-    let buffer = stage.render(stage.started + SPLASH_DURATION / 2)?;
-    ensure_text(&buffer, "c o m m a n d e r")?;
-    check("splash", &stage, buffer)
-}
-
-#[test]
-fn splash_greets_on_first_contact_day() -> Result<()> {
-    let mut stage = staged(Motion::LOCAL, Preferences::DEFAULT, project(), FIRST_CONTACT_CLOCK)?;
-    let buffer = stage.render(stage.started + SPLASH_DURATION / 4)?;
-    ensure_text(&buffer, "First contact.")
 }
 
 #[test]
@@ -320,17 +304,6 @@ fn seven_of_nine_and_assimilation() -> Result<()> {
 }
 
 #[test]
-fn delight_switch_hides_easter_eggs() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { delight: false, ..QUIET }, crew(), CLOCK)?;
-    stage.send(key(KeyCode::Down));
-    (0..7).for_each(|_| {
-        stage.send(key(KeyCode::Insert));
-    });
-    let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "7 marked")
-}
-
-#[test]
 fn empty_folder_shows_stars() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
     let buffer = stage.render(stage.started + Duration::from_secs(2))?;
@@ -369,11 +342,11 @@ fn entering_a_folder_shows_the_new_listing_at_once() -> Result<()> {
 }
 
 #[test]
-fn menu_unfolds() -> Result<()> {
+fn menu_opens_immediately() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
     stage.send(key(KeyCode::F(2)));
     let buffer = stage.render(stage.started + Motion::LOCAL.fade / 3)?;
-    check("menu_unfolding", &stage, buffer)
+    check("menu_immediate", &stage, buffer)
 }
 
 #[test]
@@ -398,13 +371,13 @@ fn ensure_text(buffer: &Buffer, needle: &str) -> Result<()> {
 }
 
 #[test]
-fn dialogs_fade_out() -> Result<()> {
+fn dialogs_close_immediately() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
     let closing = stage.started + Motion::LOCAL.fade;
     borg_core::update(&mut stage.state, key(KeyCode::Esc), closing);
     let buffer = stage.render(closing + Motion::LOCAL.fade / 3)?;
-    check("dialog_fading_out", &stage, buffer)
+    check("dialog_closed", &stage, buffer)
 }
 
 fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
@@ -451,7 +424,7 @@ fn picture_viewer_places_pixels_with_graphics() -> Result<()> {
 
 #[test]
 fn nerd_font_icons() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     let neon = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap_or_default();
     stage.state.appearance.select(neon, stage.started, Duration::ZERO);
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
@@ -461,7 +434,7 @@ fn nerd_font_icons() -> Result<()> {
 
 #[test]
 fn quick_find_highlights_matches() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     stage.send(ctrl('s'));
     chars("o").for_each(|msg| {
         stage.send(msg);
@@ -479,7 +452,7 @@ fn select_theme(stage: &mut Stage, id: &str) {
 
 #[test]
 fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     stage.pixels = borg_ui::Pixels::Pictures;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
     for id in ["neon", "midnight"] {
@@ -553,13 +526,22 @@ fn hover(stage: &mut Stage, name: &str) {
 
 #[test]
 fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     hover(&mut stage, "Cargo.toml");
     stage.send(ctrl('q'));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Quick view")?;
     let manifest = ["[package]", "name = \"borg\"", "version = \"0.1.0\"", "", "[dependencies]", "ratatui = \"0.30\""];
-    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(manifest.map(String::from).to_vec()))?;
+    peek(
+        &mut stage,
+        borg_core::Aside::QuickView,
+        borg_core::Peek::Text(borg_view::Pager::for_path(
+            std::sync::Arc::new(manifest.join("\n").into_bytes()),
+            std::path::Path::new("Cargo.toml"),
+            43,
+            15,
+        )?),
+    )?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Quick view · Cargo.toml")?;
     ensure_text(&buffer, "ratatui = \"0.30\"")?;
@@ -593,7 +575,7 @@ fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
 
 #[test]
 fn info_panel_lists_file_facts() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     hover(&mut stage, "build.sh");
     stage.send(ctrl('l'));
     let facts = borg_core::Facts {
@@ -735,4 +717,45 @@ fn mouse_targets_match_the_drawn_menu_and_brief_rows() -> Result<()> {
     let expected = stage.state.active_panel().rows() + 1;
     assert!(matches!(second, Msg::Pointer(Pointer::Panel { index, .. }) if index == expected));
     Ok(())
+}
+
+#[test]
+fn settings_window_has_checkboxes() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(borg_core::Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::Settings)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "[x] Screensaver when idle")?;
+    ensure_text(&buffer, "[x] Return to panels after command")?;
+    check("settings_window", &stage, buffer)
+}
+
+#[test]
+fn markdown_renders_and_source_toggle_is_visible() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let source = b"# Borg guide\n\nA **file manager** with `syntax highlighting`.\n\n- [x] Copy files\n- [ ] Read the guide\n\n```rust\nfn main() {\n    println!(\"Hello, Borg!\");\n}\n```\n\n[Project](https://example.com/borg)\n".to_vec();
+    let path = PathBuf::from("/home/me/projects/borg/guide.md");
+    let pager = borg_view::Pager::for_path(
+        std::sync::Arc::new(source),
+        &path,
+        usize::from(SIZE.cols),
+        usize::from(SIZE.rows - 1),
+    )?;
+    stage.send(Msg::Opened(borg_core::Viewer { path, content: borg_core::Content::Text(pager) }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "s source/render")?;
+    check("markdown_rendered", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(stage.started)?;
+    check("markdown_source", &stage, buffer)
+}
+
+#[test]
+fn multiline_recalled_prompt_keeps_all_rows_visible() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage
+        .shell(b"\x1b[20;1H\x1b]133;A\x07$ \x1b]133;B\x07for file in *.rs; do\r\n    printf '%s\\n' \"$file\"\r\ndone");
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "for file in *.rs; do")?;
+    ensure_text(&buffer, "done")?;
+    check("multiline_prompt", &stage, buffer)
 }

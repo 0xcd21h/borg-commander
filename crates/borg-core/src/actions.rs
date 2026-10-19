@@ -39,7 +39,10 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Quit => vec![Effect::Quit],
         Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => toggle_shell(state),
-        Action::SwitchPanel if state.aside.is_some() => Vec::new(),
+        Action::SwitchPanel if state.aside.is_some() => {
+            state.preview_focused = !state.preview_focused;
+            Vec::new()
+        }
         Action::SwitchPanel => {
             state.active = side.other();
             Vec::new()
@@ -84,6 +87,10 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.overlay = Some(Overlay::About(crate::About::default()));
             Vec::new()
         }
+        Action::Settings => {
+            state.overlay = Some(Overlay::Settings { selected: 0 });
+            Vec::new()
+        }
         Action::PickTheme => {
             let current = state.appearance.current();
             state.overlay = Some(Overlay::Themes(Picker { selected: current, original: current }));
@@ -119,16 +126,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::ToggleStatusLine => preference(state, |prefs| prefs.status_line = !prefs.status_line),
         Action::ToggleMenuBar => preference(state, |prefs| prefs.menu_bar = !prefs.menu_bar),
-        Action::ToggleAnimations => preference(state, |prefs| prefs.animations = !prefs.animations),
         Action::ToggleRestoreTerminal => preference(state, |prefs| prefs.restore_terminal = !prefs.restore_terminal),
-        Action::ToggleSplash => preference(state, |prefs| prefs.splash = !prefs.splash),
         Action::ToggleScreensaver => {
             state.idle_since = now;
             preference(state, |prefs| prefs.screensaver = !prefs.screensaver)
         }
-        Action::ToggleDelight => preference(state, |prefs| prefs.delight = !prefs.delight),
         Action::Find => crate::find::open(state),
-        Action::ToggleIcons => preference(state, |prefs| prefs.icons = !prefs.icons),
         Action::ToggleReturnToPanels => preference(state, |prefs| {
             prefs.after_command = match prefs.after_command {
                 AfterCommand::ShowShell => AfterCommand::ReturnToPanels,

@@ -46,8 +46,7 @@ fn main() -> Result<()> {
         entry("checksums.txt", EntryKind::File, 256),
         entry("release-notes.md", EntryKind::File, 2048),
     ];
-    let preferences =
-        Preferences { splash: false, icons: true, menu_bar: true, delight: false, ..Preferences::DEFAULT };
+    let preferences = Preferences { nerd_font: true, menu_bar: true, ..Preferences::DEFAULT };
     let settings = Settings { motion: Motion::STILL, preferences, ..Settings::default() };
     let mut stage = Stage::new(
         ["/home/demo/projects/borg".into(), "/home/demo/releases".into()],

@@ -24,6 +24,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
         Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
+        Some(Overlay::Settings { selected }) => on_settings(state, selected, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
@@ -195,4 +196,29 @@ fn resolve(state: &AppState, text: &str) -> PathBuf {
 
 fn first_component(text: &str) -> String {
     text.split('/').find(|part| !part.is_empty()).unwrap_or(text).to_owned()
+}
+
+pub(crate) fn toggle_setting(state: &mut AppState, selected: usize, now: Instant) -> Vec<Effect> {
+    let Some(item) = crate::menu::settings_items(state).get(selected).cloned() else { return Vec::new() };
+    let effects = actions::perform(state, item.action, now);
+    state.overlay = Some(Overlay::Settings { selected });
+    effects
+}
+
+fn on_settings(state: &mut AppState, selected: usize, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let count = crate::menu::settings_items(state).len();
+    let next = match key.code {
+        KeyCode::Esc | KeyCode::F(10) => {
+            state.overlay = None;
+            return Vec::new();
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => return toggle_setting(state, selected, now),
+        KeyCode::Down | KeyCode::Tab => (selected + 1) % count,
+        KeyCode::Up | KeyCode::BackTab => (selected + count - 1) % count,
+        KeyCode::Home => 0,
+        KeyCode::End => count - 1,
+        _ => selected,
+    };
+    state.overlay = Some(Overlay::Settings { selected: next });
+    Vec::new()
 }
