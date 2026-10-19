@@ -3,6 +3,7 @@ mod config;
 mod document;
 mod launch;
 mod peek;
+mod plugins;
 mod preview;
 mod session;
 mod store;

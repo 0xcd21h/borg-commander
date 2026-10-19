@@ -23,14 +23,15 @@ use crate::{
 
 const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
-const BAR_WIDTH: u16 = 5;
+const GIT_WIDTH: u16 = 2;
 const NO_MARKER: char = ' ';
 const FIND_LABEL: &str = " find: ";
 pub(crate) const ICON_GAP: char = ' ';
 const GAP: u16 = 1;
 const SHOW_DATE_FROM: u16 = 40;
 const SHOW_SIZE_FROM: u16 = 24;
-const SHOW_BARS_FROM: u16 = 50;
+const SHOW_GIT_FROM: u16 = 30;
+const SHOW_GIT_BRIEF_FROM: u16 = 20;
 const PAD_FROM: u16 = 20;
 const PADDING: u16 = 1;
 const TITLE_PADDING: usize = 2;
@@ -42,10 +43,6 @@ const COLUMN_SEPARATOR: &str = "│";
 const EMPTY_CAPTION: &str = "empty";
 const LEFT_CAP: char = '▐';
 const RIGHT_CAP: char = '▌';
-const BAR_FULL: char = '━';
-const BAR_HALF: char = '╸';
-const BAR_STEPS: usize = 2;
-const BAR_VISIBILITY: f32 = 0.7;
 const GLOW_FALLOFF: f32 = 0.5;
 const COMET_WIDTH: u16 = 14;
 const PROGRESS_FILL: char = '━';
@@ -206,7 +203,16 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     let line = match (&scene.activity, panel.listing()) {
         (Some(activity), _) => spinning(activity.label.clone()),
         (None, Listing::Loading) => spinning(format!("loading… {}", panel.received())),
-        (None, Listing::Ready) => Line::styled(format!(" {} ", format::count(panel.received(), "item")), styles.footer),
+        (None, Listing::Ready) => {
+            let git = if let Some(repository) = panel.git_repository() {
+                format!(" · Git {}", repository.branch)
+            } else if panel.git.error.is_some() {
+                " · Git unavailable".into()
+            } else {
+                String::new()
+            };
+            Line::styled(format!(" {}{git} ", format::count(panel.received(), "item")), styles.footer)
+        }
         (None, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
     };
     (line, None)
@@ -291,7 +297,7 @@ fn visible<'p>(panel: &'p Panel, scroll: usize) -> impl Iterator<Item = (usize, 
 
 fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize, buf: &mut Buffer) {
     let panel = scene.panel;
-    let columns = Columns::fit(body.content.width);
+    let columns = Columns::fit(body.content.width, panel.git_repository().is_some());
     let mut cursor_row = None;
     for (slot, index, row) in visible(panel, scroll) {
         let Some((full, content)) = body.row(slot) else { continue };
@@ -301,8 +307,7 @@ fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize,
             buf.set_style(if pill { content } else { full }, fill);
             cursor_row = Some((full, content, fill, pill));
         }
-        let bar = bar_fraction(row, panel.largest());
-        draw_full_row(row, &columns, content, tone, scene, bar, look, buf);
+        draw_full_row(row, &columns, content, tone, scene, look, buf);
     }
     if let Some((full, content, fill, pill)) = cursor_row {
         paint_cursor(scene.active, full, content, fill, pill, body, look, buf);
@@ -363,7 +368,18 @@ fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize
         let y = body.content.y + u16::try_from(slot % rows).unwrap_or(u16::MAX);
         let area = Rect { x: column.x, y, width: column.width.saturating_sub(separator), height: 1 };
         let tone = Tone::of(panel, row, index, scene.active, look.styles());
-        draw_name(row, area, tone, &Decor::of(scene, look), buf);
+        let status_width =
+            if panel.git_repository().is_some() && area.width >= SHOW_GIT_BRIEF_FROM { GIT_WIDTH + GAP } else { 0 };
+        draw_name(
+            row,
+            Rect { width: area.width.saturating_sub(status_width), ..area },
+            tone,
+            &Decor::of(scene, look),
+            buf,
+        );
+        if status_width > 0 {
+            draw_git(row, panel, Rect { x: area.right() - GIT_WIDTH, width: GIT_WIDTH, ..area }, tone, look, buf);
+        }
         if tone.fill.is_some()
             && let Some(pair) = look.theme.effects.cursor_gradient.filter(|_| scene.active)
         {
@@ -416,18 +432,18 @@ impl Tone {
 
 struct Columns {
     name: u16,
-    bar: Option<u16>,
+    git: Option<u16>,
     size: Option<u16>,
     date: Option<u16>,
 }
 
 impl Columns {
-    fn fit(width: u16) -> Self {
+    fn fit(width: u16, repository: bool) -> Self {
         let date = (width >= SHOW_DATE_FROM).then_some(DATE_WIDTH);
         let size = (width >= SHOW_SIZE_FROM).then_some(SIZE_WIDTH);
-        let bar = (width >= SHOW_BARS_FROM).then_some(BAR_WIDTH);
-        let reserved = [bar, size, date].into_iter().flatten().map(|w| w + GAP).sum::<u16>();
-        Self { name: width.saturating_sub(reserved), bar, size, date }
+        let git = (repository && width >= SHOW_GIT_FROM).then_some(GIT_WIDTH);
+        let reserved = [git, size, date].into_iter().flatten().map(|w| w + GAP).sum::<u16>();
+        Self { name: width.saturating_sub(reserved), git, size, date }
     }
 
     fn split(&self, area: Rect) -> [Option<Rect>; 4] {
@@ -439,16 +455,7 @@ impl Columns {
                 rect
             })
         };
-        [next(Some(self.name), 0), next(self.bar, GAP), next(self.size, GAP), next(self.date, GAP)]
-    }
-}
-
-fn bar_fraction(row: Row<'_>, largest: u64) -> Option<f32> {
-    match row {
-        Row::Entry(entry) if !entry.is_dir() && largest > 0 => {
-            Some(((entry.size as f64).ln_1p() / (largest as f64).ln_1p()) as f32)
-        }
-        _ => None,
+        [next(Some(self.name), 0), next(self.git, GAP), next(self.size, GAP), next(self.date, GAP)]
     }
 }
 
@@ -459,7 +466,6 @@ fn draw_full_row(
     area: Rect,
     tone: Tone,
     scene: &PanelScene<'_>,
-    bar: Option<f32>,
     look: &Look<'_>,
     buf: &mut Buffer,
 ) {
@@ -471,12 +477,12 @@ fn draw_full_row(
         ),
     };
 
-    let [name, bar_cell, size_cell, date_cell] = columns.split(area);
+    let [name, git_cell, size_cell, date_cell] = columns.split(area);
     if let Some(cell) = name {
         draw_name(row, cell, tone, &Decor::of(scene, look), buf);
     }
-    if let (Some(cell), Some(fraction)) = (bar_cell, bar) {
-        draw_bar(cell, fraction, look, buf);
+    if let Some(cell) = git_cell {
+        draw_git(row, scene.panel, cell, tone, look, buf);
     }
     if let Some(cell) = size_cell {
         Line::styled(size, tone.meta).right_aligned().render(cell, buf);
@@ -486,18 +492,26 @@ fn draw_full_row(
     }
 }
 
-fn draw_bar(area: Rect, fraction: f32, look: &Look<'_>, buf: &mut Buffer) {
-    let steps = (fraction.clamp(0.0, 1.0) * f32::from(area.width) * BAR_STEPS as f32).round() as usize;
-    let gradient = look.accent().dimmed(look.background(), BAR_VISIBILITY);
-    let span = f32::from(area.width.saturating_sub(1).max(1));
-    for (offset, x) in (area.left()..area.right()).enumerate() {
-        let glyph = match steps.saturating_sub(offset * BAR_STEPS).min(BAR_STEPS) {
-            0 => break,
-            BAR_STEPS => BAR_FULL,
-            _ => BAR_HALF,
+fn draw_git(row: Row<'_>, panel: &Panel, area: Rect, tone: Tone, look: &Look<'_>, buf: &mut Buffer) {
+    let Row::Entry(entry) = row else { return };
+    let Some(status) = panel.git_repository().and_then(|repository| repository.status(&panel.dir().join(&entry.name)))
+    else {
+        return;
+    };
+    let styles = look.styles();
+    let span = |code: char, staged: bool| {
+        let color = if status.conflict() || code == 'D' {
+            styles.notice.fg
+        } else if code == '?' {
+            styles.meta.fg
+        } else if staged {
+            styles.executable.fg
+        } else {
+            styles.marked.fg
         };
-        buf[(x, area.y)].set_char(glyph).set_fg(gradient.at(offset as f32 / span).into());
-    }
+        Span::styled(code.to_string(), Style { fg: color, ..tone.meta }.add_modifier(Modifier::BOLD))
+    };
+    Line::from(vec![span(status.index, true), span(status.worktree, false)]).render(area, buf);
 }
 
 struct Decor {

@@ -154,6 +154,7 @@ pub enum Overlay {
     Jobs(JobList),
     Themes(Picker),
     Settings { selected: usize },
+    Plugins { selected: usize },
     Menu(MenuCursor),
     Prompt(Prompt),
     Confirm(Confirm),
@@ -213,6 +214,7 @@ pub struct AppState {
     pub cols: u16,
     pub rows: u16,
     pub settings: Settings,
+    pub plugins: crate::Plugins,
     pub notice: Option<String>,
     pub appearance: Appearance,
     pub overlay: Option<Overlay>,
@@ -268,6 +270,7 @@ impl AppState {
             cols,
             rows,
             settings,
+            plugins: crate::Plugins::default(),
             notice: None,
             appearance,
             overlay: None,
@@ -367,7 +370,7 @@ impl AppState {
         let rest = (self.settings.preferences.screensaver && !self.screensaver && self.can_screensave())
             .then_some(self.idle_since + self.settings.screensaver_after);
         let rain = self.rain_until;
-        [reveal, rest, rain].into_iter().flatten().min()
+        [reveal, rest, rain, crate::plugins::wake_at(self)].into_iter().flatten().min()
     }
 
     pub fn settle(&mut self) {

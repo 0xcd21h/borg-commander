@@ -40,6 +40,7 @@ impl IconStyle {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Config {
+    pub plugins: Option<Plugins>,
     pub theme: Option<String>,
     pub status_line: Option<bool>,
     pub menu_bar: Option<bool>,
@@ -67,6 +68,18 @@ pub struct Config {
     pub update_check: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Plugins {
+    pub git: bool,
+}
+
+impl Default for Plugins {
+    fn default() -> Self {
+        Self { git: true }
+    }
+}
+
 impl Config {
     #[cfg(test)]
     pub fn preferences(&self) -> Preferences {
@@ -81,6 +94,7 @@ impl Config {
             None => base.after_command,
         };
         Preferences {
+            git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             after_command,
             show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
             status_line: self.status_line.unwrap_or(base.status_line),
@@ -116,6 +130,7 @@ impl Config {
 
     pub fn capture(&self, theme: Option<&str>, prefs: &Preferences, unlocked: &[String]) -> Self {
         Self {
+            plugins: Some(Plugins { git: prefs.git_plugin }),
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),
@@ -274,5 +289,24 @@ mod icon_tests {
         let prefs = legacy.preferences_for_terminal(Some("Apple_Terminal"), None);
         assert!(prefs.nerd_font);
         assert_eq!(legacy.capture(None, &prefs, &[]).icon_style, Some(IconStyle::Nerd));
+    }
+}
+
+#[cfg(test)]
+mod plugin_tests {
+    use super::*;
+
+    #[test]
+    fn git_is_enabled_by_default_and_the_toggle_survives_saving_other_preferences() {
+        assert!(Config::default().preferences().git_plugin);
+        let config: Config = toml::from_str("[plugins]\ngit = false\n").unwrap();
+        let mut prefs = config.preferences();
+        assert!(!prefs.git_plugin);
+        prefs.status_line = false;
+        let saved = toml::to_string(&config.capture(None, &prefs, &[])).unwrap();
+        let restored: Config = toml::from_str(&saved).unwrap();
+        assert!(!restored.preferences().git_plugin);
+        assert!(!restored.preferences().status_line);
+        assert!(toml::from_str::<Config>("[plugins]\ngti = false\n").is_err());
     }
 }

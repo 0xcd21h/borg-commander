@@ -8,7 +8,7 @@ const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 2;
 const MENU_TITLES: &str = "Left    File    Command    Options    Right";
-const MENU_NAMES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
+const MENU_NAMES: [&str; 6] = ["Left", "File", "Command", "Options", "Right", "Git"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
@@ -982,5 +982,67 @@ fn ghostty_icons_stay_rich_and_saved_settings_keep_portable_terminal_fallback() 
     let screen = portable.wait_text(READY)?;
     ensure!(!screen.contains(FOLDER_ICON), "Apple Terminal should keep portable icons");
     ensure!(screen.contains("/ alpha"), "portable folder marker missing\n{}", screen.text());
+    Ok(())
+}
+
+fn git(fixture: &Fixture, args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(fixture.work())
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()?;
+    ensure!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[test]
+fn git_plugin_views_diffs_stages_unstages_and_persists_disabling() -> Result<()> {
+    const GIT_MENU: usize = 5;
+    let fixture = fixture()?;
+    git(&fixture, &["init", "-b", "main"])?;
+    git(&fixture, &["config", "user.name", "Borg Test"])?;
+    git(&fixture, &["config", "user.email", "borg@example.test"])?;
+    git(&fixture, &["add", "notes.txt"])?;
+    git(&fixture, &["commit", "-qm", "Initial fixture"])?;
+    let contents = "changed by plugin test\n";
+    fs::write(fixture.work().join("notes.txt"), contents)?;
+    let mut app = start(&fixture, "git-plugin")?;
+    app.wait_text("Git main")?;
+    app.send(keys::ctrl('s'))?.send("notes")?.send(keys::enter())?;
+    choose(&mut app, GIT_MENU, "Diff selection")?;
+    app.wait_text("+changed by plugin test")?;
+    app.send(keys::esc())?;
+    app.wait_until("panels after Git viewer", panels_ready)?;
+    choose(&mut app, GIT_MENU, "Stage selection")?;
+    app.wait_text("Git index updated")?;
+    ensure!(git(&fixture, &["diff", "--cached"])?.contains("+changed by plugin test"));
+    choose(&mut app, GIT_MENU, "Staged diff selection")?;
+    app.wait_text("+changed by plugin test")?;
+    app.send(keys::esc())?;
+    app.wait_until("panels after Git viewer", panels_ready)?;
+    choose(&mut app, GIT_MENU, "Unstage selection")?;
+    app.wait_text("Git index updated")?;
+    ensure!(git(&fixture, &["diff", "--cached"])?.is_empty());
+    ensure!(fs::read_to_string(fixture.work().join("notes.txt"))? == contents);
+    choose(&mut app, GIT_MENU, "Recent commits")?;
+    app.wait_text("Initial fixture")?;
+    app.send(keys::esc())?;
+    app.wait_until("panels after Git viewer", panels_ready)?;
+    choose(&mut app, OPTIONS_MENU, "Plugins…")?;
+    let screen = app.wait_text("Git — status, diffs, stage/unstage")?;
+    let (x, y) = screen.find("Git — status, diffs, stage/unstage").unwrap();
+    app.send(mouse(0, x, y))?;
+    app.wait_text("[ ] Git")?;
+    app.send(keys::esc())?;
+    app.wait_gone("Git main")?;
+    ensure!(fs::read_to_string(fixture.config_file())?.contains("git = false"));
+    drop(app);
+    let mut app = start(&fixture, "git-plugin-disabled")?;
+    app.send(keys::f(9))?;
+    let screen = app.wait_text(MENU_TITLES)?;
+    ensure!(!screen.lines()[0].contains("Git"), "disabled plugin should remove the menu");
+    ensure!(!screen.contains("Git main"), "disabled plugin should remove branch and status columns");
     Ok(())
 }

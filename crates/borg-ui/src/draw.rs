@@ -348,7 +348,7 @@ fn paint_overlay(
                 .unwrap_or_default();
             (rect, None, Unfold::Down)
         }
-        Overlay::Settings { selected } => {
+        Overlay::Settings { selected } | Overlay::Plugins { selected } => {
             (crate::settings_view::draw(state, *selected, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Themes(picker) => {

@@ -62,6 +62,7 @@ pub struct App {
     jobs: HashMap<u64, Arc<Control>>,
     last_click: Option<(u16, u16, Instant)>,
     preview: preview::Loader,
+    plugins: crate::plugins::Plugins,
 }
 
 enum Flow {
@@ -91,6 +92,7 @@ impl App {
         let (messages, inbox) = unbounded_channel();
 
         let preview = preview::Loader::new(messages.clone());
+        let plugins = crate::plugins::Plugins::new(messages.clone());
         Ok(Self {
             emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
@@ -111,6 +113,7 @@ impl App {
             jobs: HashMap::new(),
             last_click: None,
             preview,
+            plugins,
         })
     }
 
@@ -356,6 +359,9 @@ impl App {
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
         let effects = update(&mut self.state, msg, Instant::now());
+        if !self.state.settings.preferences.git_plugin {
+            self.plugins.cancel();
+        }
         if self.state.aside.is_none() || self.state.active_panel().hovered().is_none() {
             self.preview.cancel();
         }
@@ -366,6 +372,16 @@ impl App {
         for effect in effects {
             match effect {
                 Effect::List { side, generation, dir } => self.list(side, generation, dir),
+                Effect::GitScan { side, generation, dir } => self.plugins.scan(side, generation, dir),
+                Effect::GitTool { id, tool, dir, paths } => {
+                    let messages = self.messages.clone();
+                    let size = viewer_size(self.state.cols, self.state.rows);
+                    tokio::spawn(async move {
+                        let result =
+                            crate::plugins::run(dir, tool, paths, size).await.map_err(|error| format!("{error:#}"));
+                        let _ = messages.send(Msg::GitFinished { id, result });
+                    });
+                }
                 Effect::Write(bytes) => {
                     self.emulator.scroll(Scroll::Bottom);
                     self.pty.write(&bytes)?;

@@ -24,7 +24,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
         Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
-        Some(Overlay::Settings { selected }) => on_settings(state, selected, key, now),
+        Some(Overlay::Settings { selected } | Overlay::Plugins { selected }) => on_settings(state, selected, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
@@ -199,14 +199,16 @@ fn first_component(text: &str) -> String {
 }
 
 pub(crate) fn toggle_setting(state: &mut AppState, selected: usize, now: Instant) -> Vec<Effect> {
-    let Some(item) = crate::menu::settings_items(state).get(selected).cloned() else { return Vec::new() };
+    let Some(item) = crate::menu::checkbox_items(state).get(selected).cloned() else { return Vec::new() };
+    let plugins = matches!(state.overlay, Some(Overlay::Plugins { .. }));
     let effects = actions::perform(state, item.action, now);
-    state.overlay = Some(Overlay::Settings { selected });
+    state.overlay = Some(if plugins { Overlay::Plugins { selected } } else { Overlay::Settings { selected } });
     effects
 }
 
 fn on_settings(state: &mut AppState, selected: usize, key: &KeyEvent, now: Instant) -> Vec<Effect> {
-    let count = crate::menu::settings_items(state).len();
+    let plugins = matches!(state.overlay, Some(Overlay::Plugins { .. }));
+    let count = crate::menu::checkbox_items(state).len();
     let next = match key.code {
         KeyCode::Esc | KeyCode::F(10) => {
             state.overlay = None;
@@ -219,6 +221,7 @@ fn on_settings(state: &mut AppState, selected: usize, key: &KeyEvent, now: Insta
         KeyCode::End => count - 1,
         _ => selected,
     };
-    state.overlay = Some(Overlay::Settings { selected: next });
+    state.overlay =
+        Some(if plugins { Overlay::Plugins { selected: next } } else { Overlay::Settings { selected: next } });
     Vec::new()
 }

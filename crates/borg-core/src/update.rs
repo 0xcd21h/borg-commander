@@ -64,9 +64,15 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::composer::open(text, state);
             Vec::new()
         }
+        Msg::GitStatus { side, generation, dir, result } => {
+            crate::plugins::receive(state, side, generation, dir, result, now);
+            Vec::new()
+        }
+        Msg::GitFinished { id, result } => crate::plugins::finish(state, id, result),
     };
     let mut effects = effects;
     effects.extend(crate::aside::sync(state));
+    effects.extend(crate::plugins::sync(state, now));
     crate::jobs::surface_questions(state);
 
     state.sync_fade(now);

@@ -24,7 +24,7 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
     let layout = state.layout(now);
     let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
     let all = menus(state);
-    if matches!(state.overlay, Some(Overlay::Settings { .. })) {
+    if matches!(state.overlay, Some(Overlay::Settings { .. } | Overlay::Plugins { .. })) {
         return click
             .then(|| crate::settings_view::item_at(state, point, layout.screen))
             .flatten()

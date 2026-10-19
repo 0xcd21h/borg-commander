@@ -62,7 +62,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
                 return actions::perform(state, item.action, now);
             }
         }
-        (Pointer::Setting(selected), Some(Overlay::Settings { .. })) => {
+        (Pointer::Setting(selected), Some(Overlay::Settings { .. } | Overlay::Plugins { .. })) => {
             return crate::overlays::toggle_setting(state, selected, now);
         }
         (Pointer::FocusPreview, None) if state.aside.is_some() => state.preview_focused = true,

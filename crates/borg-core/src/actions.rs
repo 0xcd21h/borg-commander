@@ -5,7 +5,7 @@ use crate::{
     Overlay, Panel, PathOf, Picker, Prompt, PromptPurpose, Row, Side, Sort, View,
     command::CommandLine,
     layout::EVEN_SPLIT,
-    menu::{FILE_MENU, menus},
+    menu::{FILE_MENU, RIGHT_MENU, menus},
     ops::{self, ArchiveFormat, DEFAULT_ARCHIVE_SUFFIX},
     state::REVEAL_DELAY,
     update::{prepare_shell, shell_ready},
@@ -91,6 +91,15 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.overlay = Some(Overlay::Settings { selected: 0 });
             Vec::new()
         }
+        Action::Plugins => {
+            state.overlay = Some(Overlay::Plugins { selected: 0 });
+            Vec::new()
+        }
+        Action::ToggleGitPlugin => {
+            state.settings.preferences.git_plugin = !state.settings.preferences.git_plugin;
+            vec![Effect::SaveConfig]
+        }
+        Action::Git(tool) => crate::plugins::run(state, tool),
         Action::PickTheme => {
             let current = state.appearance.current();
             state.overlay = Some(Overlay::Themes(Picker { selected: current, original: current }));
@@ -113,6 +122,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ExtractToOther => extract(state, state.panel(side.other()).dir().to_path_buf().as_path(), now),
         Action::SwapPanels => {
             state.panels.swap(0, 1);
+            state.panels.iter_mut().for_each(|panel| panel.git = crate::GitPanel::default());
             Vec::new()
         }
         Action::EqualizePanels => {
@@ -192,7 +202,7 @@ fn open_menu_bar(state: &mut AppState, side: Side) -> Vec<Effect> {
             state.overlay = Some(Overlay::Menu(cursor));
             Vec::new()
         }
-        None => open_menu(state, if side == Side::Left { 0 } else { all.len() - 1 }),
+        None => open_menu(state, if side == Side::Left { 0 } else { RIGHT_MENU }),
     }
 }
 

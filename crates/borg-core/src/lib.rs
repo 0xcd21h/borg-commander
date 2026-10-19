@@ -17,6 +17,7 @@ mod ops;
 mod overlays;
 mod panel;
 mod pattern;
+mod plugins;
 mod pointer;
 mod settings;
 mod state;
@@ -36,11 +37,12 @@ pub use input::LineInput;
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};
-pub use menu::{Menu, MenuEntry, MenuItem, menus, settings_items};
+pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items};
 pub use motion::{EMPTY_ART_WINDOW, Pace, PanelMotion};
 pub use msg::{Effect, Msg};
 pub use panel::{Listing, ListingMode, Panel, Row, Seek, Sort, SortKey, order};
 pub use pattern::{Pattern, PatternError};
+pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
 pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, Settings,

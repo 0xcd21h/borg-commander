@@ -81,6 +81,19 @@ fn write(path: &Path, body: &[u8]) -> Result<()> {
     Ok(fs::write(path, body)?)
 }
 
+fn git(root: &Path, args: &[&str]) -> Result<()> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["-c", "user.name=Borg Demo", "-c", "user.email=demo@example.test"])
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()?;
+    anyhow::ensure!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    Ok(())
+}
+
 fn project(fixture: &Fixture) -> Result<PathBuf> {
     let root = PROJECT.iter().fold(fixture.home(), |path, part| path.join(part));
     SOURCES.iter().chain(&FILES).try_for_each(|(path, body)| write(&root.join(path), body.as_bytes()))?;
@@ -106,6 +119,14 @@ fn project(fixture: &Fixture) -> Result<PathBuf> {
     let session = format!("active = \"left\"\nsplit = 0.5\n[left]\n{}[right]\n{}", panel(&root), panel(&releases));
     write(&fixture.state().join("session.toml"), session.as_bytes())?;
     fixture.configure(CONFIG)?;
+    git(&root, &["init", "-b", "main"])?;
+    git(&root, &["add", "."])?;
+    git(&root, &["commit", "-qm", "Start the demo project"])?;
+    write(&root.join("src/main.rs"), b"fn main() {\n    println!(\"Welcome to Borg\");\n    borg::run();\n}\n")?;
+    git(&root, &["add", "src/main.rs"])?;
+    let readme = FILES.iter().find(|(name, _)| *name == "README.md").unwrap().1;
+    write(&root.join("README.md"), format!("{readme}\nGit status appears beside your files.\n").as_bytes())?;
+    write(&root.join("roadmap.md"), b"# Next steps\n\n- Review changes\n- Prepare the release\n")?;
     Ok(root)
 }
 
@@ -152,6 +173,7 @@ fn main() -> Result<()> {
 
     script.app.wait_text("README.md")?;
     script.app.wait_text("checksums.txt")?;
+    script.app.wait_text("Git main")?;
     script.press(keys::down(), BEAT)?.press(keys::down(), SHORT)?;
     script
         .press(keys::ctrl('s'), SHORT)?
@@ -165,6 +187,7 @@ fn main() -> Result<()> {
 
     script.find("README")?;
     script.press(keys::key(KeyCode::Insert), SHORT)?.press(keys::key(KeyCode::Insert), BEAT)?;
+    script.click("Git", BEAT)?.click("Diff selection", LONG)?.press(keys::esc(), BEAT)?;
     script.click("File", BEAT)?.press(keys::down(), SHORT)?.press(keys::esc(), SHORT)?;
     script.click("Options", BEAT)?.click("Theme…", BEAT)?;
     for key in [keys::up(), keys::down(), keys::down()] {

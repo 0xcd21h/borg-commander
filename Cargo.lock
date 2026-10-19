@@ -219,6 +219,7 @@ dependencies = [
  "anyhow",
  "borg-core",
  "borg-gfx",
+ "borg-git",
  "borg-jobs",
  "borg-term",
  "borg-testkit",
@@ -243,6 +244,7 @@ name = "borg-core"
 version = "0.3.0"
 dependencies = [
  "borg-gfx",
+ "borg-git",
  "borg-jobs",
  "borg-term",
  "borg-vfs",
@@ -264,6 +266,15 @@ dependencies = [
  "ratatui",
  "rustix",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "borg-git"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -294,6 +305,7 @@ dependencies = [
  "anyhow",
  "borg-core",
  "borg-gfx",
+ "borg-git",
  "borg-jobs",
  "borg-term",
  "borg-ui",
@@ -2902,8 +2914,13 @@ version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
+ "bytes",
+ "libc",
+ "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "tokio-macros",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

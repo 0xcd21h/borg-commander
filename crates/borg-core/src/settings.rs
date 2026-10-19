@@ -32,6 +32,7 @@ pub struct Preferences {
     pub screensaver: bool,
     pub nerd_font: bool,
     pub icon_spacing: u8,
+    pub git_plugin: bool,
 }
 
 impl Preferences {
@@ -44,6 +45,7 @@ impl Preferences {
         screensaver: true,
         nerd_font: false,
         icon_spacing: *ICON_SPACING.start(),
+        git_plugin: true,
     };
 }
 

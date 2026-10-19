@@ -38,6 +38,7 @@ crates/
   borg-vfs      file system access: streaming directory listings
   borg-view     the pager behind F3: constant memory on files of any size
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
+  borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
@@ -75,11 +76,23 @@ is revealed, and the panels come back when it finishes.
 
 ### Rendering pipeline
 
-- `panel_view` draws panels: breadcrumbs, rows, icons, the cursor, size bars and spinners.
+- `panel_view` draws panels: breadcrumbs, rows, icons, the cursor, Git status and spinners.
 - `fx/` holds the effects engine: gradients, glow, dimming, shadows, the braille canvas and
   cube, the starfield, glyph rain, spinners, and 256-colour quantising.
 - Themes are TOML files in `crates/borg-ui/themes/`. `ThemeSet` loads them, resolves
   `extends` and merges styles and effects.
+
+### Plugins
+
+The Git plugin is compiled as `borg-git`; `borg-core::plugins` owns its pure state and
+effects, and `borg-app::plugins` executes requests. Each panel has one cancellable status
+scan, with newer navigation replacing older requests. Disabling the plugin drops active
+status futures and kills their child processes. Index operations already requested finish
+before their results are handled. Output is capped at 8 MiB and status scans time out after
+15 seconds. Git arguments use literal pathspecs and never pass through the shell.
+
+Plugins have a separate checkbox window and persisted `[plugins]` settings. Git is the
+first bundled plugin; there is no external plugin loader yet.
 
 ### Graphics
 

@@ -53,7 +53,10 @@ fn text(viewer: &crate::Viewer) -> &borg_view::Pager {
 }
 
 fn quiet() -> Settings {
-    Settings { preferences: crate::Preferences::DEFAULT, ..Settings::default() }
+    Settings {
+        preferences: crate::Preferences { git_plugin: false, ..crate::Preferences::DEFAULT },
+        ..Settings::default()
+    }
 }
 
 fn setup_with(entries: Vec<Entry>) -> (AppState, Instant) {
@@ -1101,4 +1104,87 @@ fn command_end_without_a_start_marker_still_refreshes_panels_for_older_shells() 
     let effects = update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
     assert_eq!(effects.iter().filter(|effect| matches!(effect, Effect::List { .. })).count(), 2);
     assert_eq!(state.view, View::Panels);
+}
+
+#[test]
+fn git_plugin_enables_scans_ignores_stale_results_and_disables_all_actions() {
+    let (mut state, now) = setup_with(vec![file("a.rs")]);
+    state.settings.preferences.git_plugin = true;
+    let effects = update(&mut state, Msg::Tick, now);
+    let (generation, dir) = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::GitScan { side: Side::Left, generation, dir } => Some((*generation, dir.clone())),
+            _ => None,
+        })
+        .unwrap();
+    let repository = borg_git::Repository::parse(dir.clone(), b"## main\0 M a.rs\0").unwrap();
+    update(
+        &mut state,
+        Msg::GitStatus {
+            side: Side::Left,
+            generation: generation + 1,
+            dir: dir.clone(),
+            result: Ok(Some(repository.clone())),
+        },
+        now,
+    );
+    assert!(state.active_panel().git_repository().is_none());
+    update(
+        &mut state,
+        Msg::GitStatus { side: Side::Left, generation, dir: dir.clone(), result: Ok(Some(repository.clone())) },
+        now,
+    );
+    assert!(state.active_panel().git_repository().is_some());
+    assert!(state.wake_at().is_some());
+    let due = now + std::time::Duration::from_secs(5);
+    assert!(
+        update(&mut state, Msg::Tick, due)
+            .iter()
+            .any(|effect| matches!(effect, Effect::GitScan { side: Side::Left, .. }))
+    );
+    state.overlay = Some(Overlay::Plugins { selected: 0 });
+    let effects = press(&mut state, now, key(KeyCode::Char(' ')));
+    assert!(effects.contains(&Effect::SaveConfig));
+    assert!(!state.settings.preferences.git_plugin);
+    assert!(state.active_panel().git_repository().is_none());
+    assert!(menus(&state).iter().all(|menu| menu.title != "Git"));
+    assert!(crate::actions::perform(&mut state, Action::Git(borg_git::Tool::Stage), now).is_empty());
+    update(&mut state, Msg::GitStatus { side: Side::Left, generation, dir, result: Ok(Some(repository)) }, now);
+    assert!(state.active_panel().git_repository().is_none());
+    assert!(!update(&mut state, Msg::Tick, due).iter().any(|effect| matches!(effect, Effect::GitScan { .. })));
+}
+
+#[test]
+fn git_tools_use_marked_files_and_refresh_status_after_index_changes() {
+    let (mut state, now) = setup_with(vec![file("a.rs"), file("b.rs")]);
+    state.settings.preferences.git_plugin = true;
+    update(&mut state, Msg::Tick, now);
+    state.panels[0].git.repository =
+        Some(borg_git::Repository::parse("/home".into(), b"## main\0 M a.rs\0?? b.rs\0").unwrap());
+    state.panels[0].invert_marks();
+    let effects = crate::actions::perform(&mut state, Action::Git(borg_git::Tool::Stage), now);
+    let [Effect::GitTool { id, paths, .. }] = effects.as_slice() else { panic!("expected Git operation") };
+    assert_eq!(paths, &[PathBuf::from("/home/a.rs"), PathBuf::from("/home/b.rs")]);
+    assert!(crate::actions::perform(&mut state, Action::Git(borg_git::Tool::Stage), now).is_empty());
+    let effects = update(&mut state, Msg::GitFinished { id: *id, result: Ok(None) }, now);
+    assert!(state.plugins.git_task.is_none());
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::GitScan { side: Side::Left, .. })));
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::List { side: Side::Left, .. })));
+    let effects = press(&mut state, now, ctrl('u'));
+    assert_eq!(
+        effects.iter().filter(|effect| matches!(effect, Effect::GitScan { .. })).count(),
+        2,
+        "swapping panels must replace requests sent to their former sides"
+    );
+}
+
+#[test]
+fn the_git_menu_does_not_change_the_default_menu_for_the_right_panel() {
+    let (mut state, now) = setup();
+    state.settings.preferences.git_plugin = true;
+    state.active = Side::Right;
+    press(&mut state, now, key(KeyCode::F(9)));
+    let Some(Overlay::Menu(cursor)) = state.overlay else { panic!("menu missing") };
+    assert_eq!(menus(&state)[cursor.menu].title, "Right");
 }

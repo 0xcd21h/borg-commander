@@ -128,7 +128,23 @@ Shift-PgUp/PgDn scroll by a page; Shift-Home goes to the oldest output; Shift-En
 the live prompt. Typing returns to the live prompt as well. Use your terminal’s selection
 gesture, usually Shift-drag, then its normal copy shortcut to copy visible output.
 
-The small bars after filenames show file sizes relative to the largest file in that panel.
+## Git plugin
+
+Git is a bundled plugin, enabled by default. F9 → Options → Plugins opens its checkbox;
+turning it off hides the Git menu and status columns and stops background status scans.
+It requires Git on your PATH.
+
+Inside a repository, panels show the branch and a two-character status beside each file.
+The left character describes the index (staged changes); the right describes the working tree.
+`M` means modified, `A` added, `D` deleted, `R` renamed, `??` untracked, and `U` a conflict.
+Folders summarize changes below them. Clean and ignored files have no marker.
+Outside repositories, filenames use the extra space.
+
+The Git menu offers repository status, unstaged and staged diffs, recent commits, and
+stage/unstage for marked files (or the current file when nothing is marked).
+Diffs and history open in the regular viewer. Unstage preserves working files.
+Status refreshes after navigation, commands, and Git actions, and every five seconds while
+panels are idle. Refresh status in the Git menu rescans immediately.
 
 ## Find, jobs, and viewers
 
@@ -178,6 +194,9 @@ screensaver = true
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
+
+[plugins]
+git = true
 ```
 
 Panel folders, cursor position, split, listing mode, and sorting are saved in

@@ -759,3 +759,52 @@ fn multiline_recalled_prompt_keeps_all_rows_visible() -> Result<()> {
     ensure_text(&buffer, "done")?;
     check("multiline_prompt", &stage, buffer)
 }
+
+#[test]
+fn git_plugin_shows_status_and_can_be_disabled() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let dir = stage.state.panels[0].dir().to_path_buf();
+    let generation = stage.state.panels[0].generation();
+    let repository = borg_git::Repository::parse(
+        dir.clone(),
+        b"## main\0 M src/main.rs\0A  Cargo.toml\0MM README.md\0?? build.sh\0UU socket\0",
+    )?;
+    stage.send(Msg::GitStatus { side: borg_core::Side::Left, generation, dir, result: Ok(Some(repository)) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Git main")?;
+    check("git_status", &stage, buffer)?;
+    stage.state.panels[0].set_mode(borg_core::ListingMode::Brief);
+    let buffer = stage.render(stage.started)?;
+    check("git_status_brief", &stage, buffer)?;
+    stage.state.panels[0].set_mode(borg_core::ListingMode::Full);
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Git").unwrap();
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(index)));
+    let buffer = stage.render(stage.started)?;
+    check("git_menu", &stage, buffer)?;
+    stage.state.overlay = Some(borg_core::Overlay::Plugins { selected: 0 });
+    let buffer = stage.render(stage.started)?;
+    check("plugins_enabled", &stage, buffer)?;
+    stage.send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(stage.started)?;
+    check("plugins_disabled", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    check("git_disabled_panels", &stage, buffer)
+}
+
+#[test]
+fn git_and_plugin_windows_survive_tiny_terminals() -> Result<()> {
+    for (cols, rows) in [(20, 8), (2, 2), (1, 1), (0, 0)] {
+        let mut stage = stage(SIZE, Motion::STILL)?;
+        let dir = stage.state.panels[0].dir().to_path_buf();
+        let generation = stage.state.panels[0].generation();
+        let repository = borg_git::Repository::parse(dir.clone(), b"## a-very-long-branch-name\0MM Cargo.toml\0")?;
+        stage.send(Msg::GitStatus { side: borg_core::Side::Left, generation, dir, result: Ok(Some(repository)) });
+        stage.send(Msg::Resize { cols, rows });
+        stage.emulator.resize(GridSize::console(cols, rows));
+        stage.render(stage.started)?;
+        stage.state.overlay = Some(borg_core::Overlay::Plugins { selected: 0 });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
