@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+output line 20
+output line 21
+output line 22
+output line 23
+output line 24
+output line 25
+output line 26
+output line 27
+output line 28
+output line 29
+output line 30
+output line 31
+output line 32
+output line 33
+output line 34
+output line 35
+output line 36
+output line 37
+output line 38
+output line 39
+output line 40
+ Borg console · ↑21 lines · Shift-End live · Ctrl-O panels · wheel history
+--- styles ---
+  0: 0-89 Reset Reset NONE
+  1: 0-89 Reset Reset NONE
+  2: 0-89 Reset Reset NONE
+  3: 0-89 Reset Reset NONE
+  4: 0-89 Reset Reset NONE
+  5: 0-89 Reset Reset NONE
+  6: 0-89 Reset Reset NONE
+  7: 0-89 Reset Reset NONE
+  8: 0-89 Reset Reset NONE
+  9: 0-89 Reset Reset NONE
+ 10: 0-89 Reset Reset NONE
+ 11: 0-89 Reset Reset NONE
+ 12: 0-89 Reset Reset NONE
+ 13: 0-89 Reset Reset NONE
+ 14: 0-89 Reset Reset NONE
+ 15: 0-89 Reset Reset NONE
+ 16: 0-89 Reset Reset NONE
+ 17: 0-89 Reset Reset NONE
+ 18: 0-89 Reset Reset NONE
+ 19: 0-89 Reset Reset NONE
+ 20: 0-89 Reset Reset NONE
+ 21: 0-12 White Cyan NONE | 13-89 Black Cyan NONE

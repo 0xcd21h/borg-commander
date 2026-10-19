@@ -23,7 +23,7 @@ expression: describe(&buffer)
 └ 9 items ──────────────────────────────────┘└ 5 items ──────────────────────────────────┘
  drw-r--r--     DIR  2026-01-10 09:30  src
 $
-1Help   2File   3View   4Edit   5Copy   6Move   7Mkdir  8Delete 9Menu   10Quit  ^OShell
+F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
 --- styles ---
   0: 0-0 White Blue BOLD | 1-1 Black Cyan BOLD | 2-2 Black Cyan NONE | 3-5 Cyan Cyan NONE | 6-13 Black Cyan NONE | 14-16 Cyan Cyan NONE | 17-21 Black Cyan BOLD | 22-44 White Blue BOLD | 45-47 LightCyan Blue NONE | 48-50 Cyan Blue NONE | 51-53 LightCyan Blue NONE | 54-56 Cyan Blue NONE | 57-89 LightCyan Blue NONE
   1: 0-0 White Blue BOLD | 1-1 LightCyan Blue NONE | 2-4 White Blue BOLD | 5-43 LightCyan Blue NONE | 44-44 White Blue BOLD | 45-46 LightCyan Blue NONE | 47-49 LightCyan Blue BOLD | 50-89 LightCyan Blue NONE
@@ -46,4 +46,4 @@ $
  18: 0-0 White Blue BOLD | 1-9 LightCyan Blue BOLD | 10-44 White Blue BOLD | 45-89 LightCyan Blue NONE
  19: 0-89 LightCyan Blue NONE
  20: 0-89 Reset Reset NONE
- 21: 0-0 White Black NONE | 1-7 Black Cyan NONE | 8-8 White Black NONE | 9-15 Black Cyan NONE | 16-16 White Black NONE | 17-23 Black Cyan NONE | 24-24 White Black NONE | 25-31 Black Cyan NONE | 32-32 White Black NONE | 33-39 Black Cyan NONE | 40-40 White Black NONE | 41-47 Black Cyan NONE | 48-48 White Black NONE | 49-55 Black Cyan NONE | 56-56 White Black NONE | 57-63 Black Cyan NONE | 64-64 White Black NONE | 65-71 Black Cyan NONE | 72-73 White Black NONE | 74-79 Black Cyan NONE | 80-81 White Black NONE | 82-87 Black Cyan NONE | 88-89 Reset Reset NONE
+ 21: 0-1 White Black NONE | 2-7 Black Cyan NONE | 8-9 White Black NONE | 10-15 Black Cyan NONE | 16-17 White Black NONE | 18-23 Black Cyan NONE | 24-25 White Black NONE | 26-31 Black Cyan NONE | 32-33 White Black NONE | 34-39 Black Cyan NONE | 40-41 White Black NONE | 42-47 Black Cyan NONE | 48-49 White Black NONE | 50-55 Black Cyan NONE | 56-57 White Black NONE | 58-63 Black Cyan NONE | 64-65 White Black NONE | 66-71 Black Cyan NONE | 72-74 White Black NONE | 75-79 Black Cyan NONE | 80-81 White Black NONE | 82-87 Black Cyan NONE | 88-89 Reset Reset NONE

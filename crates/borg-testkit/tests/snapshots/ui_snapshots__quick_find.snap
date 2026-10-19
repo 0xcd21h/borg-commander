@@ -23,7 +23,7 @@ expression: describe(&buffer)
 ╰ find: o  2/4 ─────────────────────────────╯╰ 5 items ──────────────────────────────────╯
  -rw-r--r--    1234  2026-01-10 09:30  Cargo.toml
 $
-1Help   2File   3View   4Edit   5Copy   6Move   7Mkdir  8Delete 9Menu   10Quit  ^OShell
+F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
 --- styles ---
   0: 0-0 Cyan Reset NONE | 1-1 White Reset BOLD | 2-2 White Reset NONE | 3-5 Indexed(240) Reset NONE | 6-13 White Reset NONE | 14-16 Indexed(240) Reset NONE | 17-21 White Reset BOLD | 22-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-47 Rgb(169, 169, 169) Reset NONE | 48-50 Rgb(71, 71, 71) Reset NONE | 51-53 Rgb(169, 169, 169) Reset NONE | 54-56 Rgb(71, 71, 71) Reset NONE | 57-60 Rgb(169, 169, 169) Reset NONE | 61-89 Rgb(80, 80, 80) Reset NONE
   1: 0-0 Cyan Reset NONE | 1-1 Reset Reset NONE | 2-5 LightBlue Reset BOLD | 6-23 Reset Reset NONE | 24-29 DarkGray Reset NONE | 30-43 Reset Reset NONE | 44-44 Cyan Reset NONE | 45-45 Rgb(80, 80, 80) Reset NONE | 46-46 Rgb(43, 43, 43) Reset NONE | 47-50 Rgb(56, 114, 178) Indexed(236) BOLD | 51-68 Rgb(157, 157, 157) Indexed(236) NONE | 69-74 Rgb(86, 86, 86) Indexed(236) NONE | 75-87 Rgb(157, 157, 157) Indexed(236) NONE | 88-88 Rgb(43, 43, 43) Reset NONE | 89-89 Rgb(80, 80, 80) Reset NONE
@@ -46,4 +46,4 @@ $
  18: 0-0 Cyan Reset NONE | 1-7 Rgb(95, 175, 215) Reset NONE | 8-9 White Indexed(238) NONE | 10-14 DarkGray Reset NONE | 15-44 Cyan Reset NONE | 45-89 Rgb(80, 80, 80) Reset NONE
  19: 0-89 Gray Indexed(235) NONE
  20: 0-89 Reset Reset NONE
- 21: 0-0 White Reset NONE | 1-7 Black Cyan NONE | 8-8 White Reset NONE | 9-15 Black Cyan NONE | 16-16 White Reset NONE | 17-23 Black Cyan NONE | 24-24 White Reset NONE | 25-31 Black Cyan NONE | 32-32 White Reset NONE | 33-39 Black Cyan NONE | 40-40 White Reset NONE | 41-47 Black Cyan NONE | 48-48 White Reset NONE | 49-55 Black Cyan NONE | 56-56 White Reset NONE | 57-63 Black Cyan NONE | 64-64 White Reset NONE | 65-71 Black Cyan NONE | 72-73 White Reset NONE | 74-79 Black Cyan NONE | 80-81 White Reset NONE | 82-87 Black Cyan NONE | 88-89 Reset Reset NONE
+ 21: 0-1 White Reset NONE | 2-7 Black Cyan NONE | 8-9 White Reset NONE | 10-15 Black Cyan NONE | 16-17 White Reset NONE | 18-23 Black Cyan NONE | 24-25 White Reset NONE | 26-31 Black Cyan NONE | 32-33 White Reset NONE | 34-39 Black Cyan NONE | 40-41 White Reset NONE | 42-47 Black Cyan NONE | 48-49 White Reset NONE | 50-55 Black Cyan NONE | 56-57 White Reset NONE | 58-63 Black Cyan NONE | 64-65 White Reset NONE | 66-71 Black Cyan NONE | 72-74 White Reset NONE | 75-79 Black Cyan NONE | 80-81 White Reset NONE | 82-87 Black Cyan NONE | 88-89 Reset Reset NONE

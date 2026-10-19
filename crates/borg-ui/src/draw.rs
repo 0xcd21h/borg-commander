@@ -1,14 +1,15 @@
 use std::{path::Path, time::Instant};
 
 use borg_core::{AppState, Layout, Overlay, Side, View, menus};
-use borg_gfx::{CellSize, Placement};
+use borg_gfx::Placement;
 use borg_term::Screen;
 use jiff::Zoned;
 use ratatui::{
     Frame,
     buffer::Buffer,
     layout::{Position, Rect},
-    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Widget,
 };
 
 use crate::{
@@ -25,7 +26,7 @@ use crate::{
     panel_view::{Activity, PanelScene, draw_panel},
     picker_view::draw_picker,
     status_view::draw_status,
-    term_view, underlay,
+    term_view,
     viewer_view::draw_viewer,
 };
 
@@ -52,26 +53,18 @@ pub struct Scene<'a> {
 pub enum Pixels {
     Off,
     Pictures,
-    Underlay(CellSize),
 }
 
 impl Pixels {
     pub fn pictures(self) -> bool {
         self != Self::Off
     }
-
-    fn underlay(self) -> Option<CellSize> {
-        match self {
-            Self::Underlay(cell) => Some(cell),
-            Self::Off | Self::Pictures => None,
-        }
-    }
 }
 
 struct Chrome {
     buf: Buffer,
     cursor: Option<Position>,
-    cards: Vec<Placement>,
+    placements: Vec<Placement>,
 }
 
 impl Scene<'_> {
@@ -95,7 +88,7 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
     if !scene.state.settings.truecolor {
         fx::quantize(frame.buffer_mut(), scene.palette);
     }
-    if let Some(position) = cursor {
+    if let Some(position) = cursor.filter(|position| area.contains(*position)) {
         frame.set_cursor_position(position);
     }
     placements
@@ -110,13 +103,13 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         art_view::draw_screensaver(&scene.look(theme), area, buf);
         return (None, Vec::new());
     }
-    let (cursor, cards) = draw_main(buf, scene, area);
+    let (cursor, placements) = draw_main(buf, scene, area);
     match state.splash_progress(scene.now) {
         Some(progress) => {
             splash(buf, scene, theme, progress, area);
             (None, Vec::new())
         }
-        None => (cursor, cards),
+        None => (cursor, placements),
     }
 }
 
@@ -135,22 +128,48 @@ fn splash(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, progress: f32, are
 fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Position>, Vec<Placement>) {
     let opacity = scene.state.panel_opacity(scene.now);
     let mut cursor = None;
-    let mut cards = Vec::new();
+    let mut placements = Vec::new();
     if opacity <= FULLY_HIDDEN {
-        term_view::draw_screen(&scene.screen, area, buf);
+        draw_console(buf, scene, area);
         cursor = composer_over_shell(buf, scene, area);
     } else if opacity >= FULLY_SHOWN {
-        let chrome = chrome(scene, area, scene.pixels.underlay());
+        let chrome = chrome(scene, area);
         *buf = chrome.buf;
         cursor = chrome.cursor;
-        cards = chrome.cards;
+        placements = chrome.placements;
     } else {
         let mut terminal = Buffer::empty(area);
-        term_view::draw_screen(&scene.screen, area, &mut terminal);
-        let chrome = chrome(scene, area, None);
+        draw_console(&mut terminal, scene, area);
+        let chrome = chrome(scene, area);
         crossfade(&chrome.buf, &terminal, opacity, scene.palette, buf);
     }
-    (cursor.or_else(|| shell_cursor(scene, opacity)), cards)
+    (cursor.or_else(|| shell_cursor(scene, opacity)), placements)
+}
+
+fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
+    let body = Rect { height: area.height.saturating_sub(1), ..area };
+    term_view::draw_screen(&scene.screen, body, buf);
+    if area.is_empty() {
+        return;
+    }
+    let footer = Rect { y: area.bottom() - 1, height: 1, ..area };
+    let theme = scene.theme_at(scene.state.appearance.current());
+    let offset = scene.screen.scrollback_offset();
+    let history = if offset > 0 { format!(" · ↑{offset} lines · Shift-End live") } else { String::new() };
+    let hint = if scene.state.shell.captured() {
+        " · program running"
+    } else if area.width >= 100 {
+        " · Ctrl-O panels · wheel / Shift-PgUp/PgDn history · Shift-drag select"
+    } else {
+        " · Ctrl-O panels · wheel history"
+    };
+    buf.set_style(footer, theme.styles.key_label);
+    Line::from(vec![
+        Span::styled(" Borg console", theme.styles.key),
+        Span::styled(history, theme.styles.key_label),
+        Span::styled(hint, theme.styles.key_label),
+    ])
+    .render(footer, buf);
 }
 
 fn composer_over_shell(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> Option<Position> {
@@ -162,22 +181,22 @@ fn composer_over_shell(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> Optio
     Some(position)
 }
 
-fn chrome(scene: &Scene<'_>, area: Rect, underlay: Option<CellSize>) -> Chrome {
+fn chrome(scene: &Scene<'_>, area: Rect) -> Chrome {
     let appearance = &scene.state.appearance;
     let current = scene.theme_at(appearance.current());
     match appearance.transition(scene.now) {
         Some((from, progress)) => {
-            let incoming = chrome_with(scene, current, area, None);
-            let outgoing = chrome_with(scene, scene.theme_at(from), area, None);
+            let incoming = chrome_with(scene, current, area);
+            let outgoing = chrome_with(scene, scene.theme_at(from), area);
             let mut blended = Buffer::empty(area);
             crossfade(&incoming.buf, &outgoing.buf, progress, scene.palette, &mut blended);
             Chrome { buf: blended, ..incoming }
         }
-        None => chrome_with(scene, current, area, underlay),
+        None => chrome_with(scene, current, area),
     }
 }
 
-fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<CellSize>) -> Chrome {
+fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     let mut buf = Buffer::empty(area);
     let state = scene.state;
     let look = scene.look(theme);
@@ -191,12 +210,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
         })
     });
 
-    let mut cards = Vec::new();
-    let backdrop = match &state.overlay {
-        Some(Overlay::Find(_) | Overlay::Composer(_)) | None => FULLY_HIDDEN,
-        Some(Overlay::Menu(_)) => MENU_BACKDROP,
-        Some(_) => BACKDROP,
-    };
+    let mut placements = Vec::new();
     let finding = match &state.overlay {
         Some(Overlay::Find(find)) => Some((find, borg_core::find_summary(state, find))),
         _ => None,
@@ -214,13 +228,12 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
                 area: rect,
                 icons: state.settings.preferences.icons,
                 icon_spacing: state.settings.preferences.icon_spacing,
-                underlay: underlay.is_some(),
                 pictures: scene.pixels.pictures(),
                 clock: scene.clock,
             };
             let pictures = draw_aside(&shown, &look, &mut buf);
-            if underlay.is_some() || state.overlay.is_none() {
-                cards.extend(pictures);
+            if state.overlay.is_none() {
+                placements.extend(pictures);
             }
         }
         let panel = PanelScene {
@@ -233,24 +246,12 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
             icons: state.settings.preferences.icons,
             icon_spacing: state.settings.preferences.icon_spacing,
             find: finding.filter(|(find, _)| find.side == side),
-            underlay: underlay.is_some(),
             home: scene.home,
             clock: scene.clock,
             now: scene.now,
         };
         if aside.is_none() {
             panel_cursor = draw_panel(&panel, &look, &mut buf).or(panel_cursor);
-        }
-        if let Some(cell) = underlay {
-            let spec = underlay::PanelCards {
-                panel: state.panel(side),
-                motion: &state.motions[side.index()],
-                area: rect,
-                active,
-                pill: aside.is_none(),
-                now: scene.now,
-            };
-            cards.extend(underlay::panel(&spec, &look, cell));
         }
         if !active && aside.is_none() && theme.effects.inactive_dim > FULLY_HIDDEN {
             let busy = activities[side.index()].is_some();
@@ -266,69 +267,23 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect, underlay: Option<Ce
     term_view::draw_row(&scene.screen, cursor_row, layout.prompt.y, layout.prompt, &mut buf);
     draw_keybar(layout.keybar, styles, state.notice.as_deref(), &mut buf);
 
-    let (cursor, shown) = draw_overlay(scene, &look, &layout, underlay.is_some(), &mut buf);
-    if let Some(cell) = underlay {
-        let reset = Color::Reset;
-        let pills =
-            [styles.cursor, styles.cursor_inactive, styles.marked_cursor].map(|style| style.bg.unwrap_or(reset));
-        let panel_base = [styles.panel.bg.unwrap_or(reset)].into_iter().chain(pills).collect::<Vec<_>>();
-        let dimmed = backdrop > FULLY_HIDDEN;
-        for rect in layout.panels.iter().copied().filter(|_| !dimmed) {
-            cards.extend(underlay::highlights(&buf, rect, &panel_base, underlay::Layer::Panel, &look, cell));
-        }
-        if let Some(overlay) = state.overlay.as_ref().filter(|_| dimmed) {
-            cards.extend(underlay::scrim(backdrop_area(&layout, overlay), backdrop, &look));
-        }
-        cards.extend(shown.iter().flat_map(|surface| match surface {
-            Surface::Card(rect) => {
-                let base = [styles.overlay.bg, styles.menu.bg].map(|bg| bg.unwrap_or(reset));
-                let mut placed = underlay::overlay(*rect, &look, cell);
-                placed.extend(underlay::highlights(&buf, *rect, &base, underlay::Layer::Overlay, &look, cell));
-                placed
-            }
-            Surface::Strip(rect, style) => {
-                let mut placed = underlay::strip(*rect, *style, &look, cell);
-                let base = [style.bg.unwrap_or(reset)];
-                placed.extend(underlay::highlights(&buf, *rect, &base, underlay::Layer::Overlay, &look, cell));
-                placed
-            }
-        }));
-    }
-    Chrome { buf, cursor: cursor.or(panel_cursor), cards }
+    let cursor = draw_overlay(scene, &look, &layout, &mut buf);
+    Chrome { buf, cursor: cursor.or(panel_cursor), placements }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Surface {
-    Card(Rect),
-    Strip(Rect, Style),
-}
-
-fn draw_overlay(
-    scene: &Scene<'_>,
-    look: &Look<'_>,
-    layout: &Layout,
-    underlay: bool,
-    buf: &mut Buffer,
-) -> (Option<Position>, Vec<Surface>) {
+fn draw_overlay(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, buf: &mut Buffer) -> Option<Position> {
     let state = scene.state;
     let all = menus(state);
-    let mut surfaces = Vec::new();
     if let Some(bar) = layout.menu {
         menu_view::draw_menu_bar(&all, None, bar, look.theme, buf);
-        surfaces.push(Surface::Strip(bar, look.styles().menu));
     }
     if let Some(leaving) = state.leaving.as_ref().filter(|leaving| leaving.fade.is_animating(scene.now)) {
-        layer(scene, look, layout, buf, &leaving.overlay, leaving.fade.value(scene.now), false);
+        layer(scene, look, layout, buf, &leaving.overlay, leaving.fade.value(scene.now));
     }
-    let Some(overlay) = state.overlay.as_ref() else { return (None, surfaces) };
+    let overlay = state.overlay.as_ref()?;
     let opacity = state.overlay_fade.value(scene.now);
     backdrop(scene, look, layout, overlay, buf);
-    let solid = underlay && opacity >= CURSOR_HANDOFF;
-    let (cursor, shown) = layer(scene, look, layout, buf, overlay, opacity, solid);
-    if solid {
-        surfaces.extend(shown);
-    }
-    (cursor.filter(|_| opacity >= CURSOR_HANDOFF), surfaces)
+    layer(scene, look, layout, buf, overlay, opacity).filter(|_| opacity >= CURSOR_HANDOFF)
 }
 
 fn layer(
@@ -338,13 +293,12 @@ fn layer(
     buf: &mut Buffer,
     overlay: &Overlay,
     opacity: f32,
-    solid: bool,
-) -> (Option<Position>, Vec<Surface>) {
+) -> Option<Position> {
     if opacity <= FULLY_HIDDEN || matches!(overlay, Overlay::Find(_)) {
-        return (None, Vec::new());
+        return None;
     }
     let mut over = buf.clone();
-    let painted = paint_overlay(scene, look, layout, &mut over, overlay, opacity, solid);
+    let painted = paint_overlay(scene, look, layout, &mut over, overlay, opacity);
     if opacity >= FULLY_SHOWN {
         *buf = over;
     } else {
@@ -394,16 +348,11 @@ fn paint_overlay(
     buf: &mut Buffer,
     overlay: &Overlay,
     progress: f32,
-    solid: bool,
-) -> (Option<Position>, Vec<Surface>) {
+) -> Option<Position> {
     let state = scene.state;
     let theme = look.theme;
     let screen = layout.screen;
     let all = menus(state);
-    let open = match overlay {
-        Overlay::Menu(cursor) => Some(*cursor),
-        _ => None,
-    };
     let bar = bar_of(layout, overlay);
 
     let before = (progress < FULLY_SHOWN).then(|| buf.clone());
@@ -446,14 +395,8 @@ fn paint_overlay(
     };
     let reach = UNFOLD_FLOOR + (FULLY_SHOWN - UNFOLD_FLOOR) * progress;
     let shown = before.map_or(rect, |before| fx::reveal(buf, &before, rect, reach, unfold));
-    if !solid {
-        fx::shadow(buf, shown, scene.palette);
-        return (cursor, Vec::new());
-    }
-    fx::erase_border(buf, shown);
-    let strip =
-        bar.filter(|_| layout.menu.is_none() && open.is_some()).map(|bar| Surface::Strip(bar, look.styles().menu));
-    (cursor, strip.into_iter().chain(std::iter::once(Surface::Card(shown))).collect())
+    fx::shadow(buf, shown, scene.palette);
+    cursor
 }
 
 fn shell_cursor(scene: &Scene<'_>, opacity: f32) -> Option<Position> {

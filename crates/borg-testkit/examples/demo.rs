@@ -13,10 +13,10 @@ use crossterm::event::KeyCode;
 const USAGE: &str = "usage: demo <path-to-borg-binary> <output.gif>";
 const FRAME: Duration = Duration::from_millis(90);
 const TAIL: Duration = Duration::from_secs(3);
-const COLS: u16 = 100;
-const ROWS: u16 = 26;
-const CONFIG: &str = "startup-animation = true\ntheme = \"neon\"\nicons = true\nmenu-bar = false\n";
-const TYPE_DELAY: Duration = Duration::from_millis(90);
+const COLS: u16 = 132;
+const ROWS: u16 = 36;
+const CONFIG: &str = "startup-animation = true\ntheme = \"neon\"\nicons = true\nmenu-bar = true\n";
+const TYPE_DELAY: Duration = Duration::from_millis(45);
 const SHORT: Duration = Duration::from_millis(350);
 const BEAT: Duration = Duration::from_millis(700);
 const LONG: Duration = Duration::from_millis(1400);
@@ -35,7 +35,7 @@ const SOURCES: [(&str, &str); 4] = [
     ("src/ui.rs", "pub fn draw() {}\n"),
     ("src/theme.rs", "pub struct Theme;\n"),
 ];
-const FILES: [(&str, &str); 11] = [
+const FILES: [(&str, &str); 13] = [
     ("Cargo.toml", "[package]\nname = \"borg\"\n"),
     ("Cargo.lock", "version = 4\n"),
     ("README.md", "# borg\n\nResistance is futile.\n"),
@@ -47,6 +47,8 @@ const FILES: [(&str, &str); 11] = [
     ("notes.txt", "We are the Borg.\nLower your shields and surrender your files.\n"),
     ("docs/guide.md", "# Guide\n"),
     ("docs/architecture.md", "# Architecture\n"),
+    ("CHANGELOG.md", "# 0.2.0\n\nMouse navigation, console scrollback, and fast terminal chrome.\n"),
+    ("Makefile", "build:\n\tcargo build --release\n"),
 ];
 
 fn picture(seed: f32) -> Result<Vec<u8>> {
@@ -86,6 +88,21 @@ fn project(fixture: &Fixture) -> Result<PathBuf> {
     for (name, seed) in PICTURES {
         write(&root.join(ASSETS).join(name), &picture(seed)?)?;
     }
+    let releases = fixture.home().join("releases");
+    for name in [
+        "borg-linux-arm64.tar.gz",
+        "borg-linux-x64.tar.gz",
+        "borg-macos-arm64.tar.gz",
+        "borg-macos-x64.tar.gz",
+        "checksums.txt",
+        "release-notes.md",
+    ] {
+        write(&releases.join(name), b"A fictional release artifact for the demo.\n")?;
+    }
+    let panel =
+        |dir: &Path| format!("dir = {:?}\nmode = \"full\"\nsort = \"name\"\nreverse = false\n", dir.to_string_lossy());
+    let session = format!("active = \"left\"\nsplit = 0.5\n[left]\n{}[right]\n{}", panel(&root), panel(&releases));
+    write(&fixture.state().join("session.toml"), session.as_bytes())?;
     fixture.configure(CONFIG)?;
     Ok(root)
 }
@@ -110,6 +127,12 @@ impl Script {
         Ok(self)
     }
 
+    fn click(&mut self, label: &str, hold: Duration) -> Result<&mut Self> {
+        let screen = self.app.wait_text(label)?;
+        let (x, y) = screen.find(label).with_context(|| format!("finding {label} for a mouse click"))?;
+        self.press(format!("\x1b[<0;{};{}M\x1b[<0;{};{}m", x + 1, y + 1, x + 1, y + 1), hold)
+    }
+
     fn find(&mut self, query: &str) -> Result<&mut Self> {
         self.press(keys::ctrl('s'), SHORT)?.type_text(query, SHORT)?.press(keys::enter(), SHORT)
     }
@@ -120,15 +143,16 @@ fn main() -> Result<()> {
     let binary = fs::canonicalize(PathBuf::from(args.next().context(USAGE)?))?;
     let output = PathBuf::from(args.next().context(USAGE)?);
 
-    let fixture = Fixture::new()?;
+    let fixture = Fixture::new_in(Path::new("/tmp"))?;
     let root = project(&fixture)?;
     let app = Session::builder(&binary, &fixture).cwd(root).size(COLS, ROWS).label("demo").spawn()?;
     let mut script = Script { app, recorder: Recorder::new(FRAME) };
+    script.app.wait_text("c o m m a n d e r")?;
     script.recorder.record(&mut script.app, SPLASH)?;
 
-    for _ in 0..4 {
-        script.press(keys::down(), SHORT)?;
-    }
+    script.app.wait_text("README.md")?;
+    script.app.wait_text("checksums.txt")?;
+    script.press(keys::down(), BEAT)?.press(keys::down(), SHORT)?;
     script
         .press(keys::ctrl('s'), SHORT)?
         .type_text("js", BEAT)?
@@ -136,31 +160,39 @@ fn main() -> Result<()> {
         .press(keys::enter(), SHORT)?;
 
     script.find("src")?.press(keys::enter(), LONG)?;
-    script.press(keys::key(KeyCode::Home), SHORT)?.press(keys::enter(), LONG)?;
-
-    script.type_text("ls -la", SHORT)?.press(keys::enter(), LONG)?.press(keys::ctrl('o'), LONG)?;
+    script.press(keys::down(), SHORT)?.press(keys::ctrl('q'), LONG)?.press(keys::down(), LONG)?;
+    script.press(keys::ctrl('q'), SHORT)?.press(keys::key(KeyCode::Home), SHORT)?.press(keys::enter(), BEAT)?;
 
     script.find("README")?;
-    for _ in 0..3 {
-        script.press(keys::key(KeyCode::Insert), SHORT)?;
-    }
-    script.press(keys::f(9), BEAT)?.press(keys::right(), SHORT)?.press(keys::down(), SHORT)?;
-    script.press(keys::down(), SHORT)?.press(keys::esc(), BEAT)?;
-
-    script.press(keys::f(9), SHORT)?;
-    for _ in 0..3 {
-        script.press(keys::right(), SHORT)?;
-    }
-    script.press(keys::enter(), BEAT)?;
-    for key in [keys::up(), keys::down(), keys::down(), keys::down()] {
+    script.press(keys::key(KeyCode::Insert), SHORT)?.press(keys::key(KeyCode::Insert), BEAT)?;
+    script.click("File", BEAT)?.press(keys::down(), SHORT)?.press(keys::esc(), SHORT)?;
+    script.click("Options", BEAT)?.click("Theme…", BEAT)?;
+    for key in [keys::up(), keys::down(), keys::down()] {
         script.press(key, LONG)?;
     }
     script.press(keys::esc(), BEAT)?;
 
+    script.type_text("printf 'Scan complete: deck %02d\\n' {1..70}", SHORT)?.press(keys::enter(), LONG)?;
+    script.app.wait_text("Borg console")?;
+    script.press("\x1b[<64;12;12M", LONG)?;
+    script
+        .press(keys::with(KeyCode::End, crossterm::event::KeyModifiers::SHIFT), SHORT)?
+        .press(keys::ctrl('o'), LONG)?;
+
     script.find("assets")?.press(keys::enter(), BEAT)?.find("sunset")?;
     script.press(keys::f(3), LONG)?.press(keys::right(), LONG)?.press(keys::right(), LONG)?.press(keys::esc(), BEAT)?;
-
     script.press(keys::f(1), LONG)?.type_text("borg", LONG)?.press(keys::esc(), BEAT)?;
+    script.press(keys::ctrl('q'), LONG)?;
+
+    let screen = script.app.snapshot();
+    for snapshot in script.recorder.snapshots() {
+        let text = snapshot.lines().join("\n");
+        anyhow::ensure!(
+            !text.contains("/Users/") && !text.contains("/var/folders/"),
+            "demo must not show host folders"
+        );
+    }
+    screen.save_png(&output.with_extension("png"))?;
 
     let frames = script.recorder.frames();
     script.recorder.save_gif(&output, TAIL)?;

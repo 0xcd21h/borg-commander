@@ -38,6 +38,15 @@ pub struct Fixture {
 impl Fixture {
     pub fn new() -> io::Result<Self> {
         let guard = tempfile::Builder::new().prefix("borg-e2e-").tempdir()?;
+        Self::from_tempdir(guard)
+    }
+
+    pub fn new_in(parent: &Path) -> io::Result<Self> {
+        let guard = tempfile::Builder::new().prefix("borg-demo-").tempdir_in(parent)?;
+        Self::from_tempdir(guard)
+    }
+
+    fn from_tempdir(guard: TempDir) -> io::Result<Self> {
         let root = guard.path().canonicalize()?;
         let fixture = Self { _guard: guard, root };
         [WORK, HOME, CONFIG, RUNTIME, STATE].iter().try_for_each(|dir| fs::create_dir_all(fixture.root.join(dir)))?;

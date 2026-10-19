@@ -14,13 +14,13 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    format, fx, icons,
+    format, icons,
     look::Look,
     panel_view::{ICON_GAP, style_of},
     status_view::rwx,
-    underlay::PICTURE_Z,
 };
 
+const PICTURE_Z: i32 = -1;
 const QUICK_VIEW_TITLE: &str = "Quick view";
 const INFO_TITLE: &str = "Info";
 const TITLE_SEPARATOR: &str = " · ";
@@ -60,7 +60,6 @@ pub struct AsideScene<'a> {
     pub area: Rect,
     pub icons: bool,
     pub icon_spacing: u8,
-    pub underlay: bool,
     pub pictures: bool,
     pub clock: &'a Zoned,
 }
@@ -90,9 +89,6 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     };
     let inner = block.inner(scene.area);
     block.render(scene.area, buf);
-    if scene.underlay {
-        fx::erase_border(buf, scene.area);
-    }
     let body = Rect { x: inner.x + PADDING, width: inner.width.saturating_sub(PADDING * 2), ..inner };
     match shown {
         Some(peeked) => content(peeked, scene, look, body, buf),

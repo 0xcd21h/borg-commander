@@ -7,6 +7,14 @@ pub struct GridSize {
     pub rows: u16,
 }
 
+pub const CONSOLE_FOOTER_ROWS: u16 = 1;
+
+impl GridSize {
+    pub fn console(cols: u16, rows: u16) -> Self {
+        Self { cols: cols.max(1), rows: rows.saturating_sub(CONSOLE_FOOTER_ROWS).max(1) }
+    }
+}
+
 impl Dimensions for GridSize {
     fn total_lines(&self) -> usize {
         self.screen_lines()

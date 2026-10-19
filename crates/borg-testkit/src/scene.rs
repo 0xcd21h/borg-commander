@@ -9,7 +9,7 @@ use jiff::Zoned;
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Style};
 use unicode_width::UnicodeWidthStr;
 
-const SCROLLBACK: usize = 0;
+const SCROLLBACK: usize = 1000;
 const STYLE_HEADER: &str = "--- styles ---";
 
 pub struct Stage {
@@ -47,7 +47,7 @@ impl Stage {
 
         let mut stage = Self {
             state,
-            emulator: Emulator::new(size, SCROLLBACK),
+            emulator: Emulator::new(GridSize::console(size.cols, size.rows), SCROLLBACK),
             themes,
             palette: Palette::default(),
             clock,
@@ -84,7 +84,7 @@ impl Stage {
     pub fn compose(&mut self, at: Instant) -> anyhow::Result<(Buffer, Vec<Placement>)> {
         self.state.settle();
         let screen = self.emulator.screen();
-        let size = (screen.cols(), screen.rows());
+        let size = (self.state.cols, self.state.rows);
         let mut terminal = Terminal::new(TestBackend::new(size.0, size.1))?;
         let scene = Scene {
             state: &self.state,

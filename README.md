@@ -14,23 +14,10 @@ c o m m a n d e r
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" alt="borg-commander in action: splash, icons, quick find, themes, pictures" width="900">
+  <img src="docs/demo.gif" alt="borg-commander in action: splash, icons, quick find, themes, pictures" width="1100">
 </p>
 
 ---
-
-## Pixel-drawn on Kitty and Ghostty
-
-In terminals that speak the Kitty graphics protocol (Kitty, Ghostty, WezTerm), borg draws its
-chrome in real pixels *underneath* the text: rounded cards with gradient borders and a soft
-neon glow, a cursor pill that glides between rows at pixel precision, and dialogs that cast
-blurred shadows. The text stays ordinary, crisp terminal text. Everywhere else you get the
-character-drawn look from the demo above.
-
-<p align="center">
-  <img src="docs/pixels-neon.png" alt="Pixel-drawn panels in the Neon theme" width="49%">
-  <img src="docs/pixels-dialog.png" alt="A pixel-drawn dialog with a soft shadow" width="49%">
-</p>
 
 ## What it is
 
@@ -38,7 +25,7 @@ borg is a file manager for people who live in the terminal. Two panels sit on to
 actual shell (bash, zsh or fish) running in a pseudo-terminal. The bottom line of the panel
 view *is* your shell prompt: start typing and you are typing into the shell, press Enter
 and the command runs right there. `Ctrl-O` fades the panels away so you can see the whole
-shell, and back again.
+shell, and back again. A small **Borg console** footer keeps the shell identifiable.
 
 - **A real shell, not a fake prompt.** Commands, history, completion and your aliases all
   work. `cd` in the shell moves the panel; moving in the panel moves the shell.
@@ -138,6 +125,8 @@ a Nerd Font.
 | Alt-Enter | Put the marked names (or the current one) on the command line |
 | Shift-Enter, Ctrl-J | Multi-line command: edit in a box above the prompt; Enter adds a line, Alt-Enter (or Ctrl-Enter) runs, Esc puts it back on the prompt |
 | Alt-A / Alt-Shift-A | Put this panel's / the other panel's folder path on the command line |
+| Shift-PgUp / Shift-PgDn | Scroll console output history |
+| Shift-Home / Shift-End | Oldest console output / back to the live prompt |
 | Ctrl-P / Ctrl-N, Ctrl-R | Shell history: previous / next command, search (handled by your shell) |
 | Alt-. | Show hidden files |
 | Alt-Shift-Left/Right | Resize the panels |
@@ -162,10 +151,24 @@ they exit.
 
 **No F-keys?** Some terminals keep them for themselves (VS Code's terminal uses F1, F5 and
 F11, for example). Press Esc, then the digit: Esc 1 … Esc 9 are F1 … F9 and Esc 0 is F10.
-This works in every terminal. Alt-1 … Alt-0 do the same where Alt reaches the terminal; on
+For example, **Esc, then 9** opens the menus; **Esc, then 5** copies; **Esc, then 0** quits.
+Press the digit within 1.5 seconds. The bottom bar labels these actions F1–F10 and shows the
+alternate keys on wide terminals. Alt-1 … Alt-0 do the same where Alt reaches the terminal; on
 macOS that needs Option as Meta (`"terminal.integrated.macOptionIsMeta": true` in VS Code).
 In VS Code you can also set `"terminal.integrated.sendKeybindingsToShell": true` to let the
 F-keys through.
+
+### Mouse and console history
+
+Click a panel row to focus it, double-click to open it, or right-click to mark it. The wheel
+moves through panel entries. Click the bottom **F9 Menu** action to open the menus, then click
+a menu title and an item. The other bottom actions are clickable too.
+
+In the console, the wheel scrolls **output history** without changing the command you are
+typing. Shift-PgUp/PgDn scroll by a page; Shift-Home goes to the oldest output and Shift-End
+returns to the live prompt. Typing also returns to the live prompt. Use your terminal's native
+selection gesture (usually **Shift-drag**) to select visible output, then its normal copy
+shortcut. Full-screen programs retain their own mouse controls.
 
 ### Quick find
 
@@ -224,7 +227,6 @@ screensaver-after = 300     # seconds of idle time
 delight = true              # little surprises
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
-pixel-chrome = true         # pixel-drawn panels where the terminal supports it
 ```
 
 The session (folders, cursor, split, listing mode, sort) is kept in
@@ -258,7 +260,6 @@ It appears in the theme picker the next time borg starts.
 | Animations | smooth | lighter frame rate | as local |
 | Icons | with a Nerd Font | with a local Nerd Font | yes |
 | Pictures | Kitty, iTerm2, Sixel or colour blocks | same | colour blocks |
-| Pixel-drawn panels | Kitty protocol terminals | same | no |
 
 Picture support is detected at start-up. Set `graphics = "off"` (or a specific protocol) if
 detection guesses wrong.

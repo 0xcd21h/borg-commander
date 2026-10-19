@@ -51,11 +51,7 @@ pub fn draw_dropdown(
     buf: &mut Buffer,
 ) -> Rect {
     let styles = &theme.styles;
-    let label_width = menu.entries.iter().map(entry_width).max().unwrap_or_default();
-    let width = u16::try_from(label_width).unwrap_or(u16::MAX).saturating_add(BORDER);
-    let height = u16::try_from(menu.entries.len()).unwrap_or(u16::MAX).saturating_add(BORDER);
-    let x = x.min(screen.width.saturating_sub(width));
-    let rect = Rect { x, y: top, width, height }.intersection(screen);
+    let rect = dropdown_rect(menu, x, top, screen);
 
     Clear.render(rect, buf);
     let block = Block::bordered().border_type(theme.border.into()).style(styles.menu).border_style(styles.menu);
@@ -87,6 +83,14 @@ pub fn draw_dropdown(
         }
     }
     rect
+}
+
+pub(crate) fn dropdown_rect(menu: &Menu, x: u16, top: u16, screen: Rect) -> Rect {
+    let label_width = menu.entries.iter().map(entry_width).max().unwrap_or_default();
+    let width = u16::try_from(label_width).unwrap_or(u16::MAX).saturating_add(BORDER);
+    let height = u16::try_from(menu.entries.len()).unwrap_or(u16::MAX).saturating_add(BORDER);
+    let x = x.min(screen.width.saturating_sub(width));
+    Rect { x, y: top, width, height }.intersection(screen)
 }
 
 fn entry_width(entry: &MenuEntry) -> usize {

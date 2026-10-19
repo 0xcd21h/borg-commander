@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use borg_term::{ShellSignal, encode_key, encode_paste};
+use borg_term::{Scroll, ShellSignal, encode_key, encode_paste};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{AfterCommand, AppState, Effect, Msg, View, actions, command::CommandLine, keymap, overlays};
@@ -10,6 +10,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let overlay = state.overlay.clone();
     let effects = match msg {
         Msg::Key(key) => on_key(state, &key, now),
+        Msg::Pointer(pointer) => crate::pointer::on_pointer(state, pointer, now),
         Msg::Paste(text) => on_paste(state, &text),
         Msg::Resize { cols, rows } => {
             state.resize(cols, rows, now);
@@ -92,6 +93,18 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.shell.captured() {
         return forward(state, key);
     }
+    if state.view == View::Shell && state.overlay.is_none() && key.modifiers == KeyModifiers::SHIFT {
+        let scroll = match key.code {
+            KeyCode::PageUp => Some(Scroll::PageUp),
+            KeyCode::PageDown => Some(Scroll::PageDown),
+            KeyCode::Home => Some(Scroll::Top),
+            KeyCode::End => Some(Scroll::Bottom),
+            _ => None,
+        };
+        if let Some(scroll) = scroll {
+            return vec![Effect::ScrollConsole(scroll)];
+        }
+    }
     let key = &function_alias(*key);
     if state.viewer.is_some() {
         return crate::viewer::on_key(state, key);
@@ -104,6 +117,7 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let pending = state.escaped.take().is_some_and(|at| now.saturating_duration_since(at) <= ESCAPE_WINDOW);
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
         state.escaped = Some(now);
+        state.notice = Some("Esc then 1–9 = F1–F9 · Esc then 0 = F10 · Esc 9 opens menus".into());
         return Vec::new();
     }
     let (key, mut effects) = match (pending, escaped_function(key)) {

@@ -13,7 +13,6 @@ image     = { workspace = true }
 ratatui   = { workspace = true }
 rustix    = { workspace = true }
 thiserror = { workspace = true }
-tiny-skia = { workspace = true }
 
 [lints]
 workspace = true

@@ -12,7 +12,7 @@ const MENU_NAMES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
-const FIRST_KEY: &str = "1Help";
+const FIRST_KEY: &str = "F1He";
 const SPLASH_SUBTITLE: &str = "c o m m a n d e r";
 const UNLOCK: &str = "borg";
 const SEVEN: usize = 7;
@@ -483,7 +483,11 @@ fn compresses_selection_and_extracts_archives() -> Result<()> {
     app.wait_text("alpha.tar.gz")?;
     app.send(keys::enter())?;
     app.wait_until("archive created", |s| {
-        work.join("alpha.tar.gz").is_file() && highlighted(s, "alpha.tar.gz") && panels_ready(s)
+        work.join("alpha.tar.gz").is_file()
+            && left_panel(s).contains("5 items")
+            && highlighted(s, "alpha.tar.gz")
+            && panels_ready(s)
+            && prompt(s).trim() == "$"
     })?;
 
     app.send(keys::tab())?.send(keys::down())?.send(keys::down())?.send(keys::enter())?;
@@ -757,5 +761,94 @@ fn copying_onto_an_existing_file_asks_and_can_keep_both() -> Result<()> {
     app.wait_text("Copied 1 file")?;
     ensure!(fs::read_to_string(fixture.work().join("beta/notes.txt"))? == "older\n", "the existing file must stay");
     ensure!(fs::read_to_string(fixture.work().join("beta/notes (2).txt"))? == "hello\n", "the copy keeps its content");
+    Ok(())
+}
+
+fn mouse(kind: u8, x: u16, y: u16) -> String {
+    format!("\x1b[<{kind};{};{}M", x + 1, y + 1)
+}
+
+#[test]
+fn mouse_opens_menus_and_activates_items() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "mouse-menus")?;
+    let screen = app.settle()?;
+    let (x, y) = screen.find("9Menu").ok_or_else(|| anyhow::anyhow!("menu action missing"))?;
+    app.send(mouse(0, x, y))?;
+    let screen = app.wait_text(MENU_TITLES)?;
+    let (x, y) = screen.find("Options").ok_or_else(|| anyhow::anyhow!("Options missing"))?;
+    app.send(mouse(0, x, y))?;
+    let screen = app.wait_text("Theme…")?;
+    let (x, y) = screen.find("Theme…").ok_or_else(|| anyhow::anyhow!("Theme missing"))?;
+    app.send(mouse(0, x, y))?;
+    app.wait_text("Enter keep")?;
+    Ok(())
+}
+
+#[test]
+fn mouse_wheel_scrolls_console_output_and_preserves_typed_command() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "console-history")?;
+    app.send("printf 'BORG-HISTORY-%03d\\n' {1..100}")?.send(keys::enter())?;
+    app.wait_text("BORG-HISTORY-100")?;
+    app.wait_text("Borg console")?;
+    app.send("echo wheel-preserved")?;
+    app.wait_text("$ echo wheel-preserved")?;
+    app.send(mouse(64, 5, 5))?;
+    app.wait_until("console history above the prompt", |s| {
+        s.contains("↑3 lines") && !s.contains("$ echo wheel-preserved")
+    })?;
+    app.send(keys::with(KeyCode::Home, crossterm::event::KeyModifiers::SHIFT))?;
+    app.wait_text("BORG-HISTORY-001")?;
+    app.send(mouse(65, 5, 5))?;
+    app.wait_gone("BORG-HISTORY-001")?;
+    app.send(keys::with(KeyCode::End, crossterm::event::KeyModifiers::SHIFT))?;
+    app.wait_text("$ echo wheel-preserved")?;
+    app.send(keys::enter())?;
+    app.wait_until("typed command survived scrolling", |s| {
+        s.lines().iter().any(|line| line.trim() == "wheel-preserved")
+    })?;
+    Ok(())
+}
+
+#[test]
+fn rapid_resizes_and_tiny_windows_recover_with_an_open_menu() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "resize-race")?;
+    app.send(keys::f(9))?;
+    app.wait_text(MENU_TITLES)?;
+    for _ in 0..3 {
+        for (cols, rows) in [(194, 41), (193, 40), (40, 12), (80, 24)] {
+            app.resize(cols, rows)?;
+        }
+    }
+    app.resize(1, 1)?;
+    app.settle()?;
+    app.resize(100, 30)?;
+    app.wait_text(MENU_TITLES)?;
+    app.send(keys::key(KeyCode::Esc))?;
+    app.wait_until("panels recovered after rapid resizing", panels_ready)?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("Borg console")?;
+    app.resize(193, 40)?;
+    app.resize(64, 18)?;
+    app.wait_text("Borg console")?;
+    Ok(())
+}
+
+#[test]
+fn mouse_marks_files_and_double_click_opens_folders() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "mouse-panels")?;
+    let screen = app.settle()?;
+    let (x, y) = screen.find("notes.txt").unwrap();
+    app.send(mouse(2, x, y))?;
+    app.wait_text("1 marked")?;
+    let screen = app.settle()?;
+    let (x, y) = screen.find("alpha").unwrap();
+    app.send(mouse(0, x, y))?;
+    app.send(format!("\x1b[<0;{};{}m", x + 1, y + 1))?;
+    app.send(mouse(0, x, y))?;
+    app.wait_text("one.txt")?;
     Ok(())
 }

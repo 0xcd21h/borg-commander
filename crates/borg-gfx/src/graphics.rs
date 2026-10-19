@@ -9,59 +9,20 @@ use crate::{Capabilities, CellSize, Fit, GfxError, Picture, Protocol, encode, fi
 
 const IMAGE_BUDGET: usize = 192;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Anchor {
-    Fit,
-    Stretch,
-    Exact { offset: (u16, u16) },
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
     pub picture: Picture,
     pub area: Rect,
     pub z: i32,
-    pub anchor: Anchor,
 }
 
 impl Placement {
     pub fn fitted(picture: Picture, area: Rect, z: i32) -> Self {
-        Self { picture, area, z, anchor: Anchor::Fit }
-    }
-
-    pub fn stretched(picture: Picture, area: Rect, z: i32) -> Self {
-        Self { picture, area, z, anchor: Anchor::Stretch }
-    }
-
-    pub fn exact(picture: Picture, origin: (u16, u16), offset: (u16, u16), z: i32) -> Self {
-        let area = Rect { x: origin.0, y: origin.1, width: 0, height: 0 };
-        Self { picture, area, z, anchor: Anchor::Exact { offset } }
+        Self { picture, area, z }
     }
 
     pub fn fit(&self, cell: CellSize) -> Fit {
-        let (width, height) = (self.picture.width(), self.picture.height());
-        match self.anchor {
-            Anchor::Fit => fit(width, height, self.area, cell),
-            Anchor::Stretch => Fit {
-                area: self.area,
-                offset: (0, 0),
-                size: (
-                    u32::from(self.area.width) * u32::from(cell.width),
-                    u32::from(self.area.height) * u32::from(cell.height),
-                ),
-            },
-            Anchor::Exact { offset } => {
-                let span = |offset: u16, pixels: u32, cell: u16| {
-                    u16::try_from((u32::from(offset) + pixels).div_ceil(u32::from(cell.max(1)))).unwrap_or(u16::MAX)
-                };
-                let area = Rect {
-                    width: span(offset.0, width, cell.width),
-                    height: span(offset.1, height, cell.height),
-                    ..self.area
-                };
-                Fit { area, offset, size: (width, height) }
-            }
-        }
+        fit(self.picture.width(), self.picture.height(), self.area, cell)
     }
 }
 
@@ -76,7 +37,6 @@ struct Key {
     picture: u64,
     fit: Fit,
     z: i32,
-    anchor: Anchor,
 }
 
 #[derive(Debug)]
@@ -126,7 +86,7 @@ impl Graphics {
 
     fn key(&self, placement: &Placement) -> Key {
         let fit = placement.fit(self.capabilities.cell);
-        Key { picture: placement.picture.id(), fit, z: placement.z, anchor: placement.anchor }
+        Key { picture: placement.picture.id(), fit, z: placement.z }
     }
 
     pub fn frame(&mut self, placements: &[Placement], buffer: &Buffer) -> Output {
@@ -187,8 +147,7 @@ impl Graphics {
             };
             let id = self.next_placement;
             self.next_placement += 1;
-            let scaled = !matches!(key.anchor, Anchor::Exact { .. });
-            out.push_str(&encode::kitty_place(&key.fit, image, id, key.z, scaled));
+            out.push_str(&encode::kitty_place(&key.fit, image, id, key.z));
             self.shown.push(Shown { key, placement: id, cells: Vec::new() });
         }
         Output { bytes: out.into_bytes(), repaint: false }
@@ -257,10 +216,6 @@ mod tests {
 
         let gone = text(&gfx.frame(&[], &buffer));
         assert!(gone.contains("a=d,d=i") && !gone.contains("a=p,"));
-
-        let exact = Placement::exact(picture(9), (3, 1), (4, 7), -2);
-        let native = text(&gfx.frame(&[exact], &buffer));
-        assert!(native.contains("\x1b[2;4H") && native.contains("X=4,Y=7,C=1,z=-2") && !native.contains(",c="));
     }
 
     #[test]

@@ -31,6 +31,27 @@ impl EventListener for Replies {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scroll {
+    Delta(i32),
+    PageUp,
+    PageDown,
+    Top,
+    Bottom,
+}
+
+impl From<Scroll> for alacritty_terminal::grid::Scroll {
+    fn from(scroll: Scroll) -> Self {
+        match scroll {
+            Scroll::Delta(lines) => Self::Delta(lines),
+            Scroll::PageUp => Self::PageUp,
+            Scroll::PageDown => Self::PageDown,
+            Scroll::Top => Self::Top,
+            Scroll::Bottom => Self::Bottom,
+        }
+    }
+}
+
 pub struct Emulator {
     term: Term<Replies>,
     parser: Processor,
@@ -71,6 +92,10 @@ impl Emulator {
     pub fn resize(&mut self, size: GridSize) {
         self.term.resize(size);
         self.input_start = None;
+    }
+
+    pub fn scroll(&mut self, scroll: Scroll) {
+        self.term.scroll_display(scroll.into());
     }
 
     pub fn mode(&self) -> TermMode {
@@ -154,7 +179,16 @@ impl<'a> Screen<'a> {
     }
 
     pub fn cell(&self, col: u16, row: u16) -> &'a Cell {
+        let offset = i32::try_from(self.scrollback_offset()).unwrap_or(i32::MAX);
+        &self.term.grid()[Point::new(Line(i32::from(row) - offset), Column(usize::from(col)))]
+    }
+
+    pub fn live_cell(&self, col: u16, row: u16) -> &'a Cell {
         &self.term.grid()[Point::new(Line(i32::from(row)), Column(usize::from(col)))]
+    }
+
+    pub fn scrollback_offset(&self) -> usize {
+        self.term.grid().display_offset()
     }
 
     pub fn cursor(&self) -> (u16, u16) {
@@ -165,7 +199,7 @@ impl<'a> Screen<'a> {
     }
 
     pub fn cursor_visible(&self) -> bool {
-        self.term.mode().contains(TermMode::SHOW_CURSOR)
+        self.scrollback_offset() == 0 && self.term.mode().contains(TermMode::SHOW_CURSOR)
     }
 
     pub fn color(&self, index: usize) -> Option<Rgb> {
@@ -178,6 +212,27 @@ mod tests {
     use super::*;
 
     const SIZE: GridSize = GridSize { cols: 20, rows: 4 };
+
+    #[test]
+    fn scrollback_moves_the_viewport_without_changing_the_prompt() {
+        let mut emulator = Emulator::new(SIZE, 100);
+        for n in 1..=20 {
+            emulator.feed(format!("output {n}\r\n").as_bytes());
+        }
+        emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+        let live = emulator.screen().cell(0, 0).c;
+        emulator.scroll(Scroll::Top);
+        assert!(emulator.screen().scrollback_offset() > 0);
+        assert_eq!(emulator.screen().cell(0, 0).c, 'o');
+        assert_eq!(emulator.screen().cell(7, 0).c, '1');
+        assert_eq!(emulator.screen().live_cell(0, 0).c, live);
+        assert_eq!(emulator.prompt_state(), PromptState::Empty);
+        assert_eq!(emulator.command_line(), "");
+        assert!(!emulator.screen().cursor_visible());
+        emulator.scroll(Scroll::Bottom);
+        assert_eq!(emulator.screen().scrollback_offset(), 0);
+        assert!(emulator.screen().cursor_visible());
+    }
 
     #[test]
     fn tracks_empty_and_typed_prompt() {

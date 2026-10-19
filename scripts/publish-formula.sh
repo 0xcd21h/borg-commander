@@ -13,5 +13,9 @@ cd "${work}"
 git config user.name "borg-commander release"
 git config user.email "releases@users.noreply.github.com"
 git add Formula/borg-commander.rb
+if git diff --cached --quiet; then
+    echo "borg-commander ${tag} is already published"
+    exit 0
+fi
 git commit -m "borg-commander ${tag}"
 git push origin HEAD

@@ -103,14 +103,6 @@ pub fn gradient_border(buf: &mut Buffer, rect: Rect, gradient: Gradient) {
     }
 }
 
-pub fn erase_border(buf: &mut Buffer, rect: Rect) {
-    for (x, y) in perimeter(rect) {
-        if buf.area.contains((x, y).into()) && buf[(x, y)].symbol().chars().all(|c| BOX_DRAWING.contains(&c)) {
-            buf[(x, y)].set_symbol(" ");
-        }
-    }
-}
-
 pub fn glow(buf: &mut Buffer, rect: Rect, color: Rgb, strength: f32, palette: &Palette) {
     for (x, y) in cells(buf.area, rect) {
         let cell = &mut buf[(x, y)];

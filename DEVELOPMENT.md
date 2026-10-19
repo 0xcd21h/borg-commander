@@ -92,17 +92,6 @@ placed by id; Sixel and iTerm2 images are re-sent when something covers them and
 repaint when removed. Without a protocol the UI draws pictures with half blocks, which is also
 what tests see.
 
-### Pixel-drawn chrome
-
-With the Kitty protocol, `borg_ui::draw` also returns *underlay* placements: shape descriptions
-(`borg_gfx::Shape`: rounded cards, gradient strokes, inner glow, blurred shadows) rendered by
-tiny-skia and cached by value, placed at negative z so they sit under the text. The text layer
-drops its box-drawing borders in this mode, and any cell background that would be hidden under
-a card (buttons, menu selections, input fields) is redrawn as a small rounded highlight. The
-cursor pill follows `PanelMotion::cursor`, a fade over the cursor row, so it glides between rows
-using Kitty's sub-cell pixel offsets. Theme transitions and the shell fade fall back to the cell
-renderer for their few frames.
-
 ## Tests
 
 The suite has four layers, from fastest to slowest:
@@ -178,11 +167,12 @@ scripts/demo.sh                    # writes docs/demo.gif
 scripts/demo.sh /tmp/demo.gif      # or anywhere else
 ```
 
-The script lives in `crates/borg-testkit/examples/demo.rs`. It builds a small project, runs
+The script lives in `crates/borg-testkit/examples/demo.rs`. It records a 132 × 36 terminal
+with fictional project and release folders under `/tmp`. Every recorded frame is checked for
+host home-directory paths, and a PNG of the final frame is saved beside the GIF. It runs
 the release binary in a PTY, plays a list of key presses and records the screen with
 `borg_testkit::Recorder`. Frames that did not change are dropped, and each GIF frame stores
-only the pixels that changed, which keeps the file small. The README demo uses JetBrains Mono
-through `BORG_SCREENSHOT_FONT`.
+only the pixels that changed, which keeps the file small. The README demo uses the bundled DejaVu Sans Mono.
 
 ## Versions and releases
 
@@ -212,6 +202,10 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
 One-time setup for Homebrew: create the public repository `homebrew-tap` and add a
 fine-grained token with *Contents: read and write* on it as the `HOMEBREW_TAP_TOKEN` secret of
 this repository. Users then install with `brew install 0xcd21h/tap/borg-commander`.
+
+Without the tap token, GitHub Releases still publishes the binaries and the generated formula
+is saved as a workflow artifact. After adding the token, run the **Publish Homebrew formula**
+action with the released version (for example `0.2.0`) to publish it without making another tag.
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release
 from the GitHub API, pick the archive for the target borg was built for (`BORG_TARGET`, set by

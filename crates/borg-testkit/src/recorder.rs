@@ -39,6 +39,10 @@ impl Recorder {
         Ok(())
     }
 
+    pub fn snapshots(&self) -> impl Iterator<Item = &Snapshot> {
+        self.takes.iter().map(|(snapshot, _)| snapshot)
+    }
+
     pub fn frames(&self) -> usize {
         self.takes.len()
     }

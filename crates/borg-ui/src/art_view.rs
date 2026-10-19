@@ -22,7 +22,7 @@ const FIRST_CONTACT: &str = "First contact.";
 const FIRST_CONTACT_DAY: (i8, i8) = (4, 5);
 const TAGLINE: &str = "Resistance is futile.";
 const ABOUT_TITLE: &str = " About ";
-const ABOUT_HINT: &str = " Esc close ";
+const ABOUT_HINT: &str = " Esc then 1–9/0 = F1–F10 · Esc close ";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SPLASH_CUBE: (u16, u16) = (40, 14);
 const SAVER_CUBE: (u16, u16) = (56, 22);

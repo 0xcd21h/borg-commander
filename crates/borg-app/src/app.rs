@@ -9,16 +9,16 @@ use std::{
 use anyhow::{Context, Result};
 use borg_core::{
     AMBIENT_FRAME, AppState, Appearance, Aside, Content, Effect, Image, JobCommand, Msg, Pace, Peeked, ShellView, Side,
-    Viewer, update, viewer_size,
+    View, Viewer, update, viewer_size,
 };
 use borg_gfx::{Capabilities, Graphics, Output, Protocol, TerminalColors, decode, is_picture};
 use borg_jobs::{Control, Spec, run};
-use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
-use borg_ui::{Palette, Pixels, Rgb, Scene, ThemeSet, draw, local_now};
+use borg_term::{Emulator, GridSize, Pty, PtyEvent, Scroll, encode_mouse, shell_command};
+use borg_ui::{Palette, Pixels, Rgb, Scene, ThemeSet, draw, local_now, mouse_input};
 use borg_vfs::{Backend, Local};
 use borg_view::{FileSource, Pager};
 use crossterm::{
-    event::{Event, EventStream, KeyEventKind},
+    event::{Event, EventStream, KeyEventKind, MouseButton, MouseEvent, MouseEventKind},
     queue,
     terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
 };
@@ -37,6 +37,9 @@ use crate::{
     peek,
     session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
 };
+
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+const WHEEL_LINES: i32 = 3;
 
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
@@ -58,6 +61,7 @@ pub struct App {
     pending: Vec<Effect>,
     graphics: Graphics,
     jobs: HashMap<u64, Arc<Control>>,
+    last_click: Option<(u16, u16, Instant)>,
 }
 
 enum Flow {
@@ -67,7 +71,7 @@ enum Flow {
 
 impl App {
     pub fn start(launch: &Launch, size: Size, detected: launch::Terminal) -> Result<Self> {
-        let grid = GridSize { cols: size.width, rows: size.height };
+        let grid = GridSize::console(size.width, size.height);
         let now = Instant::now();
         let appearance = appearance(launch);
         let (mut state, pending) =
@@ -104,6 +108,7 @@ impl App {
             pending,
             graphics: Graphics::new(detected.capabilities),
             jobs: HashMap::new(),
+            last_click: None,
         })
     }
 
@@ -203,24 +208,47 @@ impl App {
     }
 
     fn draw_frame(&mut self, terminal: &mut DefaultTerminal, clock: &Zoned, now: Instant) -> Result<Output> {
-        let scene = Scene {
-            state: &self.state,
-            screen: self.emulator.screen(),
-            palette: &self.palette,
-            themes: &self.themes,
-            clock,
-            now,
-            home: self.home.as_deref(),
-            pixels: pixels(self.graphics.capabilities(), self.state.settings.preferences.pixel_chrome),
-        };
         let mut placements = Vec::new();
-        let frame = terminal.draw(|frame| placements = draw(frame, &scene))?;
+        let mut resized = Ok(());
+        let frame = terminal.draw(|frame| {
+            let area = frame.area();
+            if (self.state.cols, self.state.rows) != (area.width, area.height) {
+                resized = self.resize(area.width, area.height).map(|_| ());
+                if resized.is_err() {
+                    return;
+                }
+            }
+            let scene = Scene {
+                state: &self.state,
+                screen: self.emulator.screen(),
+                palette: &self.palette,
+                themes: &self.themes,
+                clock,
+                now,
+                home: self.home.as_deref(),
+                pixels: pixels(self.graphics.capabilities()),
+            };
+            placements = draw(frame, &scene);
+        })?;
+        resized?;
         Ok(self.graphics.frame(&placements, frame.buffer))
+    }
+
+    fn resize(&mut self, cols: u16, rows: u16) -> Result<Flow> {
+        if (self.state.cols, self.state.rows) == (cols, rows) {
+            return Ok(Flow::Continue);
+        }
+        let grid = GridSize::console(cols, rows);
+        self.emulator.resize(grid);
+        self.pty.resize(grid)?;
+        self.last_click = None;
+        self.dispatch(Msg::Resize { cols, rows })
     }
 
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
+                self.last_click = None;
                 self.observe(Msg::Observe)?;
                 self.dispatch(Msg::Key(key))
             }
@@ -228,13 +256,60 @@ impl App {
                 self.observe(Msg::Observe)?;
                 self.dispatch(Msg::Paste(text))
             }
-            Event::Resize(cols, rows) => {
-                let grid = GridSize { cols, rows };
-                self.emulator.resize(grid);
-                self.pty.resize(grid)?;
-                self.dispatch(Msg::Resize { cols, rows })
+            Event::Resize(cols, rows) => self.resize(cols, rows),
+            Event::Mouse(event) => {
+                self.observe(Msg::Observe)?;
+                self.on_mouse(event)
             }
             _ => Ok(Flow::Continue),
+        }
+    }
+
+    fn on_mouse(&mut self, event: MouseEvent) -> Result<Flow> {
+        let now = Instant::now();
+        self.state.idle_since = now;
+        if self.state.splash_active(now) || self.state.screensaver {
+            return self.dispatch(Msg::Pointer(borg_core::Pointer::DismissMenu));
+        }
+        if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
+            if event.row >= self.emulator.screen().rows() {
+                return Ok(Flow::Continue);
+            }
+            if self.state.shell.captured() {
+                if let Some(bytes) = encode_mouse(event, self.emulator.mode()) {
+                    self.pty.write(&bytes)?;
+                }
+            } else {
+                let scroll = match event.kind {
+                    MouseEventKind::ScrollUp => Some(Scroll::Delta(WHEEL_LINES)),
+                    MouseEventKind::ScrollDown => Some(Scroll::Delta(-WHEEL_LINES)),
+                    _ => None,
+                };
+                if let Some(scroll) = scroll {
+                    self.emulator.scroll(scroll);
+                }
+            }
+            return Ok(Flow::Continue);
+        }
+        let left = event.kind == MouseEventKind::Down(MouseButton::Left);
+        let double = left
+            && self.last_click.is_some_and(|(col, row, at)| {
+                (col, row) == (event.column, event.row) && now.saturating_duration_since(at) <= DOUBLE_CLICK
+            });
+        let msg = mouse_input(&self.state, event, double, now);
+        if left {
+            self.last_click = match &msg {
+                Some(Msg::Pointer(borg_core::Pointer::Panel { mark: false, .. })) if !double => {
+                    Some((event.column, event.row, now))
+                }
+                _ => None,
+            };
+        } else if matches!(event.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown) {
+            self.last_click = None;
+        }
+        match msg {
+            Some(msg) => self.dispatch(msg),
+            None => Ok(Flow::Continue),
         }
     }
 
@@ -285,7 +360,11 @@ impl App {
         for effect in effects {
             match effect {
                 Effect::List { side, generation, dir } => self.list(side, generation, dir),
-                Effect::Write(bytes) => self.pty.write(&bytes)?,
+                Effect::Write(bytes) => {
+                    self.emulator.scroll(Scroll::Bottom);
+                    self.pty.write(&bytes)?;
+                }
+                Effect::ScrollConsole(scroll) => self.emulator.scroll(scroll),
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
@@ -387,9 +466,8 @@ fn palette(colors: &TerminalColors) -> Palette {
     }
 }
 
-fn pixels(capabilities: Capabilities, chrome: bool) -> Pixels {
+fn pixels(capabilities: Capabilities) -> Pixels {
     match capabilities.protocol {
-        Protocol::Kitty if chrome => Pixels::Underlay(capabilities.cell),
         Protocol::Cells => Pixels::Off,
         Protocol::Kitty | Protocol::Sixel | Protocol::Iterm => Pixels::Pictures,
     }

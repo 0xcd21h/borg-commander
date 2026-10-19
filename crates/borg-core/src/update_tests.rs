@@ -960,3 +960,57 @@ fn escape_reaches_the_shell_when_the_line_has_text() {
     let effects = press(&mut state, now, key(KeyCode::Char('b')));
     assert_eq!(writes(&effects), "\x1bb");
 }
+
+#[test]
+fn mouse_selects_marks_and_opens_panel_rows() {
+    use crate::Pointer;
+    let (mut state, now) = setup_with(vec![dir("me"), file("log.txt")]);
+    update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 2, open: false, mark: true }), now);
+    assert_eq!(state.active, Side::Right);
+    assert_eq!(state.active_panel().hovered_entry().unwrap().name, "log.txt");
+    assert_eq!(state.active_panel().marked_count(), 1);
+    let effects =
+        update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 1, open: true, mark: false }), now);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::List { side: Side::Right, dir, .. } if dir == Path::new("/tmp/me")))
+    );
+}
+
+#[test]
+fn mouse_menus_respect_disabled_items_and_modal_dialogs() {
+    use crate::Pointer;
+    let (mut state, now) = setup();
+    update(&mut state, Msg::Pointer(Pointer::Menu(1)), now);
+    update(&mut state, Msg::Pointer(Pointer::MenuItem(0)), now);
+    assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "View is disabled on the parent row");
+    update(&mut state, Msg::Pointer(Pointer::MenuItem(4)), now);
+    assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "Make directory opens its prompt");
+    update(&mut state, Msg::Pointer(Pointer::Action(Action::Quit)), now);
+    assert!(matches!(state.overlay, Some(Overlay::Prompt(_))));
+}
+
+#[test]
+fn console_history_shortcuts_scroll_without_writing_to_the_shell() {
+    use borg_term::Scroll;
+    let (mut state, now) = setup();
+    press(&mut state, now, ctrl('o'));
+    assert_eq!(press(&mut state, now, shift(KeyCode::PageUp)), vec![Effect::ScrollConsole(Scroll::PageUp)]);
+    assert_eq!(press(&mut state, now, shift(KeyCode::End)), vec![Effect::ScrollConsole(Scroll::Bottom)]);
+    let captured = ShellView { mode: TermMode::ALT_SCREEN, ..idle_prompt() };
+    update(&mut state, Msg::Observe(captured), now);
+    assert_eq!(writes(&press(&mut state, now, shift(KeyCode::PageUp))), "\x1b[5;2~");
+}
+
+#[test]
+fn moving_a_cell_cursor_does_not_schedule_pixel_animation_frames() {
+    let mut settings = quiet();
+    settings.preferences.delight = false;
+    settings.motion = crate::Motion::LOCAL;
+    let (mut state, now) = setup_from(vec![dir("me"), file("notes.txt")], settings);
+    let later = now + std::time::Duration::from_secs(1);
+    press(&mut state, later, key(KeyCode::Down));
+    assert_eq!(state.pace(later), None);
+    assert_eq!(state.active_panel().cursor(), 1);
+}

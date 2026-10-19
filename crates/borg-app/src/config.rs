@@ -31,7 +31,8 @@ pub struct Config {
     pub delight: Option<bool>,
     pub icons: Option<bool>,
     pub icon_spacing: Option<u8>,
-    pub pixel_chrome: Option<bool>,
+    #[serde(rename = "pixel-chrome", skip_serializing)]
+    pub _legacy_pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
     pub update_check: Option<bool>,
@@ -56,7 +57,6 @@ impl Config {
             screensaver: self.screensaver.unwrap_or(base.screensaver),
             delight: self.delight.unwrap_or(base.delight),
             icons: self.icons.unwrap_or(base.icons),
-            pixel_chrome: self.pixel_chrome.unwrap_or(base.pixel_chrome),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
@@ -94,7 +94,7 @@ impl Config {
             delight: Some(prefs.delight),
             icons: Some(prefs.icons),
             icon_spacing: self.icon_spacing,
-            pixel_chrome: Some(prefs.pixel_chrome),
+            _legacy_pixel_chrome: None,
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
             update_check: self.update_check,
@@ -161,6 +161,17 @@ mod tests {
         assert_eq!(back.unlocked(), unlocked);
         assert_eq!(back.screensaver_after(), Some(Duration::from_secs(42)));
         assert!(text.contains("return-to-panels = true"));
+    }
+
+    #[test]
+    fn retired_pixel_chrome_setting_loads_but_is_not_saved() {
+        for enabled in [true, false] {
+            let config: Config = toml::from_str(&format!("pixel-chrome = {enabled}\ntheme = \"neon\"\n")).unwrap();
+            assert_eq!(config.preferences(), Preferences::default());
+            assert_eq!(config.theme.as_deref(), Some("neon"));
+            let captured = config.capture(config.theme.as_deref(), &config.preferences(), &[]);
+            assert!(!toml::to_string(&captured).unwrap().contains("pixel-chrome"));
+        }
     }
 
     #[test]

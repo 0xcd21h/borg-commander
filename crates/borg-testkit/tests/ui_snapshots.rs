@@ -472,65 +472,26 @@ fn quick_find_highlights_matches() -> Result<()> {
     check("quick_find", &stage, buffer)
 }
 
-fn underlay(stage: &mut Stage) -> Result<()> {
-    stage.pixels = borg_ui::Pixels::Underlay(borg_testkit::cell_size()?);
-    Ok(())
-}
-
 fn select_theme(stage: &mut Stage, id: &str) {
     let index = stage.state.appearance.choices().iter().position(|c| c.id == id).unwrap_or_default();
     stage.state.appearance.select(index, stage.started, Duration::ZERO);
 }
 
 #[test]
-fn pixel_drawn_panels() -> Result<()> {
+fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
     let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
-    underlay(&mut stage)?;
+    stage.pixels = borg_ui::Pixels::Pictures;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
     for id in ["neon", "midnight"] {
         select_theme(&mut stage, id);
         let (buffer, placements) = stage.compose(stage.started)?;
-        anyhow::ensure!(placements.iter().all(|p| p.z < 0), "chrome must sit under the text");
-        anyhow::ensure!(placements.len() >= 4, "expected panels and cursors, got {}", placements.len());
-        anyhow::ensure!(
-            !describe(&buffer).lines().next().unwrap_or_default().contains('╭'),
-            "borders are drawn in pixels"
-        );
-        check_with(&format!("pixels_{id}"), &stage, buffer, placements)?;
+        anyhow::ensure!(placements.is_empty(), "panels must not transmit images");
+        anyhow::ensure!(describe(&buffer).lines().next().unwrap_or_default().contains('╭'));
     }
-    Ok(())
-}
-
-#[test]
-fn pixel_drawn_dialog() -> Result<()> {
-    let mut stage = staged(Motion::STILL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
-    underlay(&mut stage)?;
-    select_theme(&mut stage, "neon");
-    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
+    stage.send(key(KeyCode::F(8)));
     let (buffer, placements) = stage.compose(stage.started)?;
-    check_with("pixels_dialog", &stage, buffer, placements)
-}
-
-#[test]
-fn pixel_cursor_glides_between_rows() -> Result<()> {
-    let mut stage = staged(Motion::LOCAL, Preferences { icons: true, ..QUIET }, project(), CLOCK)?;
-    underlay(&mut stage)?;
-    select_theme(&mut stage, "neon");
-    let tops = |placements: &[borg_gfx::Placement]| -> Vec<(u16, u16)> {
-        placements
-            .iter()
-            .filter(|p| p.z == -30)
-            .map(|p| (p.area.y, p.fit(borg_gfx::CellSize { width: 1, height: 1 }).offset.1))
-            .collect()
-    };
-    let before = tops(&stage.compose(stage.started)?.1);
-    stage.send(key(KeyCode::Down));
-    let midway = tops(&stage.compose(stage.started + Motion::LOCAL.fade / 4)?.1);
-    let settled = tops(&stage.compose(stage.started + Motion::LOCAL.fade * 2)?.1);
-    anyhow::ensure!(
-        midway != before && midway != settled,
-        "the cursor should be between rows: {before:?} {midway:?} {settled:?}"
-    );
+    anyhow::ensure!(placements.is_empty(), "dialogs must not transmit images");
+    ensure_text(&buffer, "Delete")?;
     Ok(())
 }
 
@@ -696,5 +657,82 @@ fn frame_cost() -> Result<()> {
         }
         println!("{id}: cursor move {plain:?} per frame, dialog fading {:?} per frame", start.elapsed() / rounds);
     }
+    Ok(())
+}
+
+#[test]
+fn console_history_and_function_alias_hints() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    for n in 1..=60 {
+        stage.shell(format!("output line {n:02}\r\n").as_bytes());
+    }
+    stage.send(ctrl('o'));
+    stage.emulator.scroll(borg_term::Scroll::PageUp);
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg console")?;
+    ensure_text(&buffer, "Shift-End live")?;
+    check("console_history", &stage, buffer)?;
+    stage.send(ctrl('o')).send(key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Esc 9 opens menus")?;
+    check("function_alias_hint", &stage, buffer)
+}
+
+#[test]
+fn all_overlays_survive_small_terminal_sizes() -> Result<()> {
+    for (cols, rows) in [(193, 40), (64, 18), (20, 5), (2, 2), (1, 1), (0, 0)] {
+        for code in [KeyCode::F(1), KeyCode::F(7), KeyCode::F(8), KeyCode::F(9)] {
+            let mut stage = stage(SIZE, Motion::STILL)?;
+            stage.send(key(KeyCode::Down)).send(key(code));
+            stage.send(Msg::Resize { cols, rows });
+            stage.emulator.resize(GridSize::console(cols, rows));
+            stage.render(stage.started)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn wide_keybar_advertises_function_key_alternatives() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 193, rows: 40 }, Motion::STILL)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Esc then 1–9/0 = F1–F10")?;
+    check("wide_keybar", &stage, buffer)
+}
+
+#[test]
+fn mouse_targets_match_the_drawn_menu_and_brief_rows() -> Result<()> {
+    use borg_core::{ListingMode, Pointer, Side};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let click = |x, y| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    };
+    let hit = |stage: &Stage, x, y| borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started);
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("9Menu").unwrap();
+    assert!(matches!(hit(&stage, x, y), Some(Msg::Pointer(Pointer::Action(borg_core::Action::OpenMenuBar)))));
+    stage.send(hit(&stage, x, y).unwrap());
+    assert!(matches!(hit(&stage, 29, 0), Some(Msg::Pointer(Pointer::Menu(3)))));
+    stage.send(hit(&stage, 29, 0).unwrap());
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("Theme…").unwrap();
+    assert!(matches!(hit(&stage, x, y), Some(Msg::Pointer(Pointer::MenuItem(0)))));
+    stage.send(key(KeyCode::Esc));
+    stage.send(Msg::Pointer(Pointer::Action(borg_core::Action::SetListing(Side::Left, ListingMode::Brief))));
+    let rect = stage.state.layout(stage.started).panels[0];
+    let row = rect.y + 2;
+    assert!(matches!(
+        hit(&stage, rect.x + 3, row),
+        Some(Msg::Pointer(Pointer::Panel { side: Side::Left, index: 1, .. }))
+    ));
+    let second = hit(&stage, rect.x + rect.width - 3, row).unwrap();
+    let expected = stage.state.active_panel().rows() + 1;
+    assert!(matches!(second, Msg::Pointer(Pointer::Panel { index, .. }) if index == expected));
     Ok(())
 }

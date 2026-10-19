@@ -11,8 +11,8 @@ use std::{env, io::stdout, process::ExitCode};
 use anyhow::Result;
 use crossterm::{
     event::{
-        DisableBracketedPaste, EnableBracketedPaste, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-        PushKeyboardEnhancementFlags,
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::supports_keyboard_enhancement,
@@ -67,21 +67,30 @@ async fn main() -> Result<ExitCode> {
     let launch = Launch::detect()?;
     let mut terminal = ratatui::try_init()?;
 
-    let enhanced = supports_keyboard_enhancement().unwrap_or(false);
-    execute!(stdout(), EnableBracketedPaste)?;
-    if enhanced {
+    let modes = TerminalModes { enhanced: supports_keyboard_enhancement().unwrap_or(false) };
+    execute!(stdout(), EnableBracketedPaste, EnableMouseCapture)?;
+    if modes.enhanced {
         execute!(stdout(), PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES))?;
     }
 
     let detected = launch::terminal(launch.graphics);
     let result = run(&launch, &mut terminal, detected).await;
-
-    if enhanced {
-        execute!(stdout(), PopKeyboardEnhancementFlags)?;
-    }
-    execute!(stdout(), DisableBracketedPaste)?;
-    ratatui::restore();
+    drop(modes);
     result.map(|()| ExitCode::SUCCESS)
+}
+
+struct TerminalModes {
+    enhanced: bool,
+}
+
+impl Drop for TerminalModes {
+    fn drop(&mut self) {
+        if self.enhanced {
+            let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+        }
+        let _ = execute!(stdout(), DisableBracketedPaste, DisableMouseCapture);
+        ratatui::restore();
+    }
 }
 
 async fn run(launch: &Launch, terminal: &mut DefaultTerminal, detected: launch::Terminal) -> Result<()> {

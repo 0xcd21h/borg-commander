@@ -73,7 +73,6 @@ pub struct PanelScene<'a> {
     pub icons: bool,
     pub icon_spacing: u8,
     pub find: Option<(&'a Find, (usize, usize))>,
-    pub underlay: bool,
     pub home: Option<&'a Path>,
     pub clock: &'a Zoned,
     pub now: Instant,
@@ -134,9 +133,6 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
 
     let body = Body::of(block.inner(area));
     block.render(area, buf);
-    if scene.underlay {
-        fx::erase_border(buf, area);
-    }
 
     draw_body(scene, look, body, border, buf);
 
@@ -222,7 +218,7 @@ fn decorate(scene: &PanelScene<'_>, look: &Look<'_>, title: Rect, buf: &mut Buff
         return;
     }
     let effects = look.theme.effects;
-    if let Some(pair) = effects.border_gradient.filter(|_| !scene.underlay) {
+    if let Some(pair) = effects.border_gradient {
         fx::gradient_border(buf, scene.area, look.gradient(pair).brightened(look.breath()));
     }
     if let Some(pair) = effects.title_gradient {
@@ -309,7 +305,7 @@ fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize,
         let bar = bar_fraction(row, panel.largest());
         draw_full_row(row, &columns, content, tone, scene, bar, look, buf);
     }
-    if let Some((full, content, fill, pill)) = cursor_row.filter(|_| !scene.underlay) {
+    if let Some((full, content, fill, pill)) = cursor_row {
         paint_cursor(scene.active, full, content, fill, pill, body, look, buf);
     }
 }

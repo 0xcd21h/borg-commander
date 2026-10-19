@@ -17,6 +17,7 @@ mod ops;
 mod overlays;
 mod panel;
 mod pattern;
+mod pointer;
 mod settings;
 mod state;
 mod update;
@@ -40,6 +41,7 @@ pub use motion::{EMPTY_ART_WINDOW, Pace, PanelMotion};
 pub use msg::{Effect, Msg};
 pub use panel::{Listing, ListingMode, Panel, Row, Seek, Sort, SortKey, order};
 pub use pattern::{Pattern, PatternError};
+pub use pointer::Pointer;
 pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, SPLASH_DURATION,
     Settings,

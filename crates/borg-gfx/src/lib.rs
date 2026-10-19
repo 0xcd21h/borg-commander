@@ -4,14 +4,12 @@ mod fit;
 mod graphics;
 mod halfblock;
 mod picture;
-mod shape;
 
 pub use caps::{Capabilities, CellSize, Hints, Preference, Protocol, Replies, TerminalColors, probe};
 pub use fit::{Fit, fit};
-pub use graphics::{Anchor, Graphics, Output, Placement};
+pub use graphics::{Graphics, Output, Placement};
 pub use halfblock::draw_halfblocks;
 pub use picture::{Decoded, Picture, decode, is_picture};
-pub use shape::{Axis, Card, Fill, Glow, Rgba, Shadow, Shape, Stroke, draw};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GfxError {
