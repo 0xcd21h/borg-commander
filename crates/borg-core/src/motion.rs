@@ -73,14 +73,13 @@ pub(crate) fn animate(state: &mut AppState, before: &[Before; 2], now: Instant) 
 pub(crate) fn ambient(state: &AppState, now: Instant) -> bool {
     let loading = state.panels.iter().any(|panel| panel.listing() == &Listing::Loading);
     let working = (state.operation.is_some() && state.shell.running) || !state.jobs.is_empty();
-    let empty_art = state.settings.preferences.delight
-        && Side::ALL.iter().any(|side| {
-            let panel = state.panel(*side);
-            let fresh = now < state.motions[side.index()].arrived + EMPTY_ART_WINDOW;
-            fresh && panel.listing() == &Listing::Ready && panel.entries().is_empty()
-        });
+    let empty_art = Side::ALL.iter().any(|side| {
+        let panel = state.panel(*side);
+        let fresh = now < state.motions[side.index()].arrived + EMPTY_ART_WINDOW;
+        fresh && panel.listing() == &Listing::Ready && panel.entries().is_empty()
+    });
     let rain = state.rain_until.is_some_and(|until| now < until);
     let about = matches!(state.overlay, Some(crate::Overlay::About(_)));
-    let decorative = state.settings.preferences.animations && (empty_art || rain || about);
+    let decorative = empty_art || rain || about;
     loading || working || decorative || state.screensaver
 }

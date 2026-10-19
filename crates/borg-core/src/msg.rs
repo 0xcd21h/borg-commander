@@ -25,7 +25,8 @@ pub enum Msg {
     Notice(String),
     Job { id: u64, event: Event },
     Peeked(Peeked),
-    CommandLine(String),
+    GitStatus { side: Side, generation: u64, dir: PathBuf, result: Result<Option<borg_git::Repository>, String> },
+    GitFinished { id: u64, result: Result<Option<Viewer>, String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +39,7 @@ pub enum Effect {
     StartJob { id: u64, spec: Spec },
     JobControl { id: u64, command: JobCommand },
     Peek { aside: Aside, path: PathBuf, size: (usize, usize) },
-    ReadCommandLine,
+    GitScan { side: Side, generation: u64, dir: PathBuf },
+    GitTool { id: u64, tool: borg_git::Tool, dir: PathBuf, paths: Vec<PathBuf> },
     Quit,
 }

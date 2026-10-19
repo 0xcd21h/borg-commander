@@ -10,13 +10,26 @@ use crate::{keybar::actions_area, menu_view, panel_view};
 const WHEEL_ROWS: isize = 3;
 
 pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Instant) -> Option<Msg> {
-    if state.shell.captured() || state.viewer.is_some() || state.effective_view() != View::Panels {
+    if state.viewer.is_some() && !state.shell.captured() {
+        return match event.kind {
+            MouseEventKind::ScrollUp => Some(Msg::Pointer(Pointer::ScrollDocument(-WHEEL_ROWS))),
+            MouseEventKind::ScrollDown => Some(Msg::Pointer(Pointer::ScrollDocument(WHEEL_ROWS))),
+            _ => None,
+        };
+    }
+    if state.shell.captured() || state.effective_view() != View::Panels {
         return None;
     }
     let point = Position::new(event.column, event.row);
     let layout = state.layout(now);
     let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
     let all = menus(state);
+    if matches!(state.overlay, Some(Overlay::Settings { .. } | Overlay::Plugins { .. })) {
+        return click
+            .then(|| crate::settings_view::item_at(state, point, layout.screen))
+            .flatten()
+            .map(|index| Msg::Pointer(Pointer::Setting(index)));
+    }
     let open = match state.overlay {
         Some(Overlay::Menu(cursor)) => Some(cursor),
         Some(_) => return None,
@@ -67,8 +80,16 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
     }
     for side in Side::ALL {
         let rect = layout.panels[side.index()];
-        if !rect.contains(point) || (state.aside.is_some() && side != state.active) {
+        if !rect.contains(point) {
             continue;
+        }
+        if state.aside.is_some() && side != state.active {
+            return match event.kind {
+                MouseEventKind::ScrollUp => Some(Msg::Pointer(Pointer::ScrollDocument(-WHEEL_ROWS))),
+                MouseEventKind::ScrollDown => Some(Msg::Pointer(Pointer::ScrollDocument(WHEEL_ROWS))),
+                _ if click => Some(Msg::Pointer(Pointer::FocusPreview)),
+                _ => None,
+            };
         }
         let delta = match event.kind {
             MouseEventKind::ScrollUp => Some(-WHEEL_ROWS),

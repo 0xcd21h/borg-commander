@@ -65,6 +65,7 @@ impl Stage {
         }
         let view = ShellView {
             prompt: self.emulator.prompt_state(),
+            command_rows: self.emulator.command_rows(),
             foreground: Foreground::Shell,
             mode: self.emulator.mode(),
         };

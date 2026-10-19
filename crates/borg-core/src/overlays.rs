@@ -24,20 +24,16 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
         Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
+        Some(Overlay::Settings { selected } | Overlay::Plugins { selected }) => on_settings(state, selected, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
-        Some(Overlay::Composer(composer)) => crate::composer::on_key(state, composer, key),
         None => Vec::new(),
     }
 }
 
 pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
-    if let Some(Overlay::Composer(composer)) = state.overlay.as_mut() {
-        composer.insert(text);
-        return Vec::new();
-    }
     let line = text.lines().next().unwrap_or_default();
     let input = match state.overlay.as_mut() {
         Some(Overlay::Prompt(prompt)) => &mut prompt.input,
@@ -195,4 +191,32 @@ fn resolve(state: &AppState, text: &str) -> PathBuf {
 
 fn first_component(text: &str) -> String {
     text.split('/').find(|part| !part.is_empty()).unwrap_or(text).to_owned()
+}
+
+pub(crate) fn toggle_setting(state: &mut AppState, selected: usize, now: Instant) -> Vec<Effect> {
+    let Some(item) = crate::menu::checkbox_items(state).get(selected).cloned() else { return Vec::new() };
+    let plugins = matches!(state.overlay, Some(Overlay::Plugins { .. }));
+    let effects = actions::perform(state, item.action, now);
+    state.overlay = Some(if plugins { Overlay::Plugins { selected } } else { Overlay::Settings { selected } });
+    effects
+}
+
+fn on_settings(state: &mut AppState, selected: usize, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let plugins = matches!(state.overlay, Some(Overlay::Plugins { .. }));
+    let count = crate::menu::checkbox_items(state).len();
+    let next = match key.code {
+        KeyCode::Esc | KeyCode::F(10) => {
+            state.overlay = None;
+            return Vec::new();
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => return toggle_setting(state, selected, now),
+        KeyCode::Down | KeyCode::Tab => (selected + 1) % count,
+        KeyCode::Up | KeyCode::BackTab => (selected + count - 1) % count,
+        KeyCode::Home => 0,
+        KeyCode::End => count - 1,
+        _ => selected,
+    };
+    state.overlay =
+        Some(if plugins { Overlay::Plugins { selected: next } } else { Overlay::Settings { selected: next } });
+    Vec::new()
 }

@@ -1,55 +1,39 @@
 use std::{
-    fs::{self, File, Metadata},
-    io::Read as _,
+    fs::{self, Metadata},
     os::unix::fs::{MetadataExt as _, PermissionsExt as _},
     path::Path,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use anyhow::Result;
-use borg_core::{Aside, Facts, Nature, Peek};
-use borg_gfx::is_picture;
+use borg_core::{Aside, Content, Facts, Nature, Peek};
 use borg_vfs::{Entry, entries};
-use borg_view::{FileSource, Pager};
 
-use crate::app::{picture, span};
-
-const SNIFF_BYTES: u64 = 8 * 1024;
-const NUL: u8 = 0;
 const PERMISSION_BITS: u32 = 0o7777;
 
-pub fn peek(aside: Aside, path: &Path, size: (usize, usize), cell: (u16, u16)) -> Peek {
+pub fn peek(aside: Aside, path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Peek {
     let peeked = match aside {
-        Aside::QuickView => quick_view(path, size, cell),
-        Aside::Info => info(path).map(Peek::Info),
+        Aside::QuickView => quick_view(path, size, cell, cancelled),
+        Aside::Info => info(path, &cancelled).map(Peek::Info),
     };
     peeked.unwrap_or_else(|e| Peek::Unavailable(format!("{e:#}")))
 }
 
-fn quick_view(path: &Path, (width, height): (usize, usize), (cell_width, cell_height): (u16, u16)) -> Result<Peek> {
-    let meta = fs::metadata(path)?;
-    if meta.is_dir() {
-        return folder(path, height);
+fn quick_view(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Result<Peek> {
+    if fs::metadata(path)?.is_dir() {
+        return folder(path, size.1, &cancelled);
     }
-    if is_picture(path) {
-        let bounds = (span(width, cell_width), span(height, cell_height));
-        return Ok(Peek::Picture(picture(path, bounds)?));
-    }
-    if is_binary(path)? {
-        return Ok(Peek::Binary);
-    }
-    let pager = Pager::new(Arc::new(FileSource::open(path)?), width, height)?;
-    Ok(Peek::Text(pager.rows().to_vec()))
+    crate::document::open(path, size, cell, cancelled).map(|content| match content {
+        Content::Text(pager) => Peek::Text(pager),
+        Content::Image(image) => Peek::Picture(image),
+    })
 }
 
-fn is_binary(path: &Path) -> Result<bool> {
-    let mut head = Vec::new();
-    File::open(path)?.take(SNIFF_BYTES).read_to_end(&mut head)?;
-    Ok(head.contains(&NUL))
-}
-
-fn folder(path: &Path, shown: usize) -> Result<Peek> {
-    let mut all: Vec<Entry> = entries(path)?.collect();
+fn folder(path: &Path, shown: usize, cancelled: &AtomicBool) -> Result<Peek> {
+    let mut all: Vec<Entry> = entries(path)?.take_while(|_| !cancelled.load(Ordering::Relaxed)).collect();
     all.sort_by_cached_key(|entry| (!entry.is_dir(), entry.name.to_lowercase()));
     let folders = all.iter().filter(|entry| entry.is_dir()).count();
     let bytes = all.iter().filter(|entry| !entry.is_dir()).map(|entry| entry.size).sum();
@@ -84,10 +68,15 @@ fn disk(path: &Path) -> Option<(u64, u64)> {
     Some((stats.f_bavail.saturating_mul(stats.f_frsize), stats.f_blocks.saturating_mul(stats.f_frsize)))
 }
 
-fn info(path: &Path) -> Result<Facts> {
+fn info(path: &Path, cancelled: &AtomicBool) -> Result<Facts> {
     let own = fs::symlink_metadata(path)?;
     let effective = fs::metadata(path).unwrap_or_else(|_| own.clone());
-    let items = effective.is_dir().then(|| fs::read_dir(path).map(Iterator::count).ok()).flatten();
+    let items = effective
+        .is_dir()
+        .then(|| {
+            fs::read_dir(path).map(|entries| entries.take_while(|_| !cancelled.load(Ordering::Relaxed)).count()).ok()
+        })
+        .flatten();
     Ok(Facts {
         nature: nature(path, &own),
         size: effective.len(),

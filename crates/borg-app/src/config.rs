@@ -15,22 +15,52 @@ const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
 const THEMES_DIR: &str = "themes";
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IconStyle {
+    #[default]
+    Auto,
+    Nerd,
+    Portable,
+}
+
+impl IconStyle {
+    fn nerd_font(self, program: Option<&str>, term: Option<&str>) -> bool {
+        match self {
+            Self::Nerd => true,
+            Self::Portable => false,
+            Self::Auto => match program {
+                Some(program) => program.eq_ignore_ascii_case("ghostty"),
+                None => term == Some("xterm-ghostty"),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Config {
+    pub plugins: Option<Plugins>,
     pub theme: Option<String>,
     pub status_line: Option<bool>,
     pub menu_bar: Option<bool>,
+    #[serde(skip_serializing)]
     pub animations: Option<bool>,
     pub show_hidden: Option<bool>,
     pub return_to_panels: Option<bool>,
     pub restore_terminal: Option<bool>,
+    #[serde(skip_serializing)]
     pub startup_animation: Option<bool>,
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
+    #[serde(skip_serializing)]
     pub delight: Option<bool>,
+    #[serde(skip_serializing)]
     pub icons: Option<bool>,
     pub icon_spacing: Option<u8>,
+    #[serde(skip_serializing)]
+    pub nerd_font: Option<bool>,
+    pub icon_style: Option<IconStyle>,
     #[serde(rename = "pixel-chrome", skip_serializing)]
     pub _legacy_pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
@@ -38,8 +68,25 @@ pub struct Config {
     pub update_check: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Plugins {
+    pub git: bool,
+}
+
+impl Default for Plugins {
+    fn default() -> Self {
+        Self { git: true }
+    }
+}
+
 impl Config {
+    #[cfg(test)]
     pub fn preferences(&self) -> Preferences {
+        self.preferences_for_terminal(None, None)
+    }
+
+    pub fn preferences_for_terminal(&self, program: Option<&str>, term: Option<&str>) -> Preferences {
         let base = Preferences::default();
         let after_command = match self.return_to_panels {
             Some(true) => AfterCommand::ReturnToPanels,
@@ -47,20 +94,22 @@ impl Config {
             None => base.after_command,
         };
         Preferences {
+            git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             after_command,
             show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
             status_line: self.status_line.unwrap_or(base.status_line),
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
-            animations: self.animations.unwrap_or(base.animations),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
-            splash: self.startup_animation.unwrap_or(base.splash),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
-            delight: self.delight.unwrap_or(base.delight),
-            icons: self.icons.unwrap_or(base.icons),
+            nerd_font: self.effective_icon_style().nerd_font(program, term),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
         }
+    }
+
+    fn effective_icon_style(&self) -> IconStyle {
+        self.icon_style.unwrap_or(if self.nerd_font == Some(true) { IconStyle::Nerd } else { IconStyle::Auto })
     }
 
     pub fn screensaver_after(&self) -> Option<Duration> {
@@ -81,19 +130,22 @@ impl Config {
 
     pub fn capture(&self, theme: Option<&str>, prefs: &Preferences, unlocked: &[String]) -> Self {
         Self {
+            plugins: Some(Plugins { git: prefs.git_plugin }),
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),
-            animations: Some(prefs.animations),
+            animations: None,
             show_hidden: Some(prefs.show_hidden),
             return_to_panels: Some(prefs.after_command == AfterCommand::ReturnToPanels),
             restore_terminal: Some(prefs.restore_terminal),
-            startup_animation: Some(prefs.splash),
+            startup_animation: None,
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
-            delight: Some(prefs.delight),
-            icons: Some(prefs.icons),
+            delight: None,
+            icons: None,
             icon_spacing: self.icon_spacing,
+            nerd_font: None,
+            icon_style: Some(self.effective_icon_style()),
             _legacy_pixel_chrome: None,
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
@@ -177,5 +229,84 @@ mod tests {
     #[test]
     fn rejects_unknown_keys() {
         assert!(toml::from_str::<Config>("colour = 1").is_err());
+    }
+}
+
+#[cfg(test)]
+mod retired_preferences_tests {
+    use super::*;
+
+    #[test]
+    fn old_switches_are_ignored_and_new_defaults_are_saved() {
+        let config: Config =
+            toml::from_str("animations = true\nstartup-animation = true\ndelight = false\nicons = false\n").unwrap();
+        let prefs = config.preferences();
+        assert_eq!(prefs, Preferences::default());
+        assert_eq!(prefs.after_command, AfterCommand::ReturnToPanels);
+        assert!(prefs.screensaver);
+        assert!(!prefs.nerd_font);
+        let saved = toml::to_string(&config.capture(None, &prefs, &[])).unwrap();
+        for old in ["animations", "startup-animation", "delight", "icons"] {
+            assert!(!saved.contains(old));
+        }
+        assert!(saved.contains("icon-style = \"auto\""));
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+
+    #[test]
+    fn automatic_icons_follow_the_terminal() {
+        let config = Config::default();
+        assert!(config.preferences_for_terminal(Some("ghostty"), Some("xterm-256color")).nerd_font);
+        assert!(config.preferences_for_terminal(None, Some("xterm-ghostty")).nerd_font);
+        assert!(!config.preferences_for_terminal(Some("Apple_Terminal"), Some("xterm-256color")).nerd_font);
+        assert!(!config.preferences_for_terminal(None, Some("xterm-256color")).nerd_font);
+    }
+
+    #[test]
+    fn saved_fallback_migrates_to_auto_without_locking_icons_to_one_terminal() {
+        let config: Config = toml::from_str("nerd-font = false\n").unwrap();
+        let ghostty = config.preferences_for_terminal(Some("ghostty"), None);
+        assert!(ghostty.nerd_font);
+        let saved = toml::to_string(&config.capture(None, &ghostty, &[])).unwrap();
+        assert!(!saved.contains("nerd-font"));
+        let reloaded: Config = toml::from_str(&saved).unwrap();
+        assert_eq!(reloaded.icon_style, Some(IconStyle::Auto));
+        assert!(reloaded.preferences_for_terminal(Some("ghostty"), None).nerd_font);
+        assert!(!reloaded.preferences_for_terminal(Some("Apple_Terminal"), None).nerd_font);
+    }
+
+    #[test]
+    fn explicit_icon_style_overrides_terminal_detection() {
+        let portable: Config = toml::from_str("icon-style = \"portable\"\n").unwrap();
+        assert!(!portable.preferences_for_terminal(Some("ghostty"), None).nerd_font);
+        let nerd: Config = toml::from_str("icon-style = \"nerd\"\n").unwrap();
+        assert!(nerd.preferences_for_terminal(Some("Apple_Terminal"), None).nerd_font);
+        let legacy: Config = toml::from_str("nerd-font = true\n").unwrap();
+        let prefs = legacy.preferences_for_terminal(Some("Apple_Terminal"), None);
+        assert!(prefs.nerd_font);
+        assert_eq!(legacy.capture(None, &prefs, &[]).icon_style, Some(IconStyle::Nerd));
+    }
+}
+
+#[cfg(test)]
+mod plugin_tests {
+    use super::*;
+
+    #[test]
+    fn git_is_enabled_by_default_and_the_toggle_survives_saving_other_preferences() {
+        assert!(Config::default().preferences().git_plugin);
+        let config: Config = toml::from_str("[plugins]\ngit = false\n").unwrap();
+        let mut prefs = config.preferences();
+        assert!(!prefs.git_plugin);
+        prefs.status_line = false;
+        let saved = toml::to_string(&config.capture(None, &prefs, &[])).unwrap();
+        let restored: Config = toml::from_str(&saved).unwrap();
+        assert!(!restored.preferences().git_plugin);
+        assert!(!restored.preferences().status_line);
+        assert!(toml::from_str::<Config>("[plugins]\ngti = false\n").is_err());
     }
 }

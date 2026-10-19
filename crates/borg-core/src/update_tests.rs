@@ -42,7 +42,7 @@ fn file(name: &str) -> Entry {
 }
 
 fn idle_prompt() -> ShellView {
-    ShellView { prompt: PromptState::Empty, foreground: Foreground::Shell, mode: TermMode::empty() }
+    ShellView { prompt: PromptState::Empty, command_rows: 1, foreground: Foreground::Shell, mode: TermMode::empty() }
 }
 
 fn text(viewer: &crate::Viewer) -> &borg_view::Pager {
@@ -53,7 +53,10 @@ fn text(viewer: &crate::Viewer) -> &borg_view::Pager {
 }
 
 fn quiet() -> Settings {
-    Settings { preferences: crate::Preferences { splash: false, ..crate::Preferences::DEFAULT }, ..Settings::default() }
+    Settings {
+        preferences: crate::Preferences { git_plugin: false, ..crate::Preferences::DEFAULT },
+        ..Settings::default()
+    }
 }
 
 fn setup_with(entries: Vec<Entry>) -> (AppState, Instant) {
@@ -136,7 +139,7 @@ fn enter_on_typed_line_runs_command_and_reveals_shell() {
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert_eq!(writes(&effects), "\r");
     assert_eq!(state.view, View::Shell);
-    assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
+    assert_ne!(state.pace(now), Some(crate::Pace::Smooth));
 }
 
 #[test]
@@ -477,11 +480,11 @@ fn toggling_preferences_saves_config_and_changes_layout() {
 }
 
 #[test]
-fn split_nudges_animate_and_clamp() {
+fn split_nudges_apply_immediately_and_clamp() {
     let (mut state, now) = setup();
     press(&mut state, now, KeyEvent::new(KeyCode::Right, KeyModifiers::ALT | KeyModifiers::SHIFT));
     assert!(state.split_target() > crate::EVEN_SPLIT);
-    assert_eq!(state.pace(now), Some(crate::Pace::Smooth));
+    assert_ne!(state.pace(now), Some(crate::Pace::Smooth));
 
     (0..100).for_each(|_| {
         crate::actions::perform(&mut state, Action::NudgeSplit(10), now);
@@ -574,22 +577,10 @@ fn chars(state: &mut AppState, now: Instant, text: &str) -> Vec<Effect> {
 }
 
 #[test]
-fn splash_is_skipped_by_a_key_that_does_nothing_else() {
-    let (mut state, now) = setup_from(vec![dir("me")], Settings::default());
-    assert!(state.splash_active(now));
-    let cursor = state.active_panel().cursor();
-    assert!(press(&mut state, now, key(KeyCode::Down)).is_empty());
-    assert!(!state.splash_active(now));
-    assert_eq!(state.active_panel().cursor(), cursor);
-    assert_eq!(state.pace(now), None);
-}
-
-#[test]
-fn splash_ends_on_its_own() {
-    let (mut state, now) = setup_from(vec![dir("me")], Settings::default());
-    assert_eq!(state.wake_at(), Some(now + crate::SPLASH_DURATION));
-    update(&mut state, Msg::Tick, now + crate::SPLASH_DURATION);
-    assert!(state.splash_until.is_none());
+fn startup_opens_panels_immediately() {
+    let (state, now) = setup_from(vec![dir("me")], Settings::default());
+    assert_eq!(state.view, View::Panels);
+    assert_eq!(state.wake_at(), Some(now + state.settings.screensaver_after));
 }
 
 #[test]
@@ -635,17 +626,6 @@ fn konami_code_in_about_starts_rain_for_a_while() {
 }
 
 #[test]
-fn delight_off_keeps_about_plain() {
-    let mut settings = quiet();
-    settings.preferences.delight = false;
-    let (mut state, now) = setup_from(vec![dir("me")], settings);
-    state.appearance = state.appearance.clone().with_secret(Some(secret()), Vec::new());
-    press(&mut state, now, key(KeyCode::F(1)));
-    assert!(chars(&mut state, now, crate::UNLOCK_WORD).is_empty());
-    assert!(state.appearance.has_secret());
-}
-
-#[test]
 fn screensaver_starts_after_idle_and_wakes_on_a_key() {
     let mut settings = quiet();
     settings.preferences.screensaver = true;
@@ -660,21 +640,13 @@ fn screensaver_starts_after_idle_and_wakes_on_a_key() {
 }
 
 #[test]
-fn closed_overlays_fade_out_and_new_ones_fade_in() {
-    let mut settings = quiet();
-    settings.motion = crate::Motion::LOCAL;
-    let (mut state, now) = setup_from(vec![dir("me")], settings);
+fn overlays_open_and_close_without_transitions() {
+    let (mut state, now) = setup();
     press(&mut state, now, key(KeyCode::F(1)));
-    let opened = now + crate::Motion::LOCAL.fade;
-    press(&mut state, opened, key(KeyCode::Esc));
-    let leaving = state.leaving.as_ref().map(|leaving| (&leaving.overlay, leaving.fade.value(opened)));
-    assert!(matches!(leaving, Some((Overlay::About(_), shown)) if shown > 0.99));
-    assert_eq!(state.pace(opened), Some(crate::Pace::Smooth));
-
-    let gone = opened + crate::Motion::LOCAL.fade;
-    press(&mut state, gone, key(KeyCode::F(9)));
+    assert_eq!(state.overlay_fade.value(now), 1.0);
+    press(&mut state, now, key(KeyCode::Esc));
     assert!(state.leaving.is_none());
-    assert!(state.overlay_fade.is_animating(gone));
+    assert_eq!(state.overlay_fade.value(now), 0.0);
 }
 
 fn image_viewer(state: &mut AppState, name: &str, now: Instant) {
@@ -795,7 +767,7 @@ fn panels_come_back_when_a_full_screen_program_exits() {
     update(&mut state, Msg::Observe(ShellView { prompt: PromptState::Typed, ..idle_prompt() }), now);
     press(&mut state, now, key(KeyCode::Enter));
     update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
-    assert_eq!(state.view, View::Shell, "plain commands keep showing their output");
+    assert_eq!(state.view, View::Panels, "commands return to panels by default");
 }
 
 #[test]
@@ -832,7 +804,7 @@ fn quick_view_asks_for_the_hovered_file_once_and_follows_the_cursor() {
     let stale = crate::Peeked {
         aside: crate::Aside::QuickView,
         path: PathBuf::from("/home/a.txt"),
-        peek: crate::Peek::Text(vec!["old".into()]),
+        peek: crate::Peek::Text(borg_view::Pager::new(std::sync::Arc::new(b"old".to_vec()), 20, 5).unwrap()),
     };
     update(&mut state, Msg::Peeked(stale), now);
     assert!(state.peeked.is_none(), "results for a file the cursor left are dropped");
@@ -840,11 +812,13 @@ fn quick_view_asks_for_the_hovered_file_once_and_follows_the_cursor() {
     let fresh = crate::Peeked {
         aside: crate::Aside::QuickView,
         path: PathBuf::from("/home/b.txt"),
-        peek: crate::Peek::Text(vec!["new".into()]),
+        peek: crate::Peek::Text(borg_view::Pager::new(std::sync::Arc::new(b"new".to_vec()), 20, 5).unwrap()),
     };
     update(&mut state, Msg::Peeked(fresh), now);
     assert!(state.peeked.is_some());
     assert!(peeks(&update(&mut state, Msg::Tick, now)).is_empty());
+    press(&mut state, now, key(KeyCode::Up));
+    assert!(state.peeked.is_none(), "the previous file must disappear while the next preview loads");
 }
 
 #[test]
@@ -868,59 +842,38 @@ fn tab_stays_on_the_listing_while_the_other_side_shows_a_preview() {
     assert_eq!(state.active, Side::Left);
 }
 
-fn open_composer(state: &mut AppState, now: Instant, line: &str) {
-    let effects = press(state, now, shift(KeyCode::Enter));
-    assert!(effects.contains(&Effect::ReadCommandLine), "{effects:?}");
-    update(state, Msg::CommandLine(line.into()), now);
-    assert!(matches!(state.overlay, Some(Overlay::Composer(_))));
+#[test]
+fn shift_enter_inserts_a_newline_without_opening_an_overlay_or_running() {
+    for (mode, expected) in [(TermMode::BRACKETED_PASTE, "\x1b[200~\n\x1b[201~"), (TermMode::empty(), "\x16\n")] {
+        let (mut state, now) = setup();
+        update(&mut state, Msg::Observe(ShellView { mode, ..idle_prompt() }), now);
+        let before = state.layout(now).panels[0].height;
+        let effects = press(&mut state, now, shift(KeyCode::Enter));
+        assert_eq!(writes(&effects), expected);
+        assert!(state.overlay.is_none());
+        assert!(!state.shell.running);
+        assert!(!state.shell.line_empty());
+        assert_eq!(state.view, View::Panels);
+        update(
+            &mut state,
+            Msg::Observe(ShellView { mode, command_rows: 2, prompt: PromptState::Typed, ..idle_prompt() }),
+            now,
+        );
+        assert_eq!(state.layout(now).panels[0].height, before - 1);
+        assert_eq!(writes(&press(&mut state, now, ctrl('j'))), expected);
+        let effects = press(&mut state, now, key(KeyCode::Enter));
+        assert_eq!(writes(&effects), "\r");
+        assert_eq!(state.view, View::Shell);
+    }
 }
 
 #[test]
-fn composer_runs_several_lines_as_one_command() {
+fn newline_shortcuts_are_forwarded_to_busy_programs() {
     let (mut state, now) = setup();
-    let pasting = ShellView { mode: TermMode::BRACKETED_PASTE, ..idle_prompt() };
-    update(&mut state, Msg::Observe(pasting), now);
-    open_composer(&mut state, now, "for f in *");
-    press(&mut state, now, key(KeyCode::Enter));
-    type_text(&mut state, now, "do echo $f; done");
-    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT));
-    assert_eq!(writes(&effects), "\x05\x15\x1b[200~for f in *\ndo echo $f; done\x1b[201~\r");
+    update(&mut state, Msg::Observe(ShellView { foreground: Foreground::Program, ..idle_prompt() }), now);
+    assert_eq!(writes(&press(&mut state, now, ctrl('j'))), "\n");
+    assert_eq!(writes(&press(&mut state, now, shift(KeyCode::Enter))), "\r");
     assert!(state.overlay.is_none());
-    assert_eq!(state.view, View::Shell);
-}
-
-#[test]
-fn escape_puts_the_text_back_on_the_prompt() {
-    let (mut state, now) = setup();
-    open_composer(&mut state, now, "git status");
-    type_text(&mut state, now, " -s");
-    let effects = press(&mut state, now, key(KeyCode::Esc));
-    assert_eq!(writes(&effects), "\x05\x15git status -s");
-    assert!(!state.shell.line_empty());
-
-    open_composer(&mut state, now, "git status -s");
-    press(&mut state, now, key(KeyCode::Enter));
-    let effects = press(&mut state, now, key(KeyCode::Esc));
-    assert!(writes(&effects).is_empty(), "without bracketed paste a newline would run the command");
-}
-
-#[test]
-fn composer_keys_go_to_a_busy_program() {
-    let (mut state, now) = setup();
-    let busy = ShellView { foreground: Foreground::Program, ..idle_prompt() };
-    update(&mut state, Msg::Observe(busy), now);
-    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
-    assert!(!effects.contains(&Effect::ReadCommandLine));
-    assert_eq!(writes(&effects), "\n");
-}
-
-#[test]
-fn paste_lands_in_the_composer_with_its_newlines() {
-    let (mut state, now) = setup();
-    open_composer(&mut state, now, "");
-    update(&mut state, Msg::Paste("a\nb".into()), now);
-    let Some(Overlay::Composer(composer)) = &state.overlay else { panic!("composer closed") };
-    assert_eq!(composer.text(), "a\nb");
 }
 
 #[test]
@@ -1006,11 +959,211 @@ fn console_history_shortcuts_scroll_without_writing_to_the_shell() {
 #[test]
 fn moving_a_cell_cursor_does_not_schedule_pixel_animation_frames() {
     let mut settings = quiet();
-    settings.preferences.delight = false;
     settings.motion = crate::Motion::LOCAL;
     let (mut state, now) = setup_from(vec![dir("me"), file("notes.txt")], settings);
     let later = now + std::time::Duration::from_secs(1);
     press(&mut state, later, key(KeyCode::Down));
     assert_eq!(state.pace(later), None);
     assert_eq!(state.active_panel().cursor(), 1);
+}
+
+#[test]
+fn preview_focus_scrolls_document_and_tab_returns_to_listing() {
+    let (mut state, now) = setup_with(vec![file("a.rs")]);
+    press(&mut state, now, key(KeyCode::End));
+    press(&mut state, now, ctrl('q'));
+    let path = state.active_panel().dir().join("a.rs");
+    let text = (0..100).map(|n| format!("let value_{n} = {n};\n")).collect::<String>();
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(text.into_bytes()), &path, 40, 10).unwrap();
+    update(
+        &mut state,
+        Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path, peek: crate::Peek::Text(pager) }),
+        now,
+    );
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(state.preview_focused);
+    let selected = state.active_panel().cursor();
+    assert!(press(&mut state, now, key(KeyCode::PageDown)).is_empty());
+    let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = &state.peeked else { panic!("preview missing") };
+    assert!(pager.offset() > 0);
+    assert_eq!(state.active_panel().cursor(), selected);
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(!state.preview_focused);
+    assert_eq!(state.active, Side::Left);
+}
+
+#[test]
+fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
+    for focused in [false, true] {
+        let (mut state, now) = setup_with(vec![file("guide.md")]);
+        press(&mut state, now, key(KeyCode::End));
+        press(&mut state, now, ctrl('q'));
+        let path = state.active_panel().dir().join("guide.md");
+        let source = (0..100).map(|n| format!("# Heading {n}\n\n")).collect::<String>();
+        let mut pager = borg_view::Pager::for_path(std::sync::Arc::new(source.into_bytes()), &path, 40, 10).unwrap();
+        pager.toggle_source().unwrap();
+        pager.toggle_wrap().unwrap();
+        pager.scroll_down(30).unwrap();
+        let offset = pager.offset();
+        update(
+            &mut state,
+            Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path, peek: crate::Peek::Text(pager) }),
+            now,
+        );
+        if focused {
+            press(&mut state, now, key(KeyCode::Tab));
+        }
+        let effects = press(&mut state, now, key(KeyCode::F(3)));
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::View(_))), "F3 must reuse the loaded document");
+        let pager = text(state.viewer.as_ref().unwrap());
+        assert_eq!(pager.offset(), offset);
+        assert!(!pager.formatted());
+        assert!(!pager.wrapped());
+        press(&mut state, now, key(KeyCode::PageDown));
+        let offset = text(state.viewer.as_ref().unwrap()).offset();
+        press(&mut state, now, key(KeyCode::Esc));
+        let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = &state.peeked else {
+            panic!("preview missing")
+        };
+        assert_eq!(pager.offset(), offset);
+        assert!(!pager.formatted());
+        assert!(!pager.wrapped());
+    }
+}
+
+#[test]
+fn settings_window_toggles_and_saves_without_closing() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::Settings, now);
+    assert_eq!(state.overlay, Some(Overlay::Settings { selected: 0 }));
+    let before = state.settings.preferences.show_hidden;
+    let effects = press(&mut state, now, key(KeyCode::Char(' ')));
+    assert_ne!(state.settings.preferences.show_hidden, before);
+    assert!(effects.contains(&Effect::SaveConfig));
+    assert_eq!(state.overlay, Some(Overlay::Settings { selected: 0 }));
+    press(&mut state, now, key(KeyCode::Down));
+    let before = state.settings.preferences.status_line;
+    let effects = update(&mut state, Msg::Pointer(crate::Pointer::Setting(1)), now);
+    assert_ne!(state.settings.preferences.status_line, before);
+    assert!(effects.contains(&Effect::SaveConfig));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn multiline_prompt_grows_and_leaves_room_for_panels() {
+    let (mut state, now) = setup();
+    let initial = state.layout(now);
+    update(&mut state, Msg::ShellOutput(ShellView { command_rows: 4, ..idle_prompt() }), now);
+    assert_eq!(state.layout(now).prompt.height, 4);
+    assert_eq!(state.active_panel().rows(), initial.panel_rows() - 3);
+    update(&mut state, Msg::ShellOutput(ShellView { command_rows: u16::MAX, ..idle_prompt() }), now);
+    assert!(state.layout(now).prompt.height <= state.rows / 2);
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    assert_eq!(state.layout(now), initial);
+}
+
+#[test]
+fn screensaver_does_not_cover_a_running_program_or_spin_an_overdue_timer() {
+    let (mut state, now) = setup();
+    state.shell.running = true;
+    let due = now + state.settings.screensaver_after;
+    update(&mut state, Msg::Tick, due);
+    assert!(!state.screensaver);
+    assert!(state.wake_at().is_none());
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), due);
+    assert_eq!(state.wake_at(), Some(due + state.settings.screensaver_after));
+}
+
+#[test]
+fn command_end_without_a_start_marker_still_refreshes_panels_for_older_shells() {
+    let (mut state, now) = setup();
+    state.shell.integrated = true;
+    state.shell.running = false;
+    let effects = update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(effects.iter().filter(|effect| matches!(effect, Effect::List { .. })).count(), 2);
+    assert_eq!(state.view, View::Panels);
+}
+
+#[test]
+fn git_plugin_enables_scans_ignores_stale_results_and_disables_all_actions() {
+    let (mut state, now) = setup_with(vec![file("a.rs")]);
+    state.settings.preferences.git_plugin = true;
+    let effects = update(&mut state, Msg::Tick, now);
+    let (generation, dir) = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::GitScan { side: Side::Left, generation, dir } => Some((*generation, dir.clone())),
+            _ => None,
+        })
+        .unwrap();
+    let repository = borg_git::Repository::parse(dir.clone(), b"## main\0 M a.rs\0").unwrap();
+    update(
+        &mut state,
+        Msg::GitStatus {
+            side: Side::Left,
+            generation: generation + 1,
+            dir: dir.clone(),
+            result: Ok(Some(repository.clone())),
+        },
+        now,
+    );
+    assert!(state.active_panel().git_repository().is_none());
+    update(
+        &mut state,
+        Msg::GitStatus { side: Side::Left, generation, dir: dir.clone(), result: Ok(Some(repository.clone())) },
+        now,
+    );
+    assert!(state.active_panel().git_repository().is_some());
+    assert!(state.wake_at().is_some());
+    let due = now + std::time::Duration::from_secs(5);
+    assert!(
+        update(&mut state, Msg::Tick, due)
+            .iter()
+            .any(|effect| matches!(effect, Effect::GitScan { side: Side::Left, .. }))
+    );
+    state.overlay = Some(Overlay::Plugins { selected: 0 });
+    let effects = press(&mut state, now, key(KeyCode::Char(' ')));
+    assert!(effects.contains(&Effect::SaveConfig));
+    assert!(!state.settings.preferences.git_plugin);
+    assert!(state.active_panel().git_repository().is_none());
+    assert!(menus(&state).iter().all(|menu| menu.title != "Git"));
+    assert!(crate::actions::perform(&mut state, Action::Git(borg_git::Tool::Stage), now).is_empty());
+    update(&mut state, Msg::GitStatus { side: Side::Left, generation, dir, result: Ok(Some(repository)) }, now);
+    assert!(state.active_panel().git_repository().is_none());
+    assert!(!update(&mut state, Msg::Tick, due).iter().any(|effect| matches!(effect, Effect::GitScan { .. })));
+}
+
+#[test]
+fn git_tools_use_marked_files_and_refresh_status_after_index_changes() {
+    let (mut state, now) = setup_with(vec![file("a.rs"), file("b.rs")]);
+    state.settings.preferences.git_plugin = true;
+    update(&mut state, Msg::Tick, now);
+    state.panels[0].git.repository =
+        Some(borg_git::Repository::parse("/home".into(), b"## main\0 M a.rs\0?? b.rs\0").unwrap());
+    state.panels[0].invert_marks();
+    let effects = crate::actions::perform(&mut state, Action::Git(borg_git::Tool::Stage), now);
+    let [Effect::GitTool { id, paths, .. }] = effects.as_slice() else { panic!("expected Git operation") };
+    assert_eq!(paths, &[PathBuf::from("/home/a.rs"), PathBuf::from("/home/b.rs")]);
+    assert!(crate::actions::perform(&mut state, Action::Git(borg_git::Tool::Stage), now).is_empty());
+    let effects = update(&mut state, Msg::GitFinished { id: *id, result: Ok(None) }, now);
+    assert!(state.plugins.git_task.is_none());
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::GitScan { side: Side::Left, .. })));
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::List { side: Side::Left, .. })));
+    let effects = press(&mut state, now, ctrl('u'));
+    assert_eq!(
+        effects.iter().filter(|effect| matches!(effect, Effect::GitScan { .. })).count(),
+        2,
+        "swapping panels must replace requests sent to their former sides"
+    );
+}
+
+#[test]
+fn the_git_menu_does_not_change_the_default_menu_for_the_right_panel() {
+    let (mut state, now) = setup();
+    state.settings.preferences.git_plugin = true;
+    state.active = Side::Right;
+    press(&mut state, now, key(KeyCode::F(9)));
+    let Some(Overlay::Menu(cursor)) = state.overlay else { panic!("menu missing") };
+    assert_eq!(menus(&state)[cursor.menu].title, "Right");
 }

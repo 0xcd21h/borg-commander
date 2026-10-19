@@ -38,6 +38,7 @@ crates/
   borg-vfs      file system access: streaming directory listings
   borg-view     the pager behind F3: constant memory on files of any size
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
+  borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
@@ -57,9 +58,8 @@ borg follows a strict *state → update → effects* design:
    picture placements for the graphics layer. It is also pure: a fixed state and clock always
    give the same pixels.
 
-Animations are values, not threads. A `Fade` knows its start, target and duration, and
-`AppState::pace(now)` tells the loop whether it needs smooth frames (16 ms locally, 40 ms over
-SSH), ambient frames (80 ms for spinners and art) or none at all.
+Panel, theme, and dialog changes apply immediately. The screensaver, progress indicators,
+and About artwork request ambient frames while visible.
 
 ### File operations
 
@@ -76,13 +76,23 @@ is revealed, and the panels come back when it finishes.
 
 ### Rendering pipeline
 
-- `panel_view` draws panels: breadcrumbs, rows, icons, the cursor, size bars and spinners.
+- `panel_view` draws panels: breadcrumbs, rows, icons, the cursor, Git status and spinners.
 - `fx/` holds the effects engine: gradients, glow, dimming, shadows, the braille canvas and
-  cube, the starfield, glyph rain, spinners, unfolds, and 256-colour quantising.
-- `blend::crossfade` mixes two buffers per cell. It powers the shell fade, theme previews and
-  overlay fades.
+  cube, the starfield, glyph rain, spinners, and 256-colour quantising.
 - Themes are TOML files in `crates/borg-ui/themes/`. `ThemeSet` loads them, resolves
   `extends` and merges styles and effects.
+
+### Plugins
+
+The Git plugin is compiled as `borg-git`; `borg-core::plugins` owns its pure state and
+effects, and `borg-app::plugins` executes requests. Each panel has one cancellable status
+scan, with newer navigation replacing older requests. Disabling the plugin drops active
+status futures and kills their child processes. Index operations already requested finish
+before their results are handled. Output is capped at 8 MiB and status scans time out after
+15 seconds. Git arguments use literal pathspecs and never pass through the shell.
+
+Plugins have a separate checkbox window and persisted `[plugins]` settings. Git is the
+first bundled plugin; there is no external plugin loader yet.
 
 ### Graphics
 
@@ -133,8 +143,7 @@ Rules of thumb:
 - Never sleep. Wait for what you expect to see (`wait_text`, `wait_until`, `wait_gone`).
 - `settle()` waits for the screen to stop changing. Avoid it while something animates
   forever (the About screen, a screensaver); wait for a condition instead.
-- Fixtures write `startup-animation = false` so tests start straight in the panels. Use
-  `fixture.configure("...")` to add settings.
+- Fixtures disable update checks. Use `fixture.configure("...")` to add settings.
 - `BORG_TEST_TIMEOUT_SECS` raises the wait timeout on slow machines (CI uses 30).
 
 ### Screenshots
@@ -172,7 +181,7 @@ with fictional project and release folders under `/tmp`. Every recorded frame is
 host home-directory paths, and a PNG of the final frame is saved beside the GIF. It runs
 the release binary in a PTY, plays a list of key presses and records the screen with
 `borg_testkit::Recorder`. Frames that did not change are dropped, and each GIF frame stores
-only the pixels that changed, which keeps the file small. The README demo uses the bundled DejaVu Sans Mono.
+only the pixels that changed, which keeps the file small. The README demo uses the bundled Borg Mono font.
 
 ## Versions and releases
 

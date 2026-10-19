@@ -5,7 +5,7 @@ use crate::{
     Overlay, Panel, PathOf, Picker, Prompt, PromptPurpose, Row, Side, Sort, View,
     command::CommandLine,
     layout::EVEN_SPLIT,
-    menu::{FILE_MENU, menus},
+    menu::{FILE_MENU, RIGHT_MENU, menus},
     ops::{self, ArchiveFormat, DEFAULT_ARCHIVE_SUFFIX},
     state::REVEAL_DELAY,
     update::{prepare_shell, shell_ready},
@@ -39,12 +39,20 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Quit => vec![Effect::Quit],
         Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => toggle_shell(state),
-        Action::SwitchPanel if state.aside.is_some() => Vec::new(),
+        Action::SwitchPanel if state.aside.is_some() => {
+            state.preview_focused = !state.preview_focused;
+            Vec::new()
+        }
         Action::SwitchPanel => {
             state.active = side.other();
             Vec::new()
         }
-        Action::Compose => vec![Effect::ReadCommandLine],
+        Action::InsertNewline => {
+            let mut effects = prepare_shell(state);
+            effects.push(Effect::Write(borg_term::encode_newline(state.shell.observed.mode)));
+            state.shell.mark_typed();
+            effects
+        }
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::Up => moved(state, |panel| panel.move_by(LINE_UP)),
@@ -84,6 +92,19 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.overlay = Some(Overlay::About(crate::About::default()));
             Vec::new()
         }
+        Action::Settings => {
+            state.overlay = Some(Overlay::Settings { selected: 0 });
+            Vec::new()
+        }
+        Action::Plugins => {
+            state.overlay = Some(Overlay::Plugins { selected: 0 });
+            Vec::new()
+        }
+        Action::ToggleGitPlugin => {
+            state.settings.preferences.git_plugin = !state.settings.preferences.git_plugin;
+            vec![Effect::SaveConfig]
+        }
+        Action::Git(tool) => crate::plugins::run(state, tool),
         Action::PickTheme => {
             let current = state.appearance.current();
             state.overlay = Some(Overlay::Themes(Picker { selected: current, original: current }));
@@ -95,7 +116,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::SelectGroup => prompt(state, "Select group", "Files matching", SELECT_ALL, PromptPurpose::Select),
         Action::UnselectGroup => prompt(state, "Unselect group", "Files matching", SELECT_ALL, PromptPurpose::Unselect),
         Action::InvertSelection => moved(state, Panel::invert_marks),
-        Action::View => hovered_file(state).map(|path| vec![Effect::View(path)]).unwrap_or_default(),
+        Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
         Action::Edit => edit(state),
         Action::Copy => transfer(state, "Copy", |sources| PromptPurpose::Copy { sources }),
         Action::Move => transfer(state, "Move", |sources| PromptPurpose::Move { sources }),
@@ -106,6 +127,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ExtractToOther => extract(state, state.panel(side.other()).dir().to_path_buf().as_path(), now),
         Action::SwapPanels => {
             state.panels.swap(0, 1);
+            state.panels.iter_mut().for_each(|panel| panel.git = crate::GitPanel::default());
             Vec::new()
         }
         Action::EqualizePanels => {
@@ -119,16 +141,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::ToggleStatusLine => preference(state, |prefs| prefs.status_line = !prefs.status_line),
         Action::ToggleMenuBar => preference(state, |prefs| prefs.menu_bar = !prefs.menu_bar),
-        Action::ToggleAnimations => preference(state, |prefs| prefs.animations = !prefs.animations),
         Action::ToggleRestoreTerminal => preference(state, |prefs| prefs.restore_terminal = !prefs.restore_terminal),
-        Action::ToggleSplash => preference(state, |prefs| prefs.splash = !prefs.splash),
         Action::ToggleScreensaver => {
             state.idle_since = now;
             preference(state, |prefs| prefs.screensaver = !prefs.screensaver)
         }
-        Action::ToggleDelight => preference(state, |prefs| prefs.delight = !prefs.delight),
         Action::Find => crate::find::open(state),
-        Action::ToggleIcons => preference(state, |prefs| prefs.icons = !prefs.icons),
         Action::ToggleReturnToPanels => preference(state, |prefs| {
             prefs.after_command = match prefs.after_command {
                 AfterCommand::ShowShell => AfterCommand::ReturnToPanels,
@@ -189,7 +207,7 @@ fn open_menu_bar(state: &mut AppState, side: Side) -> Vec<Effect> {
             state.overlay = Some(Overlay::Menu(cursor));
             Vec::new()
         }
-        None => open_menu(state, if side == Side::Left { 0 } else { all.len() - 1 }),
+        None => open_menu(state, if side == Side::Left { 0 } else { RIGHT_MENU }),
     }
 }
 
@@ -221,7 +239,7 @@ fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
             let command = ops::run(&entry.name);
             interactive(state, &command)
         }
-        Some(Row::Entry(entry)) => vec![Effect::View(panel.dir().join(&entry.name))],
+        Some(Row::Entry(entry)) => crate::viewer::open(state, panel.dir().join(&entry.name)),
         None => Vec::new(),
     }
 }

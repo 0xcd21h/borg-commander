@@ -28,10 +28,6 @@ impl Gradient {
     pub fn dimmed(self, background: Rgb, visibility: f32) -> Self {
         Self { from: background.mix(self.from, visibility), to: background.mix(self.to, visibility) }
     }
-
-    pub fn reversed(self) -> Self {
-        Self { from: self.to, to: self.from }
-    }
 }
 
 fn resolved(cell: &Cell, palette: &Palette) -> (Rgb, Rgb) {

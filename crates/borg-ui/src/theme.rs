@@ -105,7 +105,16 @@ impl TryFrom<String> for ColorSpec {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Color::from_str(&value).map(Self).map_err(|_| format!("unknown color {value:?}"))
+        Color::from_str(&value)
+            .map(|color| {
+                let fixed = if matches!(color, Color::Reset | Color::Rgb(..)) {
+                    color
+                } else {
+                    crate::Palette::default().foreground_of(color).into()
+                };
+                Self(fixed)
+            })
+            .map_err(|_| format!("unknown color {value:?}"))
     }
 }
 
@@ -140,8 +149,9 @@ impl StyleSpec {
         .fold(Modifier::empty(), |acc, (_, modifier)| acc | modifier);
 
         let style = Style::new().add_modifier(modifiers);
-        let style = self.fg.map_or(style, |ColorSpec(c)| style.fg(c));
-        self.bg.map_or(style, |ColorSpec(c)| style.bg(c))
+        let palette = crate::Palette::default();
+        let style = self.fg.map_or(style, |ColorSpec(c)| style.fg(palette.foreground_of(c).into()));
+        self.bg.map_or(style, |ColorSpec(c)| style.bg(palette.background_of(c).into()))
     }
 }
 

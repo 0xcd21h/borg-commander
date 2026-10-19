@@ -8,7 +8,7 @@ const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 2;
 const MENU_TITLES: &str = "Left    File    Command    Options    Right";
-const MENU_NAMES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
+const MENU_NAMES: [&str; 6] = ["Left", "File", "Command", "Options", "Right", "Git"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
@@ -30,6 +30,7 @@ fn fixture() -> Result<Fixture> {
     fixture.executable("run.sh", "#!/bin/sh\necho ran-script\n")?;
     fixture.file(".secret", "x\n")?;
     fixture.freeze()?;
+    fixture.configure("return-to-panels = false\n")?;
     Ok(fixture)
 }
 
@@ -86,6 +87,16 @@ fn choose(app: &mut Session, index: usize, item: &str) -> Result<()> {
     anyhow::bail!("could not select {item:?}")
 }
 
+fn toggle_setting(app: &mut Session, label: &str) -> Result<()> {
+    choose(app, OPTIONS_MENU, "Settings…")?;
+    let screen = app.wait_text("saved immediately")?;
+    let (x, y) = screen.find(label).ok_or_else(|| anyhow::anyhow!("setting missing: {label}"))?;
+    app.send(mouse(0, x, y))?;
+    app.send(keys::esc())?;
+    app.wait_gone("saved immediately")?;
+    Ok(())
+}
+
 fn panels_ready(s: &Snapshot) -> bool {
     s.lines().first().is_some_and(|top| top.starts_with(TOP_LEFT_CORNERS)) && prompt(s).starts_with('$')
 }
@@ -116,7 +127,7 @@ fn startup_lists_both_panels() -> Result<()> {
     let mut app = start(&fixture, "startup")?;
     let screen = app.checkpoint("panels")?;
 
-    for expected in ["/alpha", "/beta", " notes.txt", "*run.sh", "Mar  4  2021", "10Quit", "9Menu", "5Copy"] {
+    for expected in ["/ alpha", "/ beta", " notes.txt", "* run.sh", "Mar  4  2021", "10Quit", "9Menu", "5Copy"] {
         ensure!(screen.contains(expected), "missing {expected:?}\n{}", screen.text());
     }
     ensure!(!screen.contains(".secret"), "hidden file shown");
@@ -130,15 +141,15 @@ fn navigation_enters_and_returns_to_folder() -> Result<()> {
     let mut app = start(&fixture, "navigation")?;
 
     app.send(keys::down())?;
-    app.wait_until("cursor on alpha", |s| highlighted(s, "/alpha"))?;
+    app.wait_until("cursor on alpha", |s| highlighted(s, "/ alpha"))?;
     app.send(keys::enter())?;
     app.wait_text("one.txt")?;
     app.checkpoint("inside-alpha")?;
 
     app.send(keys::left())?;
     let screen =
-        app.wait_until("back in parent with alpha focused", |s| s.contains("/beta") && highlighted(s, "/alpha"))?;
-    ensure!(!highlighted(&screen, "/beta"));
+        app.wait_until("back in parent with alpha focused", |s| s.contains("/ beta") && highlighted(s, "/ alpha"))?;
+    ensure!(!highlighted(&screen, "/ beta"));
     Ok(())
 }
 
@@ -162,22 +173,43 @@ fn typed_command_runs_in_shell_and_ctrl_o_returns() -> Result<()> {
 }
 
 #[test]
-fn composer_edits_and_runs_several_lines() -> Result<()> {
-    let fixture = fixture()?;
-    let mut app = start(&fixture, "composer")?;
-    app.send("echo first-$((1+1))")?;
-    app.wait_until("command in prompt row", |s| prompt(s) == "$ echo first-$((1+1))")?;
-    app.send(keys::ctrl('j'))?;
-    app.wait_until("composer prefilled", |s| s.contains("1 line") && s.contains("1 echo first-$((1+1))"))?;
-    app.send(keys::enter())?.send("echo second-$((2+2))")?;
-    app.wait_text("2 lines")?;
-    app.send(keys::alt(KeyCode::Enter))?;
-    app.wait_until("both lines ran", |s| s.contains("first-2") && s.contains("second-4"))?;
-    app.wait_gone(READY)?;
-    app.send(keys::ctrl('j'))?;
-    app.wait_text("Esc back to prompt")?;
-    app.send("echo third")?.send(keys::key(KeyCode::Esc))?;
-    app.wait_until("text back on the prompt", |s| !s.contains("Esc back to prompt") && s.contains("$ echo third"))?;
+fn shift_enter_edits_the_shell_buffer_in_place_in_each_shell() -> Result<()> {
+    const FIRST: &str = "touch first-ran;";
+    const SECOND: &str = "touch second-ran";
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fixture.configure("")?;
+        let mut app = start_with(&fixture, &format!("inline-newline-{}", shell.program()), shell)?;
+        let baseline = app.wait_text(READY)?.find(READY).unwrap().1;
+        app.send(format!("{FIRST}{SECOND}"))?;
+        app.wait_text(SECOND)?;
+        app.send(keys::ctrl('a'))?.send(keys::right().repeat(FIRST.len()))?;
+        app.send(keys::with(KeyCode::Enter, crossterm::event::KeyModifiers::SHIFT))?;
+        let screen = app.wait_until("newline splits the command at its cursor", |s| {
+            s.find(FIRST).zip(s.find(SECOND)).is_some_and(|((_, first), (_, second))| second > first)
+        })?;
+        ensure!(screen.find(READY).unwrap().1 < baseline, "panels should shrink above the command");
+        ensure!(!screen.contains("Borg console"), "editing should keep the panels visible");
+        ensure!(!screen.contains("Alt-Enter run"), "newlines should use the shell prompt");
+        ensure!(!fixture.work().join("first-ran").exists(), "newline must not execute the first line");
+        ensure!(!fixture.work().join("second-ran").exists());
+        app.send(keys::key(KeyCode::Backspace))?;
+        app.wait_until("backspace joins the lines", |s| {
+            s.contains(&format!("{FIRST}{SECOND}")) && s.find(READY).is_some_and(|(_, y)| y == baseline)
+        })?;
+        app.send(keys::ctrl('j'))?;
+        app.wait_until("Ctrl-J inserts the same newline", |s| {
+            s.find(FIRST).zip(s.find(SECOND)).is_some_and(|((_, a), (_, b))| b > a)
+        })?;
+        app.send("printf 'INSERTED\\n'; ")?.send(keys::enter())?;
+        app.wait_until("both lines executed and panels restored", |s| {
+            panels_ready(s) && left_panel(s).contains("6 items")
+        })?;
+        ensure!(fixture.work().join("first-ran").exists());
+        ensure!(fixture.work().join("second-ran").exists());
+        let screen = app.snapshot();
+        ensure!(screen.find("6 items").unwrap().1 == baseline, "prompt should collapse after execution");
+    }
     Ok(())
 }
 
@@ -189,7 +221,7 @@ fn shell_cd_moves_active_panel() -> Result<()> {
     app.send("cd alpha")?.send(keys::enter())?;
     app.wait_gone(READY)?;
     app.send(keys::ctrl('o'))?;
-    app.wait_until("panel followed shell", |s| s.contains("one.txt") && s.contains("/inner"))?;
+    app.wait_until("panel followed shell", |s| s.contains("one.txt") && s.contains("/ inner"))?;
     Ok(())
 }
 
@@ -229,7 +261,7 @@ fn enter_runs_executables() -> Result<()> {
     let mut app = start(&fixture, "executable")?;
 
     app.send(keys::key(KeyCode::End))?;
-    app.wait_until("cursor on run.sh", |s| highlighted(s, "*run.sh"))?;
+    app.wait_until("cursor on run.sh", |s| highlighted(s, "* run.sh"))?;
     app.send(keys::enter())?;
     app.wait_text("ran-script")?;
     Ok(())
@@ -238,8 +270,8 @@ fn enter_runs_executables() -> Result<()> {
 #[test]
 fn full_screen_programs_capture_every_key() -> Result<()> {
     const KEY_GRABBER: &str = "keygrab.sh";
-    const SCRIPT: &str = r#"printf '\033[?1049h\033[Hwaiting-for-key'
-stty raw -echo
+    const SCRIPT: &str = r#"stty raw -echo
+printf '\033[?1049h\033[Hwaiting-for-key'
 key=$(dd bs=1 count=1 2>/dev/null)
 stty sane
 printf '\033[?1049l'
@@ -434,7 +466,7 @@ fn file_operations_run_through_the_shell() -> Result<()> {
     app.send(keys::f(7))?;
     app.wait_text("Make directory")?;
     app.send("made")?.send(keys::enter())?;
-    app.wait_until("new folder focused", |s| highlighted(s, "/made") && panels_ready(s))?;
+    app.wait_until("new folder focused", |s| highlighted(s, "/ made") && panels_ready(s))?;
     ensure!(work.join("made").is_dir());
 
     app.send(keys::tab())?.send(keys::down())?.send(keys::down())?.send(keys::enter())?;
@@ -458,16 +490,16 @@ fn file_operations_run_through_the_shell() -> Result<()> {
     app.wait_until("move finished", |s| {
         work.join("made/notes.txt").is_file() && !left_panel(s).contains("notes.txt") && panels_ready(s)
     })?;
-    ensure!(highlighted(&app.settle()?, "*run.sh"), "cursor should move to the next file after a move");
+    ensure!(highlighted(&app.settle()?, "* run.sh"), "cursor should move to the next file after a move");
 
     app.send(keys::key(KeyCode::Home))?.send(keys::down())?;
-    app.wait_until("cursor on alpha", |s| highlighted(s, "/alpha"))?;
+    app.wait_until("cursor on alpha", |s| highlighted(s, "/ alpha"))?;
     app.send(keys::f(8))?;
     app.wait_text("Delete \"alpha\" permanently?")?;
     app.checkpoint("delete-confirm")?;
     app.send(keys::enter())?;
     app.wait_until("alpha deleted", |_| !work.join("alpha").exists())?;
-    app.wait_gone("/alpha")?;
+    app.wait_gone("/ alpha")?;
     Ok(())
 }
 
@@ -478,7 +510,7 @@ fn compresses_selection_and_extracts_archives() -> Result<()> {
     let work = fixture.work();
 
     app.send(keys::down())?;
-    app.wait_until("cursor on alpha", |s| highlighted(s, "/alpha"))?;
+    app.wait_until("cursor on alpha", |s| highlighted(s, "/ alpha"))?;
     choose(&mut app, FILE_MENU, "Compress…")?;
     app.wait_text("alpha.tar.gz")?;
     app.send(keys::enter())?;
@@ -549,7 +581,7 @@ fn status_line_shows_details_and_can_be_hidden() -> Result<()> {
     app.wait_text("-rwxr-xr-x")?;
     app.checkpoint("status-line")?;
 
-    choose(&mut app, OPTIONS_MENU, "Status line")?;
+    toggle_setting(&mut app, "Status line")?;
     app.wait_gone("-rwxr-xr-x")?;
     let saved = fs::read_to_string(fixture.config_file())?;
     ensure!(saved.contains("status-line = false"), "config was {saved:?}");
@@ -573,7 +605,7 @@ fn brief_listing_and_menu_bar() -> Result<()> {
     choose(&mut app, LEFT_MENU, "Brief listing")?;
     app.wait_until("brief listing without dates", |s| {
         let left = left_panel(s);
-        left.contains("/alpha") && !left.contains("2021")
+        left.contains("/ alpha") && !left.contains("2021")
     })?;
     app.checkpoint("brief")?;
     Ok(())
@@ -604,7 +636,7 @@ fn session_and_shell_output_are_restored() -> Result<()> {
     app.send(keys::tab())?.send(keys::down())?.send(keys::enter())?;
     app.wait_until("right panel inside alpha", |s| s.contains("one.txt"))?;
     app.send(keys::tab())?;
-    choose(&mut app, OPTIONS_MENU, "Restore shell output on start")?;
+    toggle_setting(&mut app, "Restore shell output on start")?;
     app.send("echo remembered-$((6*7))")?.send(keys::enter())?;
     app.wait_text("remembered-42")?;
     app.send(keys::ctrl('o'))?;
@@ -635,14 +667,12 @@ fn modern_theme_uses_rounded_corners() -> Result<()> {
 }
 
 #[test]
-fn splash_plays_on_start_and_any_key_skips_it() -> Result<()> {
+fn retired_animation_option_opens_panels_immediately() -> Result<()> {
     let fixture = fixture()?;
     fixture.configure("startup-animation = true\n")?;
-    let mut app = Session::builder(BORG, &fixture).label("splash").spawn()?;
-    app.wait_text(SPLASH_SUBTITLE)?;
-    app.send(keys::down())?;
-    let panels = app.wait_until("panels after splash", |s| s.contains(READY) && !s.contains(SPLASH_SUBTITLE))?;
-    ensure!(highlighted(&panels, ".."), "the skipping key must not move the cursor\n{}", panels.text());
+    let mut app = Session::builder(BORG, &fixture).label("startup-direct").spawn()?;
+    let panels = app.wait_text(READY)?;
+    ensure!(!panels.contains(SPLASH_SUBTITLE), "startup must show panels");
     Ok(())
 }
 
@@ -850,5 +880,190 @@ fn mouse_marks_files_and_double_click_opens_folders() -> Result<()> {
     app.send(format!("\x1b[<0;{};{}m", x + 1, y + 1))?;
     app.send(mouse(0, x, y))?;
     app.wait_text("one.txt")?;
+    Ok(())
+}
+
+#[test]
+fn completed_commands_return_to_panels_by_default_and_keep_console_output() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("")?;
+    let mut app = start(&fixture, "return-default")?;
+    app.send("printf 'BORG-DEFAULT-%s\\n' done; touch command-finished")?.send(keys::enter())?;
+    app.wait_until("returned to panels", |s| {
+        panels_ready(s) && left_panel(s).contains("5 items") && prompt(s).trim() == "$"
+    })?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("BORG-DEFAULT-done")?;
+    Ok(())
+}
+
+#[test]
+fn markdown_preview_scrolls_with_focus_and_toggles_source() -> Result<()> {
+    let fixture = fixture()?;
+    let text = format!(
+        "# Preview title\n\n{}\nEnd of document\n",
+        (0..80).map(|n| format!("- item {n}\n")).collect::<String>()
+    );
+    fixture.file("guide.md", &text)?;
+    let mut app = start_like(&fixture, "markdown-preview", 5)?;
+    app.send(keys::ctrl('s'))?.send("guide")?.send(keys::enter())?.send(keys::ctrl('q'))?;
+    let screen = app.wait_text("Quick view · guide.md")?;
+    ensure!(!screen.contains("# Preview title"), "Markdown should open rendered");
+    app.wait_text("Preview title")?;
+    app.send(keys::tab())?;
+    app.wait_text("Focused · Tab back")?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_text("End of document")?;
+    app.send("s")?;
+    app.wait_text("# Preview title")?;
+    app.send("s")?;
+    app.wait_text("End of document")?;
+    app.send(keys::tab())?.send(keys::f(3))?;
+    app.wait_text("rendered")?;
+    app.wait_text("End of document")?;
+    app.send("s")?;
+    app.wait_text("# Preview title")?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_text("End of document")?;
+    app.send(keys::esc())?;
+    let screen = app.wait_text("Quick view · guide.md")?;
+    ensure!(!screen.contains("# Preview title"), "closing the viewer should preserve the scrolled position");
+    app.wait_text("End of document")?;
+    Ok(())
+}
+
+#[test]
+fn recalling_a_wrapped_command_expands_the_prompt_above_the_keybar() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("")?;
+    let mut app = Session::builder(BORG, &fixture).size(50, 22).label("history-prompt").spawn()?;
+    app.wait_text(READY)?;
+    app.wait_until("shell ready", |s| prompt(s).trim() == "$")?;
+    let command = format!("printf '%s\\n' 'BEGIN-RECALL {} END-RECALL'", "history text ".repeat(10));
+    app.send(&command)?.send(keys::enter())?;
+    app.wait_until("command finished", |s| panels_ready(s) && prompt(s).trim() == "$")?;
+    app.send(keys::ctrl('p'))?;
+    let screen = app.wait_until("full recalled command", |s| s.contains("BEGIN-RECALL") && s.contains("END-RECALL"))?;
+    let first = screen.find("BEGIN-RECALL").unwrap().1;
+    let last = screen.find("END-RECALL").unwrap().1;
+    ensure!(last > first, "recalled command should occupy multiple rows");
+    ensure!(last < screen.rows() - 1, "command should stay above the keybar");
+    app.send(keys::ctrl('c'))?;
+    app.wait_until("prompt collapsed", |s| prompt(s).trim() == "$")?;
+    Ok(())
+}
+
+#[test]
+fn recalling_multiline_history_keeps_the_whole_command_visible_in_each_shell() -> Result<()> {
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fixture.configure("")?;
+        let mut app = start_with(&fixture, &format!("multiline-{}", shell.program()), shell)?;
+        app.send(if shell == Shell::Fish { "begin" } else { "{" })?;
+        for line in ["printf 'FIRST-HISTORY\\n';", "printf 'SECOND-HISTORY\\n';", "touch history-ready;"] {
+            app.send(keys::ctrl('j'))?.send(line)?;
+        }
+        app.send(keys::ctrl('j'))?.send(if shell == Shell::Fish { "end" } else { "}" })?;
+        app.wait_until("five lines typed in the prompt", |s| {
+            s.contains("FIRST-HISTORY") && s.contains("SECOND-HISTORY") && s.contains("touch history-ready")
+        })?;
+        app.send(keys::enter())?;
+        app.wait_until(&format!("multiline command completed in {}", shell.program()), |s| {
+            panels_ready(s) && left_panel(s).contains("5 items") && prompt(s).trim() == "$"
+        })?;
+        app.send(keys::ctrl('p'))?;
+        let recalled = app.wait_until("multiline command recalled", |s| {
+            s.contains("FIRST-HISTORY") && s.contains("SECOND-HISTORY") && s.contains("history-ready")
+        })?;
+        ensure!(!recalled.contains("Borg console"), "history recall should keep the panels visible");
+        app.send(keys::ctrl('c'))?;
+        app.wait_until("command prompt cleared", |s| prompt(s).trim() == "$")?;
+    }
+    Ok(())
+}
+
+#[test]
+fn ghostty_icons_stay_rich_and_saved_settings_keep_portable_terminal_fallback() -> Result<()> {
+    const FOLDER_ICON: &str = "\u{f07b}";
+    let fixture = fixture()?;
+    fixture.configure("nerd-font = false\n")?;
+    let mut ghostty = Session::builder(BORG, &fixture).terminal_program("ghostty").label("ghostty-icons").spawn()?;
+    let screen = ghostty.wait_text(READY)?;
+    ensure!(screen.contains(FOLDER_ICON), "Ghostty should get rich folder icons\n{}", screen.text());
+    ghostty.wait_until("shell prompt", |s| prompt(s).starts_with('$'))?;
+    toggle_setting(&mut ghostty, "Status line")?;
+    let saved = fs::read_to_string(fixture.config_file())?;
+    ensure!(saved.contains("icon-style = \"auto\""), "automatic detection must stay automatic: {saved}");
+    ensure!(!saved.contains("nerd-font"), "obsolete detected preference should be removed: {saved}");
+    ghostty.send(keys::f(10))?;
+    ghostty.wait_exit()?;
+    drop(ghostty);
+    let mut portable =
+        Session::builder(BORG, &fixture).terminal_program("Apple_Terminal").label("portable-icons").spawn()?;
+    let screen = portable.wait_text(READY)?;
+    ensure!(!screen.contains(FOLDER_ICON), "Apple Terminal should keep portable icons");
+    ensure!(screen.contains("/ alpha"), "portable folder marker missing\n{}", screen.text());
+    Ok(())
+}
+
+fn git(fixture: &Fixture, args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(fixture.work())
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()?;
+    ensure!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[test]
+fn git_plugin_views_diffs_stages_unstages_and_persists_disabling() -> Result<()> {
+    const GIT_MENU: usize = 5;
+    let fixture = fixture()?;
+    git(&fixture, &["init", "-b", "main"])?;
+    git(&fixture, &["config", "user.name", "Borg Test"])?;
+    git(&fixture, &["config", "user.email", "borg@example.test"])?;
+    git(&fixture, &["add", "notes.txt"])?;
+    git(&fixture, &["commit", "-qm", "Initial fixture"])?;
+    let contents = "changed by plugin test\n";
+    fs::write(fixture.work().join("notes.txt"), contents)?;
+    let mut app = start(&fixture, "git-plugin")?;
+    app.wait_text("Git main")?;
+    app.send(keys::ctrl('s'))?.send("notes")?.send(keys::enter())?;
+    choose(&mut app, GIT_MENU, "Diff selection")?;
+    app.wait_text("+changed by plugin test")?;
+    app.send(keys::esc())?;
+    app.wait_until("panels after Git viewer", panels_ready)?;
+    choose(&mut app, GIT_MENU, "Stage selection")?;
+    app.wait_text("Git index updated")?;
+    ensure!(git(&fixture, &["diff", "--cached"])?.contains("+changed by plugin test"));
+    choose(&mut app, GIT_MENU, "Staged diff selection")?;
+    app.wait_text("+changed by plugin test")?;
+    app.send(keys::esc())?;
+    app.wait_until("panels after Git viewer", panels_ready)?;
+    choose(&mut app, GIT_MENU, "Unstage selection")?;
+    app.wait_text("Git index updated")?;
+    ensure!(git(&fixture, &["diff", "--cached"])?.is_empty());
+    ensure!(fs::read_to_string(fixture.work().join("notes.txt"))? == contents);
+    choose(&mut app, GIT_MENU, "Recent commits")?;
+    app.wait_text("Initial fixture")?;
+    app.send(keys::esc())?;
+    app.wait_until("panels after Git viewer", panels_ready)?;
+    choose(&mut app, OPTIONS_MENU, "Plugins…")?;
+    let screen = app.wait_text("Git — status, diffs, stage/unstage")?;
+    let (x, y) = screen.find("Git — status, diffs, stage/unstage").unwrap();
+    app.send(mouse(0, x, y))?;
+    app.wait_text("[ ] Git")?;
+    app.send(keys::esc())?;
+    app.wait_gone("Git main")?;
+    ensure!(fs::read_to_string(fixture.config_file())?.contains("git = false"));
+    drop(app);
+    let mut app = start(&fixture, "git-plugin-disabled")?;
+    app.send(keys::f(9))?;
+    let screen = app.wait_text(MENU_TITLES)?;
+    ensure!(!screen.lines()[0].contains("Git"), "disabled plugin should remove the menu");
+    ensure!(!screen.contains("Git main"), "disabled plugin should remove branch and status columns");
     Ok(())
 }

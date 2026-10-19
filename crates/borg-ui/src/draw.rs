@@ -16,7 +16,6 @@ use crate::{
     Palette, Theme, ThemeSet, art_view,
     aside_view::{AsideScene, draw_aside},
     blend::crossfade,
-    composer_view::draw_composer,
     dialog_view,
     fx::{self, Unfold},
     job_view,
@@ -35,7 +34,6 @@ const FULLY_SHOWN: f32 = 1.0;
 const CURSOR_HANDOFF: f32 = 0.5;
 const BACKDROP: f32 = 0.45;
 const MENU_BACKDROP: f32 = 0.25;
-const SPLASH_FADE_FROM: f32 = 0.7;
 const UNFOLD_FLOOR: f32 = 0.4;
 
 pub struct Scene<'a> {
@@ -103,26 +101,7 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         art_view::draw_screensaver(&scene.look(theme), area, buf);
         return (None, Vec::new());
     }
-    let (cursor, placements) = draw_main(buf, scene, area);
-    match state.splash_progress(scene.now) {
-        Some(progress) => {
-            splash(buf, scene, theme, progress, area);
-            (None, Vec::new())
-        }
-        None => (cursor, placements),
-    }
-}
-
-fn splash(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, progress: f32, area: Rect) {
-    let mut art = Buffer::empty(area);
-    art_view::draw_splash(&scene.look(theme), progress, scene.clock, area, &mut art);
-    let opacity = ((FULLY_SHOWN - progress) / (FULLY_SHOWN - SPLASH_FADE_FROM)).clamp(FULLY_HIDDEN, FULLY_SHOWN);
-    if opacity >= FULLY_SHOWN {
-        *buf = art;
-    } else {
-        let under = buf.clone();
-        crossfade(&art, &under, opacity, scene.palette, buf);
-    }
+    draw_main(buf, scene, area)
 }
 
 fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Position>, Vec<Placement>) {
@@ -131,7 +110,6 @@ fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Positio
     let mut placements = Vec::new();
     if opacity <= FULLY_HIDDEN {
         draw_console(buf, scene, area);
-        cursor = composer_over_shell(buf, scene, area);
     } else if opacity >= FULLY_SHOWN {
         let chrome = chrome(scene, area);
         *buf = chrome.buf;
@@ -170,15 +148,6 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
         Span::styled(hint, theme.styles.key_label),
     ])
     .render(footer, buf);
-}
-
-fn composer_over_shell(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> Option<Position> {
-    let Some(Overlay::Composer(composer)) = &scene.state.overlay else { return None };
-    let theme = scene.theme_at(scene.state.appearance.current());
-    let (_, row) = scene.screen.cursor();
-    let anchor = Rect { y: area.y + row, height: 1, ..area };
-    let (_, position) = draw_composer(composer, &scene.look(theme), anchor, area, buf);
-    Some(position)
 }
 
 fn chrome(scene: &Scene<'_>, area: Rect) -> Chrome {
@@ -224,9 +193,10 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         if let Some(aside) = aside {
             let shown = AsideScene {
                 aside,
+                focused: state.preview_focused,
                 peeked: state.peeked.as_ref(),
                 area: rect,
-                icons: state.settings.preferences.icons,
+                icons: state.settings.preferences.nerd_font,
                 icon_spacing: state.settings.preferences.icon_spacing,
                 pictures: scene.pixels.pictures(),
                 clock: scene.clock,
@@ -238,12 +208,11 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         }
         let panel = PanelScene {
             panel: state.panel(side),
-            active,
+            active: active && !state.preview_focused,
             area: rect,
             motion: &state.motions[side.index()],
             activity: activities[side.index()].clone(),
-            delight: state.settings.preferences.delight,
-            icons: state.settings.preferences.icons,
+            icons: state.settings.preferences.nerd_font,
             icon_spacing: state.settings.preferences.icon_spacing,
             find: finding.filter(|(find, _)| find.side == side),
             home: scene.home,
@@ -263,8 +232,10 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         draw_status(state.active_panel(), status, styles, scene.clock, &mut buf);
     }
 
-    let (_, cursor_row) = scene.screen.cursor();
-    term_view::draw_row(&scene.screen, cursor_row, layout.prompt.y, layout.prompt, &mut buf);
+    let top = scene.screen.prompt_top(layout.prompt.height);
+    for (offset, y) in (layout.prompt.top()..layout.prompt.bottom()).enumerate() {
+        term_view::draw_row(&scene.screen, top.saturating_add(offset as u16), y, layout.prompt, &mut buf);
+    }
     draw_keybar(layout.keybar, styles, state.notice.as_deref(), &mut buf);
 
     let cursor = draw_overlay(scene, &look, &layout, &mut buf);
@@ -328,7 +299,7 @@ fn backdrop(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, overlay: &Overl
     let screen = layout.screen;
     let bar = bar_of(layout, overlay);
     let amount = match overlay {
-        Overlay::Find(_) | Overlay::Composer(_) => return,
+        Overlay::Find(_) => return,
         Overlay::Menu(_) => MENU_BACKDROP,
         _ => BACKDROP,
     };
@@ -366,6 +337,9 @@ fn paint_overlay(
                 .unwrap_or_default();
             (rect, None, Unfold::Down)
         }
+        Overlay::Settings { selected } | Overlay::Plugins { selected } => {
+            (crate::settings_view::draw(state, *selected, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Themes(picker) => {
             (draw_picker(picker, state.appearance.choices(), theme, screen, buf), None, Unfold::FromCenter)
         }
@@ -376,10 +350,6 @@ fn paint_overlay(
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
-        Overlay::Composer(composer) => {
-            let (rect, position) = draw_composer(composer, look, layout.prompt, screen, buf);
-            (rect, Some(position), Unfold::Up)
-        }
         Overlay::Question(question) => {
             let rect = state
                 .jobs
@@ -401,11 +371,16 @@ fn paint_overlay(
 
 fn shell_cursor(scene: &Scene<'_>, opacity: f32) -> Option<Position> {
     let state = scene.state;
-    if !scene.screen.cursor_visible() || state.overlay.is_some() {
+    if !scene.screen.cursor_visible() || state.overlay.is_some() || state.preview_focused {
         return None;
     }
     let (col, row) = scene.screen.cursor();
     let in_panels = opacity >= CURSOR_HANDOFF && state.effective_view() == View::Panels;
-    let row = if in_panels { state.layout(scene.now).prompt.y } else { row };
+    let row = if in_panels {
+        let prompt = state.layout(scene.now).prompt;
+        prompt.y + row.saturating_sub(scene.screen.prompt_top(prompt.height))
+    } else {
+        row
+    };
     Some(Position::new(col, row))
 }

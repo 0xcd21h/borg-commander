@@ -95,7 +95,7 @@ pub struct Panel {
     incoming: Option<Incoming>,
     focus: Option<Anchor>,
     replacing: bool,
-    largest: u64,
+    pub git: crate::GitPanel,
 }
 
 impl Panel {
@@ -115,7 +115,7 @@ impl Panel {
             incoming: None,
             focus: None,
             replacing: false,
-            largest: 0,
+            git: crate::GitPanel::default(),
         }
     }
 
@@ -135,8 +135,12 @@ impl Panel {
         &self.entries
     }
 
-    pub fn largest(&self) -> u64 {
-        self.largest
+    pub fn generation(&self) -> u64 {
+        self.incoming.as_ref().map_or(self.generation, |incoming| incoming.generation)
+    }
+
+    pub fn git_repository(&self) -> Option<&borg_git::Repository> {
+        (self.dir() == self.destination()).then_some(self.git.repository.as_ref()).flatten()
     }
 
     pub fn mode(&self) -> ListingMode {
@@ -410,7 +414,6 @@ impl Panel {
         if !incoming.refresh {
             self.entries.clear();
             self.marks.clear();
-            self.largest = 0;
             self.cursor = 0;
             self.scroll = 0;
         }
@@ -429,7 +432,6 @@ impl Panel {
     }
 
     fn restore(&mut self, anchor: Option<Anchor>) {
-        self.largest = self.entries.iter().filter(|entry| !entry.is_dir()).map(|entry| entry.size).max().unwrap_or(0);
         if let Some(index) = anchor.as_ref().and_then(|anchor| self.locate(anchor)) {
             self.cursor = index;
             if self.focus.as_ref() == anchor.as_ref() {

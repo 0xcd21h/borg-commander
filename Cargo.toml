@@ -4,12 +4,13 @@ members  = ["crates/*"]
 
 [workspace.package]
 edition      = "2024"
-version      = "0.2.0"
+version      = "0.3.0"
 license      = "MIT"
 rust-version = "1.97"
 
 [workspace.dependencies]
 borg-core = { path = "crates/borg-core" }
+borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
 borg-update = { path = "crates/borg-update" }
@@ -44,10 +45,12 @@ tar                = "0.4"
 sha2               = "0.10"
 serde_json         = "1"
 icy_sixel          = "0.7"
-tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util"] }
 tokio-stream       = "0.1"
 toml               = "1"
 unicode-width      = "0.2"
+two-face           = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
+pulldown-cmark     = "0.13"
 uzers              = "0.12"
 
 [workspace.lints.rust]

@@ -100,6 +100,20 @@ pub fn icon(entry: &Entry) -> Icon {
     }
 }
 
+pub fn portable(entry: &Entry) -> Icon {
+    Icon::plain(match entry.kind {
+        EntryKind::Dir => "/",
+        EntryKind::Symlink { .. } => "@",
+        EntryKind::Other => "?",
+        EntryKind::File if entry.executable => "*",
+        EntryKind::File => "·",
+    })
+}
+
+pub fn portable_parent() -> Icon {
+    Icon::plain("↑")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

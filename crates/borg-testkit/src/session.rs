@@ -29,6 +29,7 @@ const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const ENV_PATH: &str = "PATH";
 const ENV_HOME: &str = "HOME";
 const ENV_SHELL: &str = "SHELL";
+const ENV_TERM_PROGRAM: &str = "TERM_PROGRAM";
 const ENV_CONFIG_DIR: &str = "BORG_CONFIG_DIR";
 const ENV_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 const ENV_STATE_DIR: &str = "BORG_STATE_DIR";
@@ -55,6 +56,7 @@ pub struct SessionBuilder<'a> {
     cols: u16,
     rows: u16,
     truecolor: bool,
+    terminal_program: Option<String>,
     timeout: Duration,
     label: String,
 }
@@ -81,6 +83,11 @@ impl<'a> SessionBuilder<'a> {
         self
     }
 
+    pub fn terminal_program(mut self, program: &str) -> Self {
+        self.terminal_program = Some(program.to_owned());
+        self
+    }
+
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = label.into();
         self
@@ -97,6 +104,9 @@ impl<'a> SessionBuilder<'a> {
         FIXED_ENV.iter().for_each(|(k, v)| cmd.env(k, v));
         if self.truecolor {
             cmd.env(TRUECOLOR_ENV.0, TRUECOLOR_ENV.1);
+        }
+        if let Some(program) = self.terminal_program {
+            cmd.env(ENV_TERM_PROGRAM, program);
         }
         cmd.env(ENV_HOME, self.fixture.home());
         cmd.env(ENV_SHELL, &shell);
@@ -149,6 +159,7 @@ impl Session {
             cols: DEFAULT_COLS,
             rows: DEFAULT_ROWS,
             truecolor: true,
+            terminal_program: None,
             timeout: configured_timeout(),
             label: String::from("session"),
         }

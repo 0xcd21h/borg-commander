@@ -32,6 +32,12 @@ tar -xzf "${work}/${name}.tar.gz" -C "${work}"
 mkdir -p "${dest}"
 install -m 0755 "${work}/${name}/borg" "${dest}/borg"
 echo "Installed borg ${version} to ${dest}/borg"
+if [ -d "${work}/${name}/fonts" ]; then
+    data="${BORG_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/borg-commander}"
+    mkdir -p "${data}"
+    cp -R "${work}/${name}/fonts" "${data}/"
+    echo "Optional Borg Mono fonts saved to ${data}/fonts; install and select them in your terminal."
+fi
 case ":${PATH}:" in
     *":${dest}:"*) ;;
     *) echo "Add ${dest} to your PATH to run borg." ;;

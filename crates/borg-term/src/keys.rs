@@ -10,6 +10,7 @@ const SS3: &[u8] = b"\x1bO";
 const BACK_TAB: &[u8] = b"\x1b[Z";
 const PASTE_START: &[u8] = b"\x1b[200~";
 const PASTE_END: &[u8] = b"\x1b[201~";
+const QUOTED_NEWLINE: &[u8] = b"\x16\n";
 
 enum Sequence {
     Cursor(u8),
@@ -42,6 +43,10 @@ pub fn encode_paste(text: &str, mode: TermMode) -> Vec<u8> {
     } else {
         text.as_bytes().to_vec()
     }
+}
+
+pub fn encode_newline(mode: TermMode) -> Vec<u8> {
+    if mode.contains(TermMode::BRACKETED_PASTE) { encode_paste("\n", mode) } else { QUOTED_NEWLINE.to_vec() }
 }
 
 fn control_byte(c: char) -> Option<u8> {

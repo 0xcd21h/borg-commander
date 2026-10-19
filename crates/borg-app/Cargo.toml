@@ -11,6 +11,7 @@ name = "borg"
 path = "src/main.rs"
 
 [dependencies]
+borg-git = { workspace = true }
 anyhow    = { workspace = true }
 borg-core = { workspace = true }
 borg-gfx  = { workspace = true }
