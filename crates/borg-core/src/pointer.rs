@@ -4,6 +4,14 @@ use crate::{Action, AppState, Effect, MenuCursor, Overlay, Side, View, actions, 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pointer {
+    ResultControl { side: Side, action: Action },
+    Collection { index: usize, open: bool },
+    CollectionScroll(isize),
+    NewCollection,
+    SearchField(usize),
+    SearchStart,
+    Confirm(bool),
+    ResultSort { side: Side, key: crate::SortKey },
     Action(Action),
     Menu(usize),
     MenuItem(usize),
@@ -46,6 +54,47 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     }
     state.notice = None;
     match (pointer, state.overlay.clone()) {
+        (Pointer::ResultControl { side, action }, None)
+            if state.panel(side).is_results() && matches!(action, Action::SetExpanded(_) | Action::BackResults) =>
+        {
+            state.active = side;
+            state.preview_focused = false;
+            return actions::perform(state, action, now);
+        }
+        (Pointer::Confirm(accept), Some(Overlay::Confirm(_))) => {
+            return crate::overlays::on_key(
+                state,
+                &crossterm::event::KeyCode::Char(if accept { 'y' } else { 'n' }).into(),
+                now,
+            );
+        }
+        (Pointer::Collection { index, open }, Some(Overlay::Collections(mut picker))) if picker.creating.is_none() => {
+            picker.selected = index.min(state.collections.len().saturating_sub(1));
+            state.overlay = Some(Overlay::Collections(picker));
+            if open {
+                return crate::overlays::on_key(state, &crossterm::event::KeyCode::Enter.into(), now);
+            }
+        }
+        (Pointer::CollectionScroll(delta), Some(Overlay::Collections(mut picker))) if picker.creating.is_none() => {
+            picker.selected =
+                picker.selected.saturating_add_signed(delta).min(state.collections.len().saturating_sub(1));
+            state.overlay = Some(Overlay::Collections(picker));
+        }
+        (Pointer::NewCollection, Some(Overlay::Collections(mut picker))) => {
+            picker.creating = Some(crate::LineInput::new(String::new()));
+            state.overlay = Some(Overlay::Collections(picker));
+        }
+        (Pointer::SearchField(selected), Some(Overlay::Search(mut form))) => {
+            form.selected = selected.min(crate::discovery::SEARCH_FIELDS - 1);
+            let toggle = matches!(form.selected, 2 | 5);
+            state.overlay = Some(Overlay::Search(form));
+            if toggle {
+                return crate::overlays::on_key(state, &crossterm::event::KeyCode::Right.into(), now);
+            }
+        }
+        (Pointer::SearchStart, Some(Overlay::Search(_) | Overlay::Collections(_))) => {
+            return crate::overlays::on_key(state, &crossterm::event::KeyCode::Enter.into(), now);
+        }
         (Pointer::Menu(index), None | Some(Overlay::Menu(_))) => {
             if let Some(menu) = menus(state).get(index) {
                 let cursor = MenuCursor { menu: index, item: menu.first_enabled() };
@@ -67,6 +116,18 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         }
         (Pointer::FocusPreview, None) if state.aside.is_some() => state.preview_focused = true,
         (Pointer::DismissMenu, Some(Overlay::Menu(_))) => state.overlay = None,
+        (Pointer::ResultSort { side, key }, None) => {
+            state.active = side;
+            let previous = state.panel(side).sort();
+            state.panel_mut(side).set_sort(crate::Sort {
+                key,
+                reverse: if previous.key == key {
+                    !previous.reverse
+                } else {
+                    matches!(key, crate::SortKey::Size | crate::SortKey::Modified | crate::SortKey::Files)
+                },
+            });
+        }
         (Pointer::Action(action), None) => return actions::perform(state, action, now),
         (Pointer::Panel { side, index, open, mark }, None) if state.aside.is_none() || side == state.active => {
             state.preview_focused = false;

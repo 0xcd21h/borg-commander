@@ -30,7 +30,17 @@ fn shift(code: KeyCode) -> KeyEvent {
 }
 
 fn entry(name: &str, kind: EntryKind) -> Entry {
-    Entry { name: name.into(), kind, size: 0, modified: None, executable: false, permissions: 0o644 }
+    Entry {
+        source: None,
+        missing: false,
+        usage: None,
+        name: name.into(),
+        kind,
+        size: 0,
+        modified: None,
+        executable: false,
+        permissions: 0o644,
+    }
 }
 
 fn dir(name: &str) -> Entry {
@@ -464,8 +474,7 @@ fn menu_bar_navigates_and_runs_actions() {
 
     press(&mut state, now, key(KeyCode::F(9)));
     press(&mut state, now, key(KeyCode::Left));
-    let options = menus(&state).iter().position(|m| m.title == "Options");
-    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if Some(cursor.menu) == options.map(|o| o + 1)));
+    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Search"));
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.overlay.is_none());
 }
@@ -745,7 +754,9 @@ fn alt_digits_stand_in_for_function_keys() {
     assert!(matches!(state.overlay, Some(Overlay::Menu(_))));
     press(&mut state, now, key(KeyCode::Esc));
     let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('0'), KeyModifiers::ALT));
-    assert_eq!(effects, vec![Effect::Quit]);
+    assert!(effects.is_empty());
+    assert!(matches!(state.overlay, Some(Overlay::Confirm(_))));
+    assert_eq!(press(&mut state, now, key(KeyCode::Char('y'))), vec![Effect::Quit]);
 }
 
 #[test]

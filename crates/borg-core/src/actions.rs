@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
 use crate::{
@@ -16,27 +17,49 @@ const LINE_DOWN: isize = 1;
 const PAGE_UP: isize = -1;
 const PAGE_DOWN: isize = 1;
 const SELECT_ALL: &str = "*";
-const SHELL_NOT_READY: &str = "Shell is busy · finish or clear the command line first";
-const NOTHING_SELECTED: &str = "Nothing selected";
-const QUIT_TITLE: &str = "Quit";
-
-fn plural(count: usize, noun: &str) -> String {
-    if count == 1 { format!("1 {noun} is") } else { format!("{count} {noun}s are") }
-}
+const SHELL_NOT_READY: &str = tr!(shell_is_busy_finish_or_clear_the);
+const NOTHING_SELECTED: &str = tr!(nothing_selected);
+const QUIT_TITLE: &str = tr!(quit);
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
     let side = state.active;
+    if state.active_panel().is_results()
+        && matches!(action, Action::Compress | Action::ExtractHere | Action::ExtractToOther | Action::Mkdir)
+    {
+        state.notice = Some(tr!(reveal_the_original_folder_to_create_directories).into());
+        return Vec::new();
+    }
     match action {
-        Action::Quit if !state.jobs.is_empty() => {
+        Action::Search
+        | Action::AnalyzeSpace
+        | Action::Collect
+        | Action::OpenCollection
+        | Action::FilterResults
+        | Action::GroupResults(_)
+        | Action::ToggleExpanded
+        | Action::SetExpanded(_)
+        | Action::BackResults
+        | Action::RevealOriginal
+        | Action::RemoveReferences
+        | Action::CancelSearch => crate::results::perform(state, action),
+        Action::DeleteOriginals => confirm_delete(state),
+        Action::Quit => {
             state.overlay = Some(Overlay::Confirm(Confirm {
                 title: QUIT_TITLE,
-                message: format!("{} still running. Quit and cancel?", plural(state.jobs.len(), "job")),
+                message: if state.jobs.is_empty() {
+                    tr!(quit_borg_commander).into()
+                } else {
+                    if state.jobs.len() == 1 {
+                        tr!(quit_jobs_one).into()
+                    } else {
+                        format!(tr!(quit_jobs_many), count = state.jobs.len())
+                    }
+                },
                 purpose: ConfirmPurpose::Quit,
                 accept: false,
             }));
             Vec::new()
         }
-        Action::Quit => vec![Effect::Quit],
         Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => toggle_shell(state),
         Action::SwitchPanel if state.aside.is_some() => {
@@ -113,22 +136,51 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ToggleMark => mark_and_move(state, LINE_DOWN),
         Action::MarkUp => mark_and_move(state, LINE_UP),
         Action::MarkDown => mark_and_move(state, LINE_DOWN),
-        Action::SelectGroup => prompt(state, "Select group", "Files matching", SELECT_ALL, PromptPurpose::Select),
-        Action::UnselectGroup => prompt(state, "Unselect group", "Files matching", SELECT_ALL, PromptPurpose::Unselect),
+        Action::SelectGroup => prompt(state, tr!(select_group), tr!(files_matching), SELECT_ALL, PromptPurpose::Select),
+        Action::UnselectGroup => {
+            prompt(state, tr!(unselect_group), tr!(files_matching), SELECT_ALL, PromptPurpose::Unselect)
+        }
         Action::InvertSelection => moved(state, Panel::invert_marks),
         Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
         Action::Edit => edit(state),
-        Action::Copy => transfer(state, "Copy", |sources| PromptPurpose::Copy { sources }),
-        Action::Move => transfer(state, "Move", |sources| PromptPurpose::Move { sources }),
-        Action::Mkdir => prompt(state, "Make directory", "Name", "", PromptPurpose::Mkdir),
+        Action::Copy if state.panel(side.other()).is_results() => {
+            if matches!(
+                state.panel(side.other()).results.as_ref().map(|r| &r.source),
+                Some(crate::ResultSource::Collection(_))
+            ) {
+                crate::results::collect(state)
+            } else {
+                state.notice = Some(tr!(choose_a_real_folder_or_collection_as).into());
+                Vec::new()
+            }
+        }
+        Action::Move if state.panel(side.other()).is_results() => {
+            state.notice = Some(tr!(move_needs_a_real_destination_folder).into());
+            Vec::new()
+        }
+        Action::Copy => transfer(state, tr!(copy), |sources| PromptPurpose::Copy { sources }),
+        Action::Move => transfer(state, tr!(move), |sources| PromptPurpose::Move { sources }),
+        Action::Mkdir => prompt(state, tr!(make_directory), tr!(name), "", PromptPurpose::Mkdir),
+        Action::Delete if state.active_panel().is_results() => {
+            if matches!(
+                state.active_panel().results.as_ref().map(|r| &r.source),
+                Some(crate::ResultSource::Collection(_))
+            ) {
+                crate::results::perform(state, Action::RemoveReferences)
+            } else {
+                confirm_delete(state)
+            }
+        }
         Action::Delete => confirm_delete(state),
         Action::Compress => compress(state),
         Action::ExtractHere => extract(state, state.active_panel().dir().to_path_buf().as_path(), now),
         Action::ExtractToOther => extract(state, state.panel(side.other()).dir().to_path_buf().as_path(), now),
         Action::SwapPanels => {
             state.panels.swap(0, 1);
+            state.result_history.swap(0, 1);
+            state.last_results.swap(0, 1);
             state.panels.iter_mut().for_each(|panel| panel.git = crate::GitPanel::default());
-            Vec::new()
+            if state.panels.iter().any(Panel::is_results) { state.reload_all() } else { Vec::new() }
         }
         Action::EqualizePanels => {
             state.set_split(EVEN_SPLIT, now);
@@ -146,6 +198,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.idle_since = now;
             preference(state, |prefs| prefs.screensaver = !prefs.screensaver)
         }
+        Action::Find if state.active_panel().is_results() => crate::results::filter_prompt(state),
         Action::Find => crate::find::open(state),
         Action::ToggleReturnToPanels => preference(state, |prefs| {
             prefs.after_command = match prefs.after_command {
@@ -233,25 +286,40 @@ fn toggle_shell(state: &mut AppState) -> Vec<Effect> {
 fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
     let panel = state.panel(side);
     match panel.hovered() {
+        Some(Row::Group { .. }) => {
+            state.panel_mut(side).toggle_group();
+            Vec::new()
+        }
         Some(Row::Parent) => leave(state, side).into_iter().collect(),
         Some(Row::Entry(entry)) if entry.is_dir() => descend(state, side).into_iter().collect(),
         Some(Row::Entry(entry)) if entry.executable => {
-            let command = ops::run(&entry.name);
+            let command = if panel.is_results() {
+                CommandLine::default().path(&entry.path(panel.dir()))
+            } else {
+                ops::run(&entry.name)
+            };
             interactive(state, &command)
         }
-        Some(Row::Entry(entry)) => crate::viewer::open(state, panel.dir().join(&entry.name)),
+        Some(Row::Entry(entry)) => crate::viewer::open(state, entry.path(panel.dir())),
         None => Vec::new(),
     }
 }
 
 fn descend(state: &mut AppState, side: Side) -> Option<Effect> {
+    if matches!(state.panel(side).hovered(), Some(Row::Group { .. })) {
+        state.panel_mut(side).toggle_group();
+        return None;
+    }
     let panel = state.panel(side);
     let entry = panel.hovered_entry().filter(|entry| entry.is_dir())?;
-    let dir = panel.dir().join(&entry.name);
+    let dir = entry.path(panel.dir());
     Some(state.navigate(side, dir, None))
 }
 
 fn leave(state: &mut AppState, side: Side) -> Option<Effect> {
+    if state.panel(side).is_results() {
+        return crate::results::back(state).into_iter().next();
+    }
     let current = state.panel(side).dir();
     let parent = current.parent()?.to_path_buf();
     let child = current.file_name().map(|name| name.to_string_lossy().into_owned());
@@ -259,11 +327,19 @@ fn leave(state: &mut AppState, side: Side) -> Option<Effect> {
 }
 
 fn insert_names(state: &mut AppState, side: Side) -> Vec<Effect> {
-    let names = selected_names(state.panel(side));
-    if names.is_empty() {
+    let panel = state.panel(side);
+    let selected = panel.selection();
+    if selected.is_empty() {
         return Vec::new();
     }
-    let words = names.iter().fold(CommandLine::default(), |line, name| line.arg(name.as_bytes()));
+    let words = selected.iter().fold(CommandLine::default(), |line, entry| {
+        let path = entry.path(panel.dir());
+        if panel.is_results() {
+            line.path(&path)
+        } else {
+            line.path(std::path::Path::new(path.file_name().unwrap_or_default()))
+        }
+    });
     type_words(state, words)
 }
 
@@ -280,12 +356,13 @@ fn selected_names(panel: &Panel) -> Vec<String> {
 
 fn hovered_file(state: &AppState) -> Option<std::path::PathBuf> {
     let panel = state.active_panel();
-    panel.hovered_entry().filter(|entry| !entry.is_dir()).map(|entry| panel.dir().join(&entry.name))
+    panel.hovered_entry().filter(|entry| !entry.is_dir()).map(|entry| entry.path(panel.dir()))
 }
 
 fn edit(state: &mut AppState) -> Vec<Effect> {
     let Some(entry) = state.active_panel().hovered_entry().filter(|entry| !entry.is_dir()) else { return Vec::new() };
-    let command = ops::edit(&entry.name);
+    let panel = state.active_panel();
+    let command = if panel.is_results() { ops::edit_path(&entry.path(panel.dir())) } else { ops::edit(&entry.name) };
     interactive(state, &command)
 }
 
@@ -304,30 +381,44 @@ fn interactive(state: &mut AppState, command: &CommandLine) -> Vec<Effect> {
 fn transfer(
     state: &mut AppState,
     title: &'static str,
-    purpose: impl FnOnce(Vec<String>) -> PromptPurpose,
+    purpose: impl FnOnce(Vec<std::path::PathBuf>) -> PromptPurpose,
 ) -> Vec<Effect> {
-    let sources = selected_names(state.active_panel());
+    let sources = crate::selected_paths(state.active_panel());
     if sources.is_empty() {
         state.notice = Some(NOTHING_SELECTED.to_owned());
         return Vec::new();
     }
-    let label = format!("{title} {} to", describe(&sources));
+    let label = format!(
+        "{title} {} to",
+        if state.active_panel().is_results() {
+            describe_result_selection(state.active_panel(), &sources)
+        } else {
+            describe(&selected_names(state.active_panel()))
+        }
+    );
     let dest = state.panel(state.active.other()).dir().display().to_string();
     prompt(state, title, &label, &dest, purpose(sources))
 }
 
 fn confirm_delete(state: &mut AppState) -> Vec<Effect> {
-    let sources = selected_names(state.active_panel());
+    let sources = crate::selected_paths(state.active_panel());
     if sources.is_empty() {
         state.notice = Some(NOTHING_SELECTED.to_owned());
         return Vec::new();
     }
-    let message = format!("Delete {} permanently?", describe(&sources));
+    let message = format!(
+        tr!(delete_permanently),
+        if state.active_panel().is_results() {
+            describe_result_selection(state.active_panel(), &sources)
+        } else {
+            describe(&selected_names(state.active_panel()))
+        }
+    );
     state.overlay = Some(Overlay::Confirm(Confirm {
-        title: "Delete",
+        title: tr!(delete),
         message,
         purpose: ConfirmPurpose::Delete { sources },
-        accept: true,
+        accept: !state.active_panel().is_results(),
     }));
     Vec::new()
 }
@@ -345,8 +436,8 @@ fn compress(state: &mut AppState) -> Vec<Effect> {
     let default = format!("{stem}{DEFAULT_ARCHIVE_SUFFIX}");
     prompt(
         state,
-        "Compress",
-        &format!("Archive {} as", describe(&sources)),
+        tr!(compress),
+        &format!(tr!(archive_as), describe(&sources)),
         &default,
         PromptPurpose::Compress { sources },
     )
@@ -356,7 +447,7 @@ fn extract(state: &mut AppState, dest: &Path, now: Instant) -> Vec<Effect> {
     let Some(entry) = state.active_panel().hovered_entry() else { return Vec::new() };
     let Some(format) = ArchiveFormat::detect(&entry.name) else { return Vec::new() };
     let command = ops::extract(&entry.name, format, dest);
-    run_operation(state, "extract", &command, None, now)
+    run_operation(state, tr!(extract), &command, None, now)
 }
 
 pub(crate) fn run_operation(
@@ -386,6 +477,17 @@ pub(crate) fn run_operation(
 pub(crate) fn describe(names: &[String]) -> String {
     match names {
         [single] => format!("\"{single}\""),
-        many => format!("{} items", many.len()),
+        many => format!(tr!(items), many.len()),
     }
+}
+
+fn describe_paths(paths: &[std::path::PathBuf]) -> String {
+    describe(&paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>())
+}
+
+fn describe_result_selection(panel: &Panel, paths: &[std::path::PathBuf]) -> String {
+    let description = describe_paths(paths);
+    let hidden =
+        panel.results.as_ref().map_or(0, |results| panel.marked().filter(|entry| !results.matches(entry)).count());
+    if hidden > 0 { format!(tr!(hidden_by_filter), description = description, hidden = hidden) } else { description }
 }

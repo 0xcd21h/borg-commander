@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{ListingMode, Side, SortKey, View};
@@ -6,6 +7,19 @@ pub const SPLIT_STEP: i16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    Search,
+    AnalyzeSpace,
+    Collect,
+    OpenCollection,
+    FilterResults,
+    GroupResults(crate::ResultGroup),
+    ToggleExpanded,
+    SetExpanded(bool),
+    BackResults,
+    RevealOriginal,
+    RemoveReferences,
+    DeleteOriginals,
+    CancelSearch,
     Quit,
     ToggleShell,
     SwitchPanel,
@@ -119,17 +133,24 @@ pub enum PathOf {
 }
 
 pub const KEYMAP: &[Binding] = &[
-    labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), "Help"),
-    labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), "File"),
-    labeled(bind(KeyCode::F(3), NONE, Action::View, Scope::Panels), "View"),
-    labeled(bind(KeyCode::F(4), NONE, Action::Edit, Scope::Panels), "Edit"),
-    labeled(bind(KeyCode::F(5), NONE, Action::Copy, Scope::Panels), "Copy"),
-    labeled(bind(KeyCode::F(6), NONE, Action::Move, Scope::Panels), "Move"),
-    labeled(bind(KeyCode::F(7), NONE, Action::Mkdir, Scope::Panels), "Mkdir"),
-    labeled(bind(KeyCode::F(8), NONE, Action::Delete, Scope::Panels), "Delete"),
-    labeled(bind(KeyCode::F(9), NONE, Action::OpenMenuBar, Scope::Panels), "Menu"),
-    labeled(bind(KeyCode::F(10), NONE, Action::Quit, Scope::Panels), "Quit"),
-    labeled(bind(KeyCode::Char('o'), CTRL, Action::ToggleShell, Scope::Anywhere), "Shell"),
+    bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
+    bind(KeyCode::Char('r'), ALT, Action::BackResults, Scope::Panels),
+    bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
+    bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
+    bind(KeyCode::Char('b'), ALT, Action::Collect, Scope::Panels),
+    bind(KeyCode::Char('v'), ALT, Action::OpenCollection, Scope::Panels),
+    bind(KeyCode::Char('w'), ALT, Action::ToggleExpanded, Scope::Panels),
+    labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), tr!(help)),
+    labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), tr!(file)),
+    labeled(bind(KeyCode::F(3), NONE, Action::View, Scope::Panels), tr!(view)),
+    labeled(bind(KeyCode::F(4), NONE, Action::Edit, Scope::Panels), tr!(edit)),
+    labeled(bind(KeyCode::F(5), NONE, Action::Copy, Scope::Panels), tr!(copy)),
+    labeled(bind(KeyCode::F(6), NONE, Action::Move, Scope::Panels), tr!(move)),
+    labeled(bind(KeyCode::F(7), NONE, Action::Mkdir, Scope::Panels), tr!(mkdir)),
+    labeled(bind(KeyCode::F(8), NONE, Action::Delete, Scope::Panels), tr!(delete)),
+    labeled(bind(KeyCode::F(9), NONE, Action::OpenMenuBar, Scope::Panels), tr!(menu)),
+    labeled(bind(KeyCode::F(10), NONE, Action::Quit, Scope::Panels), tr!(quit)),
+    labeled(bind(KeyCode::Char('o'), CTRL, Action::ToggleShell, Scope::Anywhere), tr!(shell)),
     bind(KeyCode::Tab, NONE, Action::SwitchPanel, Scope::PanelsEmptyLine),
     bind(KeyCode::Up, NONE, Action::Up, Scope::Panels),
     bind(KeyCode::Down, NONE, Action::Down, Scope::Panels),

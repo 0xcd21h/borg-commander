@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::ops::Range;
 
 use borg_vfs::Entry;
@@ -106,7 +107,7 @@ pub(crate) fn on_key(state: &mut AppState, mut find: Find, key: &KeyEvent) -> Ve
         KeyCode::Char(ALL_KEY) if ctrl => {
             let query = Query::parse(find.input.text());
             let count = state.panel_mut(find.side).mark_where(|entry| query.accepts(entry), true);
-            state.notice = Some(format!("{count} marked"));
+            state.notice = Some(format!(tr!(marked_count), count = count));
         }
         _ => {
             if find.input.apply(key) == Edit::Changed {
@@ -140,7 +141,17 @@ mod tests {
     use super::*;
 
     fn entry(name: &str) -> Entry {
-        Entry { name: name.into(), kind: EntryKind::File, size: 0, modified: None, executable: false, permissions: 0 }
+        Entry {
+            source: None,
+            missing: false,
+            usage: None,
+            name: name.into(),
+            kind: EntryKind::File,
+            size: 0,
+            modified: None,
+            executable: false,
+            permissions: 0,
+        }
     }
 
     fn spans(query: &str, name: &str) -> Option<Vec<(usize, usize)>> {

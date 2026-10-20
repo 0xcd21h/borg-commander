@@ -1,0 +1,61 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+╭ Collection: Release bundle ───────────────────────────────────────────────────────────────────────────────────────────────[=]─[-]╮
+│Tab switch · Ins / Ctrl-T mark · Ctrl-S filter · Alt-B collect · F8 remove refs · Shift-F8 delete originals                       │
+│  Name ↑                                                          Source folder                              Size     Modified    │
+│▾ /workspace/web · 1                                                                                                              │
+│  · config.toml                                                   /workspace/web                                 4096 Jun  1  2024│
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+│                                                                                                                                  │
+╰ 1/3 items · 1 marked · 1024 · 1 hidden marks · filter: /web/ ────────────────────────────────────────────────────────────────────╯
+ /workspace/web/config.toml
+$
+F1Help      F2File      F3View      F4Edit      F5Copy      F6Move      F7Mkdir     F8Remove    F9Menu      F10Quit     ^OShell
+Ctrl-F Search  Alt-V Collections  Alt-D Space  Esc Hide  Alt-W Restore  Ctrl-S Filter  Ins Mark  Alt-B Collect  Shift-F8 Delete
+--- styles ---
+  0: 0-123 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  2: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-2 Reset Rgb(30, 30, 30) NONE | 3-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  3: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  4: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  5: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  6: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  7: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  8: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+  9: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 10: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 11: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 12: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 13: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 14: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 15: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 16: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 17: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 18: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 19: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 20: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 21: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 22: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 23: 0-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 24: 0-131 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
+ 25: 0-131 Reset Reset NONE
+ 26: 0-1 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 2-11 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 12-13 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 14-23 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 24-25 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 26-35 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 36-37 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 38-47 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 48-49 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 50-59 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 60-61 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 62-71 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 72-73 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 74-83 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 84-85 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 86-95 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 96-97 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 98-107 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 108-110 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 111-119 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 120-121 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 122-131 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
+ 27: 0-5 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 6-14 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 15-19 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 20-33 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 34-38 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 39-46 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 47-49 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 50-56 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 57-61 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 62-71 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 72-77 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 78-86 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 87-89 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 90-96 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 97-101 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 102-111 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 112-119 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 120-131 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE

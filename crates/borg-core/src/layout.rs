@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Layout as Split, Rect};
 
 const PROMPT_ROWS: u16 = 1;
-const KEYBAR_ROWS: u16 = 1;
+const KEYBAR_ROWS: u16 = 2;
 const MENU_ROWS: u16 = 1;
 const STATUS_ROWS: u16 = 1;
 const BORDER_ROWS: u16 = 2;
@@ -80,7 +80,7 @@ mod tests {
     fn even_split_divides_width() {
         let layout = Layout::new(100, 30, BARE, EVEN_SPLIT);
         assert_eq!((layout.panels[0].width, layout.panels[1].width), (50, 50));
-        assert_eq!(layout.panel_rows(), 30 - 2 - 2);
+        assert_eq!(layout.panel_rows(), 30 - 3 - 2);
     }
 
     #[test]
@@ -88,8 +88,17 @@ mod tests {
         let layout = Layout::new(100, 30, FULL, EVEN_SPLIT);
         assert_eq!(layout.menu.map(|r| r.y), Some(0));
         assert_eq!(layout.panels[0].y, 1);
-        assert_eq!(layout.status.map(|r| r.y), Some(27));
-        assert_eq!(layout.panel_rows(), 30 - 4 - 2);
+        assert_eq!(layout.status.map(|r| r.y), Some(26));
+        assert_eq!(layout.panel_rows(), 30 - 5 - 2);
+    }
+
+    #[test]
+    fn shortcut_rows_share_one_footer_below_the_prompt() {
+        let layout = Layout::new(100, 30, BARE, EVEN_SPLIT);
+        assert_eq!(layout.panels[0].y, 0);
+        assert_eq!(layout.keybar.height, KEYBAR_ROWS);
+        assert_eq!(layout.keybar.bottom(), layout.screen.bottom());
+        assert_eq!(layout.prompt.bottom(), layout.keybar.y);
     }
 
     #[test]

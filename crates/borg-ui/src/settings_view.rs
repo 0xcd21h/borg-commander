@@ -1,4 +1,5 @@
 use borg_core::{AppState, Overlay, checkbox_items};
+use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -35,8 +36,12 @@ pub(crate) fn draw(state: &AppState, selected: usize, theme: &Theme, screen: Rec
         .border_type(theme.border.into())
         .style(theme.styles.overlay)
         .border_style(theme.styles.overlay_border)
-        .title(if matches!(state.overlay, Some(Overlay::Plugins { .. })) { " Plugins " } else { " Settings " })
-        .title_bottom(" Space toggle · Esc close · saved immediately ")
+        .title(if matches!(state.overlay, Some(Overlay::Plugins { .. })) {
+            tr!(settings_view_plugins)
+        } else {
+            tr!(settings_view_settings)
+        })
+        .title_bottom(tr!(space_toggle_esc_close_saved_immediately))
         .render(rect, buf);
     let body = Rect {
         x: rect.x + PADDING,

@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 mod model;
 
 use std::{
@@ -96,10 +97,10 @@ pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
         })
         .collect::<Result<Vec<_>>>()?;
     let (name, args): (_, &[&str]) = match tool {
-        Tool::Status => ("Git status.txt", &["status", "--short", "--branch", "--untracked-files=normal"]),
-        Tool::Diff => ("Git changes.diff", &["diff", "--no-ext-diff", "--no-textconv"]),
-        Tool::StagedDiff => ("Git staged changes.diff", &["diff", "--cached", "--no-ext-diff", "--no-textconv"]),
-        Tool::Log => ("Git commits.txt", &["log", "-n", LOG_COUNT, "--date=short", "--format=%h %ad %s"]),
+        Tool::Status => (tr!(git_status_document), &["status", "--short", "--branch", "--untracked-files=normal"]),
+        Tool::Diff => (tr!(git_diff_document), &["diff", "--no-ext-diff", "--no-textconv"]),
+        Tool::StagedDiff => (tr!(git_staged_diff_document), &["diff", "--cached", "--no-ext-diff", "--no-textconv"]),
+        Tool::Log => (tr!(git_log_document), &["log", "-n", LOG_COUNT, "--date=short", "--format=%h %ad %s"]),
         Tool::Stage => ("", &["add"]),
         Tool::Unstage => ("", &["restore", "--staged"]),
     };
@@ -109,7 +110,7 @@ pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
         true
     };
     if tool == Tool::Log && !has_head {
-        return Ok(Output::Document { name, text: b"No commits yet.\n".to_vec() });
+        return Ok(Output::Document { name, text: tr!(git_no_commits).as_bytes().to_vec() });
     }
     let args =
         if tool == Tool::Unstage && !has_head { &["rm", "--cached", "--ignore-unmatch", "-r", "-f"][..] } else { args };
@@ -119,7 +120,7 @@ pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
         return Ok(Output::IndexUpdated);
     }
     if text.is_empty() {
-        text.extend_from_slice(b"No changes. Untracked files must be staged before they appear in a diff.\n");
+        text.extend_from_slice(tr!(git_no_changes).as_bytes());
     }
     Ok(Output::Document { name, text })
 }

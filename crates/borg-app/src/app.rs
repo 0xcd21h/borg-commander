@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{
     collections::HashMap,
     io::Write as _,
@@ -43,6 +44,7 @@ const WHEEL_LINES: i32 = 3;
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
 pub struct App {
+    search: crate::search::Search,
     state: AppState,
     emulator: Emulator,
     pty: Pty,
@@ -57,6 +59,7 @@ pub struct App {
     config: Config,
     home: Option<PathBuf>,
     state_dir: Option<StateDir>,
+    collections_writable: bool,
     pending: Vec<Effect>,
     graphics: Graphics,
     jobs: HashMap<u64, Arc<Control>>,
@@ -78,6 +81,16 @@ impl App {
         let (mut state, pending) =
             AppState::new(launch.startup.clone(), size.width, size.height, launch.settings.clone(), appearance, now);
         state.notice = launch.warnings.first().cloned();
+        let mut collections_writable = true;
+        if let Some(dir) = &launch.state_dir {
+            match dir.load_collections() {
+                Ok(collections) => state.collections = collections,
+                Err(error) => {
+                    collections_writable = false;
+                    state.notice = Some(format!(tr!(collections_load_error), error = error));
+                }
+            }
+        }
 
         let mut emulator = Emulator::new(grid, state.settings.scrollback);
         if let Some(restored) = &launch.restored {
@@ -94,6 +107,7 @@ impl App {
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         Ok(Self {
+            search: crate::search::Search::new(),
             emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
@@ -108,6 +122,7 @@ impl App {
             config: launch.config.clone(),
             home: launch.home.clone(),
             state_dir: launch.state_dir.clone(),
+            collections_writable,
             pending,
             graphics: Graphics::new(detected.capabilities),
             jobs: HashMap::new(),
@@ -165,6 +180,7 @@ impl App {
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
+                Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
                 () = sleep_until(wake.unwrap_or(now + IDLE_WAIT).into()), if wake.is_some() => self.dispatch(Msg::Tick)?,
             };
@@ -185,6 +201,9 @@ impl App {
 
     fn save_session(&self) {
         let Some(dir) = &self.state_dir else { return };
+        if self.collections_writable {
+            let _ = dir.save_collections(&self.state.collections);
+        }
         let _ = dir.save_session(&Session::capture(&self.state));
         let _ = if self.state.settings.preferences.restore_terminal {
             dir.save_terminal(&self.emulator.export_ansi(RESTORED_LINES))
@@ -365,13 +384,41 @@ impl App {
         if self.state.aside.is_none() || self.state.active_panel().hovered().is_none() {
             self.preview.cancel();
         }
+        for side in Side::ALL {
+            if !self.state.panel(side).is_results() && self.state.last_results[side.index()].is_none() {
+                self.search.cancel(side);
+            } else if self.state.panel(side).is_results()
+                && let Some(task) = self.listings[side.index()].take()
+            {
+                task.abort();
+            }
+        }
         self.apply(effects)
     }
 
     fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
         for effect in effects {
             match effect {
-                Effect::List { side, generation, dir } => self.list(side, generation, dir),
+                Effect::Search { side, generation, request } => self.search.search(side, generation, request),
+                Effect::RefreshCollection { side, generation, entries } => {
+                    self.search.refresh(side, generation, entries)
+                }
+                Effect::CancelSearch(side) => self.search.cancel(side),
+                Effect::SaveCollections => {
+                    if !self.collections_writable {
+                        self.state.notice = Some(tr!(collections_preserved).into());
+                        continue;
+                    }
+                    if let Some(dir) = &self.state_dir
+                        && let Err(error) = dir.save_collections(&self.state.collections)
+                    {
+                        self.state.notice = Some(format!(tr!(collections_save_error), error = error));
+                    }
+                }
+                Effect::List { side, generation, dir } => {
+                    self.search.cancel(side);
+                    self.list(side, generation, dir);
+                }
                 Effect::GitScan { side, generation, dir } => self.plugins.scan(side, generation, dir),
                 Effect::GitTool { id, tool, dir, paths } => {
                     let messages = self.messages.clone();

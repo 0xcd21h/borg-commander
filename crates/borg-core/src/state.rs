@@ -11,6 +11,10 @@ use crate::{
     layout::{Chrome, EVEN_SPLIT, clamp_split},
 };
 
+const RESULT_PREVIEW_MIN_ROWS: u16 = 12;
+const RESULT_PREVIEW_DIVISOR: u16 = 3;
+const RESULT_FRAME_ROWS: u16 = 4;
+const PANEL_FRAME_ROWS: u16 = 2;
 const OPAQUE: f32 = 1.0;
 const TRANSPARENT: f32 = 0.0;
 pub const REVEAL_DELAY: Duration = Duration::from_millis(600);
@@ -116,12 +120,15 @@ pub struct MenuCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptPurpose {
+    Search { root: PathBuf },
+    Collection,
+    ResultsFilter,
     Select,
     Unselect,
     Mkdir,
     Compress { sources: Vec<String> },
-    Copy { sources: Vec<String> },
-    Move { sources: Vec<String> },
+    Copy { sources: Vec<PathBuf> },
+    Move { sources: Vec<PathBuf> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,7 +141,7 @@ pub struct Prompt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmPurpose {
-    Delete { sources: Vec<String> },
+    Delete { sources: Vec<PathBuf> },
     Quit,
 }
 
@@ -148,6 +155,8 @@ pub struct Confirm {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
+    Collections(crate::CollectionPicker),
+    Search(crate::SearchForm),
     About(About),
     Find(Find),
     Question(Question),
@@ -204,6 +213,9 @@ impl Startup {
 
 #[derive(Debug, Clone)]
 pub struct AppState {
+    pub collections: Vec<crate::Collection>,
+    pub result_history: [Option<Panel>; 2],
+    pub last_results: [Option<Panel>; 2],
     pub panels: [Panel; 2],
     pub active: Side,
     pub view: View,
@@ -260,6 +272,9 @@ impl AppState {
         let panels = startup.panels.clone().map(|setup| Panel::new(setup.dir, 0, setup.mode, setup.sort));
 
         let mut state = Self {
+            collections: Vec::new(),
+            result_history: [None, None],
+            last_results: [None, None],
             panels,
             active: startup.active,
             view: View::Panels,
@@ -320,8 +335,27 @@ impl AppState {
         }
     }
 
+    pub fn results_expanded(&self) -> bool {
+        self.active_panel().results.as_ref().is_some_and(|results| results.expanded)
+    }
+
     pub fn layout(&self, now: Instant) -> Layout {
-        Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now))
+        let mut layout = Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now));
+        if self.results_expanded() {
+            let left = layout.panels[0];
+            let right = layout.panels[1];
+            let mut whole = ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+            let other = if self.aside.is_some() && whole.height >= RESULT_PREVIEW_MIN_ROWS {
+                let height = whole.height / RESULT_PREVIEW_DIVISOR;
+                whole.height -= height;
+                ratatui::layout::Rect { y: whole.bottom(), height, ..whole }
+            } else {
+                ratatui::layout::Rect::default()
+            };
+            layout.panels[self.active.index()] = whole;
+            layout.panels[self.active.other().index()] = other;
+        }
+        layout
     }
 
     pub fn split_target(&self) -> f32 {
@@ -374,6 +408,19 @@ impl AppState {
 
     pub fn settle(&mut self) {
         self.panels.iter_mut().for_each(Panel::settle);
+        self.last_results.iter_mut().flatten().for_each(Panel::settle);
+        self.result_history.iter_mut().flatten().for_each(Panel::settle);
+    }
+
+    pub(crate) fn receiving_panel(&mut self, side: Side, generation: u64) -> Option<&mut Panel> {
+        let index = side.index();
+        if self.panels[index].generation() == generation {
+            return Some(&mut self.panels[index]);
+        }
+        if self.last_results[index].as_ref().is_some_and(|p| p.generation() == generation) {
+            return self.last_results[index].as_mut();
+        }
+        self.result_history[index].as_mut().filter(|p| p.generation() == generation)
     }
 
     pub(crate) fn panel_mut(&mut self, side: Side) -> &mut Panel {
@@ -381,14 +428,38 @@ impl AppState {
     }
 
     pub(crate) fn navigate(&mut self, side: Side, dir: PathBuf, focus: Option<String>) -> Effect {
+        if self.panel(side).is_results() {
+            self.last_results[side.index()] = Some(self.panel(side).clone());
+        }
         let generation = self.next_generation();
         self.panel_mut(side).navigate(dir.clone(), generation, focus);
         Effect::List { side, generation, dir }
     }
 
     pub(crate) fn reload(&mut self, side: Side) -> Effect {
+        let hidden = self.settings.preferences.show_hidden;
         let generation = self.next_generation();
         let panel = self.panel_mut(side);
+        if let Some(source) = panel.results.as_ref().map(|r| r.source.clone()) {
+            panel.begin_results_refresh(generation);
+            return match source {
+                crate::ResultSource::Collection(_) => {
+                    Effect::RefreshCollection { side, generation, entries: panel.entries().to_vec() }
+                }
+                crate::ResultSource::Search { mut request, .. } => {
+                    request.hidden = hidden;
+                    if let Some(crate::Results {
+                        source: crate::ResultSource::Search { request: saved, progress },
+                        ..
+                    }) = &mut panel.results
+                    {
+                        saved.hidden = hidden;
+                        *progress = crate::SearchProgress::default();
+                    }
+                    Effect::Search { side, generation, request }
+                }
+            };
+        }
         panel.reload(generation);
         Effect::List { side, generation, dir: panel.destination().to_path_buf() }
     }
@@ -442,11 +513,15 @@ impl AppState {
     }
 
     pub(crate) fn refit(&mut self) {
-        let rows = Layout::new(self.cols, self.rows, self.chrome(), EVEN_SPLIT).panel_rows();
-        self.panels.iter_mut().for_each(|panel| panel.set_rows(rows));
+        let layout = self.layout(self.epoch);
+        for side in Side::ALL {
+            let panel = self.panel_mut(side);
+            let reserved = if panel.is_results() { RESULT_FRAME_ROWS } else { PANEL_FRAME_ROWS };
+            panel.set_rows(usize::from(layout.panels[side.index()].height.saturating_sub(reserved)));
+        }
     }
 
-    fn next_generation(&mut self) -> u64 {
+    pub(crate) fn next_generation(&mut self) -> u64 {
         self.generation += 1;
         self.generation
     }

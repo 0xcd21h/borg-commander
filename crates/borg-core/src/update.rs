@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::time::{Duration, Instant};
 
 use borg_term::{Scroll, ShellSignal, encode_key, encode_paste};
@@ -9,6 +10,10 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let before = crate::motion::before(state);
     let overlay = state.overlay.clone();
     let effects = match msg {
+        Msg::SearchProgress { side, generation, progress } => {
+            crate::results::progress(state, side, generation, progress);
+            Vec::new()
+        }
         Msg::Key(key) => on_key(state, &key, now),
         Msg::Pointer(pointer) => crate::pointer::on_pointer(state, pointer, now),
         Msg::Paste(text) => on_paste(state, &text),
@@ -18,11 +23,26 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Batch { side, generation, entries } => {
             let show_hidden = state.settings.preferences.show_hidden;
-            state.panel_mut(side).receive(generation, entries, show_hidden);
+            if let Some(panel) = state.receiving_panel(side, generation) {
+                panel.receive(generation, entries, show_hidden);
+            }
             Vec::new()
         }
         Msg::Listed { side, generation, error } => {
-            state.notice = state.panel_mut(side).finish(generation, error).or(state.notice.take());
+            if let Some(panel) = state.receiving_panel(side, generation) {
+                let notice = panel.finish(generation, error);
+                panel.settle();
+                let collection = match panel.results.as_ref().map(|r| &r.source) {
+                    Some(crate::ResultSource::Collection(name)) => Some((name.clone(), panel.entries().to_vec())),
+                    _ => None,
+                };
+                if let Some((name, entries)) = collection
+                    && let Some(saved) = state.collections.iter_mut().find(|c| c.name == name)
+                {
+                    saved.entries = entries;
+                }
+                state.notice = notice.or(state.notice.take());
+            }
             Vec::new()
         }
         Msg::Observe(view) => {
@@ -71,6 +91,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     effects.extend(crate::plugins::sync(state, now));
     crate::jobs::surface_questions(state);
 
+    state.refit();
     state.sync_fade(now);
     state.sync_overlay(overlay, now);
     crate::motion::animate(state, &before, now);
@@ -123,8 +144,16 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     state.notice = None;
     let pending = state.escaped.take().is_some_and(|at| now.saturating_duration_since(at) <= ESCAPE_WINDOW);
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
+        let hidden = state.active_panel().is_results();
+        if hidden {
+            crate::results::back(state);
+        }
         state.escaped = Some(now);
-        state.notice = Some("Esc then 1–9 = F1–F9 · Esc then 0 = F10 · Esc 9 opens menus".into());
+        state.notice = Some(if hidden {
+            tr!(results_hidden_alt_r_resumes_in_the).into()
+        } else {
+            tr!(esc_then_1_9_f1_f9_esc).into()
+        });
         return Vec::new();
     }
     let (key, mut effects) = match (pending, escaped_function(key)) {
@@ -133,6 +162,21 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
         _ => (*key, Vec::new()),
     };
     let key = &key;
+    if state.view == View::Panels
+        && state.active_panel().is_results()
+        && matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+    {
+        return actions::perform(state, crate::Action::SwitchPanel, now);
+    }
+    if state.view == View::Panels
+        && state.active_panel().is_results()
+        && state.active_panel().listing() == &crate::Listing::Loading
+        && matches!(state.active_panel().results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Search { .. }))
+        && key.code == KeyCode::Char('c')
+        && key.modifiers == KeyModifiers::CONTROL
+    {
+        return actions::perform(state, crate::Action::CancelSearch, now);
+    }
     let context =
         keymap::Context { view: state.view, line_empty: state.shell.line_empty(), at_prompt: !state.shell.busy() };
     effects.extend(match keymap::lookup(key, context) {
@@ -261,9 +305,9 @@ fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
     match exit {
         Some(0) => state.panel_mut(operation.side).clear_marks(),
         Some(code) => {
-            state.notice = Some(format!("{} failed (exit {code}) · Ctrl-O shows the output", operation.label));
+            state.notice = Some(format!(tr!(failed_exit_ctrl_o_shows_the_output), operation.label, code = code));
         }
-        None => state.notice = Some(format!("{} finished · Ctrl-O shows the output", operation.label)),
+        None => state.notice = Some(format!(tr!(finished_ctrl_o_shows_the_output), operation.label)),
     }
 
     let side = operation.side;

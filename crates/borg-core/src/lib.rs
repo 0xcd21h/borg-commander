@@ -4,6 +4,7 @@ mod appearance;
 mod aside;
 mod command;
 mod delight;
+mod discovery;
 mod find;
 mod input;
 mod jobs;
@@ -18,6 +19,7 @@ mod panel;
 mod pattern;
 mod plugins;
 mod pointer;
+mod results;
 mod settings;
 mod state;
 mod update;
@@ -30,6 +32,7 @@ pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
+pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
 pub use find::{Find, Query, summary as find_summary};
 pub use input::LineInput;
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
@@ -51,3 +54,8 @@ pub use state::{
 };
 pub use update::update;
 pub use viewer::{Content, Image, Viewer, viewer_size};
+
+pub use results::{
+    COLLECTION_LIMIT, Collection, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results, SearchProgress,
+    SearchRequest, selected_paths,
+};

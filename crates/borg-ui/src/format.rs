@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::Path, time::SystemTime};
 
 use jiff::{Timestamp, Zoned, tz::TimeZone};
@@ -33,17 +34,15 @@ pub fn modified(time: Option<SystemTime>, now: &Zoned) -> String {
     local.strftime(format).to_string()
 }
 
-pub fn count(n: usize, noun: &str) -> String {
-    if n == 1 { format!("{n} {noun}") } else { format!("{n} {noun}s") }
-}
+pub use borg_i18n::{Count, count};
 
 pub fn marked_summary(marked: usize, files: usize, bytes: u64, folders: usize) -> String {
-    let mut parts = vec![format!("{marked} marked")];
+    let mut parts = vec![format!(tr!(marked_total), marked = marked)];
     if files > 0 {
-        parts.push(format!("{}, {}", count(files, "file"), size(bytes)));
+        parts.push(format!("{}, {}", count(files, Count::File), size(bytes)));
     }
     if folders > 0 {
-        parts.push(count(folders, "folder"));
+        parts.push(count(folders, Count::Folder));
     }
     parts.join(" · ")
 }

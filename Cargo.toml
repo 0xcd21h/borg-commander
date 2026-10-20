@@ -4,11 +4,12 @@ members  = ["crates/*"]
 
 [workspace.package]
 edition      = "2024"
-version      = "0.3.0"
+version      = "0.4.0"
 license      = "MIT"
 rust-version = "1.97"
 
 [workspace.dependencies]
+borg-i18n = { path = "crates/borg-i18n" }
 borg-core = { path = "crates/borg-core" }
 borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }

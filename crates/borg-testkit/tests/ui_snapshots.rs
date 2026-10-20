@@ -27,7 +27,17 @@ fn at(secs: u64) -> Option<SystemTime> {
 }
 
 fn entry(name: &str, kind: EntryKind, size: u64, modified: u64, executable: bool) -> Entry {
-    Entry { name: name.into(), kind, size, modified: at(modified), executable, permissions: 0o644 }
+    Entry {
+        source: None,
+        missing: false,
+        usage: None,
+        name: name.into(),
+        kind,
+        size,
+        modified: at(modified),
+        executable,
+        permissions: 0o644,
+    }
 }
 
 fn project() -> Vec<Entry> {
@@ -459,7 +469,13 @@ fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
         select_theme(&mut stage, id);
         let (buffer, placements) = stage.compose(stage.started)?;
         anyhow::ensure!(placements.is_empty(), "panels must not transmit images");
-        anyhow::ensure!(describe(&buffer).lines().next().unwrap_or_default().contains('╭'));
+        anyhow::ensure!(
+            describe(&buffer)
+                .lines()
+                .nth(usize::from(stage.state.layout(stage.started).panels[0].y))
+                .unwrap_or_default()
+                .contains('╭')
+        );
     }
     stage.send(key(KeyCode::F(8)));
     let (buffer, placements) = stage.compose(stage.started)?;
@@ -803,5 +819,370 @@ fn git_and_plugin_windows_survive_tiny_terminals() -> Result<()> {
         stage.state.overlay = Some(borg_core::Overlay::Plugins { selected: 0 });
         stage.render(stage.started)?;
     }
+    Ok(())
+}
+
+fn collected_stage(size: GridSize) -> Result<Stage> {
+    let mut stage = stage(size, Motion::STILL)?;
+    let mut first = entry("config.toml", EntryKind::File, 1024, RECENT, false);
+    first.source = Some("/workspace/api/config.toml".into());
+    let mut second = entry("config.toml", EntryKind::File, 4096, OLD, false);
+    second.source = Some("/workspace/web/config.toml".into());
+    let mut missing = entry("draft.md", EntryKind::File, 0, OLD, false);
+    missing.source = Some("/workspace/archive/draft.md".into());
+    missing.missing = true;
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(
+        borg_core::ResultSource::Collection("Release bundle".into()),
+        vec![first, second, missing],
+        50,
+    );
+    stage.send(Msg::Resize { cols: size.cols, rows: size.rows });
+    stage.state.panels[0].toggle_mark();
+    Ok(stage)
+}
+
+#[test]
+fn virtual_collection_expanded_and_grouped() -> Result<()> {
+    let mut stage = collected_stage(GridSize { cols: 132, rows: 28 })?;
+    stage.state.panels[0].results.as_mut().unwrap().expanded = true;
+    let buffer = stage.render(stage.started)?;
+    check("collection_expanded", &stage, buffer)?;
+    stage.state.panels[0].group_results(borg_core::ResultGroup::Folder);
+    let buffer = stage.render(stage.started)?;
+    check("collection_grouped", &stage, buffer)?;
+    stage.state.panels[0].filter_results("/web/".into());
+    let buffer = stage.render(stage.started)?;
+    check("collection_filtered_hidden_marks", &stage, buffer)
+}
+
+#[test]
+fn virtual_collection_narrow_and_split() -> Result<()> {
+    let mut stage = collected_stage(NARROW)?;
+    let buffer = stage.render(stage.started)?;
+    check("collection_narrow", &stage, buffer)?;
+    stage.send(Msg::Resize { cols: SIZE.cols, rows: SIZE.rows });
+    stage.state.panels[0].results.as_mut().unwrap().expanded = false;
+    let buffer = stage.render(stage.started)?;
+    check("collection_split", &stage, buffer)
+}
+
+#[test]
+fn recursive_search_partial_and_cancelled() -> Result<()> {
+    let mut stage = collected_stage(SIZE)?;
+    let entries = stage.state.panels[0].entries().to_vec();
+    stage.state.panels[0].open_results(
+        borg_core::ResultSource::Search {
+            request: borg_core::SearchRequest {
+                root: "/workspace".into(),
+                query: "*.toml".into(),
+                hidden: false,
+                options: Default::default(),
+            },
+            progress: borg_core::SearchProgress {
+                visited: 1234,
+                errors: 2,
+                skipped: 4,
+                limited: false,
+                cancelled: false,
+            },
+        },
+        entries,
+        51,
+    );
+    stage.state.panels[0].begin_search(51);
+    let buffer = stage.render(stage.started)?;
+    check("search_in_progress", &stage, buffer)?;
+    stage.send(Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::CancelSearch)));
+    let buffer = stage.render(stage.started)?;
+    check("search_cancelled", &stage, buffer)
+}
+
+#[test]
+fn results_panel_resizes_without_buffer_overrun() -> Result<()> {
+    let mut stage = collected_stage(SIZE)?;
+    for (cols, rows) in [(1, 1), (4, 3), (20, 8), (80, 24), (193, 40)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn mouse_sort_headers_and_group_rows_match_results_geometry() -> Result<()> {
+    use borg_core::{Pointer, Side, SortKey};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = collected_stage(GridSize { cols: 132, rows: 28 })?;
+    let click = |x, y| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    };
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("Size").unwrap();
+    let hit = borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started).unwrap();
+    assert!(matches!(hit, Msg::Pointer(Pointer::ResultSort { side: Side::Left, key: SortKey::Size })));
+    stage.send(hit);
+    assert_eq!(stage.state.active_panel().sort().key, SortKey::Size);
+    assert!(stage.state.active_panel().sort().reverse);
+    stage.state.panels[0].group_results(borg_core::ResultGroup::Folder);
+    let before = stage.state.active_panel().len();
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("/workspace/api · 1").unwrap();
+    let hit = borg_ui::mouse_input(&stage.state, click(x, y), true, stage.started).unwrap();
+    stage.send(hit);
+    assert_eq!(stage.state.active_panel().len(), before - 1);
+    stage.send(ctrl('q'));
+    let preview = stage.state.layout(stage.started).panels[1];
+    let scroll = MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: preview.x + 1,
+        row: preview.y + 1,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, scroll, false, stage.started),
+        Some(Msg::Pointer(Pointer::ScrollDocument(_)))
+    ));
+    Ok(())
+}
+
+#[test]
+fn discovery_windows_and_folder_totals() -> Result<()> {
+    use borg_core::{
+        Action, Collection, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, SearchRequest,
+    };
+    let mut stage = collected_stage(GridSize { cols: 132, rows: 28 })?;
+    stage.state.collections = (0..24)
+        .map(|index| Collection {
+            name: format!("Workspace bundle {index:02}"),
+            entries: stage.state.panels[0].entries().to_vec(),
+        })
+        .collect();
+    stage.send(Msg::Pointer(Pointer::Action(Action::OpenCollection)));
+    stage.send(key(KeyCode::End));
+    let buffer = stage.render(stage.started)?;
+    check("collections_chooser", &stage, buffer)?;
+    stage.send(key(KeyCode::F(7)));
+    stage.send(Msg::Paste("Release notes".into()));
+    let buffer = stage.render(stage.started)?;
+    check("collection_create", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    stage.send(Msg::Pointer(Pointer::Action(Action::AnalyzeSpace)));
+    let buffer = stage.render(stage.started)?;
+    check("space_search_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    let mut cache = entry("node_modules", EntryKind::Dir, 812_045_312, RECENT, false);
+    cache.source = Some("/workspace/website/node_modules".into());
+    cache.usage = Some(borg_vfs::FolderUsage { files: 72_419, folders: 3_128, partial: false });
+    let mut build = entry("target", EntryKind::Dir, 4_521_148_416, RECENT, false);
+    build.source = Some("/workspace/service/target".into());
+    build.usage = Some(borg_vfs::FolderUsage { files: 12_804, folders: 294, partial: false });
+    let mut partial = entry("cache", EntryKind::Dir, 123_456_789, RECENT, false);
+    partial.source = Some("/workspace/archive/cache".into());
+    partial.usage = Some(borg_vfs::FolderUsage { files: 9_240, folders: 129, partial: true });
+    stage.state.panels[0].open_results(
+        ResultSource::Search {
+            request: SearchRequest {
+                root: "/workspace".into(),
+                query: "*".into(),
+                hidden: true,
+                options: SearchOptions { kind: SearchKind::FolderTotals, ..Default::default() },
+            },
+            progress: SearchProgress { visited: 99_104, errors: 1, ..Default::default() },
+        },
+        vec![cache, build, partial],
+        80,
+    );
+    stage.state.panels[0].set_sort(borg_core::Sort { key: borg_core::SortKey::Size, reverse: true });
+    stage.state.panels[0].results.as_mut().unwrap().expanded = true;
+    let buffer = stage.render(stage.started)?;
+    check("folder_sizes", &stage, buffer)?;
+    stage.send(key(KeyCode::F(8)));
+    let buffer = stage.render(stage.started)?;
+    check("folder_delete_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(10)));
+    let buffer = stage.render(stage.started)?;
+    check("quit_confirm", &stage, buffer)
+}
+
+#[test]
+fn discovery_mouse_targets_and_tiny_windows() -> Result<()> {
+    use borg_core::{Action, Overlay, Pointer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = collected_stage(GridSize { cols: 132, rows: 28 })?;
+    let click = |column, row| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let bar = stage.state.layout(stage.started).keybar;
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click(bar.x, bar.y + 1), false, stage.started),
+        Some(Msg::Pointer(Pointer::Action(Action::Search)))
+    ));
+    stage.send(Msg::Pointer(Pointer::Action(Action::Quit)));
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("[ No ]").unwrap();
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started),
+        Some(Msg::Pointer(Pointer::Confirm(false)))
+    ));
+    stage.send(key(KeyCode::Esc));
+    stage.state.collections.push(borg_core::Collection { name: "Bundle".into(), entries: Vec::new() });
+    stage.send(Msg::Pointer(Pointer::Action(Action::OpenCollection)));
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("F7: New collection").unwrap();
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started),
+        Some(Msg::Pointer(Pointer::NewCollection))
+    ));
+    stage.send(key(KeyCode::Esc));
+    for (cols, rows) in [(1, 1), (4, 3), (20, 8), (44, 12), (193, 40)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.emulator.resize(GridSize::console(cols, rows));
+        stage.send(Msg::Pointer(Pointer::Action(Action::AnalyzeSpace)));
+        stage.render(stage.started)?;
+        assert!(matches!(stage.state.overlay, Some(Overlay::Search(_))));
+        stage.send(key(KeyCode::Esc));
+        stage.send(Msg::Pointer(Pointer::Action(Action::OpenCollection)));
+        stage.render(stage.started)?;
+        stage.send(key(KeyCode::Esc));
+        stage.state.overlay = None;
+    }
+    Ok(())
+}
+
+#[test]
+fn search_controls_have_distinct_boundaries_and_labels_in_each_theme() -> Result<()> {
+    use borg_core::{Action, Pointer};
+    for theme in ["neon", "classic", "midnight"] {
+        let mut stage = stage(GridSize { cols: 110, rows: 26 }, Motion::STILL)?;
+        select_theme(&mut stage, theme);
+        stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+        stage
+            .send(key(KeyCode::Tab))
+            .send(key(KeyCode::Tab))
+            .send(key(KeyCode::Tab))
+            .send(key(KeyCode::Tab))
+            .send(key(KeyCode::Tab));
+        let buffer = stage.render(stage.started)?;
+        let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+        let (x, y) = screen.find("Name or glob").unwrap();
+        let row = &screen.lines()[usize::from(y)];
+        let field =
+            row.chars().enumerate().skip(usize::from(x) + "Name or glob".len()).find(|(_, c)| *c == '[').unwrap().0
+                as u16;
+        assert_ne!(screen.style_at(x, y).bg, screen.style_at(field + 2, y).bg, "{theme}: field blends into label");
+        assert!(row.chars().skip(usize::from(field)).any(|c| c == ']'));
+        assert!(!screen.contains("guaranteed freed space"));
+        assert!(!screen.contains("Folder totals find"));
+        assert!(!screen.contains("folder totals only"));
+        check(&format!("search_fields_{theme}"), &stage, buffer)?;
+        let (x, y) = screen.find("[ Enter: Search ]").unwrap();
+        let event = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        };
+        let hit = borg_ui::mouse_input(&stage.state, event, false, stage.started).unwrap();
+        assert!(matches!(hit, Msg::Pointer(Pointer::SearchStart)));
+        stage.send(hit);
+        assert!(stage.state.overlay.is_none());
+        assert!(stage.state.active_panel().is_results());
+    }
+    Ok(())
+}
+
+#[test]
+fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Result<()> {
+    use borg_core::{Action, Pointer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    let footer = stage.state.layout(stage.started).keybar;
+    let click = |column, row| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert_eq!(footer.height, 2);
+    assert_eq!(footer.bottom(), stage.state.rows);
+    assert!(screen.lines()[usize::from(footer.y)].contains("F1Help"));
+    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Ctrl-F Search"));
+    assert!(!screen.lines()[0].contains("Ctrl-F Search"));
+    let (x, y) = screen.find("Ctrl-F Search").unwrap();
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started),
+        Some(Msg::Pointer(Pointer::Action(Action::Search)))
+    ));
+    check("two_row_shortcuts", &stage, buffer)?;
+    stage.state.notice = Some("Copied 1 file".into());
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (x, y) = screen.find("F10Quit").unwrap();
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started),
+        Some(Msg::Pointer(Pointer::Action(Action::Quit)))
+    ));
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click(footer.x, footer.y + 1), false, stage.started),
+        Some(Msg::Pointer(Pointer::DismissNotice))
+    ));
+    check("two_row_shortcuts_notice", &stage, buffer)
+}
+
+#[test]
+fn result_title_controls_maximize_restore_and_fold_the_clicked_pane() -> Result<()> {
+    use borg_core::{Action, Pointer, Side};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = collected_stage(GridSize { cols: 132, rows: 28 })?;
+    let click = |column, row| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let path = stage.state.active_panel().hovered_entry().unwrap().identity().to_path_buf();
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert!(stage.state.layout(stage.started).panels.iter().all(|rect| !rect.is_empty()));
+    let (x, y) = screen.find("[+]").unwrap();
+    let hit = borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started).unwrap();
+    assert!(matches!(
+        hit,
+        Msg::Pointer(Pointer::ResultControl { side: Side::Left, action: Action::SetExpanded(true) })
+    ));
+    check("results_default_pane", &stage, buffer)?;
+    stage.send(hit);
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert!(stage.state.layout(stage.started).panels[1].is_empty());
+    let (x, y) = screen.find("[=]").unwrap();
+    let restore = borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started).unwrap();
+    check("results_maximized_controls", &stage, buffer)?;
+    stage.send(restore);
+    assert!(!stage.state.layout(stage.started).panels[1].is_empty());
+    stage.state.active = Side::Right;
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("[-]").unwrap();
+    let hit = borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started).unwrap();
+    stage.send(hit);
+    assert_eq!(stage.state.active, Side::Left);
+    assert!(!stage.state.active_panel().is_results());
+    stage.send(Msg::Pointer(Pointer::Action(Action::BackResults)));
+    assert!(stage.state.active_panel().is_results());
+    assert_eq!(stage.state.active_panel().hovered_entry().unwrap().identity(), path);
+    assert_eq!(stage.state.active_panel().marked_count(), 1);
     Ok(())
 }

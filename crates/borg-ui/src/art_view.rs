@@ -1,4 +1,5 @@
 use borg_core::KEYMAP;
+use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -16,10 +17,10 @@ use crate::{
     look::Look,
 };
 
-const SUBTITLE: &str = "c o m m a n d e r";
-const TAGLINE: &str = "Resistance is futile.";
-const ABOUT_TITLE: &str = " About ";
-const ABOUT_HINT: &str = " Esc then 1–9/0 = F1–F10 · Esc close ";
+const SUBTITLE: &str = tr!(about_subtitle);
+const TAGLINE: &str = tr!(resistance_is_futile);
+const ABOUT_TITLE: &str = tr!(about);
+const ABOUT_HINT: &str = tr!(about_keys);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SAVER_CUBE: (u16, u16) = (56, 22);
 const ABOUT_CUBE: (u16, u16) = (18, 8);
@@ -98,7 +99,8 @@ pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
     let info_y = logo_y + rows(LOGO.len()) + TEXT_GAP;
     let meta = styles.overlay.fg(look.fg(styles.meta).into());
     Line::styled(SUBTITLE, meta).render(Rect { y: info_y, height: 1, ..right }, buf);
-    Line::styled(format!("version {VERSION}"), meta).render(Rect { y: info_y + 1, height: 1, ..right }, buf);
+    Line::styled(format!(tr!(about_version), VERSION = VERSION), meta)
+        .render(Rect { y: info_y + 1, height: 1, ..right }, buf);
 
     let keys_y = cube.bottom() + TEXT_GAP;
     let keys = Rect { x: inner.x + PADDING, y: keys_y, width: inner.width.saturating_sub(PADDING * 2), height: 1 };

@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent};
@@ -19,8 +20,8 @@ const KONAMI: [KeyCode; 10] = [
     KeyCode::Char('b'),
     KeyCode::Char('a'),
 ];
-const UNLOCKED_NOTICE: &str = "Cube theme unlocked · Options › Theme…";
-const FUTILE_NOTICE: &str = "Resistance is futile.";
+const UNLOCKED_NOTICE: &str = tr!(cube_theme_unlocked_options_theme);
+const FUTILE_NOTICE: &str = tr!(resistance_is_futile);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct About {

@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -46,6 +47,10 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
     for side in Side::ALL {
         let panel = state.panel_mut(side);
+        if panel.is_results() {
+            panel.git = GitPanel::default();
+            continue;
+        }
         let key = (panel.generation(), panel.destination().to_path_buf());
         let changed = panel.git.key.as_ref() != Some(&key);
         let due = refresh && panel.git.next.is_some_and(|next| now >= next);
@@ -104,7 +109,7 @@ pub(crate) fn run(state: &mut AppState, tool: Tool) -> Vec<Effect> {
     }
     let panel = state.active_panel();
     let paths = if tool.needs_selection() {
-        panel.selection().into_iter().map(|entry| panel.dir().join(&entry.name)).collect::<Vec<_>>()
+        panel.selection().into_iter().map(|entry| entry.path(panel.dir())).collect::<Vec<_>>()
     } else {
         Vec::new()
     };
@@ -115,7 +120,7 @@ pub(crate) fn run(state: &mut AppState, tool: Tool) -> Vec<Effect> {
     state.plugins.next_task += 1;
     let id = state.plugins.next_task;
     state.plugins.git_task = Some((id, tool));
-    state.notice = Some("Git: running…".into());
+    state.notice = Some(tr!(git_running).into());
     vec![Effect::GitTool { id, tool, dir, paths }]
 }
 
@@ -131,8 +136,8 @@ pub(crate) fn finish(state: &mut AppState, id: u64, result: Result<Option<Viewer
             state.viewer = Some(viewer);
             crate::viewer::resize(state);
         }
-        Ok(None) => state.notice = Some("Git index updated".into()),
-        Err(error) => state.notice = Some(format!("Git: {error}")),
+        Ok(None) => state.notice = Some(tr!(git_index_updated).into()),
+        Err(error) => state.notice = Some(format!(tr!(git_error), error = error)),
         _ => {}
     }
     if tool.changes_index() { state.reload_all() } else { Vec::new() }

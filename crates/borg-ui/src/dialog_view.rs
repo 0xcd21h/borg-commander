@@ -1,9 +1,10 @@
 use borg_core::{Confirm, Prompt};
+use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Flex, Layout, Position, Rect},
     text::{Line, Span},
-    widgets::{Block, Clear, Widget},
+    widgets::{Block, Clear, Paragraph, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -14,10 +15,10 @@ const MARGIN: u16 = 4;
 const PROMPT_HEIGHT: u16 = 6;
 const CONFIRM_HEIGHT: u16 = 6;
 const PADDING: u16 = 1;
-const YES: &str = "[ Yes ]";
-const NO: &str = "[ No ]";
+const YES: &str = tr!(yes);
+const NO: &str = tr!(no);
 const BUTTON_GAP: &str = "   ";
-const PROMPT_HINT: &str = " Enter ok · Esc cancel ";
+const PROMPT_HINT: &str = tr!(enter_ok_esc_cancel);
 
 pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
     let styles = &theme.styles;
@@ -41,12 +42,13 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
 
 pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
     let styles = &theme.styles;
-    let rect = centered(screen, dialog_width(screen), CONFIRM_HEIGHT);
+    let rect = confirm_rect(confirm, screen);
     let inner = frame(confirm.title, None, theme, rect, buf);
     let [message, _, buttons] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 
-    Line::styled(format::truncate_end(&confirm.message, usize::from(message.width)), styles.overlay)
+    Paragraph::new(message_lines(&confirm.message, message.width))
+        .style(styles.overlay)
         .centered()
         .render(message, buf);
     let (yes, no) = if confirm.accept {
@@ -58,6 +60,58 @@ pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Bu
         .centered()
         .render(buttons, buf);
     rect
+}
+
+fn message_lines(message: &str, width: u16) -> Vec<Line<'static>> {
+    use unicode_width::UnicodeWidthChar;
+    let mut lines = Vec::new();
+    let mut text = String::new();
+    let mut columns = 0;
+    for character in message.chars() {
+        let next = character.width().unwrap_or(0);
+        if character == '\n' || columns + next > usize::from(width.max(1)) {
+            lines.push(Line::raw(std::mem::take(&mut text)));
+            columns = 0;
+            if character == '\n' {
+                continue;
+            }
+        }
+        text.push(character);
+        columns += next;
+    }
+    lines.push(Line::raw(text));
+    lines
+}
+
+fn confirm_rect(confirm: &Confirm, screen: Rect) -> Rect {
+    let width = dialog_width(screen);
+    let lines = message_lines(&confirm.message, width.saturating_sub(4)).len();
+    let height =
+        CONFIRM_HEIGHT.saturating_add(u16::try_from(lines.saturating_sub(1)).unwrap_or(u16::MAX)).min(screen.height);
+    centered(screen, width, height)
+}
+
+pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Option<bool> {
+    let rect = confirm_rect(confirm, screen);
+    if !rect.contains(point)
+        || rect.width < (YES.len() + BUTTON_GAP.len() + NO.len()) as u16
+        || rect.height < CONFIRM_HEIGHT
+    {
+        return None;
+    }
+    let start = rect.x + rect.width.saturating_sub((YES.len() + BUTTON_GAP.len() + NO.len()) as u16) / 2;
+    if point.y != rect.bottom().saturating_sub(2) {
+        return None;
+    }
+    if (start..start + YES.len() as u16).contains(&point.x) {
+        Some(true)
+    } else if (start + (YES.len() + BUTTON_GAP.len()) as u16..start + (YES.len() + BUTTON_GAP.len() + NO.len()) as u16)
+        .contains(&point.x)
+    {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut Buffer) -> Rect {

@@ -119,7 +119,17 @@ mod tests {
     use super::*;
 
     fn entry(name: &str, kind: EntryKind, executable: bool) -> Entry {
-        Entry { name: name.into(), kind, size: 0, modified: None, executable, permissions: 0 }
+        Entry {
+            source: None,
+            missing: false,
+            usage: None,
+            name: name.into(),
+            kind,
+            size: 0,
+            modified: None,
+            executable,
+            permissions: 0,
+        }
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::Path, time::SystemTime};
 
 use borg_core::{Aside, Facts, Image, Nature, Peek, Peeked};
@@ -21,38 +22,35 @@ use crate::{
 };
 
 const PICTURE_Z: i32 = -1;
-const QUICK_VIEW_TITLE: &str = "Quick view";
-const INFO_TITLE: &str = "Info";
+const QUICK_VIEW_TITLE: &str = tr!(quick_view);
+const INFO_TITLE: &str = tr!(info);
 const TITLE_SEPARATOR: &str = " · ";
 const LOADING: &str = "…";
-const BINARY: &str = "Binary file";
-const EMPTY: &str = "Empty file";
+const BINARY: &str = tr!(binary_file);
+const EMPTY: &str = tr!(empty_file);
 const PADDING: u16 = 1;
 const LABEL_GAP: usize = 2;
 const STAMP: &str = "%Y-%m-%d %H:%M:%S";
 const ARROW: &str = " → ";
-const FOLDER: &str = "Folder";
-const FILE: &str = "File";
-const LINK: &str = "Link";
-const SPECIAL: &str = "Special";
-const BYTES: &str = "bytes";
-const ITEM: &str = "item";
-const FOLDER_NOUN: &str = "folder";
-const FILE_NOUN: &str = "file";
+const FOLDER: &str = tr!(folder);
+const FILE: &str = tr!(file);
+const LINK: &str = tr!(link);
+const SPECIAL: &str = tr!(special);
+const BYTES: &str = tr!(bytes);
 const OCTAL_WIDTH: usize = 4;
 
-const NAME_LABEL: &str = "Name";
-const KIND_LABEL: &str = "Kind";
-const SIZE_LABEL: &str = "Size";
-const CONTENTS_LABEL: &str = "Contents";
-const MODE_LABEL: &str = "Mode";
-const OWNER_LABEL: &str = "Owner";
-const MODIFIED_LABEL: &str = "Modified";
-const ACCESSED_LABEL: &str = "Accessed";
-const CREATED_LABEL: &str = "Created";
-const INODE_LABEL: &str = "Inode";
-const LINKS_LABEL: &str = "Links";
-const DISK_LABEL: &str = "Free space";
+const NAME_LABEL: &str = tr!(name);
+const KIND_LABEL: &str = tr!(kind);
+const SIZE_LABEL: &str = tr!(size);
+const CONTENTS_LABEL: &str = tr!(contents);
+const MODE_LABEL: &str = tr!(mode);
+const OWNER_LABEL: &str = tr!(owner);
+const MODIFIED_LABEL: &str = tr!(modified);
+const ACCESSED_LABEL: &str = tr!(accessed);
+const CREATED_LABEL: &str = tr!(created);
+const INODE_LABEL: &str = tr!(inode);
+const LINKS_LABEL: &str = tr!(links);
+const DISK_LABEL: &str = tr!(free_space);
 
 pub struct AsideScene<'a> {
     pub aside: Aside,
@@ -86,7 +84,7 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
         .title(Line::styled(title, styles.title));
     let block = match shown.and_then(|peeked| footer(&peeked.peek)) {
         Some(footer) => block.title_bottom(Line::styled(
-            format!(" {}{footer} ", if scene.focused { "Focused · Tab back · " } else { "" }),
+            format!(" {}{footer} ", if scene.focused { tr!(focused_tab_back) } else { "" }),
             styles.footer,
         )),
         None => block,
@@ -127,8 +125,8 @@ fn footer(peek: &Peek) -> Option<String> {
     match peek {
         Peek::Folder { folders, files, bytes, .. } => Some(format!(
             "{} · {} · {}",
-            format::count(*folders, FOLDER_NOUN),
-            format::count(*files, FILE_NOUN),
+            format::count(*folders, format::Count::Folder),
+            format::count(*files, format::Count::File),
             format::size(*bytes)
         )),
         Peek::Picture(image) => {
@@ -136,9 +134,9 @@ fn footer(peek: &Peek) -> Option<String> {
             Some(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes)))
         }
         Peek::Text(pager) => Some(format!(
-            "{}% · Tab focus{}",
+            tr!(tab_focus),
             pager.percent(),
-            if pager.markdown() { " · s source/render" } else { " · w wrap" }
+            if pager.markdown() { tr!(s_source_render) } else { tr!(w_wrap) }
         )),
         Peek::Info(_) | Peek::Binary | Peek::Unavailable(_) => None,
     }
@@ -195,7 +193,10 @@ fn facts(facts: &Facts, path: &Path, clock: &Zoned) -> Vec<(&'static str, String
     let rows = [
         Some((NAME_LABEL, name(path))),
         Some((KIND_LABEL, nature(&facts.nature))),
-        facts.items.map(|items| (CONTENTS_LABEL, format::count(items, ITEM))).or(Some((SIZE_LABEL, size))),
+        facts
+            .items
+            .map(|items| (CONTENTS_LABEL, format::count(items, format::Count::Item)))
+            .or(Some((SIZE_LABEL, size))),
         Some((MODE_LABEL, format!("{} {:0OCTAL_WIDTH$o}", rwx(facts.permissions), facts.permissions))),
         Some((OWNER_LABEL, format!("{}:{}", facts.owner, facts.group))),
         stamp(facts.modified, clock).map(|time| (MODIFIED_LABEL, time)),
@@ -203,7 +204,9 @@ fn facts(facts: &Facts, path: &Path, clock: &Zoned) -> Vec<(&'static str, String
         stamp(facts.created, clock).map(|time| (CREATED_LABEL, time)),
         Some((INODE_LABEL, facts.inode.to_string())),
         Some((LINKS_LABEL, facts.links.to_string())),
-        facts.disk.map(|(free, total)| (DISK_LABEL, format!("{} of {}", format::size(free), format::size(total)))),
+        facts
+            .disk
+            .map(|(free, total)| (DISK_LABEL, format!(tr!(space_of_total), format::size(free), format::size(total)))),
     ];
     rows.into_iter().flatten().collect()
 }

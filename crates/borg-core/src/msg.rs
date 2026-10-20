@@ -10,6 +10,7 @@ use crate::{Aside, JobCommand, Peeked, ShellView, Side, Viewer};
 
 #[derive(Debug)]
 pub enum Msg {
+    SearchProgress { side: Side, generation: u64, progress: crate::SearchProgress },
     Key(KeyEvent),
     Pointer(crate::Pointer),
     Paste(String),
@@ -31,6 +32,10 @@ pub enum Msg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
+    Search { side: Side, generation: u64, request: crate::SearchRequest },
+    RefreshCollection { side: Side, generation: u64, entries: Vec<Entry> },
+    CancelSearch(Side),
+    SaveCollections,
     List { side: Side, generation: u64, dir: PathBuf },
     Write(Vec<u8>),
     ScrollConsole(Scroll),

@@ -25,6 +25,7 @@ pub enum Seek {
 pub enum Row<'a> {
     Parent,
     Entry(&'a Entry),
+    Group { label: &'a str, count: usize, collapsed: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,8 @@ pub enum SortKey {
     Extension,
     Size,
     Modified,
+    Source,
+    Files,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -69,6 +72,7 @@ pub struct Sort {
 enum Anchor {
     Parent,
     Name(String),
+    Path(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +94,8 @@ pub struct Panel {
     rows: usize,
     mode: ListingMode,
     sort: Sort,
-    marks: HashSet<String>,
+    marks: HashSet<PathBuf>,
+    pub results: Option<crate::Results>,
     listing: Listing,
     incoming: Option<Incoming>,
     focus: Option<Anchor>,
@@ -111,6 +116,7 @@ impl Panel {
             mode,
             sort,
             marks: HashSet::new(),
+            results: None,
             listing: Listing::Loading,
             incoming: None,
             focus: None,
@@ -140,7 +146,7 @@ impl Panel {
     }
 
     pub fn git_repository(&self) -> Option<&borg_git::Repository> {
-        (self.dir() == self.destination()).then_some(self.git.repository.as_ref()).flatten()
+        (!self.is_results() && self.dir() == self.destination()).then_some(self.git.repository.as_ref()).flatten()
     }
 
     pub fn mode(&self) -> ListingMode {
@@ -172,7 +178,7 @@ impl Panel {
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len() + self.parent_rows()
+        self.results.as_ref().map_or(self.entries.len() + self.parent_rows(), |results| results.rows.len())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -180,6 +186,14 @@ impl Panel {
     }
 
     pub fn row(&self, index: usize) -> Option<Row<'_>> {
+        if let Some(results) = &self.results {
+            return match results.rows.get(index)? {
+                crate::ResultRow::Entry(index) => self.entries.get(*index).map(Row::Entry),
+                crate::ResultRow::Group { label, count } => {
+                    Some(Row::Group { label, count: *count, collapsed: results.collapsed.contains(label) })
+                }
+            };
+        }
         match index.checked_sub(self.parent_rows()) {
             None => Some(Row::Parent),
             Some(i) => self.entries.get(i).map(Row::Entry),
@@ -193,7 +207,7 @@ impl Panel {
     pub fn hovered_entry(&self) -> Option<&Entry> {
         match self.hovered()? {
             Row::Entry(entry) => Some(entry),
-            Row::Parent => None,
+            Row::Parent | Row::Group { .. } => None,
         }
     }
 
@@ -202,11 +216,11 @@ impl Panel {
     }
 
     pub fn is_marked(&self, entry: &Entry) -> bool {
-        self.marks.contains(&entry.name)
+        self.marks.contains(entry.identity())
     }
 
     pub fn marked(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.iter().filter(|entry| self.marks.contains(&entry.name))
+        self.entries.iter().filter(|entry| self.marks.contains(entry.identity()))
     }
 
     pub fn marked_count(&self) -> usize {
@@ -218,6 +232,7 @@ impl Panel {
     }
 
     pub fn navigate(&mut self, dir: PathBuf, generation: u64, focus: Option<String>) {
+        self.results = None;
         let refresh = self.is_reloading_into(&dir);
         self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh });
     }
@@ -234,7 +249,8 @@ impl Panel {
             self.commit();
         }
         if generation == self.generation {
-            self.pending.extend(batch.into_iter().filter(|entry| show_hidden || !entry.is_hidden()));
+            let results = self.is_results();
+            self.pending.extend(batch.into_iter().filter(|entry| results || show_hidden || !entry.is_hidden()));
         }
     }
 
@@ -277,6 +293,7 @@ impl Panel {
             let mut fresh = std::mem::take(&mut self.pending);
             fresh.sort_by(|a, b| order(a, b, sort));
             self.entries = merge(std::mem::take(&mut self.entries), fresh, sort);
+            self.rebuild_results();
             self.restore(anchor);
         }
         if !loading {
@@ -291,6 +308,7 @@ impl Panel {
         fresh.sort_by(|a, b| order(a, b, sort));
         self.entries = fresh;
         self.replacing = false;
+        self.rebuild_results();
         self.restore(anchor);
         self.prune_marks();
     }
@@ -299,11 +317,12 @@ impl Panel {
         let anchor = self.anchor();
         self.sort = sort;
         self.entries.sort_by(|a, b| order(a, b, sort));
+        self.rebuild_results();
         self.restore(anchor);
     }
 
     pub fn set_mode(&mut self, mode: ListingMode) {
-        self.mode = mode;
+        self.mode = if self.is_results() { ListingMode::Full } else { mode };
         self.clamp();
     }
 
@@ -365,13 +384,37 @@ impl Panel {
         found.is_some()
     }
 
+    pub fn point_at_path(&mut self, path: PathBuf) {
+        self.focus = None;
+        self.restore(Some(Anchor::Path(path)));
+    }
+
     pub fn point_at(&mut self, name: &str) {
         self.focus = None;
         self.restore(Some(Anchor::Name(name.to_owned())));
     }
 
     pub fn toggle_mark(&mut self) {
-        let Some(name) = self.hovered_entry().map(|entry| entry.name.clone()) else { return };
+        if let Some(Row::Group { label, .. }) = self.hovered() {
+            let label = label.to_owned();
+            let Some(results) = &self.results else { return };
+            let paths: Vec<_> = self
+                .entries
+                .iter()
+                .filter(|entry| results.matches(entry) && results.group_label(entry) == label)
+                .map(|entry| entry.identity().to_path_buf())
+                .collect();
+            let clear = paths.iter().all(|path| self.marks.contains(path));
+            for path in paths {
+                if clear {
+                    self.marks.remove(&path);
+                } else {
+                    self.marks.insert(path);
+                }
+            }
+            return;
+        }
+        let Some(name) = self.hovered_entry().map(|entry| entry.identity().to_path_buf()) else { return };
         if !self.marks.remove(&name) {
             self.marks.insert(name);
         }
@@ -382,8 +425,8 @@ impl Panel {
     }
 
     pub fn mark_where(&mut self, accept: impl Fn(&Entry) -> bool, mark: bool) -> usize {
-        let names: Vec<String> =
-            self.entries.iter().filter(|entry| accept(entry)).map(|entry| entry.name.clone()).collect();
+        let names: Vec<PathBuf> =
+            self.visible_entries().filter(|entry| accept(entry)).map(|entry| entry.identity().to_path_buf()).collect();
         let count = names.len();
         names.into_iter().for_each(|name| {
             if mark {
@@ -396,7 +439,11 @@ impl Panel {
     }
 
     pub fn invert_marks(&mut self) {
-        self.marks = self.entries.iter().map(|e| e.name.clone()).filter(|name| !self.marks.contains(name)).collect();
+        self.marks = self
+            .visible_entries()
+            .map(|e| e.identity().to_path_buf())
+            .filter(|name| !self.marks.contains(name))
+            .collect();
     }
 
     pub fn clear_marks(&mut self) {
@@ -427,8 +474,8 @@ impl Panel {
         if self.marks.is_empty() {
             return;
         }
-        let present: HashSet<&str> = self.entries.iter().map(|e| e.name.as_str()).collect();
-        self.marks.retain(|name| present.contains(name.as_str()));
+        let present: HashSet<&Path> = self.entries.iter().map(Entry::identity).collect();
+        self.marks.retain(|name| present.contains(name.as_path()));
     }
 
     fn restore(&mut self, anchor: Option<Anchor>) {
@@ -442,23 +489,141 @@ impl Panel {
     }
 
     fn parent_rows(&self) -> usize {
-        usize::from(self.dir.parent().is_some())
+        usize::from(!self.is_results() && self.dir.parent().is_some())
     }
 
     fn anchor(&self) -> Option<Anchor> {
         self.hovered().map(|row| match row {
             Row::Parent => Anchor::Parent,
-            Row::Entry(entry) => Anchor::Name(entry.name.clone()),
+            Row::Entry(entry) => Anchor::Path(entry.identity().to_path_buf()),
+            Row::Group { label, .. } => Anchor::Name(label.to_owned()),
         })
     }
 
     fn locate(&self, anchor: &Anchor) -> Option<usize> {
+        if self.is_results() {
+            return (0..self.len()).find(|index| match (self.row(*index), anchor) {
+                (Some(Row::Entry(entry)), Anchor::Path(path)) => entry.identity() == path,
+                (Some(Row::Group { label, .. }), Anchor::Name(name)) => label == name,
+                _ => false,
+            });
+        }
         match anchor {
+            Anchor::Path(path) => self
+                .entries
+                .iter()
+                .position(|entry| entry.identity() == path || entry.path(&self.dir) == *path)
+                .map(|i| i + self.parent_rows()),
             Anchor::Parent => (self.parent_rows() > 0).then_some(0),
             Anchor::Name(name) => {
                 self.entries.iter().position(|entry| &entry.name == name).map(|i| i + self.parent_rows())
             }
         }
+    }
+
+    pub fn is_results(&self) -> bool {
+        self.results.is_some()
+    }
+
+    pub fn visible_entries(&self) -> impl Iterator<Item = &Entry> {
+        self.entries.iter().filter(|entry| self.results.as_ref().is_none_or(|results| results.matches(entry)))
+    }
+
+    pub fn open_results(&mut self, source: crate::ResultSource, entries: Vec<Entry>, generation: u64) {
+        self.incoming = None;
+        self.pending.clear();
+        self.replacing = false;
+        self.entries = entries;
+        self.generation = generation;
+        self.results = Some(crate::Results::new(source));
+        self.listing = Listing::Ready;
+        self.mode = ListingMode::Full;
+        self.cursor = 0;
+        self.scroll = 0;
+        self.focus = None;
+        self.marks.clear();
+        self.set_sort(self.sort);
+    }
+
+    pub fn rebuild_results(&mut self) {
+        if let Some(results) = &mut self.results {
+            results.rebuild(&self.entries);
+        }
+    }
+
+    pub fn filter_results(&mut self, filter: String) {
+        let anchor = self.anchor();
+        if let Some(results) = &mut self.results {
+            results.filter = filter;
+        }
+        self.rebuild_results();
+        self.restore(anchor);
+    }
+
+    pub fn group_results(&mut self, group: crate::ResultGroup) {
+        let anchor = self.anchor();
+        if let Some(results) = &mut self.results {
+            results.group = group;
+            results.collapsed.clear();
+        }
+        self.rebuild_results();
+        self.restore(anchor);
+    }
+
+    pub fn toggle_group(&mut self) {
+        let Some(Row::Group { label, .. }) = self.hovered() else { return };
+        let label = label.to_owned();
+        if let Some(results) = &mut self.results
+            && !results.collapsed.remove(&label)
+        {
+            results.collapsed.insert(label);
+        }
+        self.rebuild_results();
+        self.clamp();
+    }
+
+    pub fn remove_selected(&mut self) {
+        let selected: HashSet<_> = self.selection().into_iter().map(|entry| entry.identity().to_path_buf()).collect();
+        self.entries.retain(|entry| !selected.contains(entry.identity()));
+        self.prune_marks();
+        self.rebuild_results();
+        self.clamp();
+    }
+
+    pub fn append_results(&mut self, entries: Vec<Entry>) {
+        let mut present: HashSet<_> = self.entries.iter().map(|entry| entry.identity().to_path_buf()).collect();
+        self.entries.extend(entries.into_iter().filter(|entry| present.insert(entry.identity().to_path_buf())));
+        self.set_sort(self.sort);
+    }
+
+    pub fn replace_collection(&mut self, entries: Vec<Entry>) {
+        let anchor = self.anchor();
+        self.entries = entries;
+        self.prune_marks();
+        self.entries.sort_by(|a, b| order(a, b, self.sort));
+        self.rebuild_results();
+        self.restore(anchor);
+    }
+
+    pub fn begin_search(&mut self, generation: u64) {
+        self.generation = generation;
+        self.pending.clear();
+        self.replacing = false;
+        self.listing = Listing::Loading;
+    }
+
+    pub fn finish_results_edit(&mut self, generation: u64) {
+        self.generation = generation;
+        self.pending.clear();
+        self.replacing = false;
+        self.listing = Listing::Ready;
+    }
+
+    pub fn begin_results_refresh(&mut self, generation: u64) {
+        self.generation = generation;
+        self.pending.clear();
+        self.replacing = true;
+        self.listing = Listing::Loading;
     }
 
     fn clamp(&mut self) {
@@ -489,9 +654,12 @@ pub fn order(a: &Entry, b: &Entry, sort: Sort) -> Ordering {
         SortKey::Extension => folded_cmp(extension(&a.name), extension(&b.name)),
         SortKey::Size => a.size.cmp(&b.size),
         SortKey::Modified => a.modified.cmp(&b.modified),
+        SortKey::Files => a.usage.as_ref().map(|u| u.files).cmp(&b.usage.as_ref().map(|u| u.files)),
+        SortKey::Source => a.source.as_ref().and_then(|p| p.parent()).cmp(&b.source.as_ref().and_then(|p| p.parent())),
     }
     .then_with(|| folded_cmp(&a.name, &b.name))
-    .then_with(|| a.name.cmp(&b.name));
+    .then_with(|| a.name.cmp(&b.name))
+    .then_with(|| a.identity().cmp(b.identity()));
     group.then(if sort.reverse { within.reverse() } else { within })
 }
 
@@ -534,6 +702,9 @@ mod tests {
 
     fn entry(name: &str, kind: EntryKind, size: u64) -> Entry {
         Entry {
+            source: None,
+            missing: false,
+            usage: None,
             name: name.into(),
             kind,
             size,

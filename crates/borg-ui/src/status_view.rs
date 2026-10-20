@@ -1,4 +1,5 @@
 use borg_core::{Panel, Row};
+use borg_i18n::tr;
 use borg_vfs::{Entry, EntryKind};
 use jiff::{Timestamp, Zoned};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Line, widgets::Widget};
@@ -18,12 +19,21 @@ const PERMISSION_BITS: [(u32, char); 9] = [
 ];
 const UNSET: char = '-';
 const FULL_DATE: &str = "%Y-%m-%d %H:%M";
-const PARENT_TEXT: &str = "Up to the parent directory";
+const PARENT_TEXT: &str = tr!(up_to_the_parent_directory);
 
 pub fn draw_status(panel: &Panel, area: Rect, styles: &Styles<Style>, clock: &Zoned, buf: &mut Buffer) {
     buf.set_style(area, styles.status);
+    if panel.is_results() {
+        Line::styled(
+            format!(" {}", crate::results_view::status(panel, usize::from(area.width.saturating_sub(1)))),
+            styles.status,
+        )
+        .render(area, buf);
+        return;
+    }
     let text = match (panel.marked_count(), panel.hovered()) {
         (0, Some(Row::Entry(entry))) => describe(entry, clock),
+        (0, Some(Row::Group { .. })) => String::new(),
         (0, Some(Row::Parent)) => PARENT_TEXT.to_owned(),
         (0, None) => String::new(),
         (marked, _) => {
@@ -36,7 +46,7 @@ pub fn draw_status(panel: &Panel, area: Rect, styles: &Styles<Style>, clock: &Zo
 }
 
 fn describe(entry: &Entry, clock: &Zoned) -> String {
-    let size = if entry.is_dir() { String::from("DIR") } else { format::size(entry.size) };
+    let size = if entry.is_dir() { String::from(tr!(dir)) } else { format::size(entry.size) };
     let modified = entry
         .modified
         .and_then(|t| Timestamp::try_from(t).ok())
@@ -66,6 +76,9 @@ mod tests {
     #[test]
     fn renders_unix_permission_strings() {
         let entry = |kind, permissions| Entry {
+            source: None,
+            missing: false,
+            usage: None,
             name: String::new(),
             kind,
             size: 0,

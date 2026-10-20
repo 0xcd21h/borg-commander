@@ -1,0 +1,10 @@
+[package]
+name = "borg-i18n"
+description = "UI message catalog for borg-commander"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true

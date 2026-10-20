@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
 use borg_core::{EMPTY_ART_WINDOW, Find, Listing, ListingMode, Panel, PanelMotion, Query, Row};
@@ -25,7 +26,7 @@ const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
 const GIT_WIDTH: u16 = 2;
 const NO_MARKER: char = ' ';
-const FIND_LABEL: &str = " find: ";
+const FIND_LABEL: &str = tr!(panel_find);
 pub(crate) const ICON_GAP: char = ' ';
 const GAP: u16 = 1;
 const SHOW_DATE_FROM: u16 = 40;
@@ -37,10 +38,10 @@ const PADDING: u16 = 1;
 const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const PARENT_NAME: &str = "..";
-const PARENT_LABEL: &str = "UP";
-const DIR_LABEL: &str = "DIR";
+const PARENT_LABEL: &str = tr!(up);
+const DIR_LABEL: &str = tr!(dir);
 const COLUMN_SEPARATOR: &str = "│";
-const EMPTY_CAPTION: &str = "empty";
+const EMPTY_CAPTION: &str = tr!(panel_empty);
 const LEFT_CAP: char = '▐';
 const RIGHT_CAP: char = '▌';
 const GLOW_FALLOFF: f32 = 0.5;
@@ -52,7 +53,7 @@ const STAR_PACE: f32 = 0.35;
 const SEVEN: usize = 7;
 const NINE: usize = 9;
 const ASSIMILATE_FROM: usize = 2;
-const SEVEN_OF_NINE: &str = "Seven of Nine";
+const SEVEN_OF_NINE: &str = tr!(seven_of_nine);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Activity {
@@ -61,6 +62,7 @@ pub struct Activity {
 }
 
 pub struct PanelScene<'a> {
+    pub expanded: bool,
     pub panel: &'a Panel,
     pub active: bool,
     pub area: Rect,
@@ -109,6 +111,10 @@ impl Body {
 }
 
 pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> Option<Position> {
+    if scene.panel.is_results() {
+        crate::results_view::draw(scene, look, buf);
+        return None;
+    }
     let styles = look.styles();
     let area = scene.area;
     let (border, title_style) =
@@ -183,12 +189,15 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     let total = panel.entries().len();
     if marked > 0 {
         let bytes: u64 = panel.marked().filter(|e| !e.is_dir()).map(|e| e.size).sum();
-        let summary =
-            if bytes > 0 { format!("{marked} marked · {}", format::size(bytes)) } else { format!("{marked} marked") };
+        let summary = if bytes > 0 {
+            format!(tr!(marked), format::size(bytes), marked = marked)
+        } else {
+            format!(tr!(marked_total), marked = marked)
+        };
         let egg = match (marked, total) {
             (SEVEN, NINE) => Some(SEVEN_OF_NINE.to_owned()),
             (marked, total) if marked == total && total >= ASSIMILATE_FROM => {
-                Some(format!("all {total} assimilated · {}", format::size(bytes)))
+                Some(format!(tr!(all_assimilated), format::size(bytes), total = total))
             }
             _ => None,
         };
@@ -202,16 +211,16 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     };
     let line = match (&scene.activity, panel.listing()) {
         (Some(activity), _) => spinning(activity.label.clone()),
-        (None, Listing::Loading) => spinning(format!("loading… {}", panel.received())),
+        (None, Listing::Loading) => spinning(format!(tr!(loading), panel.received())),
         (None, Listing::Ready) => {
             let git = if let Some(repository) = panel.git_repository() {
-                format!(" · Git {}", repository.branch)
+                format!(tr!(panel_view_git), repository.branch)
             } else if panel.git.error.is_some() {
-                " · Git unavailable".into()
+                tr!(git_unavailable).into()
             } else {
                 String::new()
             };
-            Line::styled(format!(" {}{git} ", format::count(panel.received(), "item")), styles.footer)
+            Line::styled(format!(" {}{git} ", format::count(panel.received(), format::Count::Item)), styles.footer)
         }
         (None, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
     };
@@ -413,7 +422,7 @@ impl Tone {
     fn of(panel: &Panel, row: Row<'_>, index: usize, active: bool, styles: &Styles<Style>) -> Self {
         let marked = matches!(row, Row::Entry(entry) if panel.is_marked(entry));
         let base = match row {
-            Row::Parent => styles.dir,
+            Row::Parent | Row::Group { .. } => styles.dir,
             Row::Entry(_) if marked => styles.marked,
             Row::Entry(entry) => style_of(entry, styles),
         };
@@ -470,7 +479,7 @@ fn draw_full_row(
     buf: &mut Buffer,
 ) {
     let (size, date) = match row {
-        Row::Parent => (PARENT_LABEL.to_owned(), String::new()),
+        Row::Parent | Row::Group { .. } => (PARENT_LABEL.to_owned(), String::new()),
         Row::Entry(entry) => (
             if entry.is_dir() { DIR_LABEL.to_owned() } else { format::size(entry.size) },
             format::modified(entry.modified, scene.clock),
@@ -494,8 +503,7 @@ fn draw_full_row(
 
 fn draw_git(row: Row<'_>, panel: &Panel, area: Rect, tone: Tone, look: &Look<'_>, buf: &mut Buffer) {
     let Row::Entry(entry) = row else { return };
-    let Some(status) = panel.git_repository().and_then(|repository| repository.status(&panel.dir().join(&entry.name)))
-    else {
+    let Some(status) = panel.git_repository().and_then(|repository| repository.status(&entry.path(panel.dir()))) else {
         return;
     };
     let styles = look.styles();
@@ -540,9 +548,11 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buff
     }
     let name = match row {
         Row::Parent => PARENT_NAME,
+        Row::Group { label, .. } => label,
         Row::Entry(entry) => entry.name.as_str(),
     };
     let lead = match (decor.icons, row) {
+        (_, Row::Group { .. }) => None,
         (true, Row::Parent) => Some(icons::parent()),
         (true, Row::Entry(entry)) => Some(icons::icon(entry)),
         (false, Row::Parent) => Some(icons::portable_parent()),
@@ -553,14 +563,14 @@ fn draw_name(row: Row<'_>, area: Rect, tone: Tone, decor: &Decor, buf: &mut Buff
             let color = icon.color.filter(|_| tone.fill.is_none());
             Span::styled(format!("{}{}", icon.glyph, decor.gap), color.map_or(tone.name, |fg| tone.name.fg(fg)))
         }
-        (None, Row::Parent) => Span::styled(NO_MARKER.to_string(), tone.name),
+        (None, Row::Group { .. } | Row::Parent) => Span::styled(NO_MARKER.to_string(), tone.name),
         (None, Row::Entry(entry)) => Span::styled(marker(entry).to_string(), tone.name),
     };
     let width = usize::from(area.width).saturating_sub(lead.width());
     let shown = format::truncate_end(name, width);
     let hits = match row {
         Row::Entry(entry) => decor.query.as_ref().and_then(|query| query.hits(entry)).unwrap_or_default(),
-        Row::Parent => Vec::new(),
+        Row::Parent | Row::Group { .. } => Vec::new(),
     };
     let highlight = if tone.fill.is_some() {
         tone.name.add_modifier(decor.highlight.add_modifier)

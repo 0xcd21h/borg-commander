@@ -57,6 +57,10 @@ pub fn edit(name: &str) -> CommandLine {
     CommandLine::program("sh").flag("-c").arg(EDIT_SCRIPT.as_bytes()).flag(SCRIPT_NAME).local(name)
 }
 
+pub fn edit_path(path: &Path) -> CommandLine {
+    CommandLine::program("sh").flag("-c").arg(EDIT_SCRIPT.as_bytes()).flag(SCRIPT_NAME).path(path)
+}
+
 pub fn run(name: &str) -> CommandLine {
     CommandLine::default().local(name)
 }

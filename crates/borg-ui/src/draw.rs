@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
 use borg_core::{AppState, Layout, Overlay, Side, View, menus};
@@ -19,7 +20,6 @@ use crate::{
     dialog_view,
     fx::{self, Unfold},
     job_view,
-    keybar::draw_keybar,
     look::Look,
     menu_view,
     panel_view::{Activity, PanelScene, draw_panel},
@@ -133,17 +133,17 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
     let footer = Rect { y: area.bottom() - 1, height: 1, ..area };
     let theme = scene.theme_at(scene.state.appearance.current());
     let offset = scene.screen.scrollback_offset();
-    let history = if offset > 0 { format!(" · ↑{offset} lines · Shift-End live") } else { String::new() };
+    let history = if offset > 0 { format!(tr!(lines_shift_end_live), offset = offset) } else { String::new() };
     let hint = if scene.state.shell.captured() {
-        " · program running"
+        tr!(program_running)
     } else if area.width >= 100 {
-        " · Ctrl-O panels · wheel / Shift-PgUp/PgDn history · Shift-drag select"
+        tr!(ctrl_o_panels_wheel_shift_pgup_pgdn)
     } else {
-        " · Ctrl-O panels · wheel history"
+        tr!(ctrl_o_panels_wheel_history)
     };
     buf.set_style(footer, theme.styles.key_label);
     Line::from(vec![
-        Span::styled(" Borg console", theme.styles.key),
+        Span::styled(tr!(borg_console), theme.styles.key),
         Span::styled(history, theme.styles.key_label),
         Span::styled(hint, theme.styles.key_label),
     ])
@@ -189,6 +189,9 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     for side in Side::ALL {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
+        if rect.is_empty() {
+            continue;
+        }
         let aside = state.aside.filter(|_| aside_side == Some(side));
         if let Some(aside) = aside {
             let shown = AsideScene {
@@ -207,6 +210,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             }
         }
         let panel = PanelScene {
+            expanded: active && state.results_expanded(),
             panel: state.panel(side),
             active: active && !state.preview_focused,
             area: rect,
@@ -236,7 +240,22 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     for (offset, y) in (layout.prompt.top()..layout.prompt.bottom()).enumerate() {
         term_view::draw_row(&scene.screen, top.saturating_add(offset as u16), y, layout.prompt, &mut buf);
     }
-    draw_keybar(layout.keybar, styles, state.notice.as_deref(), &mut buf);
+    let collection_label = if state
+        .panel(state.active.other())
+        .results
+        .as_ref()
+        .is_some_and(|r| matches!(r.source, borg_core::ResultSource::Collection(_)))
+    {
+        tr!(collect)
+    } else {
+        tr!(copy)
+    };
+    let remove_label = match state.active_panel().results.as_ref().map(|r| &r.source) {
+        Some(borg_core::ResultSource::Collection(_)) => tr!(remove),
+        Some(_) => tr!(delete),
+        None => tr!(delete),
+    };
+    crate::keybar::draw_keybar(state, layout.keybar, styles, collection_label, remove_label, &mut buf);
 
     let cursor = draw_overlay(scene, &look, &layout, &mut buf);
     Chrome { buf, cursor: cursor.or(panel_cursor), placements }
@@ -328,6 +347,10 @@ fn paint_overlay(
 
     let before = (progress < FULLY_SHOWN).then(|| buf.clone());
     let (rect, cursor, unfold) = match overlay {
+        Overlay::Collections(picker) => {
+            (crate::discovery_view::collections(state, picker, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::Search(form) => (crate::discovery_view::search(form, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Menu(cursor) => {
             let x = menu_view::title_positions(&all).get(cursor.menu).copied().unwrap_or_default();
             let top = bar.map_or(screen.y, |b| b.bottom());

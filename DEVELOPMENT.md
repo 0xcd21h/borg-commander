@@ -32,6 +32,7 @@ cargo test --workspace
 ```
 crates/
   borg-app      the `borg` binary: terminal setup, event loop, effects, config, session
+  borg-i18n     shared UI labels, message templates and plural forms
   borg-core     pure state and logic: update(state, msg, now) -> effects
   borg-ui       rendering: panels, dialogs, themes, effects, art (ratatui buffers in, nothing out)
   borg-term     the embedded shell: PTY, terminal emulator, shell integration (OSC 7 / 133)
@@ -93,6 +94,41 @@ before their results are handled. Output is capped at 8 MiB and status scans tim
 
 Plugins have a separate checkbox window and persisted `[plugins]` settings. Git is the
 first bundled plugin; there is no external plugin loader yet.
+
+### Collections and live search
+
+Directory entries retain their source paths. Virtual panels reuse cursor, marks, sorting,
+viewer, and jobs while resolving selections by source identity. Named collections store
+lossless path bytes in `collections.json` under the state directory. Removing a reference
+never starts a delete job. The live recursive search worker streams metadata in bounded
+batches, coalesces obsolete requests, and stops at the documented match limit. Query
+generations reject late messages; the update loop and renderer perform no search I/O.
+
+The implementation plan in [docs/plans/virtual-panels-and-indexing.md](docs/plans/virtual-panels-and-indexing.md)
+includes subsequent metadata indexing. Live folder size scanning is available through Search.
+
+### Interface text
+
+English interface text lives in `crates/borg-i18n/src/en.rs`. Use stable message keys
+through `borg_i18n::tr!` for labels, hints, notices, and dialog titles. Keep complete
+sentences and format templates in the catalog so translations can change word order:
+
+```rust
+use borg_i18n::tr;
+
+let label = tr!(search_in);
+let title = format!(tr!(collection_title), name = collection.name);
+```
+
+Pass format arguments explicitly: the template expands from the catalog's scope.
+Use `borg_i18n::count` with its `Count` enum for singular and plural forms; renderers
+must not append an English `s`. Keep field borders and geometry in rendering code, and measure translated labels in terminal cells. Button drawing and mouse hit
+areas must use the same label and geometry.
+
+The first catalog is English only. Locale selection and additional language catalogs
+can follow this foundation. File names, shell commands, protocol values, and output
+from external programs are not message keys. Keep longer explanations in the guide;
+dialogs should contain controls, short labels, and keyboard hints.
 
 ### Graphics
 

@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, DirEntry, Metadata},
+    fs::{self, Metadata},
     io,
     path::Path,
 };
@@ -32,7 +32,7 @@ impl Backend for Local {
 }
 
 pub fn entries(dir: &Path) -> io::Result<impl Iterator<Item = Entry>> {
-    Ok(fs::read_dir(dir)?.filter_map(Result::ok).filter_map(to_entry))
+    Ok(fs::read_dir(dir)?.filter_map(Result::ok).filter_map(|item| entry(&item.path()).ok()))
 }
 
 fn stream_dir(dir: &Path, batch_size: usize, tx: &mpsc::Sender<io::Result<Vec<Entry>>>) {
@@ -61,13 +61,15 @@ fn stream_dir(dir: &Path, batch_size: usize, tx: &mpsc::Sender<io::Result<Vec<En
     }
 }
 
-fn to_entry(entry: DirEntry) -> Option<Entry> {
-    let own = entry.metadata().ok()?;
-    let target = own.file_type().is_symlink().then(|| fs::metadata(entry.path()).ok()).flatten();
+pub fn entry(path: &Path) -> io::Result<Entry> {
+    let own = fs::symlink_metadata(path)?;
+    let target = own.file_type().is_symlink().then(|| fs::metadata(path).ok()).flatten();
     let effective = target.as_ref().unwrap_or(&own);
-
-    Some(Entry {
-        name: entry.file_name().to_string_lossy().into_owned(),
+    Ok(Entry {
+        source: Some(path.to_path_buf()),
+        missing: false,
+        usage: None,
+        name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         kind: kind_of(&own, target.as_ref()),
         size: effective.len(),
         modified: effective.modified().ok(),

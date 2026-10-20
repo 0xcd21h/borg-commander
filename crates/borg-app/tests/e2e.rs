@@ -6,9 +6,9 @@ use crossterm::event::KeyCode;
 
 const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
-const PROMPT_FROM_BOTTOM: u16 = 2;
+const PROMPT_FROM_BOTTOM: u16 = 3;
 const MENU_TITLES: &str = "Left    File    Command    Options    Right";
-const MENU_NAMES: [&str; 6] = ["Left", "File", "Command", "Options", "Right", "Git"];
+const MENU_NAMES: [&str; 7] = ["Left", "File", "Command", "Options", "Right", "Git", "Search"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
@@ -324,6 +324,8 @@ fn theme_picker_previews_saves_and_restores_on_restart() -> Result<()> {
     ensure!(saved.contains("theme = \"aurora\""), "config was {saved:?}");
 
     app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
     app.wait_exit()?;
     drop(app);
 
@@ -377,7 +379,7 @@ fn resize_reflows_layout() -> Result<()> {
         let top_fits = lines
             .first()
             .is_some_and(|top| top.chars().count() == usize::from(COLS) && top.ends_with(TOP_RIGHT_CORNERS));
-        top_fits && lines[usize::from(ROWS - 1)].starts_with(FIRST_KEY)
+        top_fits && lines[usize::from(ROWS - 2)].starts_with(FIRST_KEY)
     })?;
     app.checkpoint("resized")?;
     Ok(())
@@ -388,6 +390,8 @@ fn f10_quits_cleanly() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "quit")?;
     app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
     ensure!(app.wait_exit()?.success(), "non-zero exit");
     Ok(())
 }
@@ -642,6 +646,8 @@ fn session_and_shell_output_are_restored() -> Result<()> {
     app.send(keys::ctrl('o'))?;
     app.wait_text(READY)?;
     app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
     app.wait_exit()?;
     drop(app);
 
@@ -947,7 +953,7 @@ fn recalling_a_wrapped_command_expands_the_prompt_above_the_keybar() -> Result<(
     let first = screen.find("BEGIN-RECALL").unwrap().1;
     let last = screen.find("END-RECALL").unwrap().1;
     ensure!(last > first, "recalled command should occupy multiple rows");
-    ensure!(last < screen.rows() - 1, "command should stay above the keybar");
+    ensure!(last < screen.rows() - 2, "command should stay above the keybar");
     app.send(keys::ctrl('c'))?;
     app.wait_until("prompt collapsed", |s| prompt(s).trim() == "$")?;
     Ok(())
@@ -996,6 +1002,8 @@ fn ghostty_icons_stay_rich_and_saved_settings_keep_portable_terminal_fallback() 
     ensure!(saved.contains("icon-style = \"auto\""), "automatic detection must stay automatic: {saved}");
     ensure!(!saved.contains("nerd-font"), "obsolete detected preference should be removed: {saved}");
     ghostty.send(keys::f(10))?;
+    ghostty.wait_text("Quit Borg Commander?")?;
+    ghostty.send("y")?;
     ghostty.wait_exit()?;
     drop(ghostty);
     let mut portable =
@@ -1065,5 +1073,114 @@ fn git_plugin_views_diffs_stages_unstages_and_persists_disabling() -> Result<()>
     let screen = app.wait_text(MENU_TITLES)?;
     ensure!(!screen.lines()[0].contains("Git"), "disabled plugin should remove the menu");
     ensure!(!screen.contains("Git main"), "disabled plugin should remove branch and status columns");
+    Ok(())
+}
+
+#[test]
+fn search_collect_preview_copy_remove_and_restore() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.file("beta/one.txt", "BETA source\n")?;
+    let mut app = start(&fixture, "results-workflow")?;
+    app.send(keys::ctrl('f'))?;
+    app.wait_text("Name or glob")?;
+    app.send(keys::ctrl('u'))?;
+    app.send("one.txt")?;
+    app.send(keys::enter())?;
+    let found = app.wait_until("both recursive matches", |s| {
+        s.contains("Search: one.txt") && s.contains("2/2 items") && s.contains("finished")
+    })?;
+    ensure!(found.contains("Source folder"), "source column missing\n{}", found.text());
+    let (x, y) = found.find("[+]").ok_or_else(|| anyhow::anyhow!("search must open in its pane"))?;
+    ensure!(x < found.cols() / 2);
+    app.send(mouse(0, x, y))?;
+    let expanded = app.wait_text("[=]")?;
+    let (x, y) = expanded.find("[=]").unwrap();
+    ensure!(x > expanded.cols() / 2);
+    app.send(mouse(0, x, y))?;
+    app.wait_text("[+]")?;
+    app.send(keys::key(KeyCode::Home))?;
+    app.send(keys::down())?;
+    let screen = app.wait_text("[-]")?;
+    let (x, y) = screen.find("[-]").unwrap();
+    app.send(mouse(0, x, y))?;
+    app.wait_gone("Search: one.txt")?;
+    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.wait_text("Search: one.txt")?;
+    app.send(keys::ctrl('q'))?;
+    app.wait_text("BETA source")?;
+    app.send(keys::ctrl('q'))?;
+    app.send(keys::key(KeyCode::Home))?;
+    app.send(keys::ctrl('t'))?;
+    app.send(keys::ctrl('t'))?;
+    app.wait_text("2 marked")?;
+    app.send(keys::alt(KeyCode::Char('b')))?;
+    app.wait_text("Collected in Collection")?;
+    app.send(keys::tab())?;
+    app.wait_text("Collection: Collection")?;
+    app.wait_text("2/2 items")?;
+    app.send(keys::f(8))?;
+    app.wait_text("1/1 items")?;
+    ensure!(fixture.work().join("alpha/one.txt").exists());
+    ensure!(fixture.work().join("beta/one.txt").exists());
+    app.send(keys::tab())?;
+    app.wait_text("Search: one.txt")?;
+    app.send(keys::left())?;
+    app.wait_gone("Search: one.txt")?;
+    app.send(keys::tab())?;
+    app.wait_text("Collection: Collection")?;
+    app.send(keys::f(5))?;
+    app.wait_text("Copy \"")?;
+    app.send(keys::enter())?;
+    app.wait_until("copied original from collection", |_| fixture.work().join("one.txt").exists())?;
+    app.wait_text("Copied 1 file")?;
+    ensure!(fs::read_to_string(fixture.work().join("one.txt"))? == "BETA source\n");
+    app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
+    app.wait_exit()?;
+    let mut app = Session::builder(BORG, &fixture).label("results-restored").spawn()?;
+    app.wait_text("5 items")?;
+    app.send(keys::alt(KeyCode::Char('v')))?;
+    app.wait_text("Collections")?;
+    app.send(keys::enter())?;
+    let restored = app.wait_until("saved collection restored", |s| {
+        s.contains("Collection: Collection") && s.contains("1/1 items") && !s.contains("[missing]")
+    })?;
+    ensure!(restored.contains("one.txt"));
+    Ok(())
+}
+
+#[test]
+fn folder_analysis_finds_small_file_accumulations_and_confirms_deletion() -> Result<()> {
+    let fixture = fixture()?;
+    for index in 0..40 {
+        fixture.file(&format!("alpha/node_modules/.cache/file-{index}"), "1234567890")?;
+    }
+    let mut app = start(&fixture, "space-analysis")?;
+    app.send(keys::alt(KeyCode::Char('d')))?;
+    app.wait_text("Folder totals")?;
+    app.send(keys::ctrl('u'))?.send("node_modules")?;
+    app.send(keys::tab().repeat(3))?.send("300")?;
+    app.send(keys::tab())?.send("30")?;
+    app.send(keys::enter())?;
+    let results = app.wait_until("measured cache including hidden files", |s| {
+        s.contains("Folder sizes: node_modules") && s.contains("finished") && s.contains("1/1 items")
+    })?;
+    ensure!(results.contains("40 files"), "file count missing: {}", results.text());
+    ensure!(results.contains("400 content bytes"));
+    app.send(keys::esc())?;
+    app.wait_gone("Folder sizes: node_modules")?;
+    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.wait_text("Folder sizes: node_modules")?;
+    app.send(keys::f(8))?;
+    app.wait_text("permanently?")?;
+    app.send(keys::enter())?;
+    app.wait_gone("permanently?")?;
+    ensure!(fixture.work().join("alpha/node_modules").is_dir(), "No should be selected initially");
+    app.send(keys::f(8))?;
+    app.wait_text("permanently?")?;
+    app.send("y")?;
+    app.wait_until("only selected folder deleted", |_| !fixture.work().join("alpha/node_modules").exists())?;
+    ensure!(fixture.work().join("alpha/one.txt").exists());
     Ok(())
 }

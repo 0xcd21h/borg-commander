@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
 use borg_core::{Job, JobList, JobState, Question};
@@ -21,10 +22,10 @@ const DIALOG_WIDTH: u16 = 64;
 const MARGIN: u16 = 4;
 const PADDING: u16 = 2;
 const BUTTON_GAP: &str = "  ";
-const CONFLICT_TITLE: &str = " Already exists ";
-const FAILURE_TITLE: &str = " Something went wrong ";
-const JOBS_TITLE: &str = " Jobs ";
-const JOBS_HINT: &str = " p pause · c cancel · Esc close ";
+const CONFLICT_TITLE: &str = tr!(already_exists);
+const FAILURE_TITLE: &str = tr!(something_went_wrong);
+const JOBS_TITLE: &str = tr!(job_view_jobs);
+const JOBS_HINT: &str = tr!(p_pause_c_cancel_esc_close);
 const JOBS_WIDTH: u16 = 72;
 const ROWS_PER_JOB: u16 = 2;
 const BAR_WIDTH: usize = 24;
@@ -56,9 +57,11 @@ fn pace(job: &Job, progress: &Progress, now: Instant) -> Option<(String, String)
 pub fn activity(job: &Job, now: Instant) -> Activity {
     let fraction = job.fraction();
     let label = match (&job.state, job.paused) {
-        (_, true) => format!("Paused · {}%", percent(fraction.unwrap_or_default())),
-        (JobState::Scanning(found), false) => format!("Scanning · {}", format::count(found.files as usize, "file")),
-        (JobState::Asking(_), false) => "Waiting for you".to_owned(),
+        (_, true) => format!(tr!(paused), percent(fraction.unwrap_or_default())),
+        (JobState::Scanning(found), false) => {
+            format!(tr!(scanning), format::count(found.files as usize, format::Count::File))
+        }
+        (JobState::Asking(_), false) => tr!(waiting_for_you).to_owned(),
         (JobState::Running(progress), false) => {
             let share = percent(fraction.unwrap_or_default());
             match pace(job, progress, now) {
@@ -129,7 +132,7 @@ pub fn draw_question(job: &Job, question: Question, look: &Look<'_>, screen: Rec
     let (title, lines) = match ask {
         Ask::Conflict { target, sizes, newer, .. } => {
             let place = target.parent().map(|dir| dir.display().to_string()).unwrap_or_default();
-            let fresher = if *newer { " · newer" } else { "" };
+            let fresher = if *newer { tr!(newer) } else { "" };
             (
                 CONFLICT_TITLE,
                 vec![
@@ -138,11 +141,16 @@ pub fn draw_question(job: &Job, question: Question, look: &Look<'_>, screen: Rec
                         styles.overlay.add_modifier(Modifier::BOLD),
                     ),
                     Line::styled(
-                        format!("in {}", format::truncate_start(&place, text_width.saturating_sub(3))),
+                        format!(tr!(job_source_folder), format::truncate_start(&place, text_width.saturating_sub(3))),
                         styles.overlay,
                     ),
                     Line::styled(
-                        format!("Incoming {}{fresher}  ·  Existing {}", format::size(sizes.0), format::size(sizes.1)),
+                        format!(
+                            tr!(incoming_existing),
+                            format::size(sizes.0),
+                            format::size(sizes.1),
+                            fresher = fresher
+                        ),
                         styles.overlay,
                     ),
                 ],

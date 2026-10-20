@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{
     path::PathBuf,
     time::{Instant, SystemTime},
@@ -5,7 +6,7 @@ use std::{
 
 use borg_vfs::Entry;
 
-use crate::{AppState, Effect, Image, Layout, Row};
+use crate::{AppState, Effect, Image, Row};
 
 const BORDER_CELLS: u16 = 2;
 const PADDING_CELLS: u16 = 2;
@@ -68,7 +69,8 @@ pub(crate) fn toggle(state: &mut AppState, aside: Aside) -> Vec<Effect> {
 pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
     let panel = state.active_panel();
     match panel.hovered()? {
-        Row::Entry(entry) => Some(panel.dir().join(&entry.name)),
+        Row::Entry(entry) => Some(entry.path(panel.dir())),
+        Row::Group { .. } => None,
         Row::Parent => panel.dir().parent().map(PathBuf::from),
     }
 }
@@ -82,7 +84,7 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
     };
     let wanted = Some((aside, path.clone()));
     let shown = state.peeked.as_ref().map(|peeked| (peeked.aside, peeked.path.clone()));
-    let layout = Layout::new(state.cols, state.rows, state.chrome(), state.split_target());
+    let layout = state.layout(state.epoch);
     let area = layout.panels[state.active.other().index()];
     let size = (
         usize::from(area.width.saturating_sub(BORDER_CELLS + PADDING_CELLS)),
@@ -92,7 +94,7 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
             && let Err(error) = pager.resize(size.0, size.1)
         {
-            state.notice = Some(format!("preview: {error}"));
+            state.notice = Some(format!(tr!(preview_error), error = error));
         }
         return None;
     }
@@ -134,7 +136,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &crossterm::event::KeyEvent, now
             if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
                 && let Err(error) = crate::viewer::scroll(pager, key.code)
             {
-                state.notice = Some(format!("preview: {error}"));
+                state.notice = Some(format!(tr!(preview_error), error = error));
             }
         }
     }

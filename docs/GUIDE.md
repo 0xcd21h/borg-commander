@@ -52,7 +52,63 @@ regular and bold fonts from `fonts/`, select Borg Mono in your terminal, and cho
 The installer saves them in `${XDG_DATA_HOME:-~/.local/share}/borg-commander/fonts`;
 Homebrew keeps them in `$(brew --prefix)/share/borg-commander/fonts`.
 
+## Collections and recursive search
+
+The Search menu opens collections and recursive filename search. Both use sortable
+results with source paths and the existing viewer and quick preview.
+
+- **Ctrl-F:** search recursively below the current folder, using a name fragment or
+  glob such as `*.log`. Lowercase queries ignore case; uppercase queries match case.
+- **Alt-B:** collect marked files, or the current file, in the other panel. Adding a
+  reference does not copy the file's contents.
+- **Alt-V:** choose a saved collection from a scrollable list with entry counts and
+  size estimates. Press F7 or N to create one. Collections survive restarting Borg.
+- **Esc:** hide results, preserving the cursor, scroll, marks, filter, and grouping.
+- **Alt-R:** resume the hidden view. A scan continues while hidden.
+- **Alt-D:** analyze folder sizes, including hidden files by default. Ctrl-C stops a scan.
+- **Alt-W:** maximize or restore the active result pane. Results open in a normal
+  pane by default. The title-bar `[+]` (maximize), `[=]` (restore), and `[-]` (fold) controls are clickable.
+  Fold hides the view; Alt-R resumes it with its layout and selection preserved.
+- **Ctrl-S:** filter results by name or source path. An empty filter shows everything.
+
+Click a column heading to sort or reverse it. The Left/Right menus also offer sorting;
+Search adds source-folder sorting and grouping by folder or file type. Enter on a
+group heading folds it; Insert marks its matching members. Marks survive sorting and filtering; the footer counts marked
+files hidden by the filter as well.
+
+F3 and Ctrl-Q open the real source. F5 copies to a real destination; if the destination
+panel is a collection, it adds references instead. F6 requires a real destination.
+F8 removes references from a collection. In search results, F8 asks to delete the
+originals. Shift-F8 also deletes originals from a collection, after confirmation.
+When both a folder and its contents are marked, the folder is sent to the job once.
+Reveal original opens its source folder in the other panel. Left or Esc hides
+results; Alt-R resumes them in the same place. Tab switches virtual panels even
+when the shell has a pending command. The shell keeps a real working directory.
+F10 always asks before quitting.
+
+Search reads filenames and metadata, with a cancellable worker and a maximum of
+20,000 matches per search. The context line shows completion, errors, skipped entries,
+and whether that limit was reached. Hidden folders follow Show hidden files. Search
+stays on the starting filesystem and does not recurse through directory symlinks.
+The search window can restrict results to files or folders and set a minimum size.
+Choose **Folder totals** to measure all descendant files before filtering by name,
+size, or minimum file count. It keeps the largest 20,000 matching folders and sorts
+by content size; click Files to rank by number of files instead. Use a pattern such
+as `node_modules` or `*cache*`, or `*` to inspect everything beneath the chosen root.
+Totals count file contents, not guaranteed recoverable disk space. Nested folder
+rows overlap. Symlinks are excluded; filesystem boundaries and unreadable or excluded
+children make totals incomplete, shown with ≥. Directory scans use metadata and do
+not read file contents. Results appear after measurement; the scan remains cancellable.
+Indexed and content search are planned separately.
+
+Git and archive actions currently work from real directory panels. Use Reveal original
+to access them for a collected file.
+
 ## Keys
+
+The two-row shortcut bar sits below the command line. Function keys are on the first
+row; search, collections, and other contextual shortcuts are on the second. Both
+rows are clickable. Notices temporarily replace the second row.
 
 | Key | Action |
 | --- | --- |
