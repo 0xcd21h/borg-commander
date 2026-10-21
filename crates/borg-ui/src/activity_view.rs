@@ -101,8 +101,8 @@ fn regions(activity: &Activity, theme: &Theme, inner: Rect, body: Rect, buf: &mu
             }
             RegionRow::File(first) => format!("{indent}{arrow} {}", activity.file_name(first)),
             RegionRow::Region(i) => {
-                let region = &activity.regions[i];
-                let label = if activity.grouped { region.kind() } else { region.name.as_str() };
+                let region = &activity.regions()[i];
+                let label = if activity.grouped() { region.kind() } else { region.name.as_str() };
                 format!("{indent}{} {label}", region.permissions)
             }
         };
@@ -205,14 +205,18 @@ fn metrics(page: &mut Page<'_>, totals: &MemoryTotals, whole: Option<u64>, look:
 
 fn group_preview(activity: &Activity, group: MemoryGroup, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
     let theme = look.theme;
-    let members = activity.group_members(group);
-    let totals = MemoryTotals::of(activity.regions.iter().filter(|r| activity.region_group(r) == group));
-    let whole = MemoryTotals::of(&activity.regions).footprint;
+    let members: Vec<_> = activity.group_members(group).take(LARGEST).collect();
+    let totals = activity.group_totals(group);
+    let whole = activity.region_totals().footprint;
     let mut page = Page { buf, area: body, y: 0 };
     page.line(group.label(), heading(theme));
     let count = format::count(totals.regions, Count::Region);
     page.line(
-        if group.by_file() { format!("{} · {count}", format::count(members.len(), Count::File)) } else { count },
+        if group.by_file() {
+            format!("{} · {count}", format::count(activity.group_members(group).count(), Count::File))
+        } else {
+            count
+        },
         dim(theme),
     );
     page.gap();
@@ -221,15 +225,19 @@ fn group_preview(activity: &Activity, group: MemoryGroup, look: &Look<'_>, body:
     page.wrapped(group.about(), theme.styles.overlay);
     if group != MemoryGroup::Reserved && page.room() > 3 {
         page.gap();
-        page.line(tr!(memory_largest), heading(theme));
+        // Members rank by footprint, then by resident size, so a group that costs nothing
+        // still shows what occupies the most RAM.
+        let by_footprint = totals.footprint.unwrap_or(0) > 0;
+        page.line(if by_footprint { tr!(memory_largest) } else { tr!(memory_largest_resident) }, heading(theme));
         let width = page.area.width;
         for (row, totals) in members.iter().take(LARGEST.min(usize::from(page.room().saturating_sub(5)).max(1))) {
             let name = match *row {
                 RegionRow::File(first) => activity.file_name(first).to_owned(),
-                RegionRow::Region(i) => activity.regions[i].name.clone(),
+                RegionRow::Region(i) => activity.regions()[i].name.clone(),
                 RegionRow::Group(_) => continue,
             };
-            page.line(sized_line(&format!("  {name}"), &sizes(totals)[..1], width), theme.styles.overlay);
+            let value = if by_footprint { size(totals.footprint) } else { size(totals.resident) };
+            page.line(sized_line(&format!("  {name}"), &[value], width), theme.styles.overlay);
         }
     }
     if page.room() > 4 {
@@ -245,14 +253,18 @@ fn file_preview(activity: &Activity, first: usize, look: &Look<'_>, body: Rect, 
     let regions = activity.file_regions(first);
     let Some(region) = regions.first() else { return };
     let totals = MemoryTotals::of(regions.iter().copied());
-    let whole = MemoryTotals::of(&activity.regions).footprint;
+    let whole = activity.region_totals().footprint;
     let mut page = Page { buf, area: body, y: 0 };
     page.line(activity.file_name(first), heading(theme));
     if let Some(path) = &region.path {
         page.wrapped(path, dim(theme));
     }
     page.line(
-        format!("{} · {}", activity.region_group(region).label(), format::count(regions.len(), Count::Region)),
+        format!(
+            "{} · {}",
+            activity.file_group(first).unwrap_or_else(|| activity.region_group(region)).label(),
+            format::count(regions.len(), Count::Region)
+        ),
         dim(theme),
     );
     page.gap();
@@ -444,10 +456,42 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
         })
         .collect()
 }
-pub(crate) fn draw_panel(
+/// Draws the activity monitor. Inspecting a process opens a window over it, holding the
+/// inspection list and its preview, while the process list and overview stay beneath.
+pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], monitor: [Rect; 2], buf: &mut Buffer) {
+    let activity = &state.activity;
+    let Some(side) = activity.side else { return };
+    if activity.inspecting() {
+        for (pane, page) in [(side, ActivityPage::Processes), (side.other(), ActivityPage::Memory)] {
+            if !monitor[pane.index()].is_empty() {
+                draw_panel(state, look, monitor[pane.index()], page, pane == side, false, buf);
+            }
+        }
+        let [left, right] = monitor;
+        let whole = Rect { width: right.right().saturating_sub(left.x), ..left };
+        crate::fx::fade_to_background(buf, whole, crate::draw::BACKDROP, look.palette);
+    }
+    for pane in [side, side.other()] {
+        let rect = panels[pane.index()];
+        if rect.is_empty() {
+            continue;
+        }
+        let list = pane == side;
+        let (page, focused) =
+            if list { (activity.list, !activity.preview_focused) } else { (activity.page, activity.preview_focused) };
+        draw_panel(state, look, rect, page, list, focused, buf);
+    }
+    if activity.inspecting() {
+        let window = panels.into_iter().filter(|r| !r.is_empty()).reduce(|a, b| a.union(b)).unwrap_or_default();
+        crate::fx::shadow(buf, window, look.palette);
+    }
+}
+
+fn draw_panel(
     state: &AppState,
     look: &Look<'_>,
     screen: Rect,
+    page: ActivityPage,
     processes: bool,
     focused: bool,
     buf: &mut Buffer,
@@ -456,9 +500,11 @@ pub(crate) fn draw_panel(
     let activity = &state.activity;
     let rect = screen;
     let styles = &theme.styles;
-    let page = if processes { activity.list } else { activity.page };
+    // The pane showing the current list or preview, rather than the monitor beneath an
+    // inspection window.
+    let live = if processes { page == activity.list } else { page == activity.page };
     Clear.render(rect, buf);
-    let title = if !processes && activity.search_form.is_some() {
+    let title = if !processes && live && activity.search_form.is_some() {
         tr!(memory_search_title)
     } else {
         match page {
@@ -535,9 +581,9 @@ pub(crate) fn draw_panel(
     } else {
         summary
     };
-    let summary = if processes && activity.list != ActivityPage::Processes {
+    let summary = if processes && page != ActivityPage::Processes {
         let pid = activity.selected.map_or(0, |p| p.pid);
-        if activity.regions.is_empty() {
+        if activity.regions().is_empty() {
             format!(
                 tr!(process_memory_sampled),
                 pid = pid,
@@ -545,7 +591,7 @@ pub(crate) fn draw_panel(
                 mapped = size(activity.process().and_then(|p| p.virtual_bytes))
             )
         } else {
-            let totals = MemoryTotals::of(&activity.regions);
+            let totals = activity.region_totals();
             format!(
                 tr!(process_memory_summary),
                 pid = pid,
@@ -582,7 +628,7 @@ pub(crate) fn draw_panel(
         tr!(activity_process_gone).into()
     };
     text(buf, row(inner, 1), subtitle, styles.overlay);
-    if processes && activity.list != ActivityPage::Processes {
+    if processes && page != ActivityPage::Processes {
         Clear.render(row(inner, 1), buf);
         buf.set_style(row(inner, 1), styles.overlay);
         for (rect, label, code) in tabs(row(inner, 1)) {
@@ -597,7 +643,10 @@ pub(crate) fn draw_panel(
         }
     }
     let body = body(screen);
-    if !processes && let Some(form) = &activity.search_form {
+    if !processes
+        && live
+        && let Some(form) = &activity.search_form
+    {
         search_form(form, theme, body, buf);
     } else {
         match page {
@@ -678,13 +727,17 @@ pub(crate) fn draw_panel(
     });
     let files_note = (activity.list == ActivityPage::Files && activity.files_loaded)
         .then(|| format!(tr!(process_files_count), count = activity.files.len(), skipped = activity.files_skipped));
-    let note = activity
-        .error
-        .as_deref()
-        .or(progress.as_deref())
-        .or(state.notice.as_deref())
-        .or(files_note.as_deref())
-        .unwrap_or(if activity.pending.is_some() { tr!(activity_loading) } else { "" });
+    let note = if !live {
+        ""
+    } else {
+        activity
+            .error
+            .as_deref()
+            .or(progress.as_deref())
+            .or(state.notice.as_deref())
+            .or(files_note.as_deref())
+            .unwrap_or(if activity.pending.is_some() { tr!(activity_loading) } else { "" })
+    };
     text(buf, row(footer, 0), note, if activity.error.is_some() { styles.notice } else { styles.footer });
     rect
 }
@@ -704,8 +757,9 @@ fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
         return;
     };
     let history = activity.histories.get(&p.key);
-    let summed =
-        |value: fn(&MemoryRegion) -> Option<u64>| activity.regions.iter().filter_map(value).reduce(u64::saturating_add);
+    let summed = |value: fn(&MemoryRegion) -> Option<u64>| {
+        activity.regions().iter().filter_map(value).reduce(u64::saturating_add)
+    };
     let mut tiles = vec![
         (tr!(activity_resident), size(p.resident)),
         (tr!(activity_peak), size(history.map(|h| h.peak))),
@@ -713,7 +767,7 @@ fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
         (tr!(activity_cpu_tile), p.cpu.map_or_else(|| "—".into(), |v| format!("{:.1}%", f64::from(v) / 100.0))),
         (tr!(activity_virtual), size(p.virtual_bytes)),
     ];
-    let footprint = MemoryTotals::of(&activity.regions).footprint;
+    let footprint = activity.region_totals().footprint;
     for (label, value) in [
         (tr!(activity_footprint), footprint),
         (tr!(activity_swapped), summed(|r| r.swap)),

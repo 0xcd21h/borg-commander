@@ -354,6 +354,9 @@ impl AppState {
     pub fn layout(&self, now: Instant) -> Layout {
         let mut layout = Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now));
         if let Some(side) = self.activity.side {
+            if self.activity.inspecting() {
+                layout.panels = inspection_panels(layout.panels);
+            }
             if self.activity.expanded {
                 let left = layout.panels[0];
                 let right = layout.panels[1];
@@ -379,6 +382,11 @@ impl AppState {
             layout.panels[self.active.other().index()] = other;
         }
         layout
+    }
+
+    /// The activity monitor's own panes, which stay beneath the inspection window.
+    pub fn monitor_panels(&self, now: Instant) -> [ratatui::layout::Rect; 2] {
+        Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now)).panels
     }
 
     pub fn split_target(&self) -> f32 {
@@ -558,4 +566,25 @@ impl AppState {
         self.generation += 1;
         self.generation
     }
+}
+
+/// Columns and rows left around the process inspection window, which opens over the
+/// activity monitor. The overlay shadow fills the right and bottom margins.
+const INSPECTION_MARGIN: (u16, u16) = (2, 1);
+
+/// The list and preview panes of the inspection window, splitting it like the panels.
+fn inspection_panels([left, right]: [ratatui::layout::Rect; 2]) -> [ratatui::layout::Rect; 2] {
+    let whole = ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+    let (columns, rows) = INSPECTION_MARGIN;
+    let outer = ratatui::layout::Rect {
+        x: whole.x.saturating_add(columns),
+        y: whole.y.saturating_add(rows),
+        width: whole.width.saturating_sub(columns * 2),
+        height: whole.height.saturating_sub(rows * 2),
+    };
+    let split = (u32::from(outer.width) * u32::from(left.width) / u32::from(whole.width.max(1))) as u16;
+    [
+        ratatui::layout::Rect { width: split, ..outer },
+        ratatui::layout::Rect { x: outer.x + split, width: outer.width - split, ..outer },
+    ]
 }

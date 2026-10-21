@@ -105,6 +105,7 @@ impl MemoryRegion {
         } else if name.contains("malloc")
             || name.contains("heap")
             || name.starts_with("vm_allocate")
+            || application_tag(&name)
             || (name.is_empty() && self.permissions.contains('w'))
         {
             MemoryGroup::Heap
@@ -116,6 +117,14 @@ impl MemoryRegion {
             MemoryGroup::Other
         }
     }
+}
+/// macOS reserves memory tags 240–255 for applications' own allocators, such as the
+/// PartitionAlloc and V8 heaps of Chromium-based browsers.
+fn application_tag(name: &str) -> bool {
+    const APPLICATION_TAGS: std::ops::RangeInclusive<u8> = 240..=255;
+    name.strip_prefix("memory tag ")
+        .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
+        .is_some_and(|tag| APPLICATION_TAGS.contains(&tag))
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemoryGroup {
@@ -204,6 +213,12 @@ impl MemoryTotals {
 }
 /// A row inside a group, its totals, and the indices of its regions.
 type Member = (RegionRow, MemoryTotals, Vec<usize>);
+#[derive(Debug, Clone)]
+struct GroupEntry {
+    group: MemoryGroup,
+    totals: MemoryTotals,
+    members: Vec<Member>,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegionItem {
     pub row: RegionRow,
@@ -378,11 +393,18 @@ pub struct Activity {
     pub filter: String,
     pub filtering: bool,
     pub paused: bool,
-    pub regions: Vec<MemoryRegion>,
+    regions: Vec<MemoryRegion>,
     pub region_cursor: usize,
-    pub grouped: bool,
-    pub expanded_groups: HashSet<MemoryGroup>,
-    pub expanded_files: HashSet<String>,
+    grouped: bool,
+    expanded_groups: HashSet<MemoryGroup>,
+    expanded_files: HashSet<String>,
+    /// The inspected program's executable, which identifies its own mappings.
+    program: Option<String>,
+    /// Regions grouped and ranked once per memory map.
+    groups: Vec<GroupEntry>,
+    /// The rows shown for the current grouping and expansion.
+    visible: Vec<RegionItem>,
+    totals: MemoryTotals,
     pub files: Vec<ProcessFile>,
     pub files_skipped: usize,
     pub files_loaded: bool,
@@ -431,6 +453,10 @@ impl Default for Activity {
             grouped: true,
             expanded_groups: HashSet::new(),
             expanded_files: HashSet::new(),
+            program: None,
+            groups: Vec::new(),
+            visible: Vec::new(),
+            totals: MemoryTotals::default(),
             files: Vec::new(),
             files_skipped: 0,
             files_loaded: false,
@@ -450,19 +476,40 @@ impl Default for Activity {
     }
 }
 impl Activity {
-    fn program(&self) -> Option<String> {
-        self.process()?.executable.as_ref().map(|p| p.to_string_lossy().into_owned())
+    pub fn regions(&self) -> &[MemoryRegion] {
+        &self.regions
+    }
+    pub fn grouped(&self) -> bool {
+        self.grouped
+    }
+    /// Totals of the whole memory map.
+    pub fn region_totals(&self) -> MemoryTotals {
+        self.totals
+    }
+    pub fn group_totals(&self, group: MemoryGroup) -> MemoryTotals {
+        self.groups.iter().find(|g| g.group == group).map_or_else(MemoryTotals::default, |g| g.totals)
+    }
+    /// Replaces the memory map and ranks it once; moving through it reuses the result.
+    pub fn set_regions(&mut self, regions: Vec<MemoryRegion>) {
+        self.regions = regions;
+        self.program = self.process().and_then(|p| p.executable.as_ref()).map(|p| p.to_string_lossy().into_owned());
+        self.totals = MemoryTotals::of(&self.regions);
+        self.groups = self.rank_groups();
+        self.refresh_tree();
+    }
+    pub(crate) fn set_grouped(&mut self, grouped: bool) {
+        self.grouped = grouped;
+        self.refresh_tree();
     }
     pub fn region_group(&self, region: &MemoryRegion) -> MemoryGroup {
-        region.group(self.program().as_deref())
+        region.group(self.program.as_deref())
     }
     /// Groups ordered by footprint (reservations last), each with its members: mapped files
     /// for groups listed per file, regions otherwise, ordered by footprint.
-    fn groups(&self) -> Vec<(MemoryGroup, MemoryTotals, Vec<Member>)> {
-        let program = self.program();
+    fn rank_groups(&self) -> Vec<GroupEntry> {
         let mut buckets: HashMap<MemoryGroup, Vec<usize>> = HashMap::new();
         for (i, region) in self.regions.iter().enumerate() {
-            buckets.entry(region.group(program.as_deref())).or_default().push(i);
+            buckets.entry(self.region_group(region)).or_default().push(i);
         }
         let totals = |indices: &[usize]| MemoryTotals::of(indices.iter().map(|&i| &self.regions[i]));
         let mut groups: Vec<_> = MemoryGroup::ALL
@@ -487,10 +534,10 @@ impl Activity {
                     indices.iter().map(|&i| (RegionRow::Region(i), totals(&[i]), vec![i])).collect()
                 };
                 members.sort_by(|a, b| a.1.rank().cmp(&b.1.rank()).then_with(|| self.member_order(a.0, b.0)));
-                Some((group, totals(&indices), members))
+                Some(GroupEntry { group, totals: totals(&indices), members })
             })
             .collect();
-        groups.sort_by_key(|(group, totals, _)| (*group == MemoryGroup::Reserved, totals.rank()));
+        groups.sort_by_key(|g| (g.group == MemoryGroup::Reserved, g.totals.rank()));
         groups
     }
     fn member_order(&self, a: RegionRow, b: RegionRow) -> std::cmp::Ordering {
@@ -501,39 +548,40 @@ impl Activity {
         }
     }
     /// The members of a group, largest footprint first.
-    pub fn group_members(&self, group: MemoryGroup) -> Vec<(RegionRow, MemoryTotals)> {
-        self.groups()
-            .into_iter()
-            .find(|(g, _, _)| *g == group)
-            .map(|(_, _, members)| members.into_iter().map(|(row, totals, _)| (row, totals)).collect())
-            .unwrap_or_default()
+    pub fn group_members(&self, group: MemoryGroup) -> impl Iterator<Item = (RegionRow, MemoryTotals)> + '_ {
+        self.groups.iter().filter(move |g| g.group == group).flat_map(|g| g.members.iter().map(|m| (m.0, m.1)))
     }
-    /// The region list as shown: groups, open groups' members and open files' regions, or
-    /// every region in address order when ungrouped.
-    pub fn region_tree(&self) -> Vec<RegionItem> {
+    fn refresh_tree(&mut self) {
         let item = |row, depth, totals, files, expanded| RegionItem { row, depth, totals, files, expanded };
         let single = |i: usize| MemoryTotals::of([&self.regions[i]]);
         if !self.grouped {
-            return (0..self.regions.len()).map(|i| item(RegionRow::Region(i), 0, single(i), 0, false)).collect();
+            self.visible =
+                (0..self.regions.len()).map(|i| item(RegionRow::Region(i), 0, single(i), 0, false)).collect();
+            return;
         }
         let mut items = Vec::new();
-        for (group, totals, members) in self.groups() {
-            let open = self.expanded_groups.contains(&group);
-            let files = if group.by_file() { members.len() } else { 0 };
-            items.push(item(RegionRow::Group(group), 0, totals, files, open));
+        for entry in &self.groups {
+            let open = self.expanded_groups.contains(&entry.group);
+            let files = if entry.group.by_file() { entry.members.len() } else { 0 };
+            items.push(item(RegionRow::Group(entry.group), 0, entry.totals, files, open));
             if !open {
                 continue;
             }
-            for (row, totals, regions) in members {
+            for (row, totals, regions) in &entry.members {
                 let file_open =
-                    matches!(row, RegionRow::File(first) if self.expanded_files.contains(self.file_key(first)));
-                items.push(item(row, 1, totals, 0, file_open));
+                    matches!(row, RegionRow::File(first) if self.expanded_files.contains(self.file_key(*first)));
+                items.push(item(*row, 1, *totals, 0, file_open));
                 if file_open {
-                    items.extend(regions.into_iter().map(|i| item(RegionRow::Region(i), 2, single(i), 0, false)));
+                    items.extend(regions.iter().map(|&i| item(RegionRow::Region(i), 2, single(i), 0, false)));
                 }
             }
         }
-        items
+        self.visible = items;
+    }
+    /// The region list as shown: groups, open groups' members and open files' regions, or
+    /// every region in address order when ungrouped.
+    pub fn region_tree(&self) -> &[RegionItem] {
+        &self.visible
     }
     fn file_key(&self, first: usize) -> &str {
         self.regions.get(first).map_or("", |r| r.path.as_deref().unwrap_or(&r.name))
@@ -543,42 +591,51 @@ impl Activity {
         let key = self.file_key(first);
         key.rsplit('/').find(|part| !part.is_empty()).unwrap_or(key)
     }
-    /// The regions mapped from the same file as the region at `first`.
+    fn file_entry(&self, first: usize) -> Option<(MemoryGroup, &Member)> {
+        self.groups.iter().find_map(|g| g.members.iter().find(|m| m.0 == RegionRow::File(first)).map(|m| (g.group, m)))
+    }
+    /// The group listing a mapped file.
+    pub fn file_group(&self, first: usize) -> Option<MemoryGroup> {
+        self.file_entry(first).map(|(group, _)| group)
+    }
+    /// The regions mapped from the same file as the region at `first`, in address order.
     pub fn file_regions(&self, first: usize) -> Vec<&MemoryRegion> {
-        let key = self.file_key(first);
-        self.regions.iter().filter(|r| r.path.as_deref().unwrap_or(&r.name) == key).collect()
+        self.file_entry(first).map(|(_, m)| m.2.iter().map(|&i| &self.regions[i]).collect()).unwrap_or_default()
     }
     pub fn region_rows(&self) -> Vec<RegionRow> {
-        self.region_tree().into_iter().map(|item| item.row).collect()
+        self.visible.iter().map(|item| item.row).collect()
+    }
+    fn selected_row(&self) -> Option<RegionRow> {
+        self.visible.get(self.region_cursor).map(|item| item.row)
     }
     pub fn selected_region(&self) -> Option<&MemoryRegion> {
-        match self.region_rows().get(self.region_cursor)? {
-            RegionRow::Region(i) => self.regions.get(*i),
+        match self.selected_row()? {
+            RegionRow::Region(i) => self.regions.get(i),
             _ => None,
         }
     }
     pub fn selected_group(&self) -> Option<MemoryGroup> {
-        match self.region_rows().get(self.region_cursor)? {
-            RegionRow::Group(g) => Some(*g),
+        match self.selected_row()? {
+            RegionRow::Group(g) => Some(g),
             _ => None,
         }
     }
     /// The selected mapped file, as the index of its first region.
     pub fn selected_file(&self) -> Option<usize> {
-        match self.region_rows().get(self.region_cursor)? {
-            RegionRow::File(first) => Some(*first),
+        match self.selected_row()? {
+            RegionRow::File(first) => Some(first),
             _ => None,
         }
     }
     fn selected_row_key(&self) -> Option<RowKey> {
-        Some(match self.region_rows().get(self.region_cursor)? {
-            RegionRow::Group(group) => RowKey::Group(*group),
-            RegionRow::File(first) => RowKey::File(self.file_key(*first).to_owned()),
-            RegionRow::Region(i) => RowKey::Region(self.regions.get(*i)?.start),
+        Some(match self.selected_row()? {
+            RegionRow::Group(group) => RowKey::Group(group),
+            RegionRow::File(first) => RowKey::File(self.file_key(first).to_owned()),
+            RegionRow::Region(i) => RowKey::Region(self.regions.get(i)?.start),
         })
     }
     fn find_row(&self, key: &RowKey) -> Option<usize> {
-        self.region_rows().iter().position(|row| match (row, key) {
+        self.visible.iter().map(|item| &item.row).position(|row| match (row, key) {
             (RegionRow::Group(group), RowKey::Group(wanted)) => group == wanted,
             (RegionRow::File(first), RowKey::File(wanted)) => self.file_key(*first) == wanted,
             (RegionRow::Region(i), RowKey::Region(start)) => self.regions[*i].start == *start,
@@ -677,10 +734,10 @@ impl Activity {
     fn select(&mut self) {
         let selected = self.rows.get(self.cursor).map(|&(i, _)| self.sample.processes[i].key);
         if self.selected != selected {
-            self.regions.clear();
             self.region_cursor = 0;
             self.expanded_groups.clear();
             self.expanded_files.clear();
+            self.set_regions(Vec::new());
             self.files.clear();
             self.files_skipped = 0;
             self.files_loaded = false;
@@ -714,6 +771,10 @@ impl Activity {
             self.error = None;
         }
         vec![Effect::Activity { id: self.next_id, request }]
+    }
+    /// Whether a process is open for inspection: its memory map, open files, or matches.
+    pub fn inspecting(&self) -> bool {
+        self.list != ActivityPage::Processes
     }
     pub fn focused_page(&self) -> ActivityPage {
         if self.preview_focused { self.page } else { self.list }
@@ -770,7 +831,7 @@ impl Activity {
             }
             ActivityPage::Regions => {
                 self.region_cursor =
-                    self.region_cursor.saturating_add_signed(delta).min(self.region_rows().len().saturating_sub(1))
+                    self.region_cursor.saturating_add_signed(delta).min(self.visible.len().saturating_sub(1))
             }
             ActivityPage::Files => {
                 self.file_cursor = self.file_cursor.saturating_add_signed(delta).min(self.files.len().saturating_sub(1))
@@ -912,7 +973,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
         }
         Ok(ActivityData::Regions(regions)) => {
             let selected = activity.selected_row_key();
-            activity.regions = regions;
+            activity.set_regions(regions);
             activity.region_cursor = selected.and_then(|key| activity.find_row(&key)).unwrap_or(0);
             activity.retry = None;
             activity.schedule_preview(now);
@@ -1295,7 +1356,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         match key.code {
             KeyCode::Char('g' | 'G') => {
                 let address = state.activity.selected_region().map(|r| r.start);
-                state.activity.grouped = !state.activity.grouped;
+                state.activity.set_grouped(!state.activity.grouped);
                 state.activity.region_cursor =
                     address.and_then(|start| state.activity.find_row(&RowKey::Region(start))).unwrap_or(0);
                 state.activity.tops[1] = 0;
@@ -1349,7 +1410,10 @@ fn toggle(activity: &mut Activity, expand: bool, now: Instant) {
     let Some(item) = items.get(activity.region_cursor) else { return };
     let parent = |depth: usize| items[..activity.region_cursor].iter().rposition(|i| i.depth < depth);
     let target = if expand || item.expanded { Some(activity.region_cursor) } else { parent(item.depth) };
-    let Some(target) = target.filter(|&t| !matches!(items[t].row, RegionRow::Region(_))) else { return };
+    let Some((target, row)) = target.map(|t| (t, items[t].row)).filter(|(_, row)| !matches!(row, RegionRow::Region(_)))
+    else {
+        return;
+    };
     let open = |activity: &mut Activity, row: RegionRow, open: bool| match row {
         RegionRow::Group(group) if open => _ = activity.expanded_groups.insert(group),
         RegionRow::Group(group) => _ = activity.expanded_groups.remove(&group),
@@ -1363,9 +1427,9 @@ fn toggle(activity: &mut Activity, expand: bool, now: Instant) {
         }
         RegionRow::Region(_) => {}
     };
-    open(activity, items[target].row, expand);
-    activity.region_cursor = target + usize::from(expand);
-    activity.region_cursor = activity.region_cursor.min(activity.region_rows().len().saturating_sub(1));
+    open(activity, row, expand);
+    activity.refresh_tree();
+    activity.region_cursor = (target + usize::from(expand)).min(activity.visible.len().saturating_sub(1));
     activity.schedule_preview(now);
 }
 
@@ -1710,7 +1774,7 @@ mod tests {
     fn maps_drill_into_the_list_pane_and_debounce_bounded_previews_without_changing_focus() {
         let (mut state, now) = state();
         open(&mut state);
-        state.activity.grouped = false;
+        state.activity.set_grouped(false);
         sample(&mut state, vec![process(2, 10, 200)], now);
         state.activity.paused = true;
         let selected = state.activity.selected;
@@ -1784,7 +1848,7 @@ mod tests {
         sample(&mut state, (1..=100).map(|pid| process(pid, 1, 100)).collect(), now);
         for page in [ActivityPage::Processes, ActivityPage::Regions, ActivityPage::Search, ActivityPage::Files] {
             state.activity.page = page;
-            state.activity.grouped = false;
+            state.activity.set_grouped(false);
             let region = MemoryRegion {
                 start: 0,
                 end: 1,
@@ -1796,7 +1860,7 @@ mod tests {
                 swap: None,
                 ..Default::default()
             };
-            state.activity.regions = vec![region.clone(); 100];
+            state.activity.set_regions(vec![region.clone(); 100]);
             state.activity.files = (0..100)
                 .map(|i| ProcessFile {
                     descriptor: i.to_string(),
@@ -1950,5 +2014,8 @@ mod tests {
         assert_eq!(state.activity.region_rows().len(), 4);
         key(&mut state, KeyCode::Char('g'));
         assert_eq!(state.activity.region_rows().len(), 6);
+        let tagged = |name: &str| MemoryRegion { name: name.into(), permissions: "rw-".into(), ..Default::default() };
+        assert_eq!(tagged("Memory Tag 253").group(None), MemoryGroup::Heap);
+        assert_eq!(tagged("Memory Tag 22").group(None), MemoryGroup::Other);
     }
 }
