@@ -44,8 +44,10 @@ fn convert(screen: &Screen<'_>, cell: &TermCell, out: &mut Cell) {
         return;
     }
 
-    let mut symbol = String::from(if cell.c == '\0' { BLANK } else { cell.c });
-    symbol.extend(cell.zerowidth().into_iter().flatten());
+    // The emulator keeps a tab character in the cell where a tab starts; like other
+    // control characters it occupies a blank cell on screen.
+    let mut symbol = String::from(if cell.c.is_control() { BLANK } else { cell.c });
+    symbol.extend(cell.zerowidth().into_iter().flatten().filter(|c| !c.is_control()));
     out.set_symbol(&symbol);
     out.fg = color(screen, cell.fg);
     out.bg = color(screen, cell.bg);

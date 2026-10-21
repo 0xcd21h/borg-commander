@@ -173,6 +173,18 @@ fn typed_command_runs_in_shell_and_ctrl_o_returns() -> Result<()> {
 }
 
 #[test]
+fn command_output_with_tabs_renders_in_the_console() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "tab-output")?;
+    app.send("printf 'tab\\tseparated\\n'")?.send(keys::enter())?;
+    let screen = app.wait_text("separated")?;
+    ensure!(screen.lines().iter().any(|line| line.contains("tab") && line.contains("separated")));
+    app.send(keys::ctrl('o'))?;
+    app.wait_text(READY)?;
+    Ok(())
+}
+
+#[test]
 fn shift_enter_edits_the_shell_buffer_in_place_in_each_shell() -> Result<()> {
     const FIRST: &str = "touch first-ran;";
     const SECOND: &str = "touch second-ran";
