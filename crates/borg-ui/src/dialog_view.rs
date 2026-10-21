@@ -108,24 +108,35 @@ pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Bu
     rect
 }
 
+/// Wraps a message between words; only a word wider than the dialog, such as a long
+/// path, is broken inside.
 fn message_lines(message: &str, width: u16) -> Vec<Line<'static>> {
-    use unicode_width::UnicodeWidthChar;
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    let width = usize::from(width.max(1));
     let mut lines = Vec::new();
-    let mut text = String::new();
-    let mut columns = 0;
-    for character in message.chars() {
-        let next = character.width().unwrap_or(0);
-        if character == '\n' || columns + next > usize::from(width.max(1)) {
-            lines.push(Line::raw(std::mem::take(&mut text)));
-            columns = 0;
-            if character == '\n' {
+    for paragraph in message.split('\n') {
+        let mut text = String::new();
+        for word in paragraph.split(' ') {
+            let gap = usize::from(!text.is_empty());
+            if text.width() + gap + word.width() <= width {
+                if gap == 1 {
+                    text.push(' ');
+                }
+                text.push_str(word);
                 continue;
             }
+            if !text.is_empty() {
+                lines.push(Line::raw(std::mem::take(&mut text)));
+            }
+            for character in word.chars() {
+                if text.width() + character.width().unwrap_or(0) > width {
+                    lines.push(Line::raw(std::mem::take(&mut text)));
+                }
+                text.push(character);
+            }
         }
-        text.push(character);
-        columns += next;
+        lines.push(Line::raw(text));
     }
-    lines.push(Line::raw(text));
     lines
 }
 
@@ -205,4 +216,26 @@ pub(crate) fn skip_columns(text: &str, columns: usize) -> String {
             skip
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::message_lines;
+
+    fn wrapped(message: &str, width: u16) -> Vec<String> {
+        message_lines(message, width).iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn messages_wrap_between_words_and_break_only_words_wider_than_the_dialog() {
+        assert_eq!(
+            wrapped("Delete \"/tmp/a/node_modules\" permanently?", 30),
+            ["Delete \"/tmp/a/node_modules\"", "permanently?"]
+        );
+        assert_eq!(
+            wrapped("Delete /very/long/path/name permanently?", 10),
+            ["Delete", "/very/long", "/path/name", "permanentl", "y?"]
+        );
+        assert_eq!(wrapped("First\nsecond line", 40), ["First", "second line"]);
+    }
 }
