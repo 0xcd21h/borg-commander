@@ -200,7 +200,11 @@ pub(crate) fn search(form: &SearchForm, theme: &Theme, screen: Rect, buf: &mut B
     Block::bordered()
         .style(theme.styles.overlay)
         .border_style(theme.styles.overlay_border)
-        .title(tr!(search_dialog_title))
+        .title(if matches!(form.kind, borg_core::SearchKind::FolderTotals | borg_core::SearchKind::FolderTree) {
+            tr!(size_search_dialog_title)
+        } else {
+            tr!(search_dialog_title)
+        })
         .title_bottom(tr!(tab_fields_mode_space_toggle_esc_cancel))
         .render(area, buf);
     let inner = area.inner(ratatui::layout::Margin::new(2, 1));

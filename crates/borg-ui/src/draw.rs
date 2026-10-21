@@ -83,6 +83,7 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
     let area = frame.area();
     let theme = scene.theme_at(scene.state.appearance.current());
     let (cursor, placements) = compose(frame.buffer_mut(), scene, theme, area);
+    crate::branding::draw(area, theme, scene.palette, frame.buffer_mut());
     if !scene.state.settings.truecolor {
         fx::quantize(frame.buffer_mut(), scene.palette);
     }
@@ -174,8 +175,14 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     let activities = Side::ALL.map(|side| {
         let job = state.jobs.iter().rev().find(|job| job.shown_on == side);
         job.map(|job| job_view::activity(job, scene.now)).or_else(|| {
-            let operation = state.operation.as_ref().filter(|op| state.shell.running && op.side == side)?;
-            Some(Activity { label: format!("{}…", operation.label), fraction: None })
+            if let Some(operation) = state.operation.as_ref().filter(|op| state.shell.running && op.side == side) {
+                return Some(Activity { label: format!("{}…", operation.label), fraction: None });
+            }
+            let scan = state.sizing.as_ref().filter(|scan| scan.side == side)?;
+            Some(Activity {
+                label: format!(tr!(background_sizes_progress), count = scan.progress.visited),
+                fraction: None,
+            })
         })
     });
 
@@ -190,6 +197,18 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
         if rect.is_empty() {
+            continue;
+        }
+        if let Some(process_side) = state.activity.side {
+            let list = side == process_side;
+            crate::activity_view::draw_panel(
+                state,
+                &look,
+                rect,
+                list,
+                if list { !state.activity.preview_focused } else { state.activity.preview_focused },
+                &mut buf,
+            );
             continue;
         }
         let aside = state.aside.filter(|_| aside_side == Some(side));
@@ -233,7 +252,19 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         }
     }
     if let Some(status) = layout.status {
-        draw_status(state.active_panel(), status, styles, scene.clock, &mut buf);
+        if state.activity.side.is_some() {
+            let value = state.activity.process().map_or_else(String::new, |p| {
+                format!(
+                    tr!(activity_process_label),
+                    name = p.name,
+                    pid = p.key.pid,
+                    executable = p.executable.as_ref().map_or_else(String::new, |p| p.display().to_string())
+                )
+            });
+            Line::styled(value, styles.status).render(status, &mut buf);
+        } else {
+            draw_status(state.active_panel(), status, styles, scene.clock, &mut buf);
+        }
     }
 
     let top = scene.screen.prompt_top(layout.prompt.height);
@@ -255,7 +286,11 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         Some(_) => tr!(delete),
         None => tr!(delete),
     };
-    crate::keybar::draw_keybar(state, layout.keybar, styles, collection_label, remove_label, &mut buf);
+    if state.activity.side.is_some() {
+        crate::activity_view::keybar(state, layout.keybar, theme, &mut buf);
+    } else {
+        crate::keybar::draw_keybar(state, layout.keybar, styles, collection_label, remove_label, &mut buf);
+    }
 
     let cursor = draw_overlay(scene, &look, &layout, &mut buf);
     Chrome { buf, cursor: cursor.or(panel_cursor), placements }
@@ -347,6 +382,9 @@ fn paint_overlay(
 
     let before = (progress < FULLY_SHOWN).then(|| buf.clone());
     let (rect, cursor, unfold) = match overlay {
+        Overlay::Game2048 => {
+            (crate::game2048_view::draw(state.game2048.as_ref(), look, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Collections(picker) => {
             (crate::discovery_view::collections(state, picker, theme, screen, buf), None, Unfold::FromCenter)
         }

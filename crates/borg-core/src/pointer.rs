@@ -4,6 +4,14 @@ use crate::{Action, AppState, Effect, MenuCursor, Overlay, Side, View, actions, 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pointer {
+    ActivityExpand { preview: bool, expand: bool },
+    ActivityHide,
+    ActivitySearchField(usize),
+    ActivityRow { index: usize, open: bool, preview: bool },
+    ActivitySort(crate::ActivitySort),
+    ActivityControl { preview: bool, code: crossterm::event::KeyCode },
+    TreeNode { side: Side, index: usize },
+    PromptField { option: bool },
     ResultControl { side: Side, action: Action },
     Collection { index: usize, open: bool },
     CollectionScroll(isize),
@@ -54,6 +62,81 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     }
     state.notice = None;
     match (pointer, state.overlay.clone()) {
+        (Pointer::ActivityExpand { preview, expand }, None) if state.activity.side.is_some() => {
+            state.activity.preview_focused = preview;
+            state.activity.expanded = expand;
+        }
+        (Pointer::ActivityHide, None) if state.activity.side.is_some() => state.activity.side = None,
+
+        (Pointer::ActivitySearchField(index), None) if state.activity.side.is_some() => {
+            state.activity.preview_focused = true;
+            if let Some(form) = state.activity.search_form.as_mut() {
+                form.selected = index;
+            }
+            if index > 0 {
+                return crate::activity::on_key(state, &crossterm::event::KeyCode::Char(' ').into());
+            }
+        }
+
+        (Pointer::ActivityControl { preview, code }, None) if state.activity.side.is_some() => {
+            state.activity.preview_focused = preview;
+            return crate::activity::route_key(state, &code.into(), now);
+        }
+        (Pointer::ActivityRow { index, open, preview }, None) if state.activity.side.is_some() => {
+            state.activity.preview_focused = preview;
+            let page = state.activity.page;
+            let context = state.activity.focused_page();
+            let cursor = match context {
+                crate::ActivityPage::Processes => state.activity.cursor,
+                crate::ActivityPage::Search => state.activity.search_cursor,
+                crate::ActivityPage::Files => state.activity.file_cursor,
+                _ => state.activity.region_cursor,
+            };
+            state.activity.page = context;
+            let side = state.activity.side.unwrap();
+            let rect = state.layout(now).panels[if preview { side.other() } else { side }.index()];
+            state.activity.move_by(
+                index as isize - cursor as isize,
+                usize::from(rect.height.saturating_sub(if context == crate::ActivityPage::Search { 7 } else { 6 })),
+                usize::from(rect.width.saturating_sub(2)),
+            );
+            state.activity.page = page;
+            if !preview
+                && matches!(context, crate::ActivityPage::Regions | crate::ActivityPage::Search)
+                && cursor != index
+            {
+                state.activity.schedule_preview(now);
+            }
+            if open {
+                return crate::activity::route_key(state, &crossterm::event::KeyCode::Enter.into(), now);
+            }
+        }
+        (Pointer::ActivitySort(sort), None) if state.activity.side.is_some() => {
+            state.activity.preview_focused = false;
+            let key = match sort {
+                crate::ActivitySort::Pid => 'p',
+                crate::ActivitySort::Name => 'n',
+                crate::ActivitySort::Memory => 'm',
+                crate::ActivitySort::Cpu => 'c',
+                crate::ActivitySort::Growth => 'g',
+                crate::ActivitySort::Read => 'i',
+                crate::ActivitySort::Write => 'o',
+            };
+            return crate::activity::route_key(state, &crossterm::event::KeyCode::Char(key).into(), now);
+        }
+        (Pointer::TreeNode { side, index }, None) if state.panel(side).is_tree() => {
+            state.active = side;
+            let delta = index as isize - state.panel(side).cursor() as isize;
+            state.panel_mut(side).move_by(delta);
+            state.panel_mut(side).toggle_tree_node();
+        }
+        (Pointer::PromptField { option }, Some(Overlay::Prompt(mut prompt))) => {
+            prompt.option_focused = option;
+            if option && let crate::PromptPurpose::Copy { optimize_hdd, .. } = &mut prompt.purpose {
+                *optimize_hdd = !*optimize_hdd;
+            }
+            state.overlay = Some(Overlay::Prompt(prompt));
+        }
         (Pointer::ResultControl { side, action }, None)
             if state.panel(side).is_results() && matches!(action, Action::SetExpanded(_) | Action::BackResults) =>
         {

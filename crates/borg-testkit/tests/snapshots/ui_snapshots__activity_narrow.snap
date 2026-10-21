@@ -1,0 +1,33 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+╭ Activity m…─[+]─[-]╮╭ Process me…─[+]─[-]╮
+│CPU 38.0% · RAM 17G/││CPU 38.0% · RAM 17G/│
+│Filter:             ││language-server · PI│
+│PID    RAM ↑     Nam││                    │
+│414    76M       she││Resident            │
+│413    109M      bor││843M                │
+│412    683M      dat││                    │
+│411    843M      lan││Peak                │
+│Loading…            ││Loading…            │
+╰────────────────────╯╰────────────────────╯
+language-server · PID 411 · /usr/local/bin/l
+$
+Enter Memory map  / Filter  Space Pause
+Enter Memory map · 2 Open  ◈ Borg Commander
+--- styles ---
+  0: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-12 Rgb(255, 255, 255) Rgb(13, 11, 26) BOLD | 13-13 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 14-16 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 17-17 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 18-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-34 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 35-35 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 36-38 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 39-39 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 40-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  1: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-42 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  2: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  3: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  4: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-41 Rgb(90, 81, 133) Rgb(22, 18, 43) NONE | 42-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  5: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-41 Rgb(62, 240, 255) Rgb(22, 18, 43) BOLD | 42-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  6: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  7: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(13, 11, 26) Rgb(255, 79, 216) BOLD | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-41 Rgb(90, 81, 133) Rgb(22, 18, 43) NONE | 42-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  8: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-42 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+  9: 0-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
+ 10: 0-43 Rgb(154, 144, 208) Rgb(22, 18, 43) NONE
+ 11: 0-43 Reset Reset NONE
+ 12: 0-40 Rgb(255, 79, 216) Rgb(29, 24, 56) NONE | 41-43 Rgb(215, 208, 255) Rgb(29, 24, 56) NONE
+ 13: 0-25 Rgb(215, 208, 255) Rgb(29, 24, 56) NONE | 26-26 Rgb(0, 0, 0) Rgb(255, 79, 216) BOLD | 27-27 Rgb(0, 0, 0) Rgb(244, 88, 218) BOLD | 28-28 Rgb(0, 0, 0) Rgb(232, 98, 221) BOLD | 29-29 Rgb(0, 0, 0) Rgb(221, 107, 223) BOLD | 30-30 Rgb(0, 0, 0) Rgb(210, 117, 225) BOLD | 31-31 Rgb(0, 0, 0) Rgb(198, 126, 227) BOLD | 32-32 Rgb(0, 0, 0) Rgb(187, 136, 230) BOLD | 33-33 Rgb(0, 0, 0) Rgb(176, 145, 232) BOLD | 34-34 Rgb(0, 0, 0) Rgb(164, 155, 234) BOLD | 35-35 Rgb(0, 0, 0) Rgb(153, 164, 237) BOLD | 36-36 Rgb(0, 0, 0) Rgb(141, 174, 239) BOLD | 37-37 Rgb(0, 0, 0) Rgb(130, 183, 241) BOLD | 38-38 Rgb(0, 0, 0) Rgb(119, 193, 244) BOLD | 39-39 Rgb(0, 0, 0) Rgb(107, 202, 246) BOLD | 40-40 Rgb(0, 0, 0) Rgb(96, 212, 248) BOLD | 41-41 Rgb(0, 0, 0) Rgb(85, 221, 250) BOLD | 42-42 Rgb(0, 0, 0) Rgb(73, 231, 253) BOLD | 43-43 Rgb(0, 0, 0) Rgb(62, 240, 255) BOLD

@@ -299,11 +299,44 @@ fn copy_prompts_for_destination_and_starts_a_job() {
 
     let effects = press(&mut state, now, key(KeyCode::Enter));
     let sources = vec![PathBuf::from("/home/a"), PathBuf::from("/home/b c")];
-    assert_eq!(effects, vec![Effect::StartJob { id: 0, spec: Spec::Copy { sources, target: PathBuf::from("/tmp") } }]);
+    assert_eq!(
+        effects,
+        vec![Effect::StartJob {
+            id: 0,
+            spec: Spec::Copy { sources, target: PathBuf::from("/tmp"), optimize_hdd: false }
+        }]
+    );
     assert_eq!(state.jobs.len(), 1);
     assert_eq!(state.jobs[0].shown_on, Side::Right);
     assert_eq!(state.view, View::Panels);
     assert_eq!(state.pace(now + std::time::Duration::from_secs(1)), Some(crate::Pace::Ambient));
+}
+
+#[test]
+fn hard_drive_copy_option_is_per_job_and_supports_keyboard_and_mouse() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::F(5)));
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char(' ')));
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("expected prompt") };
+    assert!(prompt.option_focused);
+    assert_eq!(prompt.input.text(), "/tmp");
+    assert!(matches!(prompt.purpose, crate::PromptPurpose::Copy { optimize_hdd: true, .. }));
+    press(&mut state, now, key(KeyCode::BackTab));
+    press(&mut state, now, ctrl('u'));
+    type_text(&mut state, now, "/tmp/backup");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(
+        matches!(&effects[..], [Effect::StartJob { spec: Spec::Copy { target, optimize_hdd: true, .. }, .. }] if target == &PathBuf::from("/tmp/backup"))
+    );
+    press(&mut state, now, key(KeyCode::F(5)));
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("expected prompt") };
+    assert!(!prompt.option_focused);
+    assert!(matches!(prompt.purpose, crate::PromptPurpose::Copy { optimize_hdd: false, .. }));
+    update(&mut state, Msg::Pointer(crate::Pointer::PromptField { option: true }), now);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(matches!(&effects[..], [Effect::StartJob { spec: Spec::Copy { optimize_hdd: true, .. }, .. }]));
 }
 
 fn start_copy(state: &mut AppState, now: Instant) -> u64 {
@@ -590,6 +623,30 @@ fn startup_opens_panels_immediately() {
     let (state, now) = setup_from(vec![dir("me")], Settings::default());
     assert_eq!(state.view, View::Panels);
     assert_eq!(state.wake_at(), Some(now + state.settings.screensaver_after));
+}
+
+#[test]
+fn hidden_2048_modal_owns_input_and_retains_the_board_when_closed() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    press(&mut state, now, key(KeyCode::F(1)));
+    for digit in "2048".chars() {
+        let effects = press(&mut state, now, key(KeyCode::Char(digit)));
+        assert!(writes(&effects).is_empty());
+    }
+    assert!(matches!(state.overlay, Some(Overlay::Game2048)));
+    assert!(state.game2048.is_some());
+    for code in [KeyCode::Left, KeyCode::Up, KeyCode::Char('u'), KeyCode::Char('r'), KeyCode::Enter] {
+        assert!(writes(&press(&mut state, now, key(code))).is_empty());
+    }
+    assert!(update(&mut state, Msg::Paste("echo do-not-run".into()), now).is_empty());
+    let saved = state.game2048.as_ref().unwrap().saved();
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.game2048.as_ref().unwrap().saved(), saved);
+    press(&mut state, now, key(KeyCode::F(1)));
+    type_text(&mut state, now, "2048");
+    assert!(matches!(state.overlay, Some(Overlay::Game2048)));
+    assert_eq!(state.game2048.as_ref().unwrap().saved(), saved);
 }
 
 #[test]
@@ -1177,4 +1234,148 @@ fn the_git_menu_does_not_change_the_default_menu_for_the_right_panel() {
     press(&mut state, now, key(KeyCode::F(9)));
     let Some(Overlay::Menu(cursor)) = state.overlay else { panic!("menu missing") };
     assert_eq!(menus(&state)[cursor.menu].title, "Right");
+}
+
+#[test]
+fn explicit_console_stays_open_after_commands_interrupts_and_full_screen_programs() {
+    let (mut state, now) = setup();
+    state.shell.integrated = true;
+    press(&mut state, now, ctrl('o'));
+    for exit in [0, 1, 130] {
+        type_text(&mut state, now, "echo console");
+        press(&mut state, now, key(KeyCode::Enter));
+        update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(exit) }), now);
+        update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+        assert_eq!(state.view, View::Shell);
+    }
+    type_text(&mut state, now, "cancelled input");
+    let effects = press(&mut state, now, ctrl('c'));
+    assert_eq!(writes(&effects), "\x03");
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(130) }), now);
+    assert_eq!(state.view, View::Shell);
+    type_text(&mut state, now, "vim");
+    press(&mut state, now, key(KeyCode::Enter));
+    update(
+        &mut state,
+        Msg::ShellOutput(ShellView { foreground: Foreground::Program, mode: TermMode::ALT_SCREEN, ..idle_prompt() }),
+        now,
+    );
+    press(&mut state, now, key(KeyCode::Enter));
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.view, View::Shell);
+    press(&mut state, now, ctrl('o'));
+    type_text(&mut state, now, "echo panels");
+    press(&mut state, now, key(KeyCode::Enter));
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.view, View::Panels);
+}
+
+#[test]
+fn explicit_view_change_during_a_command_wins_over_automatic_return() {
+    let (mut state, now) = setup();
+    state.shell.integrated = true;
+    type_text(&mut state, now, "sleep 10");
+    press(&mut state, now, key(KeyCode::Enter));
+    press(&mut state, now, ctrl('o'));
+    press(&mut state, now, ctrl('o'));
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(130) }), now);
+    assert_eq!(state.view, View::Shell);
+}
+
+#[test]
+fn option_arrows_edit_shell_words_and_keep_application_key_sequences_intact() {
+    let (mut state, now) = setup();
+    press(&mut state, now, ctrl('o'));
+    for (code, expected) in [(KeyCode::Left, "\x1bb"), (KeyCode::Right, "\x1bf")] {
+        let effects = press(&mut state, now, KeyEvent::new(code, KeyModifiers::ALT));
+        assert_eq!(writes(&effects), expected);
+    }
+    state.shell.running = true;
+    update(
+        &mut state,
+        Msg::Observe(ShellView { foreground: Foreground::Program, mode: TermMode::ALT_SCREEN, ..idle_prompt() }),
+        now,
+    );
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Left, KeyModifiers::ALT));
+    assert_eq!(writes(&effects), "\x1b[1;3D");
+}
+
+#[test]
+fn background_sizes_update_real_paths_without_changing_panels_cursor_or_marks() {
+    let (mut state, now) = setup_with(vec![dir("me"), dir("other"), file("file")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Insert));
+    let hovered = state.active_panel().hovered_entry().unwrap().name.clone();
+    let marked = state.active_panel().marked_count();
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT));
+    let scan = state.sizing.as_ref().unwrap().clone();
+    assert!(effects.iter().any(|e| matches!(e, Effect::MeasureSizes { root, .. } if root == Path::new("/home"))));
+    assert!(!state.active_panel().is_results());
+    assert!(state.overlay.is_none());
+    let mut measured = dir("me");
+    measured.source = Some("/home/me".into());
+    measured.size = 42000;
+    measured.usage = Some(borg_vfs::FolderUsage { files: 30, ..Default::default() });
+    update(&mut state, Msg::Sized { id: scan.id, entries: vec![measured] }, now);
+    assert_eq!(state.panels[0].entries().iter().find(|e| e.name == "me").unwrap().size, 42000);
+    assert!(state.panels[1].entries().iter().find(|e| e.name == "me").unwrap().usage.is_none());
+    assert_eq!(state.active_panel().hovered_entry().unwrap().name, hovered);
+    assert_eq!(state.active_panel().marked_count(), marked);
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(state.active, Side::Right);
+    assert!(state.sizing.is_some());
+    update(
+        &mut state,
+        Msg::SizeProgress { id: scan.id, progress: crate::SearchProgress { visited: 80, ..Default::default() } },
+        now,
+    );
+    let effects = update(&mut state, Msg::SizesFinished { id: scan.id, error: None }, now);
+    assert!(state.sizing.is_none());
+    assert_eq!(state.active, Side::Right);
+    assert!(effects.iter().all(|e| matches!(e, Effect::List { .. })));
+    assert!(state.notice.as_ref().unwrap().contains("80 scanned"));
+}
+
+#[test]
+fn stopping_background_sizes_rejects_late_replies_and_new_runs_get_new_ids() {
+    let (mut state, now) = setup();
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT));
+    let id = state.sizing.as_ref().unwrap().id;
+    assert!(matches!(
+        &press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT))[..],
+        [Effect::CancelMeasure]
+    ));
+    assert!(state.sizing.is_none());
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT));
+    let next = state.sizing.as_ref().unwrap().id;
+    assert_ne!(id, next);
+    update(
+        &mut state,
+        Msg::SizeProgress { id, progress: crate::SearchProgress { visited: 999, ..Default::default() } },
+        now,
+    );
+    update(&mut state, Msg::SizesFinished { id, error: None }, now);
+    assert_eq!(state.sizing.as_ref().unwrap().id, next);
+    assert_eq!(state.sizing.as_ref().unwrap().progress.visited, 0);
+    let mut measured = dir("me");
+    measured.source = Some("/home/me".into());
+    measured.size = 999;
+    measured.usage = Some(Default::default());
+    update(&mut state, Msg::Sized { id, entries: vec![measured] }, now);
+    assert!(state.active_panel().entries()[0].usage.is_none());
+    press(&mut state, now, ctrl('o'));
+    assert_eq!(writes(&press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT))), "\x1bi");
+    assert_eq!(writes(&press(&mut state, now, ctrl(' '))), "\0");
+    assert!(state.sizing.is_some());
+}
+
+#[test]
+fn starting_a_file_job_stops_background_sizes_before_modifying_the_filesystem() {
+    let (mut state, now) = setup();
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT));
+    let effects =
+        crate::jobs::start(&mut state, crate::JobKind::Delete, Spec::Delete { sources: vec!["/home/me".into()] }, now);
+    assert!(state.sizing.is_none());
+    assert!(matches!(&effects[..], [Effect::CancelMeasure, Effect::StartJob { .. }]));
 }

@@ -79,7 +79,9 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
 
 fn git_menu(state: &AppState) -> Menu {
     use borg_git::Tool;
-    let available = state.active_panel().git_repository().is_some() && state.plugins.git_task.is_none();
+    let available = state.activity.side.is_none()
+        && state.active_panel().git_repository().is_some()
+        && state.plugins.git_task.is_none();
     let selected = available && !state.active_panel().selection().is_empty();
     Menu {
         title: tr!(git),
@@ -164,6 +166,7 @@ fn command_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(command),
         entries: vec![
+            when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
             item(tr!(find_in_folder), "C-s", Action::Find),
             when(item(tr!(insert_new_line), "S-Enter", Action::InsertNewline), !state.shell.busy()),
             check(tr!(quick_view), "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
@@ -213,13 +216,22 @@ pub fn settings_items(state: &AppState) -> Vec<MenuItem> {
 
 pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
     if matches!(state.overlay, Some(crate::Overlay::Plugins { .. })) {
-        vec![MenuItem {
-            label: tr!(git_status_diffs_stage_unstage),
-            hint: "",
-            action: Action::ToggleGitPlugin,
-            checked: Some(state.settings.preferences.git_plugin),
-            enabled: true,
-        }]
+        vec![
+            MenuItem {
+                label: tr!(git_status_diffs_stage_unstage),
+                hint: "",
+                action: Action::ToggleGitPlugin,
+                checked: Some(state.settings.preferences.git_plugin),
+                enabled: true,
+            },
+            MenuItem {
+                label: tr!(system_plugin_label),
+                hint: "",
+                action: Action::ToggleSystemPlugin,
+                checked: Some(state.settings.preferences.system_plugin),
+                enabled: true,
+            },
+        ]
     } else {
         settings_items(state)
     }
@@ -235,6 +247,17 @@ fn results_menu(state: &AppState) -> Menu {
         entries: vec![
             item(tr!(search_recursively), "C-f", Action::Search),
             item(tr!(analyze_folder_sizes), "M-d", Action::AnalyzeSpace),
+            item(tr!(folder_size_tree), "M-S-d", Action::FolderTree),
+            item(tr!(calculate_sizes), "M-s", Action::CalculateSizes),
+            when(
+                item(
+                    if state.sizing.is_some() { tr!(stop_background_sizes) } else { tr!(count_background_sizes) },
+                    "M-i",
+                    Action::MeasureSizes,
+                ),
+                state.sizing.is_some() || !result && state.activity.side.is_none(),
+            ),
+            when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
             item(tr!(open_create_collection), "M-v", Action::OpenCollection),
             when(item(tr!(collect_in_other_panel), "M-b", Action::Collect), !panel.selection().is_empty()),
             MenuEntry::Separator,
@@ -250,7 +273,7 @@ fn results_menu(state: &AppState) -> Menu {
                     }),
                     group == Some(crate::ResultGroup::Folder),
                 ),
-                result,
+                result && !panel.is_tree(),
             ),
             when(
                 check(
@@ -263,7 +286,7 @@ fn results_menu(state: &AppState) -> Menu {
                     }),
                     group == Some(crate::ResultGroup::Type),
                 ),
-                result,
+                result && !panel.is_tree(),
             ),
             when(item(tr!(sort_by_source_folder), "", Action::SetSort(state.active, SortKey::Source)), result),
             when(check(tr!(expanded_results), "M-w", Action::ToggleExpanded, state.results_expanded()), result),

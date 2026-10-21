@@ -386,6 +386,67 @@ fn resize_reflows_layout() -> Result<()> {
 }
 
 #[test]
+fn hidden_2048_modal_plays_undoes_resizes_and_restores_after_restart() -> Result<()> {
+    use borg_core::SavedGame2048;
+    let fixture = fixture()?;
+    let path = fixture.state().join("2048.json");
+    fs::create_dir_all(fixture.state())?;
+    let initial = SavedGame2048 {
+        version: 1,
+        cells: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        score: 0,
+        best: 0,
+        random: 42,
+        continued: false,
+    };
+    fs::write(&path, serde_json::to_vec(&initial)?)?;
+    let load = || fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<SavedGame2048>(&bytes).ok());
+    let mut app = start(&fixture, "2048")?;
+    app.send(keys::f(1))?;
+    app.wait_text(&format!("version {}", env!("CARGO_PKG_VERSION")))?;
+    app.send("2048")?;
+    app.wait_text("Score 0    Best 0")?;
+    app.wait_text("U Undo")?;
+    app.send(keys::left())?;
+    app.wait_text("Score 4    Best 4")?;
+    app.send("u")?;
+    app.wait_text("Score 0    Best 4")?;
+    ensure!(load().is_some_and(|saved| saved.cells == initial.cells && saved.random == initial.random));
+    app.send(keys::left())?;
+    app.wait_text("Score 4    Best 4")?;
+    app.send("r")?;
+    app.wait_text("Score 0    Best 4")?;
+    let restarted = load().unwrap();
+    ensure!(restarted.cells.iter().filter(|&&cell| cell > 0).count() == 2);
+    app.resize(1, 1)?;
+    app.resize(64, 18)?;
+    app.wait_text("Score 0    Best 4")?;
+    ensure!(load() == Some(restarted.clone()));
+    app.checkpoint("2048-modal")?;
+    app.send(keys::esc())?;
+    app.wait_gone("Join matching tiles")?;
+    app.send(keys::f(1))?;
+    app.wait_text(&format!("version {}", env!("CARGO_PKG_VERSION")))?;
+    app.send("2048")?;
+    app.wait_text("Score 0    Best 4")?;
+    ensure!(load() == Some(restarted.clone()));
+    app.send(keys::esc())?;
+    app.wait_gone("Join matching tiles")?;
+    app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
+    app.wait_exit()?;
+    drop(app);
+    let mut again = start(&fixture, "2048-restored")?;
+    again.send(keys::f(1))?;
+    again.wait_text(&format!("version {}", env!("CARGO_PKG_VERSION")))?;
+    again.send("2048")?;
+    again.wait_text("Score 0    Best 4")?;
+    ensure!(load() == Some(restarted));
+    Ok(())
+}
+
+#[test]
 fn f10_quits_cleanly() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "quit")?;
@@ -485,6 +546,15 @@ fn file_operations_run_through_the_shell() -> Result<()> {
         s.contains("Copy \"notes.txt\" to") && s.contains("/work/beta")
     })?;
     app.checkpoint("copy-dialog")?;
+    let screen = app.wait_text("[ ] Optimize copying for hard drives")?;
+    let (x, y) = screen.find("[ ] Optimize copying for hard drives").unwrap();
+    app.send(mouse(0, x, y))?;
+    app.wait_text("[x] Optimize copying for hard drives")?;
+    app.send(keys::tab())?;
+    app.send(keys::tab())?.send(" ")?;
+    app.wait_text("[ ] Optimize copying for hard drives")?;
+    app.send(" ")?;
+    app.wait_text("[x] Optimize copying for hard drives")?;
     app.send(keys::enter())?;
     app.wait_until("copy finished", |s| work.join("beta/notes.txt").is_file() && panels_ready(s))?;
 
@@ -1168,6 +1238,18 @@ fn folder_analysis_finds_small_file_accumulations_and_confirms_deletion() -> Res
     })?;
     ensure!(results.contains("40 files"), "file count missing: {}", results.text());
     ensure!(results.contains("400 content bytes"));
+    fs::write(fixture.work().join("alpha/node_modules/.cache/file-0"), "x".repeat(100))?;
+    app.send(keys::esc())?;
+    app.wait_gone("Folder sizes: node_modules")?;
+    app.send(keys::alt(KeyCode::Char('d')))?;
+    app.wait_text("Folder totals")?;
+    app.send(keys::ctrl('u'))?.send("node_modules")?.send(keys::enter())?;
+    let cached = app.wait_until("Space analysis reuses the saved totals", |s| {
+        s.contains("Cached") && s.contains("400 content bytes")
+    })?;
+    ensure!(cached.contains("Ctrl-R Rescan"));
+    app.send(keys::ctrl('r'))?;
+    app.wait_until("Space analysis rescans on request", |s| s.contains("finished") && s.contains("490 content bytes"))?;
     app.send(keys::esc())?;
     app.wait_gone("Folder sizes: node_modules")?;
     app.send(keys::alt(KeyCode::Char('r')))?;
@@ -1182,5 +1264,282 @@ fn folder_analysis_finds_small_file_accumulations_and_confirms_deletion() -> Res
     app.send("y")?;
     app.wait_until("only selected folder deleted", |_| !fixture.work().join("alpha/node_modules").exists())?;
     ensure!(fixture.work().join("alpha/one.txt").exists());
+    Ok(())
+}
+
+#[test]
+fn folder_tree_expands_hides_refreshes_copies_and_reopens_saved_measurements() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.file("alpha/cache/nested/data", &"x".repeat(100))?;
+    let mut app = start(&fixture, "size-tree")?;
+    app.send(keys::ctrl('s'))?.send("alpha")?.send(keys::enter())?;
+    app.send(keys::alt(KeyCode::Char('s')))?;
+    let screen = app.wait_until("selected folder measured", |s| {
+        s.contains("Size tree:") && s.contains("finished") && s.contains("102 content bytes")
+    })?;
+    ensure!(screen.contains("←→ Branch") && screen.contains("Ctrl-R Rescan"));
+    app.send(keys::down())?.send(keys::down())?.send(keys::right())?;
+    app.wait_until("cache branch expanded", |s| left_panel(s).contains("nested"))?;
+    app.send(keys::esc())?;
+    let normal = app.wait_until("cached total in regular folder listing", |s| {
+        !s.contains("Size tree:") && left_panel(s).contains("~102")
+    })?;
+    ensure!(normal.contains("cached"));
+    app.send(keys::alt(KeyCode::Char('r')))?;
+    let resumed = app.wait_text("Cached")?;
+    ensure!(left_panel(&resumed).contains("nested"));
+    ensure!(highlighted(&resumed, "cache"));
+    fs::write(fixture.work().join("alpha/cache/nested/data"), "x".repeat(200))?;
+    app.send(keys::ctrl('r'))?;
+    app.wait_until("refreshed totals", |s| s.contains("finished") && s.contains("200 content bytes"))?;
+    app.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::ctrl('u'))?.send(fixture.work().join("beta").to_string_lossy().as_bytes())?;
+    app.send(keys::enter())?;
+    app.wait_until("copy from a real tree path", |_| fixture.work().join("beta/cache/nested/data").exists())?;
+    ensure!(fs::read(fixture.work().join("beta/cache/nested/data"))?.len() == 200);
+    ensure!(fixture.work().join("alpha/cache/nested/data").exists());
+    app.send(keys::esc())?;
+    app.wait_gone("Size tree:")?;
+    app.send(keys::f(10))?.send("y")?;
+    app.wait_exit()?;
+    let mut app = start(&fixture, "size-tree-restored")?;
+    app.send(keys::ctrl('s'))?.send("alpha")?.send(keys::enter())?;
+    app.send(keys::alt(KeyCode::Char('s')))?;
+    let saved =
+        app.wait_until("saved scan reused after restart", |s| s.contains("Cached") && s.contains("202 content bytes"))?;
+    ensure!(saved.contains("~202"));
+    app.send(keys::down())?.send(keys::down())?.send(keys::f(8))?;
+    app.wait_text("permanently?")?;
+    app.send("y")?;
+    app.wait_until("real directory deleted and size cache invalidated", |_| {
+        !fixture.work().join("alpha/cache").exists()
+    })?;
+    app.wait_until("tree refreshed after delete", |s| s.contains("finished") && !left_panel(s).contains("nested"))?;
+    app.send(keys::key(KeyCode::Home))?;
+    app.wait_text("2 content bytes")?;
+    ensure!(fixture.work().join("alpha/one.txt").exists());
+    Ok(())
+}
+
+#[test]
+fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "activity-monitor")?;
+    let pid = app.process_id().unwrap();
+    app.wait_text("Borg Commander")?;
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_text("Activity monitor")?;
+    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
+    let list = app
+        .wait_until("own process in activity list", |s| s.contains("borg") && s.contains(&format!("Filter: {pid}")))?;
+    ensure!(list.contains("RAM") && list.contains("Borg Commander"));
+    app.send(keys::tab())?;
+    app.wait_text("Process memory")?;
+    app.wait_text("Resident memory")?;
+    app.wait_text("Peak")?;
+    app.send(keys::tab())?.send(keys::tab())?;
+    app.send("/")?.send("Borg")?.send(keys::tab())?.send(keys::right())?.send(keys::right())?;
+    app.wait_text("Unicode")?;
+    app.send(keys::tab())?.send(keys::tab())?.send(" ")?;
+    let form = app.wait_text("Current snapshot")?;
+    ensure!(left_panel(&form).contains("Activity monitor"));
+    app.send(keys::enter())?;
+    app.wait_text("Capture memory first")?;
+    app.send(keys::esc())?;
+    app.wait_gone("Search memory")?;
+    app.send(" ")?;
+    app.wait_text("Paused")?;
+    app.send(" ")?;
+    app.wait_text("Live")?;
+    app.send(keys::enter())?;
+    app.wait_text("Memory map")?;
+    let map = app.wait_until("memory map or a clear platform restriction", |s| {
+        s.contains("Cannot inspect") || s.contains("G Raw")
+    })?;
+    ensure!(map.contains("Borg Commander"));
+    ensure!(map.find("Memory map").unwrap().0 < map.cols() / 2);
+    ensure!(map.find("Memory preview").unwrap().0 >= map.cols() / 2);
+    app.send(keys::tab())?;
+    app.wait_text("↑↓ Scroll")?;
+    app.send(keys::esc())?;
+    app.wait_text("Esc Processes")?;
+    if map.contains("Cannot inspect") {
+        ensure!(map.contains("Administrator"));
+    }
+    app.send(keys::esc())?;
+    app.wait_text("Activity monitor")?;
+    app.wait_text("Process memory")?;
+    app.send("2")?;
+    let files = app.wait_until("open files loaded for own process", |s| {
+        s.contains("Open files") && s.contains("Descriptor") && s.contains("File details")
+    })?;
+    ensure!(files.contains("File details") && files.contains("FD    Use Type"));
+    app.send(keys::down())?;
+    app.send("1")?;
+    app.wait_text("Memory map")?;
+    app.send("2")?;
+    app.wait_text("File details")?;
+    app.send(keys::esc())?;
+    app.wait_text("Activity monitor")?;
+    app.send(keys::esc())?;
+    app.wait_until("file panels after closing activity monitor", panels_ready)?;
+    choose(&mut app, OPTIONS_MENU, "Plugins…")?;
+    let plugin = app.wait_text("System — processes and memory")?;
+    let (x, y) = plugin.find("System — processes and memory").unwrap();
+    app.send(mouse(0, x, y))?;
+    app.wait_text("[ ] System")?;
+    app.send(keys::esc())?;
+    app.wait_until("system plugin setting saved", |_| {
+        fs::read_to_string(fixture.config_file()).is_ok_and(|s| s.contains("system = false"))
+    })?;
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_text("Enable System")?;
+    app.send(keys::f(10))?.send("y")?;
+    app.wait_exit()?;
+    let mut app = start(&fixture, "activity-disabled")?;
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_text("Enable System")?;
+    Ok(())
+}
+
+const BOTTOM_LEFT_CORNERS: [char; 4] = ['└', '╰', '┗', '╚'];
+const ACTIVITY_FIRST_ROW: u16 = 4;
+
+fn activity_rows(s: &Snapshot) -> std::ops::Range<u16> {
+    let bottom = s.lines().iter().skip(1).position(|l| l.starts_with(BOTTOM_LEFT_CORNERS)).unwrap_or(0) as u16 + 1;
+    ACTIVITY_FIRST_ROW..bottom.saturating_sub(1)
+}
+
+fn activity_cursor(s: &Snapshot) -> Option<u16> {
+    let rows: Vec<_> = activity_rows(s).map(|y| (y, s.style_at(2, y).bg)).collect();
+    (rows.len() > 2).then_some(())?;
+    rows.iter().find(|(_, bg)| rows.iter().filter(|(_, other)| other == bg).count() == 1).map(|(y, _)| *y)
+}
+
+struct Sleepers(Vec<std::process::Child>);
+
+impl Drop for Sleepers {
+    fn drop(&mut self) {
+        for child in &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+#[test]
+fn activity_cursor_moves_up_from_the_bottom_without_dragging_the_viewport() -> Result<()> {
+    const STEPS: u16 = 3;
+    let _sleepers = Sleepers(
+        (0..24).map(|_| std::process::Command::new("sleep").arg("60").spawn()).collect::<std::io::Result<_>>()?,
+    );
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "activity-scroll")?;
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_until("process rows", |s| s.contains("Activity monitor") && activity_cursor(s).is_some())?;
+    app.send(" ")?;
+    app.wait_text("Paused")?;
+    app.send(keys::key(KeyCode::End))?;
+    let bottom = app.wait_until("cursor on the last visible row", |s| {
+        activity_cursor(s).is_some_and(|y| y + 1 == activity_rows(s).end)
+    })?;
+    let last = activity_rows(&bottom).end - 1;
+    let top = left_panel(&bottom).lines().nth(usize::from(ACTIVITY_FIRST_ROW)).unwrap_or_default().to_owned();
+    for _ in 0..STEPS {
+        app.send(keys::up())?;
+    }
+    let moved = app.wait_until("cursor moved up inside the viewport", |s| activity_cursor(s) == Some(last - STEPS))?;
+    let still = left_panel(&moved).lines().nth(usize::from(ACTIVITY_FIRST_ROW)).unwrap_or_default().to_owned();
+    ensure!(still == top, "viewport scrolled while the cursor moved up: {top:?} became {still:?}");
+    Ok(())
+}
+
+#[test]
+fn console_remembers_its_view_and_option_arrows_edit_words_in_each_shell() -> Result<()> {
+    let console_prompt =
+        |s: &Snapshot| !panels_ready(s) && s.cursor().is_some_and(|(_, y)| s.lines()[usize::from(y)].trim() == "$");
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fixture.configure("return-to-panels = true\n")?;
+        let mut app = start_with(&fixture, &format!("console-view-{}", shell.program()), shell)?;
+        app.send("touch from-panels")?.send(keys::enter())?;
+        app.wait_until("panel command finished", |s| {
+            fixture.work().join("from-panels").exists() && panels_ready(s) && left_panel(s).contains("from-panels")
+        })?;
+        ensure!(panels_ready(&app.settle()?), "panel command has not returned to panels");
+        app.send(keys::ctrl('o'))?;
+        app.wait_until("console opened explicitly", |s| !panels_ready(s))?;
+        for name in ["console-one", "console-two"] {
+            app.send(format!("touch {name}"))?.send(keys::enter())?;
+            app.wait_until("console command ran", |s| {
+                fixture.work().join(name).exists() && s.contains(&format!("touch {name}")) && console_prompt(s)
+            })?;
+            ensure!(!panels_ready(&app.settle()?), "{} returned to panels after a console command", shell.program());
+        }
+        app.send("touch word left")?
+            .send(keys::alt(KeyCode::Left))?
+            .send("previous-")?
+            .send(keys::alt(KeyCode::Right))?
+            .send("-next")?
+            .send(keys::enter())?;
+        app.wait_until("Option arrows moved between words", |s| {
+            fixture.work().join("previous-left-next").exists()
+                && s.contains("touch word previous-left-next")
+                && console_prompt(s)
+        })?;
+        ensure!(!fixture.work().join("left").exists());
+        ensure!(!panels_ready(&app.settle()?));
+        app.send("touch cancelled")?;
+        app.wait_until("command typed before cancelling", |s| {
+            s.cursor().is_some_and(|(_, y)| s.lines()[usize::from(y)].trim() == "$ touch cancelled")
+        })?;
+        app.send(keys::ctrl('c'))?;
+        app.wait_until("cancelled command returned to prompt", console_prompt)?;
+        ensure!(!panels_ready(&app.settle()?), "Ctrl-C at the console prompt changed the view");
+        ensure!(!fixture.work().join("cancelled").exists());
+        app.send("touch running; sleep 30")?.send(keys::enter())?;
+        app.wait_until("interruptible command started", |s| {
+            fixture.work().join("running").exists() && s.contains("touch running; sleep 30")
+        })?;
+        app.send(keys::ctrl('c'))?;
+        app.wait_until("shell prompt returned after Ctrl-C", console_prompt)?;
+        app.send("touch after-interrupt")?.send(keys::enter())?;
+        app.wait_until("console accepted command after Ctrl-C", |_| fixture.work().join("after-interrupt").exists())?;
+        ensure!(!panels_ready(&app.settle()?), "Ctrl-C on a running command changed the view");
+        app.send(keys::ctrl('o'))?;
+        app.wait_until("back to panels by request", panels_ready)?;
+        app.send("touch panels-again")?.send(keys::enter())?;
+        app.wait_until("panel return preference still applies", |s| {
+            fixture.work().join("panels-again").exists() && panels_ready(s)
+        })?;
+    }
+    Ok(())
+}
+
+#[test]
+fn background_folder_sizes_keep_panels_usable_and_reuse_the_tree_cache() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.file("alpha/inner/data", &"x".repeat(2_000_000))?;
+    fixture.file("beta/data", &"x".repeat(1000))?;
+    let mut app = start(&fixture, "background-sizes")?;
+    let screen = app.wait_text("Alt-I Count sizes")?;
+    ensure!(panels_ready(&screen));
+    app.send(keys::alt(KeyCode::Char('i')))?;
+    let screen = app.wait_text("Sizes measured")?;
+    ensure!(panels_ready(&screen));
+    ensure!(!screen.contains("Size tree:"));
+    let screen = app.wait_until("directory rows contain measured sizes", |s| {
+        left_panel(s).contains("~1.9M") && left_panel(s).contains("~1000")
+    })?;
+    ensure!(!screen.contains("Alt-I Stop sizes"));
+    app.send(keys::ctrl('s'))?.send("alpha")?.send(keys::enter())?.send(keys::enter())?;
+    app.wait_text("inner")?;
+    app.wait_until("nested directory totals also persisted", |s| left_panel(s).contains("~1.9M"))?;
+    app.send(keys::left())?;
+    app.wait_until("returned to scan root", |s| panels_ready(s) && left_panel(s).contains("beta"))?;
+    app.send(keys::alt(KeyCode::Char('D')))?;
+    let screen = app.wait_text("Cached")?;
+    ensure!(screen.contains("Size tree:"));
     Ok(())
 }

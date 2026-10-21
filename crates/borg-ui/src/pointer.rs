@@ -24,6 +24,12 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
     let layout = state.layout(now);
     let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
     let all = menus(state);
+    if let Some(Overlay::Prompt(prompt)) = &state.overlay {
+        return click
+            .then(|| crate::dialog_view::prompt_field_at(prompt, layout.screen, point))
+            .flatten()
+            .map(|option| Msg::Pointer(Pointer::PromptField { option }));
+    }
     if let Some(Overlay::Collections(picker)) = &state.overlay {
         let delta = match event.kind {
             MouseEventKind::ScrollUp => Some(-WHEEL_ROWS),
@@ -119,6 +125,15 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
             return None;
         }));
     }
+    if state.activity.side.is_some() {
+        let control = layout.panels.iter().any(|rect| {
+            crate::results_view::controls(*rect, state.activity.expanded).iter().any(|(r, _, _)| r.contains(point))
+        });
+        if click && event.row == 0 && !control {
+            return Some(Msg::Pointer(Pointer::Action(borg_core::Action::OpenMenuBar)));
+        }
+        return crate::activity_view::panel_mouse(state, event, double, &layout);
+    }
     if click {
         for side in Side::ALL {
             if !state.panel(side).is_results() || state.aside.is_some() && side != state.active {
@@ -167,13 +182,25 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
         if state.panel(side).is_results() {
             let (header, body) = crate::results_view::geometry(rect);
             if click && header.contains(point) {
-                return crate::results_view::columns(header, crate::results_view::has_totals(state.panel(side)))
+                return crate::results_view::panel_columns(state.panel(side), header)
                     .into_iter()
                     .find(|(_, cell)| cell.contains(point))
                     .map(|(key, _)| Msg::Pointer(Pointer::ResultSort { side, key }));
             }
             if body.contains(point) {
                 let index = state.panel(side).scroll() + usize::from(point.y - body.y);
+                if click
+                    && state.panel(side).is_tree()
+                    && let Some(borg_core::Row::Entry(entry)) = state.panel(side).row(index)
+                    && let Some((_, name)) = crate::results_view::panel_columns(state.panel(side), body)
+                        .into_iter()
+                        .find(|(key, _)| *key == borg_core::SortKey::Name)
+                {
+                    let arrow = name.x + crate::results_view::tree_indent(state.panel(side), entry, name.width) as u16;
+                    if (arrow..arrow + 2).contains(&point.x) {
+                        return Some(Msg::Pointer(Pointer::TreeNode { side, index }));
+                    }
+                }
                 return Some(Msg::Pointer(Pointer::Panel { side, index, open: double && click, mark }));
             }
             return None;

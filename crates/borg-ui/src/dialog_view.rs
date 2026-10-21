@@ -1,4 +1,4 @@
-use borg_core::{Confirm, Prompt};
+use borg_core::{Confirm, Prompt, PromptPurpose};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -13,6 +13,7 @@ use crate::{Theme, format};
 const MAX_WIDTH: u16 = 64;
 const MARGIN: u16 = 4;
 const PROMPT_HEIGHT: u16 = 6;
+const COPY_HEIGHT: u16 = 8;
 const CONFIRM_HEIGHT: u16 = 6;
 const PADDING: u16 = 1;
 const YES: &str = tr!(yes);
@@ -22,9 +23,16 @@ const PROMPT_HINT: &str = tr!(enter_ok_esc_cancel);
 
 pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
     let styles = &theme.styles;
-    let rect = centered(screen, dialog_width(screen), PROMPT_HEIGHT);
-    let inner = frame(prompt.title, Some(PROMPT_HINT), theme, rect, buf);
-    let [label, field] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
+    let rect = prompt_rect(prompt, screen);
+    let copy = matches!(prompt.purpose, PromptPurpose::Copy { .. });
+    let hint = if copy { tr!(copy_dialog_hint) } else { PROMPT_HINT };
+    let hint = if copy && hint.width() > usize::from(rect.width.saturating_sub(2)) {
+        tr!(copy_dialog_hint_compact)
+    } else {
+        hint
+    };
+    frame(prompt.title, Some(hint), theme, rect, buf);
+    let [label, field, _, option, _] = prompt_rows(rect, copy);
 
     let width = usize::from(field.width);
     Line::styled(format::truncate_end(&prompt.label, width), styles.overlay).render(label, buf);
@@ -36,8 +44,46 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     let shift = before.width().saturating_sub(width.saturating_sub(1));
     Line::styled(skip_columns(text, shift), styles.input).render(field, buf);
 
+    if let PromptPurpose::Copy { optimize_hdd, .. } = prompt.purpose {
+        let style = if prompt.option_focused { styles.overlay_selected } else { styles.overlay };
+        let checked = if optimize_hdd { 'x' } else { ' ' };
+        Line::styled(format!("[{checked}] {}", tr!(optimize_copying_for_hard_drives)), style).render(option, buf);
+        if prompt.option_focused && option.width > 0 && option.height > 0 {
+            return (rect, Position::new(option.x + u16::from(option.width > 1), option.y));
+        }
+    }
+
     let column = u16::try_from(before.width() - shift).unwrap_or(0);
     (rect, Position::new(field.x + column, field.y))
+}
+
+fn prompt_rect(prompt: &Prompt, screen: Rect) -> Rect {
+    let height = if matches!(prompt.purpose, PromptPurpose::Copy { .. }) { COPY_HEIGHT } else { PROMPT_HEIGHT };
+    centered(screen, dialog_width(screen), height)
+}
+
+fn prompt_rows(rect: Rect, copy: bool) -> [Rect; 5] {
+    let inner = padded(Block::bordered().inner(rect));
+    Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(u16::from(copy)),
+        Constraint::Length(u16::from(copy)),
+        Constraint::Fill(1),
+    ])
+    .areas(inner)
+}
+
+pub(crate) fn prompt_field_at(prompt: &Prompt, screen: Rect, point: Position) -> Option<bool> {
+    let [_, field, _, option, _] =
+        prompt_rows(prompt_rect(prompt, screen), matches!(prompt.purpose, PromptPurpose::Copy { .. }));
+    if field.contains(point) {
+        Some(false)
+    } else if matches!(prompt.purpose, PromptPurpose::Copy { .. }) && option.contains(point) {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
@@ -128,6 +174,10 @@ fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut B
     };
     let inner = block.inner(rect);
     block.render(rect, buf);
+    padded(inner)
+}
+
+fn padded(inner: Rect) -> Rect {
     Rect {
         x: inner.x + PADDING,
         y: inner.y + PADDING,

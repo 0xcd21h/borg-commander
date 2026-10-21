@@ -24,6 +24,7 @@ pub fn draw_viewer(viewer: &Viewer, theme: &Theme, pixels: bool, area: Rect, buf
     let [body, status] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     buf.set_style(body, theme.styles.viewer);
     buf.set_style(status, theme.styles.viewer_status);
+    let status = crate::branding::content(status);
     match &viewer.content {
         Content::Text(pager) => {
             draw_text(pager, &viewer.path, theme, body, status, buf);

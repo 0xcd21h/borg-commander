@@ -14,8 +14,22 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, &'static str, 
     let mut items = vec![
         (tr!(ctrl_f_search), Action::Search),
         (tr!(alt_v_collections), Action::OpenCollection),
-        (tr!(alt_d_space), Action::AnalyzeSpace),
+        (tr!(alt_d_size_search), Action::AnalyzeSpace),
     ];
+    if state.active_panel().is_tree() {
+        items = vec![
+            (tr!(tree_branches), Action::ToggleTreeNode),
+            (tr!(tree_open_folder), Action::Open),
+            (tr!(ctrl_r_sizes), Action::RefreshSizes),
+        ];
+    } else if state.active_panel().is_size_view() {
+        items = vec![(tr!(ctrl_f_search), Action::Search), (tr!(ctrl_r_sizes), Action::RefreshSizes)];
+    } else if !state.active_panel().is_results() {
+        items.insert(1, (tr!(alt_s_sizes), Action::CalculateSizes));
+        if state.settings.preferences.system_plugin {
+            items.insert(1, (tr!(alt_m_activity), Action::Activity));
+        }
+    }
     if state.active_panel().is_results() {
         items.extend([
             (tr!(esc_hide), Action::BackResults),
@@ -30,6 +44,12 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, &'static str, 
             items.push((tr!(alt_r_resume), Action::BackResults));
         }
         items.push((tr!(alt_b_collect), Action::Collect));
+    }
+    if state.sizing.is_some() || !state.active_panel().is_results() {
+        items.insert(
+            0,
+            (if state.sizing.is_some() { tr!(alt_i_stop_sizes) } else { tr!(alt_i_count_sizes) }, Action::MeasureSizes),
+        );
     }
     let mut x = area.x;
     items

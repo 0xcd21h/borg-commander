@@ -65,7 +65,10 @@ results with source paths and the existing viewer and quick preview.
   size estimates. Press F7 or N to create one. Collections survive restarting Borg.
 - **Esc:** hide results, preserving the cursor, scroll, marks, filter, and grouping.
 - **Alt-R:** resume the hidden view. A scan continues while hidden.
-- **Alt-D:** analyze folder sizes, including hidden files by default. Ctrl-C stops a scan.
+- **Alt-D — Folder sizes:** find folders by their total size or file count, including
+  hidden files by default. It opens the Ctrl-F dialog set to *Folder totals*; switching
+  *Look for* moves between the two. Ctrl-C stops a scan.
+- **Alt-S:** calculate sizes for the selected folder. **Alt-Shift-D:** open a size tree for the current folder.
 - **Alt-W:** maximize or restore the active result pane. Results open in a normal
   pane by default. The title-bar `[+]` (maximize), `[=]` (restore), and `[-]` (fold) controls are clickable.
   Fold hides the view; Alt-R resumes it with its layout and selection preserved.
@@ -99,7 +102,39 @@ Totals count file contents, not guaranteed recoverable disk space. Nested folder
 rows overlap. Symlinks are excluded; filesystem boundaries and unreadable or excluded
 children make totals incomplete, shown with ≥. Directory scans use metadata and do
 not read file contents. Results appear after measurement; the scan remains cancellable.
-Indexed and content search are planned separately.
+**Folder size tree** shows the root total and its subfolders in the current panel.
+Right expands a branch or enters an expanded branch; Left folds it or selects its
+parent. Enter opens the real folder. Click a branch arrow to fold or expand, or a
+column heading to sort siblings by name, size, or file count. Esc hides the tree;
+Alt-R restores its branches, marks, and cursor. File operations use real paths,
+and marking a parent and child sends only the parent to a copy or delete job.
+
+To measure sizes while keeping ordinary file panels open, press **Alt-I** or
+choose **Search → Count sizes in background**. Borg scans every folder beneath the
+current directory, includes hidden files, and fills in folder totals as they finish.
+You can navigate or use the console while it runs. The panel footer shows progress;
+**Alt-I** again stops the scan and keeps completed totals. Starting a copy, move,
+or delete job stops an ongoing size scan. Finished scans share their cache with the
+size tree and Space analysis.
+
+Completed scans are saved locally. Both Space analysis and the folder tree reuse
+a saved scan for the same root and hidden-file policy. Reopening a measured root uses that snapshot
+immediately: `~` marks cached sizes, with the measurement date above the tree.
+**Ctrl-R** rescans in either size view; **Ctrl-C** cancels. The previous tree stays visible during a
+refresh and survives cancellation or failure. Ordinary folder listings also show
+available cached totals. Changes outside Borg can make them outdated; navigation
+does not trigger recursive scans. Borg copy, move, and delete jobs invalidate
+snapshots that overlap their changed paths.
+
+The local SQLite index retains every measured folder for up to 16 roots. Trees
+load children as branches expand; a branch displays up to 20,000 folders, and flat
+Space analysis keeps the largest 20,000 matches. These display limits do not stop
+the scan or reduce measured totals. A “Files in this folder” row accounts for bytes
+stored directly in an expanded folder. Errors and skipped subtrees mark totals as
+incomplete. Cache files live in `~/.cache/borg-commander`, respecting `XDG_CACHE_HOME`; `BORG_CACHE_DIR`
+overrides the location. They are disposable measurements, separate from collections.
+Hard-linked files count once per path. These are logical content sizes, not physical
+or recoverable disk usage. Indexed and content search are planned separately.
 
 Git and archive actions currently work from real directory panels. Use Reveal original
 to access them for a collected file.
@@ -117,6 +152,7 @@ rows are clickable. Notices temporarily replace the second row.
 | Left | Go to the parent folder |
 | Tab | Switch panel, or focus the quick preview / return to the file list |
 | Ctrl-O | Show the shell / back to the panels |
+| Alt-I | Count folder sizes in the background / stop counting |
 | Ctrl-S | Quick find in the folder |
 | Ctrl-Q | Quick view: the other panel previews the file under the cursor (text, picture or folder) |
 | Ctrl-L | Info: the other panel shows size, mode, owner, dates and free space |
@@ -158,6 +194,10 @@ terminal if needed.
 Click a row to focus it, double-click to open it, and right-click to mark it. Click the menu
 bar or bottom actions to use them. The wheel moves through panel entries.
 
+Ctrl-O switches between panels and console. Commands and Ctrl-C keep an explicitly
+opened console visible. “Return to panels after command” applies to commands launched
+from the panels. At the shell prompt, Option/Alt-Left and Option/Alt-Right move by words.
+
 In the console, the wheel scrolls output history without changing the command being typed.
 Shift-PgUp/PgDn scroll by a page; Shift-Home goes to the oldest output; Shift-End returns to
 the live prompt. Typing returns to the live prompt as well. Use your terminal’s selection
@@ -188,6 +228,13 @@ Insert marks a match, Ctrl-A marks all matches, and Enter or Esc closes the sear
 Matching is case-insensitive unless the query contains uppercase letters.
 
 F5, F6, and F8 start copy, move, and delete jobs. Alt-J opens the jobs list to pause or cancel.
+
+The Copy dialog has an optional **Optimize copying for hard drives** checkbox.
+Use Tab to focus it and Space to toggle, or click it. It starts unchecked for each copy.
+This mode reads small files into memory in batches, then writes each batch, which may
+reduce source/destination seeking when copying within one HDD. Batches hold up to
+64 MiB of file data or 4,096 files; files larger than 1 MiB stream normally. Performance
+depends on the drive, filesystem, and OS caching; it may be slower between separate drives.
 For name conflicts: `o` overwrites, `s` skips, `k` keeps both, `a` overwrites all, `n` skips all,
 and Esc cancels. Copies are written to temporary files and renamed after completion.
 
@@ -223,7 +270,7 @@ icon-spacing = 1            # spaces after an icon, 1 to 3
 status-line = true
 menu-bar = false            # keep the menu bar visible
 show-hidden = false
-return-to-panels = true    # come back to the panels after a command finishes
+return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true
 screensaver-after = 300     # seconds of idle time
@@ -249,3 +296,118 @@ dir = { fg = "#b388ff", bold = true }
 ```
 
 For building, testing, or contributing, see [Development](../DEVELOPMENT.md).
+
+## A small distraction
+
+Open About with F1 and type `2048` to play in a modal. Arrow keys move, U undoes the
+last move, R starts a new game, and Esc closes it. Reach 2048, then press Enter to
+keep playing. The board and best score are saved between sessions.
+
+
+## Activity and memory
+
+**Alt-M** or **Command → Activity monitor** opens the process monitor. The bundled
+System plugin is enabled by default and can be disabled in Options → Plugins.
+The process list occupies the active pane, with the selected process's memory
+overview opposite it. **Enter** or a double-click drills into that process: the
+list pane becomes its memory map, and the other pane previews the selected region's
+bytes. **Tab** switches focus. **Alt-W** or the **[+]** button maximizes
+the focused pane; **[=]** restores the split, and **[-]** hides the monitor.
+Sampling runs once a second while the monitor is open; closing it stops sampling.
+Memory inspections temporarily hold sampling until their result arrives.
+
+The list shows CPU, resident memory, memory growth, and disk read/write rates.
+CPU 100% means one busy core. Shared resident pages can appear in more than one
+process, so process RAM values must not be added as a unique system total.
+The first CPU and I/O rate sample is unavailable until a second observation arrives.
+
+| Key | Action |
+| --- | --- |
+| Enter | Open the process memory map / focus the region preview |
+| `/` | Filter by name or PID; Enter finishes editing |
+| C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; repeat to reverse |
+| I / O | Sort by read / write rate |
+| T | Toggle process tree |
+| Space | Pause or resume sampling |
+| R | Refresh the current view |
+| Esc | Back; close from the process list |
+
+Click process headings to sort; double-click a process to open its memory map.
+The overview shows current resident memory, peak observed memory, the change since
+monitoring started, CPU, virtual address space, and a chart of the last 60 seconds of
+resident memory. Footprint, swapped, private and shared totals appear once the memory
+map has been read and the platform reports them. **Enter** in the memory pane opens its
+memory map. The memory map is a measurement taken on request. Refresh it with R after
+the process changes its mappings.
+
+The map has three columns:
+
+- **Footprint** is the memory charged to this process alone: pages it has written plus
+  pages swapped out or compressed. It is the figure to watch for leaks, and on macOS
+  it matches Activity Monitor's *Memory* column.
+- **Resident** is pages in RAM now, including pages shared with other processes.
+- **Mapped** is address space, including reservations. It is not RAM.
+
+A process can map gigabytes, mostly system libraries shared with every other
+process, while its footprint is a few megabytes. Regions start grouped by purpose:
+heap and allocations, thread stacks, the program's own code and data, shared
+libraries, mapped files, shared memory, system and other allocations, and reserved
+ranges and guards. Groups and their members are ordered by footprint, with
+reservations last. Libraries and mapped files list one row per file; expand a file to
+see its regions. Group names are inferred from the operating system's labels.
+Selecting a group or file explains it and shows its share of the footprint and its
+largest members. Enter or Right expands a group or file; Left collapses it, or the one
+around the selected row. G switches between grouped and raw lists.
+
+**1 Memory** and **2 Open files** switch inspection tabs, or click their labels.
+The open-files list includes descriptor, access mode, type, and path or endpoint;
+the other pane shows full details, file size, and current offset when available.
+On macOS it also includes entries such as `cwd` (current directory) and `txt`
+(mapped executable). R refreshes the list. Switching tabs retains list positions.
+Access restrictions offer the existing explicit administrator retry. File contents
+are not read through process descriptors.
+
+Selecting a readable region automatically captures up to its first 64 KiB in the
+opposite pane. Quick movements are coalesced with a short delay; selecting another
+region clears the old preview and cancels its pending read. Unreadable regions show
+a message without attempting a read. Press **Tab** or **Enter** to scroll the preview.
+**Esc** there focuses the list; **Esc** from the map returns to the process list
+with its cursor and filter preserved.
+
+**H** switches hex/text presentation, **R** captures the region again, and **D**
+highlights differences from the previous capture of the same process and address.
+Text presentation shows printable ASCII and substitutes dots for other bytes.
+Snapshots are live observations; the process is not paused, so a capture is not
+an atomic image of its entire state. They stay in memory unless explicitly exported.
+**E** exports raw bytes into the active file panel's directory, using a new filename
+and owner-only file permissions. Existing files are never overwritten.
+
+Press **/** in the memory pane, or **Ctrl-F** from either pane, to search memory.
+Choose a mode, case matching, and either readable process memory or the current
+snapshot. **Text** searches UTF-8, UTF-16 (both byte orders), and UTF-32 (both byte
+orders). **Unicode** also normalizes compatibility characters and combining
+sequences: for example, `𝐁𝐨𝐫𝐠` matches `Borg`. This does not equate unrelated letters
+that merely look similar. **Hex** accepts byte pairs such as `42 6F 72 67`.
+
+Matches occupy the list pane and show their original address, encoding, and region.
+Selecting a match previews its surrounding bytes in the opposite pane, with matched
+bytes highlighted. Enter focuses the preview; Esc returns focus to the matches.
+Esc from matches restores the previous map or process list. Searching
+a stored snapshot uses its captured bytes without reading the running process.
+Process searches read in chunks, report inaccessible bytes, and stop after 2,000
+matches or 60 seconds. **N** continues from that position; **Ctrl-C** stops while
+preserving the results. Coverage reports distinguish searched and inaccessible
+bytes. A process can change its memory while it is being searched.
+
+Restricted memory-map or snapshot reads, and partially inaccessible searches,
+offer **A: Administrator**. On macOS this
+opens the system authorization prompt; on Linux it uses `pkexec` and needs an
+available authorization agent. Only a short-lived inspection helper is elevated.
+Borg keeps running normally, and the helper only returns map data or bounded bytes.
+macOS process protections and Linux security policy can still deny access; Borg
+shows the failure and leaves the ordinary process monitor usable.
+
+Process identity includes its start time, so a reused PID does not inherit another
+process's history. Memory maps, inspection output, snapshots, and history are bounded.
+Borg Commander stays visible in the bottom-right corner, including the console,
+viewer, monitor, dialogs, and screensaver.

@@ -23,6 +23,39 @@ const QUIT_TITLE: &str = tr!(quit);
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
     let side = state.active;
+    if matches!(
+        action,
+        Action::Search
+            | Action::AnalyzeSpace
+            | Action::FolderTree
+            | Action::CalculateSizes
+            | Action::OpenCollection
+            | Action::BackResults
+    ) {
+        state.activity.side = None;
+    }
+
+    if state.activity.side.is_some()
+        && matches!(
+            action,
+            Action::Copy
+                | Action::Move
+                | Action::Delete
+                | Action::DeleteOriginals
+                | Action::View
+                | Action::Edit
+                | Action::Mkdir
+                | Action::Compress
+                | Action::ExtractHere
+                | Action::ExtractToOther
+                | Action::Collect
+                | Action::Git(_)
+        )
+    {
+        state.notice = Some(tr!(activity_close_for_files).into());
+        return Vec::new();
+    }
+
     if state.active_panel().is_results()
         && matches!(action, Action::Compress | Action::ExtractHere | Action::ExtractToOther | Action::Mkdir)
     {
@@ -30,7 +63,17 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         return Vec::new();
     }
     match action {
+        Action::MeasureSizes => crate::measure::toggle(state),
+        Action::Activity => crate::activity::open(state),
+        Action::ToggleSystemPlugin => {
+            state.settings.preferences.system_plugin = !state.settings.preferences.system_plugin;
+            vec![Effect::SaveConfig]
+        }
         Action::Search
+        | Action::FolderTree
+        | Action::CalculateSizes
+        | Action::RefreshSizes
+        | Action::ToggleTreeNode
         | Action::AnalyzeSpace
         | Action::Collect
         | Action::OpenCollection
@@ -85,6 +128,14 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Top => moved(state, Panel::to_start),
         Action::Bottom => moved(state, Panel::to_end),
         Action::Open => open(state, side),
+        Action::Descend if state.panel(side).is_tree() => {
+            state.panel_mut(side).tree_step(true);
+            Vec::new()
+        }
+        Action::Leave if state.panel(side).is_tree() => {
+            state.panel_mut(side).tree_step(false);
+            Vec::new()
+        }
         Action::Descend if state.panel(side).mode() == ListingMode::Brief => {
             moved(state, |panel| panel.move_column(LINE_DOWN))
         }
@@ -158,7 +209,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.notice = Some(tr!(move_needs_a_real_destination_folder).into());
             Vec::new()
         }
-        Action::Copy => transfer(state, tr!(copy), |sources| PromptPurpose::Copy { sources }),
+        Action::Copy => transfer(state, tr!(copy), |sources| PromptPurpose::Copy { sources, optimize_hdd: false }),
         Action::Move => transfer(state, tr!(move), |sources| PromptPurpose::Move { sources }),
         Action::Mkdir => prompt(state, tr!(make_directory), tr!(name), "", PromptPurpose::Mkdir),
         Action::Delete if state.active_panel().is_results() => {
@@ -265,8 +316,13 @@ fn open_menu_bar(state: &mut AppState, side: Side) -> Vec<Effect> {
 }
 
 fn prompt(state: &mut AppState, title: &'static str, label: &str, value: &str, purpose: PromptPurpose) -> Vec<Effect> {
-    state.overlay =
-        Some(Overlay::Prompt(Prompt { title, label: label.to_owned(), input: LineInput::new(value), purpose }));
+    state.overlay = Some(Overlay::Prompt(Prompt {
+        title,
+        label: label.to_owned(),
+        input: LineInput::new(value),
+        purpose,
+        option_focused: false,
+    }));
     Vec::new()
 }
 
@@ -274,10 +330,12 @@ fn toggle_shell(state: &mut AppState) -> Vec<Effect> {
     match state.view {
         View::Panels => {
             state.view = View::Shell;
+            state.shell.return_view = View::Shell;
             prepare_shell(state)
         }
         View::Shell => {
             state.view = View::Panels;
+            state.shell.return_view = View::Panels;
             vec![Effect::ScrollConsole(borg_term::Scroll::Bottom)]
         }
     }
@@ -373,6 +431,7 @@ fn interactive(state: &mut AppState, command: &CommandLine) -> Vec<Effect> {
     }
     let mut effects = prepare_shell(state);
     effects.push(Effect::Write(command.submit()));
+    state.shell.return_view = state.view;
     state.shell.submit();
     state.view = View::Shell;
     effects
@@ -389,8 +448,9 @@ fn transfer(
         return Vec::new();
     }
     let label = format!(
-        "{title} {} to",
-        if state.active_panel().is_results() {
+        tr!(transfer_to),
+        title = title,
+        selection = if state.active_panel().is_results() {
             describe_result_selection(state.active_panel(), &sources)
         } else {
             describe(&selected_names(state.active_panel()))
@@ -463,6 +523,7 @@ pub(crate) fn run_operation(
     }
     let mut effects = prepare_shell(state);
     effects.push(Effect::Write(command.submit_hidden()));
+    state.shell.return_view = state.view;
 
     if state.shell.integrated {
         state.shell.running = true;

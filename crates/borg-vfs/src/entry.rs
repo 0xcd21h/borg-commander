@@ -19,6 +19,10 @@ impl EntryKind {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FolderUsage {
+    pub direct_bytes: u64,
+    pub direct_files: u64,
+    pub measured: Option<SystemTime>,
+    pub cached: bool,
     pub files: u64,
     pub folders: u64,
     pub partial: bool,

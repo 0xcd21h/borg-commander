@@ -37,6 +37,7 @@ pub enum Count {
     Folder,
     Item,
     Error,
+    Region,
 }
 
 pub fn count(count: usize, noun: Count) -> String {
@@ -49,5 +50,7 @@ pub fn count(count: usize, noun: Count) -> String {
         (Count::Item, false) => format!(tr!(count_item_many), count = count),
         (Count::Error, true) => format!(tr!(count_error_one), count = count),
         (Count::Error, false) => format!(tr!(count_error_many), count = count),
+        (Count::Region, true) => format!(tr!(count_region_one), count = count),
+        (Count::Region, false) => format!(tr!(count_region_many), count = count),
     }
 }

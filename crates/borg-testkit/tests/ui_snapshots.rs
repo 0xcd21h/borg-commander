@@ -198,9 +198,23 @@ fn copy_and_delete_dialogs() -> Result<()> {
     let copy = stage.render(stage.started)?;
     check("copy_dialog", &stage, copy)?;
 
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char(' ')));
+    let buffered = stage.render(stage.started)?;
+    check("copy_dialog_hard_drive", &stage, buffered)?;
+
     stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(8)));
     let delete = stage.render(stage.started)?;
     check("delete_dialog", &stage, delete)
+}
+
+#[test]
+fn copy_dialog_keeps_shortcuts_visible_in_a_narrow_terminal() -> Result<()> {
+    let mut stage = stage(NARROW, Motion::STILL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::F(5)));
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Tab · Space check · Enter · Esc")?;
+    check("copy_dialog_hard_drive_narrow", &stage, buffer)
 }
 
 #[test]
@@ -674,9 +688,52 @@ fn console_history_and_function_alias_hints() -> Result<()> {
 }
 
 #[test]
+fn hidden_2048_modal_themes_states_and_resize() -> Result<()> {
+    use borg_core::{Game2048, Overlay, SavedGame2048};
+    let saved = |cells| SavedGame2048 { version: 1, cells, score: 12340, best: 25600, random: 42, continued: false };
+    let cells = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0];
+    let mut stage = stage(GridSize { cols: 100, rows: 32 }, Motion::STILL)?;
+    stage.send(key(KeyCode::F(1)));
+    for digit in "2048".chars() {
+        stage.send(key(KeyCode::Char(digit)));
+    }
+    assert!(matches!(stage.state.overlay, Some(Overlay::Game2048)));
+    stage.state.game2048 = Game2048::restore(saved(cells));
+    for theme in ["neon", "classic", "paper"] {
+        select_theme(&mut stage, theme);
+        let buffer = stage.render(stage.started)?;
+        ensure_text(&buffer, "U Undo")?;
+        ensure_text(&buffer, "1024")?;
+        check(&format!("game2048_{theme}"), &stage, buffer)?;
+    }
+    select_theme(&mut stage, "neon");
+    stage.state.game2048 = Game2048::restore(saved([11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Enter to keep playing")?;
+    check("game2048_won", &stage, buffer)?;
+    stage.state.game2048 = Game2048::restore(saved([1, 2, 1, 2, 2, 1, 2, 1, 1, 2, 1, 2, 2, 1, 2, 1]));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "No moves")?;
+    check("game2048_over", &stage, buffer)?;
+    stage.state.game2048 = Game2048::restore(saved(cells));
+    let before = stage.state.game2048.as_ref().unwrap().saved();
+    stage.send(Msg::Resize { cols: NARROW.cols, rows: NARROW.rows });
+    stage.emulator.resize(GridSize::console(NARROW.cols, NARROW.rows));
+    let buffer = stage.render(stage.started)?;
+    check("game2048_compact", &stage, buffer)?;
+    for (cols, rows) in [(20, 5), (2, 2), (1, 1), (0, 0), (193, 40)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.emulator.resize(GridSize::console(cols, rows));
+        stage.render(stage.started)?;
+        assert_eq!(stage.state.game2048.as_ref().unwrap().saved(), before);
+    }
+    Ok(())
+}
+
+#[test]
 fn all_overlays_survive_small_terminal_sizes() -> Result<()> {
     for (cols, rows) in [(193, 40), (64, 18), (20, 5), (2, 2), (1, 1), (0, 0)] {
-        for code in [KeyCode::F(1), KeyCode::F(7), KeyCode::F(8), KeyCode::F(9)] {
+        for code in [KeyCode::F(1), KeyCode::F(5), KeyCode::F(7), KeyCode::F(8), KeyCode::F(9)] {
             let mut stage = stage(SIZE, Motion::STILL)?;
             stage.send(key(KeyCode::Down)).send(key(code));
             stage.send(Msg::Resize { cols, rows });
@@ -885,6 +942,7 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
                 skipped: 4,
                 limited: false,
                 cancelled: false,
+                ..Default::default()
             },
         },
         entries,
@@ -977,13 +1035,13 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
     stage.send(key(KeyCode::Esc));
     let mut cache = entry("node_modules", EntryKind::Dir, 812_045_312, RECENT, false);
     cache.source = Some("/workspace/website/node_modules".into());
-    cache.usage = Some(borg_vfs::FolderUsage { files: 72_419, folders: 3_128, partial: false });
+    cache.usage = Some(borg_vfs::FolderUsage { files: 72_419, folders: 3_128, partial: false, ..Default::default() });
     let mut build = entry("target", EntryKind::Dir, 4_521_148_416, RECENT, false);
     build.source = Some("/workspace/service/target".into());
-    build.usage = Some(borg_vfs::FolderUsage { files: 12_804, folders: 294, partial: false });
+    build.usage = Some(borg_vfs::FolderUsage { files: 12_804, folders: 294, partial: false, ..Default::default() });
     let mut partial = entry("cache", EntryKind::Dir, 123_456_789, RECENT, false);
     partial.source = Some("/workspace/archive/cache".into());
-    partial.usage = Some(borg_vfs::FolderUsage { files: 9_240, folders: 129, partial: true });
+    partial.usage = Some(borg_vfs::FolderUsage { files: 9_240, folders: 129, partial: true, ..Default::default() });
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
@@ -992,7 +1050,7 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTotals, ..Default::default() },
             },
-            progress: SearchProgress { visited: 99_104, errors: 1, ..Default::default() },
+            progress: SearchProgress { measured: at(RECENT), visited: 99_104, errors: 1, ..Default::default() },
         },
         vec![cache, build, partial],
         80,
@@ -1001,6 +1059,9 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
     stage.state.panels[0].results.as_mut().unwrap().expanded = true;
     let buffer = stage.render(stage.started)?;
     check("folder_sizes", &stage, buffer)?;
+    stage.state.panels[0].cache_observations();
+    let buffer = stage.render(stage.started)?;
+    check("folder_sizes_cached", &stage, buffer)?;
     stage.send(key(KeyCode::F(8)));
     let buffer = stage.render(stage.started)?;
     check("folder_delete_confirm", &stage, buffer)?;
@@ -1118,7 +1179,7 @@ fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Res
     assert_eq!(footer.height, 2);
     assert_eq!(footer.bottom(), stage.state.rows);
     assert!(screen.lines()[usize::from(footer.y)].contains("F1Help"));
-    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Ctrl-F Search"));
+    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Alt-I Count sizes"));
     assert!(!screen.lines()[0].contains("Ctrl-F Search"));
     let (x, y) = screen.find("Ctrl-F Search").unwrap();
     assert!(matches!(
@@ -1129,6 +1190,8 @@ fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Res
     stage.state.notice = Some("Copied 1 file".into());
     let buffer = stage.render(stage.started)?;
     let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let notice = &screen.lines()[usize::from(footer.y + 1)];
+    assert_eq!(notice.split("◈ Borg Commander").next().unwrap().trim(), "Copied 1 file");
     let (x, y) = screen.find("F10Quit").unwrap();
     assert!(matches!(
         borg_ui::mouse_input(&stage.state, click(x, y), false, stage.started),
@@ -1184,5 +1247,609 @@ fn result_title_controls_maximize_restore_and_fold_the_clicked_pane() -> Result<
     assert!(stage.state.active_panel().is_results());
     assert_eq!(stage.state.active_panel().hovered_entry().unwrap().identity(), path);
     assert_eq!(stage.state.active_panel().marked_count(), 1);
+    Ok(())
+}
+
+fn size_tree_stage() -> Result<Stage> {
+    use borg_core::{ResultSource, SearchKind, SearchOptions, SearchProgress, SearchRequest, Sort, SortKey};
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    stage.state.settings.preferences.nerd_font = true;
+    let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
+    stage.state.appearance.select(theme, stage.started, Duration::ZERO);
+    let entries = [
+        ("/workspace/project", 6_301_000_000, 84_310, true),
+        ("/workspace/project/target", 4_600_000_000, 51_200, false),
+        ("/workspace/project/target/debug", 4_200_000_000, 48_000, false),
+        ("/workspace/project/target/debug/deps", 3_100_000_000, 30_000, false),
+        ("/workspace/project/target/release", 400_000_000, 3_200, false),
+        ("/workspace/project/assets", 1_700_000_000, 33_000, true),
+        ("/workspace/project/src", 1_000_000, 110, false),
+    ]
+    .into_iter()
+    .map(|(path, bytes, files, partial)| {
+        let path = PathBuf::from(path);
+        let mut e = entry(path.file_name().unwrap().to_str().unwrap(), EntryKind::Dir, bytes, RECENT, false);
+        e.source = Some(path);
+        let folders = match e.identity().to_str().unwrap() {
+            "/workspace/project" => 6,
+            "/workspace/project/target" => 3,
+            "/workspace/project/target/debug" => 1,
+            _ => 0,
+        };
+        e.usage = Some(borg_vfs::FolderUsage {
+            files,
+            folders,
+            partial,
+            measured: at(RECENT),
+            direct_files: if e.identity().ends_with("debug") { 18_000 } else { 0 },
+            direct_bytes: if e.identity().ends_with("debug") { 1_100_000_000 } else { 0 },
+            ..Default::default()
+        });
+        e
+    })
+    .collect();
+    stage.state.panels[0].open_results(
+        ResultSource::Search {
+            request: SearchRequest {
+                root: "/workspace/project".into(),
+                query: "*".into(),
+                hidden: true,
+                options: SearchOptions { kind: SearchKind::FolderTree, ..Default::default() },
+            },
+            progress: SearchProgress { measured: at(RECENT), visited: 84_422, errors: 1, ..Default::default() },
+        },
+        entries,
+        80,
+    );
+    stage.state.panels[0].set_sort(Sort { key: SortKey::Size, reverse: true });
+    stage.state.panels[0].move_by(1);
+    stage.send(key(KeyCode::Right));
+    Ok(stage)
+}
+
+#[test]
+fn size_tree_fresh_cached_filtered_and_narrow() -> Result<()> {
+    let mut stage = size_tree_stage()?;
+    let buffer = stage.render(stage.started)?;
+    check("size_tree", &stage, buffer)?;
+    stage.state.panels[0].cache_observations();
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    stage.send(key(KeyCode::Insert)).send(key(KeyCode::Left)).send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    check("size_tree_cached", &stage, buffer)?;
+    stage.state.panels[0].filter_results("deps".into());
+    let buffer = stage.render(stage.started)?;
+    check("size_tree_filtered", &stage, buffer)?;
+    stage.state.panels[0].filter_results(String::new());
+    stage.send(Msg::Resize { cols: 44, rows: 12 });
+    let buffer = stage.render(stage.started)?;
+    check("size_tree_narrow", &stage, buffer)?;
+    for (cols, rows) in [(0, 0), (1, 1), (8, 4), (20, 6), (193, 40)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn size_tree_arrows_and_column_headers_share_mouse_geometry() -> Result<()> {
+    use borg_core::{Pointer, Side, SortKey};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = size_tree_stage()?;
+    let buffer = stage.render(stage.started)?;
+    let row = (0..buffer.area.height)
+        .find(|&y| (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == "▾" && x > 4))
+        .unwrap();
+    let column = (3..buffer.area.width).find(|&x| buffer[(x, row)].symbol() == "▾").unwrap();
+    let event =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE };
+    let message = borg_ui::mouse_input(&stage.state, event, false, stage.started).unwrap();
+    assert!(matches!(message, Msg::Pointer(Pointer::TreeNode { side: Side::Left, index: 1 })));
+    stage.send(message);
+    assert_eq!(stage.state.panels[0].len(), 4);
+    let row =
+        (0..buffer.area.height).find(|&y| (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == "↓")).unwrap();
+    let column = (0..buffer.area.width).find(|&x| buffer[(x, row)].symbol() == "↓").unwrap();
+    let message =
+        borg_ui::mouse_input(&stage.state, MouseEvent { column, row, ..event }, false, stage.started).unwrap();
+    assert!(matches!(message, Msg::Pointer(Pointer::ResultSort { side: Side::Left, key: SortKey::Size })));
+    Ok(())
+}
+
+#[test]
+fn size_tree_loading_and_cached_folder_listing() -> Result<()> {
+    use borg_core::{ListingMode, Panel, ResultSource, SearchProgress, Side};
+    let mut stage = size_tree_stage()?;
+    let mut root = stage.state.panels[0]
+        .entries()
+        .iter()
+        .find(|e| e.identity() == std::path::Path::new("/workspace/project"))
+        .unwrap()
+        .clone();
+    root.usage = None;
+    let ResultSource::Search { request, .. } = stage.state.panels[0].results.as_ref().unwrap().source.clone() else {
+        unreachable!()
+    };
+    stage.state.panels[0].open_results(
+        ResultSource::Search { request, progress: SearchProgress { visited: 100, ..Default::default() } },
+        vec![root],
+        81,
+    );
+    stage.state.panels[0].begin_search(81);
+    let buffer = stage.render(stage.started)?;
+    check("size_tree_loading", &stage, buffer)?;
+    let mut entries = project();
+    entries[0].size = 2_000_000;
+    entries[0].usage = Some(borg_vfs::FolderUsage {
+        files: 120,
+        folders: 8,
+        cached: true,
+        measured: at(RECENT),
+        ..Default::default()
+    });
+    stage.state.panels[0] = Panel::new("/home/me/projects/borg".into(), 20, ListingMode::Full, Default::default());
+    let generation = stage.state.panels[0].generation();
+    stage.send(Msg::Batch { side: Side::Left, generation, entries });
+    stage.send(Msg::Listed { side: Side::Left, generation, error: None });
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    check("folder_sizes_cached_listing", &stage, buffer)
+}
+
+fn activity_stage() -> Result<Stage> {
+    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
+    stage.state.appearance.select(theme, stage.started, Duration::ZERO);
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)));
+    let base = [
+        (410, "compiler", 2_600_000_000, 32000, None),
+        (411, "language-server", 812_000_000, 8400, Some(410)),
+        (412, "database", 644_000_000, 1100, None),
+        (413, "borg", 42_000_000, 120, None),
+        (414, "shell", 8_000_000, 0, Some(413)),
+    ];
+    for tick in 0..10 {
+        let id = stage.state.activity.pending.as_ref().unwrap().0;
+        let processes = base
+            .iter()
+            .map(|&(pid, name, ram, cpu, parent)| ProcessInfo {
+                key: ProcessKey { pid, start: 100 },
+                name: name.into(),
+                parent,
+                executable: Some(format!("/usr/local/bin/{name}").into()),
+                resident: Some(ram + tick * 8_000_000),
+                virtual_bytes: Some(ram * 3),
+                cpu: Some(cpu),
+                read: Some(1_200_000),
+                written: Some(64_000),
+            })
+            .collect();
+        stage.send(Msg::Activity {
+            id,
+            result: Ok(ActivityData::Sample(SystemSample {
+                processes,
+                total: 32_000_000_000,
+                used: 18_000_000_000,
+                swap_total: 4_000_000_000,
+                swap_used: 256_000_000,
+                cpu: vec![7500, 4400, 2100, 1200],
+            })),
+        });
+        if tick < 9 {
+            let next = stage.state.activity.pending.as_ref().map(|p| p.0).unwrap_or(id + 1);
+            stage.state.activity.pending = Some((next, ActivityRequest::Sample));
+        }
+    }
+    Ok(stage)
+}
+
+#[test]
+fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
+    use borg_core::{ActivityData, ActivityPage, ActivityRequest, MemoryRegion, MemorySnapshot};
+    let mut stage = activity_stage()?;
+    let buffer = stage.render(stage.started)?;
+    let event = crossterm::event::MouseEvent {
+        column: 2,
+        row: 0,
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, event, false, stage.started).unwrap();
+    assert!(matches!(
+        msg,
+        Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::OpenMenuBar) | borg_core::Pointer::Menu(_))
+    ));
+    check("activity_processes", &stage, buffer)?;
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    check("activity_memory", &stage, buffer)?;
+    let neon = stage.state.appearance.current();
+    let ember = stage.state.appearance.choices().iter().position(|c| c.id == "ember").unwrap();
+    stage.state.appearance.select(ember, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("activity_memory_ember", &stage, buffer)?;
+    stage.state.appearance.select(neon, stage.started, Duration::ZERO);
+    stage.send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100040000,
+        permissions: "rw-".into(),
+        name: "Heap · application buffers".into(),
+        resident: Some(163840),
+        private: Some(163840),
+        shared: Some(0),
+        swap: Some(0),
+        ..Default::default()
+    };
+    let mapped =
+        |start: u64, size: u64, permissions: &str, kind: &str, path: Option<&str>, resident, dirty| MemoryRegion {
+            start,
+            end: start + size,
+            permissions: permissions.into(),
+            name: path.map_or(kind.into(), |p| format!("{kind} · {p}")),
+            resident: Some(resident),
+            swap: Some(0),
+            dirty: Some(dirty),
+            path: path.map(Into::into),
+            ..Default::default()
+        };
+    let libsystem = Some("/usr/lib/libSystem.B.dylib");
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Regions(vec![
+            region.clone(),
+            mapped(0x100040000, 0x400000, "rw-", "MALLOC_SMALL · DefaultMallocZone", None, 98304, 65536),
+            mapped(0x100440000, 0x40000, "r-x", "__TEXT", Some("/usr/local/bin/compiler"), 131072, 0),
+            mapped(0x100480000, 0x8000, "rw-", "__DATA", Some("/usr/local/bin/compiler"), 32768, 16384),
+            mapped(0x16f000000, 0x800000, "rw-", "Stack · thread 0", None, 131072, 131072),
+            mapped(0x16f800000, 0x4000, "---", "STACK GUARD · stack guard for thread 1", None, 0, 0),
+            mapped(0x180000000, 0x400000, "r-x", "__TEXT", libsystem, 2097152, 0),
+            mapped(0x180400000, 0x10000, "rw-", "__DATA", libsystem, 65536, 16384),
+            mapped(0x180500000, 0x80000, "r-x", "__TEXT", Some("/usr/lib/libobjc.A.dylib"), 524288, 0),
+            mapped(0x190000000, 0x40000000, "r--", "mapped file", Some("/System/Library/Fonts/SFNS.ttf"), 1048576, 0),
+        ])),
+    });
+    let buffer = stage.render(stage.started)?;
+    check("activity_map", &stage, buffer)?;
+    for code in [KeyCode::Down, KeyCode::Down, KeyCode::Right] {
+        stage.send(key(code));
+    }
+    let buffer = stage.render(stage.started)?;
+    check("activity_map_libraries", &stage, buffer)?;
+    for code in [KeyCode::Left, KeyCode::Left, KeyCode::Home] {
+        stage.send(key(code));
+    }
+    stage.send(key(KeyCode::Enter));
+    stage.send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let bytes = b"Borg Commander\0user preferences\0theme=neon\n".repeat(16);
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Snapshot(MemorySnapshot {
+            process,
+            address: region.start,
+            bytes: bytes.clone(),
+            captured: 123,
+        })),
+    });
+    let buffer = stage.render(stage.started)?;
+    check("activity_hex", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('h')));
+    let buffer = stage.render(stage.started)?;
+    check("activity_text", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('h'))).send(key(KeyCode::Char('r')));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let mut changed = bytes;
+    changed[5..14].copy_from_slice(b"Changed!!");
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Snapshot(MemorySnapshot {
+            process,
+            address: region.start,
+            bytes: changed,
+            captured: 124,
+        })),
+    });
+    stage.send(key(KeyCode::Char('d')));
+    let buffer = stage.render(stage.started)?;
+    check("activity_diff", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    stage.state.activity.pending = Some((100, ActivityRequest::Regions { process, admin: false }));
+    stage.send(Msg::Activity { id: 100, result: Err("Process protected by macOS".into()) });
+    let buffer = stage.render(stage.started)?;
+    check("activity_protected", &stage, buffer)?;
+    for page in [ActivityPage::Processes, ActivityPage::Memory, ActivityPage::Regions, ActivityPage::Snapshot] {
+        stage.state.activity.page = page;
+        for (cols, rows) in [(0, 0), (1, 1), (12, 6), (44, 14), (193, 40)] {
+            stage.send(Msg::Resize { cols, rows });
+            stage.render(stage.started)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<()> {
+    use borg_core::{ActivityData, MemoryRegion, Pointer, ProcessFile, ProcessFiles};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('2')));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Files(ProcessFiles {
+            entries: vec![
+                ProcessFile {
+                    descriptor: "3".into(),
+                    access: "rw".into(),
+                    kind: "REG".into(),
+                    name: "/workspace/demo/session.log".into(),
+                    size: Some(8192),
+                    offset: Some(512),
+                },
+                ProcessFile {
+                    descriptor: "4".into(),
+                    access: "rw".into(),
+                    kind: "IPv4".into(),
+                    name: "127.0.0.1:8080 (LISTEN)".into(),
+                    size: None,
+                    offset: None,
+                },
+                ProcessFile {
+                    descriptor: "cwd".into(),
+                    access: String::new(),
+                    kind: "DIR".into(),
+                    name: "/workspace/demo".into(),
+                    size: None,
+                    offset: None,
+                },
+            ],
+            skipped: 0,
+        })),
+    });
+    let buffer = stage.render(stage.started)?;
+    check("activity_files", &stage, buffer)?;
+    let shot = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let (column, row) = shot.find("1 Memory").unwrap();
+    let event =
+        MouseEvent { column, row, kind: MouseEventKind::Down(MouseButton::Left), modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, event, false, stage.started).unwrap();
+    stage.send(msg);
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Regions(
+            (0..60)
+                .map(|i| MemoryRegion {
+                    start: 0x1000 + i * 0x1000,
+                    end: 0x2000 + i * 0x1000,
+                    permissions: "rw-".into(),
+                    name: format!("Heap allocation {i:03}"),
+                    resident: Some(1024),
+                    private: None,
+                    shared: None,
+                    swap: None,
+                    ..Default::default()
+                })
+                .collect(),
+        )),
+    });
+    stage.send(key(KeyCode::Char('g'))).send(key(KeyCode::End));
+    let before = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let list_row = |shot: &Snapshot, name: &str| {
+        shot.lines()
+            .iter()
+            .position(|line| line.chars().take(usize::from(shot.cols() / 2)).collect::<String>().contains(name))
+            .unwrap()
+    };
+    let bottom = list_row(&before, "Heap allocation 059");
+    stage.send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    let after = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert_eq!(list_row(&after, "Heap allocation 058"), bottom - 1);
+    check("activity_scrolled_regions", &stage, buffer)?;
+    let (column, row) = after.find("Heap allocation 057").unwrap();
+    let event =
+        MouseEvent { column, row, kind: MouseEventKind::Down(MouseButton::Left), modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, event, false, stage.started).unwrap();
+    assert!(matches!(msg, Msg::Pointer(Pointer::ActivityRow { index: 57, .. })));
+    stage.send(msg);
+    assert_eq!(stage.state.activity.selected_region().unwrap().name, "Heap allocation 057");
+    stage.send(key(KeyCode::Char('2')));
+    assert_eq!(stage.state.activity.files[0].descriptor, "3");
+    for (cols, rows) in [(0, 0), (1, 1), (12, 6), (44, 14)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn activity_narrow_layout_mouse_sort_and_selection() -> Result<()> {
+    use borg_core::{ActivitySort, Pointer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = activity_stage()?;
+    let buffer = stage.render(stage.started)?;
+    let shot = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (column, row) = shot.find("RAM ↓").unwrap();
+    let event =
+        MouseEvent { column, row, kind: MouseEventKind::Down(MouseButton::Left), modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, event, false, stage.started).unwrap();
+    assert!(matches!(msg, Msg::Pointer(Pointer::ActivitySort(ActivitySort::Memory))));
+    stage.send(msg);
+    assert!(!stage.state.activity.reverse);
+    let buffer = stage.render(stage.started)?;
+    let shot = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (column, row) = shot.find("language-server").unwrap();
+    let msg = borg_ui::mouse_input(&stage.state, MouseEvent { column, row, ..event }, true, stage.started).unwrap();
+    stage.send(msg);
+    assert_eq!(stage.state.activity.process().unwrap().name, "language-server");
+    stage.send(key(KeyCode::Esc));
+    stage.send(Msg::Resize { cols: 44, rows: 14 });
+    let buffer = stage.render(stage.started)?;
+    check("activity_narrow", &stage, buffer)
+}
+
+#[test]
+fn borg_brand_is_visible_in_panels_console_viewer_and_overlays() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let verify = |stage: &Stage, buffer: Buffer| {
+        let shot = Snapshot::from_buffer(buffer, &stage.palette, None);
+        assert!(shot.lines().last().unwrap().contains("Borg Commander"));
+    };
+    let buffer = stage.render(stage.started)?;
+    verify(&stage, buffer);
+    stage.send(key(KeyCode::F(1)));
+    let buffer = stage.render(stage.started)?;
+    verify(&stage, buffer);
+    stage.send(key(KeyCode::Esc)).send(ctrl('o'));
+    let buffer = stage.render(stage.started)?;
+    verify(&stage, buffer);
+    stage.send(ctrl('o'));
+    stage.state.screensaver = true;
+    let buffer = stage.render(stage.started)?;
+    verify(&stage, buffer);
+    stage.state.screensaver = false;
+    let pager = borg_view::Pager::new(std::sync::Arc::new(b"Brand in the viewer".to_vec()), 88, 20)?;
+    stage.send(Msg::Opened(borg_core::Viewer {
+        path: "/workspace/sample.txt".into(),
+        content: borg_core::Content::Text(pager),
+    }));
+    let buffer = stage.render(stage.started)?;
+    verify(&stage, buffer);
+    stage.send(key(KeyCode::Esc));
+    for cols in [1, 4, 10, 44, 193] {
+        stage.send(Msg::Resize { cols, rows: 20 });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn memory_search_form_results_and_match_preview_in_split_panes() -> Result<()> {
+    use borg_core::{
+        ActivityData, ActivityPage, ActivityRequest, MemoryHit, MemoryRegion, MemorySearchMode, MemorySearchReport,
+        MemorySnapshot, Pointer,
+    };
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('/')));
+    stage.send(Msg::Paste("Borg".into()));
+    stage.state.activity.search_form.as_mut().unwrap().mode = MemorySearchMode::Unicode;
+    let buffer = stage.render(stage.started)?;
+    check("memory_search_form", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100040000,
+        permissions: "rw-".into(),
+        name: "Heap · application buffers".into(),
+        resident: None,
+        private: None,
+        shared: None,
+        swap: None,
+        ..Default::default()
+    };
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Search(MemorySearchReport {
+            process,
+            hits: vec![
+                MemoryHit { address: region.start + 32, length: 4, encoding: "UTF-8".into(), region: region.clone() },
+                MemoryHit {
+                    address: region.start + 128,
+                    length: 8,
+                    encoding: "UTF-16LE".into(),
+                    region: region.clone(),
+                },
+                MemoryHit {
+                    address: region.start + 256,
+                    length: 16,
+                    encoding: "UTF-32BE".into(),
+                    region: region.clone(),
+                },
+            ],
+            scanned: 12_000_000,
+            total: 120_000_000,
+            skipped: 0,
+            next: Some(region.end),
+            cancelled: false,
+        })),
+    });
+    let buffer = stage.render(stage.started)?;
+    check("memory_search_results", &stage, buffer.clone())?;
+    let shot = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (column, row) = shot.find("UTF-16LE").unwrap();
+    let msg = borg_ui::mouse_input(
+        &stage.state,
+        MouseEvent { column, row, kind: MouseEventKind::Down(MouseButton::Left), modifiers: KeyModifiers::NONE },
+        false,
+        stage.started,
+    )
+    .unwrap();
+    assert!(matches!(msg, Msg::Pointer(Pointer::ActivityRow { index: 1, preview: false, .. })));
+    stage.send(msg).send(key(KeyCode::Enter));
+    let (id, ActivityRequest::Capture { region: window, .. }) = stage.state.activity.pending.clone().unwrap() else {
+        panic!("match should request its surrounding bytes")
+    };
+    assert_eq!(window.start, region.start + 96);
+    let mut bytes = vec![0; 200];
+    bytes[32..40].copy_from_slice(&[0x42, 0, 0x6f, 0, 0x72, 0, 0x67, 0]);
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Snapshot(MemorySnapshot { process, address: window.start, bytes, captured: 1 })),
+    });
+    let buffer = stage.render(stage.started)?;
+    check("memory_search_preview", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    check("memory_search_maximized", &stage, buffer)?;
+    assert_eq!(stage.state.activity.page, ActivityPage::Snapshot);
+    for (cols, rows) in [(0, 0), (1, 1), (44, 14), (193, 40)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn expanded_size_tree_accounts_for_files_outside_child_directories() -> Result<()> {
+    let mut stage = size_tree_stage()?;
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    let buffer = stage.render(stage.started)?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert!(shot.contains("Files in this folder"));
+    check("size_tree_direct_files", &stage, buffer)
+}
+
+#[test]
+fn background_sizes_stay_in_normal_panels_with_progress_and_stop_action() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT)));
+    let id = stage.state.sizing.as_ref().unwrap().id;
+    stage.send(Msg::SizeProgress { id, progress: borg_core::SearchProgress { visited: 15238, ..Default::default() } });
+    let mut measured = entry("src", EntryKind::Dir, 45200000, RECENT, false);
+    measured.source = Some("/home/me/projects/borg/src".into());
+    measured.usage =
+        Some(borg_vfs::FolderUsage { files: 410, folders: 24, measured: at(RECENT), ..Default::default() });
+    stage.send(Msg::Sized { id, entries: vec![measured] });
+    assert_eq!(stage.state.active_panel().dir(), std::path::Path::new("/home/me/projects/borg"));
+    assert_eq!(stage.state.active_panel().entries().iter().find(|e| e.name == "src").unwrap().size, 45200000);
+    let buffer = stage.render(stage.started)?;
+    assert!(!stage.state.active_panel().is_results());
+    assert!(stage.state.overlay.is_none());
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert!(shot.contains("43M"));
+    assert!(shot.contains("Sizes · 15238 scanned"));
+    assert!(shot.contains("Alt-I Stop sizes"));
+    check("background_sizes", &stage, buffer)?;
+    stage.send(Msg::Resize { cols: 44, rows: 14 });
+    let buffer = stage.render(stage.started)?;
+    check("background_sizes_narrow", &stage, buffer)?;
     Ok(())
 }

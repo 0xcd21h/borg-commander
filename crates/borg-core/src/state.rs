@@ -72,6 +72,7 @@ pub struct ShellStatus {
     pub unechoed: bool,
     pub integrated: bool,
     pub went_full_screen: bool,
+    pub return_view: View,
 }
 
 impl ShellStatus {
@@ -127,7 +128,7 @@ pub enum PromptPurpose {
     Unselect,
     Mkdir,
     Compress { sources: Vec<String> },
-    Copy { sources: Vec<PathBuf> },
+    Copy { sources: Vec<PathBuf>, optimize_hdd: bool },
     Move { sources: Vec<PathBuf> },
 }
 
@@ -137,6 +138,7 @@ pub struct Prompt {
     pub label: String,
     pub input: LineInput,
     pub purpose: PromptPurpose,
+    pub option_focused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +157,7 @@ pub struct Confirm {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Overlay {
+    Game2048,
     Collections(crate::CollectionPicker),
     Search(crate::SearchForm),
     About(About),
@@ -213,6 +216,8 @@ impl Startup {
 
 #[derive(Debug, Clone)]
 pub struct AppState {
+    pub activity: crate::Activity,
+    pub game2048: Option<crate::Game2048>,
     pub collections: Vec<crate::Collection>,
     pub result_history: [Option<Panel>; 2],
     pub last_results: [Option<Panel>; 2],
@@ -230,6 +235,8 @@ pub struct AppState {
     pub appearance: Appearance,
     pub overlay: Option<Overlay>,
     pub operation: Option<Operation>,
+    pub sizing: Option<crate::SizeScan>,
+    pub next_size: u64,
     pub viewer: Option<Viewer>,
     pub epoch: Instant,
     pub motions: [PanelMotion; 2],
@@ -268,10 +275,13 @@ impl AppState {
             unechoed: false,
             integrated: false,
             went_full_screen: false,
+            return_view: View::Panels,
         };
         let panels = startup.panels.clone().map(|setup| Panel::new(setup.dir, 0, setup.mode, setup.sort));
 
         let mut state = Self {
+            activity: crate::Activity::default(),
+            game2048: None,
             collections: Vec::new(),
             result_history: [None, None],
             last_results: [None, None],
@@ -289,6 +299,8 @@ impl AppState {
             appearance,
             overlay: None,
             operation: None,
+            sizing: None,
+            next_size: 0,
             viewer: None,
             epoch: now,
             motions: [PanelMotion::settled(now); 2],
@@ -341,6 +353,17 @@ impl AppState {
 
     pub fn layout(&self, now: Instant) -> Layout {
         let mut layout = Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now));
+        if let Some(side) = self.activity.side {
+            if self.activity.expanded {
+                let left = layout.panels[0];
+                let right = layout.panels[1];
+                let focus = if self.activity.preview_focused { side.other() } else { side };
+                layout.panels[focus.index()] =
+                    ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+                layout.panels[focus.other().index()] = Default::default();
+            }
+            return layout;
+        }
         if self.results_expanded() {
             let left = layout.panels[0];
             let right = layout.panels[1];
@@ -395,7 +418,12 @@ impl AppState {
     }
 
     pub fn can_screensave(&self) -> bool {
-        !self.shell.busy() && self.jobs.is_empty() && self.overlay.is_none() && self.viewer.is_none()
+        !self.shell.busy()
+            && self.jobs.is_empty()
+            && self.overlay.is_none()
+            && self.viewer.is_none()
+            && self.activity.side.is_none()
+            && self.sizing.is_none()
     }
 
     pub fn wake_at(&self) -> Option<Instant> {
@@ -403,7 +431,7 @@ impl AppState {
         let rest = (self.settings.preferences.screensaver && !self.screensaver && self.can_screensave())
             .then_some(self.idle_since + self.settings.screensaver_after);
         let rain = self.rain_until;
-        [reveal, rest, rain, crate::plugins::wake_at(self)].into_iter().flatten().min()
+        [reveal, rest, rain, crate::plugins::wake_at(self), crate::activity::wake_at(self)].into_iter().flatten().min()
     }
 
     pub fn settle(&mut self) {
@@ -428,6 +456,7 @@ impl AppState {
     }
 
     pub(crate) fn navigate(&mut self, side: Side, dir: PathBuf, focus: Option<String>) -> Effect {
+        self.panel_mut(side).cache_observations();
         if self.panel(side).is_results() {
             self.last_results[side.index()] = Some(self.panel(side).clone());
         }
@@ -447,13 +476,17 @@ impl AppState {
                     Effect::RefreshCollection { side, generation, entries: panel.entries().to_vec() }
                 }
                 crate::ResultSource::Search { mut request, .. } => {
-                    request.hidden = hidden;
+                    request.options.refresh = true;
+                    if !matches!(request.options.kind, crate::SearchKind::FolderTree | crate::SearchKind::FolderTotals)
+                    {
+                        request.hidden = hidden;
+                    }
                     if let Some(crate::Results {
                         source: crate::ResultSource::Search { request: saved, progress },
                         ..
                     }) = &mut panel.results
                     {
-                        saved.hidden = hidden;
+                        *saved = request.clone();
                         *progress = crate::SearchProgress::default();
                     }
                     Effect::Search { side, generation, request }

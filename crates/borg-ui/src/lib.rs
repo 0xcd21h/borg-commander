@@ -1,12 +1,15 @@
+mod activity_view;
 mod art_view;
 mod aside_view;
 mod blend;
+mod branding;
 mod dialog_view;
 mod discovery_view;
 mod document_view;
 mod draw;
 mod format;
 mod fx;
+mod game2048_view;
 mod icons;
 mod job_view;
 mod keybar;

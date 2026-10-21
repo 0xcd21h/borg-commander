@@ -23,6 +23,8 @@ pub enum ResultGroup {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchProgress {
+    pub measured: Option<std::time::SystemTime>,
+    pub cached: bool,
     pub visited: usize,
     pub errors: usize,
     pub skipped: usize,
@@ -52,12 +54,22 @@ pub enum ResultRow {
 
 #[derive(Debug, Clone)]
 pub struct Results {
+    pub tree: Option<TreeState>,
     pub expanded: bool,
     pub source: ResultSource,
     pub filter: String,
     pub group: ResultGroup,
     pub rows: Vec<ResultRow>,
     pub collapsed: HashSet<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeState {
+    pub root: PathBuf,
+    pub open: HashSet<PathBuf>,
+    pub branches: HashSet<PathBuf>,
+    pub loaded: HashSet<PathBuf>,
+    pub pending: HashSet<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +80,20 @@ pub struct Collection {
 
 impl Results {
     pub fn new(source: ResultSource) -> Self {
+        let tree = match &source {
+            ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::FolderTree => {
+                Some(TreeState {
+                    root: request.root.clone(),
+                    open: HashSet::from([request.root.clone()]),
+                    branches: HashSet::new(),
+                    loaded: HashSet::from([request.root.clone()]),
+                    pending: HashSet::new(),
+                })
+            }
+            _ => None,
+        };
         Self {
+            tree,
             expanded: false,
             source,
             filter: String::new(),
@@ -80,6 +105,9 @@ impl Results {
 
     pub fn title(&self) -> String {
         match &self.source {
+            ResultSource::Search { request, .. } if self.tree.is_some() => {
+                format!(tr!(folder_tree_title), root = request.root.display())
+            }
             ResultSource::Collection(name) => format!(tr!(collection_title), name = name),
             ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::FolderTotals => {
                 format!(tr!(folder_sizes), request.query)
@@ -114,6 +142,21 @@ impl Results {
 
     pub fn rebuild(&mut self, entries: &[Entry]) {
         self.rows.clear();
+        if let Some(tree) = self.tree.as_mut() {
+            tree.branches = entries
+                .iter()
+                .filter(|e| e.identity() != tree.root)
+                .filter_map(|e| e.identity().parent().map(std::path::Path::to_path_buf))
+                .collect();
+            tree.branches.extend(
+                entries
+                    .iter()
+                    .filter(|e| e.usage.as_ref().is_some_and(|u| u.folders > 0))
+                    .map(|e| e.identity().to_path_buf()),
+            );
+            self.rebuild_tree(entries);
+            return;
+        }
         if self.group == ResultGroup::None {
             self.rows.extend(
                 entries
@@ -137,6 +180,69 @@ impl Results {
             }
         }
     }
+
+    fn rebuild_tree(&mut self, entries: &[Entry]) {
+        let Some(tree) = &self.tree else { return };
+        let mut children: BTreeMap<&std::path::Path, Vec<usize>> = BTreeMap::new();
+        let mut root = None;
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.identity() == tree.root {
+                root = Some(index);
+            } else if entry.identity().starts_with(&tree.root)
+                && let Some(parent) = entry.identity().parent()
+            {
+                children.entry(parent).or_default().push(index);
+            }
+        }
+        let Some(root) = root else { return };
+        let mut included = HashSet::new();
+        let mut filtering = !self.filter.is_empty();
+        if let ResultSource::Search { request, .. } = &self.source {
+            filtering |= request.query != "*" || request.options.minimum > 0 || request.options.minimum_files > 0;
+            if filtering {
+                let query = crate::Query::parse(&request.query);
+                for entry in entries.iter().filter(|entry| {
+                    self.matches(entry)
+                        && query.accepts(entry)
+                        && entry.size >= request.options.minimum
+                        && entry.usage.as_ref().is_some_and(|u| u.files >= request.options.minimum_files)
+                }) {
+                    let mut path = Some(entry.identity());
+                    while let Some(current) = path.filter(|p| p.starts_with(&tree.root)) {
+                        included.insert(current);
+                        if current == tree.root {
+                            break;
+                        }
+                        path = current.parent();
+                    }
+                }
+            }
+        }
+        let mut stack = vec![root];
+        while let Some(index) = stack.pop() {
+            let path = entries[index].identity();
+            if filtering && path != tree.root && !included.contains(path) {
+                continue;
+            }
+            self.rows.push(ResultRow::Entry(index));
+            if tree.open.contains(path)
+                && !filtering
+                && let Some(usage) = &entries[index].usage
+                && usage.direct_files > 0
+            {
+                self.rows.push(ResultRow::Group {
+                    label: format!(tr!(tree_direct_files), bytes = usage.direct_bytes),
+                    count: usage.direct_files as usize,
+                });
+            }
+
+            if (tree.open.contains(path) || filtering)
+                && let Some(descendants) = children.get(path)
+            {
+                stack.extend(descendants.iter().rev().copied());
+            }
+        }
+    }
 }
 
 pub(crate) fn prompt(
@@ -146,7 +252,8 @@ pub(crate) fn prompt(
     value: String,
     purpose: PromptPurpose,
 ) -> Vec<Effect> {
-    state.overlay = Some(Overlay::Prompt(Prompt { title, label, input: LineInput::new(value), purpose }));
+    state.overlay =
+        Some(Overlay::Prompt(Prompt { title, label, input: LineInput::new(value), purpose, option_focused: false }));
     Vec::new()
 }
 
@@ -165,7 +272,7 @@ pub(crate) fn start_search(state: &mut AppState, request: SearchRequest) -> Vec<
         generation,
     );
     state.panel_mut(side).begin_search(generation);
-    if request.options.kind == crate::SearchKind::FolderTotals {
+    if matches!(request.options.kind, crate::SearchKind::FolderTotals | crate::SearchKind::FolderTree) {
         state.panel_mut(side).set_sort(crate::Sort { key: crate::SortKey::Size, reverse: true });
     }
     state.refit();
@@ -286,7 +393,9 @@ pub(crate) fn save_current(state: &mut AppState, side: Side) -> Option<Side> {
 
 pub(crate) fn back(state: &mut AppState) -> Vec<Effect> {
     let side = state.active;
+    let sizes = state.panel(side).is_size_view();
     state.settle();
+    state.panel_mut(side).cache_observations();
     if state.panel(side).is_results() {
         if let Some(folder) = state.result_history[side.index()].take() {
             let results = std::mem::replace(&mut state.panels[side.index()], folder);
@@ -297,7 +406,7 @@ pub(crate) fn back(state: &mut AppState) -> Vec<Effect> {
         state.result_history[side.index()] = Some(folder);
     }
     state.refit();
-    Vec::new()
+    if sizes && !state.panel(side).is_results() { vec![state.reload(side)] } else { Vec::new() }
 }
 
 pub(crate) fn reveal(state: &mut AppState) -> Vec<Effect> {
@@ -332,6 +441,32 @@ pub(crate) fn filter_prompt(state: &mut AppState) -> Vec<Effect> {
 
 pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
     match action {
+        Action::FolderTree | Action::CalculateSizes => {
+            let root = if action == Action::CalculateSizes {
+                state
+                    .active_panel()
+                    .hovered_entry()
+                    .filter(|e| e.kind == borg_vfs::EntryKind::Dir)
+                    .map(|e| e.path(state.active_panel().dir()))
+                    .unwrap_or_else(|| state.active_panel().dir().to_path_buf())
+            } else {
+                state.active_panel().dir().to_path_buf()
+            };
+            start_search(
+                state,
+                SearchRequest {
+                    root,
+                    query: "*".into(),
+                    hidden: true,
+                    options: crate::SearchOptions { kind: crate::SearchKind::FolderTree, ..Default::default() },
+                },
+            )
+        }
+        Action::RefreshSizes => vec![state.reload(state.active)],
+        Action::ToggleTreeNode => {
+            state.panel_mut(state.active).toggle_tree_node();
+            Vec::new()
+        }
         Action::Search => search_prompt(state),
         Action::AnalyzeSpace => {
             state.overlay = Some(Overlay::Search(crate::SearchForm::new(state, true)));
@@ -366,6 +501,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
                 progress.cancelled = true;
             }
             let old = state.panel(side).generation();
+            state.panel_mut(side).cancel_refresh();
             state.panel_mut(side).finish(old, None);
             state.panel_mut(side).settle();
             let generation = state.next_generation();
@@ -408,6 +544,64 @@ pub fn selected_paths(panel: &Panel) -> Vec<PathBuf> {
         .collect();
     paths.retain(|path| !path.ancestors().skip(1).any(|parent| directories.contains(parent)));
     paths
+}
+
+pub(crate) fn sync_sizes(state: &mut AppState) -> Vec<Effect> {
+    let mut effects = Vec::new();
+    for side in Side::ALL {
+        let panel = state.panel_mut(side);
+        if panel.listing() != &crate::Listing::Ready {
+            continue;
+        }
+        let generation = panel.generation();
+        if let Some(Results { tree: Some(tree), source: ResultSource::Search { request, .. }, .. }) = &mut panel.results
+        {
+            for parent in tree.open.clone() {
+                if tree.branches.contains(&parent)
+                    && !tree.loaded.contains(&parent)
+                    && tree.pending.insert(parent.clone())
+                {
+                    effects.push(Effect::SizeChildren {
+                        side,
+                        generation,
+                        root: request.root.clone(),
+                        hidden: request.hidden,
+                        parent,
+                    });
+                }
+            }
+        }
+    }
+    effects
+}
+pub(crate) fn size_children(
+    state: &mut AppState,
+    side: Side,
+    generation: u64,
+    parent: PathBuf,
+    result: Result<(Vec<Entry>, bool), String>,
+) {
+    let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let Some(tree) = panel.results.as_mut().and_then(|r| r.tree.as_mut()) else { return };
+    if !tree.pending.remove(&parent) {
+        return;
+    }
+    tree.loaded.insert(parent);
+    match result {
+        Ok((mut entries, limited)) => {
+            let cached = matches!(&panel.results, Some(Results { source: ResultSource::Search { progress, .. }, .. }) if progress.cached);
+            for entry in &mut entries {
+                if let Some(usage) = &mut entry.usage {
+                    usage.cached = cached;
+                }
+            }
+            panel.append_results(entries);
+            if limited && let Some(Results { source: ResultSource::Search { progress, .. }, .. }) = &mut panel.results {
+                progress.limited = true;
+            }
+        }
+        Err(error) => state.notice = Some(error),
+    }
 }
 
 #[cfg(test)]
@@ -775,5 +969,200 @@ mod tests {
         let results = state.active_panel().results.as_ref().unwrap();
         assert_eq!(results.filter, "config");
         assert_eq!(results.group, ResultGroup::Folder);
+    }
+    fn tree_panel() -> Panel {
+        let mut panel = Panel::new("/work".into(), 12, ListingMode::Full, Sort::default());
+        let entries = [("/work", 120), ("/work/cache", 100), ("/work/cache/deep", 80), ("/work/src", 20)]
+            .into_iter()
+            .map(|(path, size)| {
+                let mut entry = file(path, size);
+                entry.kind = borg_vfs::EntryKind::Dir;
+                entry.usage = Some(borg_vfs::FolderUsage { files: size, ..Default::default() });
+                entry
+            })
+            .collect();
+        panel.open_results(
+            ResultSource::Search {
+                request: SearchRequest {
+                    root: "/work".into(),
+                    query: "*".into(),
+                    hidden: true,
+                    options: crate::SearchOptions { kind: crate::SearchKind::FolderTree, ..Default::default() },
+                },
+                progress: SearchProgress::default(),
+            },
+            entries,
+            10,
+        );
+        panel.set_sort(Sort { key: SortKey::Size, reverse: true });
+        panel
+    }
+
+    fn paths(panel: &Panel) -> Vec<PathBuf> {
+        (0..panel.len())
+            .filter_map(|i| match panel.row(i) {
+                Some(crate::Row::Entry(e)) => Some(e.identity().to_path_buf()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tree_navigation_keeps_root_first_sorts_siblings_and_preserves_hidden_marks() {
+        let mut panel = tree_panel();
+        assert_eq!(paths(&panel), ["/work", "/work/cache", "/work/src"].map(PathBuf::from));
+        panel.move_by(1);
+        panel.tree_step(true);
+        assert_eq!(paths(&panel), ["/work", "/work/cache", "/work/cache/deep", "/work/src"].map(PathBuf::from));
+        panel.tree_step(true);
+        assert_eq!(panel.hovered_entry().unwrap().identity(), Path::new("/work/cache/deep"));
+        panel.toggle_mark();
+        panel.tree_step(false);
+        assert_eq!(panel.hovered_entry().unwrap().identity(), Path::new("/work/cache"));
+        panel.tree_step(false);
+        assert_eq!(panel.marked_count(), 1);
+        assert_eq!(panel.visible_entries().filter(|e| panel.is_marked(e)).count(), 0);
+        panel.toggle_mark();
+        assert_eq!(selected_paths(&panel), vec![PathBuf::from("/work/cache")]);
+        panel.filter_results("deep".into());
+        assert_eq!(paths(&panel), ["/work", "/work/cache", "/work/cache/deep"].map(PathBuf::from));
+        panel.filter_results(String::new());
+        assert_eq!(panel.len(), 3);
+        panel.set_sort(Sort { key: SortKey::Size, reverse: false });
+        assert_eq!(paths(&panel), ["/work", "/work/src", "/work/cache"].map(PathBuf::from));
+    }
+
+    #[test]
+    fn tree_stream_updates_replace_by_identity_and_cancelled_refresh_preserves_previous_tree() {
+        let mut panel = tree_panel();
+        let mut root = panel.entries().iter().find(|e| e.identity() == Path::new("/work")).unwrap().clone();
+        root.size = 200;
+        panel.receive(10, vec![root.clone(), root], true);
+        panel.settle();
+        assert_eq!(panel.entries().len(), 4);
+        assert_eq!(panel.entries().iter().find(|e| e.identity() == Path::new("/work")).unwrap().size, 200);
+        panel.begin_results_refresh(11);
+        panel.receive(11, vec![file("/work/new", 50)], true);
+        panel.settle();
+        assert_eq!(panel.entries().len(), 4);
+        panel.cancel_refresh();
+        panel.finish(11, None);
+        panel.settle();
+        assert_eq!(panel.entries().len(), 4);
+        assert!(panel.entries().iter().all(|e| e.usage.as_ref().unwrap().cached));
+        panel.begin_results_refresh(12);
+        panel.receive(12, vec![file("/work/new", 60)], true);
+        panel.finish(12, Some("unavailable".into()));
+        panel.settle();
+        assert_eq!(panel.entries().len(), 4);
+    }
+
+    #[test]
+    fn hiding_a_tree_reloads_normal_totals_and_resumes_branches_cursor_and_marks() {
+        let (mut state, now) = state();
+        state.panels[0] = tree_panel();
+        state.result_history[0] = Some(Panel::new("/work".into(), 10, ListingMode::Full, Sort::default()));
+        state.panels[0].move_by(1);
+        state.panels[0].tree_step(true);
+        state.panels[0].tree_step(true);
+        state.panels[0].toggle_mark();
+        let effects = update(
+            &mut state,
+            Msg::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            )),
+            now,
+        );
+        assert!(effects.iter().any(|e| matches!(e, Effect::List { .. })));
+        assert!(!state.active_panel().is_results());
+        back(&mut state);
+        assert_eq!(state.active_panel().len(), 4);
+        assert_eq!(state.active_panel().hovered_entry().unwrap().identity(), Path::new("/work/cache/deep"));
+        assert_eq!(state.active_panel().marked_count(), 1);
+        let effect = state.reload(Side::Left);
+        assert!(matches!(effect, Effect::Search { request, .. } if request.options.refresh && request.hidden));
+    }
+    #[test]
+    fn flat_size_results_expose_the_same_rescan_and_cached_folder_handoff() {
+        let (mut state, now) = state();
+        state.panels[0] = tree_panel();
+        let Some(Results { tree, source: ResultSource::Search { request, .. }, .. }) = &mut state.panels[0].results
+        else {
+            unreachable!()
+        };
+        *tree = None;
+        request.options.kind = crate::SearchKind::FolderTotals;
+        state.result_history[0] = Some(Panel::new("/work".into(), 10, ListingMode::Full, Sort::default()));
+        let effects = update(
+            &mut state,
+            Msg::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('r'),
+                crossterm::event::KeyModifiers::CONTROL,
+            )),
+            now,
+        );
+        assert!(effects.iter().any(|e| matches!(e, Effect::Search { request, side: Side::Left, .. } if request.options.refresh && request.hidden)));
+        perform(&mut state, Action::CancelSearch);
+        let effects = back(&mut state);
+        assert!(matches!(&effects[..], [Effect::List { .. }]));
+        back(&mut state);
+        assert!(state.active_panel().entries().iter().all(|e| e.usage.as_ref().unwrap().cached));
+    }
+    #[test]
+    fn lazy_tree_children_reject_old_generations_and_keep_fresh_scan_status() {
+        let (mut state, now) = state();
+        let mut panel = tree_panel();
+        let mut entries = panel
+            .entries()
+            .iter()
+            .filter(|e| e.identity() != Path::new("/work/cache/deep"))
+            .cloned()
+            .collect::<Vec<_>>();
+        let branch = entries.iter_mut().find(|e| e.identity() == Path::new("/work/cache")).unwrap();
+        branch.usage.as_mut().unwrap().folders = 1;
+        branch.usage.as_mut().unwrap().direct_bytes = 20;
+        branch.usage.as_mut().unwrap().direct_files = 2;
+        panel.replace_collection(entries);
+        state.panels[0] = panel;
+        state.panels[0].move_by(1);
+        state.panels[0].tree_step(true);
+        let effects = sync_sizes(&mut state);
+        let generation = state.panels[0].generation();
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::SizeChildren { parent, .. } if parent == Path::new("/work/cache")))
+        );
+        let mut child = file("/work/cache/deep", 80);
+        child.kind = borg_vfs::EntryKind::Dir;
+        child.usage = Some(borg_vfs::FolderUsage { cached: true, ..Default::default() });
+        update(
+            &mut state,
+            Msg::SizeChildren {
+                side: Side::Left,
+                generation: generation + 1,
+                parent: "/work/cache".into(),
+                result: Ok((vec![child.clone()], false)),
+            },
+            now,
+        );
+        assert_eq!(state.panels[0].entries().len(), 3);
+        update(
+            &mut state,
+            Msg::SizeChildren {
+                side: Side::Left,
+                generation,
+                parent: "/work/cache".into(),
+                result: Ok((vec![child], false)),
+            },
+            now,
+        );
+        assert_eq!(state.panels[0].entries().len(), 4);
+        assert!(state.panels[0].entries().iter().all(|e| !e.usage.as_ref().unwrap().cached));
+        assert!(matches!(state.panels[0].row(2), Some(crate::Row::Group { count: 2, .. })));
+        assert!(
+            matches!(&state.panels[0].results.as_ref().unwrap().source, ResultSource::Search { progress, .. } if !progress.cached)
+        );
     }
 }

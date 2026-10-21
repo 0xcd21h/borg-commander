@@ -123,7 +123,9 @@ pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instan
         paused: false,
         started: now,
     });
-    vec![Effect::StartJob { id, spec }]
+    let mut effects = crate::measure::cancel(state);
+    effects.push(Effect::StartJob { id, spec });
+    effects
 }
 
 pub(crate) fn on_event(state: &mut AppState, id: u64, event: Event) -> Vec<Effect> {

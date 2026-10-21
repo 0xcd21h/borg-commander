@@ -7,8 +7,15 @@ pub const SPLIT_STEP: i16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    Activity,
+    ToggleSystemPlugin,
     Search,
     AnalyzeSpace,
+    FolderTree,
+    CalculateSizes,
+    MeasureSizes,
+    RefreshSizes,
+    ToggleTreeNode,
     Collect,
     OpenCollection,
     FilterResults,
@@ -133,6 +140,12 @@ pub enum PathOf {
 }
 
 pub const KEYMAP: &[Binding] = &[
+    bind(KeyCode::Char('i'), ALT, Action::MeasureSizes, Scope::PanelsEmptyLine),
+    bind(KeyCode::Char('m'), ALT, Action::Activity, Scope::Panels),
+    bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
+    bind(KeyCode::Char('D'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
+    bind(KeyCode::Char('d'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
+    bind(KeyCode::Char('s'), ALT, Action::CalculateSizes, Scope::Panels),
     bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
     bind(KeyCode::Char('r'), ALT, Action::BackResults, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),

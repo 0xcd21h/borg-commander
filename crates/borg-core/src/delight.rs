@@ -8,6 +8,7 @@ use crate::{AppState, Effect, Overlay};
 pub const UNLOCK_WORD: &str = "borg";
 pub const RAIN_DURATION: Duration = Duration::from_secs(8);
 const MEMORY: usize = 10;
+const GAME_WORD: &str = "2048";
 const KONAMI: [KeyCode; 10] = [
     KeyCode::Up,
     KeyCode::Up,
@@ -39,6 +40,9 @@ pub(crate) fn on_about_key(state: &mut AppState, mut about: About, key: &KeyEven
     about.recent.drain(..overflow);
     let spelled = typed_word(&about.recent);
     let konami = about.recent.ends_with(&KONAMI);
+    if spelled.ends_with(GAME_WORD) {
+        return crate::game2048::open(state, now);
+    }
     state.overlay = Some(Overlay::About(about));
 
     if konami {

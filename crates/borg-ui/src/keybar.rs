@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Position, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::Widget,
+    widgets::{Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -25,6 +25,7 @@ pub(crate) fn actions_area(area: Rect) -> Rect {
 pub(crate) fn rows(area: Rect) -> (Rect, Rect) {
     let primary = Rect { height: area.height.min(1), ..area };
     let context = Rect { y: primary.bottom(), height: area.height.saturating_sub(primary.height).min(1), ..area };
+    let context = crate::branding::content(context);
     (primary, context)
 }
 
@@ -38,6 +39,7 @@ pub fn draw_keybar(state: &AppState, area: Rect, styles: &Styles<Style>, copy: &
     if let Some(notice) = state.notice.as_deref()
         && !context.is_empty()
     {
+        Clear.render(context, buf);
         buf.set_style(context, styles.notice);
         Line::styled(format::truncate_end(notice, usize::from(context.width)), styles.notice).render(context, buf);
     }

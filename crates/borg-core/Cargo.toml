@@ -17,6 +17,7 @@ borg-view = { workspace = true }
 crossterm = { workspace = true }
 globset   = { workspace = true }
 ratatui   = { workspace = true }
+serde     = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

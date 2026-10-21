@@ -77,8 +77,37 @@ pub(crate) fn columns(area: Rect, totals: bool) -> Vec<(SortKey, Rect)> {
 }
 
 pub(crate) fn has_totals(panel: &Panel) -> bool {
-    panel.entries().iter().any(|entry| entry.usage.is_some())
+    panel.is_tree()
+        || panel.entries().iter().any(|entry| entry.usage.is_some())
         || matches!(panel.results.as_ref().map(|r| &r.source), Some(ResultSource::Search { request, .. }) if request.options.kind == borg_core::SearchKind::FolderTotals)
+}
+
+pub(crate) fn panel_columns(panel: &Panel, area: Rect) -> Vec<(SortKey, Rect)> {
+    if !panel.is_tree() {
+        return columns(area, has_totals(panel));
+    }
+    let size = SIZE_WIDTH.min(area.width / 3);
+    let files = if area.width >= 34 { 8 } else { 0 };
+    let name = area.width.saturating_sub(MARK_WIDTH + size + files);
+    let mut x = area.x.saturating_add(MARK_WIDTH.min(area.width));
+    [(SortKey::Name, name), (SortKey::Size, size), (SortKey::Files, files)]
+        .into_iter()
+        .filter_map(|(key, width)| {
+            let cell = Rect { x, width, ..area };
+            x += width;
+            (width > 0).then_some((key, cell))
+        })
+        .collect()
+}
+
+pub(crate) fn tree_indent(panel: &Panel, entry: &borg_vfs::Entry, width: u16) -> usize {
+    panel
+        .results
+        .as_ref()
+        .and_then(|r| r.tree.as_ref())
+        .and_then(|tree| entry.identity().strip_prefix(&tree.root).ok())
+        .map_or(0, |relative| relative.components().count().saturating_mul(2))
+        .min(usize::from(width.saturating_sub(6)))
 }
 
 fn text(buf: &mut Buffer, area: Rect, value: &str, style: Style) {
@@ -94,10 +123,10 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     let panel = scene.panel;
     let Some(results) = &panel.results else { return };
     let styles = look.styles();
-    let totals = has_totals(panel);
     let border = if scene.active { styles.border_active } else { styles.border };
-    let visible = panel.visible_entries().count();
-    let hidden_marks = panel.marked().filter(|e| !results.matches(e)).count();
+    let visible_paths: std::collections::HashSet<_> = panel.visible_entries().map(|e| e.identity()).collect();
+    let visible = visible_paths.len();
+    let hidden_marks = panel.marked().filter(|e| !visible_paths.contains(e.identity())).count();
     let hidden = if hidden_marks > 0 { format!(tr!(hidden_marks), hidden_marks = hidden_marks) } else { String::new() };
     let selected: std::collections::HashSet<_> = if panel.marked_count() > 0 {
         borg_core::selected_paths(panel).into_iter().collect()
@@ -142,31 +171,36 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     let context = match &results.source {
         ResultSource::Collection(_) => tr!(tab_switch_ins_ctrl_t_mark_ctrl).into(),
         ResultSource::Search { request, progress } => {
-            let state = if progress.cancelled {
-                tr!(cancelled)
-            } else if progress.limited {
-                tr!(result_limit_reached)
-            } else if panel.listing() == &Listing::Loading {
-                tr!(searching_ctrl_c_stop)
+            if panel.is_size_view() && progress.cached {
+                let cached = format!(tr!(sizes_cached_at), time = format::modified(progress.measured, scene.clock));
+                if progress.limited { format!(tr!(sizes_limited), text = cached) } else { cached }
             } else {
-                tr!(finished)
-            };
-            let summary = format!(
-                tr!(scanned_skipped),
-                progress.visited,
-                format::count(progress.errors, format::Count::Error),
-                progress.skipped,
-                state = state
-            );
-            let room = usize::from(inner.width).saturating_sub(summary.chars().count() + 3);
-            format!("{summary} · {}", format::truncate_start(&request.root.display().to_string(), room))
+                let state = if progress.cancelled {
+                    tr!(cancelled)
+                } else if progress.limited {
+                    tr!(result_limit_reached)
+                } else if panel.listing() == &Listing::Loading {
+                    tr!(searching_ctrl_c_stop)
+                } else {
+                    tr!(finished)
+                };
+                let summary = format!(
+                    tr!(scanned_skipped),
+                    progress.visited,
+                    format::count(progress.errors, format::Count::Error),
+                    progress.skipped,
+                    state = state
+                );
+                let room = usize::from(inner.width).saturating_sub(summary.chars().count() + 3);
+                format!("{summary} · {}", format::truncate_start(&request.root.display().to_string(), room))
+            }
         }
     };
     let context =
         if let Listing::Failed(error) = panel.listing() { format!(tr!(search_failed), error = error) } else { context };
     text(buf, Rect { height: 1, ..inner }, &context, styles.footer);
     let (header, body) = geometry(scene.area);
-    for (key, cell) in columns(header, totals) {
+    for (key, cell) in panel_columns(panel, header) {
         let label = match key {
             SortKey::Files => tr!(results_view_files),
             SortKey::Name => tr!(name),
@@ -182,6 +216,33 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
         let area = Rect { y: body.y + offset as u16, height: 1, ..body };
         let focused = index == panel.cursor();
         match panel.row(index) {
+            Some(Row::Group { count, .. }) if panel.is_tree() => {
+                let style = if focused { styles.cursor } else { styles.footer };
+                buf.set_style(area, style);
+                let parent = (0..index).rev().find_map(|i| match panel.row(i) {
+                    Some(Row::Entry(entry)) => Some(entry),
+                    _ => None,
+                });
+                for (key, cell) in panel_columns(panel, area) {
+                    let value = match key {
+                        SortKey::Name => format!(
+                            "{}· {}",
+                            " ".repeat(parent.map_or(2, |entry| tree_indent(panel, entry, cell.width) + 2)),
+                            tr!(tree_direct_files_short)
+                        ),
+                        SortKey::Size => format!(
+                            "{:>width$}",
+                            parent
+                                .and_then(|entry| entry.usage.as_ref())
+                                .map_or_else(String::new, |usage| format::size(usage.direct_bytes)),
+                            width = usize::from(cell.width.saturating_sub(1))
+                        ),
+                        SortKey::Files => count.to_string(),
+                        _ => String::new(),
+                    };
+                    text(buf, cell, &value, style);
+                }
+            }
             Some(Row::Group { label, count, collapsed }) => {
                 let style = if focused { styles.cursor } else { styles.title_active };
                 buf.set_style(area, style);
@@ -202,12 +263,39 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
                 };
                 buf.set_style(area, style);
                 text(buf, Rect { width: MARK_WIDTH.min(area.width), ..area }, if marked { "*" } else { " " }, style);
-                for (key, cell) in columns(area, totals) {
+                for (key, cell) in panel_columns(panel, area) {
                     let value = match key {
                         SortKey::Name => {
                             let icon =
                                 if scene.icons { icons::icon(entry).glyph } else { icons::portable(entry).glyph };
-                            format!("{icon} {}{}", entry.name, if entry.missing { tr!(missing_suffix) } else { "" })
+                            let name = format!(
+                                "{icon} {}{}",
+                                entry.name,
+                                if entry.missing { tr!(missing_suffix) } else { "" }
+                            );
+                            if let Some(tree) = results.tree.as_ref() {
+                                let arrow = if tree.branches.contains(entry.identity()) {
+                                    if tree.open.contains(entry.identity())
+                                        || (index + 1..panel.len())
+                                            .find_map(|i| match panel.row(i) {
+                                                Some(Row::Entry(child)) => {
+                                                    Some(child.identity().parent() == Some(entry.identity()))
+                                                }
+                                                _ => None,
+                                            })
+                                            .unwrap_or(false)
+                                    {
+                                        "▾"
+                                    } else {
+                                        "▸"
+                                    }
+                                } else {
+                                    " "
+                                };
+                                format!("{}{arrow} {name}", " ".repeat(tree_indent(panel, entry, cell.width)))
+                            } else {
+                                name
+                            }
                         }
                         SortKey::Source => {
                             let source =
@@ -220,10 +308,12 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
                             .as_ref()
                             .map_or_else(|| "—".into(), |u| format!("{}{}", if u.partial { "≥" } else { "" }, u.files)),
                         SortKey::Size if entry.usage.is_some() => format!(
-                            "{}{}",
+                            "{}{}{}",
+                            if entry.usage.as_ref().is_some_and(|u| u.cached) { "~" } else { "" },
                             if entry.usage.as_ref().is_some_and(|u| u.partial) { "≥" } else { "" },
                             format::size(entry.size)
                         ),
+                        SortKey::Size if panel.is_tree() => "—".into(),
                         SortKey::Size if entry.is_dir() => tr!(dir).into(),
                         SortKey::Size => format::size(entry.size),
                         SortKey::Modified => format::modified(entry.modified, scene.clock),
@@ -259,7 +349,7 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     }
 }
 
-pub(crate) fn status(panel: &Panel, width: usize) -> String {
+pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String {
     match panel.hovered() {
         Some(Row::Entry(entry)) => {
             let totals = entry.usage.as_ref().map_or_else(String::new, |u| {
@@ -271,13 +361,22 @@ pub(crate) fn status(panel: &Panel, width: usize) -> String {
                     entry.size
                 )
             });
-            let suffix = format!("{}{totals}", if entry.missing { tr!(missing_original) } else { "" });
+            let observation = entry.usage.as_ref().filter(|u| u.measured.is_some()).map_or_else(String::new, |u| {
+                let time = format::modified(u.measured, clock);
+                if u.cached {
+                    format!(tr!(sizes_cached_status), time = time)
+                } else {
+                    format!(tr!(sizes_measured_status), time = time)
+                }
+            });
+            let suffix = format!("{}{totals}{observation}", if entry.missing { tr!(missing_original) } else { "" });
             let path = format::truncate_start(
                 &entry.identity().display().to_string(),
                 width.saturating_sub(suffix.chars().count()),
             );
             format!("{path}{suffix}")
         }
+        Some(Row::Group { label, .. }) if panel.is_tree() => label.to_owned(),
         Some(Row::Group { label, count, .. }) => format!(tr!(items_enter_folds_group), count = count, label = label),
         _ => String::new(),
     }

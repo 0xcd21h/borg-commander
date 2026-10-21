@@ -165,6 +165,10 @@ impl Session {
         }
     }
 
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
     pub fn send(&mut self, bytes: impl AsRef<[u8]>) -> Result<&mut Self> {
         self.writer.write_all(bytes.as_ref())?;
         self.writer.flush()?;

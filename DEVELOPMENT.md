@@ -95,6 +95,41 @@ before their results are handled. Output is capped at 8 MiB and status scans tim
 Plugins have a separate checkbox window and persisted `[plugins]` settings. Git is the
 first bundled plugin; there is no external plugin loader yet.
 
+### System monitor
+
+`borg-core::activity` owns process selection, bounded memory history, sorting,
+inspection requests, search state, and snapshots. The monitor uses the regular
+split layout with a list pane and preview pane. Enter drills from processes into
+memory regions, retaining process selection; search matches use that same list pane.
+Regions start in collapsible purpose groups with a raw-list toggle; groups and members
+are ranked by footprint (written plus swapped pages), and libraries and mapped files
+collapse to one row per file. Each list keeps
+a viewport offset, shared by keyboard navigation and mouse hit testing. Process
+inspection has Memory and Open files tabs; file metadata comes from bounded,
+NUL-delimited lsof output on macOS and procfs descriptors on Linux. File inspection
+is on demand, retains tab positions, and uses the same identity checks and explicit
+administrator retry as memory inspection. It never reads the contents of descriptors.
+Region and match selection schedule a 120 ms debounced bounded preview read, while
+Tab switches focus for scrolling. Late replies cannot replace another selection's
+bytes; unreadable regions do not request a capture. `borg-app::activity` samples through sysinfo
+and executes on-demand memory-map and memory-read requests on background workers.
+macOS maps come from vmmap; Linux maps come from smaps. Process identity combines
+PID and start time and is checked before and after inspection. Captures read at
+most 64 KiB through the safe read-process-memory API. No target is suspended.
+
+Administrator retry launches the same binary's internal inspection command through
+macOS authorization or Linux pkexec. It accepts only numeric process identity and
+region bounds, or a validated bounded search request; it cannot run file-manager
+commands or export files. The UI stays
+unprivileged. Subprocesses have bounded output, deadlines, and kill-on-drop; closed
+views and replaced requests reject late replies. Snapshot export uses create-new,
+owner-only files and never overwrites a destination. No memory snapshots are saved
+automatically. `borg-app::memory_search` scans bounded chunks with byte overlap,
+read-error page fallback, cancellation, progress, hit and time limits, and explicit
+continuations. Text matches cover UTF-8/16/32; Unicode matches use grapheme-aware
+NFKC with a byte-address mapping back to the captured data. Snapshot searches avoid
+live process access. The renderer shares a reserved branding area across UI modes.
+
 ### Collections and live search
 
 Directory entries retain their source paths. Virtual panels reuse cursor, marks, sorting,
@@ -105,7 +140,22 @@ batches, coalesces obsolete requests, and stops at the documented match limit. Q
 generations reject late messages; the update loop and renderer perform no search I/O.
 
 The implementation plan in [docs/plans/virtual-panels-and-indexing.md](docs/plans/virtual-panels-and-indexing.md)
-includes subsequent metadata indexing. Live folder size scanning is available through Search.
+includes subsequent metadata indexing. Folder totals and expandable size trees share
+one postorder metadata scanner. `borg-app::size_cache` writes all completed folder
+summaries into a staged SQLite index with bounded page memory, then publishes it
+atomically. Root and immediate children seed a tree; generation-tagged requests
+load expanded branches from the index. Display limits do not truncate the index.
+Direct-file totals explain bytes outside child directories. `borg-core::measure`
+tracks one independent background size task with generation-tagged updates. A separate
+worker in `borg-app::search` reuses the same scanner, streams completed folder totals
+into matching normal-panel paths, and publishes the same complete cache. Navigation
+and result searches leave it running; starting a file job cancels it before cache
+invalidation. Completion refreshes normal listings without replacing result panes. Core tree state owns
+branches and selection. Measurements are
+explicitly dated observations, never validated as fresh by directory mtimes. Job start
+and completion epochs prevent scans spanning file operations from publishing cached
+totals; affected roots are invalidated before completion is delivered. Normal listings
+reuse saved immediate-child totals without starting recursive walks.
 
 ### Interface text
 
@@ -202,6 +252,17 @@ BORG_SCREENSHOTS=target/screenshots cargo test -p borg-testkit
 
 Icons fall back to the bundled Symbols Nerd Font. CI uploads the screenshots of every run as
 an artifact.
+
+### README screenshots
+
+The theme gallery and the size and activity showcase are rendered from fictional folders
+and processes, so they never show the machine they were made on:
+
+```sh
+export BORG_SCREENSHOT_FONT=fonts/BorgMono-Regular.ttf BORG_SCREENSHOT_FONT_BOLD=fonts/BorgMono-Bold.ttf
+cargo run -p borg-testkit --example themes      # writes docs/themes/*.png
+cargo run -p borg-testkit --example showcase    # writes docs/showcase/*.png
+```
 
 ### The demo
 

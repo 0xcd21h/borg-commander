@@ -66,6 +66,7 @@ pub struct App {
     last_click: Option<(u16, u16, Instant)>,
     preview: preview::Loader,
     plugins: crate::plugins::Plugins,
+    monitor: crate::activity::Monitor,
 }
 
 enum Flow {
@@ -83,6 +84,7 @@ impl App {
         state.notice = launch.warnings.first().cloned();
         let mut collections_writable = true;
         if let Some(dir) = &launch.state_dir {
+            state.game2048 = dir.load_game2048().ok().flatten();
             match dir.load_collections() {
                 Ok(collections) => state.collections = collections,
                 Err(error) => {
@@ -106,6 +108,7 @@ impl App {
 
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
+        let monitor = crate::activity::Monitor::new(messages.clone());
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -129,6 +132,7 @@ impl App {
             last_click: None,
             preview,
             plugins,
+            monitor,
         })
     }
 
@@ -201,6 +205,9 @@ impl App {
 
     fn save_session(&self) {
         let Some(dir) = &self.state_dir else { return };
+        if let Some(game) = &self.state.game2048 {
+            let _ = dir.save_game2048(game);
+        }
         if self.collections_writable {
             let _ = dir.save_collections(&self.state.collections);
         }
@@ -378,6 +385,9 @@ impl App {
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
         let effects = update(&mut self.state, msg, Instant::now());
+        if self.state.activity.side.is_none() || self.state.activity.pending.is_none() {
+            self.monitor.cancel();
+        }
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();
         }
@@ -399,6 +409,37 @@ impl App {
     fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
         for effect in effects {
             match effect {
+                Effect::MeasureSizes { id, root } => self.search.measure(id, root),
+                Effect::CancelMeasure => self.search.cancel_measure(),
+                Effect::CancelMemorySearch => self.monitor.cancel_search(),
+                Effect::SizeChildren { side, generation, root, hidden, parent } => {
+                    let cache = self.search.cache.clone();
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = cache
+                            .children(&root, hidden, &parent)
+                            .ok_or_else(|| tr!(size_branch_unavailable).to_owned());
+                        let _ = messages.send(Msg::SizeChildren { side, generation, parent, result });
+                    });
+                }
+                Effect::Activity { id, request } => self.monitor.request(id, request),
+                Effect::ExportMemory { path, bytes } => {
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let notice = match crate::activity::export(&path, &bytes) {
+                            Ok(()) => format!(tr!(activity_exported), path = path.display()),
+                            Err(error) => format!(tr!(activity_export_error), error = error),
+                        };
+                        let _ = messages.send(Msg::Notice(notice));
+                    });
+                }
+                Effect::SaveGame2048 => {
+                    if let (Some(dir), Some(game)) = (&self.state_dir, &self.state.game2048)
+                        && let Err(error) = dir.save_game2048(game)
+                    {
+                        self.state.notice = Some(format!(tr!(game2048_save_error), error = error));
+                    }
+                }
                 Effect::Search { side, generation, request } => self.search.search(side, generation, request),
                 Effect::RefreshCollection { side, generation, entries } => {
                     self.search.refresh(side, generation, entries)
@@ -446,13 +487,27 @@ impl App {
     }
 
     fn start_job(&mut self, id: u64, spec: Spec) {
+        let cache = self.search.cache.clone();
+        let mut changed = match &spec {
+            Spec::Copy { .. } => Vec::new(),
+            _ => spec.sources().to_vec(),
+        };
+        if let Spec::Copy { target, .. } | Spec::Move { target, .. } = &spec {
+            changed.push(target.clone());
+        }
+        cache.begin_changes();
         let running: Vec<u64> = self.state.jobs.iter().map(|job| job.id).collect();
         self.jobs.retain(|id, _| running.contains(id));
         let control = Arc::new(Control::default());
         self.jobs.insert(id, Arc::clone(&control));
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            run(&spec, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            run(&spec, &control, &mut |event| {
+                if matches!(event, borg_jobs::Event::Finished(_)) {
+                    cache.invalidate(&changed);
+                }
+                drop(messages.send(Msg::Job { id, event }));
+            });
         });
     }
 
@@ -501,10 +556,21 @@ impl App {
     fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
         let mut batches = self.backend.list(&dir);
         let messages = self.messages.clone();
+        let cache = self.search.cache.clone();
         let task = tokio::spawn(async move {
+            let observed_dir = dir.clone();
+            let totals = tokio::task::spawn_blocking(move || cache.totals(&observed_dir)).await.unwrap_or_default();
             while let Some(batch) = batches.next().await {
                 let msg = match batch {
-                    Ok(entries) => Msg::Batch { side, generation, entries },
+                    Ok(mut entries) => {
+                        for entry in entries.iter_mut().filter(|e| e.kind == borg_vfs::EntryKind::Dir) {
+                            if let Some((bytes, usage)) = totals.get(&entry.path(&dir)) {
+                                entry.size = *bytes;
+                                entry.usage = Some(usage.clone());
+                            }
+                        }
+                        Msg::Batch { side, generation, entries }
+                    }
                     Err(e) => {
                         let _ = messages.send(Msg::Listed { side, generation, error: Some(e.to_string()) });
                         return;

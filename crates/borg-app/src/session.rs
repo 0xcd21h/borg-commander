@@ -18,6 +18,8 @@ const APP_DIR: &str = "borg-commander";
 const COLLECTIONS_FILE: &str = "collections.json";
 const MAX_COLLECTION_BYTES: u64 = 16 * 1024 * 1024;
 const COLLECTION_FORMAT: u8 = 1;
+const GAME2048_FILE: &str = "2048.json";
+const MAX_GAME_BYTES: u64 = 4096;
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
 const UPDATE_CHECK_FILE: &str = "update-check";
@@ -126,6 +128,25 @@ impl StateDir {
     pub fn save_session(&self, session: &Session) -> Result<()> {
         self.ensure()?;
         write_atomically(&self.0.join(SESSION_FILE), toml::to_string(session)?.as_bytes())
+    }
+
+    pub fn load_game2048(&self) -> Result<Option<borg_core::Game2048>> {
+        use std::io::Read;
+        let file = match fs::File::open(self.0.join(GAME2048_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_GAME_BYTES + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= MAX_GAME_BYTES, "2048 save exceeds size limit");
+        let saved = serde_json::from_slice(&bytes)?;
+        borg_core::Game2048::restore(saved).map(Some).context("invalid 2048 save")
+    }
+
+    pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
+        self.ensure()?;
+        write_atomically(&self.0.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
     }
 
     pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {
@@ -279,6 +300,26 @@ impl From<SortName> for SortKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game2048_round_trips_and_rejects_corrupt_or_oversized_saves() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = StateDir(temp.path().join("state"));
+        assert!(dir.load_game2048().unwrap().is_none());
+        let mut game = borg_core::Game2048::new(42);
+        game.slide(borg_core::GameDirection::Left);
+        dir.save_game2048(&game).unwrap();
+        assert_eq!(dir.load_game2048().unwrap().unwrap().saved(), game.saved());
+        let file = dir.0.join(GAME2048_FILE);
+        fs::write(&file, b"{invalid").unwrap();
+        assert!(dir.load_game2048().is_err());
+        fs::write(&file, vec![b' '; MAX_GAME_BYTES as usize + 1]).unwrap();
+        assert!(dir.load_game2048().is_err());
+        let mut saved = game.saved();
+        saved.cells[0] = u8::MAX;
+        fs::write(&file, serde_json::to_vec(&saved).unwrap()).unwrap();
+        assert!(dir.load_game2048().is_err());
+    }
 
     #[test]
     fn update_checks_are_due_once_a_day() {

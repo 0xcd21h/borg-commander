@@ -1,13 +1,16 @@
 use borg_i18n::tr;
+mod activity;
 mod app;
 mod config;
 mod document;
 mod launch;
+mod memory_search;
 mod peek;
 mod plugins;
 mod preview;
 mod search;
 mod session;
+mod size_cache;
 mod store;
 mod update;
 
@@ -37,6 +40,10 @@ const NESTED_MESSAGE: &str = tr!(cli_already_running);
 async fn main() -> Result<ExitCode> {
     match env::args().nth(1).as_deref() {
         None => {}
+        Some("--inspect-process") => {
+            activity::helper(&env::args().skip(2).collect::<Vec<_>>()).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Some("--version" | "-V") => {
             println!("borg {}", update::VERSION);
             return Ok(ExitCode::SUCCESS);

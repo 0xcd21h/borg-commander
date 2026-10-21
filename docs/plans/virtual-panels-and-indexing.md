@@ -1,7 +1,9 @@
 # Virtual panels, indexed search, and size scanning
 
-Status in 0.4.0: collections, results presentation, live recursive filename search,
-and folder size scanning are implemented. Folder totals currently sum logical content
+Current implementation after 0.4.0: collections, results presentation, live recursive filename search,
+and folder size scanning are implemented, including expandable size trees and dated,
+complete SQLite measurement indexes reused in normal panels, with child rows loaded
+as tree branches expand. This size cache is separate from the planned metadata index. Folder totals currently sum logical content
 bytes; allocated and reclaimable size accounting remain follow-ups. The live
 implementation caps each search/collection at 20,000 entries; paging against a persistent
 index is part of the later indexed-search slice. The sections below include that future

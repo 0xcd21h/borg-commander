@@ -21,6 +21,7 @@ const REJECT_KEY: char = 'n';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
+        Some(Overlay::Game2048) => crate::game2048::on_key(state, key),
         Some(Overlay::Collections(picker)) => crate::discovery::collections_key(state, picker, key),
         Some(Overlay::Search(form)) => crate::discovery::search_key(state, form, key),
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
@@ -47,7 +48,7 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
             4 => &mut form.files,
             _ => return Vec::new(),
         },
-        Some(Overlay::Prompt(prompt)) => &mut prompt.input,
+        Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,
         Some(Overlay::Find(find)) => &mut find.input,
         _ => return Vec::new(),
     };
@@ -112,6 +113,23 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
 }
 
 fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if let PromptPurpose::Copy { optimize_hdd, .. } = &mut prompt.purpose {
+        match key.code {
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
+                prompt.option_focused = !prompt.option_focused;
+                state.overlay = Some(Overlay::Prompt(prompt));
+                return Vec::new();
+            }
+            KeyCode::Char(' ') if prompt.option_focused => {
+                *optimize_hdd = !*optimize_hdd;
+                state.overlay = Some(Overlay::Prompt(prompt));
+                return Vec::new();
+            }
+            KeyCode::Enter | KeyCode::Esc => {}
+            _ if prompt.option_focused => return Vec::new(),
+            _ => {}
+        }
+    }
     match key.code {
         KeyCode::Esc => {
             state.overlay = None;
@@ -175,8 +193,8 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
                 Vec::new()
             }
         },
-        PromptPurpose::Copy { sources } => {
-            jobs::start(state, JobKind::Copy, Spec::Copy { sources, target: resolve(state, text) }, now)
+        PromptPurpose::Copy { sources, optimize_hdd } => {
+            jobs::start(state, JobKind::Copy, Spec::Copy { sources, target: resolve(state, text), optimize_hdd }, now)
         }
         PromptPurpose::Move { sources } => {
             jobs::start(state, JobKind::Move, Spec::Move { sources, target: resolve(state, text) }, now)

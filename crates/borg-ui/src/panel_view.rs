@@ -187,7 +187,7 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     let panel = scene.panel;
     let marked = panel.marked_count();
     let total = panel.entries().len();
-    if marked > 0 {
+    if marked > 0 && scene.activity.is_none() {
         let bytes: u64 = panel.marked().filter(|e| !e.is_dir()).map(|e| e.size).sum();
         let summary = if bytes > 0 {
             format!(tr!(marked), format::size(bytes), marked = marked)
@@ -481,7 +481,21 @@ fn draw_full_row(
     let (size, date) = match row {
         Row::Parent | Row::Group { .. } => (PARENT_LABEL.to_owned(), String::new()),
         Row::Entry(entry) => (
-            if entry.is_dir() { DIR_LABEL.to_owned() } else { format::size(entry.size) },
+            if entry.is_dir() {
+                entry.usage.as_ref().map_or_else(
+                    || DIR_LABEL.to_owned(),
+                    |u| {
+                        format!(
+                            "{}{}{}",
+                            if u.cached { "~" } else { "" },
+                            if u.partial { "≥" } else { "" },
+                            format::size(entry.size)
+                        )
+                    },
+                )
+            } else {
+                format::size(entry.size)
+            },
             format::modified(entry.modified, scene.clock),
         ),
     };

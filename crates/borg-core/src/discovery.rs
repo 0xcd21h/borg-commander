@@ -13,6 +13,7 @@ pub enum SearchKind {
     Files,
     Folders,
     FolderTotals,
+    FolderTree,
 }
 
 impl SearchKind {
@@ -22,10 +23,11 @@ impl SearchKind {
             Self::Files => tr!(files_only),
             Self::Folders => tr!(folders_only),
             Self::FolderTotals => tr!(folder_totals),
+            Self::FolderTree => tr!(folder_size_tree),
         }
     }
     fn step(self, reverse: bool) -> Self {
-        let kinds = [Self::All, Self::Files, Self::Folders, Self::FolderTotals];
+        let kinds = [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree];
         let index = kinds.iter().position(|kind| *kind == self).unwrap_or(0);
         kinds[(index + if reverse { kinds.len() - 1 } else { 1 }) % kinds.len()]
     }
@@ -33,6 +35,7 @@ impl SearchKind {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchOptions {
+    pub refresh: bool,
     pub kind: SearchKind,
     pub minimum: u64,
     pub minimum_files: u64,
@@ -161,7 +164,10 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
                             },
                             hidden: form.hidden,
                             options: SearchOptions {
-                                kind: if minimum_files > 0 || (form.kind == SearchKind::Folders && minimum > 0) {
+                                refresh: false,
+                                kind: if form.kind != SearchKind::FolderTree
+                                    && (minimum_files > 0 || (form.kind == SearchKind::Folders && minimum > 0))
+                                {
                                     SearchKind::FolderTotals
                                 } else {
                                     form.kind
@@ -222,6 +228,26 @@ fn parse_size(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tree_filters_keep_the_hierarchy_instead_of_becoming_flat_totals() {
+        let now = std::time::Instant::now();
+        let (mut state, _) = AppState::new(
+            crate::Startup::at("/work".into()),
+            100,
+            30,
+            crate::Settings::default(),
+            crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+            now,
+        );
+        let mut form = SearchForm::new(&state, true);
+        form.kind = SearchKind::FolderTree;
+        form.files = crate::LineInput::new("20");
+        let effects = search_key(&mut state, form, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            matches!(&effects[..], [crate::Effect::Search { request, .. }] if request.options.kind == SearchKind::FolderTree && request.options.minimum_files == 20)
+        );
+    }
+
     #[test]
     fn sizes_accept_units_but_reject_invalid_or_overflowing_input() {
         assert_eq!(parse_size("1.5 GiB"), Some(1_610_612_736));
