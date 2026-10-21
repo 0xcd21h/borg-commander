@@ -15,6 +15,11 @@ const ENV_XDG_STATE: &str = "XDG_STATE_HOME";
 const ENV_HOME: &str = "HOME";
 const DOT_STATE: [&str; 2] = [".local", "state"];
 const APP_DIR: &str = "borg-commander";
+const COLLECTIONS_FILE: &str = "collections.json";
+const MAX_COLLECTION_BYTES: u64 = 16 * 1024 * 1024;
+const COLLECTION_FORMAT: u8 = 1;
+const GAME2048_FILE: &str = "2048.json";
+const MAX_GAME_BYTES: u64 = 4096;
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
 const UPDATE_CHECK_FILE: &str = "update-check";
@@ -42,6 +47,8 @@ enum SortName {
     Extension,
     Size,
     Modified,
+    Source,
+    Files,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,6 +130,76 @@ impl StateDir {
         write_atomically(&self.0.join(SESSION_FILE), toml::to_string(session)?.as_bytes())
     }
 
+    pub fn load_game2048(&self) -> Result<Option<borg_core::Game2048>> {
+        use std::io::Read;
+        let file = match fs::File::open(self.0.join(GAME2048_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_GAME_BYTES + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= MAX_GAME_BYTES, "2048 save exceeds size limit");
+        let saved = serde_json::from_slice(&bytes)?;
+        borg_core::Game2048::restore(saved).map(Some).context("invalid 2048 save")
+    }
+
+    pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
+        self.ensure()?;
+        write_atomically(&self.0.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+    }
+
+    pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {
+        use std::os::unix::ffi::OsStringExt;
+        let path = self.0.join(COLLECTIONS_FILE);
+        let metadata = match fs::metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        anyhow::ensure!(metadata.len() <= MAX_COLLECTION_BYTES, "collections file exceeds size limit");
+        let saved: SavedCollections = serde_json::from_slice(&fs::read(path)?)?;
+        anyhow::ensure!(saved.version == COLLECTION_FORMAT, "unsupported collections format");
+        anyhow::ensure!(saved.collections.len() <= borg_core::COLLECTION_LIMIT, "too many collections");
+        let mut collections = Vec::new();
+        for collection in saved.collections {
+            anyhow::ensure!(collection.paths.len() <= borg_core::RESULT_LIMIT, "collection exceeds item limit");
+            let entries = collection
+                .paths
+                .into_iter()
+                .map(|bytes| {
+                    let path = PathBuf::from(std::ffi::OsString::from_vec(bytes));
+                    anyhow::ensure!(path.is_absolute(), "collection source must be absolute");
+                    Ok(borg_vfs::Entry::unavailable(path))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            collections.push(borg_core::Collection { name: collection.name, entries });
+        }
+        Ok(collections)
+    }
+
+    pub fn save_collections(&self, collections: &[borg_core::Collection]) -> Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+        let saved = SavedCollections {
+            version: COLLECTION_FORMAT,
+            collections: collections
+                .iter()
+                .map(|collection| SavedCollection {
+                    name: collection.name.clone(),
+                    paths: collection
+                        .entries
+                        .iter()
+                        .map(|entry| entry.identity().as_os_str().as_bytes().to_vec())
+                        .collect(),
+                })
+                .collect(),
+        };
+        let bytes = serde_json::to_vec(&saved)?;
+        anyhow::ensure!(bytes.len() as u64 <= MAX_COLLECTION_BYTES, "collections exceed storage limit");
+        self.ensure()?;
+        write_atomically(&self.0.join(COLLECTIONS_FILE), &bytes)
+    }
+
     pub fn load_terminal(&self) -> Option<Vec<u8>> {
         fs::read(self.0.join(TERMINAL_FILE)).ok().filter(|bytes| !bytes.is_empty())
     }
@@ -201,6 +278,8 @@ impl From<SortKey> for SortName {
             SortKey::Extension => Self::Extension,
             SortKey::Size => Self::Size,
             SortKey::Modified => Self::Modified,
+            SortKey::Files => Self::Files,
+            SortKey::Source => Self::Source,
         }
     }
 }
@@ -212,6 +291,8 @@ impl From<SortName> for SortKey {
             SortName::Extension => Self::Extension,
             SortName::Size => Self::Size,
             SortName::Modified => Self::Modified,
+            SortName::Files => Self::Files,
+            SortName::Source => Self::Source,
         }
     }
 }
@@ -219,6 +300,26 @@ impl From<SortName> for SortKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game2048_round_trips_and_rejects_corrupt_or_oversized_saves() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = StateDir(temp.path().join("state"));
+        assert!(dir.load_game2048().unwrap().is_none());
+        let mut game = borg_core::Game2048::new(42);
+        game.slide(borg_core::GameDirection::Left);
+        dir.save_game2048(&game).unwrap();
+        assert_eq!(dir.load_game2048().unwrap().unwrap().saved(), game.saved());
+        let file = dir.0.join(GAME2048_FILE);
+        fs::write(&file, b"{invalid").unwrap();
+        assert!(dir.load_game2048().is_err());
+        fs::write(&file, vec![b' '; MAX_GAME_BYTES as usize + 1]).unwrap();
+        assert!(dir.load_game2048().is_err());
+        let mut saved = game.saved();
+        saved.cells[0] = u8::MAX;
+        fs::write(&file, serde_json::to_vec(&saved).unwrap()).unwrap();
+        assert!(dir.load_game2048().is_err());
+    }
 
     #[test]
     fn update_checks_are_due_once_a_day() {
@@ -272,5 +373,36 @@ mod tests {
         let session = saved(Path::new("/a"), Path::new("/b"));
         let text = toml::to_string(&session).unwrap_or_default();
         assert_eq!(toml::from_str::<Session>(&text).ok(), Some(session));
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedCollections {
+    version: u8,
+    collections: Vec<SavedCollection>,
+}
+#[derive(Serialize, Deserialize)]
+struct SavedCollection {
+    name: String,
+    paths: Vec<Vec<u8>>,
+}
+
+#[cfg(test)]
+mod collection_tests {
+    use super::*;
+    use std::os::unix::ffi::OsStringExt;
+
+    #[test]
+    fn saved_collections_survive_missing_sources_and_non_utf8_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = StateDir(temp.path().into());
+        let raw = PathBuf::from(std::ffi::OsString::from_vec(b"/work/raw-\xff".to_vec()));
+        let entries =
+            vec![borg_vfs::Entry::unavailable(raw.clone()), borg_vfs::Entry::unavailable("/missing/file".into())];
+        dir.save_collections(&[borg_core::Collection { name: "Bundle".into(), entries }]).unwrap();
+        let loaded = dir.load_collections().unwrap();
+        assert_eq!(loaded[0].name, "Bundle");
+        assert_eq!(loaded[0].entries[0].identity(), raw);
+        assert!(loaded[0].entries[1].missing);
     }
 }

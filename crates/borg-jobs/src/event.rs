@@ -2,7 +2,7 @@ use std::{ops::Add, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Spec {
-    Copy { sources: Vec<PathBuf>, target: PathBuf },
+    Copy { sources: Vec<PathBuf>, target: PathBuf, optimize_hdd: bool },
     Move { sources: Vec<PathBuf>, target: PathBuf },
     Delete { sources: Vec<PathBuf> },
 }

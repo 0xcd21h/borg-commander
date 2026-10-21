@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{
     collections::HashMap,
     io::Write as _,
@@ -43,6 +44,7 @@ const WHEEL_LINES: i32 = 3;
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
 pub struct App {
+    search: crate::search::Search,
     state: AppState,
     emulator: Emulator,
     pty: Pty,
@@ -57,12 +59,14 @@ pub struct App {
     config: Config,
     home: Option<PathBuf>,
     state_dir: Option<StateDir>,
+    collections_writable: bool,
     pending: Vec<Effect>,
     graphics: Graphics,
     jobs: HashMap<u64, Arc<Control>>,
     last_click: Option<(u16, u16, Instant)>,
     preview: preview::Loader,
     plugins: crate::plugins::Plugins,
+    monitor: crate::activity::Monitor,
 }
 
 enum Flow {
@@ -78,6 +82,17 @@ impl App {
         let (mut state, pending) =
             AppState::new(launch.startup.clone(), size.width, size.height, launch.settings.clone(), appearance, now);
         state.notice = launch.warnings.first().cloned();
+        let mut collections_writable = true;
+        if let Some(dir) = &launch.state_dir {
+            state.game2048 = dir.load_game2048().ok().flatten();
+            match dir.load_collections() {
+                Ok(collections) => state.collections = collections,
+                Err(error) => {
+                    collections_writable = false;
+                    state.notice = Some(format!(tr!(collections_load_error), error = error));
+                }
+            }
+        }
 
         let mut emulator = Emulator::new(grid, state.settings.scrollback);
         if let Some(restored) = &launch.restored {
@@ -93,7 +108,9 @@ impl App {
 
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
+        let monitor = crate::activity::Monitor::new(messages.clone());
         Ok(Self {
+            search: crate::search::Search::new(),
             emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
@@ -108,12 +125,14 @@ impl App {
             config: launch.config.clone(),
             home: launch.home.clone(),
             state_dir: launch.state_dir.clone(),
+            collections_writable,
             pending,
             graphics: Graphics::new(detected.capabilities),
             jobs: HashMap::new(),
             last_click: None,
             preview,
             plugins,
+            monitor,
         })
     }
 
@@ -165,6 +184,7 @@ impl App {
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
+                Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
                 () = sleep_until(wake.unwrap_or(now + IDLE_WAIT).into()), if wake.is_some() => self.dispatch(Msg::Tick)?,
             };
@@ -185,6 +205,12 @@ impl App {
 
     fn save_session(&self) {
         let Some(dir) = &self.state_dir else { return };
+        if let Some(game) = &self.state.game2048 {
+            let _ = dir.save_game2048(game);
+        }
+        if self.collections_writable {
+            let _ = dir.save_collections(&self.state.collections);
+        }
         let _ = dir.save_session(&Session::capture(&self.state));
         let _ = if self.state.settings.preferences.restore_terminal {
             dir.save_terminal(&self.emulator.export_ansi(RESTORED_LINES))
@@ -359,11 +385,23 @@ impl App {
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
         let effects = update(&mut self.state, msg, Instant::now());
+        if self.state.activity.side.is_none() || self.state.activity.pending.is_none() {
+            self.monitor.cancel();
+        }
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();
         }
         if self.state.aside.is_none() || self.state.active_panel().hovered().is_none() {
             self.preview.cancel();
+        }
+        for side in Side::ALL {
+            if !self.state.panel(side).is_results() && self.state.last_results[side.index()].is_none() {
+                self.search.cancel(side);
+            } else if self.state.panel(side).is_results()
+                && let Some(task) = self.listings[side.index()].take()
+            {
+                task.abort();
+            }
         }
         self.apply(effects)
     }
@@ -371,7 +409,57 @@ impl App {
     fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
         for effect in effects {
             match effect {
-                Effect::List { side, generation, dir } => self.list(side, generation, dir),
+                Effect::MeasureSizes { id, root } => self.search.measure(id, root),
+                Effect::CancelMeasure => self.search.cancel_measure(),
+                Effect::CancelMemorySearch => self.monitor.cancel_search(),
+                Effect::SizeChildren { side, generation, root, hidden, parent } => {
+                    let cache = self.search.cache.clone();
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = cache
+                            .children(&root, hidden, &parent)
+                            .ok_or_else(|| tr!(size_branch_unavailable).to_owned());
+                        let _ = messages.send(Msg::SizeChildren { side, generation, parent, result });
+                    });
+                }
+                Effect::Activity { id, request } => self.monitor.request(id, request),
+                Effect::ExportMemory { path, bytes } => {
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let notice = match crate::activity::export(&path, &bytes) {
+                            Ok(()) => format!(tr!(activity_exported), path = path.display()),
+                            Err(error) => format!(tr!(activity_export_error), error = error),
+                        };
+                        let _ = messages.send(Msg::Notice(notice));
+                    });
+                }
+                Effect::SaveGame2048 => {
+                    if let (Some(dir), Some(game)) = (&self.state_dir, &self.state.game2048)
+                        && let Err(error) = dir.save_game2048(game)
+                    {
+                        self.state.notice = Some(format!(tr!(game2048_save_error), error = error));
+                    }
+                }
+                Effect::Search { side, generation, request } => self.search.search(side, generation, request),
+                Effect::RefreshCollection { side, generation, entries } => {
+                    self.search.refresh(side, generation, entries)
+                }
+                Effect::CancelSearch(side) => self.search.cancel(side),
+                Effect::SaveCollections => {
+                    if !self.collections_writable {
+                        self.state.notice = Some(tr!(collections_preserved).into());
+                        continue;
+                    }
+                    if let Some(dir) = &self.state_dir
+                        && let Err(error) = dir.save_collections(&self.state.collections)
+                    {
+                        self.state.notice = Some(format!(tr!(collections_save_error), error = error));
+                    }
+                }
+                Effect::List { side, generation, dir } => {
+                    self.search.cancel(side);
+                    self.list(side, generation, dir);
+                }
                 Effect::GitScan { side, generation, dir } => self.plugins.scan(side, generation, dir),
                 Effect::GitTool { id, tool, dir, paths } => {
                     let messages = self.messages.clone();
@@ -399,13 +487,27 @@ impl App {
     }
 
     fn start_job(&mut self, id: u64, spec: Spec) {
+        let cache = self.search.cache.clone();
+        let mut changed = match &spec {
+            Spec::Copy { .. } => Vec::new(),
+            _ => spec.sources().to_vec(),
+        };
+        if let Spec::Copy { target, .. } | Spec::Move { target, .. } = &spec {
+            changed.push(target.clone());
+        }
+        cache.begin_changes();
         let running: Vec<u64> = self.state.jobs.iter().map(|job| job.id).collect();
         self.jobs.retain(|id, _| running.contains(id));
         let control = Arc::new(Control::default());
         self.jobs.insert(id, Arc::clone(&control));
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            run(&spec, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            run(&spec, &control, &mut |event| {
+                if matches!(event, borg_jobs::Event::Finished(_)) {
+                    cache.invalidate(&changed);
+                }
+                drop(messages.send(Msg::Job { id, event }));
+            });
         });
     }
 
@@ -454,10 +556,21 @@ impl App {
     fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
         let mut batches = self.backend.list(&dir);
         let messages = self.messages.clone();
+        let cache = self.search.cache.clone();
         let task = tokio::spawn(async move {
+            let observed_dir = dir.clone();
+            let totals = tokio::task::spawn_blocking(move || cache.totals(&observed_dir)).await.unwrap_or_default();
             while let Some(batch) = batches.next().await {
                 let msg = match batch {
-                    Ok(entries) => Msg::Batch { side, generation, entries },
+                    Ok(mut entries) => {
+                        for entry in entries.iter_mut().filter(|e| e.kind == borg_vfs::EntryKind::Dir) {
+                            if let Some((bytes, usage)) = totals.get(&entry.path(&dir)) {
+                                entry.size = *bytes;
+                                entry.usage = Some(usage.clone());
+                            }
+                        }
+                        Msg::Batch { side, generation, entries }
+                    }
                     Err(e) => {
                         let _ = messages.send(Msg::Listed { side, generation, error: Some(e.to_string()) });
                         return;

@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{io, path::PathBuf};
 
 use borg_gfx::{Picture, is_picture};
@@ -81,7 +82,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         Ok(true) => {}
         Ok(false) => close(state),
         Err(error) => {
-            state.notice = Some(format!("viewer: {error}"));
+            state.notice = Some(format!(tr!(viewer_error), error = error));
             state.viewer = None;
         }
     }
@@ -104,22 +105,21 @@ fn on_image_key(state: &mut AppState, code: KeyCode) -> Vec<Effect> {
 }
 
 fn sibling(state: &mut AppState, step: Step) -> Option<PathBuf> {
-    let current = state.viewer.as_ref()?.path.file_name()?.to_str()?.to_owned();
+    let current = state.viewer.as_ref()?.path.clone();
     let panel = state.panels.get_mut(state.active.index())?;
-    let pictures: Vec<&str> = panel
-        .entries()
-        .iter()
+    let pictures: Vec<PathBuf> = panel
+        .visible_entries()
         .filter(|entry| !entry.is_dir() && is_picture(std::path::Path::new(&entry.name)))
-        .map(|entry| entry.name.as_str())
+        .map(|entry| entry.path(panel.dir()))
         .collect();
-    let here = pictures.iter().position(|name| *name == current)?;
+    let here = pictures.iter().position(|path| *path == current)?;
     let target = match step {
         Step::Next => pictures.get(here + 1),
         Step::Previous => here.checked_sub(1).and_then(|index| pictures.get(index)),
     }?
-    .to_string();
-    panel.point_at(&target);
-    Some(panel.dir().join(target))
+    .clone();
+    panel.point_at_path(target.clone());
+    Some(target)
 }
 
 pub(crate) fn resize(state: &mut AppState) {
@@ -129,7 +129,7 @@ pub(crate) fn resize(state: &mut AppState) {
         Content::Image(_) => None,
     });
     if let Some(error) = failed {
-        state.notice = Some(format!("viewer: {error}"));
+        state.notice = Some(format!(tr!(viewer_error), error = error));
         state.viewer = None;
     }
 }

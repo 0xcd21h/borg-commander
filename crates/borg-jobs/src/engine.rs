@@ -1,7 +1,7 @@
 use std::{
     ffi::OsString,
     fs::{self, File, FileTimes},
-    io::{self, Read},
+    io::{self, Read, Write},
     ops::Add,
     os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
@@ -20,6 +20,27 @@ const PARTIAL_PREFIX: &str = ".";
 const PARTIAL_SUFFIX: &str = ".borg-partial";
 const FIRST_COPY: u32 = 2;
 const INTO_ITSELF: &str = "cannot copy a folder into itself";
+const BUFFERED_FILE_BYTES: usize = 1024 * 1024;
+const BATCH_BYTES: usize = 64 * 1024 * 1024;
+const BATCH_FILES: usize = 4096;
+
+struct BufferedFile<'a> {
+    item: &'a Item,
+    dest: PathBuf,
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct Batch<'a> {
+    files: Vec<BufferedFile<'a>>,
+    bytes: usize,
+}
+
+impl Batch<'_> {
+    fn full(&self) -> bool {
+        self.files.len() >= BATCH_FILES || self.bytes + BUFFERED_FILE_BYTES > BATCH_BYTES
+    }
+}
 
 #[derive(Debug)]
 enum Halt {
@@ -132,15 +153,17 @@ impl Job<'_> {
         let roots = self.scan(spec.sources())?;
         self.total = roots.iter().map(Root::totals).fold(Totals::default(), Totals::add);
         let single = roots.len() == 1;
+        let mut batch = Batch::default();
         for root in &roots {
             match spec {
-                Spec::Copy { target, .. } => {
-                    self.copy_root(root, &destination(root, target, single))?;
+                Spec::Copy { target, optimize_hdd, .. } => {
+                    self.copy_root(root, &destination(root, target, single), *optimize_hdd, &mut batch)?;
                 }
                 Spec::Move { target, .. } => self.move_root(root, &destination(root, target, single))?,
                 Spec::Delete { .. } => self.delete_root(root, true)?,
             }
         }
+        self.flush_batch(&mut batch)?;
         self.report(true);
         Ok(())
     }
@@ -264,7 +287,13 @@ impl Job<'_> {
         }
     }
 
-    fn copy_root(&mut self, root: &Root, dest_root: &Path) -> Result<bool, Halt> {
+    fn copy_root<'a>(
+        &mut self,
+        root: &'a Root,
+        dest_root: &Path,
+        optimize_hdd: bool,
+        batch: &mut Batch<'a>,
+    ) -> Result<bool, Halt> {
         let dest_root = if dest_root == root.source { unique(dest_root) } else { dest_root.to_path_buf() };
         let is_dir = root.items.first().is_some_and(|item| item.kind == Kind::Dir);
         if is_dir && dest_root.starts_with(&root.source) {
@@ -279,6 +308,29 @@ impl Job<'_> {
             let base = renamed.as_deref().unwrap_or(&dest_root);
             let dest =
                 if item.relative.as_os_str().is_empty() { base.to_path_buf() } else { base.join(&item.relative) };
+            self.current = item.source.clone();
+            if optimize_hdd && matches!(item.kind, Kind::File(size) if size <= BUFFERED_FILE_BYTES as u64) {
+                if batch.full() {
+                    complete &= self.flush_batch(batch)?;
+                }
+                let mut bytes = None;
+                let loaded = self.retrying(item, |job| {
+                    bytes = job.read_buffered(item)?;
+                    Ok(())
+                })?;
+                if !loaded {
+                    complete = false;
+                    continue;
+                }
+                if let Some(bytes) = bytes {
+                    batch.bytes += bytes.len();
+                    batch.files.push(BufferedFile { item, dest, bytes });
+                    self.current = item.source.clone();
+                    self.report(false);
+                    continue;
+                }
+            }
+            complete &= self.flush_batch(batch)?;
             self.current = item.source.clone();
             let copied = match &item.kind {
                 Kind::Dir => self.make_dir(item, &dest, &mut made, &mut renamed)?,
@@ -299,7 +351,38 @@ impl Job<'_> {
             };
             complete &= copied;
         }
+        if is_dir {
+            complete &= self.flush_batch(batch)?;
+        }
         made.iter().rev().for_each(|(item, dest): &(Item, PathBuf)| finish_metadata(item, dest));
+        Ok(complete)
+    }
+
+    fn read_buffered(&self, item: &Item) -> Result<Option<Vec<u8>>, Fault> {
+        self.control.checkpoint()?;
+        let mut source = File::open(&item.source)?.take((BUFFERED_FILE_BYTES + 1) as u64);
+        let mut bytes = Vec::new();
+        source.read_to_end(&mut bytes)?;
+        self.control.checkpoint()?;
+        Ok((bytes.len() <= BUFFERED_FILE_BYTES).then_some(bytes))
+    }
+
+    fn flush_batch(&mut self, batch: &mut Batch<'_>) -> Result<bool, Halt> {
+        let mut complete = true;
+        for file in batch.files.drain(..) {
+            self.control.checkpoint()?;
+            self.current = file.item.source.clone();
+            match self.resolve(file.item, file.dest)? {
+                Some(dest) => {
+                    complete &= self.retrying(file.item, |job| job.copy_data(file.item, &dest, Some(&file.bytes)))?
+                }
+                None => {
+                    self.skip(file.item);
+                    complete = false;
+                }
+            }
+        }
+        batch.bytes = 0;
         Ok(complete)
     }
 
@@ -344,8 +427,16 @@ impl Job<'_> {
     }
 
     fn copy_file(&mut self, item: &Item, dest: &Path) -> Result<(), Fault> {
+        self.copy_data(item, dest, None)
+    }
+
+    fn copy_data(&mut self, item: &Item, dest: &Path, bytes: Option<&[u8]>) -> Result<(), Fault> {
         let temporary = partial(dest);
-        let result = self.stream(item, &temporary).and_then(|()| {
+        let copied = match bytes {
+            Some(bytes) => self.write_buffered(bytes, &temporary),
+            None => self.stream(item, &temporary),
+        };
+        let result = copied.and_then(|()| {
             finish_metadata(item, &temporary);
             fs::rename(&temporary, dest).map_err(Fault::Io)
         });
@@ -355,6 +446,17 @@ impl Job<'_> {
         result?;
         self.done.files += 1;
         self.report(false);
+        Ok(())
+    }
+
+    fn write_buffered(&mut self, bytes: &[u8], temporary: &Path) -> Result<(), Fault> {
+        let mut out = File::create(temporary)?;
+        for chunk in bytes.chunks(CHUNK as usize) {
+            self.control.checkpoint()?;
+            out.write_all(chunk)?;
+            self.done.bytes += chunk.len() as u64;
+            self.report(false);
+        }
         Ok(())
     }
 
@@ -401,7 +503,7 @@ impl Job<'_> {
             }
             return Ok(());
         }
-        if self.copy_root(root, dest)? {
+        if self.copy_root(root, dest, false, &mut Batch::default())? {
             self.delete_root(root, false)?;
         }
         Ok(())

@@ -23,7 +23,7 @@ fn main() {
 
 
 
- …ects/borg/guide.md 0/194 · 100% · wrap · source    s source/render · w wrap · Esc close
+ … 0/194 · 100% · wrap · source    s source/render · w wrap · Esc close  ◈ Borg Commander
 --- styles ---
   0: 0-11 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 12-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
   1: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
@@ -46,4 +46,4 @@ fn main() {
  18: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
  19: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
  20: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
- 21: 0-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
+ 21: 0-71 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 72-72 Rgb(0, 0, 0) Rgb(95, 175, 215) BOLD | 73-73 Rgb(0, 0, 0) Rgb(97, 170, 215) BOLD | 74-74 Rgb(0, 0, 0) Rgb(100, 166, 215) BOLD | 75-75 Rgb(0, 0, 0) Rgb(102, 161, 215) BOLD | 76-76 Rgb(0, 0, 0) Rgb(104, 156, 215) BOLD | 77-77 Rgb(0, 0, 0) Rgb(107, 151, 215) BOLD | 78-78 Rgb(0, 0, 0) Rgb(109, 147, 215) BOLD | 79-79 Rgb(0, 0, 0) Rgb(111, 142, 215) BOLD | 80-80 Rgb(255, 255, 255) Rgb(114, 137, 215) BOLD | 81-81 Rgb(255, 255, 255) Rgb(116, 133, 215) BOLD | 82-82 Rgb(255, 255, 255) Rgb(119, 128, 215) BOLD | 83-83 Rgb(255, 255, 255) Rgb(121, 123, 215) BOLD | 84-84 Rgb(255, 255, 255) Rgb(123, 119, 215) BOLD | 85-85 Rgb(255, 255, 255) Rgb(126, 114, 215) BOLD | 86-86 Rgb(255, 255, 255) Rgb(128, 109, 215) BOLD | 87-87 Rgb(255, 255, 255) Rgb(130, 104, 215) BOLD | 88-88 Rgb(255, 255, 255) Rgb(133, 100, 215) BOLD | 89-89 Rgb(255, 255, 255) Rgb(135, 95, 215) BOLD

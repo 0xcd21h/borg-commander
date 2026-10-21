@@ -40,6 +40,44 @@ Ctrl-O switches between the panels and the console.
 - **Use the mouse or stay on the keys.** Click menus, select files, and scroll previews.
   Familiar function-key actions also work with Esc followed by a digit.
 
+## Find what takes space
+
+<p align="center">
+  <img src="docs/showcase/size-tree.png" alt="A size tree of a project, largest folders first, beside a panel showing measured folder sizes" width="1100">
+</p>
+
+- **Sizes while you browse.** Alt-I measures every folder below the current one in the
+  background. Totals fill in as they finish, and you can keep navigating or typing commands.
+- **A size tree.** Alt-Shift-D opens the folder as a tree, largest branches first, with a
+  row for the bytes stored directly in each folder.
+- **Find the heavy folders.** Alt-D searches for folders over a size or file count, such as
+  every `node_modules`, and lists them with their source paths. Mark them and delete with F8.
+- **Measured once, shown again.** Finished scans are saved locally and reused by the panels,
+  the tree, and the search, marked with the date they were measured. Ctrl-R rescans.
+
+<p align="center">
+  <img src="docs/showcase/folder-totals.png" alt="Folder size search listing every folder over 200 MB across several projects" width="1100">
+</p>
+
+## Processes and memory
+
+<p align="center">
+  <img src="docs/showcase/activity.png" alt="Activity monitor with a process list and a chart of the selected process's resident memory over the last minute" width="1100">
+</p>
+
+- **A live process list.** Alt-M shows CPU, RAM, memory growth, and disk rates, sorted by
+  any column or as a tree. The other pane charts the selected process's memory over the last minute.
+- **Where the memory goes.** Enter opens the process's memory map, grouped by purpose and
+  ranked by **footprint**: the memory charged to that process alone, separate from shared
+  libraries that only make it look large.
+- **Look inside.** Preview any readable region as hex or text, compare two captures, search a
+  process's memory for text or bytes, and list its open files. Administrator access is only
+  requested when you ask for it.
+
+<p align="center">
+  <img src="docs/showcase/memory-map.png" alt="Memory map grouped by purpose with footprint, resident and mapped columns, explaining that shared libraries are not the process's own cost" width="1100">
+</p>
+
 ## Themes
 
 Six built-in themes, from Classic blue to Paper. Pick one from the menu or make your own.

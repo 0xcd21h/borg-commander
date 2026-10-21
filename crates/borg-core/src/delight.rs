@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent};
@@ -7,6 +8,7 @@ use crate::{AppState, Effect, Overlay};
 pub const UNLOCK_WORD: &str = "borg";
 pub const RAIN_DURATION: Duration = Duration::from_secs(8);
 const MEMORY: usize = 10;
+const GAME_WORD: &str = "2048";
 const KONAMI: [KeyCode; 10] = [
     KeyCode::Up,
     KeyCode::Up,
@@ -19,8 +21,8 @@ const KONAMI: [KeyCode; 10] = [
     KeyCode::Char('b'),
     KeyCode::Char('a'),
 ];
-const UNLOCKED_NOTICE: &str = "Cube theme unlocked · Options › Theme…";
-const FUTILE_NOTICE: &str = "Resistance is futile.";
+const UNLOCKED_NOTICE: &str = tr!(cube_theme_unlocked_options_theme);
+const FUTILE_NOTICE: &str = tr!(resistance_is_futile);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct About {
@@ -38,6 +40,9 @@ pub(crate) fn on_about_key(state: &mut AppState, mut about: About, key: &KeyEven
     about.recent.drain(..overflow);
     let spelled = typed_word(&about.recent);
     let konami = about.recent.ends_with(&KONAMI);
+    if spelled.ends_with(GAME_WORD) {
+        return crate::game2048::open(state, now);
+    }
     state.overlay = Some(Overlay::About(about));
 
     if konami {

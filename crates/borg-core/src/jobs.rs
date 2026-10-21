@@ -1,4 +1,5 @@
-use std::{path::PathBuf, time::Instant};
+use borg_i18n::tr;
+use std::time::Instant;
 
 use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -6,18 +7,18 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::{AppState, Effect, Overlay, Side};
 
 const CONFLICT_CHOICES: [(Decision, char, &str); 6] = [
-    (Decision::Overwrite, 'o', "Overwrite"),
-    (Decision::Skip, 's', "Skip"),
-    (Decision::KeepBoth, 'k', "Keep both"),
-    (Decision::OverwriteAll, 'a', "Overwrite all"),
-    (Decision::SkipAll, 'n', "Skip all"),
-    (Decision::Cancel, 'c', "Cancel"),
+    (Decision::Overwrite, 'o', tr!(overwrite)),
+    (Decision::Skip, 's', tr!(skip)),
+    (Decision::KeepBoth, 'k', tr!(keep_both)),
+    (Decision::OverwriteAll, 'a', tr!(overwrite_all)),
+    (Decision::SkipAll, 'n', tr!(skip_all)),
+    (Decision::Cancel, 'c', tr!(cancel)),
 ];
 const FAILURE_CHOICES: [(Decision, char, &str); 4] = [
-    (Decision::Retry, 'r', "Retry"),
-    (Decision::Skip, 's', "Skip"),
-    (Decision::SkipAll, 'a', "Skip all"),
-    (Decision::Cancel, 'c', "Cancel"),
+    (Decision::Retry, 'r', tr!(retry)),
+    (Decision::Skip, 's', tr!(skip)),
+    (Decision::SkipAll, 'a', tr!(skip_all)),
+    (Decision::Cancel, 'c', tr!(cancel)),
 ];
 const PAUSE_KEY: char = 'p';
 const CANCEL_KEY: char = 'c';
@@ -32,17 +33,17 @@ pub enum JobKind {
 impl JobKind {
     pub fn doing(self) -> &'static str {
         match self {
-            Self::Copy => "Copying",
-            Self::Move => "Moving",
-            Self::Delete => "Deleting",
+            Self::Copy => tr!(copying),
+            Self::Move => tr!(moving),
+            Self::Delete => tr!(deleting),
         }
     }
 
     pub fn done(self) -> &'static str {
         match self {
-            Self::Copy => "Copied",
-            Self::Move => "Moved",
-            Self::Delete => "Deleted",
+            Self::Copy => tr!(copied),
+            Self::Move => tr!(moved),
+            Self::Delete => tr!(deleted),
         }
     }
 }
@@ -122,11 +123,9 @@ pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instan
         paused: false,
         started: now,
     });
-    vec![Effect::StartJob { id, spec }]
-}
-
-pub(crate) fn paths(dir: &std::path::Path, names: &[String]) -> Vec<PathBuf> {
-    names.iter().map(|name| dir.join(name)).collect()
+    let mut effects = crate::measure::cancel(state);
+    effects.push(Effect::StartJob { id, spec });
+    effects
 }
 
 pub(crate) fn on_event(state: &mut AppState, id: u64, event: Event) -> Vec<Effect> {
@@ -154,17 +153,17 @@ fn finish(state: &mut AppState, index: usize, outcome: Outcome) -> Vec<Effect> {
             if skipped == 0 {
                 state.panel_mut(job.origin).clear_marks();
             }
-            let skipped = if skipped > 0 { format!(" · {skipped} skipped") } else { String::new() };
+            let skipped = if skipped > 0 { format!(tr!(skipped), skipped = skipped) } else { String::new() };
             format!("{} {}{skipped}", job.kind.done(), summary(done))
         }
-        Outcome::Cancelled { done } => format!("{} cancelled after {}", job.kind.doing(), summary(done)),
-        Outcome::Failed(message) => format!("{} failed: {message}", job.kind.doing()),
+        Outcome::Cancelled { done } => format!(tr!(cancelled_after), job.kind.doing(), summary(done)),
+        Outcome::Failed(message) => format!(tr!(job_failed), job.kind.doing(), message = message),
     });
     state.reload_all()
 }
 
 fn summary(totals: Totals) -> String {
-    if totals.files == 1 { "1 file".to_owned() } else { format!("{} files", totals.files) }
+    if totals.files == 1 { tr!(jobs_1_file).to_owned() } else { format!(tr!(files), totals.files) }
 }
 
 pub(crate) fn surface_questions(state: &mut AppState) {
@@ -210,7 +209,7 @@ pub(crate) fn on_question_key(state: &mut AppState, question: Question, key: &Ke
 
 pub(crate) fn open_list(state: &mut AppState) -> Vec<Effect> {
     if state.jobs.is_empty() {
-        state.notice = Some("No jobs running".to_owned());
+        state.notice = Some(tr!(no_jobs_running).to_owned());
         return Vec::new();
     }
     state.overlay = Some(Overlay::Jobs(JobList { selected: 0 }));

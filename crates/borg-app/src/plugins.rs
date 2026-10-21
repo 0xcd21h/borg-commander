@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -87,7 +88,7 @@ pub async fn run(dir: PathBuf, tool: Tool, paths: Vec<PathBuf>, size: (usize, us
             Ok(Some(Viewer { path, content: Content::Text(pager) }))
         })
         .await
-        .context("Opening Git output")?,
+        .context(tr!(opening_git_output))?,
     }
 }
 

@@ -7,6 +7,7 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
+borg-i18n = { workspace = true }
 borg-git = { workspace = true }
 borg-gfx  = { workspace = true }
 borg-jobs = { workspace = true }
@@ -16,6 +17,7 @@ borg-view = { workspace = true }
 crossterm = { workspace = true }
 globset   = { workspace = true }
 ratatui   = { workspace = true }
+serde     = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

@@ -18,6 +18,9 @@ const MODIFIED: u64 = 1_792_368_000;
 
 fn entry(name: &str, kind: EntryKind, size: u64) -> Entry {
     Entry {
+        source: None,
+        missing: false,
+        usage: None,
         name: name.into(),
         kind,
         size,

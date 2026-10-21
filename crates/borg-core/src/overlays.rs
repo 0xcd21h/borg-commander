@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{path::PathBuf, time::Instant};
 
 use crossterm::event::{KeyCode, KeyEvent};
@@ -20,6 +21,9 @@ const REJECT_KEY: char = 'n';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
+        Some(Overlay::Game2048) => crate::game2048::on_key(state, key),
+        Some(Overlay::Collections(picker)) => crate::discovery::collections_key(state, picker, key),
+        Some(Overlay::Search(form)) => crate::discovery::search_key(state, form, key),
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
@@ -36,7 +40,15 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
 pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     let line = text.lines().next().unwrap_or_default();
     let input = match state.overlay.as_mut() {
-        Some(Overlay::Prompt(prompt)) => &mut prompt.input,
+        Some(Overlay::Collections(crate::CollectionPicker { creating: Some(input), .. })) => input,
+        Some(Overlay::Search(form)) => match form.selected {
+            0 => &mut form.pattern,
+            1 => &mut form.root,
+            3 => &mut form.minimum,
+            4 => &mut form.files,
+            _ => return Vec::new(),
+        },
+        Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,
         Some(Overlay::Find(find)) => &mut find.input,
         _ => return Vec::new(),
     };
@@ -101,6 +113,23 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
 }
 
 fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if let PromptPurpose::Copy { optimize_hdd, .. } = &mut prompt.purpose {
+        match key.code {
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
+                prompt.option_focused = !prompt.option_focused;
+                state.overlay = Some(Overlay::Prompt(prompt));
+                return Vec::new();
+            }
+            KeyCode::Char(' ') if prompt.option_focused => {
+                *optimize_hdd = !*optimize_hdd;
+                state.overlay = Some(Overlay::Prompt(prompt));
+                return Vec::new();
+            }
+            KeyCode::Enter | KeyCode::Esc => {}
+            _ if prompt.option_focused => return Vec::new(),
+            _ => {}
+        }
+    }
     match key.code {
         KeyCode::Esc => {
             state.overlay = None;
@@ -120,39 +149,54 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
 }
 
 fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant) -> Vec<Effect> {
-    if text.is_empty() {
+    if text.is_empty() && purpose != PromptPurpose::ResultsFilter {
         return Vec::new();
     }
     match purpose {
+        PromptPurpose::Search { root } => crate::results::start_search(
+            state,
+            crate::SearchRequest {
+                root,
+                query: text.to_owned(),
+                hidden: state.settings.preferences.show_hidden,
+                options: Default::default(),
+            },
+        ),
+        PromptPurpose::Collection => crate::results::collection(state, text, state.active),
+        PromptPurpose::ResultsFilter => {
+            let side = state.active;
+            state.panel_mut(side).filter_results(text.to_owned());
+            Vec::new()
+        }
         PromptPurpose::Select | PromptPurpose::Unselect => {
             let mark = purpose == PromptPurpose::Select;
             match Pattern::parse(text) {
                 Ok(pattern) => {
                     let side = state.active;
                     let count = state.panel_mut(side).mark_matching(&pattern, mark);
-                    state.notice = (count == 0).then(|| format!("Nothing matches {text}"));
+                    state.notice = (count == 0).then(|| format!(tr!(nothing_matches), text = text));
                 }
                 Err(error) => state.notice = Some(error.to_string()),
             }
             Vec::new()
         }
-        PromptPurpose::Mkdir => run_operation(state, "mkdir", &ops::mkdir(text), Some(first_component(text)), now),
+        PromptPurpose::Mkdir => {
+            run_operation(state, tr!(overlays_mkdir), &ops::mkdir(text), Some(first_component(text)), now)
+        }
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));
-                run_operation(state, "compress", &command, Some(text.to_owned()), now)
+                run_operation(state, tr!(overlays_compress), &command, Some(text.to_owned()), now)
             }
             None => {
-                state.notice = Some(format!("Unknown archive type for {text} · try .tar.gz, .zip or .7z"));
+                state.notice = Some(format!(tr!(unknown_archive_type_for_try_tar_gz), text = text));
                 Vec::new()
             }
         },
-        PromptPurpose::Copy { sources } => {
-            let sources = jobs::paths(state.active_panel().dir(), &sources);
-            jobs::start(state, JobKind::Copy, Spec::Copy { sources, target: resolve(state, text) }, now)
+        PromptPurpose::Copy { sources, optimize_hdd } => {
+            jobs::start(state, JobKind::Copy, Spec::Copy { sources, target: resolve(state, text), optimize_hdd }, now)
         }
         PromptPurpose::Move { sources } => {
-            let sources = jobs::paths(state.active_panel().dir(), &sources);
             jobs::start(state, JobKind::Move, Spec::Move { sources, target: resolve(state, text) }, now)
         }
     }
@@ -173,7 +217,6 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
     state.overlay = None;
     match (decided, confirm.purpose) {
         (Some(true), ConfirmPurpose::Delete { sources }) => {
-            let sources = jobs::paths(state.active_panel().dir(), &sources);
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Quit) => {

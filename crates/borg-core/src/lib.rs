@@ -1,14 +1,18 @@
 mod actions;
+mod activity;
 mod anim;
 mod appearance;
 mod aside;
 mod command;
 mod delight;
+mod discovery;
 mod find;
+mod game2048;
 mod input;
 mod jobs;
 mod keymap;
 mod layout;
+mod measure;
 mod menu;
 mod motion;
 mod msg;
@@ -18,6 +22,7 @@ mod panel;
 mod pattern;
 mod plugins;
 mod pointer;
+mod results;
 mod settings;
 mod state;
 mod update;
@@ -30,7 +35,9 @@ pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
+pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
 pub use find::{Find, Query, summary as find_summary};
+pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use input::LineInput;
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
@@ -51,3 +58,18 @@ pub use state::{
 };
 pub use update::update;
 pub use viewer::{Content, Image, Viewer, viewer_size};
+
+pub use results::{
+    COLLECTION_LIMIT, Collection, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results, SearchProgress,
+    SearchRequest, selected_paths,
+};
+
+pub use activity::{
+    Activity, ActivityData, ActivityPage, ActivityRequest, ActivitySort, HISTORY, MemoryHistory, MemoryRegion,
+    MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
+};
+
+pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow};
+pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport};
+
+pub use measure::SizeScan;

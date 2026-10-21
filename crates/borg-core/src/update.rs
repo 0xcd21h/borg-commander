@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::time::{Duration, Instant};
 
 use borg_term::{Scroll, ShellSignal, encode_key, encode_paste};
@@ -9,6 +10,27 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let before = crate::motion::before(state);
     let overlay = state.overlay.clone();
     let effects = match msg {
+        message @ (Msg::Sized { .. } | Msg::SizeProgress { .. } | Msg::SizesFinished { .. }) => {
+            crate::measure::receive(state, message)
+        }
+        Msg::MemorySearchProgress { id, scanned, total, hits } => {
+            if state.activity.pending.as_ref().is_some_and(|(pending, _)| *pending == id) {
+                state.activity.search_progress = Some((scanned, total, hits));
+            }
+            Vec::new()
+        }
+        Msg::SizeChildren { side, generation, parent, result } => {
+            crate::results::size_children(state, side, generation, parent, result);
+            Vec::new()
+        }
+        Msg::Activity { id, result } => {
+            crate::activity::receive(state, id, result, now);
+            Vec::new()
+        }
+        Msg::SearchProgress { side, generation, progress } => {
+            crate::results::progress(state, side, generation, progress);
+            Vec::new()
+        }
         Msg::Key(key) => on_key(state, &key, now),
         Msg::Pointer(pointer) => crate::pointer::on_pointer(state, pointer, now),
         Msg::Paste(text) => on_paste(state, &text),
@@ -18,11 +40,26 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Batch { side, generation, entries } => {
             let show_hidden = state.settings.preferences.show_hidden;
-            state.panel_mut(side).receive(generation, entries, show_hidden);
+            if let Some(panel) = state.receiving_panel(side, generation) {
+                panel.receive(generation, entries, show_hidden);
+            }
             Vec::new()
         }
         Msg::Listed { side, generation, error } => {
-            state.notice = state.panel_mut(side).finish(generation, error).or(state.notice.take());
+            if let Some(panel) = state.receiving_panel(side, generation) {
+                let notice = panel.finish(generation, error);
+                panel.settle();
+                let collection = match panel.results.as_ref().map(|r| &r.source) {
+                    Some(crate::ResultSource::Collection(name)) => Some((name.clone(), panel.entries().to_vec())),
+                    _ => None,
+                };
+                if let Some((name, entries)) = collection
+                    && let Some(saved) = state.collections.iter_mut().find(|c| c.name == name)
+                {
+                    saved.entries = entries;
+                }
+                state.notice = notice.or(state.notice.take());
+            }
             Vec::new()
         }
         Msg::Observe(view) => {
@@ -69,8 +106,11 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let mut effects = effects;
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
+    effects.extend(crate::activity::sync(state, now));
+    effects.extend(crate::results::sync_sizes(state));
     crate::jobs::surface_questions(state);
 
+    state.refit();
     state.sync_fade(now);
     state.sync_overlay(overlay, now);
     crate::motion::animate(state, &before, now);
@@ -116,6 +156,20 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.overlay.is_some() {
         return overlays::on_key(state, key, now);
     }
+    if state.activity.side.is_some() && state.view == View::Panels {
+        return crate::activity::route_key(state, key, now);
+    }
+    if state.active_panel().is_size_view() && !state.preview_focused && state.view == View::Panels {
+        let action = match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) if state.active_panel().is_tree() => Some(crate::Action::Leave),
+            (KeyCode::Right, KeyModifiers::NONE) if state.active_panel().is_tree() => Some(crate::Action::Descend),
+            (KeyCode::Char('r'), KeyModifiers::CONTROL) => Some(crate::Action::RefreshSizes),
+            _ => None,
+        };
+        if let Some(action) = action {
+            return actions::perform(state, action, now);
+        }
+    }
 
     if state.preview_focused && state.view == View::Panels {
         return crate::aside::on_key(state, key, now);
@@ -123,9 +177,15 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     state.notice = None;
     let pending = state.escaped.take().is_some_and(|at| now.saturating_duration_since(at) <= ESCAPE_WINDOW);
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
+        let hidden = state.active_panel().is_results();
+        let effects = if hidden { crate::results::back(state) } else { Vec::new() };
         state.escaped = Some(now);
-        state.notice = Some("Esc then 1–9 = F1–F9 · Esc then 0 = F10 · Esc 9 opens menus".into());
-        return Vec::new();
+        state.notice = Some(if hidden {
+            tr!(results_hidden_alt_r_resumes_in_the).into()
+        } else {
+            tr!(esc_then_1_9_f1_f9_esc).into()
+        });
+        return effects;
     }
     let (key, mut effects) = match (pending, escaped_function(key)) {
         (true, Some(function)) => (function, Vec::new()),
@@ -133,6 +193,21 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
         _ => (*key, Vec::new()),
     };
     let key = &key;
+    if state.view == View::Panels
+        && state.active_panel().is_results()
+        && matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+    {
+        return actions::perform(state, crate::Action::SwitchPanel, now);
+    }
+    if state.view == View::Panels
+        && state.active_panel().is_results()
+        && state.active_panel().listing() == &crate::Listing::Loading
+        && matches!(state.active_panel().results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Search { .. }))
+        && key.code == KeyCode::Char('c')
+        && key.modifiers == KeyModifiers::CONTROL
+    {
+        return actions::perform(state, crate::Action::CancelSearch, now);
+    }
     let context =
         keymap::Context { view: state.view, line_empty: state.shell.line_empty(), at_prompt: !state.shell.busy() };
     effects.extend(match keymap::lookup(key, context) {
@@ -168,6 +243,23 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 }
 
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
+    if state.activity.side.is_some() && state.view == View::Panels {
+        if let Some(form) = state.activity.search_form.as_mut() {
+            if form.selected == 0 {
+                for c in text.chars().take(512) {
+                    if form.input.text().len() + c.len_utf8() > 512 {
+                        break;
+                    }
+                    form.input.apply(&KeyCode::Char(c).into());
+                }
+            }
+        } else if state.activity.filtering {
+            state.activity.filter.extend(text.chars().take(128));
+            state.activity.rebuild();
+        }
+        return Vec::new();
+    }
+
     if state.overlay.is_some() {
         return overlays::on_paste(state, text);
     }
@@ -178,13 +270,25 @@ fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
 }
 
 fn forward(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
-    let Some(bytes) = encode_key(key, state.shell.observed.mode) else { return Vec::new() };
+    let shell_key = if !state.shell.busy() && !state.shell.captured() && key.modifiers == KeyModifiers::ALT {
+        match key.code {
+            KeyCode::Left => KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
+            KeyCode::Right => KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT),
+            _ => *key,
+        }
+    } else {
+        *key
+    };
+    let Some(bytes) = encode_key(&shell_key, state.shell.observed.mode) else { return Vec::new() };
 
     let mut effects = if state.view == View::Panels { prepare_shell(state) } else { Vec::new() };
     effects.push(Effect::Write(bytes));
 
     match key.code {
         KeyCode::Enter => {
+            if !state.shell.busy() && !state.shell.captured() {
+                state.shell.return_view = state.view;
+            }
             state.shell.submit();
             state.view = View::Shell;
         }
@@ -249,21 +353,23 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
 fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
     let full_screen = std::mem::take(&mut state.shell.went_full_screen);
     let Some(operation) = state.operation.take() else {
-        if full_screen || state.settings.preferences.after_command == AfterCommand::ReturnToPanels {
+        if state.shell.return_view == View::Panels
+            && (full_screen || state.settings.preferences.after_command == AfterCommand::ReturnToPanels)
+        {
             state.view = View::Panels;
         }
         return state.reload_all();
     };
 
     if operation.revealed || full_screen {
-        state.view = View::Panels;
+        state.view = state.shell.return_view;
     }
     match exit {
         Some(0) => state.panel_mut(operation.side).clear_marks(),
         Some(code) => {
-            state.notice = Some(format!("{} failed (exit {code}) · Ctrl-O shows the output", operation.label));
+            state.notice = Some(format!(tr!(failed_exit_ctrl_o_shows_the_output), operation.label, code = code));
         }
-        None => state.notice = Some(format!("{} finished · Ctrl-O shows the output", operation.label)),
+        None => state.notice = Some(format!(tr!(finished_ctrl_o_shows_the_output), operation.label)),
     }
 
     let side = operation.side;

@@ -1,3 +1,4 @@
+use borg_i18n::tr;
 use std::{
     fs, io,
     path::Path,
@@ -15,7 +16,7 @@ use borg_view::{FileSource, Pager, Source};
 use crate::app::{picture, span};
 
 pub fn open(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Result<Content> {
-    ensure!(fs::metadata(path)?.is_file(), "Not a regular file");
+    ensure!(fs::metadata(path)?.is_file(), tr!(not_a_regular_file));
     if is_picture(path) {
         let bounds = (span(size.0, cell.0), span(size.1, cell.1));
         return picture(path, bounds).map(Content::Image);

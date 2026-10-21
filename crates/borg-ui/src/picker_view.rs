@@ -1,4 +1,5 @@
 use borg_core::{Picker, ThemeChoice};
+use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -9,8 +10,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{Theme, dialog_view::centered};
 
-const TITLE: &str = " Theme ";
-const HINT: &str = " Enter keep · Esc cancel ";
+const TITLE: &str = tr!(picker_view_theme);
+const HINT: &str = tr!(enter_keep_esc_cancel);
 const MIN_WIDTH: u16 = 28;
 const SIDE_PADDING: u16 = 6;
 const BORDER_ROWS: u16 = 2;

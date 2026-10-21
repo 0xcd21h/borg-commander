@@ -1,11 +1,16 @@
+use borg_i18n::tr;
+mod activity;
 mod app;
 mod config;
 mod document;
 mod launch;
+mod memory_search;
 mod peek;
 mod plugins;
 mod preview;
+mod search;
 mod session;
+mod size_cache;
 mod store;
 mod update;
 
@@ -27,19 +32,18 @@ use crate::{app::App, launch::Launch};
 
 const USAGE_ERROR: u8 = 2;
 
-const USAGE: &str = "usage: borg [update | --version | --help]
+const USAGE: &str = tr!(cli_usage);
 
-  borg            open the commander in the current folder
-  borg update     update borg to the latest release
-  borg --version  print the version";
-
-const NESTED_MESSAGE: &str =
-    "borg is already running in this terminal. Press Ctrl-O to get back to it, or type `exit` to close this shell.";
+const NESTED_MESSAGE: &str = tr!(cli_already_running);
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
     match env::args().nth(1).as_deref() {
         None => {}
+        Some("--inspect-process") => {
+            activity::helper(&env::args().skip(2).collect::<Vec<_>>()).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Some("--version" | "-V") => {
             println!("borg {}", update::VERSION);
             return Ok(ExitCode::SUCCESS);
@@ -52,13 +56,13 @@ async fn main() -> Result<ExitCode> {
             return Ok(match tokio::task::spawn_blocking(update::run).await? {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => {
-                    eprintln!("borg update failed: {error:#}");
+                    eprintln!(tr!(cli_update_failed), error = error);
                     ExitCode::FAILURE
                 }
             });
         }
         Some(other) => {
-            eprintln!("borg: unknown argument {other:?}\n\n{USAGE}");
+            eprintln!(tr!(cli_unknown_argument), other = other, USAGE = USAGE);
             return Ok(ExitCode::from(USAGE_ERROR));
         }
     }

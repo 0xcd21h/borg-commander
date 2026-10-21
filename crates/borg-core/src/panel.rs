@@ -25,6 +25,7 @@ pub enum Seek {
 pub enum Row<'a> {
     Parent,
     Entry(&'a Entry),
+    Group { label: &'a str, count: usize, collapsed: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,8 @@ pub enum SortKey {
     Extension,
     Size,
     Modified,
+    Source,
+    Files,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -69,6 +72,7 @@ pub struct Sort {
 enum Anchor {
     Parent,
     Name(String),
+    Path(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +94,8 @@ pub struct Panel {
     rows: usize,
     mode: ListingMode,
     sort: Sort,
-    marks: HashSet<String>,
+    marks: HashSet<PathBuf>,
+    pub results: Option<crate::Results>,
     listing: Listing,
     incoming: Option<Incoming>,
     focus: Option<Anchor>,
@@ -111,6 +116,7 @@ impl Panel {
             mode,
             sort,
             marks: HashSet::new(),
+            results: None,
             listing: Listing::Loading,
             incoming: None,
             focus: None,
@@ -140,7 +146,7 @@ impl Panel {
     }
 
     pub fn git_repository(&self) -> Option<&borg_git::Repository> {
-        (self.dir() == self.destination()).then_some(self.git.repository.as_ref()).flatten()
+        (!self.is_results() && self.dir() == self.destination()).then_some(self.git.repository.as_ref()).flatten()
     }
 
     pub fn mode(&self) -> ListingMode {
@@ -172,7 +178,7 @@ impl Panel {
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len() + self.parent_rows()
+        self.results.as_ref().map_or(self.entries.len() + self.parent_rows(), |results| results.rows.len())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -180,6 +186,14 @@ impl Panel {
     }
 
     pub fn row(&self, index: usize) -> Option<Row<'_>> {
+        if let Some(results) = &self.results {
+            return match results.rows.get(index)? {
+                crate::ResultRow::Entry(index) => self.entries.get(*index).map(Row::Entry),
+                crate::ResultRow::Group { label, count } => {
+                    Some(Row::Group { label, count: *count, collapsed: results.collapsed.contains(label) })
+                }
+            };
+        }
         match index.checked_sub(self.parent_rows()) {
             None => Some(Row::Parent),
             Some(i) => self.entries.get(i).map(Row::Entry),
@@ -193,7 +207,7 @@ impl Panel {
     pub fn hovered_entry(&self) -> Option<&Entry> {
         match self.hovered()? {
             Row::Entry(entry) => Some(entry),
-            Row::Parent => None,
+            Row::Parent | Row::Group { .. } => None,
         }
     }
 
@@ -202,11 +216,11 @@ impl Panel {
     }
 
     pub fn is_marked(&self, entry: &Entry) -> bool {
-        self.marks.contains(&entry.name)
+        self.marks.contains(entry.identity())
     }
 
     pub fn marked(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.iter().filter(|entry| self.marks.contains(&entry.name))
+        self.entries.iter().filter(|entry| self.marks.contains(entry.identity()))
     }
 
     pub fn marked_count(&self) -> usize {
@@ -218,6 +232,7 @@ impl Panel {
     }
 
     pub fn navigate(&mut self, dir: PathBuf, generation: u64, focus: Option<String>) {
+        self.results = None;
         let refresh = self.is_reloading_into(&dir);
         self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh });
     }
@@ -234,7 +249,8 @@ impl Panel {
             self.commit();
         }
         if generation == self.generation {
-            self.pending.extend(batch.into_iter().filter(|entry| show_hidden || !entry.is_hidden()));
+            let results = self.is_results();
+            self.pending.extend(batch.into_iter().filter(|entry| results || show_hidden || !entry.is_hidden()));
         }
     }
 
@@ -251,6 +267,9 @@ impl Panel {
                 None
             }
             (false, error) if generation == self.generation => {
+                if error.is_some() {
+                    self.cancel_refresh();
+                }
                 self.listing = error.map_or(Listing::Ready, Listing::Failed);
                 None
             }
@@ -267,6 +286,19 @@ impl Panel {
             return;
         }
         let small = self.entries.len() < EAGER_MERGE_LIMIT;
+        if self.is_tree() && !self.pending.is_empty() {
+            let anchor = self.focus.clone().or_else(|| self.anchor());
+            let mut by_path: std::collections::HashMap<PathBuf, Entry> =
+                std::mem::take(&mut self.entries).into_iter().map(|e| (e.identity().to_path_buf(), e)).collect();
+            for entry in self.pending.drain(..) {
+                by_path.insert(entry.identity().to_path_buf(), entry);
+            }
+            self.entries = by_path.into_values().collect();
+            self.entries.sort_by(|a, b| order(a, b, self.sort));
+            self.rebuild_results();
+            self.restore(anchor);
+            return;
+        }
         let grown = self.pending.len() >= self.entries.len() / MERGE_GROWTH_DIVISOR;
         if self.pending.is_empty() && loading {
             return;
@@ -277,6 +309,7 @@ impl Panel {
             let mut fresh = std::mem::take(&mut self.pending);
             fresh.sort_by(|a, b| order(a, b, sort));
             self.entries = merge(std::mem::take(&mut self.entries), fresh, sort);
+            self.rebuild_results();
             self.restore(anchor);
         }
         if !loading {
@@ -285,25 +318,39 @@ impl Panel {
     }
 
     fn replace_entries(&mut self) {
-        let anchor = self.focus.take().or_else(|| self.anchor());
+        let anchor = self.focus.clone().or_else(|| self.anchor());
         let sort = self.sort;
         let mut fresh = std::mem::take(&mut self.pending);
+        if self.is_tree() {
+            let mut by_path = std::collections::HashMap::new();
+            for entry in fresh {
+                by_path.insert(entry.identity().to_path_buf(), entry);
+            }
+            fresh = by_path.into_values().collect();
+        }
         fresh.sort_by(|a, b| order(a, b, sort));
         self.entries = fresh;
         self.replacing = false;
+        self.rebuild_results();
+        if self.is_tree() && anchor.as_ref().is_some_and(|anchor| self.locate(anchor).is_none()) {
+            self.focus = anchor.clone();
+        }
         self.restore(anchor);
-        self.prune_marks();
+        if !self.is_tree() {
+            self.prune_marks();
+        }
     }
 
     pub fn set_sort(&mut self, sort: Sort) {
-        let anchor = self.anchor();
+        let anchor = self.focus.clone().or_else(|| self.anchor());
         self.sort = sort;
         self.entries.sort_by(|a, b| order(a, b, sort));
+        self.rebuild_results();
         self.restore(anchor);
     }
 
     pub fn set_mode(&mut self, mode: ListingMode) {
-        self.mode = mode;
+        self.mode = if self.is_results() { ListingMode::Full } else { mode };
         self.clamp();
     }
 
@@ -365,13 +412,37 @@ impl Panel {
         found.is_some()
     }
 
+    pub fn point_at_path(&mut self, path: PathBuf) {
+        self.focus = None;
+        self.restore(Some(Anchor::Path(path)));
+    }
+
     pub fn point_at(&mut self, name: &str) {
         self.focus = None;
         self.restore(Some(Anchor::Name(name.to_owned())));
     }
 
     pub fn toggle_mark(&mut self) {
-        let Some(name) = self.hovered_entry().map(|entry| entry.name.clone()) else { return };
+        if let Some(Row::Group { label, .. }) = self.hovered() {
+            let label = label.to_owned();
+            let Some(results) = &self.results else { return };
+            let paths: Vec<_> = self
+                .entries
+                .iter()
+                .filter(|entry| results.matches(entry) && results.group_label(entry) == label)
+                .map(|entry| entry.identity().to_path_buf())
+                .collect();
+            let clear = paths.iter().all(|path| self.marks.contains(path));
+            for path in paths {
+                if clear {
+                    self.marks.remove(&path);
+                } else {
+                    self.marks.insert(path);
+                }
+            }
+            return;
+        }
+        let Some(name) = self.hovered_entry().map(|entry| entry.identity().to_path_buf()) else { return };
         if !self.marks.remove(&name) {
             self.marks.insert(name);
         }
@@ -382,8 +453,8 @@ impl Panel {
     }
 
     pub fn mark_where(&mut self, accept: impl Fn(&Entry) -> bool, mark: bool) -> usize {
-        let names: Vec<String> =
-            self.entries.iter().filter(|entry| accept(entry)).map(|entry| entry.name.clone()).collect();
+        let names: Vec<PathBuf> =
+            self.visible_entries().filter(|entry| accept(entry)).map(|entry| entry.identity().to_path_buf()).collect();
         let count = names.len();
         names.into_iter().for_each(|name| {
             if mark {
@@ -396,7 +467,11 @@ impl Panel {
     }
 
     pub fn invert_marks(&mut self) {
-        self.marks = self.entries.iter().map(|e| e.name.clone()).filter(|name| !self.marks.contains(name)).collect();
+        self.marks = self
+            .visible_entries()
+            .map(|e| e.identity().to_path_buf())
+            .filter(|name| !self.marks.contains(name))
+            .collect();
     }
 
     pub fn clear_marks(&mut self) {
@@ -427,8 +502,8 @@ impl Panel {
         if self.marks.is_empty() {
             return;
         }
-        let present: HashSet<&str> = self.entries.iter().map(|e| e.name.as_str()).collect();
-        self.marks.retain(|name| present.contains(name.as_str()));
+        let present: HashSet<&Path> = self.entries.iter().map(Entry::identity).collect();
+        self.marks.retain(|name| present.contains(name.as_path()));
     }
 
     fn restore(&mut self, anchor: Option<Anchor>) {
@@ -442,22 +517,275 @@ impl Panel {
     }
 
     fn parent_rows(&self) -> usize {
-        usize::from(self.dir.parent().is_some())
+        usize::from(!self.is_results() && self.dir.parent().is_some())
     }
 
     fn anchor(&self) -> Option<Anchor> {
         self.hovered().map(|row| match row {
             Row::Parent => Anchor::Parent,
-            Row::Entry(entry) => Anchor::Name(entry.name.clone()),
+            Row::Entry(entry) => Anchor::Path(entry.identity().to_path_buf()),
+            Row::Group { label, .. } => Anchor::Name(label.to_owned()),
         })
     }
 
     fn locate(&self, anchor: &Anchor) -> Option<usize> {
+        if self.is_results() {
+            return (0..self.len()).find(|index| match (self.row(*index), anchor) {
+                (Some(Row::Entry(entry)), Anchor::Path(path)) => entry.identity() == path,
+                (Some(Row::Group { label, .. }), Anchor::Name(name)) => label == name,
+                _ => false,
+            });
+        }
         match anchor {
+            Anchor::Path(path) => self
+                .entries
+                .iter()
+                .position(|entry| entry.identity() == path || entry.path(&self.dir) == *path)
+                .map(|i| i + self.parent_rows()),
             Anchor::Parent => (self.parent_rows() > 0).then_some(0),
             Anchor::Name(name) => {
                 self.entries.iter().position(|entry| &entry.name == name).map(|i| i + self.parent_rows())
             }
+        }
+    }
+
+    pub fn is_results(&self) -> bool {
+        self.results.is_some()
+    }
+
+    pub fn visible_entries(&self) -> impl Iterator<Item = &Entry> {
+        let visible = self.results.as_ref().filter(|r| r.tree.is_some()).map(|r| {
+            r.rows
+                .iter()
+                .filter_map(|row| match row {
+                    crate::ResultRow::Entry(i) => Some(*i),
+                    _ => None,
+                })
+                .collect::<HashSet<_>>()
+        });
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(move |(index, entry)| {
+                visible
+                    .as_ref()
+                    .map_or_else(|| self.results.as_ref().is_none_or(|r| r.matches(entry)), |set| set.contains(index))
+            })
+            .map(|(_, entry)| entry)
+    }
+
+    pub fn open_results(&mut self, source: crate::ResultSource, entries: Vec<Entry>, generation: u64) {
+        self.incoming = None;
+        self.pending.clear();
+        self.replacing = false;
+        self.entries = entries;
+        self.generation = generation;
+        self.results = Some(crate::Results::new(source));
+        self.listing = Listing::Ready;
+        self.mode = ListingMode::Full;
+        self.cursor = 0;
+        self.scroll = 0;
+        self.focus = None;
+        self.marks.clear();
+        self.set_sort(self.sort);
+    }
+
+    pub fn rebuild_results(&mut self) {
+        if let Some(results) = &mut self.results {
+            results.rebuild(&self.entries);
+        }
+    }
+
+    pub fn filter_results(&mut self, filter: String) {
+        let anchor = self.anchor();
+        if let Some(results) = &mut self.results {
+            results.filter = filter;
+        }
+        self.rebuild_results();
+        self.restore(anchor);
+    }
+
+    pub fn group_results(&mut self, group: crate::ResultGroup) {
+        if self.is_tree() {
+            return;
+        }
+        let anchor = self.anchor();
+        if let Some(results) = &mut self.results {
+            results.group = group;
+            results.collapsed.clear();
+        }
+        self.rebuild_results();
+        self.restore(anchor);
+    }
+
+    pub fn toggle_group(&mut self) {
+        let Some(Row::Group { label, .. }) = self.hovered() else { return };
+        let label = label.to_owned();
+        if let Some(results) = &mut self.results
+            && !results.collapsed.remove(&label)
+        {
+            results.collapsed.insert(label);
+        }
+        self.rebuild_results();
+        self.clamp();
+    }
+
+    pub fn is_tree(&self) -> bool {
+        self.results.as_ref().is_some_and(|r| r.tree.is_some())
+    }
+
+    pub fn is_size_view(&self) -> bool {
+        matches!(self.results.as_ref().map(|r| &r.source),
+            Some(crate::ResultSource::Search { request, .. }) if matches!(request.options.kind,
+                crate::SearchKind::FolderTree | crate::SearchKind::FolderTotals))
+    }
+
+    pub fn toggle_tree_node(&mut self) {
+        let Some(path) = self.hovered_entry().map(|e| e.identity().to_path_buf()) else { return };
+        if let Some(tree) = self.results.as_mut().and_then(|r| r.tree.as_mut())
+            && tree.branches.contains(&path)
+            && !tree.open.remove(&path)
+        {
+            tree.open.insert(path);
+        }
+        self.rebuild_results();
+        self.clamp();
+    }
+
+    pub fn tree_step(&mut self, expand: bool) {
+        let Some(path) = self.hovered_entry().map(|e| e.identity().to_path_buf()) else { return };
+        let Some(tree) = self.results.as_mut().and_then(|r| r.tree.as_mut()) else { return };
+        let anchor = path.clone();
+        if expand {
+            if !tree.branches.contains(&path) {
+                return;
+            }
+            if !tree.open.insert(path.clone()) {
+                if let Some(index) = (self.cursor + 1..self.len()).find(
+                    |&i| matches!(self.row(i),Some(Row::Entry(next)) if next.identity().parent()==Some(path.as_path())),
+                ) {
+                    self.move_by(index as isize - self.cursor as isize);
+                }
+                return;
+            }
+        } else if !tree.open.remove(&path) {
+            if let Some(parent) = path.parent()
+                && let Some(index) =
+                    (0..self.len()).find(|&i| matches!(self.row(i), Some(Row::Entry(e)) if e.identity() == parent))
+            {
+                self.cursor = index;
+                self.clamp();
+            }
+            return;
+        }
+        self.rebuild_results();
+        self.restore(Some(Anchor::Path(anchor)));
+    }
+
+    pub fn cancel_refresh(&mut self) {
+        if self.replacing {
+            self.pending.clear();
+            self.replacing = false;
+        }
+    }
+
+    pub fn remove_selected(&mut self) {
+        let selected: HashSet<_> = self.selection().into_iter().map(|entry| entry.identity().to_path_buf()).collect();
+        self.entries.retain(|entry| !selected.contains(entry.identity()));
+        self.prune_marks();
+        self.rebuild_results();
+        self.clamp();
+    }
+
+    pub fn append_results(&mut self, entries: Vec<Entry>) {
+        let mut present: HashSet<_> = self.entries.iter().map(|entry| entry.identity().to_path_buf()).collect();
+        self.entries.extend(entries.into_iter().filter(|entry| present.insert(entry.identity().to_path_buf())));
+        self.set_sort(self.sort);
+    }
+
+    pub fn replace_collection(&mut self, entries: Vec<Entry>) {
+        let anchor = self.anchor();
+        self.entries = entries;
+        self.prune_marks();
+        self.entries.sort_by(|a, b| order(a, b, self.sort));
+        self.rebuild_results();
+        self.restore(anchor);
+    }
+
+    pub fn begin_search(&mut self, generation: u64) {
+        self.generation = generation;
+        self.pending.clear();
+        self.replacing = false;
+        self.listing = Listing::Loading;
+    }
+
+    pub fn finish_results_edit(&mut self, generation: u64) {
+        self.generation = generation;
+        self.pending.clear();
+        self.replacing = false;
+        self.listing = Listing::Ready;
+    }
+
+    pub fn begin_results_refresh(&mut self, generation: u64) {
+        self.cache_observations();
+        if let Some(tree) = self.results.as_mut().and_then(|r| r.tree.as_mut()) {
+            tree.loaded = HashSet::from([tree.root.clone()]);
+            tree.pending.clear();
+        }
+        self.generation = generation;
+        self.pending.clear();
+        self.replacing = true;
+        self.listing = Listing::Loading;
+    }
+
+    pub(crate) fn measure_sizes(&mut self, totals: &std::collections::HashMap<PathBuf, (u64, borg_vfs::FolderUsage)>) {
+        if self.is_results() {
+            return;
+        }
+        let pending_dir = self.incoming.as_ref().map_or(&self.dir, |incoming| &incoming.dir);
+        if !totals
+            .keys()
+            .any(|path| path.parent() == Some(self.dir.as_path()) || path.parent() == Some(pending_dir.as_path()))
+        {
+            return;
+        }
+        let mut changed = false;
+        for entry in &mut self.entries {
+            if entry.kind == borg_vfs::EntryKind::Dir
+                && let Some((bytes, usage)) = totals.get(&entry.path(&self.dir))
+            {
+                entry.size = *bytes;
+                entry.usage = Some(usage.clone());
+                changed = true;
+            }
+        }
+        let pending_dir = self.incoming.as_ref().map_or(&self.dir, |incoming| &incoming.dir);
+        for entry in &mut self.pending {
+            if entry.kind == borg_vfs::EntryKind::Dir
+                && let Some((bytes, usage)) = totals.get(&entry.path(pending_dir))
+            {
+                entry.size = *bytes;
+                entry.usage = Some(usage.clone());
+            }
+        }
+        if changed && matches!(self.sort.key, SortKey::Size | SortKey::Files) {
+            self.set_sort(self.sort);
+        }
+    }
+
+    pub fn cache_observations(&mut self) {
+        if !self.is_size_view() {
+            return;
+        }
+        for entry in &mut self.entries {
+            if let Some(usage) = &mut entry.usage {
+                usage.cached = true;
+            }
+        }
+        if self.listing == Listing::Ready
+            && let Some(crate::Results { source: crate::ResultSource::Search { progress, .. }, .. }) = &mut self.results
+        {
+            progress.cached = true;
         }
     }
 
@@ -484,15 +812,23 @@ impl Panel {
 
 pub fn order(a: &Entry, b: &Entry, sort: Sort) -> Ordering {
     let group = b.is_dir().cmp(&a.is_dir());
+    let measured = if matches!(sort.key, SortKey::Size | SortKey::Files) && a.is_dir() && b.is_dir() {
+        b.usage.is_some().cmp(&a.usage.is_some())
+    } else {
+        Ordering::Equal
+    };
     let within = match sort.key {
         SortKey::Name => Ordering::Equal,
         SortKey::Extension => folded_cmp(extension(&a.name), extension(&b.name)),
         SortKey::Size => a.size.cmp(&b.size),
         SortKey::Modified => a.modified.cmp(&b.modified),
+        SortKey::Files => a.usage.as_ref().map(|u| u.files).cmp(&b.usage.as_ref().map(|u| u.files)),
+        SortKey::Source => a.source.as_ref().and_then(|p| p.parent()).cmp(&b.source.as_ref().and_then(|p| p.parent())),
     }
     .then_with(|| folded_cmp(&a.name, &b.name))
-    .then_with(|| a.name.cmp(&b.name));
-    group.then(if sort.reverse { within.reverse() } else { within })
+    .then_with(|| a.name.cmp(&b.name))
+    .then_with(|| a.identity().cmp(b.identity()));
+    group.then(measured).then(if sort.reverse { within.reverse() } else { within })
 }
 
 fn extension(name: &str) -> &str {
@@ -534,6 +870,9 @@ mod tests {
 
     fn entry(name: &str, kind: EntryKind, size: u64) -> Entry {
         Entry {
+            source: None,
+            missing: false,
+            usage: None,
             name: name.into(),
             kind,
             size,

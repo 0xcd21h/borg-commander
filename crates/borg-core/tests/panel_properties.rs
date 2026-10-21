@@ -22,6 +22,9 @@ fn entries() -> impl Strategy<Value = Vec<Entry>> {
         map.into_iter()
             .enumerate()
             .map(|(i, (name, dir))| Entry {
+                source: None,
+                missing: false,
+                usage: None,
                 size: (i as u64 * 7919) % 97,
                 modified: None,
                 name,
