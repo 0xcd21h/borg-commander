@@ -38,6 +38,7 @@ catalog! {
     memory_mapped_note => "Mapped: address space, not RAM.",
     memory_footprint_share => "{percent}% of the footprint",
     memory_largest => "Largest by footprint",
+    memory_largest_resident => "Largest by resident size",
     memory_open_hint => "Enter or → expand · ← collapse",
     memory_file_regions => "Regions in this file",
     process_memory_tab => "1 Memory",

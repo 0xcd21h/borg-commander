@@ -32,7 +32,7 @@ use crate::{
 const FULLY_HIDDEN: f32 = 0.0;
 const FULLY_SHOWN: f32 = 1.0;
 const CURSOR_HANDOFF: f32 = 0.5;
-const BACKDROP: f32 = 0.45;
+pub(crate) const BACKDROP: f32 = 0.45;
 const MENU_BACKDROP: f32 = 0.25;
 const UNFOLD_FLOOR: f32 = 0.4;
 
@@ -193,22 +193,13 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     };
     let mut panel_cursor = None;
     let aside_side = state.aside.map(|_| state.active.other());
+    if state.activity.side.is_some() {
+        crate::activity_view::draw(state, &look, layout.panels, state.monitor_panels(scene.now), &mut buf);
+    }
     for side in Side::ALL {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
-        if rect.is_empty() {
-            continue;
-        }
-        if let Some(process_side) = state.activity.side {
-            let list = side == process_side;
-            crate::activity_view::draw_panel(
-                state,
-                &look,
-                rect,
-                list,
-                if list { !state.activity.preview_focused } else { state.activity.preview_focused },
-                &mut buf,
-            );
+        if rect.is_empty() || state.activity.side.is_some() {
             continue;
         }
         let aside = state.aside.filter(|_| aside_side == Some(side));

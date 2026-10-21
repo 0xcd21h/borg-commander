@@ -309,9 +309,9 @@ keep playing. The board and best score are saved between sessions.
 **Alt-M** or **Command → Activity monitor** opens the process monitor. The bundled
 System plugin is enabled by default and can be disabled in Options → Plugins.
 The process list occupies the active pane, with the selected process's memory
-overview opposite it. **Enter** or a double-click drills into that process: the
-list pane becomes its memory map, and the other pane previews the selected region's
-bytes. **Tab** switches focus. **Alt-W** or the **[+]** button maximizes
+overview opposite it. **Enter** or a double-click opens that process in a window over
+the monitor: its memory map on one side and a preview of the selected region's bytes on
+the other. **Esc** closes it. **Tab** switches focus. **Alt-W** or the **[+]** button maximizes
 the focused pane; **[=]** restores the split, and **[-]** hides the monitor.
 Sampling runs once a second while the monitor is open; closing it stops sampling.
 Memory inspections temporarily hold sampling until their result arrives.

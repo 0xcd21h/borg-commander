@@ -99,11 +99,15 @@ first bundled plugin; there is no external plugin loader yet.
 
 `borg-core::activity` owns process selection, bounded memory history, sorting,
 inspection requests, search state, and snapshots. The monitor uses the regular
-split layout with a list pane and preview pane. Enter drills from processes into
-memory regions, retaining process selection; search matches use that same list pane.
-Regions start in collapsible purpose groups with a raw-list toggle; groups and members
-are ranked by footprint (written plus swapped pages), and libraries and mapped files
-collapse to one row per file. Each list keeps
+split layout with a list pane and preview pane. Enter opens a process in an inspection
+window over the monitor; `AppState::layout` returns the window's two panes, so keys,
+scrolling and mouse hits follow it, while the renderer draws the monitor beneath from
+`monitor_panels`. Process selection is retained, and search matches and open files use
+the same window. Regions start in collapsible purpose groups with a raw-list toggle;
+groups and members are ranked by footprint (written plus swapped pages), and libraries
+and mapped files collapse to one row per file. The ranking is computed once per memory
+map and the visible rows once per expansion change, so moving through maps with tens
+of thousands of regions does no regrouping. Each list keeps
 a viewport offset, shared by keyboard navigation and mouse hit testing. Process
 inspection has Memory and Open files tabs; file metadata comes from bounded,
 NUL-delimited lsof output on macOS and procfs descriptors on Linux. File inspection
