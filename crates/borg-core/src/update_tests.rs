@@ -1509,3 +1509,119 @@ fn the_docker_menu_toggles_the_view_and_offers_only_actions_that_change_the_sele
     crate::actions::perform(&mut state, Action::Docker, now);
     assert!(!state.docker.is_open(), "the menu item closes the view again");
 }
+
+/// A panel switched to a running container's filesystem, as Docker → Files leaves it.
+fn browsing_container(now: Instant) -> AppState {
+    use borg_docker::{Container, State};
+    let (mut state, _) = setup_with(vec![file("notes.txt")]);
+    crate::actions::perform(&mut state, Action::Docker, now);
+    let Some((id, crate::DockerRequest::List)) = state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let web = Container {
+        id: "c1".into(),
+        name: "shop-web-1".into(),
+        image: "nginx".into(),
+        command: String::new(),
+        created: String::new(),
+        state: State::Running,
+        status: "Up 1 minute".into(),
+        ports: String::new(),
+        networks: String::new(),
+        project: None,
+        service: None,
+        project_dir: None,
+        config_files: Vec::new(),
+    };
+    update(
+        &mut state,
+        Msg::Docker { id, result: Ok(crate::DockerData::Listed { context: None, containers: vec![web] }) },
+        now,
+    );
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Char('f')));
+    assert!(!state.docker.is_open(), "browsing files leaves the Docker view");
+    let Some(Effect::List { side: Side::Left, generation, dir }) = effects.first().cloned() else {
+        panic!("the panel lists the container's root: {effects:?}")
+    };
+    assert_eq!(dir, Path::new("/"));
+    let etc = Entry { source: Some("/etc".into()), ..dir_entry("etc") };
+    let motd = Entry { source: Some("/motd".into()), ..file("motd") };
+    update(&mut state, Msg::Batch { side: Side::Left, generation, entries: vec![etc, motd] }, now);
+    update(&mut state, Msg::Listed { side: Side::Left, generation, error: None }, now);
+    state
+}
+
+fn dir_entry(name: &str) -> Entry {
+    dir(name)
+}
+
+fn file_request(effects: &[Effect]) -> Option<(String, crate::FileOp)> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Docker { request: crate::DockerRequest::Files { container, op }, .. } => {
+            Some((container.clone(), op.clone()))
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
+    use crate::FileOp;
+    let now = Instant::now();
+    let mut state = browsing_container(now);
+    assert_eq!(state.panel(Side::Left).mount.as_ref().map(|m| m.name.as_str()), Some("shop-web-1"));
+    assert!(state.panel(Side::Left).hovered().is_some_and(|row| matches!(row, crate::Row::Parent)), "the root has ..");
+
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = crate::actions::perform(&mut state, Action::Copy, now);
+    assert!(effects.is_empty());
+    let Some(Overlay::Prompt(prompt)) = state.overlay.clone() else { panic!("copy asks for the destination") };
+    assert_eq!(prompt.input.text(), "/tmp");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(
+        file_request(&effects),
+        Some(("c1".into(), FileOp::CopyOut { sources: vec!["/motd".into()], target: "/tmp".into() }))
+    );
+    assert!(!state.docker.files.is_empty(), "the copy shows in the host panel's footer");
+    let id = state.docker.files[0].id;
+    let effects = update(&mut state, Msg::Docker { id, result: Ok(crate::DockerData::Done) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Copied 1 item"));
+    assert!(effects.iter().any(|e| matches!(e, Effect::List { side: Side::Right, .. })), "both panels refresh");
+
+    let effects = crate::actions::perform(&mut state, Action::View, now);
+    let Some((_, FileOp::Fetch { path })) = file_request(&effects) else { panic!("viewing copies the file out") };
+    assert_eq!(path, Path::new("/motd"));
+    let id = state.docker.files.last().unwrap().id;
+    let effects =
+        update(&mut state, Msg::Docker { id, result: Ok(crate::DockerData::Fetched("/run/motd".into())) }, now);
+    assert_eq!(effects, [Effect::View("/run/motd".into())]);
+
+    crate::actions::perform(&mut state, Action::Delete, now);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Delete { paths: vec!["/motd".into()] }));
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    type_text(&mut state, now, "cache");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Mkdir { path: "/cache".into() }));
+
+    crate::actions::perform(&mut state, Action::QuickView, now);
+    assert_eq!(state.notice.as_deref(), Some("Not available inside a container"));
+    assert!(state.aside.is_none());
+    assert!(crate::update::prepare_shell(&mut state).is_empty(), "the host shell does not follow into a container");
+
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = crate::actions::perform(&mut state, Action::Copy, now);
+    assert!(effects.is_empty());
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let Some((_, FileOp::CopyIn { target, .. })) = file_request(&effects) else { panic!("copying into the container") };
+    assert_eq!(target, Path::new("/"));
+
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Home));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(state.panel(Side::Left).mount.is_none(), ".. at the root leaves the container");
+    assert!(matches!(effects.as_slice(), [Effect::List { side: Side::Left, dir, .. }] if dir == Path::new("/home")));
+}

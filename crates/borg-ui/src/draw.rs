@@ -182,6 +182,9 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             if let Some(operation) = state.operation.as_ref().filter(|op| state.shell.running && op.side == side) {
                 return Some(Activity { label: format!("{}…", operation.label), fraction: None });
             }
+            if let Some(work) = state.docker.files.iter().find(|work| work.side == side) {
+                return Some(Activity { label: crate::docker_view::file_work_label(state, work), fraction: None });
+            }
             let scan = state.sizing.as_ref().filter(|scan| scan.side == side)?;
             Some(Activity {
                 label: format!(tr!(background_sizes_progress), count = scan.progress.visited),

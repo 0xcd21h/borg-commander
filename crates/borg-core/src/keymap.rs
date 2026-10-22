@@ -13,6 +13,7 @@ pub enum Action {
     ToggleDockerPlugin,
     DockerAct(borg_docker::Action),
     DockerFilter,
+    DockerFiles,
     Search,
     AnalyzeSpace,
     FolderTree,

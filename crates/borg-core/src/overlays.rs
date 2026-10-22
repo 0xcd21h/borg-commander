@@ -180,9 +180,11 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             }
             Vec::new()
         }
+        PromptPurpose::Mkdir if state.active_panel().mount.is_some() => crate::docker::mkdir(state, text),
         PromptPurpose::Mkdir => {
             run_operation(state, tr!(overlays_mkdir), &ops::mkdir(text), Some(first_component(text)), now)
         }
+        PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));
@@ -216,6 +218,9 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
 
     state.overlay = None;
     match (decided, confirm.purpose) {
+        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
+            crate::docker::delete(state, sources)
+        }
         (Some(true), ConfirmPurpose::Delete { sources }) => {
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }

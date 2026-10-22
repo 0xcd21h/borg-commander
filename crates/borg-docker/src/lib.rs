@@ -5,7 +5,12 @@
 use borg_i18n::tr;
 mod model;
 
-use std::{io, process::Stdio, time::Duration};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow, ensure};
 use tokio::{
@@ -13,13 +18,15 @@ use tokio::{
     process::Command,
 };
 
-pub use model::{Action, Container, Details, Frames, Health, Mount, Network, State, Stats, parse_size};
+pub use model::{Action, Container, Details, File, Frames, Health, Mount, Network, State, Stats, parse_size};
 
 const PROGRAM: &str = "docker";
 const OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 /// Stopping waits up to ten seconds for each container before Docker kills it.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(120);
+/// Copies run as long as they need; the user can watch them in the panel footer.
+const COPY_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
 fn docker(args: &[&str]) -> Command {
     let mut command = Command::new(PROGRAM);
@@ -90,4 +97,63 @@ pub async fn watch(mut sample: impl FnMut(Vec<(String, Stats)>)) -> Result<()> {
     let errors = errors.await??;
     ensure!(status.success(), "{}", String::from_utf8_lossy(&errors).trim());
     Ok(())
+}
+
+/// Explains why a container's files cannot be reached, in place of Docker's own wording.
+fn files_error(error: anyhow::Error) -> anyhow::Error {
+    let text = format!("{error:#}");
+    if text.contains("executable file not found") || text.contains("no such file or directory: unknown") {
+        anyhow!(tr!(docker_no_shell))
+    } else if text.contains("is not running") {
+        anyhow!(tr!(docker_start_to_browse))
+    } else {
+        error
+    }
+}
+
+fn inside(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+/// The entries of a folder inside a running container.
+pub async fn files(id: &str, dir: &Path) -> Result<Vec<File>> {
+    let output = run(&["exec", id, "sh", "-c", model::LIST_FILES, "sh", &inside(dir)], QUERY_TIMEOUT)
+        .await
+        .map_err(files_error)?;
+    Ok(model::parse_files(&output))
+}
+
+/// Copies paths out of a container into a host folder.
+pub async fn copy_out(id: &str, sources: &[PathBuf], target: &Path) -> Result<()> {
+    for source in sources {
+        let from = format!("{id}:{}", inside(source));
+        run(&["cp", &from, &target.to_string_lossy()], COPY_TIMEOUT).await?;
+    }
+    Ok(())
+}
+
+/// Copies host paths into a folder inside a container.
+pub async fn copy_in(id: &str, sources: &[PathBuf], target: &Path) -> Result<()> {
+    let to = format!("{id}:{}", inside(target));
+    for source in sources {
+        run(&["cp", &source.to_string_lossy(), &to], COPY_TIMEOUT).await?;
+    }
+    Ok(())
+}
+
+pub async fn remove(id: &str, paths: &[PathBuf]) -> Result<()> {
+    let mut args = vec!["exec".to_owned(), id.to_owned(), "rm".into(), "-rf".into(), "--".into()];
+    args.extend(paths.iter().map(|path| inside(path)));
+    run(&args.iter().map(String::as_str).collect::<Vec<_>>(), ACTION_TIMEOUT).await.map_err(files_error).map(drop)
+}
+
+pub async fn mkdir(id: &str, path: &Path) -> Result<()> {
+    run(&["exec", id, "mkdir", "-p", "--", &inside(path)], QUERY_TIMEOUT).await.map_err(files_error).map(drop)
+}
+
+/// Copies one file out of a container into `into`, for viewing, and returns its host path.
+pub async fn fetch(id: &str, path: &Path, into: &Path) -> Result<PathBuf> {
+    tokio::fs::create_dir_all(into).await?;
+    copy_out(id, &[path.to_path_buf()], into).await?;
+    Ok(into.join(path.file_name().unwrap_or_default()))
 }

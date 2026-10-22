@@ -39,6 +39,8 @@ use crate::{
 };
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// The folder under the runtime directory where container files are copied for viewing.
+const DOCKER_SCRATCH: &str = "docker";
 const WHEEL_LINES: i32 = 3;
 /// Wheel events closer together than this belong to one burst.
 const WHEEL_BURST: Duration = Duration::from_millis(200);
@@ -152,7 +154,7 @@ impl App {
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
-        let docker = crate::docker::Docker::new(messages.clone());
+        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -633,12 +635,22 @@ impl App {
     }
 
     fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
-        let mut batches = self.backend.list(&dir);
+        let mount = self.state.panel(side).mount.clone();
+        let mut batches = match &mount {
+            Some(mount) => crate::docker::listing(mount.id.clone(), dir.clone()),
+            None => self.backend.list(&dir),
+        };
         let messages = self.messages.clone();
-        let cache = self.search.cache.clone();
+        // Measured folder sizes belong to this machine, not to a container.
+        let cache = mount.is_none().then(|| self.search.cache.clone());
         let task = tokio::spawn(async move {
             let observed_dir = dir.clone();
-            let totals = tokio::task::spawn_blocking(move || cache.totals(&observed_dir)).await.unwrap_or_default();
+            let totals = match cache {
+                Some(cache) => {
+                    tokio::task::spawn_blocking(move || cache.totals(&observed_dir)).await.unwrap_or_default()
+                }
+                None => Default::default(),
+            };
             while let Some(batch) = batches.next().await {
                 let msg = match batch {
                     Ok(mut entries) => {

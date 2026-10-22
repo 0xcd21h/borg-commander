@@ -5,6 +5,7 @@
 use borg_i18n::tr;
 use std::{
     collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -26,13 +27,56 @@ pub enum DockerRequest {
     List,
     Inspect(String),
     Act { action: Action, ids: Vec<String> },
+    Files { container: String, op: FileOp },
+}
+
+impl DockerRequest {
+    /// Whether a newer request makes this one pointless, so it can be dropped.
+    pub fn is_query(&self) -> bool {
+        matches!(self, Self::List | Self::Inspect(_))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DockerData {
-    Listed { context: Option<String>, containers: Vec<Container> },
-    Inspected { id: String, details: Box<Details> },
+    Listed {
+        context: Option<String>,
+        containers: Vec<Container>,
+    },
+    Inspected {
+        id: String,
+        details: Box<Details>,
+    },
+    /// A container file copied out for viewing.
+    Fetched(PathBuf),
     Done,
+}
+
+/// Work on a container's files. Paths inside the container are absolute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileOp {
+    CopyOut { sources: Vec<PathBuf>, target: PathBuf },
+    CopyIn { sources: Vec<PathBuf>, target: PathBuf },
+    Delete { paths: Vec<PathBuf> },
+    Mkdir { path: PathBuf },
+    Fetch { path: PathBuf },
+}
+
+/// A panel showing a container's filesystem in place of a host folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mount {
+    pub id: String,
+    pub name: String,
+    /// The host folder the panel showed before; `..` at the container's root returns to it.
+    pub host: PathBuf,
+}
+
+/// File work in progress, shown in the footer of the panel it changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileWork {
+    pub id: u64,
+    pub side: Side,
+    pub op: FileOp,
 }
 
 /// What the cursor is on, kept across refreshes while rows come and go.
@@ -89,6 +133,7 @@ pub struct Docker {
     pub filtering: bool,
     pub error: Option<String>,
     pub working: Vec<Working>,
+    pub files: Vec<FileWork>,
     pub pending: Option<(u64, DockerRequest)>,
     collapsed: HashSet<Option<String>>,
     selected: Option<Key>,
@@ -228,6 +273,7 @@ impl Docker {
             DockerRequest::Act { action, ids } => {
                 self.working.push(Working { id, action: *action, ids: ids.clone() });
             }
+            DockerRequest::Files { .. } => {}
             _ => {
                 self.pending = Some((id, request.clone()));
                 self.next = None;
@@ -291,6 +337,11 @@ pub(crate) fn can(state: &AppState, action: Action) -> bool {
     state.docker.is_open() && !targets(&state.docker, action).is_empty()
 }
 
+/// Whether the selection is a running container, whose files can be browsed.
+pub(crate) fn can_browse(state: &AppState) -> bool {
+    state.docker.is_open() && state.docker.container().is_some_and(|c| c.state == State::Running)
+}
+
 /// Pause, or Resume when the selection is paused.
 pub(crate) fn pause_action(state: &AppState) -> Action {
     pause_toggle(&state.docker)
@@ -349,8 +400,12 @@ fn docker_side(state: &AppState) -> Side {
     state.docker.side.unwrap_or(state.active)
 }
 
-pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, String>, now: Instant) {
+pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, String>, now: Instant) -> Vec<Effect> {
     let docker = &mut state.docker;
+    if let Some(index) = docker.files.iter().position(|w| w.id == id) {
+        let work = docker.files.remove(index);
+        return finish_files(state, work, result);
+    }
     if let Some(index) = docker.working.iter().position(|w| w.id == id) {
         let work = docker.working.remove(index);
         if let Err(error) = result {
@@ -359,10 +414,10 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
             docker.inspect_due = Some(now);
         }
         docker.next = Some(now);
-        return;
+        return Vec::new();
     }
     if docker.pending.as_ref().is_none_or(|(pending, _)| *pending != id) {
-        return;
+        return Vec::new();
     }
     docker.pending = None;
     match result {
@@ -388,13 +443,115 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
             docker.details = Some((id, *details));
             docker.next.get_or_insert(now + REFRESH);
         }
-        Ok(DockerData::Done) => {}
+        Ok(DockerData::Done | DockerData::Fetched(_)) => {}
         Err(error) => {
             docker.loaded = true;
             docker.error = Some(error);
             docker.next = Some(now + RETRY);
         }
     }
+    Vec::new()
+}
+
+fn finish_files(state: &mut AppState, work: FileWork, result: Result<DockerData, String>) -> Vec<Effect> {
+    match (result, work.op) {
+        (Ok(DockerData::Fetched(path)), _) => crate::viewer::open(state, path),
+        (Err(error), FileOp::Fetch { .. }) => {
+            state.notice = Some(format!(tr!(docker_action_failed), error = error));
+            Vec::new()
+        }
+        (result, op) => {
+            let count = |paths: &[PathBuf]| borg_i18n::count(paths.len(), borg_i18n::Count::Item);
+            state.notice = Some(match (result, op) {
+                (Err(error), _) => format!(tr!(docker_action_failed), error = error),
+                (Ok(_), FileOp::CopyIn { sources, .. } | FileOp::CopyOut { sources, .. }) => {
+                    format!(tr!(docker_copied), items = count(&sources))
+                }
+                (Ok(_), FileOp::Delete { paths }) => format!(tr!(docker_deleted), items = count(&paths)),
+                (Ok(_), FileOp::Mkdir { .. } | FileOp::Fetch { .. }) => String::new(),
+            })
+            .filter(|notice| !notice.is_empty());
+            // Partial copies and deletes change the folders too.
+            state.reload_all()
+        }
+    }
+}
+
+/// The container a panel shows, if it shows one's filesystem.
+pub(crate) fn mounted(state: &AppState, side: Side) -> Option<&Mount> {
+    state.panel(side).mount.as_ref()
+}
+
+fn file_work(state: &mut AppState, side: Side, container: String, op: FileOp) -> Vec<Effect> {
+    let docker = &mut state.docker;
+    docker.next_id += 1;
+    let id = docker.next_id;
+    docker.files.push(FileWork { id, side, op: op.clone() });
+    vec![Effect::Docker { id, request: DockerRequest::Files { container, op } }]
+}
+
+/// Shows the selected container's filesystem in the Docker list's panel, starting in its
+/// working directory, and closes the Docker view. The other panel keeps its host folder,
+/// so files copy between the two.
+pub(crate) fn browse(state: &mut AppState) -> Vec<Effect> {
+    let Some(container) = state.docker.container().cloned() else {
+        state.notice = Some(tr!(docker_choose_container).into());
+        return Vec::new();
+    };
+    if container.state != State::Running {
+        state.notice = Some(tr!(docker_start_to_browse).into());
+        return Vec::new();
+    }
+    let workdir = state.docker.selected_details().map(|d| d.workdir.clone()).filter(|dir| dir.starts_with('/'));
+    let side = state.docker.side.unwrap_or(state.active);
+    close(state);
+    state.aside = None;
+    state.active = side;
+    let panel = state.panel(side);
+    let host = panel.mount.as_ref().map_or_else(|| panel.dir().to_path_buf(), |mount| mount.host.clone());
+    state.panel_mut(side).mount = Some(Mount { id: container.id, name: container.name, host });
+    vec![state.navigate(side, PathBuf::from(workdir.unwrap_or_else(|| "/".into())), None)]
+}
+
+/// Leaves a container's filesystem for the host folder the panel showed before.
+pub(crate) fn unmount(state: &mut AppState, side: Side) -> Option<Effect> {
+    let mount = state.panel_mut(side).mount.take()?;
+    Some(state.navigate(side, mount.host, None))
+}
+
+/// Copies the selection between a container panel and a host panel; `target` is a folder
+/// in the other panel, absolute or relative to its folder.
+pub(crate) fn copy(state: &mut AppState, sources: Vec<PathBuf>, target: &str) -> Vec<Effect> {
+    let (from, to) = (state.active, state.active.other());
+    let target = state.panel(to).dir().join(target);
+    match (mounted(state, from).cloned(), mounted(state, to).cloned()) {
+        (Some(mount), None) => file_work(state, to, mount.id, FileOp::CopyOut { sources, target }),
+        (None, Some(mount)) => file_work(state, to, mount.id, FileOp::CopyIn { sources, target }),
+        _ => {
+            state.notice = Some(tr!(docker_copy_between_containers).into());
+            Vec::new()
+        }
+    }
+}
+
+pub(crate) fn delete(state: &mut AppState, paths: Vec<PathBuf>) -> Vec<Effect> {
+    let side = state.active;
+    let Some(mount) = mounted(state, side).cloned() else { return Vec::new() };
+    file_work(state, side, mount.id, FileOp::Delete { paths })
+}
+
+pub(crate) fn mkdir(state: &mut AppState, name: &str) -> Vec<Effect> {
+    let side = state.active;
+    let Some(mount) = mounted(state, side).cloned() else { return Vec::new() };
+    let path = state.panel(side).dir().join(name);
+    file_work(state, side, mount.id, FileOp::Mkdir { path })
+}
+
+/// Opens a container file in the viewer, once copied out.
+pub(crate) fn view(state: &mut AppState, path: &Path) -> Vec<Effect> {
+    let side = state.active;
+    let Some(mount) = mounted(state, side).cloned() else { return Vec::new() };
+    file_work(state, side, mount.id, FileOp::Fetch { path: path.to_path_buf() })
 }
 
 pub(crate) fn stats(state: &mut AppState, frame: Vec<(String, Stats)>) {
@@ -608,6 +765,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             let action = pause_toggle(&state.docker);
             return act(state, action);
         }
+        KeyCode::Char('f' | 'F') => return browse(state),
         _ => {}
     }
     Vec::new()

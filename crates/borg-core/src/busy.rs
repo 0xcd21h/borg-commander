@@ -56,7 +56,8 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
         let job = state.jobs.iter().any(|job| job.shown_on == side);
         let operation = state.operation.as_ref().is_some_and(|op| state.shell.running && op.side == side);
         let sizes = state.sizing.as_ref().is_some_and(|scan| scan.side == side);
-        if job || operation || sizes {
+        let docker = state.docker.files.iter().any(|work| work.side == side);
+        if job || operation || sizes || docker {
             active.push(Task::Footer(side));
         }
     }

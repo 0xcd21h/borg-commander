@@ -417,6 +417,7 @@ pub(crate) fn reveal(state: &mut AppState) -> Vec<Effect> {
     let side = state.active.other();
     state.aside = None;
     state.active = side;
+    state.panel_mut(side).mount = None;
     vec![state.navigate(side, parent.to_path_buf(), path.file_name().map(|n| n.to_string_lossy().into_owned()))]
 }
 

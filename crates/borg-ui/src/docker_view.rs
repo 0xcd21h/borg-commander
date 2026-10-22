@@ -10,7 +10,7 @@ use crate::{
     look::Look,
     spinner::Spinner,
 };
-use borg_core::{AppState, Docker, DockerGroup, DockerRow, Msg, Pointer};
+use borg_core::{AppState, Docker, DockerGroup, DockerRow, FileOp, Msg, Pointer};
 use borg_docker::{Action, Container, Health, State};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
@@ -572,6 +572,7 @@ fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
             (tr!(docker_stop_button), KeyCode::Char('x')),
             (tr!(docker_restart_button), KeyCode::Char('r')),
             (if paused { tr!(docker_resume_button) } else { tr!(docker_pause_button) }, KeyCode::Char('p')),
+            (tr!(docker_files_button), KeyCode::Char('f')),
             (tr!(activity_filter_button), KeyCode::Char('/')),
             (if docker.details_focused { tr!(docker_list_button) } else { tr!(docker_details_button) }, KeyCode::Tab),
             (if docker.details_focused { tr!(activity_back_button) } else { tr!(activity_close_button) }, KeyCode::Esc),
@@ -590,6 +591,18 @@ fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
             Some((cell, label, key))
         })
         .collect()
+}
+
+/// What a panel's footer says while Docker works on its files.
+pub(crate) fn file_work_label(state: &AppState, work: &borg_core::FileWork) -> String {
+    let name = |side: borg_core::Side| state.panel(side).mount.as_ref().map(|m| m.name.clone()).unwrap_or_default();
+    match &work.op {
+        FileOp::CopyIn { .. } => format!(tr!(docker_copying_in), name = name(work.side)),
+        FileOp::CopyOut { .. } => format!(tr!(docker_copying_out), name = name(work.side.other())),
+        FileOp::Delete { .. } => tr!(docker_deleting).into(),
+        FileOp::Mkdir { .. } => tr!(docker_creating).into(),
+        FileOp::Fetch { .. } => tr!(docker_opening).into(),
+    }
 }
 
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {

@@ -1634,6 +1634,23 @@ stats)
     ;;
 inspect) echo '{"started":"2026-10-22T09:00:01Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":null,"restarts":0,"policy":"always","entrypoint":null,"cmd":["nginx"],"workdir":"","platform":"linux","mounts":[],"networks":{"shop_default":{"IPAddress":"172.18.0.4"}}}' ;;
 stop) touch "$here/stopped" ;;
+exec)
+    case "$3" in
+    sh)
+        case "$7" in
+        /) printf '41ed/4096/1729600000/etc\n81a4/12/1729600001/motd\n/\n' ;;
+        *) printf '/\n' ;;
+        esac
+        ;;
+    rm|mkdir) ;;
+    *) echo "unexpected: $*" >&2; exit 1 ;;
+    esac
+    ;;
+cp)
+    case "$2" in
+    "$web":*) echo "welcome aboard" > "$3/$(basename "${2#*:}")" ;;
+    esac
+    ;;
 *) echo "unexpected: $*" >&2; exit 1 ;;
 esac
 "#;
@@ -1666,5 +1683,40 @@ fn docker_view_lists_containers_streams_stats_and_stops_one() -> Result<()> {
     app.wait_text("Docker · fake-engine")?;
     app.send(keys::esc())?;
     app.wait_text(READY)?;
+    Ok(())
+}
+
+#[test]
+fn docker_files_open_in_a_panel_and_copy_both_ways() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).label("docker-files").spawn()?;
+    app.wait_text(READY)?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("shop")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.send(keys::key(KeyCode::Char('f')))?;
+    app.wait_text("▣ shop-web-1")?;
+    app.wait_text("motd")?;
+    app.send(keys::down())?.send(keys::down())?.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_text("Copied 1 item")?;
+    ensure!(fs::read_to_string(fixture.work().join("motd"))? == "welcome aboard\n", "the file reached the host");
+    app.send(keys::tab())?.send(keys::key(KeyCode::End))?.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_until("copied into the container", |_| {
+        fs::read_to_string(bin.join("calls.log"))
+            .is_ok_and(|calls| calls.lines().any(|l| l.starts_with("cp ") && l.ends_with(":/")))
+    })?;
+    app.send(keys::tab())?.send(keys::key(KeyCode::Home))?.send(keys::enter())?;
+    app.wait_gone("▣ shop-web-1")?;
+    app.wait_text("5 items")?;
     Ok(())
 }

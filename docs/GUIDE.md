@@ -237,8 +237,7 @@ panels are idle. Refresh status in the Git menu rescans immediately.
 Compose project, with containers outside Compose last. The other panel shows the selected
 container: its status, ports, networks, mounts, command, and restart policy, with live CPU,
 memory, network and disk use and a chart of the last minute. On a project it shows the
-project's folder, its containers, and their combined use. Ctrl-O still opens your host
-console. Esc closes the view.
+project's folder, its containers, and their combined use. Esc closes the view.
 
 | Key | Action |
 | --- | --- |
@@ -246,12 +245,21 @@ console. Esc closes the view.
 | ← → / Enter | Fold or unfold a project; Enter on a container focuses its details |
 | S / X / R | Start / stop / restart the container, or the project's containers |
 | P | Pause or resume |
+| F | Browse the container's files |
 | `/` | Filter by name, service, image or project |
 | Tab | Switch between the list and the details |
 | Alt-W | Maximize the focused pane |
 
 Stopping and restarting ask first. On a project, an action only touches the containers it
-changes, so Start starts the stopped ones. The plugin uses the `docker` CLI and its current
+changes, so Start starts the stopped ones.
+
+**F** on a running container closes the Docker view and shows the container's filesystem in
+that panel, starting in its working directory. The panel title names the container. The
+other panel keeps its host folder, so **F5** copies either way, and **F3** views, **F7** makes
+a folder and **F8** deletes inside the container. Searches, sizes, previews and editing stay
+on the host. **Alt-C** returns to the Docker view; `..` at the container's root returns the
+panel to the host folder it showed before. Browsing needs `sh` in the container, so minimal
+images without a shell cannot be listed. The plugin uses the `docker` CLI and its current
 context, so it works with Docker Desktop, OrbStack, Colima and remote engines alike. It can
 be turned off in Options → Plugins.
 

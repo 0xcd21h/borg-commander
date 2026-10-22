@@ -49,7 +49,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
     for side in Side::ALL {
         let panel = state.panel_mut(side);
-        if panel.is_results() {
+        if panel.is_results() || panel.mount.is_some() {
             panel.git = GitPanel::default();
             continue;
         }

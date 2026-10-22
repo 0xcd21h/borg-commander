@@ -61,7 +61,10 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         }
         items.push((tr!(alt_b_collect), Action::Collect));
     }
-    if state.sizing.is_some() || !state.active_panel().is_results() {
+    // A container's filesystem offers none of the host's searches or sizes.
+    if state.active_panel().mount.is_some() {
+        items = vec![(tr!(alt_c_docker), Action::Docker)];
+    } else if state.sizing.is_some() || !state.active_panel().is_results() {
         items.insert(
             0,
             (if state.sizing.is_some() { tr!(alt_i_stop_sizes) } else { tr!(alt_i_count_sizes) }, Action::MeasureSizes),

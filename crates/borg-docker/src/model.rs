@@ -343,6 +343,67 @@ pub(crate) fn parse_details(text: &str) -> Result<Details> {
     })
 }
 
+/// Lists a folder inside a container with one `stat` call: mode in hex, size, modification
+/// time and name per line, then a `/` line and the names of links that lead to folders.
+/// Names cannot contain `/`, so it separates the fields. Works with GNU and BusyBox `stat`.
+pub(crate) const LIST_FILES: &str = r#"cd -- "$1" || exit 1
+stat -c '%f/%s/%Y/%n' -- .[!.]* ..?* * 2>/dev/null
+echo /
+for f in .[!.]* ..?* *; do if [ -L "$f" ] && [ -d "$f" ]; then echo "$f"; fi; done"#;
+
+const TYPE_MASK: u32 = 0o170_000;
+const DIR: u32 = 0o040_000;
+const LINK: u32 = 0o120_000;
+const FILE: u32 = 0o100_000;
+const EXECUTE: u32 = 0o111;
+
+/// An entry of a folder inside a container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct File {
+    pub name: String,
+    pub mode: u32,
+    pub size: u64,
+    /// Seconds since the Unix epoch.
+    pub modified: i64,
+    /// For a link: whether it leads to a folder.
+    pub to_dir: bool,
+}
+
+impl File {
+    pub fn is_dir(&self) -> bool {
+        self.mode & TYPE_MASK == DIR
+    }
+
+    pub fn is_link(&self) -> bool {
+        self.mode & TYPE_MASK == LINK
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.mode & TYPE_MASK == FILE
+    }
+
+    pub fn executable(&self) -> bool {
+        self.is_file() && self.mode & EXECUTE != 0
+    }
+}
+
+pub(crate) fn parse_files(text: &str) -> Vec<File> {
+    let (entries, links) = text.split_once("\n/\n").unwrap_or((text, ""));
+    let to_dir: std::collections::HashSet<&str> = links.lines().collect();
+    entries
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(4, '/');
+            let mode = u32::from_str_radix(fields.next()?, 16).ok()?;
+            let size = fields.next()?.parse().ok()?;
+            let modified = fields.next()?.parse().ok()?;
+            let name = fields.next()?.to_owned();
+            let to_dir = to_dir.contains(name.as_str());
+            Some(File { name, mode, size, modified, to_dir })
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     Start,
@@ -424,6 +485,19 @@ mod tests {
         assert_eq!(frames.push(&format!("\x1b[J\x1b[H{first}")).map(|s| s.len()), Some(1));
         assert_eq!(frames.push("\x1b[J\x1b[H"), None, "a repeated sample is dropped");
         assert_eq!(frames.push("\x1b[J\x1b[H"), Some(Vec::new()), "no running containers is still a sample");
+    }
+
+    #[test]
+    fn container_folders_list_files_folders_and_links() {
+        let text = "41ed/4096/1729600000/etc\n81a4/12/1729600001/.env\n81ed/900/1729600002/run.sh\na1ff/7/1729600003/data\na1ff/9/1729600004/log\n/\ndata\n";
+        let files = parse_files(text);
+        assert_eq!(files.len(), 5);
+        assert!(files[0].is_dir() && !files[0].executable());
+        assert!(files[1].is_file() && !files[1].executable() && files[1].size == 12);
+        assert!(files[2].executable());
+        assert!(files[3].is_link() && files[3].to_dir);
+        assert!(files[4].is_link() && !files[4].to_dir);
+        assert!(parse_files("/\n").is_empty(), "an empty folder");
     }
 
     #[test]

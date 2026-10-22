@@ -124,15 +124,28 @@ pub struct MenuCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptPurpose {
-    Search { root: PathBuf },
+    Search {
+        root: PathBuf,
+    },
     Collection,
     ResultsFilter,
     Select,
     Unselect,
     Mkdir,
-    Compress { sources: Vec<String> },
-    Copy { sources: Vec<PathBuf>, optimize_hdd: bool },
-    Move { sources: Vec<PathBuf> },
+    Compress {
+        sources: Vec<String>,
+    },
+    Copy {
+        sources: Vec<PathBuf>,
+        optimize_hdd: bool,
+    },
+    Move {
+        sources: Vec<PathBuf>,
+    },
+    /// Copy between a container's filesystem and a host folder.
+    DockerCopy {
+        sources: Vec<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

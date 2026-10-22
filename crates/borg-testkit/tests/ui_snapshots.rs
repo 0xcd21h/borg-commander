@@ -2073,3 +2073,40 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     assert!(!stage.state.docker.is_open(), "Esc closes the view");
     Ok(())
 }
+
+/// Docker → Files: the list's panel shows the container's filesystem, named in its title,
+/// beside the host folder in the other panel.
+#[test]
+fn docker_files_name_the_container_in_the_panel() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest};
+    use borg_docker::State;
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let web = container("a1", Some("shop"), "web", State::Running, "Up 3 hours");
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: vec![web] }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Down), stage.started);
+    assert!(effects.iter().all(|e| !matches!(e, borg_core::Effect::List { .. })));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('f')), stage.started);
+    let Some(borg_core::Effect::List { side, generation, dir }) = effects.into_iter().next() else {
+        panic!("Files lists the container's root")
+    };
+    assert_eq!(dir, PathBuf::from("/"));
+    let folder = |name: &str| Entry {
+        source: Some(PathBuf::from("/").join(name)),
+        ..entry(name, EntryKind::Dir, 4096, RECENT, false)
+    };
+    let entries = vec![
+        folder("etc"),
+        folder("usr"),
+        folder("var"),
+        entry("docker-entrypoint.sh", EntryKind::File, 1620, RECENT, true),
+    ];
+    stage.send(Msg::Batch { side, generation, entries }).send(Msg::Listed { side, generation, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▣ shop-web-1")?;
+    ensure_text(&buffer, "Alt-C Docker")?;
+    check("docker_files", &stage, buffer)
+}

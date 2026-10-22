@@ -27,10 +27,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::activity::receive(state, id, result, now);
             Vec::new()
         }
-        Msg::Docker { id, result } => {
-            crate::docker::receive(state, id, result, now);
-            Vec::new()
-        }
+        Msg::Docker { id, result } => crate::docker::receive(state, id, result, now),
         Msg::DockerStats(frame) => {
             crate::docker::stats(state, frame);
             Vec::new()
@@ -349,7 +346,8 @@ pub(crate) fn shell_ready(state: &AppState) -> bool {
 
 fn sync_cwd(state: &mut AppState) -> Option<Effect> {
     let dir = state.active_panel().dir();
-    if !shell_ready(state) || state.shell.cwd == dir {
+    // A container's folders are not on this machine, so the shell stays where it is.
+    if !shell_ready(state) || state.shell.cwd == dir || state.active_panel().mount.is_some() {
         return None;
     }
     let typed = CommandLine::program("cd").path(dir).submit_hidden();
@@ -395,7 +393,9 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
         }
         ShellSignal::CommandEnd { .. } => Vec::new(),
         ShellSignal::Cwd { path, .. } => {
-            let follow = path != state.shell.cwd && path != state.active_panel().destination();
+            let follow = path != state.shell.cwd
+                && path != state.active_panel().destination()
+                && state.active_panel().mount.is_none();
             state.shell.cwd = path.clone();
             if follow { vec![state.navigate(state.active, path, None)] } else { Vec::new() }
         }

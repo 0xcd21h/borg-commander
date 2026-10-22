@@ -101,6 +101,7 @@ fn docker_menu(state: &AppState) -> Menu {
                 can(pause),
             ),
             MenuEntry::Separator,
+            when(item(tr!(docker_menu_files), "F", Action::DockerFiles), crate::docker::can_browse(state)),
             when(item(tr!(docker_menu_filter), "/", Action::DockerFilter), state.docker.is_open()),
         ],
     }

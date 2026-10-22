@@ -59,6 +59,35 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         return Vec::new();
     }
 
+    let mounted = state.panel(side).mount.is_some();
+    let other_mounted = state.panel(side.other()).mount.is_some();
+    if mounted
+        && matches!(
+            action,
+            Action::Edit
+                | Action::QuickView
+                | Action::Info
+                | Action::Compress
+                | Action::ExtractHere
+                | Action::ExtractToOther
+                | Action::Search
+                | Action::AnalyzeSpace
+                | Action::FolderTree
+                | Action::CalculateSizes
+                | Action::Collect
+                | Action::OpenCollection
+                | Action::Git(_)
+        )
+        || other_mounted && action == Action::ExtractToOther
+    {
+        state.notice = Some(tr!(docker_not_in_container).into());
+        return Vec::new();
+    }
+    if (mounted || other_mounted) && action == Action::Move {
+        state.notice = Some(tr!(docker_move_unsupported).into());
+        return Vec::new();
+    }
+
     if state.active_panel().is_results()
         && matches!(action, Action::Compress | Action::ExtractHere | Action::ExtractToOther | Action::Mkdir)
     {
@@ -74,6 +103,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::Docker => crate::docker::toggle(state, now),
         Action::DockerAct(action) => crate::docker::act(state, action),
+        Action::DockerFiles => crate::docker::browse(state),
         Action::DockerFilter => {
             crate::docker::filter(state);
             Vec::new()
@@ -205,8 +235,14 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             prompt(state, tr!(unselect_group), tr!(files_matching), SELECT_ALL, PromptPurpose::Unselect)
         }
         Action::InvertSelection => moved(state, Panel::invert_marks),
+        Action::View if mounted => {
+            hovered_file(state).map(|path| crate::docker::view(state, &path)).unwrap_or_default()
+        }
         Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
         Action::Edit => edit(state),
+        Action::Copy if mounted || other_mounted => {
+            transfer(state, tr!(copy), |sources| PromptPurpose::DockerCopy { sources })
+        }
         Action::Copy if state.panel(side.other()).is_results() => {
             if matches!(
                 state.panel(side.other()).results.as_ref().map(|r| &r.source),
@@ -363,6 +399,10 @@ fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
         }
         Some(Row::Parent) => leave(state, side).into_iter().collect(),
         Some(Row::Entry(entry)) if entry.is_dir() => descend(state, side).into_iter().collect(),
+        Some(Row::Entry(entry)) if panel.mount.is_some() => {
+            let path = entry.path(panel.dir());
+            crate::docker::view(state, &path)
+        }
         Some(Row::Entry(entry)) if entry.executable => {
             let command = if panel.is_results() {
                 CommandLine::default().path(&entry.path(panel.dir()))
@@ -388,6 +428,9 @@ fn descend(state: &mut AppState, side: Side) -> Option<Effect> {
 }
 
 fn leave(state: &mut AppState, side: Side) -> Option<Effect> {
+    if state.panel(side).mount.is_some() && state.panel(side).dir().parent().is_none() {
+        return crate::docker::unmount(state, side);
+    }
     if state.panel(side).is_results() {
         return crate::results::back(state).into_iter().next();
     }

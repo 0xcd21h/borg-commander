@@ -40,6 +40,7 @@ const PAD_FROM: u16 = 20;
 const PADDING: u16 = 1;
 const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
+const CONTAINER_MARK: char = '▣';
 const PARENT_NAME: &str = "..";
 const PARENT_LABEL: &str = tr!(up);
 const DIR_LABEL: &str = tr!(dir);
@@ -124,7 +125,7 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     let area = scene.area;
     let (border, title_style) =
         if scene.active { (styles.border_active, styles.title_active) } else { (styles.border, styles.title) };
-    let title = title(scene, title_style, styles.separator);
+    let title = title(scene, title_style, styles.separator, styles.cursor);
     let (footer, shiny) = match scene.find {
         Some((find, counts)) => (find_bar(find, counts, usize::from(area.width).saturating_sub(4), look), None),
         None => footer(scene, look),
@@ -183,9 +184,15 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
     Line::from(spans)
 }
 
-fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style) -> Line<'a> {
-    let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2);
-    let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), scene.home), width, CRUMB_SEPARATOR);
+/// The folder path as breadcrumbs. A container's filesystem leads with the container's name,
+/// so it never passes for a host folder.
+fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
+    let mount = scene.panel.mount.as_ref();
+    let label = mount.map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name));
+    let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
+    let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
+    let home = if mount.is_some() { None } else { scene.home };
+    let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), home), width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);
     let separator = Style { fg: separator.fg, ..style.remove_modifier(Modifier::BOLD) };
     let spans = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {
@@ -194,7 +201,8 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style) -> Line<'a>
         lead.into_iter().chain(std::iter::once(Span::styled(crumb, crumb_style)))
     });
     let pad = || Span::styled(" ", style);
-    Line::from(std::iter::once(pad()).chain(spans).chain(std::iter::once(pad())).collect::<Vec<_>>())
+    let badge = label.into_iter().flat_map(|label| [Span::styled(label, badge), pad()]);
+    Line::from(std::iter::once(pad()).chain(badge).chain(spans).chain(std::iter::once(pad())).collect::<Vec<_>>())
 }
 
 fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Gradient>) {
