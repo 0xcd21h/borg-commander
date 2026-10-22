@@ -14,7 +14,7 @@ expression: describe(&buffer)
 │ ? socket       │ [ ] Git — status, diffs, stage/unstage               │                │
 │ · 日本語メモ.tx│ [x] System — processes and memory                    │                │
 │                │ [x] Docker — containers and Compose projects         │                │
-│                │ [ ] Docker — command line follows container panels   │                │
+│                │ [x] Docker — command line follows container panels   │                │
 │                │                                                      │                │
 │                ╰ Space toggle · Esc close · saved immediately ────────╯                │
 │                                           ││                                           │

@@ -52,7 +52,7 @@ impl Preferences {
         git_plugin: true,
         system_plugin: true,
         docker_plugin: true,
-        docker_console: false,
+        docker_console: true,
     };
 }
 

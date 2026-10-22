@@ -81,7 +81,7 @@ pub struct Plugins {
 
 impl Default for Plugins {
     fn default() -> Self {
-        Self { git: true, system: true, docker: true, docker_console: false }
+        Self { git: true, system: true, docker: true, docker_console: true }
     }
 }
 

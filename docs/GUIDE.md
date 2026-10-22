@@ -263,16 +263,17 @@ on the host. **Alt-C** returns to the Docker view; `..` at the container's root 
 panel to the host folder it showed before. Browsing needs `sh` in the container, so minimal
 images without a shell cannot be listed.
 
-The command line belongs to your host. Under a container's files it is dimmed and marked
-**⌂ host**, and Enter runs nothing until a host panel is active, so a command never runs on
-the wrong machine. Turn on **Docker — command line follows container panels** in Options →
-Plugins to have it follow the panel instead: under a container's files, the command line
-becomes that container's shell, started in the panel's folder, with the container's name at
-the start of its prompt. Commands run inside the container, the panel refreshes when they
-finish, and a `cd` there moves the panel. Ctrl-O shows that container's console, marked
-**▣ name console**; on a host panel, the command line and Ctrl-O are the host's again,
-with whatever you typed there kept. The container's shell is the same one as its Shell tab
-in the Docker view.
+Under a container's files, the command line follows the panel: it becomes that container's
+shell, started in the panel's folder, with the container's name at the start of its prompt.
+Commands run inside the container, the panel refreshes when they finish, and a `cd` there
+moves the panel. Ctrl-O shows that container's console, marked **▣ name console**; on a host
+panel, the command line and Ctrl-O are the host's again, with whatever you typed there kept.
+The container's shell is the same one as its Shell tab in the Docker view.
+
+Turn off **Docker — command line follows container panels** in Options → Plugins to keep the
+command line on the host. Under a container's files it is then dimmed and marked **⌂ host**,
+and Enter runs nothing until a host panel is active, so a command never runs on the wrong
+machine.
 
 **E** opens a shell in the container (bash when the image has it, otherwise `sh`) on the
 details panel's Shell tab, and sends your keys to it, function keys included. **Alt-1**
@@ -343,7 +344,7 @@ graphics = "auto"           # auto, kitty, sixel, iterm or off
 git = true
 system = true
 docker = true
-docker-console = false      # the command line follows container panels into the container
+docker-console = true       # the command line follows container panels into the container
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;

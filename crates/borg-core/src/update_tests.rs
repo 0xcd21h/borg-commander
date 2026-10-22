@@ -1630,7 +1630,8 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     press(&mut state, now, key(KeyCode::Home));
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert!(state.panel(Side::Left).mount.is_none(), ".. at the root leaves the container");
-    assert!(matches!(effects.as_slice(), [Effect::List { side: Side::Left, dir, .. }] if dir == Path::new("/home")));
+    assert!(matches!(effects.first(), Some(Effect::List { side: Side::Left, dir, .. }) if dir == Path::new("/home")));
+    assert!(effects.contains(&Effect::UseConsole(crate::Console::Host)), "and the command line is the host's again");
 }
 
 #[test]
@@ -1712,7 +1713,11 @@ fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
     use crate::{Console, ShellRequest};
     let now = Instant::now();
     let mut state = browsing_container(now);
-    assert_eq!(state.console, Console::Host, "off by default");
+    assert_eq!(state.console, Console::Container("c1".into()), "on by default");
+    crate::actions::perform(&mut state, Action::ToggleDockerConsole, now);
+    update(&mut state, Msg::Tick, now);
+    assert_eq!(state.console, Console::Host, "off, the host keeps the command line");
+    update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
     type_text(&mut state, now, "ls");
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert!(effects.is_empty(), "Enter runs nothing on the host under a container's files");

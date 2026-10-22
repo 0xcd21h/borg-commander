@@ -1822,7 +1822,7 @@ fn browse_web(app: &mut Session) -> Result<()> {
 #[test]
 fn the_command_line_follows_a_container_panel_when_enabled() -> Result<()> {
     let fixture = fixture()?;
-    fixture.configure("[plugins]\ndocker-console = true\n")?;
+    fixture.configure("return-to-panels = true\n")?;
     let bin = fake_docker(&fixture)?;
     let mut app = Session::builder(BORG, &fixture).path(&bin).size(120, 30).label("docker-console").spawn()?;
     app.wait_text(READY)?;
@@ -1845,8 +1845,9 @@ fn the_command_line_follows_a_container_panel_when_enabled() -> Result<()> {
 }
 
 #[test]
-fn the_host_command_line_waits_for_a_host_panel_by_default() -> Result<()> {
+fn the_host_command_line_waits_for_a_host_panel_when_it_does_not_follow() -> Result<()> {
     let fixture = fixture()?;
+    fixture.configure("[plugins]\ndocker-console = false\n")?;
     let bin = fake_docker(&fixture)?;
     let mut app = Session::builder(BORG, &fixture).path(&bin).size(120, 30).label("docker-host-line").spawn()?;
     app.wait_text(READY)?;

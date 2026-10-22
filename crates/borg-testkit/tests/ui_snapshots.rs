@@ -2081,6 +2081,8 @@ fn docker_files_name_the_container_in_the_panel() -> Result<()> {
     use borg_core::{DockerData, DockerRequest};
     use borg_docker::State;
     let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    // With the command line kept on the host, the prompt shows it is the host's.
+    stage.state.settings.preferences.docker_console = false;
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
     let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
         panic!("opening lists containers")
