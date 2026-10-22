@@ -40,6 +40,35 @@ use crate::{
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const WHEEL_LINES: i32 = 3;
+/// Wheel events closer together than this belong to one burst.
+const WHEEL_BURST: Duration = Duration::from_millis(200);
+
+/// What a wheel event scrolls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WheelTarget {
+    Console,
+    Viewer,
+    Dialog,
+    Panels,
+}
+
+/// Trackpads keep sending wheel events after the fingers lift. A burst stays with what it
+/// started scrolling, so switching screens mid-burst never scrolls the new one.
+#[derive(Debug, Default)]
+struct WheelBurst {
+    last: Option<(Instant, WheelTarget)>,
+}
+
+impl WheelBurst {
+    fn accepts(&mut self, target: WheelTarget, now: Instant) -> bool {
+        let owner = match self.last {
+            Some((at, owner)) if now.saturating_duration_since(at) <= WHEEL_BURST => owner,
+            _ => target,
+        };
+        self.last = Some((now, owner));
+        owner == target
+    }
+}
 
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
@@ -66,6 +95,7 @@ pub struct App {
     graphics: Graphics,
     jobs: HashMap<u64, Arc<Control>>,
     last_click: Option<(u16, u16, Instant)>,
+    wheel: WheelBurst,
     preview: preview::Loader,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
@@ -139,6 +169,7 @@ impl App {
             graphics: Graphics::new(detected.capabilities),
             jobs: HashMap::new(),
             last_click: None,
+            wheel: WheelBurst::default(),
             preview,
             plugins,
             monitor,
@@ -310,6 +341,26 @@ impl App {
         self.state.idle_since = now;
         if self.state.screensaver {
             return self.dispatch(Msg::Pointer(borg_core::Pointer::DismissMenu));
+        }
+        if matches!(
+            event.kind,
+            MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+        ) {
+            let target = if self.state.effective_view() == View::Shell {
+                WheelTarget::Console
+            } else if self.state.viewer.is_some() {
+                WheelTarget::Viewer
+            } else if self.state.overlay.is_some() {
+                WheelTarget::Dialog
+            } else {
+                WheelTarget::Panels
+            };
+            if !self.wheel.accepts(target, now) {
+                return Ok(Flow::Continue);
+            }
         }
         if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
             if event.row >= self.emulator.screen().rows() {
@@ -634,4 +685,21 @@ pub(crate) fn picture(path: &Path, bounds: (u32, u32)) -> Result<Image> {
 
 fn appearance(launch: &Launch) -> Appearance {
     launch.themes.appearance(launch.config.theme.as_deref(), launch.config.unlocked())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wheel_burst_stays_with_what_it_started_scrolling() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut wheel = WheelBurst::default();
+        assert!(wheel.accepts(WheelTarget::Console, at(0)));
+        assert!(wheel.accepts(WheelTarget::Console, at(16)));
+        assert!(!wheel.accepts(WheelTarget::Panels, at(32)), "momentum after switching screens is dropped");
+        assert!(!wheel.accepts(WheelTarget::Panels, at(200)));
+        assert!(wheel.accepts(WheelTarget::Panels, at(200) + WHEEL_BURST + Duration::from_millis(1)));
+    }
 }
