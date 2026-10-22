@@ -180,6 +180,16 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
             return vec![Effect::ScrollConsole(scroll)];
         }
     }
+    // Alt-1 and Alt-2 pick Docker's tabs, and a container shell gets keys as typed, so they
+    // reach the Docker view before Alt-digits turn into function keys.
+    let docker_view = state.docker.is_open() && state.view == View::Panels;
+    if docker_view
+        && state.viewer.is_none()
+        && state.overlay.is_none()
+        && (state.docker.typing() || crate::docker::tab_key(key).is_some())
+    {
+        return crate::docker::route_key(state, key, now);
+    }
     let key = &function_alias(*key);
     if state.viewer.is_some() {
         return crate::viewer::on_key(state, key);

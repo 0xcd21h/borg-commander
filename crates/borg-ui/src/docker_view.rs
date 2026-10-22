@@ -659,6 +659,7 @@ pub(crate) fn file_work_label(state: &AppState, work: &borg_core::FileWork) -> S
 fn typing_buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, Pointer)> {
     let mut x = area.x;
     [
+        (tr!(docker_overview_tab), Pointer::DockerControl { details: false, code: KeyCode::Char('1') }),
         (tr!(docker_list_button_alt), Pointer::DockerControl { details: false, code: KeyCode::Null }),
         (tr!(docker_maximize_button), Pointer::DockerExpand { details: true, expand: !docker.expanded }),
     ]

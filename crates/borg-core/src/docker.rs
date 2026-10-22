@@ -829,7 +829,28 @@ pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     Vec::new()
 }
 
+/// Alt-1 and Alt-2 pick the details panel's tab, also while typing in a shell.
+pub(crate) fn tab_key(key: &KeyEvent) -> Option<char> {
+    match key.code {
+        KeyCode::Char(tab @ ('1' | '2')) if key.modifiers == KeyModifiers::ALT => Some(tab),
+        _ => None,
+    }
+}
+
+/// The overview returns focus to the list; the shell tab opens or shows the shell.
+fn select_tab(state: &mut AppState, tab: char, now: Instant) -> Vec<Effect> {
+    if tab == '2' {
+        return open_shell(state, now);
+    }
+    state.docker.shell_tab = false;
+    state.docker.details_focused = false;
+    Vec::new()
+}
+
 pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if let Some(tab) = tab_key(key) {
+        return select_tab(state, tab, now);
+    }
     if state.docker.typing() {
         return shell_key(state, key, now);
     }
@@ -901,10 +922,8 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             return act(state, action);
         }
         KeyCode::Char('f' | 'F') => return browse(state),
-        KeyCode::Char('e' | 'E' | '2') => return open_shell(state, now),
-        KeyCode::Char('1') => {
-            docker.shell_tab = false;
-        }
+        KeyCode::Char('e' | 'E') => return open_shell(state, now),
+        KeyCode::Char(tab @ ('1' | '2')) => return select_tab(state, tab, now),
         _ => {}
     }
     Vec::new()

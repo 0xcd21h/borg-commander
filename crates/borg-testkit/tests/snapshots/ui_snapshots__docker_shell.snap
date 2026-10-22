@@ -4,7 +4,7 @@ expression: describe(&buffer)
 ---
 ╭ Docker ──────────────────────────────────────[+]─[-]╮╭ shop › web ──────────────────────────────────[+]─[-]╮
 │2 of 2 running                                       ││● Up 3 hours                                         │
-│/ Filter containers                                  ││ 1 Overview   2 Shell ●                              │
+│/ Filter containers                                  ││ Alt-1 Overview   Alt-2 Shell ●                      │
 │Name                                 CPU %   Memory  ││root@3f2a9c:/usr/share/nginx/html# ls                │
 │▾ shop                               0.0     0       ││50x.html  index.html                                 │
 │  ● db                                               ││root@3f2a9c:/usr/share/nginx/html#                   │
@@ -24,12 +24,12 @@ expression: describe(&buffer)
 ╰─────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────╯
 shop-web-1 · web:1.4 · a10000000000
 $
-Alt-C List  Alt-W Maximize
-Keys go to the shell in web · Alt-C List                                                     ◈ Borg Commander
+Alt-1 Overview  Alt-C List  Alt-W Maximize
+Keys go to the shell in web · Alt-1 Overview · Alt-C List                                    ◈ Borg Commander
 --- styles ---
   0: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-8 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 9-46 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 47-49 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 50-50 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 51-53 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-67 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 68-101 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 102-104 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 105-105 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 106-108 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-53 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-57 Rgb(35, 209, 139) Rgb(38, 38, 38) NONE | 58-67 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 68-108 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
-  2: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-53 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-67 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 68-68 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 69-79 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 80-108 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
+  2: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-53 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-71 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 72-72 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 73-87 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 88-108 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   3: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-36 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 37-37 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 38-44 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 45-45 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 46-53 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-108 Reset Reset NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   4: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-36 Rgb(17, 168, 205) Rgb(38, 38, 38) BOLD | 37-53 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-108 Reset Reset NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   5: 0-0 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 1-4 Rgb(35, 209, 139) Rgb(38, 38, 38) NONE | 5-53 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 54-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-55 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 56-108 Reset Reset NONE | 109-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
@@ -49,5 +49,5 @@ Keys go to the shell in web · Alt-C List                                       
  19: 0-54 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 55-109 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
  20: 0-109 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  21: 0-109 Reset Reset NONE
- 22: 0-27 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 28-109 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
+ 22: 0-43 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 44-109 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
  23: 0-91 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 92-92 Rgb(0, 0, 0) Rgb(95, 175, 215) BOLD | 93-93 Rgb(0, 0, 0) Rgb(97, 170, 215) BOLD | 94-94 Rgb(0, 0, 0) Rgb(100, 166, 215) BOLD | 95-95 Rgb(0, 0, 0) Rgb(102, 161, 215) BOLD | 96-96 Rgb(0, 0, 0) Rgb(104, 156, 215) BOLD | 97-97 Rgb(0, 0, 0) Rgb(107, 151, 215) BOLD | 98-98 Rgb(0, 0, 0) Rgb(109, 147, 215) BOLD | 99-99 Rgb(0, 0, 0) Rgb(111, 142, 215) BOLD | 100-100 Rgb(255, 255, 255) Rgb(114, 137, 215) BOLD | 101-101 Rgb(255, 255, 255) Rgb(116, 133, 215) BOLD | 102-102 Rgb(255, 255, 255) Rgb(119, 128, 215) BOLD | 103-103 Rgb(255, 255, 255) Rgb(121, 123, 215) BOLD | 104-104 Rgb(255, 255, 255) Rgb(123, 119, 215) BOLD | 105-105 Rgb(255, 255, 255) Rgb(126, 114, 215) BOLD | 106-106 Rgb(255, 255, 255) Rgb(128, 109, 215) BOLD | 107-107 Rgb(255, 255, 255) Rgb(130, 104, 215) BOLD | 108-108 Rgb(255, 255, 255) Rgb(133, 100, 215) BOLD | 109-109 Rgb(255, 255, 255) Rgb(135, 95, 215) BOLD

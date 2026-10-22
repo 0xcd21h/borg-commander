@@ -1741,6 +1741,11 @@ fn docker_shell_runs_beside_the_list_and_stays_open_in_the_background() -> Resul
     app.wait_text("Keys go to the shell in web")?;
     app.send("echo inside-$((6*7))\r")?;
     app.wait_text("inside-42")?;
+    app.send(keys::alt(KeyCode::Char('1')))?;
+    app.wait_text("nginx:1.27")?;
+    app.send(keys::alt(KeyCode::Char('2')))?;
+    app.wait_text("inside-42")?;
+    app.wait_text("Keys go to the shell in web")?;
     app.send(keys::alt(KeyCode::Char('c')))?;
     app.wait_text("S Start")?;
     app.wait_text("›_")?;

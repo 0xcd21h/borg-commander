@@ -1669,6 +1669,8 @@ fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
         other => panic!("expected input for the shell: {other:?}"),
     };
     assert_eq!(input(press(&mut state, now, key(KeyCode::Char('x')))), b"x", "letters reach the shell, not Stop");
+    assert_eq!(input(press(&mut state, now, key(KeyCode::Char('1')))), b"1", "digits reach the shell too");
+    assert_eq!(input(press(&mut state, now, key(KeyCode::F(1)))), b"\x1bOP", "and function keys");
     assert_eq!(input(press(&mut state, now, key(KeyCode::Esc))), b"\x1b");
     assert_eq!(input(update(&mut state, Msg::Paste("ls".into()), now)), b"ls");
     assert!(state.docker.is_open() && state.overlay.is_none());
@@ -1676,8 +1678,10 @@ fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
     press(&mut state, now, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT));
     assert!(!state.docker.typing() && state.docker.is_open(), "Alt-C returns to the list");
     assert!(state.docker.visible_shell().is_some(), "the shell stays on its tab");
-    press(&mut state, now, key(KeyCode::Char('1')));
-    assert!(state.docker.visible_shell().is_none(), "1 shows the overview");
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT));
+    assert!(state.docker.typing(), "Alt-2 returns to the shell");
+    assert!(press(&mut state, now, KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT)).is_empty());
+    assert!(state.docker.visible_shell().is_none() && !state.docker.typing(), "Alt-1 leaves it for the overview");
     press(&mut state, now, key(KeyCode::Esc));
     assert!(!state.docker.is_open());
     assert_eq!(state.docker.shells.len(), 1, "closing the view keeps the shell running");
@@ -1687,8 +1691,8 @@ fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
     assert_eq!(confirm.message, "A container shell is open. Quit and close it?");
 
     crate::actions::perform(&mut state, Action::Docker, now);
-    press(&mut state, now, key(KeyCode::Char('2')));
-    assert!(state.docker.typing(), "2 returns to the open shell");
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT));
+    assert!(state.docker.typing(), "Alt-2 returns to the open shell from the list");
     press(&mut state, now, ctrl('o'));
     assert_eq!(state.view, View::Shell, "Ctrl-O still shows the host console");
     update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
