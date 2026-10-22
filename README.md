@@ -112,7 +112,11 @@ Run `borg` in any folder. The installer verifies the checksum and puts the binar
 
 ## License
 
-[MIT](LICENSE). Screenshot rendering uses bundled DejaVu Sans Mono and Symbols Nerd Font.
+Borg Commander is available under either the [MIT License](LICENSE-MIT) or the
+[Apache License, Version 2.0](LICENSE-APACHE), at your option. Unless you say otherwise,
+any contribution you submit is licensed the same way, without additional terms.
+
+Screenshot rendering uses bundled DejaVu Sans Mono and Symbols Nerd Font.
 The icon table comes from [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
 through [yazi](https://github.com/sxyazi/yazi). Font and icon licenses are included in the repository.
 
