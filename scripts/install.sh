@@ -26,7 +26,16 @@ trap 'rm -rf "${work}"' EXIT
 echo "Downloading borg ${version} for ${target}…"
 curl -fsSL -o "${work}/${name}.tar.gz" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz"
 curl -fsSL -o "${work}/${name}.tar.gz.sha256" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz.sha256"
-(cd "${work}" && shasum -a 256 -c "${name}.tar.gz.sha256" >/dev/null)
+# Linux ships sha256sum and macOS ships shasum; both read the same checksum file.
+if command -v sha256sum >/dev/null 2>&1; then
+    verify="sha256sum -c"
+elif command -v shasum >/dev/null 2>&1; then
+    verify="shasum -a 256 -c"
+else
+    echo "cannot verify the download: install sha256sum (coreutils) or shasum (perl)" >&2
+    exit 1
+fi
+(cd "${work}" && ${verify} "${name}.tar.gz.sha256" >/dev/null)
 
 tar -xzf "${work}/${name}.tar.gz" -C "${work}"
 mkdir -p "${dest}"
