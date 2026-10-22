@@ -72,7 +72,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.settings.preferences.system_plugin = !state.settings.preferences.system_plugin;
             vec![Effect::SaveConfig]
         }
-        Action::Docker => crate::docker::open(state, now),
+        Action::Docker => crate::docker::toggle(state, now),
+        Action::DockerAct(action) => crate::docker::act(state, action),
+        Action::DockerFilter => {
+            crate::docker::filter(state);
+            Vec::new()
+        }
         Action::ToggleDockerPlugin => {
             state.settings.preferences.docker_plugin = !state.settings.preferences.docker_plugin;
             vec![Effect::SaveConfig]

@@ -73,8 +73,37 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
     if state.settings.preferences.git_plugin {
         menus.push(git_menu(state));
     }
+    if state.settings.preferences.docker_plugin {
+        menus.push(docker_menu(state));
+    }
     menus.push(results_menu(state));
     menus
+}
+
+fn docker_menu(state: &AppState) -> Menu {
+    use borg_docker::Action as Docker;
+    let can = |action| crate::docker::can(state, action);
+    let pause = crate::docker::pause_action(state);
+    Menu {
+        title: tr!(docker_title),
+        entries: vec![
+            check(tr!(docker_menu_containers), "M-c", Action::Docker, state.docker.is_open()),
+            MenuEntry::Separator,
+            when(item(tr!(docker_menu_start), "S", Action::DockerAct(Docker::Start)), can(Docker::Start)),
+            when(item(tr!(docker_menu_stop), "X", Action::DockerAct(Docker::Stop)), can(Docker::Stop)),
+            when(item(tr!(docker_menu_restart), "R", Action::DockerAct(Docker::Restart)), can(Docker::Restart)),
+            when(
+                item(
+                    if pause == Docker::Unpause { tr!(docker_menu_resume) } else { tr!(docker_menu_pause) },
+                    "P",
+                    Action::DockerAct(pause),
+                ),
+                can(pause),
+            ),
+            MenuEntry::Separator,
+            when(item(tr!(docker_menu_filter), "/", Action::DockerFilter), state.docker.is_open()),
+        ],
+    }
 }
 
 fn git_menu(state: &AppState) -> Menu {

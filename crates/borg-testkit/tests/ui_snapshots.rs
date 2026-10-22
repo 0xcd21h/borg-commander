@@ -2044,6 +2044,14 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     ensure_text(&buffer, "shop_static → /usr/share/nginx/html (ro)")?;
     check("docker_container", &stage, buffer)?;
 
+    let menu = borg_core::menus(&stage.state).iter().position(|m| m.title == "Docker").expect("a Docker menu");
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(menu)));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Restart…")?;
+    check("docker_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.docker.is_open(), "Esc closes the menu, not the view");
+
     stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "2 of 3 running")?;

@@ -270,6 +270,32 @@ pub(crate) fn close(state: &mut AppState) {
     state.docker.filtering = false;
 }
 
+pub(crate) fn toggle(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    if state.docker.is_open() {
+        close(state);
+        Vec::new()
+    } else {
+        open(state, now)
+    }
+}
+
+pub(crate) fn filter(state: &mut AppState) {
+    if state.docker.is_open() {
+        state.docker.filtering = true;
+        state.docker.details_focused = false;
+    }
+}
+
+/// Whether an action would change anything in the selection, for the Docker menu.
+pub(crate) fn can(state: &AppState, action: Action) -> bool {
+    state.docker.is_open() && !targets(&state.docker, action).is_empty()
+}
+
+/// Pause, or Resume when the selection is paused.
+pub(crate) fn pause_action(state: &AppState) -> Action {
+    pause_toggle(&state.docker)
+}
+
 pub(crate) fn wake_at(state: &AppState) -> Option<Instant> {
     let docker = &state.docker;
     if !docker.is_open() || state.view != View::Panels || docker.pending.is_some() {
@@ -409,6 +435,9 @@ fn subject(docker: &Docker) -> String {
 
 /// Runs an action on the selection. Stopping or restarting what is running asks first.
 pub(crate) fn act(state: &mut AppState, action: Action) -> Vec<Effect> {
+    if !state.docker.is_open() {
+        return Vec::new();
+    }
     let docker = &state.docker;
     let ids = targets(docker, action);
     if ids.is_empty() {

@@ -588,4 +588,11 @@ catalog! {
     docker_memory_chart => "Memory",
     docker_reading => "Reading details…",
     docker_not_running => "Not running",
+    docker_menu_containers => "Containers",
+    docker_menu_start => "Start",
+    docker_menu_stop => "Stop…",
+    docker_menu_restart => "Restart…",
+    docker_menu_pause => "Pause",
+    docker_menu_resume => "Resume",
+    docker_menu_filter => "Filter containers",
 }

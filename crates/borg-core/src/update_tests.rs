@@ -1468,3 +1468,44 @@ fn starting_a_file_job_stops_background_sizes_before_modifying_the_filesystem() 
     assert!(state.sizing.is_none());
     assert!(matches!(&effects[..], [Effect::CancelMeasure, Effect::StartJob { .. }]));
 }
+
+#[test]
+fn the_docker_menu_toggles_the_view_and_offers_only_actions_that_change_the_selection() {
+    use borg_docker::{Action as Docker, Container, State};
+    let (mut state, now) = setup();
+    let enabled = |state: &AppState, label: &str| {
+        let menus = crate::menus(state);
+        let menu = menus.iter().find(|m| m.title == "Docker").expect("a Docker menu");
+        menu.entries.iter().any(|e| matches!(e, crate::MenuEntry::Item(i) if i.label == label && i.enabled))
+    };
+    assert!(enabled(&state, "Containers") && !enabled(&state, "Stop…"), "closed, it only opens the view");
+    crate::actions::perform(&mut state, Action::Docker, now);
+    let Some((id, crate::DockerRequest::List)) = state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let running = Container {
+        id: "c1".into(),
+        name: "web".into(),
+        image: "nginx".into(),
+        command: String::new(),
+        created: String::new(),
+        state: State::Running,
+        status: "Up 1 minute".into(),
+        ports: String::new(),
+        networks: String::new(),
+        project: None,
+        service: None,
+        project_dir: None,
+        config_files: Vec::new(),
+    };
+    let listed = crate::DockerData::Listed { context: None, containers: vec![running] };
+    update(&mut state, Msg::Docker { id, result: Ok(listed) }, now);
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(state.docker.container().map(|c| c.name.as_str()), Some("web"));
+    assert!(!enabled(&state, "Start") && enabled(&state, "Stop…") && enabled(&state, "Pause"));
+    crate::actions::perform(&mut state, Action::DockerAct(Docker::Stop), now);
+    assert!(matches!(state.overlay, Some(Overlay::Confirm(_))), "stopping from the menu asks first");
+    state.overlay = None;
+    crate::actions::perform(&mut state, Action::Docker, now);
+    assert!(!state.docker.is_open(), "the menu item closes the view again");
+}
