@@ -1664,7 +1664,7 @@ fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
     );
     press(&mut state, now, key(KeyCode::Down));
     let effects = press(&mut state, now, key(KeyCode::Char('e')));
-    let [Effect::DockerShell(ShellRequest::Open { container, size })] = effects.as_slice() else {
+    let [Effect::DockerShell(ShellRequest::Open { container, size, .. })] = effects.as_slice() else {
         panic!("E opens a shell: {effects:?}")
     };
     assert_eq!(container, "c1");
@@ -1705,4 +1705,67 @@ fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
     update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
     assert!(state.docker.shells.is_empty() && !state.docker.typing());
     assert_eq!(state.notice.as_deref(), Some("The shell in web closed"));
+}
+
+#[test]
+fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
+    use crate::{Console, ShellRequest};
+    let now = Instant::now();
+    let mut state = browsing_container(now);
+    assert_eq!(state.console, Console::Host, "off by default");
+    type_text(&mut state, now, "ls");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(effects.is_empty(), "Enter runs nothing on the host under a container's files");
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("This command line runs on the host")));
+    assert!(!state.console_owns_panel() && state.view == View::Panels);
+
+    crate::actions::perform(&mut state, Action::ToggleDockerConsole, now);
+    let effects = update(&mut state, Msg::Tick, now);
+    let opened = effects.iter().find_map(|e| match e {
+        Effect::DockerShell(ShellRequest::Open { container, prompt, workdir, .. }) => {
+            Some((container.clone(), prompt.clone(), workdir.clone()))
+        }
+        _ => None,
+    });
+    assert_eq!(
+        opened,
+        Some(("c1".into(), "shop-web-1".into(), Some("/".into()))),
+        "a shell opens in the panel's folder"
+    );
+    assert!(effects.contains(&Effect::UseConsole(Console::Container("c1".into()))));
+    assert!(state.console_owns_panel() && state.console_container() == Some("shop-web-1"));
+    assert_eq!(
+        state.parked_host.as_ref().map(|host| host.cwd.as_path()),
+        Some(Path::new("/home")),
+        "the host shell waits"
+    );
+
+    update(&mut state, Msg::Signal(ShellSignal::PromptStart), now);
+    type_text(&mut state, now, "cd etc");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(matches!(effects.last(), Some(Effect::Write(bytes)) if bytes == b"\r"), "Enter runs in the container");
+    assert_eq!(state.view, View::Shell);
+    update(&mut state, Msg::Signal(ShellSignal::Cwd { host: "box".into(), path: "/etc".into() }), now);
+    let effects = update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.view, View::Panels, "it returns to the panels like a host command");
+    assert!(
+        effects.iter().any(|e| matches!(e, Effect::List { side: Side::Left, dir, .. } if dir == Path::new("/etc"))),
+        "a cd in the container moves its panel: {effects:?}"
+    );
+
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(state.console, Console::Host, "a host panel brings back the host's command line");
+    assert_eq!(state.shell.cwd, Path::new("/home"));
+    assert!(state.docker.shell("c1").is_some(), "the container's shell keeps running");
+    assert!(!state.shell.line_empty(), "the host's line kept what was typed there");
+
+    press(&mut state, now, ctrl('u'));
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(state.console, Console::Container("c1".into()));
+    update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
+    assert_eq!(state.console, Console::Host, "a shell that could not start leaves the host's");
+    assert!(
+        update(&mut state, Msg::Tick, now).iter().all(|e| !matches!(e, Effect::DockerShell(_))),
+        "and is not retried"
+    );
 }

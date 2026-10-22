@@ -35,6 +35,8 @@ pub struct Preferences {
     pub git_plugin: bool,
     pub system_plugin: bool,
     pub docker_plugin: bool,
+    /// The command line runs inside a container while its filesystem panel is active.
+    pub docker_console: bool,
 }
 
 impl Preferences {
@@ -50,6 +52,7 @@ impl Preferences {
         git_plugin: true,
         system_plugin: true,
         docker_plugin: true,
+        docker_console: false,
     };
 }
 

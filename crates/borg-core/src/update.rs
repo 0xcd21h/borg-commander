@@ -37,7 +37,11 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::DockerShellClosed { container } => {
-            crate::docker::shell_closed(state, &container);
+            crate::docker::shell_closed(state, &container, now);
+            Vec::new()
+        }
+        Msg::ParkedSignal { container, signal } => {
+            crate::docker::parked_signal(state, container.as_deref(), &signal);
             Vec::new()
         }
         Msg::SearchProgress { side, generation, progress } => {
@@ -125,6 +129,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::activity::sync(state, now));
     effects.extend(crate::docker::sync(state, now));
+    effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
@@ -339,6 +344,12 @@ fn forward(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     effects.push(Effect::Write(bytes));
 
     match key.code {
+        // The host's command line under a container's files would run on the wrong machine,
+        // so it waits until a host panel is active.
+        KeyCode::Enter if state.view == View::Panels && !console_owns_panel(state) => {
+            state.notice = Some(tr!(docker_command_line_host).into());
+            return Vec::new();
+        }
         KeyCode::Enter => {
             if !state.shell.busy() && !state.shell.captured() {
                 state.shell.return_view = state.view;
@@ -363,8 +374,8 @@ pub(crate) fn shell_ready(state: &AppState) -> bool {
 
 fn sync_cwd(state: &mut AppState) -> Option<Effect> {
     let dir = state.active_panel().dir();
-    // A container's folders are not on this machine, so the shell stays where it is.
-    if !shell_ready(state) || state.shell.cwd == dir || state.active_panel().mount.is_some() {
+    // A shell follows only a panel on its own machine: the host's, or its container's.
+    if !shell_ready(state) || state.shell.cwd == dir || !console_owns_panel(state) {
         return None;
     }
     let typed = CommandLine::program("cd").path(dir).submit_hidden();
@@ -375,6 +386,10 @@ fn sync_cwd(state: &mut AppState) -> Option<Effect> {
     };
     state.shell.cwd = dir.to_path_buf();
     Some(effect)
+}
+
+fn console_owns_panel(state: &AppState) -> bool {
+    state.console_owns_panel()
 }
 
 fn reveal_slow_operation(state: &mut AppState, now: Instant) {
@@ -410,9 +425,8 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
         }
         ShellSignal::CommandEnd { .. } => Vec::new(),
         ShellSignal::Cwd { path, .. } => {
-            let follow = path != state.shell.cwd
-                && path != state.active_panel().destination()
-                && state.active_panel().mount.is_none();
+            let follow =
+                path != state.shell.cwd && path != state.active_panel().destination() && console_owns_panel(state);
             state.shell.cwd = path.clone();
             if follow { vec![state.navigate(state.active, path, None)] } else { Vec::new() }
         }

@@ -113,6 +113,10 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.settings.preferences.docker_plugin = !state.settings.preferences.docker_plugin;
             vec![Effect::SaveConfig]
         }
+        Action::ToggleDockerConsole => {
+            state.settings.preferences.docker_console = !state.settings.preferences.docker_console;
+            vec![Effect::SaveConfig]
+        }
         Action::Search
         | Action::FolderTree
         | Action::CalculateSizes

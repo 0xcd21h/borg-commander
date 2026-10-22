@@ -1635,7 +1635,18 @@ stats)
 inspect) echo '{"started":"2026-10-22T09:00:01Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":null,"restarts":0,"policy":"always","entrypoint":null,"cmd":["nginx"],"workdir":"","platform":"linux","mounts":[],"networks":{"shop_default":{"IPAddress":"172.18.0.4"}}}' ;;
 stop) touch "$here/stopped" ;;
 exec)
-    if [ "$2" = "-it" ]; then PS1='box$ ' exec sh -i; fi
+    if [ "$2" = "-it" ]; then
+        # Run Borg's own start-up script with its environment, as a container would.
+        shift 2
+        while [ "$1" = "-e" ] || [ "$1" = "-w" ]; do
+            if [ "$1" = "-e" ]; then export "$2"; else cd "$2" || exit 1; fi
+            shift 2
+        done
+        shift
+        PS1='box$ '
+        export PS1
+        exec "$@"
+    fi
     case "$3" in
     sh)
         case "$5" in
@@ -1770,7 +1781,7 @@ fn docker_shell_runs_beside_the_list_and_stays_open_in_the_background() -> Resul
     app.send(keys::down())?;
     app.wait_text("shop › web")?;
     app.send(keys::key(KeyCode::Char('e')))?;
-    app.wait_text("box$")?;
+    app.wait_text("shop-web-1  $")?;
     app.wait_text("Keys go to the shell in web")?;
     app.send("echo inside-$((6*7))\r")?;
     app.wait_text("inside-42")?;
@@ -1786,5 +1797,63 @@ fn docker_shell_runs_beside_the_list_and_stays_open_in_the_background() -> Resul
     app.wait_text("Alt-C Docker · 1 shell")?;
     app.send(keys::f(10))?;
     app.wait_text("A container shell is open")?;
+    Ok(())
+}
+
+fn fake_docker(fixture: &Fixture) -> Result<std::path::PathBuf> {
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    Ok(bin)
+}
+
+fn browse_web(app: &mut Session) -> Result<()> {
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("shop")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.send(keys::key(KeyCode::Char('f')))?;
+    app.wait_text("▣ shop-web-1")?;
+    Ok(())
+}
+
+#[test]
+fn the_command_line_follows_a_container_panel_when_enabled() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("[plugins]\ndocker-console = true\n")?;
+    let bin = fake_docker(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(120, 30).label("docker-console").spawn()?;
+    app.wait_text(READY)?;
+    browse_web(&mut app)?;
+    app.wait_until("the container's prompt", |s| prompt(s).contains(" shop-web-1  $"))?;
+    app.send("echo inside-$((6*7))\r")?;
+    app.pump(std::time::Duration::from_millis(800))?;
+    app.wait_until("the command finishes and the panels return", |s| {
+        s.contains("▣ shop-web-1") && s.contains("motd") && prompt(s).trim_end().ends_with('$')
+    })?;
+    app.send(keys::ctrl('o'))?;
+    let console = app.wait_text("shop-web-1 console")?;
+    ensure!(console.contains("inside-42"), "Ctrl-O shows the container's output\n{}", console.text());
+    app.send(keys::ctrl('o'))?.send(keys::tab())?;
+    app.wait_until("the host's prompt", |s| prompt(s).starts_with('$'))?;
+    app.send(keys::ctrl('o'))?;
+    let host = app.wait_text("Borg console")?;
+    ensure!(!host.contains("inside-42"), "the host's console has its own output\n{}", host.text());
+    Ok(())
+}
+
+#[test]
+fn the_host_command_line_waits_for_a_host_panel_by_default() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fake_docker(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(120, 30).label("docker-host-line").spawn()?;
+    app.wait_text(READY)?;
+    browse_web(&mut app)?;
+    app.wait_text("⌂ host")?;
+    app.send("echo nope\r")?;
+    app.wait_text("This command line runs on the host")?;
+    ensure!(!app.snapshot().contains("Borg console"), "nothing ran");
     Ok(())
 }

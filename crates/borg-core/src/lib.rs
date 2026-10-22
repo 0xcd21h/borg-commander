@@ -60,7 +60,7 @@ pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, Settings,
 };
 pub use state::{
-    AppState, Confirm, ConfirmPurpose, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,
+    AppState, Confirm, ConfirmPurpose, Console, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
 };
 pub use update::update;

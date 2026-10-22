@@ -271,6 +271,13 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.docker_plugin),
                 enabled: true,
             },
+            MenuItem {
+                label: tr!(docker_console_plugin_label),
+                hint: "",
+                action: Action::ToggleDockerConsole,
+                checked: Some(state.settings.preferences.docker_console),
+                enabled: state.settings.preferences.docker_plugin,
+            },
         ]
     } else {
         settings_items(state)

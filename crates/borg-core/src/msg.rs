@@ -52,6 +52,11 @@ pub enum Msg {
     DockerShellClosed {
         container: String,
     },
+    /// A signal from a shell that is not the console: the host's, or a container's.
+    ParkedSignal {
+        container: Option<String>,
+        signal: ShellSignal,
+    },
     SearchProgress {
         side: Side,
         generation: u64,
@@ -124,6 +129,8 @@ pub enum Effect {
     /// Starts or stops streaming container stats.
     DockerWatch(bool),
     DockerShell(crate::ShellRequest),
+    /// The command line and Ctrl-O console now belong to this shell.
+    UseConsole(crate::Console),
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,

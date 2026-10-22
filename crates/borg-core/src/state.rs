@@ -49,6 +49,15 @@ pub enum View {
     Shell,
 }
 
+/// Whose shell the command line and Ctrl-O console belong to.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Console {
+    #[default]
+    Host,
+    /// A container's shell, while its filesystem panel is active (Docker command line).
+    Container(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShellView {
     pub prompt: PromptState,
@@ -79,6 +88,33 @@ pub struct ShellStatus {
 }
 
 impl ShellStatus {
+    pub fn new(cwd: PathBuf) -> Self {
+        Self {
+            observed: ShellView::default(),
+            cwd,
+            running: false,
+            typed: false,
+            unechoed: false,
+            integrated: false,
+            silent_cd: false,
+            went_full_screen: false,
+            return_view: View::Panels,
+        }
+    }
+
+    /// What a shell that is not the console notes from its signals, so it is up to date
+    /// when it becomes the console again.
+    pub(crate) fn note(&mut self, signal: &borg_term::ShellSignal) {
+        use borg_term::ShellSignal;
+        match signal {
+            ShellSignal::PromptStart => self.integrated = true,
+            ShellSignal::CommandStart => self.running = true,
+            ShellSignal::CommandEnd { .. } => self.running = false,
+            ShellSignal::Cwd { path, .. } => self.cwd = path.clone(),
+            _ => {}
+        }
+    }
+
     pub fn captured(&self) -> bool {
         self.observed.mode.contains(TermMode::ALT_SCREEN)
     }
@@ -244,7 +280,11 @@ pub struct AppState {
     pub panels: [Panel; 2],
     pub active: Side,
     pub view: View,
+    /// The console's shell: the host's, or a container's while its panel is active.
     pub shell: ShellStatus,
+    pub console: Console,
+    /// The host shell while a container's shell is the console.
+    pub(crate) parked_host: Option<ShellStatus>,
     pub fade: Fade,
     pub split: Fade,
     pub cols: u16,
@@ -292,22 +332,14 @@ impl AppState {
         now: Instant,
     ) -> (Self, Vec<Effect>) {
         let active_dir = startup.panels[startup.active.index()].dir.clone();
-        let shell = ShellStatus {
-            observed: ShellView::default(),
-            cwd: active_dir,
-            running: false,
-            typed: false,
-            unechoed: false,
-            integrated: false,
-            silent_cd: false,
-            went_full_screen: false,
-            return_view: View::Panels,
-        };
+        let shell = ShellStatus::new(active_dir);
         let panels = startup.panels.clone().map(|setup| Panel::new(setup.dir, 0, setup.mode, setup.sort));
 
         let mut state = Self {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
+            console: Console::Host,
+            parked_host: None,
             busy: crate::Busy::default(),
             game2048: None,
             collections: Vec::new(),
@@ -465,6 +497,23 @@ impl AppState {
 
     pub fn raining(&self, now: Instant) -> bool {
         self.rain_until.is_some_and(|until| now < until)
+    }
+
+    /// Whether the active panel shows the console's own files: a host folder for the host's
+    /// shell, or the container's filesystem for its shell.
+    pub fn console_owns_panel(&self) -> bool {
+        match (&self.console, &self.active_panel().mount) {
+            (Console::Host, None) => true,
+            (Console::Container(id), Some(mount)) => *id == mount.id,
+            _ => false,
+        }
+    }
+
+    /// The container whose shell is the console, by name, for marking the console.
+    pub fn console_container(&self) -> Option<&str> {
+        let Console::Container(id) = &self.console else { return None };
+        let mount = self.panels.iter().filter_map(|panel| panel.mount.as_ref()).find(|mount| mount.id == *id);
+        mount.map(|mount| mount.name.as_str()).or_else(|| self.docker.shell(id).map(|shell| shell.name.as_str()))
     }
 
     pub fn can_screensave(&self) -> bool {

@@ -33,6 +33,8 @@ const FULLY_HIDDEN: f32 = 0.0;
 const FULLY_SHOWN: f32 = 1.0;
 const CURSOR_HANDOFF: f32 = 0.5;
 pub(crate) const BACKDROP: f32 = 0.45;
+/// How far the host's command line fades while a container's files are active.
+const HOST_PROMPT_DIM: f32 = 0.5;
 const MENU_BACKDROP: f32 = 0.25;
 const UNFOLD_FLOOR: f32 = 0.4;
 
@@ -149,12 +151,13 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
         tr!(ctrl_o_panels_wheel_history)
     };
     buf.set_style(footer, theme.styles.key_label);
-    Line::from(vec![
-        Span::styled(tr!(borg_console), theme.styles.key),
-        Span::styled(history, theme.styles.key_label),
-        Span::styled(hint, theme.styles.key_label),
-    ])
-    .render(footer, buf);
+    // A container's console names the container, so its output is never taken for the host's.
+    let label = match scene.state.console_container() {
+        Some(name) => Span::styled(format!(" ▣ {name}{} ", tr!(docker_console_label)), theme.styles.cursor),
+        None => Span::styled(tr!(borg_console), theme.styles.key),
+    };
+    Line::from(vec![label, Span::styled(history, theme.styles.key_label), Span::styled(hint, theme.styles.key_label)])
+        .render(footer, buf);
 }
 
 fn chrome(scene: &Scene<'_>, area: Rect) -> Chrome {
@@ -293,6 +296,15 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     let top = scene.screen.prompt_top(layout.prompt.height);
     for (offset, y) in (layout.prompt.top()..layout.prompt.bottom()).enumerate() {
         term_view::draw_row(&scene.screen, top.saturating_add(offset as u16), y, layout.prompt, &mut buf);
+    }
+    // Under a container's files, the host's command line is dimmed and labelled as the host's:
+    // it runs nothing there until a host panel is active.
+    if !state.console_owns_panel() && !layout.prompt.is_empty() && !state.docker.is_open() {
+        fx::fade_to_background(&mut buf, layout.prompt, HOST_PROMPT_DIM, scene.palette);
+        let chip = tr!(docker_host_chip);
+        let width = (unicode_width::UnicodeWidthStr::width(chip) as u16).min(layout.prompt.width);
+        let area = Rect { x: layout.prompt.right() - width, width, height: 1, ..layout.prompt };
+        Line::styled(chip, styles.notice.add_modifier(ratatui::style::Modifier::REVERSED)).render(area, &mut buf);
     }
     let collection_label = if state
         .panel(state.active.other())

@@ -5,12 +5,12 @@
 use std::{
     collections::HashMap,
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
 
 use borg_core::{DockerData, DockerRequest, FileOp, Msg};
-use borg_term::{CommandBuilder, Emulator, GridSize, Pty, PtyEvent, Screen, Scroll, TermMode};
+use borg_term::{CommandBuilder, Emulator, GridSize, Pty, PtyEvent, Screen, Scroll, ShellSignal, TermMode};
 use borg_vfs::{Batches, Entry, EntryKind};
 use futures::StreamExt;
 use tokio::{
@@ -141,8 +141,21 @@ fn entry(dir: &std::path::Path, file: borg_docker::File) -> Entry {
 
 /// Lines of history each container shell keeps.
 const SHELL_SCROLLBACK: usize = 2000;
-/// Bash when the image has it, otherwise the POSIX shell every image with a shell has.
-const SHELL_SCRIPT: &str = "if command -v bash >/dev/null 2>&1; then exec bash; fi; exec sh";
+/// Bash when the image has it, otherwise the POSIX shell every image with a shell has, with
+/// the prompt `BORG_SH_PS1` describes.
+const SHELL_SCRIPT: &str =
+    "if command -v bash >/dev/null 2>&1; then exec bash; fi; PS1=$BORG_SH_PS1; export PS1; exec sh";
+
+/// Bash's prompt hook: it reports the last command's exit status, the folder, and where the
+/// prompt starts and ends (OSC 133 and OSC 7, as the host's integration does), and opens the
+/// prompt with the container's name in reverse video, so the prompt says where it runs.
+const BASH_PROMPT: &str = r#"__borg_s=$?; printf '\033]133;D;%s\007\033]7;file://%s%s\007\033]133;A\007' "$__borg_s" "${HOSTNAME:-}" "${PWD//%/%25}"; case "$PS1" in *'133;B'*) ;; *) PS1='\[\033[7m\] '"$BORG_PROMPT"' \[\033[0m\] '"$PS1"'\[\033]133;B\007\]' ;; esac"#;
+
+/// The same for a POSIX shell, which has no prompt hook: the prompt itself carries the
+/// markers, expanded each time it is shown.
+fn sh_prompt(name: &str) -> String {
+    format!("\x1b]133;D;$?\x07\x1b]7;file://$PWD\x07\x1b]133;A\x07\x1b[7m {name} \x1b[0m $PWD # \x1b]133;B\x07")
+}
 
 struct Shell {
     pty: Pty,
@@ -163,9 +176,21 @@ impl Shells {
         Self { shells: HashMap::new(), events, incoming }
     }
 
-    pub fn open(&mut self, container: String, size: GridSize) -> anyhow::Result<()> {
+    pub fn open(
+        &mut self,
+        container: String,
+        prompt: &str,
+        size: GridSize,
+        workdir: Option<&Path>,
+    ) -> anyhow::Result<()> {
         let mut command = CommandBuilder::new("docker");
-        command.args(["exec", "-it", "-e", "TERM=xterm-256color", &container, "sh", "-c", SHELL_SCRIPT]);
+        command.args(["exec", "-it", "-e", "TERM=xterm-256color", "-e", "HISTCONTROL=ignorespace"]);
+        command.args(["-e", &format!("BORG_PROMPT={prompt}"), "-e", &format!("PROMPT_COMMAND={BASH_PROMPT}")]);
+        command.args(["-e", "PS0=\x1b]133;C\x07", "-e", &format!("BORG_SH_PS1={}", sh_prompt(prompt))]);
+        if let Some(dir) = workdir {
+            command.args(["-w", &dir.to_string_lossy()]);
+        }
+        command.args([&container, "sh", "-c", SHELL_SCRIPT]);
         let (sender, mut receiver) = unbounded_channel();
         let pty = Pty::spawn(command, size, sender)?;
         let events = self.events.clone();
@@ -181,14 +206,20 @@ impl Shells {
         Ok(())
     }
 
-    /// Feeds a shell's output to its terminal and returns the terminal's input mode.
-    pub fn feed(&mut self, container: &str, bytes: &[u8]) -> Option<TermMode> {
+    /// Feeds a shell's output to its terminal and returns the terminal's input mode and the
+    /// shell's signals: prompts, commands, and folder changes.
+    pub fn feed(&mut self, container: &str, bytes: &[u8]) -> Option<(TermMode, Vec<ShellSignal>)> {
         let shell = self.shells.get_mut(container)?;
-        shell.emulator.feed(bytes);
+        let signals = shell.emulator.feed(bytes);
         for reply in shell.emulator.drain_replies() {
             let _ = shell.pty.write(reply.as_bytes());
         }
-        Some(shell.emulator.mode())
+        Some((shell.emulator.mode(), signals))
+    }
+
+    /// The terminal and process of a shell, while it is the console.
+    pub fn parts(&mut self, container: &str) -> Option<(&mut Emulator, &mut Pty)> {
+        self.shells.get_mut(container).map(|shell| (&mut shell.emulator, &mut shell.pty))
     }
 
     pub fn input(&mut self, container: &str, bytes: &[u8]) {

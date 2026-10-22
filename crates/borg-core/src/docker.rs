@@ -14,7 +14,7 @@ use borg_term::{GridSize, Scroll, TermMode, encode_key, encode_paste};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 
-use crate::{AppState, Confirm, ConfirmPurpose, Effect, HISTORY, Overlay, Side, View};
+use crate::{AppState, Confirm, ConfirmPurpose, Console, Effect, HISTORY, Overlay, ShellStatus, Side, View};
 
 const REFRESH: Duration = Duration::from_secs(2);
 /// After an error, such as Docker not running, ask again less often.
@@ -73,18 +73,32 @@ pub struct Mount {
 
 /// A shell running inside a container. It stays open while hidden, until it exits, the
 /// container stops, or Borg quits.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ContainerShell {
     pub container: String,
     pub name: String,
-    pub mode: TermMode,
+    /// Its shell's state; while it is the console, `AppState::shell` holds the live one.
+    pub status: ShellStatus,
+    opened: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellRequest {
-    Open { container: String, size: GridSize },
-    Input { container: String, bytes: Vec<u8> },
-    Scroll { container: String, scroll: Scroll },
+    /// `prompt` names the container in the shell's prompt; `workdir` is where it starts.
+    Open {
+        container: String,
+        prompt: String,
+        size: GridSize,
+        workdir: Option<PathBuf>,
+    },
+    Input {
+        container: String,
+        bytes: Vec<u8>,
+    },
+    Scroll {
+        container: String,
+        scroll: Scroll,
+    },
 }
 
 /// The rows of the details panel below its status and tabs, where a shell runs.
@@ -163,6 +177,9 @@ pub struct Docker {
     pub working: Vec<Working>,
     pub files: Vec<FileWork>,
     pub shells: Vec<ContainerShell>,
+    /// A container whose console shell failed to start, so it is not opened again until
+    /// another panel is active.
+    failed_console: Option<String>,
     /// Whether the details panel shows the selected container's shell, when it has one.
     pub shell_tab: bool,
     pub pending: Option<(u64, DockerRequest)>,
@@ -543,12 +560,122 @@ pub(crate) fn open_shell(state: &mut AppState, now: Instant) -> Vec<Effect> {
     if docker.shell(&container.id).is_some() {
         return Vec::new();
     }
-    let name = container.label().to_owned();
-    docker.shells.push(ContainerShell { container: container.id.clone(), name, mode: TermMode::empty() });
     let side = docker.side.unwrap_or(state.active).other();
     let area = shell_rect(state.layout(now).panels[side.index()]);
     let size = GridSize { cols: area.width.max(MIN_SHELL.0), rows: area.height.max(MIN_SHELL.1) };
-    vec![Effect::DockerShell(ShellRequest::Open { container: container.id, size })]
+    start_shell(state, &container, size, None, now)
+}
+
+fn start_shell(
+    state: &mut AppState,
+    container: &Container,
+    size: GridSize,
+    workdir: Option<PathBuf>,
+    now: Instant,
+) -> Vec<Effect> {
+    let status = ShellStatus::new(workdir.clone().unwrap_or_default());
+    let name = container.label().to_owned();
+    state.docker.shells.push(ContainerShell { container: container.id.clone(), name, status, opened: now });
+    let prompt = container.name.clone();
+    vec![Effect::DockerShell(ShellRequest::Open { container: container.id.clone(), prompt, size, workdir })]
+}
+
+/// A shell that closes this soon after opening failed to start, such as in an image with no
+/// shell, and is not reopened by itself.
+const FAILED_START: Duration = Duration::from_secs(3);
+
+/// Whose shell the console should be: a container's while its filesystem panel is active and
+/// the Docker command line is on, otherwise the host's. The Docker view keeps the host's.
+fn wanted_console(state: &AppState) -> Console {
+    let follow = state.settings.preferences.docker_plugin && state.settings.preferences.docker_console;
+    match state.active_panel().mount.as_ref() {
+        Some(mount) if follow && !state.docker.is_open() && state.docker.failed_console.as_ref() != Some(&mount.id) => {
+            Console::Container(mount.id.clone())
+        }
+        _ => Console::Host,
+    }
+}
+
+/// Hands the command line and Ctrl-O console to the shell that should have them, opening a
+/// container's shell in the panel's folder when it has none.
+pub(crate) fn sync_console(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    let mount = state.active_panel().mount.as_ref().map(|mount| mount.id.clone());
+    if state.docker.failed_console.is_some() && state.docker.failed_console != mount {
+        state.docker.failed_console = None;
+    }
+    let wanted = wanted_console(state);
+    // A console in use keeps its shell until the panels come back.
+    if wanted == state.console || state.view == View::Shell {
+        return Vec::new();
+    }
+    let mut effects = Vec::new();
+    if let Console::Container(id) = &wanted
+        && state.docker.shell(id).is_none()
+    {
+        let mount = state.active_panel().mount.clone();
+        let container = state.docker.containers.iter().find(|c| c.id == *id).cloned().unwrap_or_else(|| Container {
+            id: id.clone(),
+            name: mount.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
+            ..placeholder()
+        });
+        let size = GridSize::console(state.cols, state.rows);
+        // Where the panel is going: a folder still loading has not replaced the host's yet.
+        let dir = state.active_panel().destination().to_path_buf();
+        effects.extend(start_shell(state, &container, size, Some(dir), now));
+    }
+    let incoming = match &wanted {
+        Console::Host => {
+            state.parked_host.take().unwrap_or_else(|| ShellStatus::new(state.active_panel().dir().into()))
+        }
+        Console::Container(id) => {
+            let shell = state.docker.shells.iter_mut().find(|shell| shell.container == *id);
+            shell
+                .map(|shell| std::mem::replace(&mut shell.status, ShellStatus::new(PathBuf::new())))
+                .unwrap_or_else(|| ShellStatus::new(PathBuf::new()))
+        }
+    };
+    let outgoing = std::mem::replace(&mut state.shell, incoming);
+    match std::mem::replace(&mut state.console, wanted.clone()) {
+        Console::Host => state.parked_host = Some(outgoing),
+        Console::Container(id) => {
+            if let Some(shell) = state.docker.shells.iter_mut().find(|shell| shell.container == id) {
+                shell.status = outgoing;
+            }
+        }
+    }
+    effects.push(Effect::UseConsole(wanted));
+    effects
+}
+
+/// A stand-in for a container the list has not loaded, such as one browsed before the
+/// Docker view refreshed.
+fn placeholder() -> Container {
+    Container {
+        id: String::new(),
+        name: String::new(),
+        image: String::new(),
+        command: String::new(),
+        created: String::new(),
+        state: State::Running,
+        status: String::new(),
+        ports: String::new(),
+        networks: String::new(),
+        project: None,
+        service: None,
+        project_dir: None,
+        config_files: Vec::new(),
+    }
+}
+
+/// A signal from a shell that is not the console updates its saved state.
+pub(crate) fn parked_signal(state: &mut AppState, container: Option<&str>, signal: &borg_term::ShellSignal) {
+    let status = match container {
+        None => state.parked_host.as_mut(),
+        Some(id) => state.docker.shells.iter_mut().find(|shell| shell.container == id).map(|shell| &mut shell.status),
+    };
+    if let Some(status) = status {
+        status.note(signal);
+    }
 }
 
 /// The smallest terminal a shell starts with, should the details panel be hidden.
@@ -556,17 +683,26 @@ const MIN_SHELL: (u16, u16) = (20, 5);
 
 pub(crate) fn shell_output(state: &mut AppState, container: &str, mode: TermMode) {
     if let Some(shell) = state.docker.shells.iter_mut().find(|shell| shell.container == container) {
-        shell.mode = mode;
+        shell.status.observed.mode = mode;
     }
 }
 
-pub(crate) fn shell_closed(state: &mut AppState, container: &str) {
+pub(crate) fn shell_closed(state: &mut AppState, container: &str, now: Instant) {
     let docker = &mut state.docker;
     let Some(index) = docker.shells.iter().position(|shell| shell.container == container) else { return };
     let shell = docker.shells.remove(index);
     if docker.container().is_some_and(|c| c.id == container) {
         docker.details_focused = false;
         docker.shell_tab = false;
+    }
+    if state.console == Console::Container(container.to_owned()) {
+        // The console returns to the host; a shell that never got going is not reopened.
+        state.shell = state.parked_host.take().unwrap_or_else(|| ShellStatus::new(state.active_panel().dir().into()));
+        state.console = Console::Host;
+        state.view = View::Panels;
+        if now.saturating_duration_since(shell.opened) < FAILED_START {
+            state.docker.failed_console = Some(container.to_owned());
+        }
     }
     state.notice = Some(format!(tr!(docker_shell_closed), name = shell.name));
 }
@@ -583,7 +719,7 @@ fn shell_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> 
         _ => {
             let Some(shell) = state.docker.visible_shell() else { return Vec::new() };
             let container = shell.container.clone();
-            let Some(bytes) = encode_key(key, shell.mode) else { return Vec::new() };
+            let Some(bytes) = encode_key(key, shell.status.observed.mode) else { return Vec::new() };
             return vec![Effect::DockerShell(ShellRequest::Input { container, bytes })];
         }
     }
@@ -818,7 +954,7 @@ fn filter_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> bool {
 
 pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     if let Some(shell) = state.docker.visible_shell().filter(|_| state.docker.typing()) {
-        let bytes = encode_paste(text, shell.mode);
+        let bytes = encode_paste(text, shell.status.observed.mode);
         return vec![Effect::DockerShell(ShellRequest::Input { container: shell.container.clone(), bytes })];
     }
     if state.docker.filtering {
