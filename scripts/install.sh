@@ -59,30 +59,41 @@ cleanup() {
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
-# The logo: a block "BORG". On colour terminals it powers up like an old screen, with
-# tearing rows, split colours, and a scan beam, then settles. The template uses only ASCII
-# so any awk can slice it; glyphs are swapped in on output.
+# The logo: a block "BORG". On colour terminals it powers up like a broken screen: rows
+# tear sideways and smear, glyphs corrupt, colours flare, and a scan beam passes, then it
+# settles. The template uses only ASCII so any awk can slice it; glyphs are swapped in.
 logo() {
     awk -v colors="${colors}" -v unicode="${unicode}" -v animate="${animate}" '
-        function paint(column, row, tint,   x, r, g, b) {
+        function rgb(r, g, b) { return sprintf("\033[38;2;%d;%d;%dm", r, g, b) }
+        function vivid(i) {
+            if (colors >= 16777216) return rgb(v_r[i], v_g[i], v_b[i])
+            if (colors >= 256) return sprintf("\033[38;5;%dm", v_256[i])
+            return sprintf("\033[%dm", v_16[i])
+        }
+        function paint(column, row, tint,   x, r, g, b, u) {
             if (colors == 0) return ""
             if (tint == "beam") return colors >= 256 ? "\033[1;38;5;231m" : "\033[1;97m"
-            if (tint == "red") return colors >= 16777216 ? "\033[38;2;255;64;110m" : colors >= 256 ? "\033[38;5;204m" : "\033[91m"
-            if (tint == "cyan") return colors >= 16777216 ? "\033[38;2;64;220;255m" : colors >= 256 ? "\033[38;5;45m" : "\033[96m"
+            if (tint != "") return vivid(tint)
             x = width > 1 ? (column - 1) / (width - 1) : 0
             if (colors >= 16777216) {
-                r = int(40 + 20 * x); g = int(255 - 35 * x - 6 * row); b = int(130 + 125 * x)
-                return sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+                if (x < 0.5) { u = x * 2; r = 40; g = int(255 - 35 * u); b = int(140 + 115 * u) }
+                else { u = (x - 0.5) * 2; r = int(40 + 130 * u); g = int(220 - 130 * u); b = 255 }
+                return rgb(r, int(g - 6 * row), b)
             }
-            if (colors >= 256) { split("48 48 49 50 50 51", p, " "); return sprintf("\033[38;5;%dm", p[int(x * 5.999) + 1]) }
-            return x < 0.5 ? "\033[92m" : "\033[96m"
+            if (colors >= 256) { split("46 48 50 51 45 39 63 99", p, " "); return sprintf("\033[38;5;%dm", p[int(x * 7.999) + 1]) }
+            return x < 0.33 ? "\033[92m" : x < 0.66 ? "\033[96m" : "\033[95m"
         }
+        function pick() { return noise[int(rand() * count) + 1] }
         { row[++n] = $0; if (length($0) > width) width = length($0) }
         END {
             srand()
+            split("255 190 0 255 150 255 64", v_r, " "); split("0 255 140 120 60 64 220", v_g, " ")
+            split("170 0 255 0 255 110 255", v_b, " "); split("199 154 33 208 99 204 45", v_256, " ")
+            split("95 92 94 93 95 91 96", v_16, " ")
             block = unicode == "true" ? "█" : "#"
-            count = split(unicode == "true" ? "▓ ▒ ░ ▚ ▞ ▀ ▄ ▌ ▐" : "% @ & $ / | = + :", noise, " ")
-            frames = animate == "true" ? 24 : 1
+            count = split(unicode == "true" ? "▓ ▒ ░ ▚ ▞ ▙ ▟ ▛ ▜ ▀ ▄ ▌ ▐ ■ ▪ ◢ ◣ ◤ ◥ ╳ ╱ ╲ ┼ ╪ ╫ ¦ ≡ ∆ ¤ Ξ Ψ Ж λ Ø § ∑ ∂ √ # %" : "% @ & $ / | = + : # ~ ^ * ? ! < >", noise, " ")
+            split(unicode == "true" ? "░ ░ ▒ ▓" : ". : = #", smear, " ")
+            frames = animate == "true" ? 28 : 1
             if (animate == "true") printf "\033[?25l"
             for (f = 0; f < frames; f++) {
                 t = frames > 1 ? f / (frames - 1) : 1
@@ -90,19 +101,23 @@ logo() {
                 beam = int(t * (n + 3)) - 1
                 if (f > 0) printf "\033[%dA", n
                 for (r = 1; r <= n; r++) {
-                    shift = rand() < 0.6 * heat ? int((rand() * 2 - 1) * 8 * heat) : 0
-                    tint = shift == 0 ? "" : rand() < 0.5 ? "red" : "cyan"
+                    shift = rand() < 0.65 * heat ? int((rand() * 2 - 1) * 14 * heat) : 0
+                    tint = shift == 0 ? "" : int(rand() * 7) + 1
                     if (frames > 1 && r == beam && t < 1) tint = "beam"
+                    inverted = colors > 0 && rand() < 0.12 * heat
                     line = "  "
-                    if (shift > 0) line = line sprintf("%" shift "s", "")
+                    for (k = 0; k < shift; k++) line = line paint(1, r, tint) smear[int(k * 4 / shift) + 1]
                     for (c = 1; c <= length(row[r]); c++) {
                         if (shift < 0 && c <= -shift) continue
                         ch = substr(row[r], c, 1)
-                        static = f < 3 ? 0.45 * heat : 0.03 * heat
-                        if (ch == "#") glyph = rand() < 0.4 * heat ? noise[int(rand() * count) + 1] : block
-                        else glyph = rand() < static ? noise[int(rand() * count) + 1] : " "
-                        line = line paint(c, r, tint) glyph
+                        static = f < 3 ? 0.5 * heat : 0.05 * heat
+                        if (ch == "#") glyph = rand() < 0.4 * heat ? pick() : block
+                        else glyph = rand() < static ? pick() : " "
+                        cell = rand() < 0.2 * heat ? int(rand() * 7) + 1 : tint
+                        line = line paint(c, r, cell) glyph
                     }
+                    for (k = shift; k < 0; k++) line = line paint(width, r, tint) smear[int((k - shift) * 4 / -shift) + 1]
+                    if (inverted) line = "\033[7m" line
                     printf "%s%s%s\n", line, (colors > 0 ? "\033[0m" : ""), (animate == "true" ? "\033[K" : "")
                 }
                 if (animate == "true" && f < frames - 1) { fflush(); system("sleep 0.04") }
