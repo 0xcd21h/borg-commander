@@ -104,6 +104,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Docker => crate::docker::toggle(state, now),
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
+        Action::DockerShell => crate::docker::open_shell(state, now),
         Action::DockerFilter => {
             crate::docker::filter(state);
             Vec::new()
@@ -132,7 +133,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Quit => {
             state.overlay = Some(Overlay::Confirm(Confirm {
                 title: QUIT_TITLE,
-                message: if state.jobs.is_empty() {
+                message: if state.jobs.is_empty() && !state.docker.shells.is_empty() {
+                    match state.docker.shells.len() {
+                        1 => tr!(quit_shells_one).into(),
+                        count => format!(tr!(quit_shells_many), count = count),
+                    }
+                } else if state.jobs.is_empty() {
                     tr!(quit_borg_commander).into()
                 } else {
                     if state.jobs.len() == 1 {

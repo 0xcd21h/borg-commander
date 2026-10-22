@@ -246,6 +246,8 @@ project's folder, its containers, and their combined use. Esc closes the view.
 | S / X / R | Start / stop / restart the container, or the project's containers |
 | P | Pause or resume |
 | F | Browse the container's files |
+| E, 2 | Open a shell in the container, or return to its open shell |
+| 1 | Show the container's overview again |
 | `/` | Filter by name, service, image or project |
 | Tab | Switch between the list and the details |
 | Alt-W | Maximize the focused pane |
@@ -259,7 +261,14 @@ other panel keeps its host folder, so **F5** copies either way, and **F3** views
 a folder and **F8** deletes inside the container. Searches, sizes, previews and editing stay
 on the host. **Alt-C** returns to the Docker view; `..` at the container's root returns the
 panel to the host folder it showed before. Browsing needs `sh` in the container, so minimal
-images without a shell cannot be listed. The plugin uses the `docker` CLI and its current
+images without a shell cannot be listed.
+
+**E** opens a shell in the container (bash when the image has it, otherwise `sh`) on the
+details panel's Shell tab, and sends your keys to it. **Alt-C** returns to the list; the
+mouse wheel scrolls its history. A shell keeps running while you look at other containers,
+close the Docker view or use the host console, and its container is marked `›_` in the list
+and counted on the Alt-C shortcut. It closes when you exit it, when its container stops, or
+when Borg quits, which asks first while shells are open. The plugin uses the `docker` CLI and its current
 context, so it works with Docker Desktop, OrbStack, Colima and remote engines alike. It can
 be turned off in Options → Plugins.
 

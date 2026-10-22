@@ -1635,6 +1635,7 @@ stats)
 inspect) echo '{"started":"2026-10-22T09:00:01Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":null,"restarts":0,"policy":"always","entrypoint":null,"cmd":["nginx"],"workdir":"","platform":"linux","mounts":[],"networks":{"shop_default":{"IPAddress":"172.18.0.4"}}}' ;;
 stop) touch "$here/stopped" ;;
 exec)
+    if [ "$2" = "-it" ]; then PS1='box$ ' exec sh -i; fi
     case "$3" in
     sh)
         case "$7" in
@@ -1718,5 +1719,34 @@ fn docker_files_open_in_a_panel_and_copy_both_ways() -> Result<()> {
     app.send(keys::tab())?.send(keys::key(KeyCode::Home))?.send(keys::enter())?;
     app.wait_gone("▣ shop-web-1")?;
     app.wait_text("5 items")?;
+    Ok(())
+}
+
+#[test]
+fn docker_shell_runs_beside_the_list_and_stays_open_in_the_background() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(140, 30).label("docker-shell").spawn()?;
+    app.wait_text(READY)?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("shop")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.send(keys::key(KeyCode::Char('e')))?;
+    app.wait_text("box$")?;
+    app.wait_text("Keys go to the shell in web")?;
+    app.send("echo inside-$((6*7))\r")?;
+    app.wait_text("inside-42")?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("S Start")?;
+    app.wait_text("›_")?;
+    app.send(keys::esc())?;
+    app.wait_text("Alt-C Docker · 1 shell")?;
+    app.send(keys::f(10))?;
+    app.wait_text("A container shell is open")?;
     Ok(())
 }

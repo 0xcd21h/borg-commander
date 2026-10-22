@@ -39,6 +39,8 @@ const UNFOLD_FLOOR: f32 = 0.4;
 pub struct Scene<'a> {
     pub state: &'a AppState,
     pub screen: Screen<'a>,
+    /// The terminal of the container shell shown in the Docker view, if any.
+    pub docker_shell: Option<Screen<'a>>,
     pub palette: &'a Palette,
     pub themes: &'a ThemeSet,
     pub clock: &'a Zoned,
@@ -204,7 +206,15 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         crate::activity_view::draw(state, &look, layout.panels, state.monitor_panels(scene.now), scene.now, &mut buf);
     }
     if state.docker.is_open() {
-        crate::docker_view::draw(state, &look, layout.panels, scene.clock, scene.now, &mut buf);
+        panel_cursor = crate::docker_view::draw(
+            state,
+            &look,
+            layout.panels,
+            scene.docker_shell.as_ref(),
+            scene.clock,
+            scene.now,
+            &mut buf,
+        );
     }
     for side in Side::ALL {
         let active = side == state.active;

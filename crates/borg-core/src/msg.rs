@@ -44,6 +44,14 @@ pub enum Msg {
     },
     /// One `docker stats` sample: each running container's id and resource use.
     DockerStats(Vec<(String, borg_docker::Stats)>),
+    /// A container shell printed something; `mode` is its terminal's input mode now.
+    DockerShellOutput {
+        container: String,
+        mode: borg_term::TermMode,
+    },
+    DockerShellClosed {
+        container: String,
+    },
     SearchProgress {
         side: Side,
         generation: u64,
@@ -115,6 +123,7 @@ pub enum Effect {
     },
     /// Starts or stops streaming container stats.
     DockerWatch(bool),
+    DockerShell(crate::ShellRequest),
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,

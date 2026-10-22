@@ -32,6 +32,14 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::docker::stats(state, frame);
             Vec::new()
         }
+        Msg::DockerShellOutput { container, mode } => {
+            crate::docker::shell_output(state, &container, mode);
+            Vec::new()
+        }
+        Msg::DockerShellClosed { container } => {
+            crate::docker::shell_closed(state, &container);
+            Vec::new()
+        }
         Msg::SearchProgress { side, generation, progress } => {
             crate::results::progress(state, side, generation, progress);
             Vec::new()
@@ -277,8 +285,7 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     state.intro = None;
     if state.docker.is_open() && state.view == View::Panels && state.overlay.is_none() {
-        crate::docker::paste(state, text);
-        return Vec::new();
+        return crate::docker::paste(state, text);
     }
     if state.activity.side.is_some() && state.view == View::Panels {
         if let Some(form) = state.activity.search_form.as_mut() {

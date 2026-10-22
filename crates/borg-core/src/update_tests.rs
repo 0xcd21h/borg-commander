@@ -1625,3 +1625,73 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert!(state.panel(Side::Left).mount.is_none(), ".. at the root leaves the container");
     assert!(matches!(effects.as_slice(), [Effect::List { side: Side::Left, dir, .. }] if dir == Path::new("/home")));
 }
+
+#[test]
+fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
+    use crate::ShellRequest;
+    let now = Instant::now();
+    let (mut state, _) = setup_with(vec![file("notes.txt")]);
+    crate::actions::perform(&mut state, Action::Docker, now);
+    let Some((id, crate::DockerRequest::List)) = state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let web = borg_docker::Container {
+        id: "c1".into(),
+        name: "shop-web-1".into(),
+        image: "nginx".into(),
+        command: String::new(),
+        created: String::new(),
+        state: borg_docker::State::Running,
+        status: "Up 1 minute".into(),
+        ports: String::new(),
+        networks: String::new(),
+        project: Some("shop".into()),
+        service: Some("web".into()),
+        project_dir: None,
+        config_files: Vec::new(),
+    };
+    update(
+        &mut state,
+        Msg::Docker { id, result: Ok(crate::DockerData::Listed { context: None, containers: vec![web] }) },
+        now,
+    );
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Char('e')));
+    let [Effect::DockerShell(ShellRequest::Open { container, size })] = effects.as_slice() else {
+        panic!("E opens a shell: {effects:?}")
+    };
+    assert_eq!(container, "c1");
+    assert!(size.cols > 0 && size.rows > 0);
+    assert!(state.docker.typing(), "the shell takes the keys");
+
+    let input = |effects: Vec<Effect>| match effects.as_slice() {
+        [Effect::DockerShell(ShellRequest::Input { bytes, .. })] => bytes.clone(),
+        other => panic!("expected input for the shell: {other:?}"),
+    };
+    assert_eq!(input(press(&mut state, now, key(KeyCode::Char('x')))), b"x", "letters reach the shell, not Stop");
+    assert_eq!(input(press(&mut state, now, key(KeyCode::Esc))), b"\x1b");
+    assert_eq!(input(update(&mut state, Msg::Paste("ls".into()), now)), b"ls");
+    assert!(state.docker.is_open() && state.overlay.is_none());
+
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT));
+    assert!(!state.docker.typing() && state.docker.is_open(), "Alt-C returns to the list");
+    assert!(state.docker.visible_shell().is_some(), "the shell stays on its tab");
+    press(&mut state, now, key(KeyCode::Char('1')));
+    assert!(state.docker.visible_shell().is_none(), "1 shows the overview");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(!state.docker.is_open());
+    assert_eq!(state.docker.shells.len(), 1, "closing the view keeps the shell running");
+
+    crate::actions::perform(&mut state, Action::Quit, now);
+    let Some(Overlay::Confirm(confirm)) = state.overlay.take() else { panic!("quitting asks first") };
+    assert_eq!(confirm.message, "A container shell is open. Quit and close it?");
+
+    crate::actions::perform(&mut state, Action::Docker, now);
+    press(&mut state, now, key(KeyCode::Char('2')));
+    assert!(state.docker.typing(), "2 returns to the open shell");
+    press(&mut state, now, ctrl('o'));
+    assert_eq!(state.view, View::Shell, "Ctrl-O still shows the host console");
+    update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
+    assert!(state.docker.shells.is_empty() && !state.docker.typing());
+    assert_eq!(state.notice.as_deref(), Some("The shell in web closed"));
+}

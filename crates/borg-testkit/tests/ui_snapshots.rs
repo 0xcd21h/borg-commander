@@ -2110,3 +2110,33 @@ fn docker_files_name_the_container_in_the_panel() -> Result<()> {
     ensure_text(&buffer, "Alt-C Docker")?;
     check("docker_files", &stage, buffer)
 }
+
+/// E opens a shell in the details panel: the Shell tab shows it, the list marks the
+/// container, and the key bar says where keys go.
+#[test]
+fn docker_shell_runs_in_the_details_panel() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest};
+    use borg_docker::State;
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let containers = vec![
+        container("a1", Some("shop"), "web", State::Running, "Up 3 hours"),
+        container("a2", Some("shop"), "db", State::Running, "Up 3 hours"),
+    ];
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers }) });
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Char('e')));
+    assert!(stage.state.docker.typing());
+    let side = stage.state.docker.side.unwrap().other();
+    let area = borg_core::shell_rect(stage.state.layout(stage.started).panels[side.index()]);
+    let mut shell = borg_term::Emulator::new(GridSize { cols: area.width, rows: area.height }, 100);
+    shell.feed(b"root@3f2a9c:/usr/share/nginx/html# ls\r\n50x.html  index.html\r\nroot@3f2a9c:/usr/share/nginx/html# ");
+    stage.docker_shell = Some(shell);
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "index.html")?;
+    ensure_text(&buffer, "2 Shell ●")?;
+    ensure_text(&buffer, "web ›_")?;
+    check("docker_shell", &stage, buffer)
+}

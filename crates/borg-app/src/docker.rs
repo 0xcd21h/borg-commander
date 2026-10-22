@@ -3,15 +3,20 @@
 //! open, and folder listings for panels that show a container's filesystem.
 
 use std::{
+    collections::HashMap,
     io,
     path::PathBuf,
     time::{Duration, UNIX_EPOCH},
 };
 
 use borg_core::{DockerData, DockerRequest, FileOp, Msg};
+use borg_term::{CommandBuilder, Emulator, GridSize, Pty, PtyEvent, Screen, Scroll, TermMode};
 use borg_vfs::{Batches, Entry, EntryKind};
 use futures::StreamExt;
-use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
+use tokio::{
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+    task::JoinHandle,
+};
 
 /// How long to wait before restarting a stats stream that ended, such as when the engine
 /// restarts.
@@ -133,5 +138,88 @@ fn entry(dir: &std::path::Path, file: borg_docker::File) -> Entry {
         executable: file.executable(),
         permissions: file.mode & PERMISSION_BITS,
         name: file.name,
+    }
+}
+
+/// Lines of history each container shell keeps.
+const SHELL_SCROLLBACK: usize = 2000;
+/// Bash when the image has it, otherwise the POSIX shell every image with a shell has.
+const SHELL_SCRIPT: &str = "if command -v bash >/dev/null 2>&1; then exec bash; fi; exec sh";
+
+struct Shell {
+    pty: Pty,
+    emulator: Emulator,
+    size: GridSize,
+}
+
+/// Shells running inside containers, each with its own terminal, kept until they exit.
+pub struct Shells {
+    shells: HashMap<String, Shell>,
+    events: UnboundedSender<(String, PtyEvent)>,
+    pub incoming: UnboundedReceiver<(String, PtyEvent)>,
+}
+
+impl Shells {
+    pub fn new() -> Self {
+        let (events, incoming) = unbounded_channel();
+        Self { shells: HashMap::new(), events, incoming }
+    }
+
+    pub fn open(&mut self, container: String, size: GridSize) -> anyhow::Result<()> {
+        let mut command = CommandBuilder::new("docker");
+        command.args(["exec", "-it", "-e", "TERM=xterm-256color", &container, "sh", "-c", SHELL_SCRIPT]);
+        let (sender, mut receiver) = unbounded_channel();
+        let pty = Pty::spawn(command, size, sender)?;
+        let events = self.events.clone();
+        let name = container.clone();
+        tokio::spawn(async move {
+            while let Some(event) = receiver.recv().await {
+                if events.send((name.clone(), event)).is_err() {
+                    return;
+                }
+            }
+        });
+        self.shells.insert(container, Shell { pty, emulator: Emulator::new(size, SHELL_SCROLLBACK), size });
+        Ok(())
+    }
+
+    /// Feeds a shell's output to its terminal and returns the terminal's input mode.
+    pub fn feed(&mut self, container: &str, bytes: &[u8]) -> Option<TermMode> {
+        let shell = self.shells.get_mut(container)?;
+        shell.emulator.feed(bytes);
+        for reply in shell.emulator.drain_replies() {
+            let _ = shell.pty.write(reply.as_bytes());
+        }
+        Some(shell.emulator.mode())
+    }
+
+    pub fn input(&mut self, container: &str, bytes: &[u8]) {
+        if let Some(shell) = self.shells.get_mut(container) {
+            shell.emulator.scroll(Scroll::Bottom);
+            let _ = shell.pty.write(bytes);
+        }
+    }
+
+    pub fn scroll(&mut self, container: &str, scroll: Scroll) {
+        if let Some(shell) = self.shells.get_mut(container) {
+            shell.emulator.scroll(scroll);
+        }
+    }
+
+    /// Resizes a shell's terminal to the panel it shows in.
+    pub fn fit(&mut self, container: &str, size: GridSize) {
+        if let Some(shell) = self.shells.get_mut(container).filter(|shell| shell.size != size) {
+            shell.size = size;
+            shell.emulator.resize(size);
+            let _ = shell.pty.resize(size);
+        }
+    }
+
+    pub fn close(&mut self, container: &str) {
+        self.shells.remove(container);
+    }
+
+    pub fn screen(&self, container: &str) -> Option<Screen<'_>> {
+        self.shells.get(container).map(|shell| shell.emulator.screen())
     }
 }

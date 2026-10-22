@@ -23,6 +23,15 @@ fn jobs(state: &AppState) -> Option<(String, bool)> {
     Some((format!(tr!(alt_j_jobs), status = status), waiting))
 }
 
+/// The Docker shortcut, counting the container shells still open.
+fn docker_label(state: &AppState) -> String {
+    match state.docker.shells.len() {
+        0 => tr!(alt_c_docker).into(),
+        1 => tr!(alt_c_docker_shells_one).into(),
+        count => format!(tr!(alt_c_docker_shells_many), count = count),
+    }
+}
+
 pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action, bool)> {
     let mut items = vec![
         (tr!(ctrl_f_search), Action::Search),
@@ -70,8 +79,12 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
             (if state.sizing.is_some() { tr!(alt_i_stop_sizes) } else { tr!(alt_i_count_sizes) }, Action::MeasureSizes),
         );
     }
-    let mut items: Vec<(String, Action, bool)> =
-        items.into_iter().map(|(label, action)| (label.to_owned(), action, false)).collect();
+    let mut items: Vec<(String, Action, bool)> = items
+        .into_iter()
+        .map(|(label, action)| {
+            (if action == Action::Docker { docker_label(state) } else { label.to_owned() }, action, false)
+        })
+        .collect();
     if let Some((label, waiting)) = jobs(state) {
         items.insert(0, (label, Action::Jobs, waiting));
     }

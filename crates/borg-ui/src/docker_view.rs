@@ -13,6 +13,7 @@ use crate::{
 use borg_core::{AppState, Docker, DockerGroup, DockerRow, FileOp, Msg, Pointer};
 use borg_docker::{Action, Container, Health, State};
 use borg_i18n::tr;
+use borg_term::Screen;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 use jiff::{Timestamp, Zoned};
 use ratatui::{
@@ -32,8 +33,12 @@ const STATUS_FROM: u16 = 56;
 const LABEL_WIDTH: u16 = 10;
 const CHART_MIN_ROWS: u16 = 6;
 const SIDE_BY_SIDE_FROM: u16 = 60;
+/// Lines a wheel notch scrolls a shell's history.
+const SHELL_WHEEL: isize = 3;
 const MOUNTS_SHOWN: usize = 2;
 const UP: char = '●';
+/// Marks a container whose shell is open.
+const SHELL_MARK: &str = "›_";
 const DOWN: char = '○';
 
 /// The row in the list pane's frame where the column header sits.
@@ -109,24 +114,55 @@ fn local(time: &str, clock: &Zoned) -> String {
     )
 }
 
+/// Draws the Docker view and returns where the cursor goes while typing in a shell.
 pub(crate) fn draw(
     state: &AppState,
     look: &Look<'_>,
     panels: [Rect; 2],
+    shell: Option<&Screen<'_>>,
     clock: &Zoned,
     now: std::time::Instant,
     buf: &mut Buffer,
-) {
+) -> Option<Position> {
     let docker = &state.docker;
-    let Some(side) = docker.side else { return };
+    let side = docker.side?;
     let spinner = Spinner::of(&state.busy, borg_core::Task::Docker, now);
     let list = panels[side.index()];
     let details = panels[side.other().index()];
     if !list.is_empty() {
         draw_list(state, look, list, spinner, buf);
     }
-    if !details.is_empty() {
-        draw_details(docker, look, details, clock, buf);
+    if details.is_empty() { None } else { draw_details(docker, look, details, shell, clock, buf) }
+}
+
+/// The details panel's tabs: the overview, and the container's shell.
+fn tabs(docker: &Docker, container: &Container, area: Rect) -> Vec<(Rect, &'static str, KeyCode, bool)> {
+    let open = docker.shell(&container.id).is_some();
+    let shell = if open { tr!(docker_shell_open_tab) } else { tr!(docker_shell_tab) };
+    let showing_shell = open && docker.shell_tab;
+    let mut x = area.x;
+    [(tr!(docker_overview_tab), KeyCode::Char('1'), !showing_shell), (shell, KeyCode::Char('2'), showing_shell)]
+        .into_iter()
+        .map(|(label, key, active)| {
+            let width = (label.width() as u16 + 2).min(area.right().saturating_sub(x));
+            let rect = Rect { x, width, ..area };
+            x += width + 1;
+            (rect, label, key, active)
+        })
+        .collect()
+}
+
+fn header(container: &Container, docker: &Docker, theme: &Theme, inner: Rect, buf: &mut Buffer) {
+    let status = docker.working_on(&container.id).map_or_else(|| container.status.clone(), |a| working_label(a).into());
+    Line::from(vec![
+        Span::styled(format!("{} ", dot(container)), tone(container, theme)),
+        Span::styled(status, emphasis(theme)),
+    ])
+    .render(row(inner, 0), buf);
+    for (rect, label, _, active) in tabs(docker, container, row(inner, 1)) {
+        let style = if active { theme.styles.cursor } else { theme.styles.menu };
+        buf.set_style(rect, style);
+        text(buf, Rect { x: rect.x + 1, width: rect.width.saturating_sub(1), ..rect }, label, style);
     }
 }
 
@@ -225,6 +261,10 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: Option<Spin
                 Line::from(vec![
                     Span::styled(format!("  {} ", dot(container)), dot_style),
                     Span::styled(container.label().to_owned(), base),
+                    Span::styled(
+                        if docker.shell(&container.id).is_some() { format!(" {SHELL_MARK}") } else { String::new() },
+                        if selected { base } else { heading(theme) },
+                    ),
                 ])
                 .render(name, buf);
                 if let Some(usage) = docker.usage.get(&container.id).filter(|_| container.state.is_up()) {
@@ -377,7 +417,14 @@ fn summed(histories: &[&[u64]]) -> Vec<u64> {
         .collect()
 }
 
-fn draw_details(docker: &Docker, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
+fn draw_details(
+    docker: &Docker,
+    look: &Look<'_>,
+    rect: Rect,
+    shell: Option<&Screen<'_>>,
+    clock: &Zoned,
+    buf: &mut Buffer,
+) -> Option<Position> {
     let focused = docker.details_focused;
     if let Some(container) = docker.container() {
         let title = match &container.project {
@@ -385,35 +432,36 @@ fn draw_details(docker: &Docker, look: &Look<'_>, rect: Rect, clock: &Zoned, buf
             None => container.label().to_owned(),
         };
         let inner = frame(docker, look, rect, &title, focused, buf);
-        container_details(docker, container, look, inner, rect, clock, buf);
+        if inner.is_empty() {
+            return None;
+        }
+        header(container, docker, look.theme, inner, buf);
+        if let (Some(_), Some(screen)) = (docker.visible_shell(), shell) {
+            let area = borg_core::shell_rect(rect);
+            crate::term_view::draw_screen(screen, area, buf);
+            let (x, y) = screen.cursor();
+            let cursor = Position::new(area.x.saturating_add(x), area.y.saturating_add(y));
+            return (docker.typing() && screen.cursor_visible() && area.contains(cursor)).then_some(cursor);
+        }
+        container_details(docker, container, look, rect, clock, buf);
     } else if let Some(group) = docker.group() {
         let inner = frame(docker, look, rect, &project_name(group), focused, buf);
         group_details(docker, group, look, inner, rect, buf);
     } else {
         frame(docker, look, rect, tr!(docker_container), focused, buf);
     }
+    None
 }
 
 fn container_details(
     docker: &Docker,
     container: &Container,
     look: &Look<'_>,
-    inner: Rect,
     rect: Rect,
     clock: &Zoned,
     buf: &mut Buffer,
 ) {
     let theme = look.theme;
-    if inner.is_empty() {
-        return;
-    }
-    let status = docker.working_on(&container.id).map_or_else(|| container.status.clone(), |a| working_label(a).into());
-    Line::from(vec![
-        Span::styled(format!("{} ", dot(container)), tone(container, theme)),
-        Span::styled(status, emphasis(theme)),
-    ])
-    .render(row(inner, 0), buf);
-    text(buf, row(inner, 1), container.image.clone(), theme.styles.overlay);
     let body = body(rect);
     let usage = docker.usage.get(&container.id).filter(|_| container.state.is_up());
     let used = usage.map_or(0, |usage| {
@@ -436,6 +484,7 @@ fn container_details(
     let rest = Rect { y: body.y + used.min(body.height), height: body.height.saturating_sub(used), ..body };
     let mut facts = Facts { area: rest, y: 0, theme };
     let details = docker.selected_details();
+    facts.add(buf, tr!(docker_image), container.image.clone());
     if let (Some(project), Some(service)) = (&container.project, &container.service) {
         facts.add(buf, tr!(docker_compose), format!("{project} · {service}"));
     }
@@ -573,6 +622,7 @@ fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
             (tr!(docker_restart_button), KeyCode::Char('r')),
             (if paused { tr!(docker_resume_button) } else { tr!(docker_pause_button) }, KeyCode::Char('p')),
             (tr!(docker_files_button), KeyCode::Char('f')),
+            (tr!(docker_shell_button), KeyCode::Char('e')),
             (tr!(activity_filter_button), KeyCode::Char('/')),
             (if docker.details_focused { tr!(docker_list_button) } else { tr!(docker_details_button) }, KeyCode::Tab),
             (if docker.details_focused { tr!(activity_back_button) } else { tr!(activity_close_button) }, KeyCode::Esc),
@@ -605,9 +655,33 @@ pub(crate) fn file_work_label(state: &AppState, work: &borg_core::FileWork) -> S
     }
 }
 
+/// The buttons while typing in a shell: back to the list, and maximize.
+fn typing_buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, Pointer)> {
+    let mut x = area.x;
+    [
+        (tr!(docker_list_button_alt), Pointer::DockerControl { details: false, code: KeyCode::Null }),
+        (tr!(docker_maximize_button), Pointer::DockerExpand { details: true, expand: !docker.expanded }),
+    ]
+    .into_iter()
+    .map(|(label, pointer)| {
+        let rect = Rect { x, width: (label.width() as u16 + 2).min(area.right().saturating_sub(x)), ..area };
+        x += rect.width;
+        (rect, label, pointer)
+    })
+    .collect()
+}
+
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
     let docker = &state.docker;
     buf.set_style(area, theme.styles.key_label);
+    if let Some(shell) = docker.visible_shell().filter(|_| docker.typing()) {
+        for (rect, label, _) in typing_buttons(docker, row(area, 0)) {
+            text(buf, rect, label, theme.styles.key);
+        }
+        let hint = format!(tr!(docker_typing_hint), name = shell.name);
+        text(buf, crate::branding::content(row(area, 1)), hint, theme.styles.key_label);
+        return;
+    }
     for (rect, label, _) in buttons(docker, row(area, 0)) {
         text(buf, rect, label, theme.styles.key);
     }
@@ -644,6 +718,12 @@ pub(crate) fn panel_mouse(
         if !left_click {
             return None;
         }
+        if docker.typing() {
+            return typing_buttons(docker, row(layout.keybar, 0))
+                .into_iter()
+                .find(|(rect, _, _)| rect.contains(point))
+                .map(|(_, _, pointer)| Msg::Pointer(pointer));
+        }
         return buttons(docker, row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
@@ -664,6 +744,21 @@ pub(crate) fn panel_mouse(
                 borg_core::Action::SetExpanded(expand) => Pointer::DockerExpand { details, expand },
                 _ => Pointer::DockerHide,
             }));
+        }
+        if details && docker.visible_shell().is_some() {
+            match event.kind {
+                MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::DockerShellScroll(-SHELL_WHEEL))),
+                MouseEventKind::ScrollDown => return Some(Msg::Pointer(Pointer::DockerShellScroll(SHELL_WHEEL))),
+                _ => {}
+            }
+        }
+        if details
+            && left_click
+            && let Some(container) = docker.container()
+            && let Some((_, _, code, _)) =
+                tabs(docker, container, row(inner(rect), 1)).into_iter().find(|(r, _, _, _)| r.contains(point))
+        {
+            return Some(Msg::Pointer(Pointer::DockerControl { details: false, code }));
         }
         let wheel = match event.kind {
             MouseEventKind::ScrollUp => Some(KeyCode::Up),

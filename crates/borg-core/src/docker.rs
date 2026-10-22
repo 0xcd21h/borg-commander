@@ -10,7 +10,9 @@ use std::{
 };
 
 use borg_docker::{Action, Container, Details, State, Stats};
+use borg_term::{GridSize, Scroll, TermMode, encode_key, encode_paste};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::Rect;
 
 use crate::{AppState, Confirm, ConfirmPurpose, Effect, HISTORY, Overlay, Side, View};
 
@@ -69,6 +71,34 @@ pub struct Mount {
     pub name: String,
     /// The host folder the panel showed before; `..` at the container's root returns to it.
     pub host: PathBuf,
+}
+
+/// A shell running inside a container. It stays open while hidden, until it exits, the
+/// container stops, or Borg quits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerShell {
+    pub container: String,
+    pub name: String,
+    pub mode: TermMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellRequest {
+    Open { container: String, size: GridSize },
+    Input { container: String, bytes: Vec<u8> },
+    Scroll { container: String, scroll: Scroll },
+}
+
+/// The rows of the details panel below its status and tabs, where a shell runs.
+pub fn shell_rect(panel: Rect) -> Rect {
+    const HEADER: u16 = 2;
+    let inner = Rect {
+        x: panel.x + 1,
+        y: panel.y + 1,
+        width: panel.width.saturating_sub(2),
+        height: panel.height.saturating_sub(2),
+    };
+    Rect { y: inner.y + HEADER.min(inner.height), height: inner.height.saturating_sub(HEADER), ..inner }
 }
 
 /// File work in progress, shown in the footer of the panel it changes.
@@ -134,6 +164,9 @@ pub struct Docker {
     pub error: Option<String>,
     pub working: Vec<Working>,
     pub files: Vec<FileWork>,
+    pub shells: Vec<ContainerShell>,
+    /// Whether the details panel shows the selected container's shell, when it has one.
+    pub shell_tab: bool,
     pub pending: Option<(u64, DockerRequest)>,
     collapsed: HashSet<Option<String>>,
     selected: Option<Key>,
@@ -181,6 +214,21 @@ impl Docker {
     pub fn selected_details(&self) -> Option<&Details> {
         let container = self.container()?;
         self.details.as_ref().filter(|(id, _)| *id == container.id).map(|(_, details)| details)
+    }
+
+    pub fn shell(&self, container: &str) -> Option<&ContainerShell> {
+        self.shells.iter().find(|shell| shell.container == container)
+    }
+
+    /// The shell in the details panel: the selected container's, on the Shell tab.
+    pub fn visible_shell(&self) -> Option<&ContainerShell> {
+        let container = self.container().filter(|_| self.shell_tab)?;
+        self.shell(&container.id)
+    }
+
+    /// Whether keys go to a container's shell.
+    pub fn typing(&self) -> bool {
+        self.is_open() && self.details_focused && self.visible_shell().is_some()
     }
 
     /// The action running on a container, so its row can say "Stopping…".
@@ -337,6 +385,12 @@ pub(crate) fn can(state: &AppState, action: Action) -> bool {
     state.docker.is_open() && !targets(&state.docker, action).is_empty()
 }
 
+/// Whether the selection is a container with a shell open, or a running one to open one in.
+pub(crate) fn can_open_shell(state: &AppState) -> bool {
+    state.docker.is_open()
+        && state.docker.container().is_some_and(|c| c.state == State::Running || state.docker.shell(&c.id).is_some())
+}
+
 /// Whether the selection is a running container, whose files can be browsed.
 pub(crate) fn can_browse(state: &AppState) -> bool {
     state.docker.is_open() && state.docker.container().is_some_and(|c| c.state == State::Running)
@@ -475,6 +529,79 @@ fn finish_files(state: &mut AppState, work: FileWork, result: Result<DockerData,
             state.reload_all()
         }
     }
+}
+
+/// Opens a shell in the selected container, or shows the one already open, and sends keys to it.
+pub(crate) fn open_shell(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    let Some(container) = state.docker.container().cloned() else {
+        state.notice = Some(tr!(docker_choose_container).into());
+        return Vec::new();
+    };
+    if state.docker.shell(&container.id).is_none() && container.state != State::Running {
+        state.notice = Some(tr!(docker_start_for_shell).into());
+        return Vec::new();
+    }
+    let docker = &mut state.docker;
+    docker.shell_tab = true;
+    docker.details_focused = true;
+    docker.filtering = false;
+    if docker.shell(&container.id).is_some() {
+        return Vec::new();
+    }
+    let name = container.label().to_owned();
+    docker.shells.push(ContainerShell { container: container.id.clone(), name, mode: TermMode::empty() });
+    let side = docker.side.unwrap_or(state.active).other();
+    let area = shell_rect(state.layout(now).panels[side.index()]);
+    let size = GridSize { cols: area.width.max(MIN_SHELL.0), rows: area.height.max(MIN_SHELL.1) };
+    vec![Effect::DockerShell(ShellRequest::Open { container: container.id, size })]
+}
+
+/// The smallest terminal a shell starts with, should the details panel be hidden.
+const MIN_SHELL: (u16, u16) = (20, 5);
+
+pub(crate) fn shell_output(state: &mut AppState, container: &str, mode: TermMode) {
+    if let Some(shell) = state.docker.shells.iter_mut().find(|shell| shell.container == container) {
+        shell.mode = mode;
+    }
+}
+
+pub(crate) fn shell_closed(state: &mut AppState, container: &str) {
+    let docker = &mut state.docker;
+    let Some(index) = docker.shells.iter().position(|shell| shell.container == container) else { return };
+    let shell = docker.shells.remove(index);
+    if docker.container().is_some_and(|c| c.id == container) {
+        docker.details_focused = false;
+        docker.shell_tab = false;
+    }
+    state.notice = Some(format!(tr!(docker_shell_closed), name = shell.name));
+}
+
+/// Keys while typing in a shell: Alt-C returns to the list, Alt-W maximizes, Ctrl-O shows
+/// the host console, and everything else goes to the shell.
+fn shell_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    match (key.modifiers, key.code) {
+        (KeyModifiers::ALT, KeyCode::Char('c')) => state.docker.details_focused = false,
+        (KeyModifiers::ALT, KeyCode::Char('w')) => state.docker.expanded = !state.docker.expanded,
+        (KeyModifiers::CONTROL, KeyCode::Char('o')) => {
+            return crate::actions::perform(state, crate::Action::ToggleShell, now);
+        }
+        _ => {
+            let Some(shell) = state.docker.visible_shell() else { return Vec::new() };
+            let container = shell.container.clone();
+            let Some(bytes) = encode_key(key, shell.mode) else { return Vec::new() };
+            return vec![Effect::DockerShell(ShellRequest::Input { container, bytes })];
+        }
+    }
+    Vec::new()
+}
+
+/// Scrolls the visible shell's history with the wheel.
+pub(crate) fn scroll_shell(state: &AppState, scroll: Scroll) -> Vec<Effect> {
+    state
+        .docker
+        .visible_shell()
+        .map(|shell| vec![Effect::DockerShell(ShellRequest::Scroll { container: shell.container.clone(), scroll })])
+        .unwrap_or_default()
 }
 
 /// The container a panel shows, if it shows one's filesystem.
@@ -690,14 +817,22 @@ fn filter_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> bool {
     true
 }
 
-pub(crate) fn paste(state: &mut AppState, text: &str) {
+pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
+    if let Some(shell) = state.docker.visible_shell().filter(|_| state.docker.typing()) {
+        let bytes = encode_paste(text, shell.mode);
+        return vec![Effect::DockerShell(ShellRequest::Input { container: shell.container.clone(), bytes })];
+    }
     if state.docker.filtering {
         state.docker.filter.extend(text.chars().filter(|c| !c.is_control()).take(FILTER_LIMIT));
         state.docker.rebuild();
     }
+    Vec::new()
 }
 
 pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if state.docker.typing() {
+        return shell_key(state, key, now);
+    }
     if key.modifiers == KeyModifiers::ALT.union(KeyModifiers::SHIFT)
         && matches!(key.code, KeyCode::Left | KeyCode::Right)
     {
@@ -766,6 +901,10 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             return act(state, action);
         }
         KeyCode::Char('f' | 'F') => return browse(state),
+        KeyCode::Char('e' | 'E' | '2') => return open_shell(state, now),
+        KeyCode::Char('1') => {
+            docker.shell_tab = false;
+        }
         _ => {}
     }
     Vec::new()

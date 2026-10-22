@@ -102,6 +102,7 @@ pub struct App {
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
     docker: crate::docker::Docker,
+    shells: crate::docker::Shells,
 }
 
 enum Flow {
@@ -182,6 +183,7 @@ impl App {
             plugins,
             monitor,
             docker,
+            shells: crate::docker::Shells::new(),
         })
     }
 
@@ -232,6 +234,7 @@ impl App {
                     None => Flow::Quit,
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
+                Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
@@ -301,6 +304,7 @@ impl App {
             let scene = Scene {
                 state: &self.state,
                 screen: self.emulator.screen(),
+                docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
                 palette: &self.palette,
                 themes: &self.themes,
                 clock,
@@ -442,6 +446,30 @@ impl App {
         }
     }
 
+    fn on_container_shell(&mut self, container: String, event: PtyEvent) -> Result<Flow> {
+        match event {
+            PtyEvent::Output(bytes) => match self.shells.feed(&container, &bytes) {
+                Some(mode) => self.dispatch(Msg::DockerShellOutput { container, mode }),
+                None => Ok(Flow::Continue),
+            },
+            PtyEvent::Closed => {
+                self.shells.close(&container);
+                self.dispatch(Msg::DockerShellClosed { container })
+            }
+        }
+    }
+
+    /// Keeps the visible container shell's terminal the size of its panel.
+    fn fit_container_shell(&mut self) {
+        let docker = &self.state.docker;
+        let (Some(shell), Some(side)) = (docker.visible_shell(), docker.side) else { return };
+        let area = borg_core::shell_rect(self.state.layout(Instant::now()).panels[side.other().index()]);
+        if area.width > 0 && area.height > 0 {
+            let container = shell.container.clone();
+            self.shells.fit(&container, GridSize { cols: area.width, rows: area.height });
+        }
+    }
+
     fn observe(&mut self, message: fn(ShellView) -> Msg) -> Result<Flow> {
         let view = ShellView {
             prompt: self.emulator.prompt_state(),
@@ -475,7 +503,9 @@ impl App {
                 task.abort();
             }
         }
-        self.apply(effects)
+        let flow = self.apply(effects)?;
+        self.fit_container_shell();
+        Ok(flow)
     }
 
     fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
@@ -497,6 +527,7 @@ impl App {
                 Effect::Activity { id, request } => self.monitor.request(id, request),
                 Effect::Docker { id, request } => self.docker.request(id, request),
                 Effect::DockerWatch(on) => self.docker.watch(on),
+                Effect::DockerShell(request) => self.container_shell(request),
                 Effect::ExportMemory { path, bytes } => {
                     let messages = self.messages.clone();
                     tokio::task::spawn_blocking(move || {
@@ -565,6 +596,20 @@ impl App {
             }
         }
         Ok(Flow::Continue)
+    }
+
+    fn container_shell(&mut self, request: borg_core::ShellRequest) {
+        use borg_core::ShellRequest;
+        match request {
+            ShellRequest::Open { container, size } => {
+                if let Err(error) = self.shells.open(container.clone(), size) {
+                    let _ = self.messages.send(Msg::Notice(format!("{error:#}")));
+                    let _ = self.messages.send(Msg::DockerShellClosed { container });
+                }
+            }
+            ShellRequest::Input { container, bytes } => self.shells.input(&container, &bytes),
+            ShellRequest::Scroll { container, scroll } => self.shells.scroll(&container, scroll),
+        }
     }
 
     fn start_job(&mut self, id: u64, spec: Spec) {

@@ -14,6 +14,7 @@ pub enum Pointer {
     DockerHide,
     DockerRow { index: usize, open: bool },
     DockerControl { details: bool, code: crossterm::event::KeyCode },
+    DockerShellScroll(isize),
     TreeNode { side: Side, index: usize },
     PromptField { option: bool },
     ResultControl { side: Side, action: Action },
@@ -79,6 +80,10 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         (Pointer::DockerHide, None) if state.docker.is_open() => crate::docker::close(state),
         (Pointer::DockerRow { index, open }, None) if state.docker.is_open() => {
             return crate::docker::click(state, index, open, now);
+        }
+        (Pointer::DockerShellScroll(lines), None) if state.docker.is_open() => {
+            let scroll = borg_term::Scroll::Delta(-(lines as i32));
+            return crate::docker::scroll_shell(state, scroll);
         }
         (Pointer::DockerControl { details, code }, None) if state.docker.is_open() => {
             state.docker.details_focused = details;

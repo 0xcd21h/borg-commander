@@ -14,6 +14,7 @@ pub enum Action {
     DockerAct(borg_docker::Action),
     DockerFilter,
     DockerFiles,
+    DockerShell,
     Search,
     AnalyzeSpace,
     FolderTree,
