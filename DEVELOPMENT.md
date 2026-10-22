@@ -266,13 +266,13 @@ an artifact.
 
 ### README screenshots
 
-The theme gallery and the size, activity, and screensaver showcase are rendered from
-fictional folders and processes, so they never show the machine they were made on:
+The theme gallery and the size and activity showcase are rendered from fictional folders
+and processes, so they never show the machine they were made on:
 
 ```sh
 export BORG_SCREENSHOT_FONT=fonts/BorgMono-Regular.ttf BORG_SCREENSHOT_FONT_BOLD=fonts/BorgMono-Bold.ttf
 cargo run -p borg-testkit --example themes      # writes docs/themes/*.png
-cargo run -p borg-testkit --example showcase    # writes docs/showcase/*.png and glitch.gif
+cargo run -p borg-testkit --example showcase    # writes docs/showcase/*.png
 ```
 
 ### The demo

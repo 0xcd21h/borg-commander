@@ -13,6 +13,8 @@ use crossterm::event::KeyCode;
 const USAGE: &str = "usage: demo <path-to-borg-binary> <output.gif>";
 const FRAME: Duration = Duration::from_millis(90);
 const TAIL: Duration = Duration::from_secs(3);
+/// The startup intro, from the logo tearing in until the panels appear.
+const INTRO: Duration = Duration::from_millis(1500);
 const COLS: u16 = 132;
 const ROWS: u16 = 36;
 const CONFIG: &str = "theme = \"neon\"\nnerd-font = true\nreturn-to-panels = false\nmenu-bar = true\n";
@@ -171,6 +173,8 @@ fn main() -> Result<()> {
     let app = Session::builder(&binary, &fixture).cwd(root).size(COLS, ROWS).label("demo").spawn()?;
     let mut script = Script { app, recorder: Recorder::new(FRAME) };
 
+    script.app.wait_until("the glitch intro", |screen| screen.contains("█"))?;
+    script.recorder.record(&mut script.app, INTRO)?;
     script.app.wait_text("README.md")?;
     script.app.wait_text("checksums.txt")?;
     script.app.wait_text("Git main")?;
