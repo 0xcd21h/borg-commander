@@ -915,6 +915,31 @@ fn mouse(kind: u8, x: u16, y: u16) -> String {
 }
 
 #[test]
+fn wheel_momentum_after_leaving_the_console_does_not_move_the_panel() -> Result<()> {
+    const WHEEL_UP: u8 = 64;
+    const WHEEL_DOWN: u8 = 65;
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "wheel-momentum")?;
+    app.send("printf 'line-%03d\\n' {1..60}")?.send(keys::enter())?;
+    app.wait_text("line-060")?;
+    app.wait_text("Borg console")?;
+    let burst = |direction| (0..6).map(|_| mouse(direction, 10, 5)).collect::<String>();
+    app.send(burst(WHEEL_UP))?.send(keys::ctrl('o'))?.send(burst(WHEEL_DOWN))?;
+    app.wait_until("panels back", panels_ready)?;
+    app.pump(std::time::Duration::from_millis(300))?;
+    let after = app.settle()?;
+    ensure!(
+        status(&after).contains("parent directory"),
+        "the console's wheel burst moved the panel: {}",
+        status(&after)
+    );
+    app.pump(std::time::Duration::from_millis(400))?;
+    app.send(mouse(WHEEL_DOWN, 10, 5))?;
+    app.wait_until("a new wheel gesture moves the panel", |s| !status(s).contains("parent directory"))?;
+    Ok(())
+}
+
+#[test]
 fn mouse_opens_menus_and_activates_items() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "mouse-menus")?;
