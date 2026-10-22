@@ -179,6 +179,10 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
         if !click && !mark {
             return None;
         }
+        // The footer shows a running size scan; clicking it stops the scan, like Alt-I.
+        if click && point.y + 1 == rect.bottom() && state.sizing.as_ref().is_some_and(|scan| scan.side == side) {
+            return Some(Msg::Pointer(Pointer::Action(borg_core::Action::MeasureSizes)));
+        }
         if state.panel(side).is_results() {
             let (header, body) = crate::results_view::geometry(rect);
             if click && header.contains(point) {

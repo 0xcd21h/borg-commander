@@ -165,6 +165,7 @@ fn run(
                 }
             };
             let device = root.dev();
+            let root_identity = (root.dev(), root.ino());
             let reader = match fs::read_dir(&search.root) {
                 Ok(reader) => reader,
                 Err(error) => {
@@ -172,10 +173,10 @@ fn run(
                     return;
                 }
             };
-            let mut stack = vec![reader];
+            let mut stack = vec![(reader, root_identity)];
             let mut found = 0;
             let mut last = Instant::now();
-            while let Some(reader) = stack.last_mut() {
+            while let Some((reader, _)) = stack.last_mut() {
                 if stream.stopped() {
                     return;
                 }
@@ -222,9 +223,15 @@ fn run(
                 }
                 if entry.kind == borg_vfs::EntryKind::Dir {
                     match fs::symlink_metadata(item.path()) {
-                        Ok(meta) if meta.dev() != device || stack.len() >= MAX_DEPTH => progress.skipped += 1,
-                        Ok(_) => match fs::read_dir(item.path()) {
-                            Ok(reader) => stack.push(reader),
+                        Ok(meta)
+                            if meta.dev() != device
+                                || stack.len() >= MAX_DEPTH
+                                || revisits(stack.iter().map(|(_, id)| *id), &meta) =>
+                        {
+                            progress.skipped += 1
+                        }
+                        Ok(meta) => match fs::read_dir(item.path()) {
+                            Ok(reader) => stack.push((reader, (meta.dev(), meta.ino()))),
                             Err(_) => progress.errors += 1,
                         },
                         Err(_) => progress.errors += 1,
@@ -261,6 +268,33 @@ struct Directory {
     entry: Entry,
     usage: borg_vfs::FolderUsage,
     bytes: u64,
+    /// Device and inode, to recognise a folder that contains itself.
+    identity: (u64, u64),
+}
+
+/// Whether entering `meta` would revisit a folder already being walked. Symlinks are never
+/// followed, so this catches loops made by bind mounts or hard-linked folders on the same
+/// filesystem, which would otherwise repeat until the depth limit.
+fn revisits(ancestors: impl IntoIterator<Item = (u64, u64)>, meta: &fs::Metadata) -> bool {
+    ancestors.into_iter().any(|identity| identity == (meta.dev(), meta.ino()))
+}
+
+/// Running totals for the folders still being measured, innermost first: each includes the
+/// folders below it that are still open, and is marked partial because it is still growing.
+fn provisional(stack: &[Directory]) -> Vec<Entry> {
+    let mut below = (0u64, 0u64, 0u64);
+    let mut entries = Vec::with_capacity(stack.len());
+    for directory in stack.iter().rev() {
+        let bytes = directory.bytes.saturating_add(below.0);
+        let files = directory.usage.files.saturating_add(below.1);
+        let folders = directory.usage.folders.saturating_add(below.2);
+        let mut entry = directory.entry.clone();
+        entry.size = bytes;
+        entry.usage = Some(borg_vfs::FolderUsage { files, folders, partial: true, ..directory.usage.clone() });
+        entries.push(entry);
+        below = (bytes, files, folders.saturating_add(1));
+    }
+    entries
 }
 
 fn scan_sizes(search: &SearchRequest, stream: &mut Output<'_>, cache: &crate::size_cache::SizeCache) {
@@ -288,11 +322,13 @@ fn scan_sizes(search: &SearchRequest, stream: &mut Output<'_>, cache: &crate::si
     let mut frontier = std::collections::HashSet::new();
     let query = Query::parse(&search.query);
     let open = |path: &std::path::Path| -> std::io::Result<Directory> {
+        let meta = fs::symlink_metadata(path)?;
         Ok(Directory {
             reader: fs::read_dir(path)?,
             entry: borg_vfs::entry(path)?,
             usage: Default::default(),
             bytes: 0,
+            identity: (meta.dev(), meta.ino()),
         })
     };
     let root = match open(&search.root) {
@@ -329,6 +365,11 @@ fn scan_sizes(search: &SearchRequest, stream: &mut Output<'_>, cache: &crate::si
             return;
         }
         if last.elapsed() >= PROGRESS_EVERY {
+            // Background scans also report how far each open folder has got, so large
+            // folders grow on screen instead of staying blank until they finish.
+            if stream.background && provisional(&stack).into_iter().any(|entry| !stream.push(entry)) {
+                return;
+            }
             if !stream.flush()
                 || !stream.send(Msg::SearchProgress {
                     side: stream.side,
@@ -400,7 +441,10 @@ fn scan_sizes(search: &SearchRequest, stream: &mut Output<'_>, cache: &crate::si
             }
         };
         if meta.is_dir() {
-            if meta.dev() != device || stack.len() >= MAX_DEPTH {
+            if meta.dev() != device
+                || stack.len() >= MAX_DEPTH
+                || revisits(stack.iter().map(|directory| directory.identity), &meta)
+            {
                 progress.skipped += 1;
                 stack.last_mut().unwrap().usage.partial = true;
                 continue;
@@ -918,5 +962,47 @@ mod tests {
         let (tree, progress) = measured_tree(&mut search, &root, false).await;
         assert_eq!(tree.len(), 3);
         assert!(progress.cached);
+    }
+
+    #[test]
+    fn folders_already_being_walked_are_not_entered_again() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("a/b")).unwrap();
+        let id = |path: &std::path::Path| {
+            let meta = fs::symlink_metadata(path).unwrap();
+            (meta.dev(), meta.ino())
+        };
+        let walked = [id(temp.path()), id(&temp.path().join("a"))];
+        assert!(revisits(walked, &fs::symlink_metadata(temp.path().join("a")).unwrap()));
+        assert!(revisits(walked, &fs::symlink_metadata(temp.path()).unwrap()));
+        assert!(!revisits(walked, &fs::symlink_metadata(temp.path().join("a/b")).unwrap()));
+    }
+
+    #[test]
+    fn running_totals_include_open_subfolders_and_are_marked_partial() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("a/b")).unwrap();
+        let frame = |path: std::path::PathBuf, bytes: u64, files: u64, folders: u64| Directory {
+            reader: fs::read_dir(&path).unwrap(),
+            entry: borg_vfs::entry(&path).unwrap(),
+            usage: borg_vfs::FolderUsage { files, folders, ..Default::default() },
+            bytes,
+            identity: (0, 0),
+        };
+        let stack = [
+            frame(temp.path().to_path_buf(), 10, 1, 0),
+            frame(temp.path().join("a"), 5, 2, 0),
+            frame(temp.path().join("a/b"), 3, 1, 0),
+        ];
+        let totals: Vec<_> = provisional(&stack)
+            .into_iter()
+            .map(|entry| {
+                let usage = entry.usage.unwrap();
+                (entry.name, entry.size, usage.files, usage.folders, usage.partial)
+            })
+            .collect();
+        assert_eq!(totals[0], ("b".into(), 3, 1, 0, true));
+        assert_eq!(totals[1], ("a".into(), 8, 3, 1, true));
+        assert_eq!((totals[2].1, totals[2].2, totals[2].3, totals[2].4), (18, 4, 2, true));
     }
 }

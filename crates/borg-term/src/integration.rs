@@ -1,5 +1,7 @@
 use std::{
-    fs, io,
+    fs,
+    io::{self, Write},
+    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
     path::{Path, PathBuf},
 };
 
@@ -10,6 +12,13 @@ const ENV_INTEGRATION_DIR: &str = "BORG_INTEGRATION_DIR";
 const ENV_USER_ZDOTDIR: &str = "BORG_USER_ZDOTDIR";
 const ENV_ZDOTDIR: &str = "ZDOTDIR";
 const ENV_TERM: &str = "TERM";
+const ENV_CD_FILE: &str = "BORG_CD_FILE";
+const PRIVATE_FILE: u32 = 0o600;
+
+/// A key no terminal sends. Shells that announce [`crate::ShellSignal::SilentCd`] bind it
+/// to change into the folder named in their request file, then redraw the prompt in place,
+/// so the change never appears as a typed command.
+pub const SILENT_CD_KEY: &[u8] = b"\x1b[2468~";
 const TERM_NAME: &str = "xterm-256color";
 
 const BASH_RC: Script = Script { name: "bashrc.bash", body: include_str!("../shell/bashrc.bash") };
@@ -59,6 +68,7 @@ pub fn shell_command(program: &Path, cwd: &Path, runtime_dir: &Path) -> io::Resu
     cmd.env(SESSION_MARKER, env!("CARGO_PKG_VERSION"));
     cmd.env(ENV_TERM, TERM_NAME);
     cmd.env(ENV_INTEGRATION_DIR, &integration_dir);
+    cmd.env(ENV_CD_FILE, cd_request_file(runtime_dir));
 
     match kind {
         ShellKind::Bash => cmd.args([Path::new("--rcfile"), &integration_dir.join(BASH_RC.name), Path::new("-i")]),
@@ -76,6 +86,25 @@ pub fn shell_command(program: &Path, cwd: &Path, runtime_dir: &Path) -> io::Resu
     }
 
     Ok(cmd)
+}
+
+/// Where this process asks its shell to change directory (see [`SILENT_CD_KEY`]).
+pub fn cd_request_file(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join(env!("CARGO_PKG_VERSION")).join(format!("cd-{}", std::process::id()))
+}
+
+/// Writes the folder for the shell to change into. The file is replaced, never written
+/// through, and readable only by its owner.
+pub fn request_cd(file: &Path, dir: &Path) -> io::Result<()> {
+    let staged = file.with_extension("new");
+    match fs::remove_file(&staged) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    let mut out = fs::OpenOptions::new().write(true).create_new(true).mode(PRIVATE_FILE).open(&staged)?;
+    out.write_all(dir.as_os_str().as_bytes())?;
+    drop(out);
+    fs::rename(staged, file)
 }
 
 fn install(kind: ShellKind, runtime_dir: &Path) -> io::Result<PathBuf> {

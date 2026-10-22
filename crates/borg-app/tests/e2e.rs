@@ -251,6 +251,34 @@ fn panel_navigation_moves_shell_before_next_command() -> Result<()> {
 }
 
 #[test]
+fn zsh_follows_panel_folders_without_echoing_cd_commands() -> Result<()> {
+    if Shell::Zsh.locate().is_none() {
+        return Ok(());
+    }
+    let fixture = fixture()?;
+    fs::write(fixture.home().join(".zshrc"), "PROMPT='$ %1~ '\nRPROMPT=''\nPROMPT_EOL_MARK=''\n")?;
+    let mut app = start_with(&fixture, "zsh-silent-cd", Shell::Zsh)?;
+    app.send(keys::down())?.send(keys::enter())?;
+    app.wait_text("one.txt")?;
+    app.send(keys::ctrl('o'))?;
+    let console = app.wait_until("prompt redrawn in the panel folder", |s| s.contains("$ alpha"))?;
+    ensure!(!console.contains("cd '"), "the folder change was echoed:\n{}", console.text());
+    app.send("pwd")?.send(keys::enter())?;
+    let expected = fixture.work().join("alpha").display().to_string();
+    let output = app.wait_until("pwd output", |s| s.lines().iter().any(|line| line == &expected))?;
+    ensure!(!output.contains("cd '"), "the folder change was echoed:\n{}", output.text());
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("one.txt")?;
+    app.send(keys::down())?.send(keys::enter())?;
+    app.wait_text("0 items")?;
+    app.send("pwd")?.send(keys::enter())?;
+    let inner = fixture.work().join("alpha/inner").display().to_string();
+    let typed = app.wait_until("pwd typed from the panels", |s| s.lines().iter().any(|line| line == &inner))?;
+    ensure!(!typed.contains("cd '"), "the folder change was echoed:\n{}", typed.text());
+    Ok(())
+}
+
+#[test]
 fn tab_switches_panels_on_empty_line_and_completes_otherwise() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "tab")?;
@@ -835,11 +863,11 @@ fn ctrl_s_finds_files_as_you_type() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "find")?;
     app.send(keys::ctrl('s'))?;
-    app.wait_text("find:")?;
+    app.wait_text(" Find ")?;
     app.send("note")?;
     app.wait_until("cursor on notes", |s| highlighted(s, "notes.txt") && s.contains("1/1"))?;
     app.send(keys::enter())?;
-    app.wait_gone("find:")?;
+    app.wait_gone(" Find ")?;
     app.send(keys::f(3))?;
     app.wait_text("hello")?;
     Ok(())
@@ -1343,8 +1371,9 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
     app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    let list = app
-        .wait_until("own process in activity list", |s| s.contains("borg") && s.contains(&format!("Filter: {pid}")))?;
+    let list = app.wait_until("own process in activity list", |s| {
+        s.contains("borg") && s.contains(&format!(" {pid} ")) && s.contains("/ edit")
+    })?;
     ensure!(list.contains("RAM") && list.contains("Borg Commander"));
     app.send(keys::tab())?;
     app.wait_text("Process memory")?;
@@ -1395,7 +1424,11 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     app.send(keys::esc())?;
     app.wait_text("Activity monitor")?;
     app.send(keys::esc())?;
-    app.wait_until("file panels after closing activity monitor", panels_ready)?;
+    app.wait_text("/ Filter processes")?;
+    app.send(keys::esc())?;
+    app.wait_until("file panels after closing activity monitor", |s| {
+        panels_ready(s) && !s.contains("Activity monitor")
+    })?;
     choose(&mut app, OPTIONS_MENU, "Plugins…")?;
     let plugin = app.wait_text("System — processes and memory")?;
     let (x, y) = plugin.find("System — processes and memory").unwrap();

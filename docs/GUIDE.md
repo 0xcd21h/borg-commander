@@ -99,8 +99,10 @@ size, or minimum file count. It keeps the largest 20,000 matching folders and so
 by content size; click Files to rank by number of files instead. Use a pattern such
 as `node_modules` or `*cache*`, or `*` to inspect everything beneath the chosen root.
 Totals count file contents, not guaranteed recoverable disk space. Nested folder
-rows overlap. Symlinks are excluded; filesystem boundaries and unreadable or excluded
-children make totals incomplete, shown with ≥. Directory scans use metadata and do
+rows overlap. Symlinks are never followed, scans stay on the starting filesystem, and a
+folder that contains itself (through a bind mount or a hard-linked folder) is entered only
+once; such boundaries and unreadable or excluded children make totals incomplete, shown
+with ≥. Directory scans use metadata and do
 not read file contents. Results appear after measurement; the scan remains cancellable.
 **Folder size tree** shows the root total and its subfolders in the current panel.
 Right expands a branch or enters an expanded branch; Left folds it or selects its
@@ -112,8 +114,10 @@ and marking a parent and child sends only the parent to a copy or delete job.
 To measure sizes while keeping ordinary file panels open, press **Alt-I** or
 choose **Search → Count sizes in background**. Borg scans every folder beneath the
 current directory, includes hidden files, and fills in folder totals as they finish.
-You can navigate or use the console while it runs. The panel footer shows progress;
-**Alt-I** again stops the scan and keeps completed totals. Starting a copy, move,
+You can navigate or use the console while it runs. Folders still being measured show
+a growing running total marked `≥`, and totals stay when you leave a folder and come
+back. The panel footer shows progress; **Alt-I** again, or a click on the footer, stops
+the scan and keeps the totals measured so far. Starting a copy, move,
 or delete job stops an ongoing size scan. Finished scans share their cache with the
 size tree and Space analysis.
 
@@ -186,6 +190,8 @@ and keeping the cursor visible. The shell retains its usual editing and completi
 
 If your terminal reserves F-keys, press **Esc, then a digit** within 1.5 seconds:
 Esc 1–9 are F1–F9; Esc 0 is F10. For example, Esc 9 opens the menus and Esc 5 copies.
+While Borg waits for the digit, the function key row shows the digits to press. Esc first
+closes what is open (a notice, results, the quick view or Info); a second Esc cancels.
 Alt-1–0 also works when Alt reaches the terminal. On macOS, enable Option as Meta in your
 terminal if needed.
 
@@ -194,8 +200,10 @@ terminal if needed.
 Click a row to focus it, double-click to open it, and right-click to mark it. Click the menu
 bar or bottom actions to use them. The wheel moves through panel entries.
 
-Ctrl-O switches between panels and console. Commands and Ctrl-C keep an explicitly
-opened console visible. “Return to panels after command” applies to commands launched
+Ctrl-O switches between panels and console. The shell follows the active panel's folder
+before you type or open the console. In zsh it changes folder silently and redraws the
+prompt; in bash and fish a short `cd` command appears in the console instead. Commands and
+Ctrl-C keep an explicitly opened console visible. “Return to panels after command” applies to commands launched
 from the panels. At the shell prompt, Option/Alt-Left and Option/Alt-Right move by words.
 
 In the console, the wheel scrolls output history without changing the command being typed.
@@ -324,7 +332,7 @@ The first CPU and I/O rate sample is unavailable until a second observation arri
 | Key | Action |
 | --- | --- |
 | Enter | Open the process memory map / focus the region preview |
-| `/` | Filter by name or PID; Enter finishes editing |
+| `/` | Filter by name or PID; ↑↓ still move, Enter keeps the filter, Esc clears it |
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; repeat to reverse |
 | I / O | Sort by read / write rate |
 | T | Toggle process tree |

@@ -10,6 +10,8 @@ const MAX_PAYLOAD: usize = 4096;
 
 const SEMANTIC_PROMPT: &[u8] = b"133;";
 const CURRENT_DIR: &[u8] = b"7;";
+/// Borg's own announcement, sent by its shell integration (`OSC 6633;silent-cd`).
+const SILENT_CD: &[u8] = b"6633;silent-cd";
 const FILE_SCHEME: &[u8] = b"file://";
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +77,8 @@ fn parse_payload(payload: &[u8]) -> Option<ShellSignal> {
         parse_semantic_prompt(rest)
     } else if let Some(rest) = payload.strip_prefix(CURRENT_DIR) {
         parse_current_dir(rest)
+    } else if payload == SILENT_CD {
+        Some(ShellSignal::SilentCd)
     } else {
         None
     }
@@ -132,6 +136,12 @@ mod tests {
     fn scan_all(chunks: &[&[u8]]) -> Vec<ShellSignal> {
         let mut scanner = OscScanner::default();
         chunks.iter().flat_map(|chunk| scanner.scan(chunk)).map(|(_, signal)| signal).collect()
+    }
+
+    #[test]
+    fn silent_cd_is_announced_by_borg_integration_only() {
+        assert_eq!(scan_all(&[b"\x1b]6633;silent-cd\x07"]), vec![ShellSignal::SilentCd]);
+        assert!(scan_all(&[b"\x1b]6633;silent-cd-later\x07", b"\x1b]6634;silent-cd\x07"]).is_empty());
     }
 
     #[test]

@@ -38,26 +38,78 @@ pub enum Msg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
-    MeasureSizes { id: u64, root: PathBuf },
+    MeasureSizes {
+        id: u64,
+        root: PathBuf,
+    },
     CancelMeasure,
     CancelMemorySearch,
-    SizeChildren { side: Side, generation: u64, root: PathBuf, hidden: bool, parent: PathBuf },
-    Activity { id: u64, request: crate::ActivityRequest },
-    ExportMemory { path: PathBuf, bytes: Vec<u8> },
+    SizeChildren {
+        side: Side,
+        generation: u64,
+        root: PathBuf,
+        hidden: bool,
+        parent: PathBuf,
+    },
+    Activity {
+        id: u64,
+        request: crate::ActivityRequest,
+    },
+    ExportMemory {
+        path: PathBuf,
+        bytes: Vec<u8>,
+    },
     SaveGame2048,
-    Search { side: Side, generation: u64, request: crate::SearchRequest },
-    RefreshCollection { side: Side, generation: u64, entries: Vec<Entry> },
+    Search {
+        side: Side,
+        generation: u64,
+        request: crate::SearchRequest,
+    },
+    RefreshCollection {
+        side: Side,
+        generation: u64,
+        entries: Vec<Entry>,
+    },
     CancelSearch(Side),
     SaveCollections,
-    List { side: Side, generation: u64, dir: PathBuf },
+    List {
+        side: Side,
+        generation: u64,
+        dir: PathBuf,
+    },
     Write(Vec<u8>),
+    /// Move the idle shell into a folder without typing a command (see `ShellStatus::silent_cd`).
+    /// `typed` is the hidden `cd` command line to send if that is not possible.
+    ChangeShellDir {
+        dir: PathBuf,
+        typed: Vec<u8>,
+    },
     ScrollConsole(Scroll),
     View(PathBuf),
     SaveConfig,
-    StartJob { id: u64, spec: Spec },
-    JobControl { id: u64, command: JobCommand },
-    Peek { aside: Aside, path: PathBuf, size: (usize, usize) },
-    GitScan { side: Side, generation: u64, dir: PathBuf },
-    GitTool { id: u64, tool: borg_git::Tool, dir: PathBuf, paths: Vec<PathBuf> },
+    StartJob {
+        id: u64,
+        spec: Spec,
+    },
+    JobControl {
+        id: u64,
+        command: JobCommand,
+    },
+    Peek {
+        aside: Aside,
+        path: PathBuf,
+        size: (usize, usize),
+    },
+    GitScan {
+        side: Side,
+        generation: u64,
+        dir: PathBuf,
+    },
+    GitTool {
+        id: u64,
+        tool: borg_git::Tool,
+        dir: PathBuf,
+        paths: Vec<PathBuf>,
+    },
     Quit,
 }

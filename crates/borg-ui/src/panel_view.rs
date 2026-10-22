@@ -27,6 +27,9 @@ const DATE_WIDTH: u16 = 12;
 const GIT_WIDTH: u16 = 2;
 const NO_MARKER: char = ' ';
 const FIND_LABEL: &str = tr!(panel_find);
+const FIND_HINT: &str = tr!(panel_find_hint);
+const FIND_FIELD: usize = 18;
+const FIND_PAD: usize = 1;
 pub(crate) const ICON_GAP: char = ' ';
 const GAP: u16 = 1;
 const SHOW_DATE_FROM: u16 = 40;
@@ -68,6 +71,8 @@ pub struct PanelScene<'a> {
     pub area: Rect,
     pub motion: &'a PanelMotion,
     pub activity: Option<Activity>,
+    /// Shown once the panel's listing or footer activity has taken a while.
+    pub spinner: Option<crate::spinner::Spinner>,
     pub icons: bool,
     pub icon_spacing: u8,
     pub find: Option<(&'a Find, (usize, usize))>,
@@ -121,7 +126,7 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
         if scene.active { (styles.border_active, styles.title_active) } else { (styles.border, styles.title) };
     let title = title(scene, title_style, styles.separator);
     let (footer, shiny) = match scene.find {
-        Some((find, counts)) => (find_bar(find, counts, look), None),
+        Some((find, counts)) => (find_bar(find, counts, usize::from(area.width).saturating_sub(4), look), None),
         None => footer(scene, look),
     };
     let title_width = title.width();
@@ -143,29 +148,39 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     if let Some(gradient) = shiny {
         fx::gradient_text(buf, edge(area.bottom().saturating_sub(1), footer_width), gradient);
     }
-    match scene.activity.as_ref().and_then(|activity| activity.fraction) {
-        Some(fraction) => draw_progress(look, area, footer_width, fraction, buf),
-        None if scene.activity.is_some() || scene.panel.listing() == &Listing::Loading => {
-            draw_comet(look, area, footer_width, buf);
+    if scene.spinner.is_some() {
+        match scene.activity.as_ref().and_then(|activity| activity.fraction) {
+            Some(fraction) => draw_progress(look, area, footer_width, fraction, buf),
+            None => draw_comet(look, area, footer_width, buf),
         }
-        None => {}
     }
     scene.find.map(|(find, _)| {
         let typed: String = find.input.text().chars().take(find.input.cursor_chars()).collect();
-        let column = FIND_LABEL.width() + typed.width() + 1;
+        let column = FIND_LABEL.width() + FIND_PAD + typed.width() + 1;
         Position::new(area.x + u16::try_from(column).unwrap_or(u16::MAX), area.bottom().saturating_sub(1))
     })
 }
 
-fn find_bar<'a>(find: &Find, (current, total): (usize, usize), look: &Look<'_>) -> Line<'a> {
+/// Quick find as an input in the bottom border: a highlighted label, a wide field holding
+/// the query and the cursor, the match count, and the keys that work while finding.
+fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look: &Look<'_>) -> Line<'a> {
     let styles = look.styles();
-    let count = if find.input.text().is_empty() { String::new() } else { format!(" {current}/{total} ") };
-    let count_style = if total == 0 && !find.input.text().is_empty() { styles.notice } else { styles.footer };
-    Line::from(vec![
-        Span::styled(FIND_LABEL, styles.footer.fg(look.accent().from.into())),
-        Span::styled(format!("{} ", find.input.text()), styles.input),
+    let text = find.input.text();
+    let count = if text.is_empty() { String::new() } else { format!(" {current}/{total} ") };
+    let count_style = if total == 0 && !text.is_empty() { styles.notice } else { styles.footer };
+    let field =
+        (text.width() + FIND_PAD * 2 + 1).max(FIND_FIELD).min(room.saturating_sub(FIND_LABEL.width() + count.width()));
+    let input = format!("{:pad$}{text}", "", pad = FIND_PAD);
+    let mut spans = vec![
+        Span::styled(FIND_LABEL, styles.cursor),
+        Span::styled(format!("{input:<field$}"), styles.input),
         Span::styled(count, count_style),
-    ])
+    ];
+    let used: usize = spans.iter().map(Span::width).sum();
+    if used + FIND_HINT.width() <= room {
+        spans.push(Span::styled(FIND_HINT, styles.footer));
+    }
+    Line::from(spans)
 }
 
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style) -> Line<'a> {
@@ -205,14 +220,14 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         return (Line::styled(format!(" {} ", egg.unwrap_or(summary)), styles.marked), shiny);
     }
 
-    let spinning = |text: String| {
-        let glyph = Span::styled(fx::orbit(look.t).to_string(), styles.footer.fg(look.accent().from.into()));
-        Line::from(vec![Span::styled(" ", styles.footer), glyph, Span::styled(format!(" {text} "), styles.footer)])
+    let spinning = |spinner: crate::spinner::Spinner, text: String| {
+        let pad = || Span::styled(" ", styles.footer);
+        Line::from([vec![pad()], spinner.spans(&text, look, styles.footer), vec![pad()]].concat())
     };
-    let line = match (&scene.activity, panel.listing()) {
-        (Some(activity), _) => spinning(activity.label.clone()),
-        (None, Listing::Loading) => spinning(format!(tr!(loading), panel.received())),
-        (None, Listing::Ready) => {
+    let line = match (scene.spinner, &scene.activity, panel.listing()) {
+        (Some(spinner), Some(activity), _) => spinning(spinner, activity.label.clone()),
+        (Some(spinner), None, Listing::Loading) => spinning(spinner, format!(tr!(loading), panel.received())),
+        (_, _, Listing::Ready | Listing::Loading) => {
             let git = if let Some(repository) = panel.git_repository() {
                 format!(tr!(panel_view_git), repository.branch)
             } else if panel.git.error.is_some() {
@@ -222,7 +237,7 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
             };
             Line::styled(format!(" {}{git} ", format::count(panel.received(), format::Count::Item)), styles.footer)
         }
-        (None, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
+        (_, _, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
     };
     (line, None)
 }

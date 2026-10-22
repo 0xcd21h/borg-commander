@@ -46,6 +46,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Listed { side, generation, error } => {
+            let visible = state.panel(side).generation() == generation;
             if let Some(panel) = state.receiving_panel(side, generation) {
                 let notice = panel.finish(generation, error);
                 panel.settle();
@@ -59,6 +60,9 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
                     saved.entries = entries;
                 }
                 state.notice = notice.or(state.notice.take());
+            }
+            if visible {
+                crate::measure::reapply(state, side);
             }
             Vec::new()
         }
@@ -108,6 +112,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::activity::sync(state, now));
     effects.extend(crate::results::sync_sizes(state));
+    crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
 
     state.refit();
@@ -120,6 +125,9 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 fn tick_timers(state: &mut AppState, now: Instant) {
     if state.rain_until.is_some_and(|until| now >= until) {
         state.rain_until = None;
+    }
+    if !state.function_prefix(now) {
+        state.escaped = None;
     }
     let due = state.idle_since + state.settings.screensaver_after;
     if state.settings.preferences.screensaver && state.can_screensave() && now >= due {
@@ -174,18 +182,24 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.preview_focused && state.view == View::Panels {
         return crate::aside::on_key(state, key, now);
     }
-    state.notice = None;
-    let pending = state.escaped.take().is_some_and(|at| now.saturating_duration_since(at) <= ESCAPE_WINDOW);
+    let dismissed = state.notice.take().is_some();
+    let pending = state.function_prefix(now);
+    state.escaped = None;
+    // Esc backs out of one thing at a time: a notice, results, then the side pane. Only an
+    // Esc with nothing to close starts the Esc-digit function keys, and a second Esc cancels.
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
-        let hidden = state.active_panel().is_results();
-        let effects = if hidden { crate::results::back(state) } else { Vec::new() };
-        state.escaped = Some(now);
-        state.notice = Some(if hidden {
-            tr!(results_hidden_alt_r_resumes_in_the).into()
-        } else {
-            tr!(esc_then_1_9_f1_f9_esc).into()
-        });
-        return effects;
+        if state.active_panel().is_results() {
+            let effects = crate::results::back(state);
+            state.notice = Some(tr!(results_hidden_alt_r_resumes_in_the).into());
+            return effects;
+        }
+        if let Some(aside) = state.aside {
+            return crate::aside::toggle(state, aside);
+        }
+        if !dismissed && !pending {
+            state.escaped = Some(now);
+        }
+        return Vec::new();
     }
     let (key, mut effects) = match (pending, escaped_function(key)) {
         (true, Some(function)) => (function, Vec::new()),
@@ -218,7 +232,7 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
 }
 
 const FUNCTION_DIGITS: &str = "1234567890";
-const ESCAPE_WINDOW: Duration = Duration::from_millis(1500);
+pub(crate) const ESCAPE_WINDOW: Duration = Duration::from_millis(1500);
 const ESCAPE: &[u8] = b"\x1b";
 
 fn function_key(digit: char) -> Option<KeyEvent> {
@@ -312,9 +326,14 @@ fn sync_cwd(state: &mut AppState) -> Option<Effect> {
     if !shell_ready(state) || state.shell.cwd == dir {
         return None;
     }
-    let command = CommandLine::program("cd").path(dir).submit_hidden();
+    let typed = CommandLine::program("cd").path(dir).submit_hidden();
+    let effect = if state.shell.silent_cd {
+        Effect::ChangeShellDir { dir: dir.to_path_buf(), typed }
+    } else {
+        Effect::Write(typed)
+    };
     state.shell.cwd = dir.to_path_buf();
-    Some(Effect::Write(command))
+    Some(effect)
 }
 
 fn reveal_slow_operation(state: &mut AppState, now: Instant) {
@@ -329,8 +348,15 @@ fn reveal_slow_operation(state: &mut AppState, now: Instant) {
 fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
     match signal {
         ShellSignal::PromptStart | ShellSignal::InputStart => {
+            if signal == ShellSignal::PromptStart {
+                state.shell.silent_cd = false;
+            }
             state.shell.clear_line();
             state.shell.integrated = true;
+            Vec::new()
+        }
+        ShellSignal::SilentCd => {
+            state.shell.silent_cd = true;
             Vec::new()
         }
         ShellSignal::CommandStart => {

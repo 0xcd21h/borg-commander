@@ -71,6 +71,9 @@ pub struct ShellStatus {
     pub typed: bool,
     pub unechoed: bool,
     pub integrated: bool,
+    /// The shell announced at its latest prompt that it changes folder without a typed
+    /// command line.
+    pub silent_cd: bool,
     pub went_full_screen: bool,
     pub return_view: View,
 }
@@ -217,6 +220,8 @@ impl Startup {
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub activity: crate::Activity,
+    /// When background work started, for spinners that wait before appearing.
+    pub busy: crate::Busy,
     pub game2048: Option<crate::Game2048>,
     pub collections: Vec<crate::Collection>,
     pub result_history: [Option<Panel>; 2],
@@ -236,6 +241,7 @@ pub struct AppState {
     pub overlay: Option<Overlay>,
     pub operation: Option<Operation>,
     pub sizing: Option<crate::SizeScan>,
+    pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
     pub viewer: Option<Viewer>,
     pub epoch: Instant,
@@ -274,6 +280,7 @@ impl AppState {
             typed: false,
             unechoed: false,
             integrated: false,
+            silent_cd: false,
             went_full_screen: false,
             return_view: View::Panels,
         };
@@ -281,6 +288,7 @@ impl AppState {
 
         let mut state = Self {
             activity: crate::Activity::default(),
+            busy: crate::Busy::default(),
             game2048: None,
             collections: Vec::new(),
             result_history: [None, None],
@@ -300,6 +308,7 @@ impl AppState {
             overlay: None,
             operation: None,
             sizing: None,
+            measured: Default::default(),
             next_size: 0,
             viewer: None,
             epoch: now,
@@ -434,12 +443,29 @@ impl AppState {
             && self.sizing.is_none()
     }
 
+    /// Whether Esc was just pressed with nothing to close, so a digit acts as F1–F10.
+    pub fn function_prefix(&self, now: Instant) -> bool {
+        self.escaped.is_some_and(|at| now.saturating_duration_since(at) <= crate::update::ESCAPE_WINDOW)
+    }
+
     pub fn wake_at(&self) -> Option<Instant> {
         let reveal = self.operation.as_ref().filter(|op| !op.revealed).map(|op| op.reveal_at);
+        let prefix = self.escaped.map(|at| at + crate::update::ESCAPE_WINDOW);
         let rest = (self.settings.preferences.screensaver && !self.screensaver && self.can_screensave())
             .then_some(self.idle_since + self.settings.screensaver_after);
         let rain = self.rain_until;
-        [reveal, rest, rain, crate::plugins::wake_at(self), crate::activity::wake_at(self)].into_iter().flatten().min()
+        [
+            reveal,
+            rest,
+            rain,
+            prefix,
+            self.busy.reveal_at(),
+            crate::plugins::wake_at(self),
+            crate::activity::wake_at(self),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     pub fn settle(&mut self) {

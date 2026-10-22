@@ -29,11 +29,18 @@ pub(crate) fn rows(area: Rect) -> (Rect, Rect) {
     (primary, context)
 }
 
-pub fn draw_keybar(state: &AppState, area: Rect, styles: &Styles<Style>, copy: &str, remove: &str, buf: &mut Buffer) {
+pub fn draw_keybar(
+    state: &AppState,
+    area: Rect,
+    styles: &Styles<Style>,
+    labels: (&str, &str),
+    now: std::time::Instant,
+    buf: &mut Buffer,
+) {
     let (primary, context) = rows(area);
     if !primary.is_empty() {
         buf.set_style(primary, styles.key_label);
-        draw_functions(primary, styles, copy, remove, buf);
+        draw_functions(primary, styles, labels, state.function_prefix(now), buf);
     }
     crate::shortcuts::draw(state, context, styles, buf);
     if let Some(notice) = state.notice.as_deref()
@@ -63,12 +70,17 @@ pub(crate) fn action_at(state: &AppState, area: Rect, point: Position) -> Option
     bindings.get(usize::from((point.x - actions.x) / slot)).map(|binding| Pointer::Action(binding.action))
 }
 
-fn draw_functions(area: Rect, styles: &Styles<Style>, copy: &str, remove: &str, buf: &mut Buffer) {
+/// Draws the function keys. After an Esc with nothing to close, a digit acts as the
+/// function key, so the row shows the digits to press instead.
+fn draw_functions(area: Rect, styles: &Styles<Style>, (copy, remove): (&str, &str), digits: bool, buf: &mut Buffer) {
     let items: Vec<(String, &str)> = KEYMAP
         .iter()
         .filter_map(|binding| {
             Some((
-                key_name(binding.code, binding.modifiers),
+                match binding.code {
+                    KeyCode::F(n @ 1..=10) if digits && binding.modifiers.is_empty() => (n % 10).to_string(),
+                    code => key_name(code, binding.modifiers),
+                },
                 match binding.action {
                     borg_core::Action::Copy => copy,
                     borg_core::Action::Delete => remove,
@@ -85,8 +97,9 @@ fn draw_functions(area: Rect, styles: &Styles<Style>, copy: &str, remove: &str, 
         .iter()
         .flat_map(|(key, label)| {
             let room = slot.saturating_sub(key.width());
+            let key_style = if digits && key.len() == 1 { styles.cursor } else { styles.key };
             [
-                Span::styled(format::truncate_end(key, slot), styles.key),
+                Span::styled(format::truncate_end(key, slot), key_style),
                 Span::styled(format!("{:<room$}", format::truncate_end(label, room)), styles.key_label),
             ]
         })

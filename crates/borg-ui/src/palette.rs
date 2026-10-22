@@ -23,6 +23,21 @@ impl Rgb {
         Self { r, g, b }
     }
 
+    /// Relative luminance as defined by WCAG.
+    pub fn luminance(self) -> f32 {
+        let linear = |channel: u8| {
+            let c = f32::from(channel) / 255.0;
+            if c <= 0.039_28 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * linear(self.r) + 0.7152 * linear(self.g) + 0.0722 * linear(self.b)
+    }
+
+    /// WCAG contrast ratio, from 1 (none) to 21 (black on white).
+    pub fn contrast(self, other: Self) -> f32 {
+        let (a, b) = (self.luminance(), other.luminance());
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
     pub fn mix(self, other: Self, t: f32) -> Self {
         let t = t.clamp(0.0, 1.0);
         let channel = |a: u8, b: u8| {

@@ -124,6 +124,7 @@ pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instan
         started: now,
     });
     let mut effects = crate::measure::cancel(state);
+    crate::measure::forget(state);
     effects.push(Effect::StartJob { id, spec });
     effects
 }
