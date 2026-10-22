@@ -80,6 +80,7 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
 fn git_menu(state: &AppState) -> Menu {
     use borg_git::Tool;
     let available = state.activity.side.is_none()
+        && !state.docker.is_open()
         && state.active_panel().git_repository().is_some()
         && state.plugins.git_task.is_none();
     let selected = available && !state.active_panel().selection().is_empty();
@@ -167,6 +168,7 @@ fn command_menu(state: &AppState) -> Menu {
         title: tr!(command),
         entries: vec![
             when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
+            when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
             item(tr!(find_in_folder), "C-s", Action::Find),
             when(item(tr!(insert_new_line), "S-Enter", Action::InsertNewline), !state.shell.busy()),
             check(tr!(quick_view), "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
@@ -231,6 +233,13 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.system_plugin),
                 enabled: true,
             },
+            MenuItem {
+                label: tr!(docker_plugin_label),
+                hint: "",
+                action: Action::ToggleDockerPlugin,
+                checked: Some(state.settings.preferences.docker_plugin),
+                enabled: true,
+            },
         ]
     } else {
         settings_items(state)
@@ -255,7 +264,7 @@ fn results_menu(state: &AppState) -> Menu {
                     "M-i",
                     Action::MeasureSizes,
                 ),
-                state.sizing.is_some() || !result && state.activity.side.is_none(),
+                state.sizing.is_some() || !result && state.activity.side.is_none() && !state.docker.is_open(),
             ),
             when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
             item(tr!(open_create_collection), "M-v", Action::OpenCollection),

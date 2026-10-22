@@ -1613,3 +1613,58 @@ fn background_folder_sizes_keep_panels_usable_and_reuse_the_tree_cache() -> Resu
     ensure!(screen.contains("Size tree:"));
     Ok(())
 }
+
+/// A stand-in for the `docker` CLI: one Compose project with one container, a stats
+/// stream, and a stop that the next listing reflects. It logs every call.
+const FAKE_DOCKER: &str = r#"#!/bin/sh
+here="$(dirname "$0")"
+echo "$*" >> "$here/calls.log"
+web=f00d000000000000000000000000000000000000000000000000000000000001
+case "$1" in
+context) echo fake-engine ;;
+ps)
+    if [ -f "$here/stopped" ]; then state=exited; status="Exited (0) 1 second ago"; else state=running; status="Up 5 minutes"; fi
+    printf '{"id":"%s","name":"shop-web-1","image":"nginx:1.27","command":"\\"nginx\\"","created":"2026-10-22 09:00:00 +0000 UTC","state":"%s","status":"%s","ports":"","networks":"shop_default","project":"shop","service":"web","dir":"/srv/shop","files":"/srv/shop/compose.yaml"}\n' "$web" "$state" "$status"
+    ;;
+stats)
+    while :; do
+        printf '\033[H{"BlockIO":"1MB / 0B","CPUPerc":"12.50%%","Container":"%s","ID":"%s","MemPerc":"2%%","MemUsage":"200MiB / 8GiB","Name":"shop-web-1","NetIO":"1kB / 2kB","PIDs":"9"}\033[K\n\033[K\n\033[J' "$web" "$web"
+        sleep 0.3
+    done
+    ;;
+inspect) echo '{"started":"2026-10-22T09:00:01Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":null,"restarts":0,"policy":"always","entrypoint":null,"cmd":["nginx"],"workdir":"","platform":"linux","mounts":[],"networks":{"shop_default":{"IPAddress":"172.18.0.4"}}}' ;;
+stop) touch "$here/stopped" ;;
+*) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+"#;
+
+#[test]
+fn docker_view_lists_containers_streams_stats_and_stops_one() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).label("docker").spawn()?;
+    app.wait_text(READY)?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("Docker · fake-engine")?;
+    app.wait_text("12.5")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.wait_text("172.18.0.4")?;
+    app.send(keys::key(KeyCode::Char('x')))?;
+    app.wait_text("Stop web?")?;
+    app.send(keys::enter())?;
+    app.wait_text("Exited (0)")?;
+    let calls = fs::read_to_string(bin.join("calls.log"))?;
+    ensure!(calls.lines().any(|line| line.starts_with("stop f00d")), "the stop reached docker:\n{calls}");
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("Borg console")?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("Docker · fake-engine")?;
+    app.send(keys::esc())?;
+    app.wait_text(READY)?;
+    Ok(())
+}

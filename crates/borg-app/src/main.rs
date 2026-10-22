@@ -2,6 +2,7 @@ use borg_i18n::tr;
 mod activity;
 mod app;
 mod config;
+mod docker;
 mod document;
 mod launch;
 mod memory_search;

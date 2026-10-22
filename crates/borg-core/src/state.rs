@@ -148,6 +148,7 @@ pub struct Prompt {
 pub enum ConfirmPurpose {
     Delete { sources: Vec<PathBuf> },
     Quit,
+    Docker { action: borg_docker::Action, ids: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,6 +221,7 @@ impl Startup {
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub activity: crate::Activity,
+    pub docker: crate::Docker,
     /// When background work started, for spinners that wait before appearing.
     pub busy: crate::Busy,
     pub game2048: Option<crate::Game2048>,
@@ -292,6 +294,7 @@ impl AppState {
 
         let mut state = Self {
             activity: crate::Activity::default(),
+            docker: crate::Docker::default(),
             busy: crate::Busy::default(),
             game2048: None,
             collections: Vec::new(),
@@ -382,6 +385,17 @@ impl AppState {
             }
             return layout;
         }
+        if let Some(side) = self.docker.side
+            && self.docker.expanded
+        {
+            let left = layout.panels[0];
+            let right = layout.panels[1];
+            let focus = if self.docker.details_focused { side.other() } else { side };
+            layout.panels[focus.index()] =
+                ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+            layout.panels[focus.other().index()] = Default::default();
+            return layout;
+        }
         if self.results_expanded() {
             let left = layout.panels[0];
             let right = layout.panels[1];
@@ -447,6 +461,7 @@ impl AppState {
             && self.overlay.is_none()
             && self.viewer.is_none()
             && self.activity.side.is_none()
+            && !self.docker.is_open()
             && self.sizing.is_none()
     }
 
@@ -471,6 +486,7 @@ impl AppState {
             self.busy.reveal_at(),
             crate::plugins::wake_at(self),
             crate::activity::wake_at(self),
+            crate::docker::wake_at(self),
         ]
         .into_iter()
         .flatten()

@@ -33,7 +33,7 @@ pub(crate) fn toggle(state: &mut AppState) -> Vec<Effect> {
         state.notice = Some(tr!(background_sizes_stopped).into());
         return cancel(state);
     }
-    if state.active_panel().is_results() || state.activity.side.is_some() {
+    if state.active_panel().is_results() || state.activity.side.is_some() || state.docker.is_open() {
         state.notice = Some(tr!(background_sizes_directory_required).into());
         return Vec::new();
     }

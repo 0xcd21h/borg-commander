@@ -28,6 +28,7 @@ pub struct Plugins {
 fn can_refresh(state: &AppState) -> bool {
     state.settings.preferences.git_plugin
         && state.activity.side.is_none()
+        && !state.docker.is_open()
         && state.view == View::Panels
         && state.viewer.is_none()
         && state.overlay.is_none()

@@ -200,10 +200,13 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     if state.activity.side.is_some() {
         crate::activity_view::draw(state, &look, layout.panels, state.monitor_panels(scene.now), scene.now, &mut buf);
     }
+    if state.docker.is_open() {
+        crate::docker_view::draw(state, &look, layout.panels, scene.clock, scene.now, &mut buf);
+    }
     for side in Side::ALL {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
-        if rect.is_empty() || state.activity.side.is_some() {
+        if rect.is_empty() || state.activity.side.is_some() || state.docker.is_open() {
             continue;
         }
         let aside = state.aside.filter(|_| aside_side == Some(side));
@@ -267,6 +270,8 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
                 )
             });
             Line::styled(value, styles.status).render(status, &mut buf);
+        } else if state.docker.is_open() {
+            Line::styled(crate::docker_view::status(&state.docker), styles.status).render(status, &mut buf);
         } else {
             draw_status(state.active_panel(), status, styles, scene.clock, &mut buf);
         }
@@ -293,6 +298,8 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     };
     if state.activity.side.is_some() {
         crate::activity_view::keybar(state, layout.keybar, theme, &mut buf);
+    } else if state.docker.is_open() {
+        crate::docker_view::keybar(state, layout.keybar, theme, &mut buf);
     } else {
         crate::keybar::draw_keybar(state, layout.keybar, styles, (collection_label, remove_label), scene.now, &mut buf);
     }

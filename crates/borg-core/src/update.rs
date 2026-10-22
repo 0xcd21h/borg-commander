@@ -27,6 +27,14 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::activity::receive(state, id, result, now);
             Vec::new()
         }
+        Msg::Docker { id, result } => {
+            crate::docker::receive(state, id, result, now);
+            Vec::new()
+        }
+        Msg::DockerStats(frame) => {
+            crate::docker::stats(state, frame);
+            Vec::new()
+        }
         Msg::SearchProgress { side, generation, progress } => {
             crate::results::progress(state, side, generation, progress);
             Vec::new()
@@ -111,6 +119,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::activity::sync(state, now));
+    effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
@@ -172,6 +181,9 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     }
     if state.overlay.is_some() {
         return overlays::on_key(state, key, now);
+    }
+    if state.docker.is_open() && state.view == View::Panels {
+        return crate::docker::route_key(state, key, now);
     }
     if state.activity.side.is_some() && state.view == View::Panels {
         return crate::activity::route_key(state, key, now);
@@ -267,6 +279,10 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     state.intro = None;
+    if state.docker.is_open() && state.view == View::Panels && state.overlay.is_none() {
+        crate::docker::paste(state, text);
+        return Vec::new();
+    }
     if state.activity.side.is_some() && state.view == View::Panels {
         if let Some(form) = state.activity.search_form.as_mut() {
             if form.selected == 0 {

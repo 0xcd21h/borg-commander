@@ -38,6 +38,9 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
     } else if state.active_panel().is_size_view() {
         items = vec![(tr!(ctrl_f_search), Action::Search), (tr!(ctrl_r_sizes), Action::RefreshSizes)];
     } else if !state.active_panel().is_results() {
+        if state.settings.preferences.docker_plugin {
+            items.insert(1, (tr!(alt_c_docker), Action::Docker));
+        }
         items.insert(1, (tr!(alt_s_sizes), Action::CalculateSizes));
         if state.settings.preferences.system_plugin {
             items.insert(1, (tr!(alt_m_activity), Action::Activity));

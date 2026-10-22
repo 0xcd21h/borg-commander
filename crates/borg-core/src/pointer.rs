@@ -10,6 +10,10 @@ pub enum Pointer {
     ActivityRow { index: usize, open: bool, preview: bool },
     ActivitySort(crate::ActivitySort),
     ActivityControl { preview: bool, code: crossterm::event::KeyCode },
+    DockerExpand { details: bool, expand: bool },
+    DockerHide,
+    DockerRow { index: usize, open: bool },
+    DockerControl { details: bool, code: crossterm::event::KeyCode },
     TreeNode { side: Side, index: usize },
     PromptField { option: bool },
     ResultControl { side: Side, action: Action },
@@ -68,6 +72,18 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
             state.activity.expanded = expand;
         }
         (Pointer::ActivityHide, None) if state.activity.side.is_some() => state.activity.side = None,
+        (Pointer::DockerExpand { details, expand }, None) if state.docker.is_open() => {
+            state.docker.details_focused = details;
+            state.docker.expanded = expand;
+        }
+        (Pointer::DockerHide, None) if state.docker.is_open() => crate::docker::close(state),
+        (Pointer::DockerRow { index, open }, None) if state.docker.is_open() => {
+            return crate::docker::click(state, index, open, now);
+        }
+        (Pointer::DockerControl { details, code }, None) if state.docker.is_open() => {
+            state.docker.details_focused = details;
+            return crate::docker::route_key(state, &code.into(), now);
+        }
 
         (Pointer::ActivitySearchField(index), None) if state.activity.side.is_some() => {
             state.activity.preview_focused = true;

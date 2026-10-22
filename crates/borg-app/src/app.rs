@@ -99,6 +99,7 @@ pub struct App {
     preview: preview::Loader,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
+    docker: crate::docker::Docker,
 }
 
 enum Flow {
@@ -151,6 +152,7 @@ impl App {
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
+        let docker = crate::docker::Docker::new(messages.clone());
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -177,6 +179,7 @@ impl App {
             preview,
             plugins,
             monitor,
+            docker,
         })
     }
 
@@ -452,6 +455,9 @@ impl App {
         if self.state.activity.side.is_none() || self.state.activity.pending.is_none() {
             self.monitor.cancel();
         }
+        if self.state.docker.pending.is_none() {
+            self.docker.cancel();
+        }
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();
         }
@@ -487,6 +493,8 @@ impl App {
                     });
                 }
                 Effect::Activity { id, request } => self.monitor.request(id, request),
+                Effect::Docker { id, request } => self.docker.request(id, request),
+                Effect::DockerWatch(on) => self.docker.watch(on),
                 Effect::ExportMemory { path, bytes } => {
                     let messages = self.messages.clone();
                     tokio::task::spawn_blocking(move || {

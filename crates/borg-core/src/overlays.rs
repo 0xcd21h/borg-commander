@@ -219,6 +219,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::Delete { sources }) => {
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
+        (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
         (Some(true), ConfirmPurpose::Quit) => {
             let mut effects = jobs::cancel_all(state);
             effects.push(Effect::Quit);

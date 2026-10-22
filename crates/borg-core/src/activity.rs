@@ -855,6 +855,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
+    crate::docker::close(state);
     state.activity.side = Some(state.active);
     state.activity.preview_focused = false;
     state.activity.paused = false;

@@ -19,10 +19,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-const HEADER_ROWS: u16 = 3;
-const FOOTER_ROWS: u16 = 1;
+pub(crate) const HEADER_ROWS: u16 = 3;
+pub(crate) const FOOTER_ROWS: u16 = 1;
 const SIZE_WIDTH: usize = 9;
-const TILE_WIDTH: u16 = 12;
+pub(crate) const TILE_WIDTH: u16 = 12;
 const LARGEST: usize = 6;
 const METER_WIDTH: u16 = 20;
 const CHART_ROWS: u16 = 20;
@@ -56,22 +56,22 @@ fn colors(theme: &Theme) -> (Rgb, Rgb) {
     (palette.foreground_of(base.fg.unwrap_or(Color::Reset)), palette.background_of(base.bg.unwrap_or(Color::Reset)))
 }
 
-fn readable(theme: &Theme, color: Option<Color>) -> Option<Color> {
+pub(crate) fn readable(theme: &Theme, color: Option<Color>) -> Option<Color> {
     let (_, background) = colors(theme);
     color.filter(|&c| crate::Palette::default().foreground_of(c).contrast(background) >= READABLE)
 }
 
 /// Accented text: values and summaries that should stand out from body text.
-fn emphasis(theme: &Theme) -> Style {
+pub(crate) fn emphasis(theme: &Theme) -> Style {
     let base = theme.styles.overlay;
     readable(theme, theme.styles.overlay_border.fg).map_or(base, |color| base.fg(color))
 }
 
-fn heading(theme: &Theme) -> Style {
+pub(crate) fn heading(theme: &Theme) -> Style {
     emphasis(theme).add_modifier(Modifier::BOLD)
 }
 
-fn dim(theme: &Theme) -> Style {
+pub(crate) fn dim(theme: &Theme) -> Style {
     let (text, background) = colors(theme);
     let fallback = text.mix(background, DIM_SHARE).into();
     theme.styles.overlay.fg(readable(theme, theme.styles.footer.fg).unwrap_or(fallback))
@@ -138,7 +138,7 @@ fn regions(activity: &Activity, theme: &Theme, inner: Rect, body: Rect, buf: &mu
 }
 
 /// Splits text into lines of at most `width` cells, breaking between words.
-fn wrap(value: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap(value: &str, width: usize) -> Vec<String> {
     let mut lines = vec![String::new()];
     for word in value.split_whitespace() {
         let last = lines.last_mut().unwrap();
@@ -351,10 +351,10 @@ fn file_details(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buffer
     }
 }
 
-fn inner(screen: Rect) -> Rect {
+pub(crate) fn inner(screen: Rect) -> Rect {
     Block::bordered().inner(screen)
 }
-fn body(screen: Rect) -> Rect {
+pub(crate) fn body(screen: Rect) -> Rect {
     let inner = inner(screen);
     Rect {
         y: inner.y.saturating_add(HEADER_ROWS).min(inner.bottom()),
@@ -362,13 +362,13 @@ fn body(screen: Rect) -> Rect {
         ..inner
     }
 }
-fn text(buf: &mut Buffer, area: Rect, value: impl Into<String>, style: Style) {
+pub(crate) fn text(buf: &mut Buffer, area: Rect, value: impl Into<String>, style: Style) {
     if !area.is_empty() {
         Line::styled(value.into().chars().map(|c| if c.is_control() { '�' } else { c }).collect::<String>(), style)
             .render(area, buf);
     }
 }
-fn row(area: Rect, offset: u16) -> Rect {
+pub(crate) fn row(area: Rect, offset: u16) -> Rect {
     Rect { y: area.y.saturating_add(offset).min(area.bottom()), height: u16::from(offset < area.height), ..area }
 }
 fn size(value: Option<u64>) -> String {
@@ -880,21 +880,45 @@ fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
     }
     let chart_area =
         Rect { y: body.y.saturating_add(y).min(body.bottom()), height: body.height.saturating_sub(y), ..body };
-    chart(history.map_or(&[][..], |h| &h.values[..]), look, chart_area, buf);
+    chart(tr!(memory_chart_title), history.map_or(&[][..], |h| &h.values[..]), Unit::Bytes, look, chart_area, buf);
+}
+
+/// What a chart's values measure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unit {
+    Bytes,
+    /// Hundredths of a percent.
+    Percent,
+}
+
+impl Unit {
+    fn format(self, value: u64) -> String {
+        match self {
+            Self::Bytes => format::size(value),
+            Self::Percent => format!("{:.1}%", value as f64 / 100.0),
+        }
+    }
 }
 
 /// Picks a round axis step and range covering `values`, in the largest unit below them.
-fn scale(values: &[u64]) -> (f64, f64, [String; 3]) {
+fn scale(values: &[u64], unit: Unit) -> (f64, f64, [String; 3]) {
     let min = values.iter().copied().min().unwrap_or(0) as f64;
     let max = values.iter().copied().max().unwrap_or(0) as f64;
-    let mut unit = 1024.0;
-    let mut suffix = 0;
-    while max / unit >= 1024.0 && suffix + 1 < BYTE_UNITS.len() {
-        unit *= 1024.0;
-        suffix += 1;
-    }
-    let (low, high) = (min / unit, max / unit);
-    let span = (high - low).max(high * 0.04).max(0.01);
+    let (base, suffix, least) = match unit {
+        Unit::Bytes => {
+            let mut base = 1024.0;
+            let mut suffix = 0;
+            while max / base >= 1024.0 && suffix + 1 < BYTE_UNITS.len() {
+                base *= 1024.0;
+                suffix += 1;
+            }
+            (base, BYTE_UNITS[suffix], 0.01)
+        }
+        // An idle container's CPU stays on a scale of at least one percent.
+        Unit::Percent => (100.0, "%", 1.0),
+    };
+    let (low, high) = (min / base, max / base);
+    let span = (high - low).max(high * 0.04).max(least);
     let rough = span / 2.0;
     let magnitude = 10f64.powf(rough.log10().floor());
     let step = [1.0, 2.0, 2.5, 5.0, 10.0].into_iter().map(|n| n * magnitude).find(|&s| s >= rough).unwrap_or(rough);
@@ -910,8 +934,8 @@ fn scale(values: &[u64]) -> (f64, f64, [String; 3]) {
             (shifted - shifted.round()).abs() < 1e-6
         })
         .unwrap_or(3) as usize;
-    let label = |v: f64| format!("{v:.decimals$}{}", BYTE_UNITS[suffix]);
-    (lo * unit, hi * unit, [label(hi), label(mid), label(lo)])
+    let label = |v: f64| format!("{v:.decimals$}{suffix}");
+    (lo * base, hi * base, [label(hi), label(mid), label(lo)])
 }
 
 /// The value at plot column `x` on a fixed window of `HISTORY` samples ending now.
@@ -929,21 +953,21 @@ fn sample_at(values: &[u64], x: u16, width: u16) -> Option<f64> {
     Some(from + (to - from) * (position - index as f64))
 }
 
-/// An area chart of resident memory: round axis labels, faint grid lines, and columns
+/// An area chart of the last minute: round axis labels, faint grid lines, and columns
 /// shaded from the background up to a bright accent edge.
-fn chart(values: &[u64], look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+pub(crate) fn chart(title: &str, values: &[u64], unit: Unit, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     if area.height < 2 {
         return;
     }
-    text(buf, row(area, 0), tr!(memory_chart_title), theme.styles.overlay.add_modifier(Modifier::BOLD));
+    text(buf, row(area, 0), title, theme.styles.overlay.add_modifier(Modifier::BOLD));
     if let Some(&latest) = values.last() {
-        let latest = format::size(latest);
+        let latest = unit.format(latest);
         let x = area.right().saturating_sub(latest.width() as u16);
         text(buf, Rect { x, width: area.right() - x, ..row(area, 0) }, latest, heading(theme));
     }
     if values.len() < 2 {
-        let note = Rect { x: area.x + tr!(memory_chart_title).width() as u16 + 2, ..row(area, 0) };
+        let note = Rect { x: area.x + title.width() as u16 + 2, ..row(area, 0) };
         text(
             buf,
             Rect { width: area.right().saturating_sub(note.x), ..note },
@@ -955,7 +979,7 @@ fn chart(values: &[u64], look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     if plot_height < 2 || values.is_empty() {
         return;
     }
-    let (lo, hi, labels) = scale(values);
+    let (lo, hi, labels) = scale(values, unit);
     let axis = labels.iter().map(|l| l.width()).max().unwrap_or(0) as u16 + 1;
     let plot = Rect {
         x: area.x.saturating_add(axis),

@@ -33,9 +33,10 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             | Action::BackResults
     ) {
         state.activity.side = None;
+        crate::docker::close(state);
     }
 
-    if state.activity.side.is_some()
+    if (state.activity.side.is_some() || state.docker.is_open())
         && matches!(
             action,
             Action::Copy
@@ -52,7 +53,9 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::Git(_)
         )
     {
-        state.notice = Some(tr!(activity_close_for_files).into());
+        state.notice = Some(
+            if state.docker.is_open() { tr!(docker_close_for_files) } else { tr!(activity_close_for_files) }.into(),
+        );
         return Vec::new();
     }
 
@@ -67,6 +70,11 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Activity => crate::activity::open(state),
         Action::ToggleSystemPlugin => {
             state.settings.preferences.system_plugin = !state.settings.preferences.system_plugin;
+            vec![Effect::SaveConfig]
+        }
+        Action::Docker => crate::docker::open(state, now),
+        Action::ToggleDockerPlugin => {
+            state.settings.preferences.docker_plugin = !state.settings.preferences.docker_plugin;
             vec![Effect::SaveConfig]
         }
         Action::Search

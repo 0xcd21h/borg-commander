@@ -11,6 +11,7 @@ rust-version = "1.97"
 [workspace.dependencies]
 borg-i18n = { path = "crates/borg-i18n" }
 borg-core = { path = "crates/borg-core" }
+borg-docker = { path = "crates/borg-docker" }
 borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
