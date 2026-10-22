@@ -99,7 +99,11 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         return (None, draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf));
     }
     if state.screensaver {
-        art_view::draw_screensaver(&scene.look(theme), area, buf);
+        art_view::draw_screensaver(&scene.look(theme), state.saver, area, buf);
+        return (None, Vec::new());
+    }
+    if let Some(start) = state.intro {
+        art_view::draw_intro(&scene.look(theme), scene.now.saturating_duration_since(start).as_secs_f32(), area, buf);
         return (None, Vec::new());
     }
     draw_main(buf, scene, area)
