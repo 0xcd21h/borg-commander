@@ -30,13 +30,18 @@ impl Recorder {
         let end = Instant::now() + duration;
         while Instant::now() < end {
             session.pump(self.interval)?;
-            let snapshot = session.snapshot();
-            let repeated = self.takes.last().is_some_and(|(last, _)| last.same_screen(&snapshot));
-            if !repeated {
-                self.takes.push((snapshot, Instant::now()));
-            }
+            self.take(session.snapshot(), Instant::now());
         }
         Ok(())
+    }
+
+    /// Adds a frame shown from `at`, for screens rendered without a session. A frame that
+    /// repeats the previous screen only extends it.
+    pub fn take(&mut self, snapshot: Snapshot, at: Instant) {
+        let repeated = self.takes.last().is_some_and(|(last, _)| last.same_screen(&snapshot));
+        if !repeated {
+            self.takes.push((snapshot, at));
+        }
     }
 
     pub fn snapshots(&self) -> impl Iterator<Item = &Snapshot> {

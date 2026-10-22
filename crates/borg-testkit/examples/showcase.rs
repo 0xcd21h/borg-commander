@@ -1,5 +1,6 @@
-//! Renders the README showcase of folder sizes and the activity monitor from fictional
-//! folders and processes, so no screenshot shows the machine it was made on.
+//! Renders the README showcase of folder sizes, the activity monitor, and the glitch
+//! screensaver from fictional folders and processes, so no screenshot shows the machine it
+//! was made on.
 
 use std::{
     env,
@@ -12,10 +13,10 @@ use std::{
 use anyhow::{Result, ensure};
 use borg_core::{
     ActivityData, ActivityRequest, MemoryRegion, Motion, Msg, Preferences, ProcessInfo, ProcessKey, ResultSource,
-    SearchKind, SearchOptions, SearchProgress, SearchRequest, Settings, Sort, SortKey, SystemSample,
+    Saver, SearchKind, SearchOptions, SearchProgress, SearchRequest, Settings, Sort, SortKey, SystemSample,
 };
 use borg_term::GridSize;
-use borg_testkit::{Snapshot, Stage};
+use borg_testkit::{Recorder, Snapshot, Stage};
 use borg_vfs::{Entry, EntryKind, FolderUsage};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -35,6 +36,11 @@ const GIB: u64 = MIB * 1024;
 const PAGE: u64 = 16 * KIB;
 const SELECTED: u32 = 4012;
 const EXECUTABLE: &str = "/usr/local/bin/rust-analyzer";
+const GLITCH_SIZE: GridSize = GridSize { cols: 76, rows: 17 };
+const GLITCH_THEME: &str = "neon";
+const GLITCH_FPS: f64 = 24.0;
+const GLITCH_LENGTH: Duration = Duration::from_secs(8);
+const GLITCH_TAIL: Duration = Duration::from_millis(500);
 
 fn at(secs: u64) -> Option<std::time::SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs))
@@ -478,10 +484,32 @@ fn activity(output: &Path) -> Result<()> {
     save(&mut stage, output, "memory-map")
 }
 
+/// The glitch screensaver as an animated GIF: the logo drifts on a scanlined screen and
+/// tears apart in bursts.
+fn glitch(output: &Path) -> Result<()> {
+    let settings = Settings { motion: Motion::LOCAL, ..Settings::default() };
+    let mut stage =
+        Stage::new([HOME.into(), HOME.into()], [Vec::new(), Vec::new()], GLITCH_SIZE, settings, CLOCK.parse()?)?;
+    theme(&mut stage, GLITCH_THEME);
+    stage.state.screensaver = true;
+    stage.state.saver = Saver::Glitch;
+    let mut recorder = Recorder::new(Duration::ZERO);
+    let frames = (GLITCH_LENGTH.as_secs_f64() * GLITCH_FPS) as u32;
+    for frame in 0..frames {
+        let at = stage.started + Duration::from_secs_f64(f64::from(frame) / GLITCH_FPS);
+        recorder.take(Snapshot::from_buffer(stage.render(at)?, &stage.palette, None), at);
+    }
+    let path = output.join("glitch.gif");
+    recorder.save_gif(&path, GLITCH_TAIL)?;
+    println!("wrote {} ({} frames)", path.display(), recorder.frames());
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let output = PathBuf::from(env::args().nth(1).unwrap_or_else(|| "docs/showcase".into()));
     fs::create_dir_all(&output)?;
     size_tree(&output)?;
     folder_totals(&output)?;
-    activity(&output)
+    activity(&output)?;
+    glitch(&output)
 }
