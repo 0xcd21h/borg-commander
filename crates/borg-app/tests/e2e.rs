@@ -1638,9 +1638,17 @@ exec)
     if [ "$2" = "-it" ]; then PS1='box$ ' exec sh -i; fi
     case "$3" in
     sh)
-        case "$7" in
-        /) printf '41ed/4096/1729600000/etc\n81a4/12/1729600001/motd\n/\n' ;;
-        *) printf '/\n' ;;
+        case "$5" in
+        "cd --"*)
+            case "$7" in
+            /) printf '41ed/4096/1729600000/etc\n81a4/12/1729600001/motd\n/\n' ;;
+            *) printf '/\n' ;;
+            esac
+            ;;
+        "for p;"*)
+            shift 6
+            for p; do if [ "$p" = /motd ]; then printf '12/1729600001//motd\n'; fi; done
+            ;;
         esac
         ;;
     rm|mkdir) ;;
@@ -1649,7 +1657,7 @@ exec)
     ;;
 cp)
     case "$2" in
-    "$web":*) echo "welcome aboard" > "$3/$(basename "${2#*:}")" ;;
+    "$web":*) if [ -d "$3" ]; then echo "welcome aboard" > "$3/$(basename "${2#*:}")"; else echo "welcome aboard" > "$3"; fi ;;
     esac
     ;;
 *) echo "unexpected: $*" >&2; exit 1 ;;
@@ -1707,7 +1715,7 @@ fn docker_files_open_in_a_panel_and_copy_both_ways() -> Result<()> {
     app.send(keys::down())?.send(keys::down())?.send(keys::f(5))?;
     app.wait_text("Copy")?;
     app.send(keys::enter())?;
-    app.wait_text("Copied 1 item")?;
+    app.wait_text("Copied 1 file")?;
     ensure!(fs::read_to_string(fixture.work().join("motd"))? == "welcome aboard\n", "the file reached the host");
     app.send(keys::tab())?.send(keys::key(KeyCode::End))?.send(keys::f(5))?;
     app.wait_text("Copy")?;
@@ -1716,9 +1724,34 @@ fn docker_files_open_in_a_panel_and_copy_both_ways() -> Result<()> {
         fs::read_to_string(bin.join("calls.log"))
             .is_ok_and(|calls| calls.lines().any(|l| l.starts_with("cp ") && l.ends_with(":/")))
     })?;
-    app.send(keys::tab())?.send(keys::key(KeyCode::Home))?.send(keys::enter())?;
+    app.wait_text("Copied 1 file")?;
+
+    // motd is in both places now: copying it in asks, and Skip leaves the container's copy.
+    app.send(keys::key(KeyCode::Home))?.send(keys::ctrl('s'))?.send("motd")?.send(keys::enter())?;
+    app.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_text("Already exists")?;
+    app.send("s")?;
+    app.wait_text("1 skipped")?;
+    let calls = fs::read_to_string(bin.join("calls.log"))?;
+    ensure!(
+        !calls.lines().any(|l| l.starts_with("cp ") && l.contains("/motd f00d")),
+        "the skipped file stayed:\n{calls}"
+    );
+
+    // Copying it out again asks too, and Keep both saves it under a new name.
+    app.send(keys::tab())?.send(keys::key(KeyCode::Home))?.send(keys::down())?.send(keys::down())?.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_text("Already exists")?;
+    app.send("k")?;
+    app.wait_until("kept both", |_| fixture.work().join("motd (2)").exists())?;
+    ensure!(fs::read_to_string(fixture.work().join("motd"))? == "welcome aboard\n");
+
+    app.send(keys::key(KeyCode::Home))?.send(keys::enter())?;
     app.wait_gone("▣ shop-web-1")?;
-    app.wait_text("5 items")?;
+    app.wait_text("6 items")?;
     Ok(())
 }
 

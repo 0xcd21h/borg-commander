@@ -160,6 +160,14 @@ pub enum Effect {
         id: u64,
         spec: Spec,
     },
+    /// A copy job between a container and a host folder; `inbound` copies into the container.
+    StartDockerCopy {
+        id: u64,
+        container: String,
+        inbound: bool,
+        sources: Vec<PathBuf>,
+        target: PathBuf,
+    },
     JobControl {
         id: u64,
         command: JobCommand,

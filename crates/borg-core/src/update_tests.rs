@@ -1580,14 +1580,18 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     let Some(Overlay::Prompt(prompt)) = state.overlay.clone() else { panic!("copy asks for the destination") };
     assert_eq!(prompt.input.text(), "/tmp");
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    assert_eq!(
-        file_request(&effects),
-        Some(("c1".into(), FileOp::CopyOut { sources: vec!["/motd".into()], target: "/tmp".into() }))
-    );
-    assert!(!state.docker.files.is_empty(), "the copy shows in the host panel's footer");
-    let id = state.docker.files[0].id;
-    let effects = update(&mut state, Msg::Docker { id, result: Ok(crate::DockerData::Done) }, now);
-    assert_eq!(state.notice.as_deref(), Some("Copied 1 item"));
+    let copy = effects.iter().find_map(|e| match e {
+        Effect::StartDockerCopy { id, container, inbound, sources, target } => {
+            Some((*id, container.clone(), *inbound, sources.clone(), target.clone()))
+        }
+        _ => None,
+    });
+    let Some((id, container, inbound, sources, target)) = copy else { panic!("copying out starts a job: {effects:?}") };
+    assert_eq!((container.as_str(), inbound, sources, target), ("c1", false, vec!["/motd".into()], "/tmp".into()));
+    assert!(state.jobs.iter().any(|job| job.id == id && job.shown_on == Side::Right), "a copy job, shown on the host");
+    let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 0 }, skipped: 0 };
+    let effects = update(&mut state, Msg::Job { id, event: borg_jobs::Event::Finished(done) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
     assert!(effects.iter().any(|e| matches!(e, Effect::List { side: Side::Right, .. })), "both panels refresh");
 
     let effects = crate::actions::perform(&mut state, Action::View, now);
@@ -1616,8 +1620,11 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     let effects = crate::actions::perform(&mut state, Action::Copy, now);
     assert!(effects.is_empty());
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    let Some((_, FileOp::CopyIn { target, .. })) = file_request(&effects) else { panic!("copying into the container") };
-    assert_eq!(target, Path::new("/"));
+    let inbound = effects.iter().find_map(|e| match e {
+        Effect::StartDockerCopy { inbound, target, .. } => Some((*inbound, target.clone())),
+        _ => None,
+    });
+    assert_eq!(inbound, Some((true, "/".into())), "copying into the container");
 
     press(&mut state, now, key(KeyCode::Tab));
     press(&mut state, now, key(KeyCode::Home));

@@ -184,7 +184,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         PromptPurpose::Mkdir => {
             run_operation(state, tr!(overlays_mkdir), &ops::mkdir(text), Some(first_component(text)), now)
         }
-        PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text),
+        PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text, now),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));

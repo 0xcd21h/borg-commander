@@ -351,6 +351,22 @@ stat -c '%f/%s/%Y/%n' -- .[!.]* ..?* * 2>/dev/null
 echo /
 for f in .[!.]* ..?* *; do if [ -L "$f" ] && [ -d "$f" ]; then echo "$f"; fi; done"#;
 
+/// Size, modification time and path of each argument that exists, one per line; missing
+/// paths print nothing. Paths are absolute, so the path is everything after the second `/`.
+pub(crate) const STAT_PATHS: &str =
+    r#"for p; do if [ -e "$p" ] || [ -L "$p" ]; then stat -c '%s/%Y/%n' -- "$p"; fi; done"#;
+
+pub(crate) fn parse_stat(text: &str) -> std::collections::HashMap<std::path::PathBuf, (u64, i64)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(3, '/');
+            let size = fields.next()?.parse().ok()?;
+            let modified = fields.next()?.parse().ok()?;
+            Some((std::path::PathBuf::from(fields.next()?), (size, modified)))
+        })
+        .collect()
+}
+
 const TYPE_MASK: u32 = 0o170_000;
 const DIR: u32 = 0o040_000;
 const LINK: u32 = 0o120_000;
@@ -485,6 +501,13 @@ mod tests {
         assert_eq!(frames.push(&format!("\x1b[J\x1b[H{first}")).map(|s| s.len()), Some(1));
         assert_eq!(frames.push("\x1b[J\x1b[H"), None, "a repeated sample is dropped");
         assert_eq!(frames.push("\x1b[J\x1b[H"), Some(Vec::new()), "no running containers is still a sample");
+    }
+
+    #[test]
+    fn stat_reads_absolute_paths_after_the_size_and_time() {
+        let found = parse_stat("12/1729600001//etc/motd\n4096/1729600000//srv/my dir\n");
+        assert_eq!(found[std::path::Path::new("/etc/motd")], (12, 1_729_600_001));
+        assert_eq!(found[std::path::Path::new("/srv/my dir")], (4096, 1_729_600_000));
     }
 
     #[test]

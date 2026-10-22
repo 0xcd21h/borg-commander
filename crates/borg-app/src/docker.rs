@@ -98,8 +98,6 @@ impl Drop for Docker {
 
 async fn files(container: &str, op: FileOp, scratch: &std::path::Path) -> anyhow::Result<DockerData> {
     match op {
-        FileOp::CopyOut { sources, target } => borg_docker::copy_out(container, &sources, &target).await?,
-        FileOp::CopyIn { sources, target } => borg_docker::copy_in(container, &sources, &target).await?,
         FileOp::Delete { paths } => borg_docker::remove(container, &paths).await?,
         FileOp::Mkdir { path } => borg_docker::mkdir(container, &path).await?,
         FileOp::Fetch { path } => return borg_docker::fetch(container, &path, scratch).await.map(DockerData::Fetched),
@@ -222,4 +220,149 @@ impl Shells {
     pub fn screen(&self, container: &str) -> Option<Screen<'_>> {
         self.shells.get(container).map(|shell| shell.emulator.screen())
     }
+}
+
+/// A copy between a container and a host folder, run as a copy job: it reports progress
+/// item by item, asks before replacing what exists (Overwrite, Skip, Keep both, or the same
+/// for all), asks again when an item fails, and stops when cancelled. Runs on a blocking
+/// thread, since the job waits for answers.
+pub struct CopyJob {
+    pub container: String,
+    pub inbound: bool,
+    pub sources: Vec<PathBuf>,
+    pub target: PathBuf,
+}
+
+/// Size and modification time of host paths that exist.
+fn host_stat(paths: &[PathBuf]) -> HashMap<PathBuf, (u64, i64)> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let meta = std::fs::symlink_metadata(path).ok()?;
+            let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs();
+            Some((path.clone(), (meta.len(), i64::try_from(modified).unwrap_or(i64::MAX))))
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sticky {
+    Ask,
+    Always,
+    Never,
+}
+
+impl CopyJob {
+    pub fn run(
+        self,
+        runtime: &tokio::runtime::Handle,
+        control: &borg_jobs::Control,
+        emit: &mut dyn FnMut(borg_jobs::Event),
+    ) -> borg_jobs::Outcome {
+        use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Totals};
+        let Self { container, inbound, sources, target } = self;
+        let total = Totals { files: sources.len() as u64, bytes: 0 };
+        emit(Event::Scanning(total));
+        let dests: Vec<PathBuf> =
+            sources.iter().map(|source| target.join(source.file_name().unwrap_or_default())).collect();
+        let stat_inside = |paths: &[PathBuf]| runtime.block_on(borg_docker::stat(&container, paths));
+        let (incoming, existing) = if inbound {
+            (Ok(host_stat(&sources)), stat_inside(&dests))
+        } else {
+            (stat_inside(&sources), Ok(host_stat(&dests)))
+        };
+        let (incoming, existing) = match (incoming, existing) {
+            (Ok(incoming), Ok(existing)) => (incoming, existing),
+            (Err(error), _) | (_, Err(error)) => return Outcome::Failed(format!("{error:#}")),
+        };
+        let mut done = Totals::default();
+        let mut skipped = 0;
+        let (mut overwrite, mut errors) = (Sticky::Ask, Sticky::Ask);
+        for (source, dest) in sources.iter().zip(dests) {
+            if !control.proceed() {
+                return Outcome::Cancelled { done };
+            }
+            emit(Event::Progress(Progress { done, total, current: source.clone() }));
+            let mut into = target.clone();
+            if let Some(&(size, modified)) = existing.get(&dest) {
+                let (incoming_size, incoming_modified) = incoming.get(source).copied().unwrap_or_default();
+                let decision = match overwrite {
+                    Sticky::Always => Decision::Overwrite,
+                    Sticky::Never => Decision::Skip,
+                    Sticky::Ask => {
+                        emit(Event::Asking(Ask::Conflict {
+                            source: source.clone(),
+                            target: dest.clone(),
+                            sizes: (incoming_size, size),
+                            newer: incoming_modified > modified,
+                        }));
+                        control.decide()
+                    }
+                };
+                match decision {
+                    Decision::Overwrite | Decision::Retry => {}
+                    Decision::OverwriteAll => overwrite = Sticky::Always,
+                    Decision::Skip | Decision::SkipAll => {
+                        if decision == Decision::SkipAll {
+                            overwrite = Sticky::Never;
+                        }
+                        skipped += 1;
+                        continue;
+                    }
+                    Decision::KeepBoth => into = self::free_name(runtime, &container, inbound, &dest),
+                    Decision::Cancel => return Outcome::Cancelled { done },
+                }
+            }
+            loop {
+                let copied = runtime.block_on(async {
+                    if inbound {
+                        borg_docker::copy_in(&container, source, &into).await
+                    } else {
+                        borg_docker::copy_out(&container, source, &into).await
+                    }
+                });
+                let Err(error) = copied else {
+                    done.files += 1;
+                    break;
+                };
+                let decision = if errors == Sticky::Never {
+                    Decision::Skip
+                } else {
+                    emit(Event::Asking(Ask::Failure { path: source.clone(), message: format!("{error:#}") }));
+                    control.decide()
+                };
+                match decision {
+                    Decision::Retry => {}
+                    Decision::Cancel => return Outcome::Cancelled { done },
+                    other => {
+                        if matches!(other, Decision::SkipAll | Decision::OverwriteAll) {
+                            errors = Sticky::Never;
+                        }
+                        skipped += 1;
+                        break;
+                    }
+                }
+            }
+        }
+        emit(Event::Progress(Progress { done, total, current: target.clone() }));
+        Outcome::Done { done, skipped }
+    }
+}
+
+/// The first "name (2)" style name free beside `dest`, for Keep both. The candidates are
+/// checked in one call, so a container is asked once.
+fn free_name(runtime: &tokio::runtime::Handle, container: &str, inbound: bool, dest: &std::path::Path) -> PathBuf {
+    const CANDIDATES: usize = 50;
+    let mut candidates = Vec::new();
+    // Collects the first candidate names by calling every one taken.
+    borg_jobs::unique_by(dest, |candidate| {
+        candidates.push(candidate.to_path_buf());
+        candidates.len() < CANDIDATES
+    });
+    let taken = if inbound {
+        runtime.block_on(borg_docker::stat(container, &candidates)).unwrap_or_default()
+    } else {
+        host_stat(&candidates)
+    };
+    borg_jobs::unique_by(dest, |candidate| taken.contains_key(candidate))
 }

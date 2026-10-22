@@ -123,22 +123,26 @@ pub async fn files(id: &str, dir: &Path) -> Result<Vec<File>> {
     Ok(model::parse_files(&output))
 }
 
-/// Copies paths out of a container into a host folder.
-pub async fn copy_out(id: &str, sources: &[PathBuf], target: &Path) -> Result<()> {
-    for source in sources {
-        let from = format!("{id}:{}", inside(source));
-        run(&["cp", &from, &target.to_string_lossy()], COPY_TIMEOUT).await?;
-    }
-    Ok(())
+/// Copies a path out of a container. An existing host folder `dest` receives it inside, as
+/// `docker cp` does; any other `dest` becomes its new name.
+pub async fn copy_out(id: &str, source: &Path, dest: &Path) -> Result<()> {
+    let from = format!("{id}:{}", inside(source));
+    run(&["cp", &from, &dest.to_string_lossy()], COPY_TIMEOUT).await.map(drop)
 }
 
-/// Copies host paths into a folder inside a container.
-pub async fn copy_in(id: &str, sources: &[PathBuf], target: &Path) -> Result<()> {
-    let to = format!("{id}:{}", inside(target));
-    for source in sources {
-        run(&["cp", &source.to_string_lossy(), &to], COPY_TIMEOUT).await?;
-    }
-    Ok(())
+/// Copies a host path into a container, with the same rule for `dest` as [`copy_out`].
+pub async fn copy_in(id: &str, source: &Path, dest: &Path) -> Result<()> {
+    let to = format!("{id}:{}", inside(dest));
+    run(&["cp", &source.to_string_lossy(), &to], COPY_TIMEOUT).await.map(drop)
+}
+
+/// The size and modification time (seconds) of each of `paths` that exists in a container.
+pub async fn stat(id: &str, paths: &[PathBuf]) -> Result<std::collections::HashMap<PathBuf, (u64, i64)>> {
+    let mut args =
+        vec!["exec".to_owned(), id.to_owned(), "sh".into(), "-c".into(), model::STAT_PATHS.into(), "sh".into()];
+    args.extend(paths.iter().map(|path| inside(path)));
+    let output = run(&args.iter().map(String::as_str).collect::<Vec<_>>(), QUERY_TIMEOUT).await.map_err(files_error)?;
+    Ok(model::parse_stat(&output))
 }
 
 pub async fn remove(id: &str, paths: &[PathBuf]) -> Result<()> {
@@ -154,6 +158,6 @@ pub async fn mkdir(id: &str, path: &Path) -> Result<()> {
 /// Copies one file out of a container into `into`, for viewing, and returns its host path.
 pub async fn fetch(id: &str, path: &Path, into: &Path) -> Result<PathBuf> {
     tokio::fs::create_dir_all(into).await?;
-    copy_out(id, &[path.to_path_buf()], into).await?;
+    copy_out(id, path, into).await?;
     Ok(into.join(path.file_name().unwrap_or_default()))
 }

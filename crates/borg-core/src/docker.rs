@@ -57,8 +57,6 @@ pub enum DockerData {
 /// Work on a container's files. Paths inside the container are absolute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileOp {
-    CopyOut { sources: Vec<PathBuf>, target: PathBuf },
-    CopyIn { sources: Vec<PathBuf>, target: PathBuf },
     Delete { paths: Vec<PathBuf> },
     Mkdir { path: PathBuf },
     Fetch { path: PathBuf },
@@ -518,9 +516,6 @@ fn finish_files(state: &mut AppState, work: FileWork, result: Result<DockerData,
             let count = |paths: &[PathBuf]| borg_i18n::count(paths.len(), borg_i18n::Count::Item);
             state.notice = Some(match (result, op) {
                 (Err(error), _) => format!(tr!(docker_action_failed), error = error),
-                (Ok(_), FileOp::CopyIn { sources, .. } | FileOp::CopyOut { sources, .. }) => {
-                    format!(tr!(docker_copied), items = count(&sources))
-                }
                 (Ok(_), FileOp::Delete { paths }) => format!(tr!(docker_deleted), items = count(&paths)),
                 (Ok(_), FileOp::Mkdir { .. } | FileOp::Fetch { .. }) => String::new(),
             })
@@ -646,19 +641,23 @@ pub(crate) fn unmount(state: &mut AppState, side: Side) -> Option<Effect> {
     Some(state.navigate(side, mount.host, None))
 }
 
-/// Copies the selection between a container panel and a host panel; `target` is a folder
-/// in the other panel, absolute or relative to its folder.
-pub(crate) fn copy(state: &mut AppState, sources: Vec<PathBuf>, target: &str) -> Vec<Effect> {
+/// Copies the selection between a container panel and a host panel as a copy job, which asks
+/// before replacing what exists; `target` is a folder in the other panel, absolute or
+/// relative to its folder.
+pub(crate) fn copy(state: &mut AppState, sources: Vec<PathBuf>, target: &str, now: Instant) -> Vec<Effect> {
     let (from, to) = (state.active, state.active.other());
     let target = state.panel(to).dir().join(target);
-    match (mounted(state, from).cloned(), mounted(state, to).cloned()) {
-        (Some(mount), None) => file_work(state, to, mount.id, FileOp::CopyOut { sources, target }),
-        (None, Some(mount)) => file_work(state, to, mount.id, FileOp::CopyIn { sources, target }),
+    let (container, inbound) = match (mounted(state, from), mounted(state, to)) {
+        (Some(mount), None) => (mount.id.clone(), false),
+        (None, Some(mount)) => (mount.id.clone(), true),
         _ => {
             state.notice = Some(tr!(docker_copy_between_containers).into());
-            Vec::new()
+            return Vec::new();
         }
-    }
+    };
+    let (id, mut effects) = crate::jobs::begin(state, crate::JobKind::Copy, now);
+    effects.push(Effect::StartDockerCopy { id, container, inbound, sources, target });
+    effects
 }
 
 pub(crate) fn delete(state: &mut AppState, paths: Vec<PathBuf>) -> Vec<Effect> {

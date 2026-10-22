@@ -106,6 +106,13 @@ pub struct JobList {
 }
 
 pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instant) -> Vec<Effect> {
+    let (id, mut effects) = begin(state, kind, now);
+    effects.push(Effect::StartJob { id, spec });
+    effects
+}
+
+/// Adds a job to the list and returns its id, for a job that some effect then runs.
+pub(crate) fn begin(state: &mut AppState, kind: JobKind, now: Instant) -> (u64, Vec<Effect>) {
     let id = state.next_job;
     state.next_job += 1;
     let origin = state.active;
@@ -123,10 +130,9 @@ pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instan
         paused: false,
         started: now,
     });
-    let mut effects = crate::measure::cancel(state);
+    let effects = crate::measure::cancel(state);
     crate::measure::forget(state);
-    effects.push(Effect::StartJob { id, spec });
-    effects
+    (id, effects)
 }
 
 pub(crate) fn on_event(state: &mut AppState, id: u64, event: Event) -> Vec<Effect> {

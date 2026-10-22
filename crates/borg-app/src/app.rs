@@ -590,6 +590,9 @@ impl App {
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
+                Effect::StartDockerCopy { id, container, inbound, sources, target } => {
+                    self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target });
+                }
                 Effect::JobControl { id, command } => self.control_job(id, command),
                 Effect::Peek { aside, path, size } => self.peek(aside, path, size),
                 Effect::Quit => return Ok(Flow::Quit),
@@ -634,6 +637,19 @@ impl App {
                 }
                 drop(messages.send(Msg::Job { id, event }));
             });
+        });
+    }
+
+    fn start_docker_copy(&mut self, id: u64, job: crate::docker::CopyJob) {
+        let running: Vec<u64> = self.state.jobs.iter().map(|job| job.id).collect();
+        self.jobs.retain(|id, _| running.contains(id));
+        let control = Arc::new(Control::default());
+        self.jobs.insert(id, Arc::clone(&control));
+        let messages = self.messages.clone();
+        let runtime = tokio::runtime::Handle::current();
+        tokio::task::spawn_blocking(move || {
+            let outcome = job.run(&runtime, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
         });
     }
 

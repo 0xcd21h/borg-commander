@@ -644,11 +644,8 @@ fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
 }
 
 /// What a panel's footer says while Docker works on its files.
-pub(crate) fn file_work_label(state: &AppState, work: &borg_core::FileWork) -> String {
-    let name = |side: borg_core::Side| state.panel(side).mount.as_ref().map(|m| m.name.clone()).unwrap_or_default();
+pub(crate) fn file_work_label(work: &borg_core::FileWork) -> String {
     match &work.op {
-        FileOp::CopyIn { .. } => format!(tr!(docker_copying_in), name = name(work.side)),
-        FileOp::CopyOut { .. } => format!(tr!(docker_copying_out), name = name(work.side.other())),
         FileOp::Delete { .. } => tr!(docker_deleting).into(),
         FileOp::Mkdir { .. } => tr!(docker_creating).into(),
         FileOp::Fetch { .. } => tr!(docker_opening).into(),

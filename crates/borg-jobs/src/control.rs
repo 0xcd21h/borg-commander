@@ -47,6 +47,17 @@ impl Control {
         self.cancelled.load(Ordering::SeqCst)
     }
 
+    /// Waits while the job is paused; false once it is cancelled. For jobs run outside this
+    /// crate's engine, such as copies to and from containers.
+    pub fn proceed(&self) -> bool {
+        self.checkpoint().is_ok()
+    }
+
+    /// Waits for the user's answer to the question the job just asked.
+    pub fn decide(&self) -> Decision {
+        self.ask()
+    }
+
     pub(crate) fn checkpoint(&self) -> Result<(), Stopped> {
         let mut guard = self.answer.lock().map_err(|_| Stopped)?;
         while self.is_paused() && !self.cancelled() {
