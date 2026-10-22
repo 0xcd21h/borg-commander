@@ -88,6 +88,13 @@ pub fn shell_command(program: &Path, cwd: &Path, runtime_dir: &Path) -> io::Resu
     Ok(cmd)
 }
 
+/// The user's shell: `$SHELL` when it names an executable, otherwise the account's login
+/// shell. Sessions such as `docker exec`, cron, or `su` often start without `SHELL`, and
+/// falling back to `/bin/sh` there would lose the shell integration.
+pub fn user_shell() -> PathBuf {
+    PathBuf::from(CommandBuilder::new_default_prog().get_shell())
+}
+
 /// Where this process asks its shell to change directory (see [`SILENT_CD_KEY`]).
 pub fn cd_request_file(runtime_dir: &Path) -> PathBuf {
     runtime_dir.join(env!("CARGO_PKG_VERSION")).join(format!("cd-{}", std::process::id()))
@@ -112,4 +119,16 @@ fn install(kind: ShellKind, runtime_dir: &Path) -> io::Result<PathBuf> {
     fs::create_dir_all(&dir)?;
     kind.scripts().iter().try_for_each(|script| fs::write(dir.join(script.name), script.body))?;
     Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_user_shell_is_an_executable_even_without_a_shell_variable() {
+        let shell = user_shell();
+        let mode = fs::metadata(&shell).map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()));
+        assert!(mode.is_ok_and(|mode| mode & 0o111 != 0), "{} is not executable", shell.display());
+    }
 }
