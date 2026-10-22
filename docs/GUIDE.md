@@ -280,7 +280,7 @@ menu-bar = false            # keep the menu bar visible
 show-hidden = false
 return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
-screensaver = true
+screensaver = true          # a spinning cube or a glitching logo, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -288,6 +288,10 @@ graphics = "auto"           # auto, kitty, sixel, iterm or off
 [plugins]
 git = true
 ```
+
+On a local terminal with true colour, Borg opens with a short glitch intro of its logo;
+any key or click skips it. Over SSH and on terminals without true colour it starts straight
+in the panels.
 
 Panel folders, cursor position, split, listing mode, and sorting are saved in
 `~/.local/state/borg-commander`, or the location selected by `$XDG_STATE_HOME` or `$BORG_STATE_DIR`.

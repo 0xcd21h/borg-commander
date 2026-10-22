@@ -259,6 +259,10 @@ pub struct AppState {
     pub next_job: u64,
     pub idle_since: Instant,
     pub screensaver: bool,
+    /// Which screensaver shows; picked again each time it starts.
+    pub saver: Saver,
+    /// When the startup intro began. Any input, or its end, clears it.
+    pub intro: Option<Instant>,
     pub rain_until: Option<Instant>,
     generation: u64,
 }
@@ -326,6 +330,8 @@ impl AppState {
             next_job: 0,
             idle_since: now,
             screensaver: false,
+            saver: Saver::default(),
+            intro: None,
             rain_until: None,
             generation: 0,
         };
@@ -436,6 +442,7 @@ impl AppState {
 
     pub fn can_screensave(&self) -> bool {
         !self.shell.busy()
+            && self.intro.is_none()
             && self.jobs.is_empty()
             && self.overlay.is_none()
             && self.viewer.is_none()
@@ -451,6 +458,7 @@ impl AppState {
     pub fn wake_at(&self) -> Option<Instant> {
         let reveal = self.operation.as_ref().filter(|op| !op.revealed).map(|op| op.reveal_at);
         let prefix = self.escaped.map(|at| at + crate::update::ESCAPE_WINDOW);
+        let intro = self.intro.map(|start| start + INTRO);
         let rest = (self.settings.preferences.screensaver && !self.screensaver && self.can_screensave())
             .then_some(self.idle_since + self.settings.screensaver_after);
         let rain = self.rain_until;
@@ -459,6 +467,7 @@ impl AppState {
             rest,
             rain,
             prefix,
+            intro,
             self.busy.reveal_at(),
             crate::plugins::wake_at(self),
             crate::activity::wake_at(self),
@@ -613,4 +622,17 @@ fn inspection_panels([left, right]: [ratatui::layout::Rect; 2]) -> [ratatui::lay
         ratatui::layout::Rect { width: split, ..outer },
         ratatui::layout::Rect { x: outer.x + split, width: outer.width - split, ..outer },
     ]
+}
+
+/// How long the startup intro lasts: the logo settles, then holds briefly.
+pub const INTRO: std::time::Duration = std::time::Duration::from_millis(1300);
+
+/// The screensavers borg picks from at random.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Saver {
+    /// The spinning cube in a starfield.
+    #[default]
+    Cube,
+    /// The glitching logo.
+    Glitch,
 }

@@ -129,14 +129,23 @@ fn tick_timers(state: &mut AppState, now: Instant) {
     if !state.function_prefix(now) {
         state.escaped = None;
     }
+    if state.intro.is_some_and(|start| now >= start + crate::state::INTRO) {
+        state.intro = None;
+        // Idle time counts from when the panels appear, not from launch.
+        state.idle_since = now;
+    }
     let due = state.idle_since + state.settings.screensaver_after;
-    if state.settings.preferences.screensaver && state.can_screensave() && now >= due {
+    if state.settings.preferences.screensaver && state.can_screensave() && now >= due && !state.screensaver {
         state.screensaver = true;
+        // No randomness in core: the moment it starts is random enough to pick one.
+        let tick = now.saturating_duration_since(state.epoch).as_micros();
+        state.saver = if tick.is_multiple_of(2) { crate::Saver::Cube } else { crate::Saver::Glitch };
     }
 }
 
 fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     state.idle_since = now;
+    state.intro = None;
     let resting = state.screensaver;
     state.screensaver = false;
     if resting {
@@ -257,6 +266,7 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 }
 
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
+    state.intro = None;
     if state.activity.side.is_some() && state.view == View::Panels {
         if let Some(form) = state.activity.search_form.as_mut() {
             if form.selected == 0 {

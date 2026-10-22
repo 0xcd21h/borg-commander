@@ -1,4 +1,4 @@
-use borg_core::KEYMAP;
+use borg_core::{KEYMAP, Saver};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -12,7 +12,7 @@ use crate::{
     Rgb,
     dialog_view::centered,
     format,
-    fx::{self, Gradient, LOGO},
+    fx::{self, GLITCH_HEIGHT, Gradient},
     keybar::key_name,
     look::Look,
 };
@@ -32,6 +32,10 @@ const TEXT_GAP: u16 = 1;
 const PADDING: u16 = 2;
 const RAIN_DIM: f32 = 0.85;
 const RAIN_NIGHT: f32 = 0.6;
+/// The About logo glitches in a burst every few seconds and is clean in between.
+const ABOUT_GLITCH_PERIOD: f32 = 3.0;
+/// The startup intro's logo settles within this many seconds, then holds.
+const INTRO_SETTLE: f32 = 0.9;
 
 fn fill(buf: &mut Buffer, area: Rect, look: &Look<'_>) {
     Clear.render(area, buf);
@@ -56,13 +60,23 @@ fn text(buf: &mut Buffer, area: Rect, y: u16, content: &str, gradient: Gradient)
     fx::gradient_text(buf, Rect { x: area.x + (area.width - width) / 2, width, ..row }, gradient);
 }
 
-pub fn draw_screensaver(look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+pub fn draw_screensaver(look: &Look<'_>, saver: Saver, area: Rect, buf: &mut Buffer) {
     fill(buf, area, look);
     let background = look.background();
+    if saver == Saver::Glitch {
+        fx::draw_glitch_screen(buf, area, look.t, look.accent(), background, SUBTITLE);
+        return;
+    }
     fx::draw_stars(buf, area, look.t, background);
     let (width, height) = sized(area, SAVER_CUBE);
     let cube = centered(area, width, height);
     fx::draw_cube(buf, cube, look.t * SAVER_SPIN, look.accent(), background);
+}
+
+/// The startup intro: the glitching logo settles over a plain screen.
+pub fn draw_intro(look: &Look<'_>, elapsed: f32, area: Rect, buf: &mut Buffer) {
+    fill(buf, area, look);
+    fx::draw_glitch_intro(buf, area, elapsed, INTRO_SETTLE, look.accent(), look.background(), SUBTITLE);
 }
 
 pub fn draw_rain_backdrop(look: &Look<'_>, area: Rect, buf: &mut Buffer) {
@@ -94,9 +108,10 @@ pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
 
     let right =
         Rect { x: cube.right() + PADDING, width: inner.right().saturating_sub(cube.right() + PADDING), ..inner };
-    let logo_y = cube.y + 1;
-    fx::draw_logo(buf, (right.x, logo_y), look.t, accent);
-    let info_y = logo_y + rows(LOGO.len()) + TEXT_GAP;
+    let logo_y = cube.y;
+    let heat = fx::burst_heat(look.t, ABOUT_GLITCH_PERIOD, 0.0);
+    fx::draw_glitch(buf, (right.x, logo_y), inner, heat, look.t, accent, background);
+    let info_y = logo_y + GLITCH_HEIGHT + TEXT_GAP;
     let meta = styles.overlay.fg(look.fg(styles.meta).into());
     Line::styled(SUBTITLE, meta).render(Rect { y: info_y, height: 1, ..right }, buf);
     Line::styled(format!(tr!(about_version), VERSION = VERSION), meta)

@@ -34,6 +34,7 @@ pub enum Pointer {
 
 pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     state.idle_since = now;
+    state.intro = None;
     let resting = state.screensaver;
     state.screensaver = false;
     state.escaped = None;

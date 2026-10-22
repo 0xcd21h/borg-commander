@@ -93,6 +93,15 @@ Six built-in themes, from Classic blue to Paper. Pick one from the menu or make 
 Every download includes **Borg Mono**, a font with file icons. Ghostty uses rich icons
 automatically; other terminals start with portable symbols. [Font setup](fonts/README.md).
 
+## Resistance is futile
+
+On a local true-colour terminal, Borg starts with a burst of glitch. When you step away, it shows a
+spinning cube or this glitching logo, picked at random. Any key brings the panels back.
+
+<p align="center">
+  <img src="docs/showcase/glitch.gif" alt="The glitch screensaver: the BORG logo drifts on a scanlined screen, then tears apart in bursts of split colour, smeared rows, and corrupted glyphs" width="760">
+</p>
+
 ## Install
 
 Download a binary for **macOS** (Apple Silicon or Intel) or **Linux** (ARM64 or x86-64)

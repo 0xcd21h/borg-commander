@@ -120,6 +120,10 @@ impl App {
         let (mut state, pending) =
             AppState::new(launch.startup.clone(), size.width, size.height, launch.settings.clone(), appearance, now);
         state.notice = launch.warnings.first().cloned();
+        // The glitch intro plays only where animations do: not over SSH or without truecolor.
+        if state.settings.motion == borg_core::Motion::LOCAL {
+            state.intro = Some(now);
+        }
         let mut collections_writable = true;
         if let Some(dir) = &launch.state_dir {
             state.game2048 = dir.load_game2048().ok().flatten();

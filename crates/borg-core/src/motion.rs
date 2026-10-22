@@ -81,5 +81,5 @@ pub(crate) fn ambient(state: &AppState, now: Instant) -> bool {
     let rain = state.rain_until.is_some_and(|until| now < until);
     let about = matches!(state.overlay, Some(crate::Overlay::About(_)));
     let decorative = empty_art || rain || about;
-    spinning || working || decorative || state.screensaver
+    spinning || working || decorative || state.screensaver || state.intro.is_some()
 }

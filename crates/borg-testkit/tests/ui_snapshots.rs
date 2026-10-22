@@ -296,6 +296,32 @@ fn konami_code_starts_glyph_rain() -> Result<()> {
 }
 
 #[test]
+fn startup_intro_glitches_settles_and_gives_way_to_any_key() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::LOCAL)?;
+    stage.state.intro = Some(stage.started);
+    let buffer = stage.render(stage.started + Duration::from_millis(120))?;
+    check("intro_glitch", &stage, buffer)?;
+    let settled =
+        Snapshot::from_buffer(stage.render(stage.started + Duration::from_millis(1000))?, &stage.palette, None);
+    anyhow::ensure!(settled.contains("██████  ██    ██ ██████  ██   ███"), "the logo settles:\n{}", settled.text());
+    stage.send(key(KeyCode::Down));
+    anyhow::ensure!(stage.state.intro.is_none(), "a key dismisses the intro");
+    anyhow::ensure!(stage.state.active_panel().cursor() == 1, "and still reaches the panels");
+    stage.state.intro = Some(stage.started);
+    stage.state.settings.preferences.screensaver = true;
+    stage.state.settings.screensaver_after = Duration::from_secs(1);
+    let ended = stage.started + borg_core::INTRO;
+    borg_core::update(&mut stage.state, Msg::Tick, ended);
+    anyhow::ensure!(stage.state.intro.is_none(), "the intro ends on its own");
+    anyhow::ensure!(!stage.state.screensaver, "the screensaver does not replace the intro");
+    borg_core::update(&mut stage.state, Msg::Tick, ended + Duration::from_millis(900));
+    anyhow::ensure!(!stage.state.screensaver, "idle time counts from when the panels appear");
+    borg_core::update(&mut stage.state, Msg::Tick, ended + Duration::from_secs(1));
+    anyhow::ensure!(stage.state.screensaver, "and the screensaver follows after the idle period");
+    Ok(())
+}
+
+#[test]
 fn screensaver_after_idle() -> Result<()> {
     let preferences = Preferences { screensaver: true, ..QUIET };
     let mut stage = staged(Motion::LOCAL, preferences, project(), CLOCK)?;
@@ -305,6 +331,18 @@ fn screensaver_after_idle() -> Result<()> {
     anyhow::ensure!(stage.state.screensaver, "screensaver must start after the idle period");
     let buffer = stage.render(later)?;
     check("screensaver", &stage, buffer)?;
+    stage.state.saver = borg_core::Saver::Glitch;
+    let calm = Snapshot::from_buffer(stage.render(later)?, &stage.palette, None);
+    anyhow::ensure!(calm.contains("c o m m a n d e r"), "the glitch screensaver shows the logo");
+    let burst = (0..120)
+        .map(|tenth| later + Duration::from_millis(100 * tenth))
+        .find(|&at| {
+            let shot = Snapshot::from_buffer(stage.render(at).unwrap(), &stage.palette, None);
+            shot.text().chars().filter(|c| matches!(c, '▓' | '▒' | '░')).count() >= 40
+        })
+        .ok_or_else(|| anyhow::anyhow!("the glitch screensaver must burst within 12 seconds"))?;
+    let buffer = stage.render(burst)?;
+    check("screensaver_glitch", &stage, buffer)?;
 
     borg_core::update(&mut stage.state, key(KeyCode::Char('x')), later);
     anyhow::ensure!(!stage.state.screensaver, "a key must wake the screensaver");
