@@ -23,6 +23,7 @@ mod pointer;
 mod results_view;
 mod settings_view;
 mod shortcuts;
+mod spinner;
 mod status_view;
 mod term_view;
 mod theme;

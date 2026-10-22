@@ -1,15 +1,9 @@
 use std::f32::consts::TAU;
 
-const ORBIT: [char; 8] = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
-const ORBIT_RATE: f32 = 12.0;
 const DENSITY: [char; 9] = ['⠀', '⡀', '⣀', '⣄', '⣤', '⣦', '⣶', '⣷', '⣿'];
 const COMET_PERIOD: f32 = 1.8;
 const TAIL_SHARE: f32 = 0.45;
 const MIN_TAIL: f32 = 3.0;
-
-pub fn orbit(t: f32) -> char {
-    ORBIT[(t * ORBIT_RATE) as usize % ORBIT.len()]
-}
 
 pub fn comet(t: f32, width: usize) -> Vec<(char, f32)> {
     if width == 0 {
@@ -35,12 +29,6 @@ pub fn comet(t: f32, width: usize) -> Vec<(char, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn orbit_cycles_through_frames() {
-        let frames: std::collections::HashSet<char> = (0..8).map(|i| orbit(i as f32 / ORBIT_RATE)).collect();
-        assert_eq!(frames.len(), ORBIT.len());
-    }
 
     #[test]
     fn comet_has_bright_head_and_fading_tail() {

@@ -15,5 +15,5 @@ pub use motion::{Unfold, reveal};
 pub use paint::{Gradient, fade_to_background, glow, gradient_border, gradient_fill, gradient_text, shadow};
 pub use quantize::quantize;
 pub use rain::draw_rain;
-pub use spinner::{comet, orbit};
+pub use spinner::comet;
 pub use stars::draw_stars;

@@ -71,6 +71,13 @@ other dialog is open; answers, pause and cancel travel back as `Effect::JobContr
 `Control`. The engine is synchronous and fully tested on temporary folders
 (`crates/borg-jobs/tests/engine.rs`).
 
+Before the shell receives input, `sync_cwd` moves it to the active panel's folder. Shells
+whose integration announces `OSC 6633;silent-cd` at each prompt (zsh) get
+`Effect::ChangeShellDir`: the app writes the folder to a private per-process request file
+(`BORG_CD_FILE`) and sends `SILENT_CD_KEY`, which a ZLE widget binds to `builtin cd`, the
+prompt hooks and `zle reset-prompt`. Nothing is echoed and no command markers are emitted.
+Other shells receive a typed ` cd '…'` that skips history.
+
 Mkdir and archive actions are built by `borg_core::command::CommandLine` (with shell quoting)
 and run in the embedded shell, hidden at first. If a command takes longer than 600 ms the shell
 is revealed, and the panels come back when it finishes.

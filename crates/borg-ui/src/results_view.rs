@@ -336,16 +336,12 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
         }
     }
     if panel.is_empty() && body.height > 0 {
-        text(
-            buf,
-            Rect { height: 1, ..body },
-            if panel.listing() == &Listing::Loading {
-                tr!(results_scanning)
-            } else {
-                tr!(no_matches_ctrl_f_search_alt_v)
-            },
-            styles.footer,
-        );
+        let line = Rect { height: 1, ..body };
+        if panel.listing() != &Listing::Loading {
+            text(buf, line, tr!(no_matches_ctrl_f_search_alt_v), styles.footer);
+        } else if let Some(spinner) = scene.spinner {
+            spinner.line(tr!(results_scanning), look, styles.footer).render(line, buf);
+        }
     }
 }
 

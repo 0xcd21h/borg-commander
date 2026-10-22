@@ -1071,9 +1071,18 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         activity.search_form = Some(form);
         return Vec::new();
     }
-    if activity.filtering {
+    // Typing edits the filter; the arrows and paging keys still move through the matches.
+    let moving = matches!(
+        key.code,
+        KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
+    );
+    if activity.filtering && !moving {
         match key.code {
-            KeyCode::Esc | KeyCode::Enter => activity.filtering = false,
+            KeyCode::Enter => activity.filtering = false,
+            KeyCode::Esc => {
+                activity.filtering = false;
+                activity.filter.clear();
+            }
             KeyCode::Backspace => {
                 activity.filter.pop();
             }
@@ -1313,8 +1322,11 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             return Vec::new();
         }
         if activity.list == ActivityPage::Processes {
-            if activity.filtering {
+            // Esc stops and clears a filter before it closes the monitor.
+            if activity.filtering || !activity.filter.is_empty() {
                 activity.filtering = false;
+                activity.filter.clear();
+                activity.rebuild();
             } else {
                 activity.side = None;
             }
@@ -2017,5 +2029,29 @@ mod tests {
         let tagged = |name: &str| MemoryRegion { name: name.into(), permissions: "rw-".into(), ..Default::default() };
         assert_eq!(tagged("Memory Tag 253").group(None), MemoryGroup::Heap);
         assert_eq!(tagged("Memory Tag 22").group(None), MemoryGroup::Other);
+    }
+    #[test]
+    fn the_process_filter_types_moves_keeps_and_clears() {
+        let (mut state, now) = state();
+        open(&mut state);
+        sample(&mut state, vec![process(21, 1, 300), process(22, 1, 200), process(3, 1, 100)], now);
+        for code in [KeyCode::Char('/'), KeyCode::Char('2')] {
+            key(&mut state, code);
+        }
+        assert_eq!(state.activity.rows.len(), 2);
+        key(&mut state, KeyCode::Down);
+        assert!(state.activity.filtering, "arrows move without leaving the filter");
+        assert_eq!(state.activity.selected.unwrap().pid, 22);
+        key(&mut state, KeyCode::Enter);
+        assert!(!state.activity.filtering && state.activity.filter == "2");
+        key(&mut state, KeyCode::Esc);
+        assert!(state.activity.filter.is_empty() && state.activity.side.is_some(), "Esc clears before closing");
+        assert_eq!(state.activity.rows.len(), 3);
+        for code in [KeyCode::Char('/'), KeyCode::Char('3'), KeyCode::Esc] {
+            key(&mut state, code);
+        }
+        assert!(!state.activity.filtering && state.activity.filter.is_empty());
+        key(&mut state, KeyCode::Esc);
+        assert!(state.activity.side.is_none());
     }
 }

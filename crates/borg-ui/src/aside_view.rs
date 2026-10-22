@@ -25,7 +25,6 @@ const PICTURE_Z: i32 = -1;
 const QUICK_VIEW_TITLE: &str = tr!(quick_view);
 const INFO_TITLE: &str = tr!(info);
 const TITLE_SEPARATOR: &str = " · ";
-const LOADING: &str = "…";
 const BINARY: &str = tr!(binary_file);
 const EMPTY: &str = tr!(empty_file);
 const PADDING: u16 = 1;
@@ -61,6 +60,8 @@ pub struct AsideScene<'a> {
     pub icon_spacing: u8,
     pub pictures: bool,
     pub clock: &'a Zoned,
+    /// Shown once the preview has taken a while to prepare.
+    pub spinner: Option<crate::spinner::Spinner>,
 }
 
 pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> Vec<Placement> {
@@ -95,7 +96,9 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     match shown {
         Some(peeked) => content(peeked, scene, look, body, buf),
         None => {
-            centered(LOADING, styles.meta, body, buf);
+            if let Some(spinner) = scene.spinner {
+                spinner.draw_centered(tr!(activity_loading), look, styles.meta, body, buf);
+            }
             Vec::new()
         }
     }

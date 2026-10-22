@@ -19,7 +19,7 @@ expression: describe(&buffer)
 │                                           ││                                           │
 │                                           ││                                           │
 │                                           ││                                           │
-╰ find: o  2/4 ─────────────────────────────╯╰ 5 items ──────────────────────────────────╯
+╰ Find  o                 2/4 ──────────────╯╰ 5 items ──────────────────────────────────╯
  -rw-r--r--    1234  2026-01-10 09:30  Cargo.toml
 $
 F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
@@ -42,7 +42,7 @@ Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size             ◈ Bor
  14: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-43 Reset Rgb(30, 30, 30) NONE | 44-44 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 45-45 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 46-88 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 89-89 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  15: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-43 Reset Rgb(30, 30, 30) NONE | 44-44 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 45-45 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 46-88 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 89-89 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  16: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-43 Reset Rgb(30, 30, 30) NONE | 44-44 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 45-45 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 46-88 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 89-89 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
- 17: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-7 Rgb(95, 175, 215) Rgb(30, 30, 30) NONE | 8-9 Rgb(255, 255, 255) Rgb(68, 68, 68) NONE | 10-14 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 15-44 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 45-89 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+ 17: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-6 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 7-24 Rgb(255, 255, 255) Rgb(68, 68, 68) NONE | 25-29 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 30-44 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 45-89 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  18: 0-89 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  19: 0-89 Reset Reset NONE
  20: 0-1 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 2-7 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 8-9 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 10-15 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 16-17 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 18-23 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 24-25 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 26-31 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 32-33 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 34-39 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 40-41 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 42-47 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 48-49 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 50-55 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 56-57 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 58-63 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 64-65 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 66-71 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 72-74 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 75-79 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 80-81 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 82-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE

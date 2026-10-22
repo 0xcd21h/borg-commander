@@ -48,6 +48,8 @@ pub struct App {
     state: AppState,
     emulator: Emulator,
     pty: Pty,
+    /// Where the shell reads the folder to change into without a command line.
+    cd_request: PathBuf,
     pty_events: UnboundedReceiver<PtyEvent>,
     backend: Arc<dyn Backend>,
     messages: UnboundedSender<Msg>,
@@ -72,6 +74,12 @@ pub struct App {
 enum Flow {
     Continue,
     Quit,
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.cd_request);
+    }
 }
 
 impl App {
@@ -115,6 +123,7 @@ impl App {
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
             pty,
+            cd_request: borg_term::cd_request_file(&launch.runtime_dir),
             pty_events,
             messages,
             inbox,
@@ -473,6 +482,13 @@ impl App {
                 Effect::Write(bytes) => {
                     self.emulator.scroll(Scroll::Bottom);
                     self.pty.write(&bytes)?;
+                }
+                Effect::ChangeShellDir { dir, typed } => {
+                    self.emulator.scroll(Scroll::Bottom);
+                    match borg_term::request_cd(&self.cd_request, &dir) {
+                        Ok(()) => self.pty.write(borg_term::SILENT_CD_KEY)?,
+                        Err(_) => self.pty.write(&typed)?,
+                    }
                 }
                 Effect::ScrollConsole(scroll) => self.emulator.scroll(scroll),
                 Effect::View(path) => self.open_viewer(path),

@@ -143,6 +143,61 @@ fn typing_goes_to_shell_after_syncing_directory() {
 }
 
 #[test]
+fn shells_announcing_silent_cd_change_folder_without_a_typed_command() {
+    let (mut state, now) = setup();
+    for signal in [ShellSignal::PromptStart, ShellSignal::SilentCd] {
+        update(&mut state, Msg::Signal(signal), now);
+    }
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let Some(Effect::List { side, generation, .. }) = effects.first().cloned() else { panic!("expected listing") };
+    update(&mut state, Msg::Batch { side, generation, entries: vec![] }, now);
+    state.settle();
+
+    let effects = press(&mut state, now, ctrl('o'));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::ChangeShellDir { dir, typed }] if dir == Path::new("/home/me") && typed == b" cd '/home/me'\r"
+    ));
+    assert_eq!(state.shell.cwd, Path::new("/home/me"));
+
+    press(&mut state, now, ctrl('o'));
+    let Effect::List { side, generation, .. } = state.navigate(Side::Left, PathBuf::from("/home"), None) else {
+        panic!("expected listing")
+    };
+    update(&mut state, Msg::Batch { side, generation, entries: vec![] }, now);
+    state.settle();
+    update(&mut state, Msg::Signal(ShellSignal::PromptStart), now);
+    let effects = press(&mut state, now, ctrl('o'));
+    assert_eq!(writes(&effects), " cd '/home'\r", "a prompt without the announcement falls back to typing");
+}
+
+#[test]
+fn esc_closes_what_is_open_before_digits_act_as_function_keys() {
+    let (mut state, now) = setup();
+    press(&mut state, now, ctrl('q'));
+    assert!(state.aside.is_some());
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.aside.is_none(), "Esc closes the quick view");
+    assert!(!state.function_prefix(now) && state.notice.is_none());
+    let effects = press(&mut state, now, key(KeyCode::Char('1')));
+    assert_eq!(writes(&effects), "1", "a digit after a closing Esc is typed");
+    assert!(state.overlay.is_none());
+
+    let (mut state, now) = setup();
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.function_prefix(now) && state.notice.is_none(), "a plain Esc waits quietly for a digit");
+    press(&mut state, now, key(KeyCode::Char('9')));
+    assert!(state.overlay.is_some(), "Esc 9 opens the menus like F9");
+
+    let (mut state, now) = setup();
+    press(&mut state, now, key(KeyCode::Esc));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(!state.function_prefix(now), "a second Esc cancels");
+    assert!(!state.function_prefix(now + std::time::Duration::from_secs(2)));
+}
+
+#[test]
 fn enter_on_typed_line_runs_command_and_reveals_shell() {
     let (mut state, now) = setup();
     state.shell.observed.prompt = PromptState::Typed;
@@ -415,6 +470,8 @@ fn slow_operations_reveal_the_shell_and_return_afterwards() {
     press(&mut state, now, key(KeyCode::F(7)));
     type_text(&mut state, now, "slow");
     press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(state.wake_at(), Some(now + crate::SPINNER_DELAY), "the footer spinner is due first");
+    update(&mut state, Msg::Tick, now + crate::SPINNER_DELAY);
     assert_eq!(state.wake_at(), Some(now + REVEAL_DELAY));
 
     update(&mut state, Msg::Tick, now + REVEAL_DELAY);
@@ -1368,6 +1425,38 @@ fn stopping_background_sizes_rejects_late_replies_and_new_runs_get_new_ids() {
     assert_eq!(writes(&press(&mut state, now, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT))), "\x1bi");
     assert_eq!(writes(&press(&mut state, now, ctrl(' '))), "\0");
     assert!(state.sizing.is_some());
+}
+
+#[test]
+fn measured_sizes_survive_relisting_and_stopping_until_a_finished_scan_saves_them() {
+    let (mut state, now) = setup();
+    let alt_i = KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT);
+    press(&mut state, now, alt_i);
+    let id = state.sizing.as_ref().unwrap().id;
+    let mut measured = dir("me");
+    measured.source = Some("/home/me".into());
+    measured.size = 4_096_000;
+    measured.usage = Some(borg_vfs::FolderUsage { files: 3, partial: true, ..Default::default() });
+    update(&mut state, Msg::Sized { id, entries: vec![measured] }, now);
+    let size = |state: &AppState| state.active_panel().entries().iter().find(|e| e.name == "me").map(|e| e.size);
+    let relist = |state: &mut AppState| {
+        let Effect::List { side, generation, .. } = state.reload(Side::Left) else { panic!("expected listing") };
+        update(state, Msg::Batch { side, generation, entries: vec![dir("me")] }, now);
+        update(state, Msg::Listed { side, generation, error: None }, now);
+    };
+    assert_eq!(size(&state), Some(4_096_000));
+    relist(&mut state);
+    assert_eq!(size(&state), Some(4_096_000), "a folder listed again during the scan keeps its total");
+    press(&mut state, now, alt_i);
+    assert!(state.sizing.is_none());
+    relist(&mut state);
+    assert_eq!(size(&state), Some(4_096_000), "stopping keeps completed and running totals");
+
+    press(&mut state, now, alt_i);
+    let id = state.sizing.as_ref().unwrap().id;
+    update(&mut state, Msg::SizesFinished { id, error: None }, now);
+    relist(&mut state);
+    assert_ne!(size(&state), Some(4_096_000), "a finished scan leaves totals to its saved cache");
 }
 
 #[test]

@@ -194,7 +194,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     let mut panel_cursor = None;
     let aside_side = state.aside.map(|_| state.active.other());
     if state.activity.side.is_some() {
-        crate::activity_view::draw(state, &look, layout.panels, state.monitor_panels(scene.now), &mut buf);
+        crate::activity_view::draw(state, &look, layout.panels, state.monitor_panels(scene.now), scene.now, &mut buf);
     }
     for side in Side::ALL {
         let active = side == state.active;
@@ -213,6 +213,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
                 icon_spacing: state.settings.preferences.icon_spacing,
                 pictures: scene.pixels.pictures(),
                 clock: scene.clock,
+                spinner: crate::spinner::Spinner::of(&state.busy, borg_core::Task::Preview, scene.now),
             };
             let pictures = draw_aside(&shown, &look, &mut buf);
             if state.overlay.is_none() {
@@ -226,6 +227,15 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             area: rect,
             motion: &state.motions[side.index()],
             activity: activities[side.index()].clone(),
+            spinner: crate::spinner::Spinner::of(
+                &state.busy,
+                if activities[side.index()].is_some() {
+                    borg_core::Task::Footer(side)
+                } else {
+                    borg_core::Task::Listing(side)
+                },
+                scene.now,
+            ),
             icons: state.settings.preferences.nerd_font,
             icon_spacing: state.settings.preferences.icon_spacing,
             find: finding.filter(|(find, _)| find.side == side),
@@ -280,7 +290,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     if state.activity.side.is_some() {
         crate::activity_view::keybar(state, layout.keybar, theme, &mut buf);
     } else {
-        crate::keybar::draw_keybar(state, layout.keybar, styles, collection_label, remove_label, &mut buf);
+        crate::keybar::draw_keybar(state, layout.keybar, styles, (collection_label, remove_label), scene.now, &mut buf);
     }
 
     let cursor = draw_overlay(scene, &look, &layout, &mut buf);

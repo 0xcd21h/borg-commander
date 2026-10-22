@@ -2,6 +2,7 @@ use crate::{
     Rgb, Theme,
     format::{self, Count},
     look::Look,
+    spinner::Spinner,
 };
 use borg_core::{
     Activity, ActivityPage, ActivitySort, AppState, HISTORY, MemoryGroup, MemoryRegion, MemoryTotals, Msg, Pointer,
@@ -42,12 +43,38 @@ fn tabs(area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
         .collect()
 }
 
-fn dim(theme: &Theme) -> Style {
-    theme.styles.overlay.fg(theme.styles.footer.fg.unwrap_or(Color::DarkGray))
+/// Secondary text should stay readable; accents need less, since they repeat what text says.
+const READABLE: f32 = 3.0;
+const DIM_SHARE: f32 = 0.4;
+
+/// The pane's colours. Text roles borrowed from other parts of a theme, such as the dialog
+/// accent and the footer colour, fall back to the pane's own text colour when they would
+/// be hard to read on its background (white on Classic's grey, for example).
+fn colors(theme: &Theme) -> (Rgb, Rgb) {
+    let palette = crate::Palette::default();
+    let base = theme.styles.overlay;
+    (palette.foreground_of(base.fg.unwrap_or(Color::Reset)), palette.background_of(base.bg.unwrap_or(Color::Reset)))
+}
+
+fn readable(theme: &Theme, color: Option<Color>) -> Option<Color> {
+    let (_, background) = colors(theme);
+    color.filter(|&c| crate::Palette::default().foreground_of(c).contrast(background) >= READABLE)
+}
+
+/// Accented text: values and summaries that should stand out from body text.
+fn emphasis(theme: &Theme) -> Style {
+    let base = theme.styles.overlay;
+    readable(theme, theme.styles.overlay_border.fg).map_or(base, |color| base.fg(color))
 }
 
 fn heading(theme: &Theme) -> Style {
-    theme.styles.overlay_border.add_modifier(Modifier::BOLD)
+    emphasis(theme).add_modifier(Modifier::BOLD)
+}
+
+fn dim(theme: &Theme) -> Style {
+    let (text, background) = colors(theme);
+    let fallback = text.mix(background, DIM_SHARE).into();
+    theme.styles.overlay.fg(readable(theme, theme.styles.footer.fg).unwrap_or(fallback))
 }
 
 /// How many of the Footprint, Resident and Mapped columns fit beside a name.
@@ -278,7 +305,8 @@ fn file_preview(activity: &Activity, first: usize, look: &Look<'_>, body: Rect, 
     }
 }
 
-fn files(activity: &Activity, theme: &Theme, inner: Rect, body: Rect, buf: &mut Buffer) {
+fn files(activity: &Activity, look: &Look<'_>, inner: Rect, body: Rect, spinner: Option<Spinner>, buf: &mut Buffer) {
+    let theme = look.theme;
     text(buf, row(inner, 2), tr!(process_files_header), theme.styles.menu);
     let top = activity.list_start(ActivityPage::Files, usize::from(body.height));
     for (offset, file) in activity.files.iter().skip(top).take(usize::from(body.height)).enumerate() {
@@ -288,12 +316,11 @@ fn files(activity: &Activity, theme: &Theme, inner: Rect, body: Rect, buf: &mut 
         text(buf, line, format!("{:<5} {:<3} {:<6} {}", file.descriptor, file.access, file.kind, file.name), style);
     }
     if activity.files.is_empty() {
-        text(
-            buf,
-            row(body, 0),
-            if activity.pending.is_some() { tr!(activity_loading) } else { tr!(process_files_empty) },
-            theme.styles.footer,
-        );
+        if activity.pending.is_none() {
+            text(buf, row(body, 0), tr!(process_files_empty), dim(theme));
+        } else if let Some(spinner) = spinner {
+            spinner.line(tr!(activity_loading), look, dim(theme)).render(row(body, 0), buf);
+        }
     }
 }
 
@@ -310,7 +337,7 @@ fn file_details(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buffer
         (tr!(process_file_size), size(file.size)),
         (tr!(process_file_offset), file.offset.map_or_else(|| "—".into(), |v| v.to_string())),
     ] {
-        text(buf, row(body, y), label, theme.styles.overlay_border);
+        text(buf, row(body, y), label, emphasis(theme));
         let width = usize::from(body.width).max(1);
         let chars: Vec<_> = value.chars().collect();
         for chunk in chars.chunks(width) {
@@ -401,6 +428,12 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
         vec![(tr!(activity_admin_button), KeyCode::Char('a')), (tr!(activity_back_button), KeyCode::Esc)]
     } else {
         match page {
+            ActivityPage::Processes if activity.filtering => {
+                vec![
+                    (tr!(activity_filter_keep_button), KeyCode::Enter),
+                    (tr!(activity_filter_clear_button), KeyCode::Esc),
+                ]
+            }
             ActivityPage::Processes => vec![
                 (tr!(activity_memory_button), KeyCode::Enter),
                 (tr!(activity_filter_button), KeyCode::Char('/')),
@@ -458,13 +491,22 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
 }
 /// Draws the activity monitor. Inspecting a process opens a window over it, holding the
 /// inspection list and its preview, while the process list and overview stay beneath.
-pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], monitor: [Rect; 2], buf: &mut Buffer) {
+pub(crate) fn draw(
+    state: &AppState,
+    look: &Look<'_>,
+    panels: [Rect; 2],
+    monitor: [Rect; 2],
+    now: std::time::Instant,
+    buf: &mut Buffer,
+) {
     let activity = &state.activity;
     let Some(side) = activity.side else { return };
+    let spinner = Spinner::of(&state.busy, borg_core::Task::Activity, now);
     if activity.inspecting() {
         for (pane, page) in [(side, ActivityPage::Processes), (side.other(), ActivityPage::Memory)] {
             if !monitor[pane.index()].is_empty() {
-                draw_panel(state, look, monitor[pane.index()], page, pane == side, false, buf);
+                let pane = Pane { page, processes: pane == side, focused: false, spinner: None };
+                draw_panel(state, look, monitor[pane_index(side, pane.processes)], pane, buf);
             }
         }
         let [left, right] = monitor;
@@ -479,7 +521,7 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], monitor
         let list = pane == side;
         let (page, focused) =
             if list { (activity.list, !activity.preview_focused) } else { (activity.page, activity.preview_focused) };
-        draw_panel(state, look, rect, page, list, focused, buf);
+        draw_panel(state, look, rect, Pane { page, processes: list, focused, spinner }, buf);
     }
     if activity.inspecting() {
         let window = panels.into_iter().filter(|r| !r.is_empty()).reduce(|a, b| a.union(b)).unwrap_or_default();
@@ -487,15 +529,21 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], monitor
     }
 }
 
-fn draw_panel(
-    state: &AppState,
-    look: &Look<'_>,
-    screen: Rect,
+/// What one activity pane shows: its page, whether it is the list pane, focus, and the
+/// spinner for work that has taken a while.
+struct Pane {
     page: ActivityPage,
     processes: bool,
     focused: bool,
-    buf: &mut Buffer,
-) -> Rect {
+    spinner: Option<Spinner>,
+}
+
+fn pane_index(side: borg_core::Side, processes: bool) -> usize {
+    if processes { side.index() } else { side.other().index() }
+}
+
+fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: &mut Buffer) -> Rect {
+    let Pane { page, processes, focused, spinner } = pane;
     let theme = look.theme;
     let activity = &state.activity;
     let rect = screen;
@@ -603,7 +651,7 @@ fn draw_panel(
     } else {
         summary
     };
-    text(buf, row(inner, 0), summary, styles.overlay_border);
+    text(buf, row(inner, 0), summary, emphasis(theme));
     let subtitle = if page == ActivityPage::Snapshot && activity.search_form.is_none() {
         if activity.list == ActivityPage::Search {
             activity
@@ -616,7 +664,7 @@ fn draw_panel(
             activity.selected_region().map(|r| r.name.clone()).unwrap_or_default()
         }
     } else if page == ActivityPage::Processes {
-        format!(tr!(activity_filter), filter = activity.filter)
+        String::new()
     } else if let Some(p) = activity.process() {
         format!(
             tr!(activity_process_label),
@@ -628,6 +676,9 @@ fn draw_panel(
         tr!(activity_process_gone).into()
     };
     text(buf, row(inner, 1), subtitle, styles.overlay);
+    if page == ActivityPage::Processes {
+        filter_row(activity, look, row(inner, 1), buf);
+    }
     if processes && page != ActivityPage::Processes {
         Clear.render(row(inner, 1), buf);
         buf.set_style(row(inner, 1), styles.overlay);
@@ -706,14 +757,14 @@ fn draw_panel(
             }
             ActivityPage::Memory => memory(activity, look, body, buf),
             ActivityPage::Regions => regions(activity, theme, inner, body, buf),
-            ActivityPage::Files => files(activity, theme, inner, body, buf),
+            ActivityPage::Files => files(activity, look, inner, body, spinner, buf),
             ActivityPage::FileDetails => file_details(activity, theme, body, buf),
             ActivityPage::Snapshot => {
                 // Group and file previews have no region header, so they start at the top.
                 let whole = Rect { height: inner.height.saturating_sub(FOOTER_ROWS), ..inner };
                 let summary = activity.list != ActivityPage::Regions
                     || (activity.selected_group().is_none() && activity.selected_file().is_none());
-                snapshot(activity, look, if summary { body } else { whole }, buf)
+                snapshot(activity, look, if summary { body } else { whole }, spinner, buf)
             }
         }
     }
@@ -736,11 +787,46 @@ fn draw_panel(
             .or(progress.as_deref())
             .or(state.notice.as_deref())
             .or(files_note.as_deref())
-            .unwrap_or(if activity.pending.is_some() { tr!(activity_loading) } else { "" })
+            .unwrap_or("")
     };
-    text(buf, row(footer, 0), note, if activity.error.is_some() { styles.notice } else { styles.footer });
+    match spinner.filter(|_| live && note.is_empty() && activity.pending.is_some()) {
+        Some(spinner) => spinner.line(tr!(activity_loading), look, dim(theme)).render(row(footer, 0), buf),
+        None => text(buf, row(footer, 0), note, if activity.error.is_some() { styles.notice } else { dim(theme) }),
+    }
     rect
 }
+/// The process filter: an input with a cursor while typing, a badge while a filter applies,
+/// and a hint otherwise, so it is always clear whether keys type or move.
+fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
+    let styles = &theme.styles;
+    let label = tr!(activity_filter_label);
+    let (shown, total) = (activity.rows.len(), activity.sample.processes.len());
+    if activity.filtering {
+        buf.set_style(area, styles.input);
+        let typed = format!(" {}", activity.filter);
+        Line::from(vec![Span::styled(label, styles.cursor), Span::styled(typed.clone(), styles.input)])
+            .render(area, buf);
+        let x = area.x.saturating_add((label.width() + typed.width()) as u16);
+        if x < area.right() {
+            buf[(x, area.y)].set_style(styles.input.add_modifier(Modifier::REVERSED));
+        }
+        let hint = format!(tr!(activity_filter_typing), shown = shown, total = total);
+        let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
+        text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
+    } else if !activity.filter.is_empty() {
+        let hint = format!(tr!(activity_filter_applied), shown = shown, total = total);
+        Line::from(vec![
+            Span::styled(label, styles.cursor),
+            Span::styled(format!(" {} ", activity.filter), heading(theme)),
+            Span::styled(hint, dim(theme)),
+        ])
+        .render(area, buf);
+    } else {
+        text(buf, area, tr!(activity_filter_placeholder), dim(theme));
+    }
+}
+
 fn change(value: i128) -> String {
     let amount = format::size(value.unsigned_abs().min(u128::from(u64::MAX)) as u64);
     match value.signum() {
@@ -916,7 +1002,7 @@ fn chart(values: &[u64], look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let x = axis_row.right().saturating_sub(now.width() as u16);
     text(buf, Rect { x, width: axis_row.right() - x, ..axis_row }, now, dim(theme));
 }
-fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
+fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Spinner>, buf: &mut Buffer) {
     let theme = look.theme;
     if activity.list == ActivityPage::Regions {
         if let Some(group) = activity.selected_group() {
@@ -927,10 +1013,14 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) 
         }
     }
     let Some(snapshot) = &activity.snapshot else {
+        if activity.error.is_none() && activity.preview_waiting() {
+            if let Some(spinner) = spinner {
+                spinner.line(tr!(activity_loading), look, dim(theme)).render(row(body, 0), buf);
+            }
+            return;
+        }
         let note = if activity.error.is_some() {
             tr!(activity_preview_failed)
-        } else if activity.preview_waiting() {
-            tr!(activity_loading)
         } else if activity.list == ActivityPage::Regions && activity.selected_region().is_some_and(|r| !r.readable()) {
             tr!(activity_region_unreadable)
         } else if activity.list == ActivityPage::Search {
@@ -938,7 +1028,7 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) 
         } else {
             tr!(activity_region_choose)
         };
-        text(buf, row(body, 0), note, theme.styles.footer);
+        text(buf, row(body, 0), note, dim(theme));
         return;
     };
     let columns = activity.snapshot_columns(usize::from(body.width));
@@ -949,14 +1039,14 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) 
         bytes = snapshot.bytes.len(),
         mode = if activity.text { tr!(activity_text) } else { tr!(activity_hex) }
     );
-    text(buf, row(body, 0), details, theme.styles.overlay_border);
+    text(buf, row(body, 0), details, emphasis(theme));
     let old = activity.previous.as_ref();
     if activity.diff {
         text(
             buf,
             row(body, 1),
             if old.is_some() { tr!(activity_compare) } else { tr!(activity_no_previous) },
-            theme.styles.footer,
+            dim(theme),
         );
     }
     for (line_index, chunk) in snapshot
@@ -967,7 +1057,7 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) 
         .take(usize::from(body.height.saturating_sub(2)))
     {
         let offset = line_index * columns;
-        let mut spans = vec![Span::styled(format!("{:016x}  ", snapshot.address + offset as u64), theme.styles.footer)];
+        let mut spans = vec![Span::styled(format!("{:016x}  ", snapshot.address + offset as u64), dim(theme))];
         for (i, &byte) in chunk.iter().enumerate() {
             let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset + i) != Some(&byte));
             let address = snapshot.address.saturating_add((offset + i) as u64);
@@ -1028,6 +1118,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
         tr!(memory_search_hint)
     } else {
         match page {
+            ActivityPage::Processes if activity.filtering => tr!(activity_filter_hint),
             ActivityPage::Processes => tr!(activity_list_hint),
             ActivityPage::Memory => tr!(activity_memory_hint),
             ActivityPage::Regions => tr!(activity_map_hint),
@@ -1094,6 +1185,9 @@ pub(crate) fn panel_mouse(
                 .into_iter()
                 .find(|(r, _, _)| r.contains(point))
                 .map(|(_, _, code)| Msg::Pointer(Pointer::ActivityControl { preview: false, code }));
+        }
+        if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 1).contains(point) {
+            return Some(Msg::Pointer(Pointer::ActivityControl { preview: false, code: KeyCode::Char('/') }));
         }
         if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 2).contains(point) {
             return columns(row(inner(rect), 2))
@@ -1186,7 +1280,7 @@ fn search_results(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buff
             skipped = format::size(report.skipped),
             more = more
         ),
-        theme.styles.footer,
+        dim(theme),
     );
     let list = Rect { y: body.y.saturating_add(1).min(body.bottom()), height: body.height.saturating_sub(1), ..body };
     for (i, hit) in report

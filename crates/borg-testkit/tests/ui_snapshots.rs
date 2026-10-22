@@ -344,7 +344,9 @@ fn loading_shows_spinner_and_comet() -> Result<()> {
         anyhow::bail!("entering a folder must list it");
     };
     stage.send(Msg::Batch { side, generation, entries: logs() });
-    let buffer = stage.render(stage.started + Duration::from_millis(450))?;
+    let quick = Snapshot::from_buffer(stage.render(stage.started + Duration::from_millis(450))?, &stage.palette, None);
+    anyhow::ensure!(!quick.contains("loading…"), "work shorter than the spinner delay shows no spinner");
+    let buffer = stage.render(stage.started + Duration::from_millis(800))?;
     ensure_text(&buffer, "loading…")?;
     check("loading", &stage, buffer)
 }
@@ -465,7 +467,8 @@ fn quick_find_highlights_matches() -> Result<()> {
     });
     stage.send(key(KeyCode::Down));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "find: o  2/4")?;
+    ensure_text(&buffer, "Find  o")?;
+    ensure_text(&buffer, " 2/4 ")?;
     check("quick_find", &stage, buffer)
 }
 
@@ -519,6 +522,19 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     let later = stage.started + Duration::from_secs(20);
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "Copying 37% · 77M/s · 0:34")?;
+    ensure_text(&buffer, "Alt-J Copying 37%")?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (column, row) = shot.find("Alt-J Copying").unwrap();
+    let click = crossterm::event::MouseEvent {
+        column,
+        row,
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    };
+    assert!(matches!(
+        borg_ui::mouse_input(&stage.state, click, false, later),
+        Some(Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::Jobs)))
+    ));
     check("job_progress", &stage, buffer)?;
 
     let ask = borg_jobs::Ask::Conflict {
@@ -530,6 +546,7 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(ask) });
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "Overwrite all")?;
+    ensure_text(&buffer, "Alt-J Waiting for you")?;
     check("job_conflict", &stage, buffer)?;
 
     stage.send(key(KeyCode::Char('s')));
@@ -683,8 +700,14 @@ fn console_history_and_function_alias_hints() -> Result<()> {
     check("console_history", &stage, buffer)?;
     stage.send(ctrl('o')).send(key(KeyCode::Esc));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Esc 9 opens menus")?;
-    check("function_alias_hint", &stage, buffer)
+    ensure_text(&buffer, "1Help")?;
+    ensure_text(&buffer, "0Quit")?;
+    check("function_alias_hint", &stage, buffer)?;
+    let later = stage.started + std::time::Duration::from_secs(2);
+    stage.send(Msg::Tick);
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "F1Help")?;
+    Ok(())
 }
 
 #[test]
@@ -1461,6 +1484,15 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
         Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::OpenMenuBar) | borg_core::Pointer::Menu(_))
     ));
     check("activity_processes", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Char('o')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Esc clear")?;
+    check("activity_filter_typing", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/ edit")?;
+    check("activity_filter_applied", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
     check("activity_memory", &stage, buffer)?;
@@ -1514,6 +1546,12 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
     });
     let buffer = stage.render(stage.started)?;
     check("activity_map", &stage, buffer)?;
+    let neon = stage.state.appearance.current();
+    let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap();
+    stage.state.appearance.select(classic, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("activity_map_classic", &stage, buffer)?;
+    stage.state.appearance.select(neon, stage.started, Duration::ZERO);
     for code in [KeyCode::Down, KeyCode::Down, KeyCode::Right] {
         stage.send(key(code));
     }
@@ -1840,7 +1878,7 @@ fn background_sizes_stay_in_normal_panels_with_progress_and_stop_action() -> Res
     stage.send(Msg::Sized { id, entries: vec![measured] });
     assert_eq!(stage.state.active_panel().dir(), std::path::Path::new("/home/me/projects/borg"));
     assert_eq!(stage.state.active_panel().entries().iter().find(|e| e.name == "src").unwrap().size, 45200000);
-    let buffer = stage.render(stage.started)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(1))?;
     assert!(!stage.state.active_panel().is_results());
     assert!(stage.state.overlay.is_none());
     let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
@@ -1849,7 +1887,7 @@ fn background_sizes_stay_in_normal_panels_with_progress_and_stop_action() -> Res
     assert!(shot.contains("Alt-I Stop sizes"));
     check("background_sizes", &stage, buffer)?;
     stage.send(Msg::Resize { cols: 44, rows: 14 });
-    let buffer = stage.render(stage.started)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(1))?;
     check("background_sizes_narrow", &stage, buffer)?;
     Ok(())
 }

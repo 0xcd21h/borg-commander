@@ -1,5 +1,5 @@
 use crate::theme::Styles;
-use borg_core::{Action, AppState};
+use borg_core::{Action, AppState, JobState};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -10,7 +10,20 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, &'static str, Action)> {
+/// The Jobs button while jobs exist: one job's progress, or how many are running. It is
+/// highlighted while a job waits for an answer.
+fn jobs(state: &AppState) -> Option<(String, bool)> {
+    let waiting = state.jobs.iter().any(|job| matches!(job.state, JobState::Asking(_)));
+    let status = match state.jobs.as_slice() {
+        [] => return None,
+        [job] => crate::job_view::status(job),
+        _ if waiting => tr!(jobs_waiting).to_owned(),
+        jobs => format!(tr!(jobs_running), count = jobs.len()),
+    };
+    Some((format!(tr!(alt_j_jobs), status = status), waiting))
+}
+
+pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action, bool)> {
     let mut items = vec![
         (tr!(ctrl_f_search), Action::Search),
         (tr!(alt_v_collections), Action::OpenCollection),
@@ -51,17 +64,22 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, &'static str, 
             (if state.sizing.is_some() { tr!(alt_i_stop_sizes) } else { tr!(alt_i_count_sizes) }, Action::MeasureSizes),
         );
     }
+    let mut items: Vec<(String, Action, bool)> =
+        items.into_iter().map(|(label, action)| (label.to_owned(), action, false)).collect();
+    if let Some((label, waiting)) = jobs(state) {
+        items.insert(0, (label, Action::Jobs, waiting));
+    }
     let mut x = area.x;
     items
         .into_iter()
-        .filter_map(|(label, action)| {
+        .filter_map(|(label, action, attention)| {
             let width = label.width() as u16 + 2;
             if x.saturating_add(width) > area.right() {
                 return None;
             }
             let rect = Rect { x, width, ..area };
             x += width;
-            Some((rect, label, action))
+            Some((rect, label, action, attention))
         })
         .collect()
 }
@@ -71,13 +89,14 @@ pub(crate) fn draw(state: &AppState, area: Rect, styles: &Styles<Style>, buf: &m
         return;
     }
     buf.set_style(area, styles.key_label);
-    for (rect, label, _) in buttons(state, area) {
-        let (key, label) = label.split_once(' ').unwrap_or((label, ""));
-        Line::from(vec![Span::styled(key, styles.key), Span::styled(format!(" {label}  "), styles.key_label)])
+    for (rect, label, _, attention) in buttons(state, area) {
+        let (key, label) = label.split_once(' ').unwrap_or((&label, ""));
+        let label_style = if attention { styles.cursor } else { styles.key_label };
+        Line::from(vec![Span::styled(key.to_owned(), styles.key), Span::styled(format!(" {label}  "), label_style)])
             .render(rect, buf);
     }
 }
 
 pub(crate) fn action_at(state: &AppState, area: Rect, point: Position) -> Option<Action> {
-    buttons(state, area).into_iter().find(|(rect, _, _)| rect.contains(point)).map(|(_, _, action)| action)
+    buttons(state, area).into_iter().find(|(rect, ..)| rect.contains(point)).map(|(_, _, action, _)| action)
 }

@@ -1,7 +1,20 @@
 use crate::{AppState, Effect, Msg, SearchProgress, Side};
 use borg_i18n::tr;
-use borg_vfs::Entry;
-use std::path::PathBuf;
+use borg_vfs::{Entry, FolderUsage};
+use std::{collections::HashMap, path::PathBuf};
+
+/// Folders remembered from a scan before only shallow ones are kept.
+const KEPT_TOTALS: usize = 50_000;
+/// Folders this close to the scan root are always remembered.
+const KEPT_DEPTH: usize = 2;
+
+/// Totals from the latest background scan, so a folder listed again during the scan, or
+/// after it was stopped, still shows them. A finished scan's cache replaces them.
+#[derive(Debug, Clone, Default)]
+pub struct Measured {
+    root: PathBuf,
+    totals: HashMap<PathBuf, (u64, FolderUsage)>,
+}
 
 #[derive(Debug, Clone)]
 pub struct SizeScan {
@@ -29,6 +42,7 @@ pub(crate) fn toggle(state: &mut AppState) -> Vec<Effect> {
     let id = state.next_size;
     let root = state.active_panel().dir().to_path_buf();
     state.sizing = Some(SizeScan { id, root: root.clone(), side: state.active, progress: Default::default() });
+    state.measured = Measured { root: root.clone(), totals: HashMap::new() };
     vec![Effect::MeasureSizes { id, root }]
 }
 
@@ -36,7 +50,7 @@ pub(crate) fn batch(state: &mut AppState, id: u64, entries: Vec<Entry>) {
     if state.sizing.as_ref().is_none_or(|scan| scan.id != id) {
         return;
     }
-    let totals = entries
+    let totals: HashMap<_, _> = entries
         .into_iter()
         .filter_map(|entry| {
             let path = entry.identity().to_path_buf();
@@ -46,6 +60,25 @@ pub(crate) fn batch(state: &mut AppState, id: u64, entries: Vec<Entry>) {
     for panel in &mut state.panels {
         panel.measure_sizes(&totals);
     }
+    let measured = &mut state.measured;
+    for (path, total) in totals {
+        let shallow = path.strip_prefix(&measured.root).is_ok_and(|rest| rest.components().count() <= KEPT_DEPTH);
+        if measured.totals.len() < KEPT_TOTALS || shallow || measured.totals.contains_key(&path) {
+            measured.totals.insert(path, total);
+        }
+    }
+}
+
+/// Shows remembered totals in a folder that was just listed again.
+pub(crate) fn reapply(state: &mut AppState, side: Side) {
+    if !state.measured.totals.is_empty() {
+        state.panels[side.index()].measure_sizes(&state.measured.totals);
+    }
+}
+
+/// Forgets remembered totals, for example before a job changes the files they describe.
+pub(crate) fn forget(state: &mut AppState) {
+    state.measured = Measured::default();
 }
 
 pub(crate) fn finish(state: &mut AppState, id: u64, error: Option<String>) -> Vec<Effect> {
@@ -53,6 +86,9 @@ pub(crate) fn finish(state: &mut AppState, id: u64, error: Option<String>) -> Ve
         return Vec::new();
     }
     let scan = state.sizing.take().unwrap();
+    if error.is_none() {
+        forget(state);
+    }
     state.notice = Some(error.clone().unwrap_or_else(|| {
         format!(
             tr!(background_sizes_done),

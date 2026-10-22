@@ -73,6 +73,17 @@ pub fn activity(job: &Job, now: Instant) -> Activity {
     Activity { label, fraction }
 }
 
+/// A job's state in a few words, for places with little room such as the shortcut bar.
+pub(crate) fn status(job: &Job) -> String {
+    let share = percent(job.fraction().unwrap_or_default());
+    match (&job.state, job.paused) {
+        (_, true) => format!(tr!(paused), share),
+        (JobState::Asking(_), false) => tr!(waiting_for_you).to_owned(),
+        (JobState::Scanning(_), false) => format!("{}…", job.kind.doing()),
+        (JobState::Running(_), false) => format!("{} {share}%", job.kind.doing()),
+    }
+}
+
 fn name(path: &Path) -> String {
     path.file_name().map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
