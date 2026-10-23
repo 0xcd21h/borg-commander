@@ -105,6 +105,7 @@ pub struct App {
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,
+    agent: crate::agent::Agent,
 }
 
 enum Flow {
@@ -158,6 +159,7 @@ impl App {
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
+        let agent = crate::agent::Agent::start(&launch.runtime_dir, messages.clone());
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -187,6 +189,7 @@ impl App {
             docker,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
+            agent,
         })
     }
 
@@ -238,6 +241,7 @@ impl App {
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
+                Some((call, reply)) = self.agent.incoming.recv() => self.on_agent(call, reply)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
@@ -472,6 +476,56 @@ impl App {
         }
     }
 
+    /// Answers an agent's tool call from what the session knows. Reading happens off the
+    /// event loop; commands wait for the user's approval.
+    fn on_agent(
+        &mut self,
+        call: crate::agent::Call,
+        reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
+    ) -> Result<Flow> {
+        use crate::agent::{self, Reply};
+        let text = |key: &str| call.args[key].as_str().map(str::to_owned);
+        match call.tool.as_str() {
+            "borg_screen" => drop(reply.send(Reply { ok: true, text: agent::screen(&self.state) })),
+            "list_folder" | "read_file" => {
+                let path = agent::resolve(&self.state, &text("path").unwrap_or_else(|| ".".into()));
+                let offset = call.args["offset"].as_u64().unwrap_or(0);
+                let limit = call.args["limit"].as_u64().unwrap_or(agent::READ_DEFAULT);
+                let list = call.tool == "list_folder";
+                tokio::task::spawn_blocking(move || {
+                    drop(reply.send(if list {
+                        agent::list_folder(&path)
+                    } else {
+                        agent::read_file(&path, offset, limit)
+                    }));
+                });
+            }
+            "show_in_panel" => {
+                let path = agent::resolve(&self.state, &text("path").unwrap_or_default());
+                let (dir, focus) = if path.is_dir() {
+                    (path.clone(), None)
+                } else {
+                    let parent = path.parent().map_or_else(|| PathBuf::from("/"), Path::to_path_buf);
+                    (parent, path.file_name().map(|name| name.to_string_lossy().into_owned()))
+                };
+                drop(reply.send(Reply { ok: true, text: format!("Showing {} in Borg's other panel", path.display()) }));
+                return self.dispatch(Msg::Agent(borg_core::AgentEvent::Reveal { dir, focus }));
+            }
+            "run_command" => {
+                let Some(command) = text("command").filter(|c| !c.trim().is_empty()) else {
+                    drop(reply.send(Reply { ok: false, text: "run_command needs a command".into() }));
+                    return Ok(Flow::Continue);
+                };
+                let dir =
+                    text("cwd").map_or_else(|| agent::host_dir(&self.state), |cwd| agent::resolve(&self.state, &cwd));
+                let id = self.agent.ask(reply, command.clone(), dir.clone());
+                return self.dispatch(Msg::Agent(borg_core::AgentEvent::Ask { id, command, dir }));
+            }
+            other => drop(reply.send(Reply { ok: false, text: format!("unknown tool {other}") })),
+        }
+        Ok(Flow::Continue)
+    }
+
     fn on_container_shell(&mut self, container: String, event: PtyEvent) -> Result<Flow> {
         match event {
             PtyEvent::Output(bytes) => {
@@ -636,6 +690,7 @@ impl App {
                 }
                 Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
                 Effect::UseConsole(console) => self.console = console,
+                Effect::AgentAnswer { id, approved } => self.agent.answer(id, approved, self.messages.clone()),
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),

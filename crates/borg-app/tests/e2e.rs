@@ -1858,3 +1858,93 @@ fn the_host_command_line_waits_for_a_host_panel_when_it_does_not_follow() -> Res
     ensure!(!app.snapshot().contains("Borg console"), "nothing ran");
     Ok(())
 }
+
+/// `borg mcp`, as an agent starts it, talking MCP over stdio to the borg open on the machine.
+struct Mcp {
+    child: std::process::Child,
+    input: std::process::ChildStdin,
+    output: std::io::BufReader<std::process::ChildStdout>,
+    next: u64,
+}
+
+impl Mcp {
+    fn start(fixture: &Fixture) -> Result<Self> {
+        let mut child = std::process::Command::new(BORG)
+            .arg("mcp")
+            .env("XDG_RUNTIME_DIR", fixture.runtime())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+        let input = child.stdin.take().unwrap();
+        let output = std::io::BufReader::new(child.stdout.take().unwrap());
+        Ok(Self { child, input, output, next: 0 })
+    }
+
+    fn request(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+        use std::io::{BufRead, Write};
+        self.next += 1;
+        let message = serde_json::json!({ "jsonrpc": "2.0", "id": self.next, "method": method, "params": params });
+        writeln!(self.input, "{message}")?;
+        let mut line = String::new();
+        self.output.read_line(&mut line)?;
+        let reply: serde_json::Value = serde_json::from_str(&line)?;
+        ensure!(reply["id"] == self.next, "answers come back in order: {reply}");
+        Ok(reply["result"].clone())
+    }
+
+    fn call(&mut self, tool: &str, arguments: serde_json::Value) -> Result<(bool, String)> {
+        let result = self.request("tools/call", serde_json::json!({ "name": tool, "arguments": arguments }))?;
+        Ok((result["isError"] == true, result["content"][0]["text"].as_str().unwrap_or_default().to_owned()))
+    }
+}
+
+impl Drop for Mcp {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
+#[test]
+fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "agent")?;
+    let mut mcp = Mcp::start(&fixture)?;
+    let init = mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "1" } }))?;
+    ensure!(init["serverInfo"]["name"] == "borg", "{init}");
+    let tools = mcp.request("tools/list", serde_json::json!({}))?;
+    let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    ensure!(names == ["borg_screen", "list_folder", "read_file", "show_in_panel", "run_command"], "{names:?}");
+    app.wait_text("Claude connected to Borg")?;
+
+    let (error, screen) = mcp.call("borg_screen", serde_json::json!({}))?;
+    ensure!(!error && screen.contains("Active panel: left") && screen.contains("highlighted: .."), "{screen}");
+    let (_, notes) = mcp.call("read_file", serde_json::json!({ "path": "notes.txt" }))?;
+    ensure!(notes.ends_with("hello\n"), "{notes}");
+    let (_, listing) = mcp.call("list_folder", serde_json::json!({ "path": "alpha" }))?;
+    ensure!(listing.contains("inner/") && listing.contains("one.txt  2 bytes"), "{listing}");
+
+    mcp.call("show_in_panel", serde_json::json!({ "path": "alpha/one.txt" }))?;
+    app.wait_until("one.txt shown in the right panel", |s| s.contains("› alpha") && s.contains("one.txt"))?;
+
+    // The command waits for the user: n declines it, y runs it.
+    let mut declined = Mcp::start(&fixture)?;
+    declined.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
+    let asking =
+        std::thread::spawn(move || declined.call("run_command", serde_json::json!({ "command": "touch nope" })));
+    app.wait_text("Claude wants to run")?;
+    app.send("n")?;
+    let (error, text) = asking.join().unwrap()?;
+    ensure!(error && text.contains("declined") && !fixture.work().join("nope").exists(), "{text}");
+
+    let asking = std::thread::spawn(move || {
+        mcp.call("run_command", serde_json::json!({ "command": "echo from-claude > made.txt; echo done" }))
+    });
+    app.wait_text("echo from-claude > made.txt; echo done")?;
+    app.send("y")?;
+    let (error, text) = asking.join().unwrap()?;
+    ensure!(!error && text.starts_with("exit 0") && text.contains("done"), "{text}");
+    ensure!(fs::read_to_string(fixture.work().join("made.txt"))? == "from-claude\n");
+    app.wait_text("Claude ran echo from-claude")?;
+    app.wait_text("made.txt")?;
+    Ok(())
+}

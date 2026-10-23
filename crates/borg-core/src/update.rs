@@ -40,6 +40,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::docker::shell_closed(state, &container, now);
             Vec::new()
         }
+        Msg::Agent(event) => crate::agent::receive(state, event),
         Msg::ParkedSignal { container, signal } => {
             crate::docker::parked_signal(state, container.as_deref(), &signal);
             Vec::new()
@@ -133,6 +134,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
+    crate::agent::surface(state);
 
     state.refit();
     state.sync_fade(now);

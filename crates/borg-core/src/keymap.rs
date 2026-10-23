@@ -16,6 +16,7 @@ pub enum Action {
     DockerFilter,
     DockerFiles,
     DockerShell,
+    AgentLog,
     Search,
     AnalyzeSpace,
     FolderTree,

@@ -195,9 +195,19 @@ pub struct Prompt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmPurpose {
-    Delete { sources: Vec<PathBuf> },
+    Delete {
+        sources: Vec<PathBuf>,
+    },
     Quit,
-    Docker { action: borg_docker::Action, ids: Vec<String> },
+    Docker {
+        action: borg_docker::Action,
+        ids: Vec<String>,
+    },
+    /// An agent's command waiting for the user's approval.
+    Agent {
+        id: u64,
+        command: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +281,7 @@ impl Startup {
 pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
+    pub agent: crate::Agent,
     /// When background work started, for spinners that wait before appearing.
     pub busy: crate::Busy,
     pub game2048: Option<crate::Game2048>,
@@ -338,6 +349,7 @@ impl AppState {
         let mut state = Self {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
+            agent: crate::Agent::default(),
             console: Console::Host,
             parked_host: None,
             busy: crate::Busy::default(),

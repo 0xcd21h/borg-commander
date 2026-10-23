@@ -187,6 +187,9 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             if let Some(operation) = state.operation.as_ref().filter(|op| state.shell.running && op.side == side) {
                 return Some(Activity { label: format!("{}…", operation.label), fraction: None });
             }
+            if let Some((_, command)) = state.agent.running.as_ref().filter(|_| side == state.active) {
+                return Some(Activity { label: format!(tr!(agent_running), command = command), fraction: None });
+            }
             if let Some(work) = state.docker.files.iter().find(|work| work.side == side) {
                 return Some(Activity { label: crate::docker_view::file_work_label(work), fraction: None });
             }

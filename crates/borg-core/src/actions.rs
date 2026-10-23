@@ -105,6 +105,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
         Action::DockerShell => crate::docker::open_shell(state, now),
+        Action::AgentLog => state.agent.log.clone().map(|log| vec![Effect::View(log)]).unwrap_or_default(),
         Action::DockerFilter => {
             crate::docker::filter(state);
             Vec::new()

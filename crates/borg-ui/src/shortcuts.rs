@@ -88,6 +88,10 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
     if let Some((label, waiting)) = jobs(state) {
         items.insert(0, (label, Action::Jobs, waiting));
     }
+    // A connected agent stays in sight; the chip opens the log of what it did.
+    if state.agent.connected() {
+        items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));
+    }
     let mut x = area.x;
     items
         .into_iter()

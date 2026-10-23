@@ -1,5 +1,6 @@
 mod actions;
 mod activity;
+mod agent;
 mod anim;
 mod appearance;
 mod aside;
@@ -33,6 +34,7 @@ mod viewer;
 #[cfg(test)]
 mod update_tests;
 
+pub use agent::{Agent, AgentEvent};
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};

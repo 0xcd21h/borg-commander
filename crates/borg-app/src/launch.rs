@@ -128,7 +128,7 @@ fn motion() -> Motion {
     }
 }
 
-fn runtime_dir() -> PathBuf {
+pub(crate) fn runtime_dir() -> PathBuf {
     match env::var_os(ENV_RUNTIME_DIR) {
         Some(dir) => PathBuf::from(dir).join(APP_DIR),
         None => env::temp_dir().join(format!("{APP_DIR}-{}", rustix::process::getuid().as_raw())),

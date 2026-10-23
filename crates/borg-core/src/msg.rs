@@ -52,6 +52,7 @@ pub enum Msg {
     DockerShellClosed {
         container: String,
     },
+    Agent(crate::AgentEvent),
     /// A signal from a shell that is not the console: the host's, or a container's.
     ParkedSignal {
         container: Option<String>,
@@ -131,6 +132,11 @@ pub enum Effect {
     DockerShell(crate::ShellRequest),
     /// The command line and Ctrl-O console now belong to this shell.
     UseConsole(crate::Console),
+    /// The user's answer to an agent's command.
+    AgentAnswer {
+        id: u64,
+        approved: bool,
+    },
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,

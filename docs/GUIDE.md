@@ -284,6 +284,24 @@ when Borg quits, which asks first while shells are open. The plugin uses the `do
 context, so it works with Docker Desktop, OrbStack, Colima and remote engines alike. It can
 be turned off in Options → Plugins.
 
+## Claude and other agents (MCP)
+
+`borg mcp` lets an AI agent such as Claude work in the borg you have open, on your machine or
+on a server you reach over SSH. Nothing needs installing beside borg: the agent starts
+`borg mcp` itself, through SSH for a server, and it connects to the borg session open there.
+The server needs no open port and no internet access.
+
+`borg mcp setup prod` prints the line for Claude Code and the snippet for Claude Desktop that
+connect to the borg on the SSH host `prod`; `borg mcp setup` without a host connects to this
+machine. Your SSH key must work without a password prompt (an SSH agent is fine).
+
+Connected, the agent sees what you see: both panels, the highlighted and marked files, and
+where the command line runs. It can list folders and read files, and show a file or folder
+in your other panel. Every command it wants to run waits for you in borg, which shows the
+command and the folder it runs in; No is selected until you choose Yes. While an agent is
+connected, **◈ Claude** sits at the start of the shortcut row; click it for the log of
+everything it did. Commands run as you, with `sh`, and stop after 10 minutes.
+
 ## Find, jobs, and viewers
 
 Ctrl-S opens quick find. Type a name or glob such as `*.rs`; Down and Up move between matches,

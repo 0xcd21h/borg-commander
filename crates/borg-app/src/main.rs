@@ -1,5 +1,6 @@
 use borg_i18n::tr;
 mod activity;
+mod agent;
 mod app;
 mod config;
 mod docker;
@@ -43,6 +44,13 @@ async fn main() -> Result<ExitCode> {
         None => {}
         Some("--inspect-process") => {
             activity::helper(&env::args().skip(2).collect::<Vec<_>>()).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some("mcp") => {
+            match env::args().nth(2).as_deref() {
+                Some("setup") => println!("{}", agent::setup(env::args().nth(3).as_deref())),
+                _ => agent::serve(launch::runtime_dir()).await?,
+            }
             return Ok(ExitCode::SUCCESS);
         }
         Some("--version" | "-V") => {
