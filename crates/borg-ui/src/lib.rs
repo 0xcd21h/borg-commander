@@ -32,6 +32,7 @@ mod viewer_view;
 
 pub use draw::{Pixels, Scene, draw};
 pub use format::now as local_now;
+pub use format::size as size_text;
 pub use palette::{Palette, Rgb};
 pub use pointer::mouse_input;
 pub use term_view::draw_screen;

@@ -491,31 +491,46 @@ impl App {
         use borg_core::AgentEvent;
         let text = |key: &str| call.args[key].as_str().map(str::to_owned).filter(|value| !value.trim().is_empty());
         match call.tool.as_str() {
-            "borg_screen" => {
+            "screen" => {
                 self.agent.note("looked at the screen");
-                drop(reply.send(Reply { ok: true, text: agent::screen(&self.state) }));
+                drop(reply.send(Reply::ok(agent::screen(&self.state))));
             }
-            "list_folder" | "read_file" => {
-                let list = call.tool == "list_folder";
-                let Some(path) = text("path").or_else(|| list.then(|| ".".into())) else {
-                    drop(reply.send(Reply { ok: false, text: "read_file needs a path".into() }));
-                    return Ok(Flow::Continue);
-                };
-                let path = agent::resolve(&self.state, &path);
-                let offset = call.args["offset"].as_u64().unwrap_or(0);
-                let limit = call.args["limit"].as_u64().unwrap_or(agent::READ_DEFAULT);
-                self.agent.note(&format!("{} {}", if list { "listed" } else { "read" }, path.display()));
-                tokio::task::spawn_blocking(move || {
-                    drop(reply.send(if list {
-                        agent::list_folder(&path)
-                    } else {
-                        agent::read_file(&path, offset, limit)
-                    }));
-                });
-            }
-            "show_in_panel" => {
+            "read" => match text("source").as_deref() {
+                Some("processes") => {
+                    const SHOWN: u64 = 40;
+                    let by_cpu = text("sort").as_deref() == Some("cpu");
+                    let shown = call.args["limit"].as_u64().unwrap_or(SHOWN).clamp(1, borg_core::PROCESS_LIMIT as u64);
+                    self.agent.note("read the processes");
+                    tokio::task::spawn_blocking(move || {
+                        drop(reply.send(agent::processes(&crate::activity::processes(), by_cpu, shown as usize)));
+                    });
+                }
+                Some("containers") => {
+                    self.agent.note("read the containers");
+                    tokio::spawn(async move { drop(reply.send(agent::containers().await)) });
+                }
+                Some(other) => {
+                    drop(reply.send(Reply::error(format!(
+                        "read has no source {other}: use processes or containers, or a path"
+                    ))))
+                }
+                None => {
+                    let path = agent::resolve(&self.state, &text("path").unwrap_or_else(|| ".".into()));
+                    let offset = call.args["offset"].as_u64().unwrap_or(0);
+                    let limit = call.args["limit"].as_u64().unwrap_or(agent::READ_DEFAULT);
+                    self.agent.note(&format!("read {}", path.display()));
+                    tokio::task::spawn_blocking(move || {
+                        drop(reply.send(if path.is_dir() {
+                            agent::list_folder(&path)
+                        } else {
+                            agent::read_file(&path, offset, limit)
+                        }));
+                    });
+                }
+            },
+            "show" => {
                 let Some(path) = text("path") else {
-                    drop(reply.send(Reply { ok: false, text: "show_in_panel needs a path".into() }));
+                    drop(reply.send(Reply::error("show needs a path")));
                     return Ok(Flow::Continue);
                 };
                 let path = agent::resolve(&self.state, &path);
@@ -533,41 +548,40 @@ impl App {
                 self.settle_reveals();
                 return Ok(flow);
             }
-            "docker_containers" => {
-                self.agent.note("listed the containers");
-                tokio::spawn(async move { drop(reply.send(agent::containers().await)) });
-            }
-            "run_in_container" => {
-                let (Some(wanted), Some(command)) = (text("container"), text("command")) else {
-                    drop(
-                        reply
-                            .send(Reply { ok: false, text: "run_in_container needs a container and a command".into() }),
-                    );
+            "run" => {
+                let Some(command) = text("command") else {
+                    drop(reply.send(Reply::error("run needs a command")));
                     return Ok(Flow::Continue);
                 };
-                if let Some(found) = agent::find_container(&self.state.docker.containers, &wanted) {
-                    let args = serde_json::json!({ "id": found.id, "name": found.name, "running": found.state == borg_docker::State::Running, "command": command });
+                let Some(wanted) = text("container") else {
+                    let dir = text("cwd")
+                        .map_or_else(|| agent::host_dir(&self.state), |cwd| agent::resolve(&self.state, &cwd));
+                    let target = Target::Host(dir);
+                    let place = agent::place(&target);
+                    let id = self.agent.ask(reply, command.clone(), target);
+                    return self.dispatch(Msg::Agent(AgentEvent::Ask { id, command, place }));
+                };
+                let found = move |found: &borg_docker::Container| serde_json::json!({ "id": found.id, "name": found.name, "running": found.state == borg_docker::State::Running, "command": command });
+                if let Some(args) = agent::find_container(&self.state.docker.containers, &wanted).map(&found) {
                     return self.on_agent(crate::agent::Call { tool: "_run_in_container".into(), args }, reply);
                 }
                 // The Docker view has not listed containers yet: ask Docker, then come back.
                 let requeue = self.agent.requeue_sender();
                 tokio::spawn(async move {
                     let containers = borg_docker::list().await.unwrap_or_default();
-                    match agent::find_container(&containers, &wanted) {
-                        Some(found) => {
-                            let args = serde_json::json!({ "id": found.id, "name": found.name, "running": found.state == borg_docker::State::Running, "command": command });
+                    match agent::find_container(&containers, &wanted).map(found) {
+                        Some(args) => {
                             drop(requeue.send((crate::agent::Call { tool: "_run_in_container".into(), args }, reply)));
                         }
-                        None => drop(reply.send(Reply {
-                            ok: false,
-                            text: format!("No container named {wanted}. docker_containers lists them."),
-                        })),
+                        None => drop(reply.send(Reply::error(format!(
+                            "No container named {wanted}. read with source containers lists them."
+                        )))),
                     }
                 });
             }
             "_run_in_container" => {
                 let (Some(id), Some(name), Some(command)) = (text("id"), text("name"), text("command")) else {
-                    drop(reply.send(Reply { ok: false, text: "unreadable container command".into() }));
+                    drop(reply.send(Reply::error("unreadable container command")));
                     return Ok(Flow::Continue);
                 };
                 let busy = if call.args["running"] != true {
@@ -578,7 +592,7 @@ impl App {
                     None
                 };
                 if let Some(problem) = busy {
-                    drop(reply.send(Reply { ok: false, text: problem }));
+                    drop(reply.send(Reply::error(problem)));
                     return Ok(Flow::Continue);
                 }
                 let target = Target::Container(id, name);
@@ -586,19 +600,7 @@ impl App {
                 let id = self.agent.ask(reply, command.clone(), target);
                 return self.dispatch(Msg::Agent(AgentEvent::Ask { id, command, place }));
             }
-            "run_command" => {
-                let Some(command) = text("command") else {
-                    drop(reply.send(Reply { ok: false, text: "run_command needs a command".into() }));
-                    return Ok(Flow::Continue);
-                };
-                let dir =
-                    text("cwd").map_or_else(|| agent::host_dir(&self.state), |cwd| agent::resolve(&self.state, &cwd));
-                let target = Target::Host(dir);
-                let place = agent::place(&target);
-                let id = self.agent.ask(reply, command.clone(), target);
-                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, command, place }));
-            }
-            other => drop(reply.send(Reply { ok: false, text: format!("unknown tool {other}") })),
+            other => drop(reply.send(Reply::error(format!("unknown tool {other}")))),
         }
         Ok(Flow::Continue)
     }

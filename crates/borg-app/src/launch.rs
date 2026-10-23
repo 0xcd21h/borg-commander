@@ -1,6 +1,11 @@
-use std::{env, path::PathBuf, time::Duration};
+use std::{
+    env, fs, io,
+    os::unix::fs::{MetadataExt, PermissionsExt},
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use borg_core::{Motion, Settings, Startup};
 use borg_gfx::{Capabilities, Hints, Preference, TerminalColors, probe};
 use borg_ui::ThemeSet;
@@ -19,6 +24,10 @@ const ENV_SSH: [&str; 2] = ["SSH_CONNECTION", "SSH_TTY"];
 const TRUECOLOR_MARKERS: [&str; 2] = ["truecolor", "24bit"];
 const APP_DIR: &str = "borg-commander";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+const PRIVATE_DIR: u32 = 0o700;
+const OPEN_TO_OTHERS: u32 = 0o077;
+/// How many names `private_dir` tries before giving up.
+const PRIVATE_NAMES: usize = 16;
 
 #[derive(Debug, Clone)]
 pub struct Launch {
@@ -89,7 +98,7 @@ impl Launch {
         Ok(Self {
             shell,
             home: env::var_os(ENV_HOME).map(PathBuf::from),
-            runtime_dir: runtime_dir(),
+            runtime_dir: private_dir(&runtime_dir())?,
             settings,
             config_dir,
             config,
@@ -128,9 +137,65 @@ fn motion() -> Motion {
     }
 }
 
+/// Where Borg keeps the files of a running session: shell integration scripts, folder
+/// requests for the shell, Docker copies and agent logs. Use it through `private_dir`.
 pub(crate) fn runtime_dir() -> PathBuf {
     match env::var_os(ENV_RUNTIME_DIR) {
         Some(dir) => PathBuf::from(dir).join(APP_DIR),
         None => env::temp_dir().join(format!("{APP_DIR}-{}", rustix::process::getuid().as_raw())),
+    }
+}
+
+/// `dir`, or the first free name after it, as a folder that belongs to this user and is
+/// closed to others. Without `XDG_RUNTIME_DIR` the folder sits in the shared temporary folder
+/// under a name anyone can guess, and the shell runs scripts from it: a folder there that
+/// someone else made, or that others can enter, is passed over, never used or repaired.
+pub(crate) fn private_dir(dir: &Path) -> Result<PathBuf> {
+    let parent = dir.parent().unwrap_or(Path::new("/"));
+    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let name = dir.file_name().unwrap_or_default().to_string_lossy();
+    let names =
+        std::iter::once(dir.to_path_buf()).chain((1..PRIVATE_NAMES).map(|n| parent.join(format!("{name}-{n}"))));
+    for candidate in names {
+        match fs::create_dir(&candidate) {
+            Ok(()) => {
+                // Set the mode after creating, so no umask widens or narrows it.
+                fs::set_permissions(&candidate, fs::Permissions::from_mode(PRIVATE_DIR))?;
+                return Ok(candidate);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                let meta = fs::symlink_metadata(&candidate)?;
+                let ours = meta.is_dir() && meta.uid() == rustix::process::getuid().as_raw();
+                if ours && meta.mode() & OPEN_TO_OTHERS == 0 {
+                    return Ok(candidate);
+                }
+            }
+            Err(error) => return Err(error).with_context(|| format!("creating {}", candidate.display())),
+        }
+    }
+    bail!("{} and the names after it belong to someone else or are open to others", dir.display())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_runtime_folder_is_ours_and_closed_and_an_open_one_is_passed_over() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("borg-commander-501");
+        let made = private_dir(&dir).unwrap();
+        assert_eq!(made, dir);
+        assert_eq!(fs::metadata(&dir).unwrap().mode() & 0o777, PRIVATE_DIR);
+        assert_eq!(private_dir(&dir).unwrap(), dir, "an existing private folder is used again");
+
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+        let next = private_dir(&dir).unwrap();
+        assert_eq!(next, temp.path().join("borg-commander-501-1"));
+        assert_eq!(fs::metadata(&dir).unwrap().mode() & 0o777, 0o777, "an open folder is left alone");
+
+        fs::remove_dir(&next).unwrap();
+        std::os::unix::fs::symlink(temp.path(), &next).unwrap();
+        assert_eq!(private_dir(&dir).unwrap(), temp.path().join("borg-commander-501-2"), "a link is not followed");
     }
 }

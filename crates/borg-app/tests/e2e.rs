@@ -1923,34 +1923,32 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     ensure!(init["serverInfo"]["name"] == "borg", "{init}");
     let tools = mcp.request("tools/list", serde_json::json!({}))?;
     let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    ensure!(
-        names
-            == [
-                "borg_screen",
-                "list_folder",
-                "read_file",
-                "show_in_panel",
-                "docker_containers",
-                "run_in_container",
-                "run_command"
-            ],
-        "{names:?}"
-    );
+    ensure!(names == ["screen", "read", "show", "run"], "{names:?}");
     app.wait_text("Claude connected to Borg")?;
 
-    let (error, screen) = mcp.call("borg_screen", serde_json::json!({}))?;
+    let (error, screen) = mcp.call("screen", serde_json::json!({}))?;
     ensure!(!error && screen.contains("Active panel: left") && screen.contains("highlighted: .."), "{screen}");
-    let (_, notes) = mcp.call("read_file", serde_json::json!({ "path": "notes.txt" }))?;
+    let (_, notes) = mcp.call("read", serde_json::json!({ "path": "notes.txt" }))?;
     ensure!(notes.ends_with("hello\n"), "{notes}");
-    let (_, listing) = mcp.call("list_folder", serde_json::json!({ "path": "alpha" }))?;
+    let (_, listing) = mcp.call("read", serde_json::json!({ "path": "alpha" }))?;
     ensure!(listing.contains("inner/") && listing.contains("one.txt  2 bytes"), "{listing}");
-    let (_, here) = mcp.call("list_folder", serde_json::json!({ "path": "." }))?;
-    ensure!(here.lines().next().is_some_and(|line| line.contains("/work (")), "a clean path: {here}");
-    let (error, text) = mcp.call("read_file", serde_json::json!({}))?;
-    ensure!(error && text.contains("needs a path"), "{text}");
+    let (_, here) = mcp.call("read", serde_json::json!({}))?;
+    ensure!(here.lines().next().is_some_and(|line| line.contains("/work (")), "the active folder: {here}");
+    let (error, processes) =
+        mcp.call("read", serde_json::json!({ "source": "processes", "sort": "cpu", "limit": 3 }))?;
+    let rows = processes
+        .lines()
+        .skip(2)
+        .filter(|line| line.split_whitespace().next().is_some_and(|pid| pid.parse::<u32>().is_ok()));
+    ensure!(
+        !error && processes.starts_with("CPU ") && processes.contains("\nPID      CPU%") && rows.count() == 3,
+        "{processes}"
+    );
+    let (error, text) = mcp.call("read", serde_json::json!({ "source": "nothing" }))?;
+    ensure!(error && text.contains("no source nothing"), "{text}");
 
-    mcp.call("show_in_panel", serde_json::json!({ "path": "alpha/one.txt" }))?;
-    let (_, screen) = mcp.call("borg_screen", serde_json::json!({}))?;
+    mcp.call("show", serde_json::json!({ "path": "alpha/one.txt" }))?;
+    let (_, screen) = mcp.call("screen", serde_json::json!({}))?;
     ensure!(
         screen.contains("right panel: ") && screen.contains("/work/alpha\n  highlighted: one.txt"),
         "the reveal is done when it answers:\n{screen}"
@@ -1960,15 +1958,14 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     // The command waits for the user: n declines it, y runs it.
     let mut declined = Mcp::start(&fixture)?;
     declined.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
-    let asking =
-        std::thread::spawn(move || declined.call("run_command", serde_json::json!({ "command": "touch nope" })));
+    let asking = std::thread::spawn(move || declined.call("run", serde_json::json!({ "command": "touch nope" })));
     app.wait_text("Claude wants to run")?;
     app.send("n")?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(error && text.contains("declined") && !fixture.work().join("nope").exists(), "{text}");
 
     let asking = std::thread::spawn(move || {
-        mcp.call("run_command", serde_json::json!({ "command": "echo from-claude > made.txt; echo done" }))
+        mcp.call("run", serde_json::json!({ "command": "echo from-claude > made.txt; echo done" }))
     });
     app.wait_text("echo from-claude > made.txt; echo done")?;
     app.send("y")?;
@@ -1982,7 +1979,9 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     let log =
         fs::read_dir(&agents)?.filter_map(Result::ok).find(|e| e.file_name().to_string_lossy().starts_with("log-"));
     let log = fs::read_to_string(log.expect("a log").path())?;
-    for entry in ["looked at the screen", "read ", "listed ", "showed ", "declined", "$ touch nope", "ran in", "done"] {
+    for entry in
+        ["looked at the screen", "read ", "read the processes", "showed ", "declined", "$ touch nope", "ran in", "done"]
+    {
         ensure!(log.contains(entry), "the log records everything: no {entry:?} in\n{log}");
     }
     Ok(())
@@ -1996,14 +1995,12 @@ fn an_agent_works_in_a_container_shell_the_user_watches() -> Result<()> {
     app.wait_text(READY)?;
     let mut mcp = Mcp::start_with_path(&fixture, &bin)?;
     mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
-    let (_, containers) = mcp.call("docker_containers", serde_json::json!({}))?;
+    let (_, containers) = mcp.call("read", serde_json::json!({ "source": "containers" }))?;
     ensure!(containers.contains("shop-web-1") && containers.contains("Running"), "{containers}");
 
     let asking = std::thread::spawn(move || {
-        let first = mcp.call(
-            "run_in_container",
-            serde_json::json!({ "container": "web", "command": "cd /tmp && echo in-$((6*7))" }),
-        );
+        let first =
+            mcp.call("run", serde_json::json!({ "container": "web", "command": "cd /tmp && echo in-$((6*7))" }));
         (mcp, first)
     });
     app.wait_text("the shop-web-1 container")?;
@@ -2015,9 +2012,8 @@ fn an_agent_works_in_a_container_shell_the_user_watches() -> Result<()> {
         s.contains("Alt-2 Shell ●") && s.contains("in-42")
     })?;
 
-    let asking = std::thread::spawn(move || {
-        mcp.call("run_in_container", serde_json::json!({ "container": "shop-web-1", "command": "pwd" }))
-    });
+    let asking =
+        std::thread::spawn(move || mcp.call("run", serde_json::json!({ "container": "shop-web-1", "command": "pwd" })));
     app.wait_text("Claude wants to run")?;
     app.send("y")?;
     let (error, text) = asking.join().unwrap()?;

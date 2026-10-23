@@ -59,11 +59,11 @@ pub struct Reply {
 }
 
 impl Reply {
-    fn ok(text: impl Into<String>) -> Self {
+    pub fn ok(text: impl Into<String>) -> Self {
         Self { ok: true, text: text.into() }
     }
 
-    fn error(text: impl Into<String>) -> Self {
+    pub fn error(text: impl Into<String>) -> Self {
         Self { ok: false, text: text.into() }
     }
 }
@@ -199,7 +199,14 @@ impl Agent {
 /// Where a command runs, for the log and the user's question.
 pub fn place(target: &Target) -> String {
     match target {
-        Target::Host(dir) => dir.display().to_string(),
+        Target::Host(dir) => {
+            let home = std::env::var_os("HOME").map(PathBuf::from).filter(|home| home.as_os_str().len() > 1);
+            match home.and_then(|home| dir.strip_prefix(home).ok().map(Path::to_path_buf)) {
+                Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+                Some(rest) => format!("~/{}", rest.display()),
+                None => dir.display().to_string(),
+            }
+        }
         Target::Container(_, name) => format!(borg_i18n::tr!(agent_container_place), name = name),
     }
 }
@@ -503,68 +510,79 @@ pub fn read_file(path: &Path, offset: u64, limit: u64) -> Reply {
     }
 }
 
-/// The tools `borg mcp` offers, as MCP describes them.
+/// The tools `borg mcp` offers, as MCP describes them: few and general. The agent looks with
+/// `screen` and `read` without asking, puts things in front of the user with `show`, and
+/// changes anything only through `run`, which waits for the user's approval.
 fn tools() -> Value {
     let read_only = json!({ "readOnlyHint": true });
     json!([
         {
-            "name": "borg_screen",
-            "description": "What the user sees in Borg right now: both panels' folders (or a container's filesystem), the highlighted and marked files, which panel is active, where the command line runs, and an open Docker view or activity monitor.",
+            "name": "screen",
+            "description": "What the user sees in Borg right now: both panels' folders (or a container's filesystem), the highlighted and marked files, which panel is active, where the command line runs, container shells open in Borg, and an open Docker view or activity monitor.",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": read_only,
         },
         {
-            "name": "list_folder",
-            "description": "Lists a folder on the machine Borg runs on. Relative paths start at the active panel's folder.",
-            "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
-            "annotations": read_only,
-        },
-        {
-            "name": "read_file",
-            "description": "Reads a text file on the machine Borg runs on, up to 128 KiB at a time from `offset`. Relative paths start at the active panel's folder.",
+            "name": "read",
+            "description": "Reads on the machine Borg runs on, without asking the user. With `path`: a folder's entries, or a text file, up to 128 KiB from `offset` (relative paths start at the active panel's folder). With `source` \"processes\": the `limit` (default 40) busiest processes, as Borg's activity monitor shows them, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
+                    "source": { "type": "string", "enum": ["processes", "containers"] },
                     "offset": { "type": "integer", "minimum": 0 },
-                    "limit": { "type": "integer", "minimum": 1 }
-                },
-                "required": ["path"]
+                    "limit": { "type": "integer", "minimum": 1 },
+                    "sort": { "type": "string", "enum": ["memory", "cpu"] }
+                }
             },
             "annotations": read_only,
         },
         {
-            "name": "show_in_panel",
-            "description": "Shows a file or folder to the user in Borg's other panel: a folder opens, a file is selected in its folder. The user's active panel stays where it is.",
+            "name": "show",
+            "description": "Shows a file or folder to the user in Borg's other panel: a folder opens, a file is selected in its folder. The user's active panel stays where it is. Answers once the panel shows it.",
             "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
         },
         {
-            "name": "docker_containers",
-            "description": "Lists the Docker containers on the machine Borg runs on: name, state, status, image and Compose project.",
-            "inputSchema": { "type": "object", "properties": {} },
-            "annotations": read_only,
-        },
-        {
-            "name": "run_in_container",
-            "description": "Runs a command in a running container's shell in Borg, after the user approves it, and returns its exit status and output. Borg opens the Docker view on that container's Shell tab, so the user watches it run; the shell keeps its folder and variables between commands. `container` is a container name, Compose service or id. Stops waiting after 10 minutes.",
+            "name": "run",
+            "description": "Runs a shell command after the user approves it in Borg, and returns its exit status and output. Without `container`: on the machine Borg runs on, with sh, in `cwd` or the active panel's folder; stops after 10 minutes. With `container` (a name, Compose service or id): typed into that container's shell in Borg, which opens the Docker view on it so the user watches; the shell keeps its folder and variables between commands. Explain what you run and why: the user sees each command before it runs.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "container": { "type": "string" }, "command": { "type": "string" } },
-                "required": ["container", "command"]
-            },
-            "annotations": { "destructiveHint": true },
-        },
-        {
-            "name": "run_command",
-            "description": "Runs a shell command on the machine Borg runs on, after the user approves it in Borg, and returns its exit status and output. It runs with sh in `cwd`, or in the active panel's folder. Stops after 10 minutes. Keep commands focused and explain why you need them; the user sees each one before it runs.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "command": { "type": "string" }, "cwd": { "type": "string" } },
+                "properties": {
+                    "command": { "type": "string" },
+                    "container": { "type": "string" },
+                    "cwd": { "type": "string" }
+                },
                 "required": ["command"]
             },
             "annotations": { "destructiveHint": true },
         }
     ])
+}
+
+/// The `shown` busiest processes, by memory or CPU, with the machine's totals.
+pub fn processes(sample: &borg_core::SystemSample, by_cpu: bool, shown: usize) -> Reply {
+    use borg_ui::size_text;
+    let cores = sample.cpu.len().max(1);
+    let cpu = sample.cpu.iter().map(|&c| u64::from(c)).sum::<u64>() as f64 / cores as f64 / 100.0;
+    let mut processes: Vec<_> = sample.processes.iter().collect();
+    if by_cpu {
+        processes.sort_by_key(|p| std::cmp::Reverse(p.cpu.unwrap_or(0)));
+    } else {
+        processes.sort_by_key(|p| std::cmp::Reverse(p.resident.unwrap_or(0)));
+    }
+    let mut text = format!(
+        "CPU {cpu:.1}% of {cores} cores · RAM {} of {} · {} processes\nPID      CPU%    RAM  NAME\n",
+        size_text(sample.used),
+        size_text(sample.total),
+        sample.processes.len()
+    );
+    for p in processes.into_iter().take(shown) {
+        let cpu = p.cpu.map_or_else(|| "—".into(), |c| format!("{:.1}", f64::from(c) / 100.0));
+        let ram = p.resident.map_or_else(|| "—".into(), size_text);
+        let path = p.executable.as_ref().map_or_else(String::new, |e| format!("  {}", e.display()));
+        let _ = writeln!(text, "{:<8} {cpu:>5} {ram:>6}  {}{path}", p.key.pid, p.name);
+    }
+    Reply::ok(text)
 }
 
 /// The newest session that answers, among the sockets in the agent folder.

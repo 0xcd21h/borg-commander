@@ -31,6 +31,16 @@ const ADMIN_TIMEOUT: Duration = Duration::from_secs(120);
 const KIB: f64 = 1024.0;
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 
+/// A process sample with CPU use: CPU needs two looks a moment apart, as the activity
+/// monitor's first sample does.
+pub(crate) fn processes() -> SystemSample {
+    const SETTLE: Duration = Duration::from_millis(250);
+    let mut sampler = Sampler::default();
+    sampler.sample();
+    std::thread::sleep(SETTLE);
+    sampler.sample()
+}
+
 #[derive(Default)]
 struct Sampler {
     system: System,
