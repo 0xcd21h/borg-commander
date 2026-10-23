@@ -331,26 +331,39 @@ impl App {
                     return;
                 }
             }
-            let scene = Scene {
-                state: &self.state,
-                screen: match &self.console {
-                    borg_core::Console::Container(id) => {
-                        self.shells.screen(id).unwrap_or_else(|| self.emulator.screen())
-                    }
-                    borg_core::Console::Host => self.emulator.screen(),
-                },
-                docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
-                palette: &self.palette,
-                themes: &self.themes,
-                clock,
-                now,
-                home: self.home.as_deref(),
-                pixels: pixels(self.graphics.capabilities()),
-            };
-            placements = draw(frame, &scene);
+            placements = draw(frame, &self.scene(clock, now));
         })?;
         resized?;
         Ok(self.graphics.frame(&placements, frame.buffer))
+    }
+
+    fn scene<'a>(&'a self, clock: &'a Zoned, now: Instant) -> Scene<'a> {
+        Scene {
+            state: &self.state,
+            screen: match &self.console {
+                borg_core::Console::Container(id) => self.shells.screen(id).unwrap_or_else(|| self.emulator.screen()),
+                borg_core::Console::Host => self.emulator.screen(),
+            },
+            docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
+            palette: &self.palette,
+            themes: &self.themes,
+            clock,
+            now,
+            home: self.home.as_deref(),
+            pixels: pixels(self.graphics.capabilities()),
+        }
+    }
+
+    /// The screen as text, drawn now as the next frame will show it, so an agent sees what
+    /// its last call changed.
+    fn screen_text(&self) -> Vec<String> {
+        let (clock, now) = (local_now(), Instant::now());
+        let backend = ratatui::backend::TestBackend::new(self.state.cols, self.state.rows);
+        let Ok(mut terminal) = ratatui::Terminal::new(backend);
+        if terminal.draw(|frame| drop(draw(frame, &self.scene(&clock, now)))).is_err() {
+            return Vec::new();
+        }
+        frame_text(terminal.backend().buffer())
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<Flow> {
@@ -534,7 +547,10 @@ impl App {
         match call.tool.as_str() {
             "screen" => {
                 self.agent.note("looked at the screen");
-                drop(reply.send(Reply::ok(agent::screen(&self.state))));
+                let (emulator, _) = self.console();
+                let console =
+                    agent::ConsoleText { lines: emulator.screen().live_text(), typed: emulator.command_line() };
+                drop(reply.send(Reply::ok(agent::screen(&self.state, &self.screen_text(), &console))));
             }
             "read" => match text("source").as_deref() {
                 Some("processes") => {
@@ -1194,6 +1210,18 @@ impl App {
             previous.abort();
         }
     }
+}
+
+/// A drawn frame's text row by row, a wide character once, trailing spaces left out.
+fn frame_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+    let area = buffer.area;
+    (area.top()..area.bottom())
+        .map(|y| {
+            let row: String =
+                (area.left()..area.right()).filter_map(|x| buffer.cell((x, y))).map(|cell| cell.symbol()).collect();
+            row.trim_end().to_owned()
+        })
+        .collect()
 }
 
 fn palette(colors: &TerminalColors) -> Palette {

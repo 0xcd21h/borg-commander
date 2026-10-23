@@ -301,8 +301,9 @@ another name, such as an SSH alias or through a jump host, type that name instea
 log in without a password prompt: a key, or an SSH agent. `borg mcp setup prod` prints the
 same for Claude Code and Claude Desktop from the command line.
 
-Connected, the agent sees what you see: both panels, the highlighted and marked files, and
-where the command line runs. It names places as locations: an absolute path or `~/…` on the
+Connected, the agent sees what you see: the screen itself as text, whether you are in the
+panels or the console, both panels, the highlighted and marked files, where the command line
+runs and what is typed there. It names places as locations: an absolute path or `~/…` on the
 machine borg runs on, `docker://web/etc/nginx` inside a container, or a path relative to the
 active panel. Without asking, it reads folders, files (by line ranges, or the lines that
 contain some text), the busiest processes and the containers, and shows a file or folder in

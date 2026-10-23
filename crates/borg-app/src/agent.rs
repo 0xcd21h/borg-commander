@@ -22,7 +22,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use borg_core::{AgentEvent, AppState, Console, Msg, Row, Side};
+use borg_core::{AgentEvent, AppState, Console, Msg, Row, Side, View};
 use borg_i18n::tr;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -524,10 +524,35 @@ async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
     }
 }
 
-/// What the user sees, in words an agent can use. Panels show as locations, which every
-/// tool takes as they are.
-pub fn screen(state: &AppState) -> String {
-    let mut text = format!("Borg on {}\nActive panel: {}\n", hostname(), side_name(state.active));
+/// The console's terminal: the text it shows and what is typed at its prompt.
+pub struct ConsoleText {
+    pub lines: Vec<String>,
+    pub typed: String,
+}
+
+/// How many of the console's last lines `screen` gives while the panels hide it.
+const CONSOLE_LINES: usize = 20;
+
+/// What the user sees: where they are and what the panels hold, in words an agent can use
+/// (panels as locations, which every tool takes as they are), then the screen itself as text.
+pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> String {
+    let console_shown = state.effective_view() == View::Shell;
+    let looking = if state.viewer.is_some() {
+        "a file in Borg's viewer"
+    } else if console_shown {
+        "Borg's console, which hides the panels (Ctrl-O switches)"
+    } else if state.docker.is_open() {
+        "the Docker view"
+    } else if state.activity.side.is_some() {
+        "the activity monitor"
+    } else {
+        "the panels"
+    };
+    let mut text = format!("Borg on {}. The user is looking at {looking}.\n", hostname());
+    if matches!(state.overlay, Some(borg_core::Overlay::Approval(_))) {
+        text.push_str("A dialog asks the user to approve a request.\n");
+    }
+    let _ = writeln!(text, "Active panel: {}", side_name(state.active));
     for side in Side::ALL {
         let panel = state.panel(side);
         let _ = writeln!(text, "{} panel: {}", side_name(side), panel_location(state, side));
@@ -542,11 +567,20 @@ pub fn screen(state: &AppState) -> String {
             let _ = writeln!(text, "  marked: {}", marked.join(", "));
         }
     }
-    let console = match &state.console {
+    let shell = match &state.console {
         Console::Host => format!("host shell in {}", state.shell.cwd.display()),
         Console::Container(_) => format!("the {} container's shell", state.console_container().unwrap_or_default()),
     };
-    let _ = writeln!(text, "Command line: {console}");
+    let doing = if state.shell.captured() {
+        "running a full-screen program"
+    } else if state.shell.busy() {
+        "running a command"
+    } else {
+        "at its prompt"
+    };
+    let typed =
+        if console.typed.is_empty() { String::new() } else { format!(", with {:?} typed there", console.typed) };
+    let _ = writeln!(text, "Command line: {shell}, {doing}{typed}");
     let shells: Vec<&str> = state.docker.shells.iter().map(|shell| shell.name.as_str()).collect();
     if !shells.is_empty() {
         let _ = writeln!(text, "Container shells open in Borg: {}", shells.join(", "));
@@ -557,6 +591,37 @@ pub fn screen(state: &AppState) -> String {
     }
     if let Some(process) = state.activity.process().filter(|_| state.activity.side.is_some()) {
         let _ = writeln!(text, "Activity monitor open, on {} (PID {})", process.name, process.key.pid);
+    }
+    // Long runs of empty rows read as one, to keep the text short.
+    let shown = |lines: &[String]| {
+        let end = lines.iter().rposition(|line| !line.is_empty()).map_or(0, |last| last + 1);
+        let mut out: Vec<String> = Vec::new();
+        let mut empty = 0;
+        for line in &lines[..end] {
+            if line.is_empty() {
+                empty += 1;
+                continue;
+            }
+            match empty {
+                0 => {}
+                1 | 2 => out.extend(std::iter::repeat_n(String::new(), empty)),
+                _ => out.push(format!("⋯ {empty} empty lines")),
+            }
+            empty = 0;
+            out.push(line.clone());
+        }
+        out.join("\n")
+    };
+    if !frame.is_empty() {
+        let _ = write!(text, "\nThe screen as the user sees it, as text:\n{}\n", shown(frame));
+    }
+    if !console_shown {
+        let lines = shown(&console.lines);
+        let last: Vec<&str> = lines.lines().collect();
+        let last = &last[last.len().saturating_sub(CONSOLE_LINES)..];
+        if !last.is_empty() {
+            let _ = write!(text, "\nThe console behind the panels, its last lines:\n{}\n", last.join("\n"));
+        }
     }
     text
 }
@@ -602,7 +667,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "screen",
-            "description": "What the user sees in Borg right now: both panels' locations, the highlighted and marked files, which panel is active, where the command line runs, container shells open in Borg, and an open Docker view or activity monitor.",
+            "description": "What the user sees in Borg right now: whether they look at the panels or the console, both panels' locations, the highlighted and marked files, where the command line runs and what is typed there, then the whole screen as text, as the user sees it (and the console's last lines while the panels hide it).",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": read_only,
         },

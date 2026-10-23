@@ -2002,6 +2002,14 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     let (error, text) = mcp.call("type", serde_json::json!({ "text": "touch typed-by-claude" }))?;
     ensure!(!error && text.contains("nothing ran"), "{text}");
     app.wait_until("the text at the prompt", |s| prompt(s).contains("touch typed-by-claude"))?;
+    let (_, screen) = mcp.call("screen", serde_json::json!({}))?;
+    ensure!(
+        screen.contains("looking at the panels")
+            && screen.contains("at its prompt, with \"touch typed-by-claude\" typed there")
+            && screen.contains("The screen as the user sees it")
+            && screen.contains("notes.txt"),
+        "screen shows what is typed and the screen itself:\n{screen}"
+    );
     app.pump(std::time::Duration::from_millis(300))?;
     ensure!(!fixture.work().join("typed-by-claude").exists(), "typing runs nothing");
     app.send(keys::enter())?;
@@ -2013,6 +2021,11 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     // dialog shows over the console too, where the user may be.
     app.send(keys::ctrl('o'))?;
     app.wait_text("Borg console")?;
+    let (_, screen) = mcp.call("screen", serde_json::json!({}))?;
+    ensure!(
+        screen.contains("looking at Borg's console") && screen.contains("$ touch typed-by-claude"),
+        "screen knows the console shows, and what it shows:\n{screen}"
+    );
     let mut declined = Mcp::start(&fixture)?;
     declined.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
     let asking = std::thread::spawn(move || declined.call("run", serde_json::json!({ "command": "touch nope" })));
