@@ -241,7 +241,11 @@ impl Panel {
     }
 
     pub fn reload(&mut self, generation: u64) {
-        let focus = self.anchor();
+        // A folder still loading keeps the entry it was opened to select.
+        let focus = match &self.incoming {
+            Some(incoming) => incoming.focus.clone(),
+            None => self.anchor(),
+        };
         let dir = self.destination().to_path_buf();
         let refresh = self.is_reloading_into(&dir);
         self.incoming = Some(Incoming { dir, generation, focus, refresh });

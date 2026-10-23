@@ -1,5 +1,6 @@
 mod actions;
 mod activity;
+mod agent;
 mod anim;
 mod appearance;
 mod aside;
@@ -33,6 +34,10 @@ mod viewer;
 #[cfg(test)]
 mod update_tests;
 
+pub use agent::{
+    Agent, AgentEvent, Approval, Ask, AskKind, Change, Connect, ConnectInfo, DiffLine, approval_layout, approval_rows,
+    connect_commands, host_console_ready, log_layout, log_rows, shell_quote, typing_refusal,
+};
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
@@ -41,7 +46,7 @@ pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
 pub use docker::{
     ContainerShell, Docker, DockerData, DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, ShellRequest,
-    Usage, Working, shell_rect,
+    Usage, Working, container_shell_busy, shell_rect,
 };
 pub use find::{Find, Query, summary as find_summary};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};

@@ -18,7 +18,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, ThreadKind, UpdateKind};
 use tokio::{io::AsyncReadExt, process::Command, sync::mpsc::UnboundedSender, task::JoinHandle};
 mod process_files;
 
@@ -30,6 +30,16 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 const ADMIN_TIMEOUT: Duration = Duration::from_secs(120);
 const KIB: f64 = 1024.0;
 const CANCEL_POLL: Duration = Duration::from_millis(100);
+
+/// A process sample with CPU use: CPU needs two looks a moment apart, as the activity
+/// monitor's first sample does.
+pub(crate) fn processes() -> SystemSample {
+    const SETTLE: Duration = Duration::from_millis(250);
+    let mut sampler = Sampler::default();
+    sampler.sample();
+    std::thread::sleep(SETTLE);
+    sampler.sample()
+}
 
 #[derive(Default)]
 struct Sampler {
@@ -52,6 +62,8 @@ impl Sampler {
             .system
             .processes()
             .values()
+            // On Linux each thread of a process is listed too, with the whole process's memory.
+            .filter(|p| p.thread_kind() != Some(ThreadKind::Userland))
             .map(|p| {
                 let key = ProcessKey { pid: p.pid().as_u32(), start: p.start_time() };
                 let sampled = elapsed.filter(|_| self.seen.contains(&key));

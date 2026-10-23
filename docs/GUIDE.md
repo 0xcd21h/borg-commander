@@ -59,7 +59,7 @@ results with source paths and the existing viewer and quick preview.
 
 - **Ctrl-F:** search recursively below the current folder, using a name fragment or
   glob such as `*.log`. Lowercase queries ignore case; uppercase queries match case.
-- **Alt-B:** collect marked files, or the current file, in the other panel. Adding a
+- **Alt-K:** collect marked files, or the current file, in the other panel. Adding a
   reference does not copy the file's contents.
 - **Alt-V:** choose a saved collection from a scrollable list with entry counts and
   size estimates. Press F7 or N to create one. Collections survive restarting Borg.
@@ -284,6 +284,49 @@ when Borg quits, which asks first while shells are open. The plugin uses the `do
 context, so it works with Docker Desktop, OrbStack, Colima and remote engines alike. It can
 be turned off in Options → Plugins.
 
+## Claude and other agents (MCP)
+
+`borg mcp` lets an AI agent such as Claude work in the borg you have open, on your machine or
+on a server you reach over SSH. Nothing needs installing beside borg: the agent starts
+`borg mcp` itself, through SSH for a server, and it connects to the borg session open there.
+The server needs no open port and no internet access.
+
+To connect, press F1 and then C (or F9 → Command → Connect Claude…). Borg shows two
+commands to paste into a terminal on your computer: one starts Claude Code already connected
+to this borg, the other keeps the connection in Claude Code for every session. Tab picks one,
+Enter copies it to your computer's clipboard through the terminal, which works over SSH in
+iTerm2, Ghostty, kitty, WezTerm and Alacritty (in tmux, with `set -g set-clipboard on`).
+Over SSH, borg fills in the address you came in on; if your computer reaches the server by
+another name, such as an SSH alias or through a jump host, type that name instead. SSH must
+log in without a password prompt: a key, or an SSH agent. `borg mcp setup prod` prints the
+same for Claude Code and Claude Desktop from the command line.
+
+Connected, the agent sees what you see: the screen itself as text, whether you are in the
+panels or the console, both panels, the highlighted and marked files, where the command line
+runs and what is typed there. It names places as locations: an absolute path or `~/…` on the
+machine borg runs on, `docker://web/etc/nginx` inside a container, or a path relative to the
+active panel. Without asking, it reads folders, files (by line ranges, or the lines that
+contain some text), the busiest processes and the containers, and shows a file or folder in
+your other panel.
+
+Anything that changes the machine waits for you in a dialog that shows all of it: a
+command and where it runs, a new file, or an edit as a diff. Long ones scroll with the arrow
+keys, PgUp and PgDn or the mouse wheel, and F3 shows the dialog full screen. No is selected
+until you choose Yes; an edit is refused if the file changed while you were deciding.
+Commands are typed into a shell you watch, and kept out of its history: commands on this
+machine into borg's own console, which shows while they run, so you can answer a prompt
+such as sudo's; commands in a container into that container's shell in the Docker view.
+The shell keeps its folder and variables between commands.
+
+The agent can also type text for you to review: a command at the prompt, or a script into
+vim or nano open in the console. Nothing runs: no Enter is pressed, and text with several
+lines goes in as a paste, which shells and editors insert without running.
+
+While an agent is connected, **◈ Claude** sits at the start of the shortcut row; click it
+for the log of what it did: what it looked at, read, showed and typed, and every command
+and change, approved or declined. Borg keeps the log in memory only, until it exits; to
+keep no log at all, turn it off in Options → Plugins.
+
 ## Find, jobs, and viewers
 
 Ctrl-S opens quick find. Type a name or glob such as `*.rs`; Down and Up move between matches,
@@ -345,6 +388,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
+agent-log = true            # log what Claude does while Borg runs
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;
@@ -353,6 +397,13 @@ in the panels.
 
 Panel folders, cursor position, split, listing mode, and sorting are saved in
 `~/.local/state/borg-commander`, or the location selected by `$XDG_STATE_HOME` or `$BORG_STATE_DIR`.
+
+While it runs, Borg keeps shell integration scripts and files copied out of containers in
+`$XDG_RUNTIME_DIR/borg-commander`, or `borg-commander-<uid>` in the temporary
+folder. Only you can open it; one that someone else made, or that others can enter, is
+passed over for a fresh name. Its `TTL` file starts with the time until which it is in use:
+every running borg moves that time a day ahead each hour, so once it has passed, the folder
+can be removed.
 
 Custom themes go in `~/.config/borg-commander/themes/`. A theme can extend a built-in theme:
 

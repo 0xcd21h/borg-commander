@@ -105,6 +105,8 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
         Action::DockerShell => crate::docker::open_shell(state, now),
+        Action::AgentLog => crate::agent::open_log(state),
+        Action::ConnectClaude => crate::agent::open_connect(state),
         Action::DockerFilter => {
             crate::docker::filter(state);
             Vec::new()
@@ -115,6 +117,13 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::ToggleDockerConsole => {
             state.settings.preferences.docker_console = !state.settings.preferences.docker_console;
+            vec![Effect::SaveConfig]
+        }
+        Action::ToggleAgentLog => {
+            state.settings.preferences.agent_log = !state.settings.preferences.agent_log;
+            if !state.settings.preferences.agent_log {
+                state.agent.log.clear();
+            }
             vec![Effect::SaveConfig]
         }
         Action::Search

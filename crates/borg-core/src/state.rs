@@ -218,11 +218,23 @@ pub enum Overlay {
     Question(Question),
     Jobs(JobList),
     Themes(Picker),
-    Settings { selected: usize },
-    Plugins { selected: usize },
+    Settings {
+        selected: usize,
+    },
+    Plugins {
+        selected: usize,
+    },
     Menu(MenuCursor),
     Prompt(Prompt),
     Confirm(Confirm),
+    /// An agent's command, new file or edit, waiting for the user's approval.
+    Approval(crate::agent::Approval),
+    /// The log of what agents did; `scroll` is `None` while it follows the newest entries.
+    AgentLog {
+        scroll: Option<usize>,
+    },
+    /// How to connect Claude to this borg.
+    Connect(crate::agent::Connect),
 }
 
 #[derive(Debug, Clone)]
@@ -271,6 +283,7 @@ impl Startup {
 pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
+    pub agent: crate::Agent,
     /// When background work started, for spinners that wait before appearing.
     pub busy: crate::Busy,
     pub game2048: Option<crate::Game2048>,
@@ -338,6 +351,7 @@ impl AppState {
         let mut state = Self {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
+            agent: crate::Agent::default(),
             console: Console::Host,
             parked_host: None,
             busy: crate::Busy::default(),

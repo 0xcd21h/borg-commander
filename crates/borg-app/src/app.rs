@@ -105,6 +105,13 @@ pub struct App {
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,
+    agent: crate::agent::Agent,
+    /// Agent reveals waiting for their panel to show the folder.
+    reveals: Vec<(Side, PathBuf, tokio::sync::oneshot::Sender<crate::agent::Reply>, String)>,
+    /// An agent's command typed into the host console, until the shell reports its end.
+    host_capture: Option<(crate::agent::Typed, Vec<u8>)>,
+    /// Text to put on the user's clipboard with the next frame.
+    clipboard: Option<String>,
 }
 
 enum Flow {
@@ -158,6 +165,16 @@ impl App {
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
+        let agent = crate::agent::Agent::start(&launch.runtime_dir, messages.clone());
+        state.agent.connect = crate::agent::connect_info();
+        let runtime_dir = launch.runtime_dir.clone();
+        tokio::spawn(async move {
+            let mut refresh = tokio::time::interval(crate::launch::TTL_REFRESH);
+            loop {
+                refresh.tick().await;
+                let _ = crate::launch::mark_in_use(&runtime_dir);
+            }
+        });
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -187,6 +204,10 @@ impl App {
             docker,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
+            agent,
+            reveals: Vec::new(),
+            host_capture: None,
+            clipboard: None,
         })
     }
 
@@ -238,6 +259,7 @@ impl App {
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
+                Some((call, reply)) = self.agent.incoming.recv() => self.on_agent(call, reply)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
@@ -285,6 +307,11 @@ impl App {
         }
         let backend = terminal.backend_mut();
         backend.write_all(&output.bytes)?;
+        if let Some(text) = self.clipboard.take() {
+            // OSC 52 reaches the clipboard of the computer the user sits at, over SSH too.
+            use base64::Engine as _;
+            write!(backend, "\x1b]52;c;{}\x07", base64::engine::general_purpose::STANDARD.encode(text))?;
+        }
         queue!(backend, EndSynchronizedUpdate)?;
         backend.flush()?;
         if let Some(error) = self.graphics.take_errors().first() {
@@ -304,26 +331,39 @@ impl App {
                     return;
                 }
             }
-            let scene = Scene {
-                state: &self.state,
-                screen: match &self.console {
-                    borg_core::Console::Container(id) => {
-                        self.shells.screen(id).unwrap_or_else(|| self.emulator.screen())
-                    }
-                    borg_core::Console::Host => self.emulator.screen(),
-                },
-                docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
-                palette: &self.palette,
-                themes: &self.themes,
-                clock,
-                now,
-                home: self.home.as_deref(),
-                pixels: pixels(self.graphics.capabilities()),
-            };
-            placements = draw(frame, &scene);
+            placements = draw(frame, &self.scene(clock, now));
         })?;
         resized?;
         Ok(self.graphics.frame(&placements, frame.buffer))
+    }
+
+    fn scene<'a>(&'a self, clock: &'a Zoned, now: Instant) -> Scene<'a> {
+        Scene {
+            state: &self.state,
+            screen: match &self.console {
+                borg_core::Console::Container(id) => self.shells.screen(id).unwrap_or_else(|| self.emulator.screen()),
+                borg_core::Console::Host => self.emulator.screen(),
+            },
+            docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
+            palette: &self.palette,
+            themes: &self.themes,
+            clock,
+            now,
+            home: self.home.as_deref(),
+            pixels: pixels(self.graphics.capabilities()),
+        }
+    }
+
+    /// The screen as text, drawn now as the next frame will show it, so an agent sees what
+    /// its last call changed.
+    fn screen_text(&self) -> Vec<String> {
+        let (clock, now) = (local_now(), Instant::now());
+        let backend = ratatui::backend::TestBackend::new(self.state.cols, self.state.rows);
+        let Ok(mut terminal) = ratatui::Terminal::new(backend);
+        if terminal.draw(|frame| drop(draw(frame, &self.scene(&clock, now)))).is_err() {
+            return Vec::new();
+        }
+        frame_text(terminal.backend().buffer())
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<Flow> {
@@ -384,7 +424,7 @@ impl App {
                 | MouseEventKind::ScrollLeft
                 | MouseEventKind::ScrollRight
         ) {
-            let target = if self.state.effective_view() == View::Shell {
+            let target = if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
                 WheelTarget::Console
             } else if self.state.viewer.is_some() {
                 WheelTarget::Viewer
@@ -455,10 +495,17 @@ impl App {
     fn consume(&mut self, event: PtyEvent) -> Result<Flow> {
         match event {
             PtyEvent::Output(bytes) => {
+                if let Some((_, captured)) = self.host_capture.as_mut() {
+                    captured.extend_from_slice(&bytes);
+                }
                 let signals = self.emulator.feed(&bytes);
                 for reply in self.emulator.drain_replies() {
                     self.pty.write(reply.as_bytes())?;
                 }
+                let ended = signals.iter().find_map(|signal| match signal {
+                    borg_term::ShellSignal::CommandEnd { exit } => Some(*exit),
+                    _ => None,
+                });
                 let console = self.console == borg_core::Console::Host;
                 for signal in signals {
                     let msg = if console { Msg::Signal(signal) } else { Msg::ParkedSignal { container: None, signal } };
@@ -466,16 +513,382 @@ impl App {
                         return Ok(Flow::Quit);
                     }
                 }
+                if let (Some(exit), Some((command, captured))) = (ended, self.host_capture.take_if(|_| ended.is_some()))
+                {
+                    let output = crate::agent::shell_output(&captured, &command.line);
+                    command.finish(exit, &output, &self.messages);
+                }
                 Ok(Flow::Continue)
             }
-            PtyEvent::Closed => self.dispatch(Msg::ShellExited),
+            PtyEvent::Closed => {
+                if let Some((command, _)) = self.host_capture.take() {
+                    command.fail("The shell closed before the command finished.", &self.messages);
+                }
+                self.dispatch(Msg::ShellExited)
+            }
+        }
+    }
+
+    /// Answers an agent's tool call from what the session knows. Reading happens off the
+    /// event loop, a reveal answers once the panel shows it, and commands and changes to
+    /// files wait for the user's approval.
+    fn on_agent(
+        &mut self,
+        call: crate::agent::Call,
+        reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
+    ) -> Result<Flow> {
+        use crate::agent::{self, Call, Location, Reply, Spot, Target, Work};
+        use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+        let text = |key: &str| call.args[key].as_str().map(str::to_owned).filter(|value| !value.trim().is_empty());
+        let fail = |reply: tokio::sync::oneshot::Sender<Reply>, text: String| {
+            drop(reply.send(Reply::error(text)));
+            Ok(Flow::Continue)
+        };
+        match call.tool.as_str() {
+            "screen" => {
+                self.agent.note("looked at the screen");
+                let (emulator, _) = self.console();
+                let console =
+                    agent::ConsoleText { lines: emulator.screen().live_text(), typed: emulator.command_line() };
+                drop(reply.send(Reply::ok(agent::screen(&self.state, &self.screen_text(), &console))));
+            }
+            "read" => match text("source").as_deref() {
+                Some("processes") => {
+                    const SHOWN: u64 = 40;
+                    let by_cpu = text("sort").as_deref() == Some("cpu");
+                    let shown = call.args["limit"].as_u64().unwrap_or(SHOWN).clamp(1, borg_core::PROCESS_LIMIT as u64);
+                    self.agent.note("read the processes");
+                    tokio::task::spawn_blocking(move || {
+                        drop(reply.send(agent::processes(&crate::activity::processes(), by_cpu, shown as usize)));
+                    });
+                }
+                Some("containers") => {
+                    self.agent.note("read the containers");
+                    tokio::spawn(async move { drop(reply.send(agent::containers().await)) });
+                }
+                Some(other) => {
+                    return fail(reply, format!("read has no source {other}: use processes or containers, or a path"));
+                }
+                None => {
+                    let lines = match text("lines").map(|lines| agent::parse_lines(&lines)).transpose() {
+                        Ok(lines) => lines,
+                        Err(error) => return fail(reply, error),
+                    };
+                    let find = call.args["find"].as_str().filter(|find| !find.is_empty()).map(str::to_owned);
+                    let location = agent::locate(&self.state, &text("path").unwrap_or_else(|| ".".into()));
+                    let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
+                    self.agent.note(&format!("read {}", spot.uri()));
+                    tokio::spawn(async move { drop(reply.send(agent::read(spot, lines, find).await)) });
+                }
+            },
+            "show" => {
+                let Some(path) = text("path") else { return fail(reply, "show needs a path".into()) };
+                let location = agent::locate(&self.state, &path);
+                let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
+                // A folder opens and a file is selected in its folder; a container is asked which.
+                let requeue = self.agent.requeue_sender();
+                tokio::spawn(async move {
+                    let folder = agent::is_folder(&spot).await;
+                    let args = serde_json::json!({ "spot": spot, "folder": folder });
+                    drop(requeue.send((Call { tool: "_show".into(), args }, reply)));
+                });
+            }
+            "_show" => {
+                let Ok(spot) = serde_json::from_value::<Spot>(call.args["spot"].clone()) else {
+                    return fail(reply, "unreadable location".into());
+                };
+                let path = spot.path().to_path_buf();
+                let (dir, focus) = if call.args["folder"] == true {
+                    (path, None)
+                } else {
+                    let parent = path.parent().map_or_else(|| PathBuf::from("/"), Path::to_path_buf);
+                    (parent, path.file_name().map(|name| name.to_string_lossy().into_owned()))
+                };
+                let mount = match &spot {
+                    Spot::Container { id, name, .. } => Some((id.clone(), name.clone())),
+                    Spot::Host(_) => None,
+                };
+                self.agent.note(&format!("showed {}", spot.uri()));
+                let flow = self.dispatch(Msg::Agent(AgentEvent::Reveal { dir, focus, mount }))?;
+                let side = self.state.active.other();
+                let shown = self.state.panel(side).destination().to_path_buf();
+                self.reveals.push((side, shown, reply, spot.uri()));
+                self.settle_reveals();
+                return Ok(flow);
+            }
+            "write" | "edit" => {
+                let edit = call.tool == "edit";
+                let Some(path) = text("path") else { return fail(reply, format!("{} needs a path", call.tool)) };
+                let (content, old, new) =
+                    (call.args["content"].as_str(), call.args["old"].as_str(), call.args["new"].as_str());
+                let change = match (edit, content, old, new) {
+                    (false, Some(content), ..) => Err(content.to_owned()),
+                    (true, _, Some(old), Some(new)) if !old.is_empty() => Ok((old.to_owned(), new.to_owned())),
+                    (false, ..) => return fail(reply, "write needs content".into()),
+                    (true, ..) => return fail(reply, "edit needs old (not empty) and new".into()),
+                };
+                let all = call.args["all"] == true;
+                let location = agent::locate(&self.state, &path);
+                let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
+                let requeue = self.agent.requeue_sender();
+                tokio::spawn(async move {
+                    let uri = spot.uri();
+                    let before = match agent::load(&spot).await {
+                        Ok(before) => before,
+                        Err(error) => return drop(reply.send(Reply::error(format!("{uri}: {error:#}")))),
+                    };
+                    let after = match (change, &before) {
+                        (Err(content), _) => content,
+                        (Ok(_), None) => {
+                            return drop(
+                                reply.send(Reply::error(format!("{uri} does not exist; write creates files"))),
+                            );
+                        }
+                        (Ok((old, new)), Some(text)) => match text.matches(old.as_str()).count() {
+                            0 => {
+                                return drop(reply.send(Reply::error(format!(
+                                    "old was not found in {uri}: it must match exactly, spaces and line breaks included. Read the lines again."
+                                ))));
+                            }
+                            count if count > 1 && !all => {
+                                return drop(reply.send(Reply::error(format!(
+                                    "old matches {count} places in {uri}: include more of the lines around it, or set all"
+                                ))));
+                            }
+                            _ if all => text.replace(old.as_str(), &new),
+                            _ => text.replacen(old.as_str(), &new, 1),
+                        },
+                    };
+                    let args = serde_json::json!({ "spot": spot, "before": before, "after": after });
+                    drop(requeue.send((Call { tool: "_propose".into(), args }, reply)));
+                });
+            }
+            "_propose" => {
+                let (Ok(spot), Some(after)) =
+                    (serde_json::from_value::<Spot>(call.args["spot"].clone()), call.args["after"].as_str())
+                else {
+                    return fail(reply, "unreadable change".into());
+                };
+                let (before, after) = (call.args["before"].as_str().map(str::to_owned), after.to_owned());
+                let body = match &before {
+                    Some(old) => agent::diff(old, &after),
+                    None => agent::whole(&after),
+                };
+                if before.is_some() && body.is_empty() {
+                    drop(reply.send(Reply::ok(format!("{} already holds that; nothing changed", spot.uri()))));
+                    return Ok(Flow::Continue);
+                }
+                let (summary, place) = match &spot {
+                    Spot::Host(path) => (agent::home_relative(path), String::new()),
+                    Spot::Container { name, path, .. } => {
+                        (path.display().to_string(), format!(tr!(agent_container_place), name = name))
+                    }
+                };
+                let kind = if before.is_some() { AskKind::Edit } else { AskKind::Create };
+                let ask = Ask { kind, summary, place, body };
+                let id = self.agent.ask(reply, Work::Write { spot, before, after });
+                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+            }
+            "run" => {
+                let Some(command) = text("command") else { return fail(reply, "run needs a command".into()) };
+                let at = text("at");
+                let mut reply = reply;
+                let target = match at.as_deref().map(|at| agent::locate(&self.state, at)) {
+                    None => Target::Host(agent::host_dir(&self.state)),
+                    Some(Location::Host(dir)) => Target::Host(dir),
+                    Some(location) => {
+                        let Some((spot, running, back)) = self.spot(&location, &call, reply) else {
+                            return Ok(Flow::Continue);
+                        };
+                        reply = back;
+                        let Spot::Container { id, name, path } = spot else {
+                            return fail(reply, "unreadable location".into());
+                        };
+                        if !running {
+                            return fail(reply, format!("{name} is not running."));
+                        }
+                        if borg_core::container_shell_busy(&self.state, &id) {
+                            return fail(
+                                reply,
+                                format!(
+                                    "The shell in {name} is running something; try again when it is back at its prompt."
+                                ),
+                            );
+                        }
+                        // A folder runs the command there; the container alone keeps the shell's.
+                        let named = at
+                            .as_deref()
+                            .and_then(|at| at.trim().strip_prefix(agent::DOCKER_SCHEME))
+                            .is_some_and(|rest| rest.contains('/'));
+                        Target::Container { id, name, dir: named.then_some(path) }
+                    }
+                };
+                if matches!(target, Target::Host(_))
+                    && self.console == borg_core::Console::Host
+                    && self.state.shell.integrated
+                    && !borg_core::host_console_ready(&self.state)
+                {
+                    return fail(
+                        reply,
+                        "Borg's command line is busy: the user is typing there, or a program runs. Try again when it is back at its prompt.".into(),
+                    );
+                }
+                let ask = Ask {
+                    kind: AskKind::Run,
+                    summary: command.clone(),
+                    place: agent::place(&target),
+                    body: command.lines().map(DiffLine::plain).collect(),
+                };
+                let id = self.agent.ask(reply, Work::Run { command, target });
+                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+            }
+            "type" => {
+                let text = agent::typable(call.args["text"].as_str().unwrap_or_default());
+                if text.trim().is_empty() {
+                    return fail(reply, "type needs text".into());
+                }
+                // At a prompt without paste support, a tab would complete; it types as a space.
+                let pastes = self.state.shell.observed.mode.contains(borg_term::TermMode::BRACKETED_PASTE);
+                let text = if pastes { text } else { text.replace('\t', " ") };
+                if let Some(reason) = borg_core::typing_refusal(&self.state, &text) {
+                    return fail(reply, reason.into());
+                }
+                self.agent.note(&format!("typed into the console\n{text}"));
+                let flow = self.dispatch(Msg::Agent(AgentEvent::Paste { text }))?;
+                drop(reply.send(Reply::ok(
+                    "Typed at the cursor in Borg's console; nothing ran. The user reviews it and runs or saves it.",
+                )));
+                return Ok(flow);
+            }
+            other => return fail(reply, format!("unknown tool {other}")),
+        }
+        Ok(Flow::Continue)
+    }
+
+    /// The spot a location names, and whether its container runs, when the container is
+    /// known now: found earlier for this call, or in the Docker view's list. Otherwise the
+    /// call comes back once Docker has listed the containers, or fails if none matches.
+    fn spot(
+        &self,
+        location: &crate::agent::Location,
+        call: &crate::agent::Call,
+        reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
+    ) -> Option<(crate::agent::Spot, bool, tokio::sync::oneshot::Sender<crate::agent::Reply>)> {
+        use crate::agent::{self, Call, Location, Reply, Spot};
+        let (container, path) = match location {
+            Location::Host(path) => return Some((Spot::Host(path.clone()), true, reply)),
+            Location::Container { container, path } => (container.clone(), path.clone()),
+        };
+        let known = &call.args["_container"];
+        if let (Some(id), Some(name)) = (known["id"].as_str(), known["name"].as_str()) {
+            return Some((Spot::Container { id: id.into(), name: name.into(), path }, known["running"] == true, reply));
+        }
+        if let Some(found) = agent::find_container(&self.state.docker.containers, &container) {
+            let running = found.state == borg_docker::State::Running;
+            return Some((Spot::Container { id: found.id.clone(), name: found.name.clone(), path }, running, reply));
+        }
+        let requeue = self.agent.requeue_sender();
+        let mut call = Call { tool: call.tool.clone(), args: call.args.clone() };
+        tokio::spawn(async move {
+            let containers = borg_docker::list().await.unwrap_or_default();
+            match agent::find_container(&containers, &container) {
+                Some(found) => {
+                    let running = found.state == borg_docker::State::Running;
+                    call.args["_container"] =
+                        serde_json::json!({ "id": found.id, "name": found.name, "running": running });
+                    drop(requeue.send((call, reply)));
+                }
+                None => drop(reply.send(Reply::error(format!(
+                    "No container named {container}. read with source \"containers\" lists them."
+                )))),
+            }
+        });
+        None
+    }
+
+    /// Answers reveals once their panel shows the folder, or is going somewhere else.
+    fn settle_reveals(&mut self) {
+        let state = &self.state;
+        let (done, waiting): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.reveals).into_iter().partition(|(side, dir, ..)| {
+                let panel = state.panel(*side);
+                panel.destination() != dir || (panel.dir() == dir && *panel.listing() != borg_core::Listing::Loading)
+            });
+        self.reveals = waiting;
+        for (side, dir, reply, path) in done {
+            let panel = self.state.panel(side);
+            let answer = match panel.listing() {
+                _ if panel.destination() != dir => {
+                    crate::agent::Reply::ok(format!("Showed {path}; the panel has moved on since"))
+                }
+                borg_core::Listing::Failed(error) => crate::agent::Reply::error(format!("{path}: {error}")),
+                _ => crate::agent::Reply::ok(format!("Showing {path} in Borg's other panel")),
+            };
+            drop(reply.send(answer));
+        }
+    }
+
+    /// Carries out an approved ask: a command typed into the host console (or run in the
+    /// background where that console cannot take it) or into a container's shell, which the
+    /// Docker view then shows, or a change written to a file.
+    fn agent_answer(&mut self, id: u64, approved: bool) -> Result<Flow> {
+        use crate::agent::{Approved, Target, Typed, Work};
+        let Some(Approved { id, reply, work }) = self.agent.answer(id, approved) else { return Ok(Flow::Continue) };
+        let (command, target) = match work {
+            Work::Write { spot, before, after } => {
+                self.agent.write(id, reply, spot, before, after);
+                return Ok(Flow::Continue);
+            }
+            Work::Run { command, target } => (command, target),
+        };
+        let place = crate::agent::place(&target);
+        match target {
+            Target::Host(dir) if self.console == borg_core::Console::Host && self.state.shell.integrated => {
+                let line = if dir == self.state.shell.cwd {
+                    command.clone()
+                } else {
+                    format!("cd -- {} && {command}", borg_core::shell_quote(&dir.to_string_lossy()))
+                };
+                let typed = Typed { id, reply, line: line.clone(), command, place };
+                if !borg_core::host_console_ready(&self.state) {
+                    typed.fail(
+                        "Borg's command line became busy before the command could run; try again.",
+                        &self.messages,
+                    );
+                    return Ok(Flow::Continue);
+                }
+                self.host_capture = Some((typed, Vec::new()));
+                self.dispatch(Msg::Agent(borg_core::AgentEvent::Type { line }))
+            }
+            Target::Host(dir) => {
+                self.agent.run_in_background(id, reply, command, dir);
+                Ok(Flow::Continue)
+            }
+            Target::Container { id: container, name, dir } => {
+                let line = match dir {
+                    Some(dir) => format!("cd -- {} && {command}", borg_core::shell_quote(&dir.to_string_lossy())),
+                    None => command.clone(),
+                };
+                let typed = Typed { id, reply, line, command, place };
+                let flow =
+                    self.dispatch(Msg::Agent(borg_core::AgentEvent::ShowShell { container: container.clone(), name }))?;
+                if let Err(typed) = self.shells.run(&container, typed) {
+                    typed.fail("Borg could not open a shell in that container.", &self.messages);
+                }
+                Ok(flow)
+            }
         }
     }
 
     fn on_container_shell(&mut self, container: String, event: PtyEvent) -> Result<Flow> {
         match event {
             PtyEvent::Output(bytes) => {
-                let Some((mode, signals)) = self.shells.feed(&container, &bytes) else { return Ok(Flow::Continue) };
+                let Some((mode, signals, captured)) = self.shells.feed(&container, &bytes) else {
+                    return Ok(Flow::Continue);
+                };
+                if let Some(crate::docker::Captured { command, exit, output }) = captured {
+                    command.finish(exit, &output, &self.messages);
+                }
                 let console = self.console == borg_core::Console::Container(container.clone());
                 for signal in signals {
                     let msg = if console {
@@ -494,7 +907,9 @@ impl App {
                 }
             }
             PtyEvent::Closed => {
-                self.shells.close(&container);
+                if let Some(typed) = self.shells.close(&container) {
+                    typed.fail("The shell closed before the command finished.", &self.messages);
+                }
                 self.dispatch(Msg::DockerShellClosed { container })
             }
         }
@@ -552,6 +967,7 @@ impl App {
         }
         let flow = self.apply(effects)?;
         self.fit_container_shell();
+        self.settle_reveals();
         Ok(flow)
     }
 
@@ -636,6 +1052,12 @@ impl App {
                 }
                 Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
                 Effect::UseConsole(console) => self.console = console,
+                Effect::Copy(text) => self.clipboard = Some(text),
+                Effect::AgentAnswer { id, approved } => {
+                    if let Flow::Quit = self.agent_answer(id, approved)? {
+                        return Ok(Flow::Quit);
+                    }
+                }
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
@@ -788,6 +1210,18 @@ impl App {
             previous.abort();
         }
     }
+}
+
+/// A drawn frame's text row by row, a wide character once, trailing spaces left out.
+fn frame_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+    let area = buffer.area;
+    (area.top()..area.bottom())
+        .map(|y| {
+            let row: String =
+                (area.left()..area.right()).filter_map(|x| buffer.cell((x, y))).map(|cell| cell.symbol()).collect();
+            row.trim_end().to_owned()
+        })
+        .collect()
 }
 
 fn palette(colors: &TerminalColors) -> Palette {

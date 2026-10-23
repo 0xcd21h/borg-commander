@@ -9,6 +9,8 @@ pub const UNLOCK_WORD: &str = "borg";
 pub const RAIN_DURATION: Duration = Duration::from_secs(8);
 const MEMORY: usize = 10;
 const GAME_WORD: &str = "2048";
+/// Opens the Connect dialog from About; no secret word has it.
+pub const CONNECT_KEY: char = 'c';
 const KONAMI: [KeyCode; 10] = [
     KeyCode::Up,
     KeyCode::Up,
@@ -35,6 +37,9 @@ pub(crate) fn on_about_key(state: &mut AppState, mut about: About, key: &KeyEven
         return Vec::new();
     }
 
+    if key.code == KeyCode::Char(CONNECT_KEY) {
+        return crate::agent::open_connect(state);
+    }
     about.recent.push(key.code);
     let overflow = about.recent.len().saturating_sub(MEMORY);
     about.recent.drain(..overflow);

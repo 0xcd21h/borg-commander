@@ -1774,3 +1774,120 @@ fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
         "and is not retried"
     );
 }
+
+#[test]
+fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
+    use crate::AgentEvent;
+    let (mut state, now) = setup_with(Vec::new());
+    crate::actions::perform(&mut state, Action::AgentLog, now);
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("Claude has not done anything")));
+    update(&mut state, Msg::Agent(AgentEvent::Note("14:00:00  read /srv/app".into())), now);
+    crate::actions::perform(&mut state, Action::AgentLog, now);
+    assert_eq!(state.overlay, Some(Overlay::AgentLog { scroll: None }));
+    state.overlay = None;
+
+    assert_eq!(crate::actions::perform(&mut state, Action::ToggleAgentLog, now), vec![Effect::SaveConfig]);
+    assert!(state.agent.log.is_empty(), "turning the log off forgets it");
+    update(&mut state, Msg::Agent(AgentEvent::Note("14:00:01  showed /srv".into())), now);
+    assert!(state.agent.log.is_empty());
+    crate::actions::perform(&mut state, Action::AgentLog, now);
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("The Claude log is off")));
+}
+
+#[test]
+fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() {
+    use crate::{AgentEvent, Ask, AskKind, DiffLine};
+    let (mut state, now) = setup_with(Vec::new());
+    let body = (1..=200).map(|n| DiffLine::plain(format!("echo {n}"))).collect();
+    let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), body };
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask }), now);
+    let Some(Overlay::Approval(approval)) = state.overlay.clone() else { panic!("{:?}", state.overlay) };
+    assert!(!approval.accept, "No is chosen until the user picks Yes");
+    press(&mut state, now, key(KeyCode::PageDown));
+    press(&mut state, now, key(KeyCode::End));
+    let Some(Overlay::Approval(scrolled)) = state.overlay.clone() else { panic!() };
+    assert!(scrolled.scroll > 100, "End shows the last lines: {}", scrolled.scroll);
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(state.overlay, Some(Overlay::Approval(scrolled.clone())), "it stops at the end");
+
+    // Asked as the test starts, which counts as typing: Yes counts after the grace.
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    assert_eq!(effects, vec![Effect::AgentAnswer { id: 7, approved: true }]);
+    assert_eq!(state.agent.running, Some((7, "echo 1".into())));
+    let effects = update(&mut state, Msg::Agent(AgentEvent::Type { line: "make test".into() }), now);
+    assert_eq!(effects, vec![Effect::Write(b" make test\r".to_vec())]);
+    assert_eq!(state.view, View::Shell, "the console shows while it runs");
+}
+
+#[test]
+fn the_connect_dialog_copies_the_command_for_the_target_typed() {
+    let (mut state, now) = setup_with(Vec::new());
+    state.agent.connect = crate::ConnectInfo {
+        name: "borg-web1".into(),
+        program: "/usr/bin/borg".into(),
+        ssh: Some("me@10.0.0.5".into()),
+    };
+    crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    for _ in 0.."me@10.0.0.5".len() {
+        press(&mut state, now, key(KeyCode::Backspace));
+    }
+    for c in "prod".chars() {
+        press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    press(&mut state, now, key(KeyCode::Tab));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(
+        effects,
+        vec![Effect::Copy("claude mcp add borg-web1 -- ssh -o BatchMode=yes prod '/usr/bin/borg mcp'".into())]
+    );
+    assert!(state.overlay.is_none() && state.notice.as_deref().is_some_and(|n| n.starts_with("Copied")));
+}
+
+#[test]
+fn an_agent_types_at_the_cursor_as_a_paste_and_never_runs_what_it_types() {
+    use crate::{AgentEvent, typing_refusal};
+    use borg_term::TermMode;
+    let (mut state, now) = setup_with(Vec::new());
+    assert_eq!(typing_refusal(&state, "ls -la"), None, "one line at a prompt types as keys");
+    assert!(typing_refusal(&state, "cd /srv\nls").is_some(), "without paste support, a line break would run");
+    state.shell.observed.mode = TermMode::BRACKETED_PASTE;
+    assert_eq!(typing_refusal(&state, "cd /srv\nls"), None);
+    let effects = update(&mut state, Msg::Agent(AgentEvent::Paste { text: "cd /srv\nls".into() }), now);
+    assert_eq!(effects, vec![Effect::Write(b"\x1b[200~cd /srv\nls\x1b[201~".to_vec())]);
+    assert_eq!(state.view, View::Shell, "several lines show in the console");
+    assert!(!state.shell.line_empty(), "the command line holds the text until the user acts");
+
+    state.shell.running = true;
+    state.shell.observed.mode = TermMode::empty();
+    assert!(typing_refusal(&state, "dd").is_some(), "a program without paste support would take text as keys");
+}
+
+#[test]
+fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears() {
+    use crate::{AgentEvent, Ask, AskKind, DiffLine, agent::APPROVAL_GRACE};
+    use borg_term::TermMode;
+    use std::time::Duration;
+    let (mut state, now) = setup_with(Vec::new());
+    state.view = View::Shell;
+    state.shell.observed.mode = TermMode::ALT_SCREEN;
+    let ask = |command: &str| Ask {
+        kind: AskKind::Run,
+        summary: command.into(),
+        place: "~".into(),
+        body: vec![DiffLine::plain(command)],
+    };
+    // The user is typing in a full-screen editor when Claude asks.
+    press(&mut state, now, key(KeyCode::Char('i')));
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: ask("make") }), now);
+    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    let typed_on = press(&mut state, now + Duration::from_millis(100), key(KeyCode::Char('y')));
+    assert!(typed_on.is_empty(), "a y typed as the dialog appears neither approves nor reaches the editor");
+    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    let approved = press(&mut state, now + APPROVAL_GRACE, key(KeyCode::Char('y')));
+    assert_eq!(approved, vec![Effect::AgentAnswer { id: 1, approved: true }]);
+
+    // Asked while the user is idle, Yes counts at once.
+    let later = now + Duration::from_secs(5);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: ask("ls") }), later);
+    assert_eq!(press(&mut state, later, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 2, approved: true }]);
+}

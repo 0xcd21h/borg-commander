@@ -37,6 +37,8 @@ pub struct Preferences {
     pub docker_plugin: bool,
     /// The command line runs inside a container while its filesystem panel is active.
     pub docker_console: bool,
+    /// Borg keeps a log of what connected agents do, until it exits.
+    pub agent_log: bool,
 }
 
 impl Preferences {
@@ -53,6 +55,7 @@ impl Preferences {
         system_plugin: true,
         docker_plugin: true,
         docker_console: true,
+        agent_log: true,
     };
 }
 

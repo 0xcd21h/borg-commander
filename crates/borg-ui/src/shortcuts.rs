@@ -61,14 +61,14 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
             (if state.results_expanded() { tr!(alt_w_restore) } else { tr!(alt_w_maximize) }, Action::ToggleExpanded),
             (tr!(ctrl_s_filter), Action::FilterResults),
             (tr!(ins_mark), Action::ToggleMark),
-            (tr!(alt_b_collect), Action::Collect),
+            (tr!(alt_k_collect), Action::Collect),
             (tr!(shift_f8_delete), Action::DeleteOriginals),
         ]);
     } else {
         if state.last_results[state.active.index()].is_some() {
             items.push((tr!(alt_r_resume), Action::BackResults));
         }
-        items.push((tr!(alt_b_collect), Action::Collect));
+        items.push((tr!(alt_k_collect), Action::Collect));
     }
     // A container's filesystem offers none of the host's searches or sizes.
     if state.active_panel().mount.is_some() {
@@ -87,6 +87,10 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         .collect();
     if let Some((label, waiting)) = jobs(state) {
         items.insert(0, (label, Action::Jobs, waiting));
+    }
+    // A connected agent stays in sight; the chip opens the log of what it did.
+    if state.agent.connected() {
+        items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));
     }
     let mut x = area.x;
     items

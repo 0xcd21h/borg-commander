@@ -3,7 +3,7 @@ source: crates/borg-testkit/tests/ui_snapshots.rs
 expression: describe(&buffer)
 ---
 ╭ Collection: Release bundle ─────────────────────────────[+]─[-]╮╭ / › var › log ─────────────────────────────────────────────────╮
-│Tab switch · Ins / Ctrl-T mark · Ctrl-S filter · Alt-B collect ·││▐↑ ..                                           UP             ▌│
+│Tab switch · Ins / Ctrl-T mark · Ctrl-S filter · Alt-K collect ·││▐↑ ..                                           UP             ▌│
 │  Name ↑                          Source folder        Size     ││ / journal                                     DIR Jan 10 09:30 │
 │* · config.toml                   /workspace/api           1024 ││ · auth.log                                    86K Jun  1  2024 │
 │  · config.toml                   /workspace/web           4096 ││ · dmesg.0                                    5.0G Jun  1  2024 │

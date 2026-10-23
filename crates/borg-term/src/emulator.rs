@@ -275,6 +275,26 @@ impl<'a> Screen<'a> {
     pub fn color(&self, index: usize) -> Option<Rgb> {
         self.term.colors()[index]
     }
+
+    /// The live screen's text row by row, not scrolled back, with trailing spaces left out.
+    pub fn live_text(&self) -> Vec<String> {
+        (0..self.rows())
+            .map(|row| {
+                let mut line = String::new();
+                for col in 0..self.cols() {
+                    let cell = self.live_cell(col, row);
+                    if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                        continue;
+                    }
+                    line.push(if cell.c == '\0' { ' ' } else { cell.c });
+                    if let Some(zero) = cell.zerowidth() {
+                        line.extend(zero);
+                    }
+                }
+                line.trim_end().to_owned()
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

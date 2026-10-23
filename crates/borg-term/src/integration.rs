@@ -1,7 +1,10 @@
 use std::{
     fs,
     io::{self, Write},
-    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
 };
 
@@ -14,6 +17,7 @@ const ENV_ZDOTDIR: &str = "ZDOTDIR";
 const ENV_TERM: &str = "TERM";
 const ENV_CD_FILE: &str = "BORG_CD_FILE";
 const PRIVATE_FILE: u32 = 0o600;
+const PRIVATE_DIR: u32 = 0o700;
 
 /// A key no terminal sends. Shells that announce [`crate::ShellSignal::SilentCd`] bind it
 /// to change into the folder named in their request file, then redraw the prompt in place,
@@ -116,8 +120,14 @@ pub fn request_cd(file: &Path, dir: &Path) -> io::Result<()> {
 
 fn install(kind: ShellKind, runtime_dir: &Path) -> io::Result<PathBuf> {
     let dir = runtime_dir.join(env!("CARGO_PKG_VERSION"));
-    fs::create_dir_all(&dir)?;
-    kind.scripts().iter().try_for_each(|script| fs::write(dir.join(script.name), script.body))?;
+    fs::DirBuilder::new().recursive(true).mode(PRIVATE_DIR).create(&dir)?;
+    kind.scripts().iter().try_for_each(|script| {
+        let path = dir.join(script.name);
+        let mut out = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(PRIVATE_FILE).open(&path)?;
+        out.write_all(script.body.as_bytes())?;
+        // A script written by an older borg keeps its mode, so close it here too.
+        fs::set_permissions(&path, fs::Permissions::from_mode(PRIVATE_FILE))
+    })?;
     Ok(dir)
 }
 

@@ -100,7 +100,12 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
     let state = scene.state;
     if let Some(viewer) = &state.viewer {
-        return (None, draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf));
+        let placements = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
+        // An agent's approval shows over the viewer too; pictures under it would cover it.
+        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+            return (console_overlay(buf, scene), Vec::new());
+        }
+        return (None, placements);
     }
     if state.screensaver {
         art_view::draw_screensaver(&scene.look(theme), state.saver, area, buf);
@@ -119,6 +124,7 @@ fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Positio
     let mut placements = Vec::new();
     if opacity <= FULLY_HIDDEN {
         draw_console(buf, scene, area);
+        cursor = console_overlay(buf, scene);
     } else if opacity >= FULLY_SHOWN {
         let chrome = chrome(scene, area);
         *buf = chrome.buf;
@@ -127,10 +133,23 @@ fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Positio
     } else {
         let mut terminal = Buffer::empty(area);
         draw_console(&mut terminal, scene, area);
+        console_overlay(&mut terminal, scene);
         let chrome = chrome(scene, area);
         crossfade(&chrome.buf, &terminal, opacity, scene.palette, buf);
     }
     (cursor.or_else(|| shell_cursor(scene, opacity)), placements)
+}
+
+/// A dialog over the console while the panels are hidden, such as an agent's approval or a
+/// job's question: it shows where the user is looking, since it takes the keys.
+fn console_overlay(buf: &mut Buffer, scene: &Scene<'_>) -> Option<Position> {
+    let state = scene.state;
+    let overlay = state.overlay.as_ref()?;
+    let look = scene.look(scene.theme_at(state.appearance.current()));
+    let layout = state.layout(scene.now);
+    let opacity = state.overlay_fade.value(scene.now);
+    backdrop(scene, &look, &layout, overlay, buf);
+    layer(scene, &look, &layout, buf, overlay, opacity).filter(|_| opacity >= CURSOR_HANDOFF)
 }
 
 fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
@@ -186,6 +205,9 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         job.map(|job| job_view::activity(job, scene.now)).or_else(|| {
             if let Some(operation) = state.operation.as_ref().filter(|op| state.shell.running && op.side == side) {
                 return Some(Activity { label: format!("{}…", operation.label), fraction: None });
+            }
+            if let Some((_, command)) = state.agent.running.as_ref().filter(|_| side == state.active) {
+                return Some(Activity { label: format!(tr!(agent_running), command = command), fraction: None });
             }
             if let Some(work) = state.docker.files.iter().find(|work| work.side == side) {
                 return Some(Activity { label: crate::docker_view::file_work_label(work), fraction: None });
@@ -446,6 +468,16 @@ fn paint_overlay(
             (rect, Some(position), Unfold::FromCenter)
         }
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::Approval(approval) => {
+            (crate::agent_view::draw_approval(approval, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::AgentLog { scroll } => {
+            (crate::agent_view::draw_log(state, *scroll, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::Connect(connect) => {
+            let (rect, cursor) = crate::agent_view::draw_connect(state, connect, theme, screen, buf);
+            (rect, cursor, Unfold::FromCenter)
+        }
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
         Overlay::Question(question) => {

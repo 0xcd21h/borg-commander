@@ -212,6 +212,7 @@ fn command_menu(state: &AppState) -> Menu {
             MenuEntry::Separator,
             item(tr!(show_shell), "C-o", Action::ToggleShell),
             MenuEntry::Separator,
+            item(tr!(connect_claude), "", Action::ConnectClaude),
             item(tr!(about_borg), "F1", Action::About),
         ],
     }
@@ -278,6 +279,13 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.docker_console),
                 enabled: state.settings.preferences.docker_plugin,
             },
+            MenuItem {
+                label: tr!(agent_log_plugin_label),
+                hint: "",
+                action: Action::ToggleAgentLog,
+                checked: Some(state.settings.preferences.agent_log),
+                enabled: true,
+            },
         ]
     } else {
         settings_items(state)
@@ -306,7 +314,7 @@ fn results_menu(state: &AppState) -> Menu {
             ),
             when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
             item(tr!(open_create_collection), "M-v", Action::OpenCollection),
-            when(item(tr!(collect_in_other_panel), "M-b", Action::Collect), !panel.selection().is_empty()),
+            when(item(tr!(collect_in_other_panel), "M-k", Action::Collect), !panel.selection().is_empty()),
             MenuEntry::Separator,
             when(item(tr!(filter_results), "C-s", Action::FilterResults), result),
             when(

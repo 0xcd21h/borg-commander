@@ -4,7 +4,7 @@ members  = ["crates/*"]
 
 [workspace.package]
 edition      = "2024"
-version      = "0.5.0"
+version      = "0.6.0"
 license      = "MIT OR Apache-2.0"
 rust-version = "1.97"
 
@@ -31,7 +31,7 @@ jiff               = "0.2"
 libc               = "0.2"
 portable-pty       = "0.9"
 ratatui            = "0.30"
-rustix             = { version = "1", features = ["process", "termios", "event", "stdio", "fs"] }
+rustix             = { version = "1", features = ["process", "termios", "event", "stdio", "fs", "system"] }
 serde              = { version = "1", features = ["derive"] }
 thiserror          = "2"
 tempfile           = "3"
@@ -52,8 +52,9 @@ memchr = "2"
 sysinfo            = { version = "0.39", default-features = false, features = ["system"] }
 read-process-memory = "0.2"
 serde_json         = "1"
+similar            = "2"
 icy_sixel          = "0.7"
-tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util"] }
+tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util", "io-std", "net"] }
 tokio-stream       = "0.1"
 toml               = "1"
 unicode-width      = "0.2"

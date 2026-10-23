@@ -10,6 +10,23 @@ use crate::{menu_view, panel_view};
 const WHEEL_ROWS: isize = 3;
 
 pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Instant) -> Option<Msg> {
+    let point = Position::new(event.column, event.row);
+    let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
+    // An agent's dialogs show over the console and the viewer too, and take the mouse there.
+    if let Some(Overlay::Approval(_) | Overlay::AgentLog { .. }) = &state.overlay {
+        match event.kind {
+            MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::DialogScroll(-WHEEL_ROWS))),
+            MouseEventKind::ScrollDown => return Some(Msg::Pointer(Pointer::DialogScroll(WHEEL_ROWS))),
+            _ => {}
+        }
+        if let Some(Overlay::Approval(approval)) = &state.overlay {
+            return click
+                .then(|| crate::agent_view::approval_button_at(approval, state.layout(now).screen, point))
+                .flatten()
+                .map(|accept| Msg::Pointer(Pointer::Confirm(accept)));
+        }
+        return None;
+    }
     if state.viewer.is_some() && !state.shell.captured() {
         return match event.kind {
             MouseEventKind::ScrollUp => Some(Msg::Pointer(Pointer::ScrollDocument(-WHEEL_ROWS))),
@@ -17,12 +34,10 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
             _ => None,
         };
     }
+    let layout = state.layout(now);
     if state.shell.captured() || state.effective_view() != View::Panels {
         return None;
     }
-    let point = Position::new(event.column, event.row);
-    let layout = state.layout(now);
-    let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
     let all = menus(state);
     if let Some(Overlay::Prompt(prompt)) = &state.overlay {
         return click

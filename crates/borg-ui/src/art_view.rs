@@ -21,10 +21,11 @@ const SUBTITLE: &str = tr!(about_subtitle);
 const TAGLINE: &str = tr!(resistance_is_futile);
 const ABOUT_TITLE: &str = tr!(about);
 const ABOUT_HINT: &str = tr!(about_keys);
+const CONNECT_LINE: &str = tr!(about_connect);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SAVER_CUBE: (u16, u16) = (56, 22);
 const ABOUT_CUBE: (u16, u16) = (18, 8);
-const ABOUT_SIZE: (u16, u16) = (62, 19);
+const ABOUT_SIZE: (u16, u16) = (62, 21);
 const KEY_COLUMNS: usize = 4;
 const KEY_SLOT: usize = 13;
 const SAVER_SPIN: f32 = 0.5;
@@ -123,11 +124,14 @@ pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
         .iter()
         .filter_map(|binding| Some(format!("{} {}", key_name(binding.code, binding.modifiers), binding.label?)))
         .collect();
+    let mut rows = 0;
     for (row, chunk) in (0u16..).zip(reference.chunks(KEY_COLUMNS)) {
         let line: String =
             chunk.iter().map(|item| format!("{:<KEY_SLOT$}", format::truncate_end(item, KEY_SLOT))).collect();
         Line::styled(line, styles.overlay).render(Rect { y: keys.y + row, ..keys }, buf);
+        rows = row + 1;
     }
+    Line::styled(CONNECT_LINE, styles.overlay).render(Rect { y: keys.y + rows + TEXT_GAP, ..keys }, buf);
 
     let tagline_y = inner.bottom().saturating_sub(2);
     text(buf, inner, tagline_y, TAGLINE, accent);
