@@ -1,5 +1,6 @@
-//! Renders the README showcase of folder sizes and the activity monitor from fictional
-//! folders and processes, so no screenshot shows the machine it was made on.
+//! Renders the README showcase of folder sizes, the activity monitor, and Docker from
+//! fictional folders, processes and containers, so no screenshot shows the machine it was
+//! made on.
 
 use std::{
     env,
@@ -14,6 +15,8 @@ use borg_core::{
     ActivityData, ActivityRequest, MemoryRegion, Motion, Msg, Preferences, ProcessInfo, ProcessKey, ResultSource,
     SearchKind, SearchOptions, SearchProgress, SearchRequest, Settings, Sort, SortKey, SystemSample,
 };
+use borg_core::{DockerData, DockerRequest};
+use borg_docker::{Container, Details, Mount, Network, State, Stats};
 use borg_term::GridSize;
 use borg_testkit::{Snapshot, Stage};
 use borg_vfs::{Entry, EntryKind, FolderUsage};
@@ -28,6 +31,7 @@ const PROJECTS: &str = "/home/demo/projects";
 const ATLAS: &str = "/home/demo/projects/atlas";
 const SIZES_THEME: &str = "neon";
 const ACTIVITY_THEME: &str = "ember";
+const DOCKER_THEME: &str = "aurora";
 const SAMPLES: usize = 60;
 const KIB: u64 = 1024;
 const MIB: u64 = KIB * 1024;
@@ -478,10 +482,114 @@ fn activity(output: &Path) -> Result<()> {
     save(&mut stage, output, "memory-map")
 }
 
+fn container(id: &str, project: Option<&str>, service: &str, state: State, status: &str) -> Container {
+    Container {
+        id: format!("{id}{}", "0".repeat(60)),
+        name: project.map_or_else(|| service.to_owned(), |p| format!("{p}-{service}-1")),
+        image: match service {
+            "db" => "postgres:17".into(),
+            "cache" => "redis:7.4".into(),
+            "web" => "nginx:1.27".into(),
+            other => format!("ghcr.io/demo/{other}:2.3"),
+        },
+        command: "docker-entrypoint.sh".into(),
+        created: "2026-10-21 09:12:44 +0000 UTC".into(),
+        state,
+        status: status.into(),
+        ports: match service {
+            "web" => "0.0.0.0:8080->80/tcp".into(),
+            "api" => "0.0.0.0:3000->3000/tcp".into(),
+            _ => String::new(),
+        },
+        networks: project.map_or_else(|| "bridge".into(), |p| format!("{p}_default")),
+        project: project.map(str::to_owned),
+        service: project.map(|_| service.to_owned()),
+        project_dir: project.map(|p| format!("{PROJECTS}/{p}")),
+        config_files: project.map(|p| vec![format!("{PROJECTS}/{p}/compose.yaml")]).unwrap_or_default(),
+    }
+}
+
+/// The Docker view over fictional Compose projects, on the API container: its details and a
+/// minute of live CPU and memory.
+fn docker(output: &Path) -> Result<()> {
+    let mut stage = stage(PROJECTS, ATLAS, [projects(), Vec::new()])?;
+    theme(&mut stage, DOCKER_THEME);
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else { anyhow::bail!("Docker lists") };
+    let containers = vec![
+        container("a1", Some("shop"), "api", State::Running, "Up 3 hours (healthy)"),
+        container("a2", Some("shop"), "web", State::Running, "Up 3 hours"),
+        container("a3", Some("shop"), "db", State::Running, "Up 3 hours (healthy)"),
+        container("a4", Some("shop"), "cache", State::Running, "Up 3 hours"),
+        container("a5", Some("shop"), "worker", State::Exited, "Exited (1) 12 minutes ago"),
+        container("b1", Some("blog"), "app", State::Running, "Up 2 days"),
+        container("b2", Some("blog"), "db", State::Paused, "Up 2 days (Paused)"),
+        container("c1", None, "scratch", State::Exited, "Exited (0) 2 days ago"),
+    ];
+    let ids: Vec<String> = containers.iter().map(|c| c.id.clone()).collect();
+    stage
+        .send(Msg::Docker { id, result: Ok(DockerData::Listed { context: Some("desktop-linux".into()), containers }) });
+    for second in 0..SAMPLES as u64 {
+        let wave = (second as f64 / 5.0).sin().abs();
+        let stats = |cpu: f64, memory: u64| Stats {
+            cpu: (cpu * 100.0) as u32,
+            memory,
+            memory_limit: 16 * GIB,
+            net_rx: 184 * MIB,
+            net_tx: 61 * MIB,
+            read: 22 * MIB,
+            written: 9 * MIB,
+            pids: 24,
+        };
+        stage.send(Msg::DockerStats(vec![
+            (ids[0].clone(), stats(6.0 + 34.0 * wave, 310 * MIB + second * 2 * MIB)),
+            (ids[1].clone(), stats(0.4, 24 * MIB)),
+            (ids[2].clone(), stats(2.1 + wave, 612 * MIB)),
+            (ids[3].clone(), stats(0.9, 48 * MIB)),
+            (ids[5].clone(), stats(1.4, 188 * MIB)),
+            (ids[6].clone(), stats(0.0, 96 * MIB)),
+        ]));
+    }
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    for _ in 0..3 {
+        stage.send(Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    }
+    ensure!(stage.state.docker.container().is_some_and(|c| c.label() == "api"), "the API container is selected");
+    let at = stage.started + Duration::from_secs(1);
+    borg_core::update(&mut stage.state, Msg::Tick, at);
+    let Some((id, DockerRequest::Inspect(inspected))) = stage.state.docker.pending.clone() else {
+        anyhow::bail!("resting on a container inspects it")
+    };
+    let details = Details {
+        started: Some("2026-10-21T09:12:46Z".into()),
+        finished: None,
+        exit_code: 0,
+        oom_killed: false,
+        error: String::new(),
+        health: Some("healthy".into()),
+        restarts: 0,
+        restart_policy: "unless-stopped".into(),
+        command: "node dist/server.js".into(),
+        workdir: "/app".into(),
+        platform: "linux".into(),
+        mounts: vec![Mount {
+            kind: "volume".into(),
+            source: "shop_uploads".into(),
+            destination: "/app/uploads".into(),
+            writable: true,
+        }],
+        networks: vec![Network { name: "shop_default".into(), address: "172.18.0.5".into() }],
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Inspected { id: inspected, details: Box::new(details) }) });
+    stage.started = at;
+    save(&mut stage, output, "docker")
+}
+
 fn main() -> Result<()> {
     let output = PathBuf::from(env::args().nth(1).unwrap_or_else(|| "docs/showcase".into()));
     fs::create_dir_all(&output)?;
     size_tree(&output)?;
     folder_totals(&output)?;
-    activity(&output)
+    activity(&output)?;
+    docker(&output)
 }

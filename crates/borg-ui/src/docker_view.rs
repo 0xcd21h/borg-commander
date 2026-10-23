@@ -3,9 +3,7 @@
 
 use crate::{
     Theme,
-    activity_view::{
-        FOOTER_ROWS, TILE_WIDTH, Unit, body, chart, dim, emphasis, heading, inner, readable, row, text, wrap,
-    },
+    activity_view::{FOOTER_ROWS, Unit, body, chart, dim, emphasis, heading, inner, readable, row, text, wrap},
     format,
     look::Look,
     spinner::Spinner,
@@ -32,7 +30,10 @@ const STATUS_WIDTH: u16 = 26;
 const STATUS_FROM: u16 = 56;
 const LABEL_WIDTH: u16 = 10;
 const CHART_MIN_ROWS: u16 = 6;
-const SIDE_BY_SIDE_FROM: u16 = 60;
+const SIDE_BY_SIDE_FROM: u16 = 50;
+/// Narrow enough for a container's five tiles to share one row in a half-screen panel,
+/// which leaves room for its charts.
+const DOCKER_TILE_WIDTH: u16 = 11;
 /// Lines a wheel notch scrolls a shell's history.
 const SHELL_WHEEL: isize = 3;
 const MOUNTS_SHOWN: usize = 2;
@@ -248,7 +249,10 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: Option<Spin
                 let (cpu_total, memory_total) = docker.group_usage(group);
                 let fold = if docker.collapsed(group) && docker.filter.is_empty() { '▸' } else { '▾' };
                 let style = if selected { base } else { heading(theme) };
-                text(buf, name, format!("{fold} {}", project_name(group)), style.add_modifier(Modifier::BOLD));
+                // With nothing running, the name may use the empty CPU and memory columns.
+                let label =
+                    if group.running > 0 { name } else { Rect { width: status.x.saturating_sub(name.x + 1), ..name } };
+                text(buf, label, format!("{fold} {}", project_name(group)), style.add_modifier(Modifier::BOLD));
                 if group.running > 0 {
                     text(buf, cpu_cell, cpu(cpu_total), base);
                     text(buf, memory, format::size(memory_total), base);
@@ -354,10 +358,10 @@ impl Facts<'_> {
 
 /// Labelled values in a row of tiles, as in the activity monitor. Returns the rows used.
 fn tiles(buf: &mut Buffer, area: Rect, tiles: &[(&str, String)], theme: &Theme) -> u16 {
-    if tiles.is_empty() || area.width < TILE_WIDTH {
+    if tiles.is_empty() || area.width < DOCKER_TILE_WIDTH {
         return 0;
     }
-    let per_row = (area.width / TILE_WIDTH).clamp(1, tiles.len() as u16);
+    let per_row = (area.width / DOCKER_TILE_WIDTH).clamp(1, tiles.len() as u16);
     let width = area.width / per_row;
     let mut y = 0;
     for line in tiles.chunks(usize::from(per_row)) {

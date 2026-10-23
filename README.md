@@ -80,6 +80,17 @@ Ctrl-O switches between the panels and the console.
   <img src="docs/showcase/memory-map.png" alt="Memory map grouped by purpose with footprint, resident and mapped columns, explaining that shared libraries are not the process's own cost" width="1100">
 </p>
 
+## Containers
+
+<p align="center">
+  <img src="docs/showcase/docker.png" alt="Docker view listing Compose projects and their containers with live CPU and memory, beside the selected container's details and charts" width="1100">
+</p>
+
+- **Your Compose projects at a glance.** Alt-C lists containers by project with live CPU and
+  memory. S, X, R and P start, stop, restart and pause a container or a whole project.
+- **Step inside.** F opens a container's files in a panel beside a host folder, and F5 copies
+  either way. E opens a shell, and the command line follows you into the container.
+
 ## Themes
 
 Six built-in themes, from Classic blue to Paper. Pick one from the menu or make your own.
