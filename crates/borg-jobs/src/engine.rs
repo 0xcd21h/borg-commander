@@ -126,7 +126,13 @@ fn numbered(path: &Path, n: u32) -> PathBuf {
 }
 
 fn unique(path: &Path) -> PathBuf {
-    (FIRST_COPY..).map(|n| numbered(path, n)).find(|candidate| !exists(candidate)).unwrap_or_else(|| path.to_path_buf())
+    unique_by(path, exists)
+}
+
+/// The first free "name (2).ext", "name (3).ext", … beside `path`, for Keep both, where
+/// `taken` says whether a name is in use.
+pub fn unique_by(path: &Path, mut taken: impl FnMut(&Path) -> bool) -> PathBuf {
+    (FIRST_COPY..).map(|n| numbered(path, n)).find(|candidate| !taken(candidate)).unwrap_or_else(|| path.to_path_buf())
 }
 
 fn partial(dest: &Path) -> PathBuf {

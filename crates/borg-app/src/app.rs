@@ -39,6 +39,8 @@ use crate::{
 };
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// The folder under the runtime directory where container files are copied for viewing.
+const DOCKER_SCRATCH: &str = "docker";
 const WHEEL_LINES: i32 = 3;
 /// Wheel events closer together than this belong to one burst.
 const WHEEL_BURST: Duration = Duration::from_millis(200);
@@ -99,6 +101,10 @@ pub struct App {
     preview: preview::Loader,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
+    docker: crate::docker::Docker,
+    shells: crate::docker::Shells,
+    /// Whose terminal the command line and Ctrl-O console show, as the core decided.
+    console: borg_core::Console,
 }
 
 enum Flow {
@@ -151,6 +157,7 @@ impl App {
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
+        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -177,6 +184,9 @@ impl App {
             preview,
             plugins,
             monitor,
+            docker,
+            shells: crate::docker::Shells::new(),
+            console: borg_core::Console::Host,
         })
     }
 
@@ -227,6 +237,7 @@ impl App {
                     None => Flow::Quit,
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
+                Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
@@ -295,7 +306,13 @@ impl App {
             }
             let scene = Scene {
                 state: &self.state,
-                screen: self.emulator.screen(),
+                screen: match &self.console {
+                    borg_core::Console::Container(id) => {
+                        self.shells.screen(id).unwrap_or_else(|| self.emulator.screen())
+                    }
+                    borg_core::Console::Host => self.emulator.screen(),
+                },
+                docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
                 palette: &self.palette,
                 themes: &self.themes,
                 clock,
@@ -318,6 +335,20 @@ impl App {
         self.pty.resize(grid)?;
         self.last_click = None;
         self.dispatch(Msg::Resize { cols, rows })
+    }
+
+    /// The terminal and process of the console: the host's shell, or the container shell
+    /// whose panel is active.
+    fn console(&mut self) -> (&mut Emulator, &mut Pty) {
+        if let borg_core::Console::Container(id) = &self.console
+            && self.shells.screen(id).is_some()
+        {
+            let id = id.clone();
+            if let Some(parts) = self.shells.parts(&id) {
+                return parts;
+            }
+        }
+        (&mut self.emulator, &mut self.pty)
     }
 
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
@@ -367,12 +398,14 @@ impl App {
             }
         }
         if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
-            if event.row >= self.emulator.screen().rows() {
+            let captured = self.state.shell.captured();
+            let (emulator, pty) = self.console();
+            if event.row >= emulator.screen().rows() {
                 return Ok(Flow::Continue);
             }
-            if self.state.shell.captured() {
-                if let Some(bytes) = encode_mouse(event, self.emulator.mode()) {
-                    self.pty.write(&bytes)?;
+            if captured {
+                if let Some(bytes) = encode_mouse(event, emulator.mode()) {
+                    pty.write(&bytes)?;
                 }
             } else {
                 let scroll = match event.kind {
@@ -381,7 +414,7 @@ impl App {
                     _ => None,
                 };
                 if let Some(scroll) = scroll {
-                    self.emulator.scroll(scroll);
+                    emulator.scroll(scroll);
                 }
             }
             return Ok(Flow::Continue);
@@ -414,8 +447,8 @@ impl App {
             flow = self.consume(next)?;
         }
         match flow {
-            Flow::Continue => self.observe(Msg::ShellOutput),
-            Flow::Quit => Ok(Flow::Quit),
+            Flow::Continue if self.console == borg_core::Console::Host => self.observe(Msg::ShellOutput),
+            flow => Ok(flow),
         }
     }
 
@@ -426,8 +459,10 @@ impl App {
                 for reply in self.emulator.drain_replies() {
                     self.pty.write(reply.as_bytes())?;
                 }
+                let console = self.console == borg_core::Console::Host;
                 for signal in signals {
-                    if let Flow::Quit = self.dispatch(Msg::Signal(signal))? {
+                    let msg = if console { Msg::Signal(signal) } else { Msg::ParkedSignal { container: None, signal } };
+                    if let Flow::Quit = self.dispatch(msg)? {
                         return Ok(Flow::Quit);
                     }
                 }
@@ -437,12 +472,57 @@ impl App {
         }
     }
 
+    fn on_container_shell(&mut self, container: String, event: PtyEvent) -> Result<Flow> {
+        match event {
+            PtyEvent::Output(bytes) => {
+                let Some((mode, signals)) = self.shells.feed(&container, &bytes) else { return Ok(Flow::Continue) };
+                let console = self.console == borg_core::Console::Container(container.clone());
+                for signal in signals {
+                    let msg = if console {
+                        Msg::Signal(signal)
+                    } else {
+                        Msg::ParkedSignal { container: Some(container.clone()), signal }
+                    };
+                    if let Flow::Quit = self.dispatch(msg)? {
+                        return Ok(Flow::Quit);
+                    }
+                }
+                if console {
+                    self.observe(Msg::ShellOutput)
+                } else {
+                    self.dispatch(Msg::DockerShellOutput { container, mode })
+                }
+            }
+            PtyEvent::Closed => {
+                self.shells.close(&container);
+                self.dispatch(Msg::DockerShellClosed { container })
+            }
+        }
+    }
+
+    /// Keeps container shells the size they show at: the Docker view's panel, or the whole
+    /// screen while one is the console.
+    fn fit_container_shell(&mut self) {
+        if let borg_core::Console::Container(id) = &self.console {
+            let id = id.clone();
+            self.shells.fit(&id, GridSize::console(self.state.cols, self.state.rows));
+        }
+        let docker = &self.state.docker;
+        let (Some(shell), Some(side)) = (docker.visible_shell(), docker.side) else { return };
+        let area = borg_core::shell_rect(self.state.layout(Instant::now()).panels[side.other().index()]);
+        if area.width > 0 && area.height > 0 {
+            let container = shell.container.clone();
+            self.shells.fit(&container, GridSize { cols: area.width, rows: area.height });
+        }
+    }
+
     fn observe(&mut self, message: fn(ShellView) -> Msg) -> Result<Flow> {
+        let (emulator, pty) = self.console();
         let view = ShellView {
-            prompt: self.emulator.prompt_state(),
-            command_rows: self.emulator.command_rows(),
-            foreground: self.pty.foreground(),
-            mode: self.emulator.mode(),
+            prompt: emulator.prompt_state(),
+            command_rows: emulator.command_rows(),
+            foreground: pty.foreground(),
+            mode: emulator.mode(),
         };
         self.dispatch(message(view))
     }
@@ -451,6 +531,9 @@ impl App {
         let effects = update(&mut self.state, msg, Instant::now());
         if self.state.activity.side.is_none() || self.state.activity.pending.is_none() {
             self.monitor.cancel();
+        }
+        if self.state.docker.pending.is_none() {
+            self.docker.cancel();
         }
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();
@@ -467,7 +550,9 @@ impl App {
                 task.abort();
             }
         }
-        self.apply(effects)
+        let flow = self.apply(effects)?;
+        self.fit_container_shell();
+        Ok(flow)
     }
 
     fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
@@ -487,6 +572,9 @@ impl App {
                     });
                 }
                 Effect::Activity { id, request } => self.monitor.request(id, request),
+                Effect::Docker { id, request } => self.docker.request(id, request),
+                Effect::DockerWatch(on) => self.docker.watch(on),
+                Effect::DockerShell(request) => self.container_shell(request),
                 Effect::ExportMemory { path, bytes } => {
                     let messages = self.messages.clone();
                     tokio::task::spawn_blocking(move || {
@@ -535,8 +623,9 @@ impl App {
                     });
                 }
                 Effect::Write(bytes) => {
-                    self.emulator.scroll(Scroll::Bottom);
-                    self.pty.write(&bytes)?;
+                    let (emulator, pty) = self.console();
+                    emulator.scroll(Scroll::Bottom);
+                    pty.write(&bytes)?;
                 }
                 Effect::ChangeShellDir { dir, typed } => {
                     self.emulator.scroll(Scroll::Bottom);
@@ -545,16 +634,34 @@ impl App {
                         Err(_) => self.pty.write(&typed)?,
                     }
                 }
-                Effect::ScrollConsole(scroll) => self.emulator.scroll(scroll),
+                Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
+                Effect::UseConsole(console) => self.console = console,
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
+                Effect::StartDockerCopy { id, container, inbound, sources, target } => {
+                    self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target });
+                }
                 Effect::JobControl { id, command } => self.control_job(id, command),
                 Effect::Peek { aside, path, size } => self.peek(aside, path, size),
                 Effect::Quit => return Ok(Flow::Quit),
             }
         }
         Ok(Flow::Continue)
+    }
+
+    fn container_shell(&mut self, request: borg_core::ShellRequest) {
+        use borg_core::ShellRequest;
+        match request {
+            ShellRequest::Open { container, prompt, size, workdir } => {
+                if let Err(error) = self.shells.open(container.clone(), &prompt, size, workdir.as_deref()) {
+                    let _ = self.messages.send(Msg::Notice(format!("{error:#}")));
+                    let _ = self.messages.send(Msg::DockerShellClosed { container });
+                }
+            }
+            ShellRequest::Input { container, bytes } => self.shells.input(&container, &bytes),
+            ShellRequest::Scroll { container, scroll } => self.shells.scroll(&container, scroll),
+        }
     }
 
     fn start_job(&mut self, id: u64, spec: Spec) {
@@ -579,6 +686,19 @@ impl App {
                 }
                 drop(messages.send(Msg::Job { id, event }));
             });
+        });
+    }
+
+    fn start_docker_copy(&mut self, id: u64, job: crate::docker::CopyJob) {
+        let running: Vec<u64> = self.state.jobs.iter().map(|job| job.id).collect();
+        self.jobs.retain(|id, _| running.contains(id));
+        let control = Arc::new(Control::default());
+        self.jobs.insert(id, Arc::clone(&control));
+        let messages = self.messages.clone();
+        let runtime = tokio::runtime::Handle::current();
+        tokio::task::spawn_blocking(move || {
+            let outcome = job.run(&runtime, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
         });
     }
 
@@ -625,12 +745,22 @@ impl App {
     }
 
     fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
-        let mut batches = self.backend.list(&dir);
+        let mount = self.state.panel(side).mount.clone();
+        let mut batches = match &mount {
+            Some(mount) => crate::docker::listing(mount.id.clone(), dir.clone()),
+            None => self.backend.list(&dir),
+        };
         let messages = self.messages.clone();
-        let cache = self.search.cache.clone();
+        // Measured folder sizes belong to this machine, not to a container.
+        let cache = mount.is_none().then(|| self.search.cache.clone());
         let task = tokio::spawn(async move {
             let observed_dir = dir.clone();
-            let totals = tokio::task::spawn_blocking(move || cache.totals(&observed_dir)).await.unwrap_or_default();
+            let totals = match cache {
+                Some(cache) => {
+                    tokio::task::spawn_blocking(move || cache.totals(&observed_dir)).await.unwrap_or_default()
+                }
+                None => Default::default(),
+            };
             while let Some(batch) = batches.next().await {
                 let msg = match batch {
                     Ok(mut entries) => {

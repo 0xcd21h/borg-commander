@@ -1468,3 +1468,309 @@ fn starting_a_file_job_stops_background_sizes_before_modifying_the_filesystem() 
     assert!(state.sizing.is_none());
     assert!(matches!(&effects[..], [Effect::CancelMeasure, Effect::StartJob { .. }]));
 }
+
+#[test]
+fn the_docker_menu_toggles_the_view_and_offers_only_actions_that_change_the_selection() {
+    use borg_docker::{Action as Docker, Container, State};
+    let (mut state, now) = setup();
+    let enabled = |state: &AppState, label: &str| {
+        let menus = crate::menus(state);
+        let menu = menus.iter().find(|m| m.title == "Docker").expect("a Docker menu");
+        menu.entries.iter().any(|e| matches!(e, crate::MenuEntry::Item(i) if i.label == label && i.enabled))
+    };
+    assert!(enabled(&state, "Containers") && !enabled(&state, "Stop…"), "closed, it only opens the view");
+    crate::actions::perform(&mut state, Action::Docker, now);
+    let Some((id, crate::DockerRequest::List)) = state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let running = Container {
+        id: "c1".into(),
+        name: "web".into(),
+        image: "nginx".into(),
+        command: String::new(),
+        created: String::new(),
+        state: State::Running,
+        status: "Up 1 minute".into(),
+        ports: String::new(),
+        networks: String::new(),
+        project: None,
+        service: None,
+        project_dir: None,
+        config_files: Vec::new(),
+    };
+    let listed = crate::DockerData::Listed { context: None, containers: vec![running] };
+    update(&mut state, Msg::Docker { id, result: Ok(listed) }, now);
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(state.docker.container().map(|c| c.name.as_str()), Some("web"));
+    assert!(!enabled(&state, "Start") && enabled(&state, "Stop…") && enabled(&state, "Pause"));
+    crate::actions::perform(&mut state, Action::DockerAct(Docker::Stop), now);
+    assert!(matches!(state.overlay, Some(Overlay::Confirm(_))), "stopping from the menu asks first");
+    state.overlay = None;
+    crate::actions::perform(&mut state, Action::Docker, now);
+    assert!(!state.docker.is_open(), "the menu item closes the view again");
+}
+
+/// A panel switched to a running container's filesystem, as Docker → Files leaves it.
+fn browsing_container(now: Instant) -> AppState {
+    use borg_docker::{Container, State};
+    let (mut state, _) = setup_with(vec![file("notes.txt")]);
+    crate::actions::perform(&mut state, Action::Docker, now);
+    let Some((id, crate::DockerRequest::List)) = state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let web = Container {
+        id: "c1".into(),
+        name: "shop-web-1".into(),
+        image: "nginx".into(),
+        command: String::new(),
+        created: String::new(),
+        state: State::Running,
+        status: "Up 1 minute".into(),
+        ports: String::new(),
+        networks: String::new(),
+        project: None,
+        service: None,
+        project_dir: None,
+        config_files: Vec::new(),
+    };
+    update(
+        &mut state,
+        Msg::Docker { id, result: Ok(crate::DockerData::Listed { context: None, containers: vec![web] }) },
+        now,
+    );
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Char('f')));
+    assert!(!state.docker.is_open(), "browsing files leaves the Docker view");
+    let Some(Effect::List { side: Side::Left, generation, dir }) = effects.first().cloned() else {
+        panic!("the panel lists the container's root: {effects:?}")
+    };
+    assert_eq!(dir, Path::new("/"));
+    let etc = Entry { source: Some("/etc".into()), ..dir_entry("etc") };
+    let motd = Entry { source: Some("/motd".into()), ..file("motd") };
+    update(&mut state, Msg::Batch { side: Side::Left, generation, entries: vec![etc, motd] }, now);
+    update(&mut state, Msg::Listed { side: Side::Left, generation, error: None }, now);
+    state
+}
+
+fn dir_entry(name: &str) -> Entry {
+    dir(name)
+}
+
+fn file_request(effects: &[Effect]) -> Option<(String, crate::FileOp)> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Docker { request: crate::DockerRequest::Files { container, op }, .. } => {
+            Some((container.clone(), op.clone()))
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
+    use crate::FileOp;
+    let now = Instant::now();
+    let mut state = browsing_container(now);
+    assert_eq!(state.panel(Side::Left).mount.as_ref().map(|m| m.name.as_str()), Some("shop-web-1"));
+    assert!(state.panel(Side::Left).hovered().is_some_and(|row| matches!(row, crate::Row::Parent)), "the root has ..");
+
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = crate::actions::perform(&mut state, Action::Copy, now);
+    assert!(effects.is_empty());
+    let Some(Overlay::Prompt(prompt)) = state.overlay.clone() else { panic!("copy asks for the destination") };
+    assert_eq!(prompt.input.text(), "/tmp");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let copy = effects.iter().find_map(|e| match e {
+        Effect::StartDockerCopy { id, container, inbound, sources, target } => {
+            Some((*id, container.clone(), *inbound, sources.clone(), target.clone()))
+        }
+        _ => None,
+    });
+    let Some((id, container, inbound, sources, target)) = copy else { panic!("copying out starts a job: {effects:?}") };
+    assert_eq!((container.as_str(), inbound, sources, target), ("c1", false, vec!["/motd".into()], "/tmp".into()));
+    assert!(state.jobs.iter().any(|job| job.id == id && job.shown_on == Side::Right), "a copy job, shown on the host");
+    let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 0 }, skipped: 0 };
+    let effects = update(&mut state, Msg::Job { id, event: borg_jobs::Event::Finished(done) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
+    assert!(effects.iter().any(|e| matches!(e, Effect::List { side: Side::Right, .. })), "both panels refresh");
+
+    let effects = crate::actions::perform(&mut state, Action::View, now);
+    let Some((_, FileOp::Fetch { path })) = file_request(&effects) else { panic!("viewing copies the file out") };
+    assert_eq!(path, Path::new("/motd"));
+    let id = state.docker.files.last().unwrap().id;
+    let effects =
+        update(&mut state, Msg::Docker { id, result: Ok(crate::DockerData::Fetched("/run/motd".into())) }, now);
+    assert_eq!(effects, [Effect::View("/run/motd".into())]);
+
+    crate::actions::perform(&mut state, Action::Delete, now);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Delete { paths: vec!["/motd".into()] }));
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    type_text(&mut state, now, "cache");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Mkdir { path: "/cache".into() }));
+
+    crate::actions::perform(&mut state, Action::QuickView, now);
+    assert_eq!(state.notice.as_deref(), Some("Not available inside a container"));
+    assert!(state.aside.is_none());
+    assert!(crate::update::prepare_shell(&mut state).is_empty(), "the host shell does not follow into a container");
+
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = crate::actions::perform(&mut state, Action::Copy, now);
+    assert!(effects.is_empty());
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let inbound = effects.iter().find_map(|e| match e {
+        Effect::StartDockerCopy { inbound, target, .. } => Some((*inbound, target.clone())),
+        _ => None,
+    });
+    assert_eq!(inbound, Some((true, "/".into())), "copying into the container");
+
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Home));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(state.panel(Side::Left).mount.is_none(), ".. at the root leaves the container");
+    assert!(matches!(effects.first(), Some(Effect::List { side: Side::Left, dir, .. }) if dir == Path::new("/home")));
+    assert!(effects.contains(&Effect::UseConsole(crate::Console::Host)), "and the command line is the host's again");
+}
+
+#[test]
+fn a_container_shell_takes_keys_until_alt_c_and_stays_open_until_it_exits() {
+    use crate::ShellRequest;
+    let now = Instant::now();
+    let (mut state, _) = setup_with(vec![file("notes.txt")]);
+    crate::actions::perform(&mut state, Action::Docker, now);
+    let Some((id, crate::DockerRequest::List)) = state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let web = borg_docker::Container {
+        id: "c1".into(),
+        name: "shop-web-1".into(),
+        image: "nginx".into(),
+        command: String::new(),
+        created: String::new(),
+        state: borg_docker::State::Running,
+        status: "Up 1 minute".into(),
+        ports: String::new(),
+        networks: String::new(),
+        project: Some("shop".into()),
+        service: Some("web".into()),
+        project_dir: None,
+        config_files: Vec::new(),
+    };
+    update(
+        &mut state,
+        Msg::Docker { id, result: Ok(crate::DockerData::Listed { context: None, containers: vec![web] }) },
+        now,
+    );
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Char('e')));
+    let [Effect::DockerShell(ShellRequest::Open { container, size, .. })] = effects.as_slice() else {
+        panic!("E opens a shell: {effects:?}")
+    };
+    assert_eq!(container, "c1");
+    assert!(size.cols > 0 && size.rows > 0);
+    assert!(state.docker.typing(), "the shell takes the keys");
+
+    let input = |effects: Vec<Effect>| match effects.as_slice() {
+        [Effect::DockerShell(ShellRequest::Input { bytes, .. })] => bytes.clone(),
+        other => panic!("expected input for the shell: {other:?}"),
+    };
+    assert_eq!(input(press(&mut state, now, key(KeyCode::Char('x')))), b"x", "letters reach the shell, not Stop");
+    assert_eq!(input(press(&mut state, now, key(KeyCode::Char('1')))), b"1", "digits reach the shell too");
+    assert_eq!(input(press(&mut state, now, key(KeyCode::F(1)))), b"\x1bOP", "and function keys");
+    assert_eq!(input(press(&mut state, now, key(KeyCode::Esc))), b"\x1b");
+    assert_eq!(input(update(&mut state, Msg::Paste("ls".into()), now)), b"ls");
+    assert!(state.docker.is_open() && state.overlay.is_none());
+
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT));
+    assert!(!state.docker.typing() && state.docker.is_open(), "Alt-C returns to the list");
+    assert!(state.docker.visible_shell().is_some(), "the shell stays on its tab");
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT));
+    assert!(state.docker.typing(), "Alt-2 returns to the shell");
+    assert!(press(&mut state, now, KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT)).is_empty());
+    assert!(state.docker.visible_shell().is_none() && !state.docker.typing(), "Alt-1 leaves it for the overview");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(!state.docker.is_open());
+    assert_eq!(state.docker.shells.len(), 1, "closing the view keeps the shell running");
+
+    crate::actions::perform(&mut state, Action::Quit, now);
+    let Some(Overlay::Confirm(confirm)) = state.overlay.take() else { panic!("quitting asks first") };
+    assert_eq!(confirm.message, "A container shell is open. Quit and close it?");
+
+    crate::actions::perform(&mut state, Action::Docker, now);
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT));
+    assert!(state.docker.typing(), "Alt-2 returns to the open shell from the list");
+    press(&mut state, now, ctrl('o'));
+    assert_eq!(state.view, View::Shell, "Ctrl-O still shows the host console");
+    update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
+    assert!(state.docker.shells.is_empty() && !state.docker.typing());
+    assert_eq!(state.notice.as_deref(), Some("The shell in web closed"));
+}
+
+#[test]
+fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
+    use crate::{Console, ShellRequest};
+    let now = Instant::now();
+    let mut state = browsing_container(now);
+    assert_eq!(state.console, Console::Container("c1".into()), "on by default");
+    crate::actions::perform(&mut state, Action::ToggleDockerConsole, now);
+    update(&mut state, Msg::Tick, now);
+    assert_eq!(state.console, Console::Host, "off, the host keeps the command line");
+    update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
+    type_text(&mut state, now, "ls");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(effects.is_empty(), "Enter runs nothing on the host under a container's files");
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("This command line runs on the host")));
+    assert!(!state.console_owns_panel() && state.view == View::Panels);
+
+    crate::actions::perform(&mut state, Action::ToggleDockerConsole, now);
+    let effects = update(&mut state, Msg::Tick, now);
+    let opened = effects.iter().find_map(|e| match e {
+        Effect::DockerShell(ShellRequest::Open { container, prompt, workdir, .. }) => {
+            Some((container.clone(), prompt.clone(), workdir.clone()))
+        }
+        _ => None,
+    });
+    assert_eq!(
+        opened,
+        Some(("c1".into(), "shop-web-1".into(), Some("/".into()))),
+        "a shell opens in the panel's folder"
+    );
+    assert!(effects.contains(&Effect::UseConsole(Console::Container("c1".into()))));
+    assert!(state.console_owns_panel() && state.console_container() == Some("shop-web-1"));
+    assert_eq!(
+        state.parked_host.as_ref().map(|host| host.cwd.as_path()),
+        Some(Path::new("/home")),
+        "the host shell waits"
+    );
+
+    update(&mut state, Msg::Signal(ShellSignal::PromptStart), now);
+    type_text(&mut state, now, "cd etc");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert!(matches!(effects.last(), Some(Effect::Write(bytes)) if bytes == b"\r"), "Enter runs in the container");
+    assert_eq!(state.view, View::Shell);
+    update(&mut state, Msg::Signal(ShellSignal::Cwd { host: "box".into(), path: "/etc".into() }), now);
+    let effects = update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.view, View::Panels, "it returns to the panels like a host command");
+    assert!(
+        effects.iter().any(|e| matches!(e, Effect::List { side: Side::Left, dir, .. } if dir == Path::new("/etc"))),
+        "a cd in the container moves its panel: {effects:?}"
+    );
+
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(state.console, Console::Host, "a host panel brings back the host's command line");
+    assert_eq!(state.shell.cwd, Path::new("/home"));
+    assert!(state.docker.shell("c1").is_some(), "the container's shell keeps running");
+    assert!(!state.shell.line_empty(), "the host's line kept what was typed there");
+
+    press(&mut state, now, ctrl('u'));
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(state.console, Console::Container("c1".into()));
+    update(&mut state, Msg::DockerShellClosed { container: "c1".into() }, now);
+    assert_eq!(state.console, Console::Host, "a shell that could not start leaves the host's");
+    assert!(
+        update(&mut state, Msg::Tick, now).iter().all(|e| !matches!(e, Effect::DockerShell(_))),
+        "and is not retried"
+    );
+}

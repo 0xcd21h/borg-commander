@@ -73,13 +73,45 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
     if state.settings.preferences.git_plugin {
         menus.push(git_menu(state));
     }
+    if state.settings.preferences.docker_plugin {
+        menus.push(docker_menu(state));
+    }
     menus.push(results_menu(state));
     menus
+}
+
+fn docker_menu(state: &AppState) -> Menu {
+    use borg_docker::Action as Docker;
+    let can = |action| crate::docker::can(state, action);
+    let pause = crate::docker::pause_action(state);
+    Menu {
+        title: tr!(docker_title),
+        entries: vec![
+            check(tr!(docker_menu_containers), "M-c", Action::Docker, state.docker.is_open()),
+            MenuEntry::Separator,
+            when(item(tr!(docker_menu_start), "S", Action::DockerAct(Docker::Start)), can(Docker::Start)),
+            when(item(tr!(docker_menu_stop), "X", Action::DockerAct(Docker::Stop)), can(Docker::Stop)),
+            when(item(tr!(docker_menu_restart), "R", Action::DockerAct(Docker::Restart)), can(Docker::Restart)),
+            when(
+                item(
+                    if pause == Docker::Unpause { tr!(docker_menu_resume) } else { tr!(docker_menu_pause) },
+                    "P",
+                    Action::DockerAct(pause),
+                ),
+                can(pause),
+            ),
+            MenuEntry::Separator,
+            when(item(tr!(docker_menu_files), "F", Action::DockerFiles), crate::docker::can_browse(state)),
+            when(item(tr!(docker_menu_shell), "E", Action::DockerShell), crate::docker::can_open_shell(state)),
+            when(item(tr!(docker_menu_filter), "/", Action::DockerFilter), state.docker.is_open()),
+        ],
+    }
 }
 
 fn git_menu(state: &AppState) -> Menu {
     use borg_git::Tool;
     let available = state.activity.side.is_none()
+        && !state.docker.is_open()
         && state.active_panel().git_repository().is_some()
         && state.plugins.git_task.is_none();
     let selected = available && !state.active_panel().selection().is_empty();
@@ -167,6 +199,7 @@ fn command_menu(state: &AppState) -> Menu {
         title: tr!(command),
         entries: vec![
             when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
+            when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
             item(tr!(find_in_folder), "C-s", Action::Find),
             when(item(tr!(insert_new_line), "S-Enter", Action::InsertNewline), !state.shell.busy()),
             check(tr!(quick_view), "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
@@ -231,6 +264,20 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.system_plugin),
                 enabled: true,
             },
+            MenuItem {
+                label: tr!(docker_plugin_label),
+                hint: "",
+                action: Action::ToggleDockerPlugin,
+                checked: Some(state.settings.preferences.docker_plugin),
+                enabled: true,
+            },
+            MenuItem {
+                label: tr!(docker_console_plugin_label),
+                hint: "",
+                action: Action::ToggleDockerConsole,
+                checked: Some(state.settings.preferences.docker_console),
+                enabled: state.settings.preferences.docker_plugin,
+            },
         ]
     } else {
         settings_items(state)
@@ -255,7 +302,7 @@ fn results_menu(state: &AppState) -> Menu {
                     "M-i",
                     Action::MeasureSizes,
                 ),
-                state.sizing.is_some() || !result && state.activity.side.is_none(),
+                state.sizing.is_some() || !result && state.activity.side.is_none() && !state.docker.is_open(),
             ),
             when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
             item(tr!(open_create_collection), "M-v", Action::OpenCollection),

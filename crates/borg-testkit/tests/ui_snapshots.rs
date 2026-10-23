@@ -1929,3 +1929,216 @@ fn background_sizes_stay_in_normal_panels_with_progress_and_stop_action() -> Res
     check("background_sizes_narrow", &stage, buffer)?;
     Ok(())
 }
+
+fn container(
+    id: &str,
+    project: Option<&str>,
+    service: &str,
+    state: borg_docker::State,
+    status: &str,
+) -> borg_docker::Container {
+    borg_docker::Container {
+        id: format!("{id}{}", "0".repeat(60)),
+        name: project.map_or_else(|| service.to_owned(), |p| format!("{p}-{service}-1")),
+        image: format!("{service}:1.4"),
+        command: "docker-entrypoint.sh".into(),
+        created: "2026-10-20 09:12:44 +0000 UTC".into(),
+        state,
+        status: status.into(),
+        ports: if service == "web" { "0.0.0.0:8080->80/tcp".into() } else { String::new() },
+        networks: project.map_or_else(|| "bridge".into(), |p| format!("{p}_default")),
+        project: project.map(str::to_owned),
+        service: project.map(|_| service.to_owned()),
+        project_dir: project.map(|p| format!("/home/me/projects/{p}")),
+        config_files: project.map(|p| vec![format!("/home/me/projects/{p}/compose.yaml")]).unwrap_or_default(),
+    }
+}
+
+/// The Docker view over made-up projects: a list of projects and containers on the left,
+/// the selected container's details and live CPU and memory on the right.
+#[test]
+fn docker_lists_projects_and_shows_container_details() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest};
+    use borg_docker::{Details, Mount, Network, State, Stats};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
+    stage.state.appearance.select(theme, stage.started, Duration::ZERO);
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    assert!(
+        effects.iter().any(|e| matches!(e, borg_core::Effect::DockerWatch(true))),
+        "opening starts the stats stream"
+    );
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let containers = vec![
+        container("a1", Some("shop"), "web", State::Running, "Up 3 hours (healthy)"),
+        container("a2", Some("shop"), "db", State::Running, "Up 3 hours (healthy)"),
+        container("a3", Some("shop"), "worker", State::Exited, "Exited (1) 12 minutes ago"),
+        container("b1", Some("blog"), "app", State::Paused, "Up 2 days (Paused)"),
+        container("c1", None, "scratch", State::Exited, "Exited (0) 2 days ago"),
+    ];
+    let ids: Vec<String> = containers.iter().map(|c| c.id.clone()).collect();
+    stage
+        .send(Msg::Docker { id, result: Ok(DockerData::Listed { context: Some("desktop-linux".into()), containers }) });
+    for second in 0..40u64 {
+        let wave = (second as f64 / 4.0).sin().abs();
+        stage.send(Msg::DockerStats(vec![
+            (
+                ids[0].clone(),
+                Stats {
+                    cpu: 400 + (wave * 2600.0) as u32,
+                    memory: 180_000_000 + second * 900_000,
+                    memory_limit: 8_000_000_000,
+                    net_rx: 52_000_000,
+                    net_tx: 9_400_000,
+                    read: 12_000_000,
+                    written: 3_000_000,
+                    pids: 9,
+                },
+            ),
+            (
+                ids[1].clone(),
+                Stats { cpu: 120, memory: 420_000_000, memory_limit: 8_000_000_000, pids: 31, ..Stats::default() },
+            ),
+            (ids[3].clone(), Stats { memory: 64_000_000, ..Stats::default() }),
+        ]));
+    }
+    for _ in 0..4 {
+        stage.send(key(KeyCode::Down));
+    }
+    assert_eq!(stage.state.docker.container().map(|c| c.label()), Some("web"), "projects sort by name, services too");
+    let later = stage.started + Duration::from_secs(1);
+    borg_core::update(&mut stage.state, Msg::Tick, later);
+    let Some((id, DockerRequest::Inspect(inspected))) = stage.state.docker.pending.clone() else {
+        panic!("resting on a container inspects it")
+    };
+    assert_eq!(inspected, ids[0]);
+    let details = Details {
+        started: Some("2026-10-22T09:12:44Z".into()),
+        finished: None,
+        exit_code: 0,
+        oom_killed: false,
+        error: String::new(),
+        health: Some("healthy".into()),
+        restarts: 0,
+        restart_policy: "unless-stopped".into(),
+        command: "nginx -g 'daemon off;'".into(),
+        workdir: String::new(),
+        platform: "linux".into(),
+        mounts: vec![Mount {
+            kind: "volume".into(),
+            source: "shop_static".into(),
+            destination: "/usr/share/nginx/html".into(),
+            writable: false,
+        }],
+        networks: vec![Network { name: "shop_default".into(), address: "172.18.0.4".into() }],
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Inspected { id: inspected, details: Box::new(details) }) });
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "shop › web")?;
+    ensure_text(&buffer, "shop_static → /usr/share/nginx/html (ro)")?;
+    check("docker_container", &stage, buffer)?;
+
+    let menu = borg_core::menus(&stage.state).iter().position(|m| m.title == "Docker").expect("a Docker menu");
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(menu)));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Restart…")?;
+    check("docker_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.docker.is_open(), "Esc closes the menu, not the view");
+
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "2 of 3 running")?;
+    check("docker_project", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('x')));
+    let Some(borg_core::Overlay::Confirm(confirm)) = stage.state.overlay.clone() else { panic!("stopping asks first") };
+    assert_eq!(confirm.message, "Stop 2 containers in shop?");
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), later);
+    let request = effects.iter().find_map(|e| match e {
+        borg_core::Effect::Docker { request: DockerRequest::Act { action, ids }, .. } => Some((*action, ids.len())),
+        _ => None,
+    });
+    assert_eq!(request, Some((borg_docker::Action::Stop, 2)), "only running containers are stopped");
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Stopping…")?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(!stage.state.docker.is_open(), "Esc closes the view");
+    Ok(())
+}
+
+/// Docker → Files: the list's panel shows the container's filesystem, named in its title,
+/// beside the host folder in the other panel.
+#[test]
+fn docker_files_name_the_container_in_the_panel() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest};
+    use borg_docker::State;
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    // With the command line kept on the host, the prompt shows it is the host's.
+    stage.state.settings.preferences.docker_console = false;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let web = container("a1", Some("shop"), "web", State::Running, "Up 3 hours");
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: vec![web] }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Down), stage.started);
+    assert!(effects.iter().all(|e| !matches!(e, borg_core::Effect::List { .. })));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('f')), stage.started);
+    let Some(borg_core::Effect::List { side, generation, dir }) = effects.into_iter().next() else {
+        panic!("Files lists the container's root")
+    };
+    assert_eq!(dir, PathBuf::from("/"));
+    let folder = |name: &str| Entry {
+        source: Some(PathBuf::from("/").join(name)),
+        ..entry(name, EntryKind::Dir, 4096, RECENT, false)
+    };
+    let entries = vec![
+        folder("etc"),
+        folder("usr"),
+        folder("var"),
+        entry("docker-entrypoint.sh", EntryKind::File, 1620, RECENT, true),
+    ];
+    stage.send(Msg::Batch { side, generation, entries }).send(Msg::Listed { side, generation, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▣ shop-web-1")?;
+    ensure_text(&buffer, "Alt-C Docker")?;
+    check("docker_files", &stage, buffer)
+}
+
+/// E opens a shell in the details panel: the Shell tab shows it, the list marks the
+/// container, and the key bar says where keys go.
+#[test]
+fn docker_shell_runs_in_the_details_panel() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest};
+    use borg_docker::State;
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let containers = vec![
+        container("a1", Some("shop"), "web", State::Running, "Up 3 hours"),
+        container("a2", Some("shop"), "db", State::Running, "Up 3 hours"),
+    ];
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers }) });
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Char('e')));
+    assert!(stage.state.docker.typing());
+    let side = stage.state.docker.side.unwrap().other();
+    let area = borg_core::shell_rect(stage.state.layout(stage.started).panels[side.index()]);
+    let mut shell = borg_term::Emulator::new(GridSize { cols: area.width, rows: area.height }, 100);
+    shell.feed(b"root@3f2a9c:/usr/share/nginx/html# ls\r\n50x.html  index.html\r\nroot@3f2a9c:/usr/share/nginx/html# ");
+    stage.docker_shell = Some(shell);
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "index.html")?;
+    ensure_text(&buffer, "2 Shell ●")?;
+    ensure_text(&buffer, "web ›_")?;
+    check("docker_shell", &stage, buffer)
+}

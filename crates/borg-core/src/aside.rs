@@ -76,6 +76,9 @@ pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
 }
 
 pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
+    if state.active_panel().mount.is_some() {
+        state.aside = None;
+    }
     let aside = state.aside?;
     let Some(path) = hovered_path(state) else {
         state.peeked = None;

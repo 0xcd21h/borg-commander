@@ -21,6 +21,8 @@ pub struct Stage {
     pub started: Instant,
     pub home: Option<PathBuf>,
     pub pixels: Pixels,
+    /// The terminal of a container shell, for the Docker view's Shell tab.
+    pub docker_shell: Option<Emulator>,
 }
 
 impl Stage {
@@ -54,6 +56,7 @@ impl Stage {
             started,
             home: None,
             pixels: Pixels::Off,
+            docker_shell: None,
         };
         stage.shell(b"\x1b]133;A\x07$ \x1b]133;B\x07");
         Ok(stage)
@@ -90,6 +93,7 @@ impl Stage {
         let scene = Scene {
             state: &self.state,
             screen,
+            docker_shell: self.docker_shell.as_ref().map(Emulator::screen),
             palette: &self.palette,
             themes: &self.themes,
             clock: &self.clock,

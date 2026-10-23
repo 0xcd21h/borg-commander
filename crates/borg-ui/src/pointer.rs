@@ -134,6 +134,15 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
         }
         return crate::activity_view::panel_mouse(state, event, double, &layout);
     }
+    if state.docker.is_open() {
+        let control = layout.panels.iter().any(|rect| {
+            crate::results_view::controls(*rect, state.docker.expanded).iter().any(|(r, _, _)| r.contains(point))
+        });
+        if click && event.row == 0 && !control {
+            return Some(Msg::Pointer(Pointer::Action(borg_core::Action::OpenMenuBar)));
+        }
+        return crate::docker_view::panel_mouse(state, event, double, &layout);
+    }
     if click {
         for side in Side::ALL {
             if !state.panel(side).is_results() || state.aside.is_some() && side != state.active {

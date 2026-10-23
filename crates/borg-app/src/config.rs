@@ -73,11 +73,15 @@ pub struct Config {
 pub struct Plugins {
     pub git: bool,
     pub system: bool,
+    pub docker: bool,
+    /// The command line follows container panels into their containers.
+    #[serde(rename = "docker-console")]
+    pub docker_console: bool,
 }
 
 impl Default for Plugins {
     fn default() -> Self {
-        Self { git: true, system: true }
+        Self { git: true, system: true, docker: true, docker_console: true }
     }
 }
 
@@ -97,6 +101,8 @@ impl Config {
         Preferences {
             git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             system_plugin: self.plugins.as_ref().map_or(base.system_plugin, |plugins| plugins.system),
+            docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
+            docker_console: self.plugins.as_ref().map_or(base.docker_console, |plugins| plugins.docker_console),
             after_command,
             show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
             status_line: self.status_line.unwrap_or(base.status_line),
@@ -132,7 +138,12 @@ impl Config {
 
     pub fn capture(&self, theme: Option<&str>, prefs: &Preferences, unlocked: &[String]) -> Self {
         Self {
-            plugins: Some(Plugins { git: prefs.git_plugin, system: prefs.system_plugin }),
+            plugins: Some(Plugins {
+                git: prefs.git_plugin,
+                system: prefs.system_plugin,
+                docker: prefs.docker_plugin,
+                docker_console: prefs.docker_console,
+            }),
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),

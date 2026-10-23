@@ -10,19 +10,75 @@ use crate::{Aside, JobCommand, Peeked, ShellView, Side, Viewer};
 
 #[derive(Debug)]
 pub enum Msg {
-    Sized { id: u64, entries: Vec<Entry> },
-    SizeProgress { id: u64, progress: crate::SearchProgress },
-    SizesFinished { id: u64, error: Option<String> },
-    MemorySearchProgress { id: u64, scanned: u64, total: u64, hits: usize },
-    SizeChildren { side: Side, generation: u64, parent: PathBuf, result: Result<(Vec<Entry>, bool), String> },
-    Activity { id: u64, result: Result<crate::ActivityData, String> },
-    SearchProgress { side: Side, generation: u64, progress: crate::SearchProgress },
+    Sized {
+        id: u64,
+        entries: Vec<Entry>,
+    },
+    SizeProgress {
+        id: u64,
+        progress: crate::SearchProgress,
+    },
+    SizesFinished {
+        id: u64,
+        error: Option<String>,
+    },
+    MemorySearchProgress {
+        id: u64,
+        scanned: u64,
+        total: u64,
+        hits: usize,
+    },
+    SizeChildren {
+        side: Side,
+        generation: u64,
+        parent: PathBuf,
+        result: Result<(Vec<Entry>, bool), String>,
+    },
+    Activity {
+        id: u64,
+        result: Result<crate::ActivityData, String>,
+    },
+    Docker {
+        id: u64,
+        result: Result<crate::DockerData, String>,
+    },
+    /// One `docker stats` sample: each running container's id and resource use.
+    DockerStats(Vec<(String, borg_docker::Stats)>),
+    /// A container shell printed something; `mode` is its terminal's input mode now.
+    DockerShellOutput {
+        container: String,
+        mode: borg_term::TermMode,
+    },
+    DockerShellClosed {
+        container: String,
+    },
+    /// A signal from a shell that is not the console: the host's, or a container's.
+    ParkedSignal {
+        container: Option<String>,
+        signal: ShellSignal,
+    },
+    SearchProgress {
+        side: Side,
+        generation: u64,
+        progress: crate::SearchProgress,
+    },
     Key(KeyEvent),
     Pointer(crate::Pointer),
     Paste(String),
-    Resize { cols: u16, rows: u16 },
-    Batch { side: Side, generation: u64, entries: Vec<Entry> },
-    Listed { side: Side, generation: u64, error: Option<String> },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
+    Batch {
+        side: Side,
+        generation: u64,
+        entries: Vec<Entry>,
+    },
+    Listed {
+        side: Side,
+        generation: u64,
+        error: Option<String>,
+    },
     Observe(ShellView),
     ShellOutput(ShellView),
     Signal(ShellSignal),
@@ -30,10 +86,21 @@ pub enum Msg {
     Opened(Viewer),
     ShellExited,
     Notice(String),
-    Job { id: u64, event: Event },
+    Job {
+        id: u64,
+        event: Event,
+    },
     Peeked(Peeked),
-    GitStatus { side: Side, generation: u64, dir: PathBuf, result: Result<Option<borg_git::Repository>, String> },
-    GitFinished { id: u64, result: Result<Option<Viewer>, String> },
+    GitStatus {
+        side: Side,
+        generation: u64,
+        dir: PathBuf,
+        result: Result<Option<borg_git::Repository>, String>,
+    },
+    GitFinished {
+        id: u64,
+        result: Result<Option<Viewer>, String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +122,15 @@ pub enum Effect {
         id: u64,
         request: crate::ActivityRequest,
     },
+    Docker {
+        id: u64,
+        request: crate::DockerRequest,
+    },
+    /// Starts or stops streaming container stats.
+    DockerWatch(bool),
+    DockerShell(crate::ShellRequest),
+    /// The command line and Ctrl-O console now belong to this shell.
+    UseConsole(crate::Console),
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,
@@ -90,6 +166,14 @@ pub enum Effect {
     StartJob {
         id: u64,
         spec: Spec,
+    },
+    /// A copy job between a container and a host folder; `inbound` copies into the container.
+    StartDockerCopy {
+        id: u64,
+        container: String,
+        inbound: bool,
+        sources: Vec<PathBuf>,
+        target: PathBuf,
     },
     JobControl {
         id: u64,

@@ -28,6 +28,7 @@ pub struct Plugins {
 fn can_refresh(state: &AppState) -> bool {
     state.settings.preferences.git_plugin
         && state.activity.side.is_none()
+        && !state.docker.is_open()
         && state.view == View::Panels
         && state.viewer.is_none()
         && state.overlay.is_none()
@@ -48,7 +49,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
     for side in Side::ALL {
         let panel = state.panel_mut(side);
-        if panel.is_results() {
+        if panel.is_results() || panel.mount.is_some() {
             panel.git = GitPanel::default();
             continue;
         }

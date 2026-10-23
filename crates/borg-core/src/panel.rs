@@ -101,6 +101,8 @@ pub struct Panel {
     focus: Option<Anchor>,
     replacing: bool,
     pub git: crate::GitPanel,
+    /// The container whose filesystem the panel shows, if any.
+    pub mount: Option<crate::Mount>,
 }
 
 impl Panel {
@@ -122,6 +124,7 @@ impl Panel {
             focus: None,
             replacing: false,
             git: crate::GitPanel::default(),
+            mount: None,
         }
     }
 
@@ -517,7 +520,8 @@ impl Panel {
     }
 
     fn parent_rows(&self) -> usize {
-        usize::from(!self.is_results() && self.dir.parent().is_some())
+        // A container's root still has `..`, which returns to the host folder.
+        usize::from(!self.is_results() && (self.dir.parent().is_some() || self.mount.is_some()))
     }
 
     fn anchor(&self) -> Option<Anchor> {

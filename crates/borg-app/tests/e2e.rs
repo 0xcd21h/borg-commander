@@ -8,7 +8,7 @@ const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 3;
 const MENU_TITLES: &str = "Left    File    Command    Options    Right";
-const MENU_NAMES: [&str; 7] = ["Left", "File", "Command", "Options", "Right", "Git", "Search"];
+const MENU_NAMES: [&str; 8] = ["Left", "File", "Command", "Options", "Right", "Git", "Docker", "Search"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 3;
@@ -1611,5 +1611,250 @@ fn background_folder_sizes_keep_panels_usable_and_reuse_the_tree_cache() -> Resu
     app.send(keys::alt(KeyCode::Char('D')))?;
     let screen = app.wait_text("Cached")?;
     ensure!(screen.contains("Size tree:"));
+    Ok(())
+}
+
+/// A stand-in for the `docker` CLI: one Compose project with one container, a stats
+/// stream, and a stop that the next listing reflects. It logs every call.
+const FAKE_DOCKER: &str = r#"#!/bin/sh
+here="$(dirname "$0")"
+echo "$*" >> "$here/calls.log"
+web=f00d000000000000000000000000000000000000000000000000000000000001
+case "$1" in
+context) echo fake-engine ;;
+ps)
+    if [ -f "$here/stopped" ]; then state=exited; status="Exited (0) 1 second ago"; else state=running; status="Up 5 minutes"; fi
+    printf '{"id":"%s","name":"shop-web-1","image":"nginx:1.27","command":"\\"nginx\\"","created":"2026-10-22 09:00:00 +0000 UTC","state":"%s","status":"%s","ports":"","networks":"shop_default","project":"shop","service":"web","dir":"/srv/shop","files":"/srv/shop/compose.yaml"}\n' "$web" "$state" "$status"
+    ;;
+stats)
+    while :; do
+        printf '\033[H{"BlockIO":"1MB / 0B","CPUPerc":"12.50%%","Container":"%s","ID":"%s","MemPerc":"2%%","MemUsage":"200MiB / 8GiB","Name":"shop-web-1","NetIO":"1kB / 2kB","PIDs":"9"}\033[K\n\033[K\n\033[J' "$web" "$web"
+        sleep 0.3
+    done
+    ;;
+inspect) echo '{"started":"2026-10-22T09:00:01Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":null,"restarts":0,"policy":"always","entrypoint":null,"cmd":["nginx"],"workdir":"","platform":"linux","mounts":[],"networks":{"shop_default":{"IPAddress":"172.18.0.4"}}}' ;;
+stop) touch "$here/stopped" ;;
+exec)
+    if [ "$2" = "-it" ]; then
+        # Run Borg's own start-up script with its environment, as a container would.
+        shift 2
+        while [ "$1" = "-e" ] || [ "$1" = "-w" ]; do
+            if [ "$1" = "-e" ]; then export "$2"; else cd "$2" || exit 1; fi
+            shift 2
+        done
+        shift
+        PS1='box$ '
+        export PS1
+        exec "$@"
+    fi
+    case "$3" in
+    sh)
+        case "$5" in
+        "cd --"*)
+            case "$7" in
+            /) printf '41ed/4096/1729600000/etc\n81a4/12/1729600001/motd\n/\n' ;;
+            *) printf '/\n' ;;
+            esac
+            ;;
+        "for p;"*)
+            shift 6
+            for p; do if [ "$p" = /motd ]; then printf '12/1729600001//motd\n'; fi; done
+            ;;
+        esac
+        ;;
+    rm|mkdir) ;;
+    *) echo "unexpected: $*" >&2; exit 1 ;;
+    esac
+    ;;
+cp)
+    case "$2" in
+    "$web":*) if [ -d "$3" ]; then echo "welcome aboard" > "$3/$(basename "${2#*:}")"; else echo "welcome aboard" > "$3"; fi ;;
+    esac
+    ;;
+*) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+"#;
+
+#[test]
+fn docker_view_lists_containers_streams_stats_and_stops_one() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).label("docker").spawn()?;
+    app.wait_text(READY)?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("Docker · fake-engine")?;
+    app.wait_text("12.5")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.wait_text("172.18.0.4")?;
+    app.send(keys::key(KeyCode::Char('x')))?;
+    app.wait_text("Stop web?")?;
+    app.send(keys::enter())?;
+    app.wait_text("Exited (0)")?;
+    let calls = fs::read_to_string(bin.join("calls.log"))?;
+    ensure!(calls.lines().any(|line| line.starts_with("stop f00d")), "the stop reached docker:\n{calls}");
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("Borg console")?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("Docker · fake-engine")?;
+    app.send(keys::esc())?;
+    app.wait_text(READY)?;
+    Ok(())
+}
+
+#[test]
+fn docker_files_open_in_a_panel_and_copy_both_ways() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).label("docker-files").spawn()?;
+    app.wait_text(READY)?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("shop")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.send(keys::key(KeyCode::Char('f')))?;
+    app.wait_text("▣ shop-web-1")?;
+    app.wait_text("motd")?;
+    app.send(keys::down())?.send(keys::down())?.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_text("Copied 1 file")?;
+    ensure!(fs::read_to_string(fixture.work().join("motd"))? == "welcome aboard\n", "the file reached the host");
+    app.send(keys::tab())?.send(keys::key(KeyCode::End))?.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_until("copied into the container", |_| {
+        fs::read_to_string(bin.join("calls.log"))
+            .is_ok_and(|calls| calls.lines().any(|l| l.starts_with("cp ") && l.ends_with(":/")))
+    })?;
+    app.wait_text("Copied 1 file")?;
+
+    // motd is in both places now: copying it in asks, and Skip leaves the container's copy.
+    app.send(keys::key(KeyCode::Home))?.send(keys::ctrl('s'))?.send("motd")?.send(keys::enter())?;
+    app.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_text("Already exists")?;
+    app.send("s")?;
+    app.wait_text("1 skipped")?;
+    let calls = fs::read_to_string(bin.join("calls.log"))?;
+    ensure!(
+        !calls.lines().any(|l| l.starts_with("cp ") && l.contains("/motd f00d")),
+        "the skipped file stayed:\n{calls}"
+    );
+
+    // Copying it out again asks too, and Keep both saves it under a new name.
+    app.send(keys::tab())?.send(keys::key(KeyCode::Home))?.send(keys::down())?.send(keys::down())?.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    app.wait_text("Already exists")?;
+    app.send("k")?;
+    app.wait_until("kept both", |_| fixture.work().join("motd (2)").exists())?;
+    ensure!(fs::read_to_string(fixture.work().join("motd"))? == "welcome aboard\n");
+
+    app.send(keys::key(KeyCode::Home))?.send(keys::enter())?;
+    app.wait_gone("▣ shop-web-1")?;
+    app.wait_text("6 items")?;
+    Ok(())
+}
+
+#[test]
+fn docker_shell_runs_beside_the_list_and_stays_open_in_the_background() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(140, 30).label("docker-shell").spawn()?;
+    app.wait_text(READY)?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("shop")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.send(keys::key(KeyCode::Char('e')))?;
+    app.wait_text("shop-web-1  $")?;
+    app.wait_text("Keys go to the shell in web")?;
+    app.send("echo inside-$((6*7))\r")?;
+    app.wait_text("inside-42")?;
+    app.send(keys::alt(KeyCode::Char('1')))?;
+    app.wait_text("nginx:1.27")?;
+    app.send(keys::alt(KeyCode::Char('2')))?;
+    app.wait_text("inside-42")?;
+    app.wait_text("Keys go to the shell in web")?;
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("S Start")?;
+    app.wait_text("›_")?;
+    app.send(keys::esc())?;
+    app.wait_text("Alt-C Docker · 1 shell")?;
+    app.send(keys::f(10))?;
+    app.wait_text("A container shell is open")?;
+    Ok(())
+}
+
+fn fake_docker(fixture: &Fixture) -> Result<std::path::PathBuf> {
+    let bin = fixture.home().join("bin");
+    fs::create_dir_all(&bin)?;
+    let docker = bin.join("docker");
+    fs::write(&docker, FAKE_DOCKER)?;
+    fs::set_permissions(&docker, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    Ok(bin)
+}
+
+fn browse_web(app: &mut Session) -> Result<()> {
+    app.send(keys::alt(KeyCode::Char('c')))?;
+    app.wait_text("shop")?;
+    app.send(keys::down())?;
+    app.wait_text("shop › web")?;
+    app.send(keys::key(KeyCode::Char('f')))?;
+    app.wait_text("▣ shop-web-1")?;
+    Ok(())
+}
+
+#[test]
+fn the_command_line_follows_a_container_panel_when_enabled() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = true\n")?;
+    let bin = fake_docker(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(120, 30).label("docker-console").spawn()?;
+    app.wait_text(READY)?;
+    browse_web(&mut app)?;
+    app.wait_until("the container's prompt", |s| prompt(s).contains(" shop-web-1  $"))?;
+    app.send("echo inside-$((6*7))\r")?;
+    app.pump(std::time::Duration::from_millis(800))?;
+    app.wait_until("the command finishes and the panels return", |s| {
+        s.contains("▣ shop-web-1") && s.contains("motd") && prompt(s).trim_end().ends_with('$')
+    })?;
+    app.send(keys::ctrl('o'))?;
+    let console = app.wait_text("shop-web-1 console")?;
+    ensure!(console.contains("inside-42"), "Ctrl-O shows the container's output\n{}", console.text());
+    app.send(keys::ctrl('o'))?.send(keys::tab())?;
+    app.wait_until("the host's prompt", |s| prompt(s).starts_with('$'))?;
+    app.send(keys::ctrl('o'))?;
+    let host = app.wait_text("Borg console")?;
+    ensure!(!host.contains("inside-42"), "the host's console has its own output\n{}", host.text());
+    Ok(())
+}
+
+#[test]
+fn the_host_command_line_waits_for_a_host_panel_when_it_does_not_follow() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("[plugins]\ndocker-console = false\n")?;
+    let bin = fake_docker(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(120, 30).label("docker-host-line").spawn()?;
+    app.wait_text(READY)?;
+    browse_web(&mut app)?;
+    app.wait_text("⌂ host")?;
+    app.send("echo nope\r")?;
+    app.wait_text("This command line runs on the host")?;
+    ensure!(!app.snapshot().contains("Borg console"), "nothing ran");
     Ok(())
 }

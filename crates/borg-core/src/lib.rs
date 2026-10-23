@@ -7,6 +7,7 @@ mod busy;
 mod command;
 mod delight;
 mod discovery;
+mod docker;
 mod find;
 mod game2048;
 mod input;
@@ -38,6 +39,10 @@ pub use aside::{Aside, Facts, Nature, Peek, Peeked};
 pub use busy::{Busy, SPINNER_DELAY, Task};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
+pub use docker::{
+    ContainerShell, Docker, DockerData, DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, ShellRequest,
+    Usage, Working, shell_rect,
+};
 pub use find::{Find, Query, summary as find_summary};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use input::LineInput;
@@ -55,7 +60,7 @@ pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, Settings,
 };
 pub use state::{
-    AppState, Confirm, ConfirmPurpose, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,
+    AppState, Confirm, ConfirmPurpose, Console, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
 };
 pub use update::update;

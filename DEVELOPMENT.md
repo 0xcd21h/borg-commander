@@ -40,6 +40,7 @@ crates/
   borg-view     the pager behind F3: constant memory on files of any size
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
   borg-git      bundled Git plugin: status parsing and bounded background Git commands
+  borg-docker   bundled Docker plugin: containers, stats, files and shells through the docker CLI
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
@@ -266,8 +267,8 @@ an artifact.
 
 ### README screenshots
 
-The theme gallery and the size and activity showcase are rendered from fictional folders
-and processes, so they never show the machine they were made on:
+The theme gallery and the size, activity and Docker showcase are rendered from fictional
+folders, processes and containers, so they never show the machine they were made on:
 
 ```sh
 export BORG_SCREENSHOT_FONT=fonts/BorgMono-Regular.ttf BORG_SCREENSHOT_FONT_BOLD=fonts/BorgMono-Bold.ttf

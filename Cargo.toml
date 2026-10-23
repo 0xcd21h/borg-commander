@@ -4,13 +4,14 @@ members  = ["crates/*"]
 
 [workspace.package]
 edition      = "2024"
-version      = "0.4.5"
+version      = "0.5.0"
 license      = "MIT OR Apache-2.0"
 rust-version = "1.97"
 
 [workspace.dependencies]
 borg-i18n = { path = "crates/borg-i18n" }
 borg-core = { path = "crates/borg-core" }
+borg-docker = { path = "crates/borg-docker" }
 borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }

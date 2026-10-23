@@ -74,9 +74,10 @@ impl Session {
     pub fn capture(state: &AppState) -> Self {
         let panel = |side: Side| {
             let panel = state.panel(side);
+            // A container panel comes back as the host folder it replaced.
             PanelState {
-                dir: panel.dir().to_path_buf(),
-                focus: panel.hovered_entry().map(|entry| entry.name.clone()),
+                dir: panel.mount.as_ref().map_or_else(|| panel.dir().to_path_buf(), |mount| mount.host.clone()),
+                focus: panel.hovered_entry().filter(|_| panel.mount.is_none()).map(|entry| entry.name.clone()),
                 mode: panel.mode().into(),
                 sort: panel.sort().key.into(),
                 reverse: panel.sort().reverse,

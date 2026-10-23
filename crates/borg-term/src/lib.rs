@@ -23,6 +23,7 @@ pub use integration::{
 pub use keys::{encode_key, encode_newline, encode_paste};
 pub use mouse::encode_mouse;
 pub use osc::OscScanner;
+pub use portable_pty::CommandBuilder;
 pub use pty::{Foreground, Pty, PtyEvent};
 pub use signal::ShellSignal;
 pub use size::GridSize;

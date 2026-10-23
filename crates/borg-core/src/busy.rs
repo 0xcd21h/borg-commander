@@ -15,6 +15,8 @@ pub enum Task {
     Footer(Side),
     /// The activity monitor waiting for a sample, memory map, capture, or search.
     Activity,
+    /// The Docker view loading its first list, or running a start, stop, or restart.
+    Docker,
     /// The quick view or Info pane preparing its contents.
     Preview,
 }
@@ -54,12 +56,17 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
         let job = state.jobs.iter().any(|job| job.shown_on == side);
         let operation = state.operation.as_ref().is_some_and(|op| state.shell.running && op.side == side);
         let sizes = state.sizing.as_ref().is_some_and(|scan| scan.side == side);
-        if job || operation || sizes {
+        let docker = state.docker.files.iter().any(|work| work.side == side);
+        if job || operation || sizes || docker {
             active.push(Task::Footer(side));
         }
     }
     if state.activity.side.is_some() && state.activity.pending.is_some() {
         active.push(Task::Activity);
+    }
+    let docker = &state.docker;
+    if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty()) {
+        active.push(Task::Docker);
     }
     if state.aside.is_some_and(|aside| state.peeked.as_ref().is_none_or(|peeked| peeked.aside != aside)) {
         active.push(Task::Preview);

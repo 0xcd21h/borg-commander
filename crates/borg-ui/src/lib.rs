@@ -5,6 +5,7 @@ mod blend;
 mod branding;
 mod dialog_view;
 mod discovery_view;
+mod docker_view;
 mod document_view;
 mod draw;
 mod format;

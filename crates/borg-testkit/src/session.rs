@@ -59,9 +59,16 @@ pub struct SessionBuilder<'a> {
     terminal_program: Option<String>,
     timeout: Duration,
     label: String,
+    search_first: Option<PathBuf>,
 }
 
 impl<'a> SessionBuilder<'a> {
+    /// Puts `dir` ahead of `PATH`, so a fake command there replaces the real one.
+    pub fn path(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.search_first = Some(dir.into());
+        self
+    }
+
     pub fn shell(mut self, shell: Shell) -> Self {
         self.shell = shell;
         self
@@ -101,6 +108,11 @@ impl<'a> SessionBuilder<'a> {
         let mut cmd = CommandBuilder::new(&self.binary);
         cmd.env_clear();
         PASSTHROUGH_ENV.iter().filter_map(|name| Some((name, env::var_os(name)?))).for_each(|(k, v)| cmd.env(k, v));
+        if let Some(dir) = &self.search_first {
+            let inherited: Vec<PathBuf> =
+                env::var_os(ENV_PATH).map(|p| env::split_paths(&p).collect()).unwrap_or_default();
+            cmd.env(ENV_PATH, env::join_paths(std::iter::once(dir.clone()).chain(inherited))?);
+        }
         FIXED_ENV.iter().for_each(|(k, v)| cmd.env(k, v));
         if self.truecolor {
             cmd.env(TRUECOLOR_ENV.0, TRUECOLOR_ENV.1);
@@ -162,6 +174,7 @@ impl Session {
             terminal_program: None,
             timeout: configured_timeout(),
             label: String::from("session"),
+            search_first: None,
         }
     }
 

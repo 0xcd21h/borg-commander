@@ -13,7 +13,7 @@ expression: describe(&buffer)
 ｵ     ｷ  ｿ   >│    ⠑⢦⣾⣡⢋⢿⢮⣠⠟⡳⣽⣝⢠⠃    ██████   ████◥█  █▙   ▐░  ΨΨ████      │ ｸ  ｽ +     2ｵ
 *     8  ｱ   *│      ⠙⢿⣯⣧⣴⢋⢞⢼⡊⡔⠁                                           │ :  ｻ       ｴｲ
 5     2       │        ⠑⠽⢽⣟⣞⣁⠎       c o m m a n d e r                     │ｹ   9        ｳ
-ｼ     ｿ       │            ⠈⠉        version 0.4.5                         │2   |        ｶ
+ｼ     ｿ       │            ⠈⠉        version 0.5.0                         │2   |        ｶ
 ｶ     <       │                                                            │ｺ  ｾ4        :
       0    Z  │  F1 Help      F2 File      F3 View      F4 Edit            │=  5         ｾ
       8   |ｻ  │  F5 Copy      F6 Move      F7 Mkdir     F8 Delete          │9  +   ｼ

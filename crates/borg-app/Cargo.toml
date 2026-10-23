@@ -20,6 +20,7 @@ unicode-segmentation = { workspace = true }
 memchr = { workspace = true }
 sysinfo = { workspace = true }
 read-process-memory = { workspace = true }
+borg-docker = { workspace = true }
 borg-git = { workspace = true }
 anyhow    = { workspace = true }
 borg-core = { workspace = true }

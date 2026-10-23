@@ -9,6 +9,13 @@ pub const SPLIT_STEP: i16 = 2;
 pub enum Action {
     Activity,
     ToggleSystemPlugin,
+    Docker,
+    ToggleDockerPlugin,
+    ToggleDockerConsole,
+    DockerAct(borg_docker::Action),
+    DockerFilter,
+    DockerFiles,
+    DockerShell,
     Search,
     AnalyzeSpace,
     FolderTree,
@@ -142,6 +149,7 @@ pub enum PathOf {
 pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('i'), ALT, Action::MeasureSizes, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('m'), ALT, Action::Activity, Scope::Panels),
+    bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('D'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('d'), ALT_SHIFT, Action::FolderTree, Scope::Panels),

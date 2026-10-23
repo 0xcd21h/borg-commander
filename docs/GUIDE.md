@@ -172,6 +172,8 @@ rows are clickable. Notices temporarily replace the second row.
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
+| Alt-M | Activity monitor: processes and memory |
+| Alt-C | Docker: Compose projects and containers |
 | F1 | About |
 | F2 | File menu |
 | F3 | View (text or picture) |
@@ -228,6 +230,59 @@ stage/unstage for marked files (or the current file when nothing is marked).
 Diffs and history open in the regular viewer. Unstage preserves working files.
 Status refreshes after navigation, commands, and Git actions, and every five seconds while
 panels are idle. Refresh status in the Git menu rescans immediately.
+
+## Docker plugin
+
+**Alt-C** or **Command → Docker** lists your containers in the active panel, grouped by
+Compose project, with containers outside Compose last. The other panel shows the selected
+container: its status, ports, networks, mounts, command, and restart policy, with live CPU,
+memory, network and disk use and a chart of the last minute. On a project it shows the
+project's folder, its containers, and their combined use. Esc closes the view.
+
+| Key | Action |
+| --- | --- |
+| ↑ ↓, PgUp, PgDn, Home, End | Move |
+| ← → / Enter | Fold or unfold a project; Enter on a container focuses its details |
+| S / X / R | Start / stop / restart the container, or the project's containers |
+| P | Pause or resume |
+| F | Browse the container's files |
+| E, Alt-2 | Open a shell in the container, or return to its open shell |
+| Alt-1 | Show the container's overview again, also from inside its shell |
+| `/` | Filter by name, service, image or project |
+| Tab | Switch between the list and the details |
+| Alt-W | Maximize the focused pane |
+
+Stopping and restarting ask first. On a project, an action only touches the containers it
+changes, so Start starts the stopped ones.
+
+**F** on a running container closes the Docker view and shows the container's filesystem in
+that panel, starting in its working directory. The panel title names the container. The
+other panel keeps its host folder, so **F5** copies either way, and **F3** views, **F7** makes
+a folder and **F8** deletes inside the container. Searches, sizes, previews and editing stay
+on the host. **Alt-C** returns to the Docker view; `..` at the container's root returns the
+panel to the host folder it showed before. Browsing needs `sh` in the container, so minimal
+images without a shell cannot be listed.
+
+Under a container's files, the command line follows the panel: it becomes that container's
+shell, started in the panel's folder, with the container's name at the start of its prompt.
+Commands run inside the container, the panel refreshes when they finish, and a `cd` there
+moves the panel. Ctrl-O shows that container's console, marked **▣ name console**; on a host
+panel, the command line and Ctrl-O are the host's again, with whatever you typed there kept.
+The container's shell is the same one as its Shell tab in the Docker view.
+
+Turn off **Docker — command line follows container panels** in Options → Plugins to keep the
+command line on the host. Under a container's files it is then dimmed and marked **⌂ host**,
+and Enter runs nothing until a host panel is active, so a command never runs on the wrong
+machine.
+
+**E** opens a shell in the container (bash when the image has it, otherwise `sh`) on the
+details panel's Shell tab, and sends your keys to it, function keys included. **Alt-1**
+shows the overview and **Alt-C** returns to the list; the mouse wheel scrolls its history. A shell keeps running while you look at other containers,
+close the Docker view or use the host console, and its container is marked `›_` in the list
+and counted on the Alt-C shortcut. It closes when you exit it, when its container stops, or
+when Borg quits, which asks first while shells are open. The plugin uses the `docker` CLI and its current
+context, so it works with Docker Desktop, OrbStack, Colima and remote engines alike. It can
+be turned off in Options → Plugins.
 
 ## Find, jobs, and viewers
 
@@ -287,6 +342,9 @@ graphics = "auto"           # auto, kitty, sixel, iterm or off
 
 [plugins]
 git = true
+system = true
+docker = true
+docker-console = true       # the command line follows container panels into the container
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;

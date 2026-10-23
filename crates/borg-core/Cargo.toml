@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 borg-i18n = { workspace = true }
+borg-docker = { workspace = true }
 borg-git = { workspace = true }
 borg-gfx  = { workspace = true }
 borg-jobs = { workspace = true }
