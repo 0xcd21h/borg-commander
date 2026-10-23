@@ -449,6 +449,16 @@ fn paint_overlay(
             (rect, Some(position), Unfold::FromCenter)
         }
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::Approval(approval) => {
+            (crate::agent_view::draw_approval(approval, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::AgentLog { scroll } => {
+            (crate::agent_view::draw_log(state, *scroll, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::Connect(connect) => {
+            let (rect, cursor) = crate::agent_view::draw_connect(state, connect, theme, screen, buf);
+            (rect, cursor, Unfold::FromCenter)
+        }
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
         Overlay::Question(question) => {

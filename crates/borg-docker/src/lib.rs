@@ -155,6 +155,47 @@ pub async fn mkdir(id: &str, path: &Path) -> Result<()> {
     run(&["exec", id, "mkdir", "-p", "--", &inside(path)], QUERY_TIMEOUT).await.map_err(files_error).map(drop)
 }
 
+/// The exit status `READ_FILE` gives for a folder.
+const IS_FOLDER: i32 = 3;
+/// Reads up to `$3` bytes of the file `$1`, from its end when `$2` is `tail`.
+const READ_FILE: &str =
+    r#"[ -d "$1" ] && exit 3; if [ "$2" = tail ]; then tail -c "$3" -- "$1"; else head -c "$3" -- "$1"; fi"#;
+const WRITE_FILE: &str = r#"cat > "$1""#;
+
+/// Reads up to `limit` bytes of a file in a running container, from its end when `tail`.
+/// A folder gives `None`.
+pub async fn read_file(id: &str, path: &Path, limit: u64, tail: bool) -> Result<Option<Vec<u8>>> {
+    let (from, limit) = (if tail { "tail" } else { "head" }, limit.to_string());
+    let output = tokio::time::timeout(
+        QUERY_TIMEOUT,
+        docker(&["exec", id, "sh", "-c", READ_FILE, "sh", &inside(path), from, &limit]).output(),
+    )
+    .await
+    .context(tr!(docker_timed_out))?
+    .map_err(spawn_error)?;
+    match output.status.code() {
+        Some(IS_FOLDER) => Ok(None),
+        Some(0) => Ok(Some(output.stdout)),
+        _ => Err(files_error(anyhow!("{}", String::from_utf8_lossy(&output.stderr).trim()))),
+    }
+}
+
+/// Writes a file in a running container, replacing what it holds or creating it. The file
+/// is written in place, so an existing one keeps its owner and permissions.
+pub async fn write_file(id: &str, path: &Path, bytes: &[u8]) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let mut command = docker(&["exec", "-i", id, "sh", "-c", WRITE_FILE, "sh", &inside(path)]);
+    command.stdin(Stdio::piped());
+    let mut child = command.spawn().map_err(spawn_error)?;
+    let mut stdin = child.stdin.take().context("no stdin")?;
+    stdin.write_all(bytes).await?;
+    drop(stdin);
+    let output =
+        tokio::time::timeout(QUERY_TIMEOUT, child.wait_with_output()).await.context(tr!(docker_timed_out))??;
+    ensure!(output.status.success(), "{}", files_error(anyhow!("{}", String::from_utf8_lossy(&output.stderr).trim())));
+    Ok(())
+}
+
 /// Copies one file out of a container into `into`, for viewing, and returns its host path.
 pub async fn fetch(id: &str, path: &Path, into: &Path) -> Result<PathBuf> {
     // Files copied out of a container stay readable only by the user.

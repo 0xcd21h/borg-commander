@@ -33,6 +33,9 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
+        Some(Overlay::Approval(approval)) => crate::agent::on_approval_key(state, approval, key),
+        Some(Overlay::AgentLog { scroll }) => crate::agent::on_log_key(state, scroll, key),
+        Some(Overlay::Connect(connect)) => crate::agent::on_connect_key(state, connect, key),
         None => Vec::new(),
     }
 }
@@ -50,6 +53,7 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
         },
         Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,
         Some(Overlay::Find(find)) => &mut find.input,
+        Some(Overlay::Connect(connect)) if state.agent.connect.ssh.is_some() => &mut connect.target,
         _ => return Vec::new(),
     };
     line.chars().for_each(|c| {
@@ -225,7 +229,6 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
-        (Some(approved), ConfirmPurpose::Agent { id, command }) => crate::agent::answer(state, id, command, approved),
         (Some(true), ConfirmPurpose::Quit) => {
             let mut effects = jobs::cancel_all(state);
             effects.push(Effect::Quit);

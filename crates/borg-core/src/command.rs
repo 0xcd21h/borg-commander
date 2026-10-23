@@ -2,7 +2,7 @@ use std::{os::unix::ffi::OsStrExt, path::Path};
 
 const QUOTE: u8 = b'\'';
 const ESCAPED_QUOTE: &[u8] = b"'\\''";
-const HISTORY_SKIP: &[u8] = b" ";
+pub(crate) const HISTORY_SKIP: &[u8] = b" ";
 const SEPARATOR: u8 = b' ';
 const LOCAL_PREFIX: &[u8] = b"./";
 pub(crate) const SUBMIT: &[u8] = b"\r";

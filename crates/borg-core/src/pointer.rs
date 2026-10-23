@@ -4,27 +4,62 @@ use crate::{Action, AppState, Effect, MenuCursor, Overlay, Side, View, actions, 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pointer {
-    ActivityExpand { preview: bool, expand: bool },
+    ActivityExpand {
+        preview: bool,
+        expand: bool,
+    },
     ActivityHide,
     ActivitySearchField(usize),
-    ActivityRow { index: usize, open: bool, preview: bool },
+    ActivityRow {
+        index: usize,
+        open: bool,
+        preview: bool,
+    },
     ActivitySort(crate::ActivitySort),
-    ActivityControl { preview: bool, code: crossterm::event::KeyCode },
-    DockerExpand { details: bool, expand: bool },
+    ActivityControl {
+        preview: bool,
+        code: crossterm::event::KeyCode,
+    },
+    DockerExpand {
+        details: bool,
+        expand: bool,
+    },
     DockerHide,
-    DockerRow { index: usize, open: bool },
-    DockerControl { details: bool, code: crossterm::event::KeyCode },
+    DockerRow {
+        index: usize,
+        open: bool,
+    },
+    DockerControl {
+        details: bool,
+        code: crossterm::event::KeyCode,
+    },
     DockerShellScroll(isize),
-    TreeNode { side: Side, index: usize },
-    PromptField { option: bool },
-    ResultControl { side: Side, action: Action },
-    Collection { index: usize, open: bool },
+    TreeNode {
+        side: Side,
+        index: usize,
+    },
+    PromptField {
+        option: bool,
+    },
+    ResultControl {
+        side: Side,
+        action: Action,
+    },
+    Collection {
+        index: usize,
+        open: bool,
+    },
     CollectionScroll(isize),
     NewCollection,
     SearchField(usize),
     SearchStart,
     Confirm(bool),
-    ResultSort { side: Side, key: crate::SortKey },
+    /// The mouse wheel over the approval dialog or the agent log.
+    DialogScroll(isize),
+    ResultSort {
+        side: Side,
+        key: crate::SortKey,
+    },
     Action(Action),
     Menu(usize),
     MenuItem(usize),
@@ -33,8 +68,16 @@ pub enum Pointer {
     FocusPreview,
     Setting(usize),
     ScrollDocument(isize),
-    Panel { side: Side, index: usize, open: bool, mark: bool },
-    ScrollPanel { side: Side, delta: isize },
+    Panel {
+        side: Side,
+        index: usize,
+        open: bool,
+        mark: bool,
+    },
+    ScrollPanel {
+        side: Side,
+        delta: isize,
+    },
 }
 
 pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
@@ -166,7 +209,11 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
             state.preview_focused = false;
             return actions::perform(state, action, now);
         }
-        (Pointer::Confirm(accept), Some(Overlay::Confirm(_))) => {
+        (Pointer::DialogScroll(delta), Some(Overlay::Approval(_) | Overlay::AgentLog { .. })) => {
+            crate::agent::scroll_dialog(state, delta);
+            return Vec::new();
+        }
+        (Pointer::Confirm(accept), Some(Overlay::Confirm(_) | Overlay::Approval(_))) => {
             return crate::overlays::on_key(
                 state,
                 &crossterm::event::KeyCode::Char(if accept { 'y' } else { 'n' }).into(),

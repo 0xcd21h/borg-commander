@@ -137,6 +137,8 @@ pub enum Effect {
         id: u64,
         approved: bool,
     },
+    /// Puts text on the clipboard of the computer the user sits at, through the terminal.
+    Copy(String),
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,

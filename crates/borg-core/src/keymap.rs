@@ -18,6 +18,7 @@ pub enum Action {
     DockerFiles,
     DockerShell,
     AgentLog,
+    ConnectClaude,
     Search,
     AnalyzeSpace,
     FolderTree,
@@ -160,7 +161,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('r'), ALT, Action::BackResults, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
     bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
-    bind(KeyCode::Char('b'), ALT, Action::Collect, Scope::Panels),
+    // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.
+    bind(KeyCode::Char('k'), ALT, Action::Collect, Scope::Panels),
     bind(KeyCode::Char('v'), ALT, Action::OpenCollection, Scope::Panels),
     bind(KeyCode::Char('w'), ALT, Action::ToggleExpanded, Scope::Panels),
     labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), tr!(help)),

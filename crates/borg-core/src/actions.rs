@@ -105,11 +105,8 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
         Action::DockerShell => crate::docker::open_shell(state, now),
-        Action::AgentLog if !state.settings.preferences.agent_log => {
-            state.notice = Some(tr!(agent_log_off).into());
-            Vec::new()
-        }
-        Action::AgentLog => state.agent.log.clone().map(|log| vec![Effect::View(log)]).unwrap_or_default(),
+        Action::AgentLog => crate::agent::open_log(state),
+        Action::ConnectClaude => crate::agent::open_connect(state),
         Action::DockerFilter => {
             crate::docker::filter(state);
             Vec::new()
@@ -124,6 +121,9 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::ToggleAgentLog => {
             state.settings.preferences.agent_log = !state.settings.preferences.agent_log;
+            if !state.settings.preferences.agent_log {
+                state.agent.log.clear();
+            }
             vec![Effect::SaveConfig]
         }
         Action::Search

@@ -18,7 +18,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, ThreadKind, UpdateKind};
 use tokio::{io::AsyncReadExt, process::Command, sync::mpsc::UnboundedSender, task::JoinHandle};
 mod process_files;
 
@@ -62,6 +62,8 @@ impl Sampler {
             .system
             .processes()
             .values()
+            // On Linux each thread of a process is listed too, with the whole process's memory.
+            .filter(|p| p.thread_kind() != Some(ThreadKind::Userland))
             .map(|p| {
                 let key = ProcessKey { pid: p.pid().as_u32(), start: p.start_time() };
                 let sampled = elapsed.filter(|_| self.seen.contains(&key));

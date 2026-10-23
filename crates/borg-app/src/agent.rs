@@ -2,24 +2,28 @@
 //!
 //! `borg mcp` is the MCP server an agent starts, usually over SSH (`ssh host borg mcp`): it
 //! speaks MCP on stdin and stdout and relays tool calls to the running session through a
-//! Unix socket in an owner-only folder. The session answers what the user sees, shows paths
-//! in a panel, and runs commands only after the user approves them; every call is logged.
+//! Unix socket in an owner-only folder. The session answers what the user sees, reads and
+//! shows paths on this machine or in containers, and runs commands and changes files only
+//! after the user approves them.
+
+mod files;
+mod location;
 
 use std::{
     collections::HashMap,
     fmt::Write as _,
-    io,
     os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
 use borg_core::{AgentEvent, AppState, Console, Msg, Row, Side};
+use borg_i18n::tr;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
@@ -32,15 +36,14 @@ use tokio::{
     },
 };
 
-const AGENT_DIR: &str = "agent";
+pub use files::{Spot, diff, is_folder, load, parse_lines, read, whole};
+pub use location::{DOCKER_SCHEME, Location};
+
 const SOCKET_PREFIX: &str = "session-";
 const SOCKET_SUFFIX: &str = ".sock";
 const OWNER_ONLY: u32 = 0o700;
-const PRIVATE_FILE: u32 = 0o600;
 const OTHERS: u32 = 0o077;
 const LIST_LIMIT: usize = 500;
-pub const READ_DEFAULT: u64 = 32 * 1024;
-const READ_LIMIT: u64 = 128 * 1024;
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL: &str = "2025-06-18";
@@ -67,11 +70,6 @@ impl Reply {
     pub fn error(text: impl Into<String>) -> Self {
         Self { ok: false, text: text.into() }
     }
-}
-
-/// The folder for agent logs, created owner-only.
-fn agent_dir(runtime_dir: &Path) -> Result<PathBuf> {
-    owner_only(&runtime_dir.join(AGENT_DIR))
 }
 
 /// Unix socket paths are short (104 bytes on macOS), so sockets live in a short folder of
@@ -110,6 +108,56 @@ fn hostname() -> String {
     rustix::system::uname().nodename().to_string_lossy().into_owned()
 }
 
+/// How Claude reaches this borg, for the Connect dialog: the program by a path that stays
+/// put across upgrades, and over SSH, the address and user the user came in with.
+pub fn connect_info() -> borg_core::ConnectInfo {
+    let ssh = std::env::var("SSH_CONNECTION").ok().and_then(|connection| {
+        // "client-address client-port server-address server-port"
+        let parts: Vec<&str> = connection.split_whitespace().collect();
+        let (address, port) = (*parts.get(2)?, *parts.get(3)?);
+        let user = std::env::var("USER").or_else(|_| std::env::var("LOGNAME")).ok().filter(|user| !user.is_empty());
+        let user = user.map_or_else(String::new, |user| format!("{user}@"));
+        Some(if port == "22" {
+            format!("{user}{address}")
+        } else if address.contains(':') {
+            format!("ssh://{user}[{address}]:{port}")
+        } else {
+            format!("ssh://{user}{address}:{port}")
+        })
+    });
+    let name = match &ssh {
+        Some(_) => {
+            let host = hostname();
+            let short: String = host
+                .split('.')
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+                .collect();
+            if short.is_empty() { "borg".to_owned() } else { format!("borg-{short}") }
+        }
+        None => "borg".to_owned(),
+    };
+    borg_core::ConnectInfo { name, program: program_path(), ssh }
+}
+
+/// This program's path, preferring the one on `PATH` that leads to it, since a package
+/// manager's versioned folder changes with each upgrade.
+fn program_path() -> String {
+    let exe = std::env::current_exe().ok();
+    let real = exe.as_ref().and_then(|exe| std::fs::canonicalize(exe).ok());
+    if let (Some(path), Some(real)) = (std::env::var_os("PATH"), &real) {
+        for dir in std::env::split_paths(&path).filter(|dir| dir.is_absolute()) {
+            let candidate = dir.join("borg");
+            if std::fs::canonicalize(&candidate).ok().as_ref() == Some(real) {
+                return candidate.display().to_string();
+            }
+        }
+    }
+    exe.map_or_else(|| "borg".to_owned(), |exe| exe.display().to_string())
+}
+
 /// The running session's side: it accepts `borg mcp` connections and hands their calls to
 /// the app, which answers them with what it knows.
 pub struct Agent {
@@ -117,47 +165,100 @@ pub struct Agent {
     /// For calls that come back once something they need is known, such as a container.
     requeue: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     socket: Option<PathBuf>,
-    pub log: Log,
-    waiting: HashMap<u64, (oneshot::Sender<Reply>, String, Target)>,
+    messages: UnboundedSender<Msg>,
+    waiting: HashMap<u64, (oneshot::Sender<Reply>, Work)>,
     next_id: u64,
+}
+
+/// What an agent asked to do, waiting for the user's approval.
+#[derive(Debug, Clone)]
+pub enum Work {
+    Run {
+        command: String,
+        target: Target,
+    },
+    /// Replaces a file's text with `after`; `before` is what the file held when the change
+    /// was shown, `None` for a new file.
+    Write {
+        spot: Spot,
+        before: Option<String>,
+        after: String,
+    },
 }
 
 /// Where an agent's command runs.
 #[derive(Debug, Clone)]
 pub enum Target {
+    /// On this machine, in a folder.
     Host(PathBuf),
-    /// A container's shell in borg, by id and name.
-    Container(String, String),
+    /// In a container's shell in borg, by id and name, in a folder when one was named.
+    Container { id: String, name: String, dir: Option<PathBuf> },
 }
 
-/// An approved command, handed back to the app to run.
+/// An approved ask, handed back to the app to carry out.
 pub struct Approved {
     pub id: u64,
     pub reply: oneshot::Sender<Reply>,
+    pub work: Work,
+}
+
+/// A command typed into a shell for an agent: `line` is what is typed, `command` what the
+/// agent asked for.
+pub struct Typed {
+    pub id: u64,
+    pub reply: oneshot::Sender<Reply>,
+    pub line: String,
     pub command: String,
-    pub target: Target,
+    pub place: String,
+}
+
+impl Typed {
+    /// Answers with the command's exit status and output, notes it in the log, and tells
+    /// the session it is done.
+    pub fn finish(self, exit: Option<i32>, output: &str, messages: &UnboundedSender<Msg>) {
+        let status = exit.map_or_else(|| "finished".to_owned(), |code| format!("exit {code}"));
+        note(messages, &format!("ran in {}\n$ {}\n[{status}]", self.place, self.command));
+        let _ = self.reply.send(Reply { ok: exit.is_none_or(|code| code == 0), text: format!("{status}\n{output}") });
+        let notice = match exit {
+            Some(code) => format!(tr!(agent_ran), command = self.command, code = code),
+            None => format!(tr!(agent_stopped), command = self.command),
+        };
+        let _ = messages.send(Msg::Agent(AgentEvent::Finished { id: self.id, notice }));
+    }
+
+    /// Answers that the command did not run.
+    pub fn fail(self, text: &str, messages: &UnboundedSender<Msg>) {
+        let _ = self.reply.send(Reply::error(text));
+        let notice = format!(tr!(agent_stopped), command = self.command);
+        let _ = messages.send(Msg::Agent(AgentEvent::Finished { id: self.id, notice }));
+    }
+}
+
+/// Adds an entry, with the time, to the log of what agents did; the session keeps it in
+/// memory while the user wants a log.
+fn note(messages: &UnboundedSender<Msg>, entry: &str) {
+    let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
+    let _ = messages.send(Msg::Agent(AgentEvent::Note(format!("{time}  {entry}"))));
 }
 
 impl Agent {
-    pub fn start(runtime_dir: &Path, messages: UnboundedSender<Msg>, logging: bool) -> Self {
+    pub fn start(runtime_dir: &Path, messages: UnboundedSender<Msg>) -> Self {
         let (calls, incoming) = unbounded_channel();
         let pid = std::process::id();
-        let path = agent_dir(runtime_dir).map_or_else(|_| PathBuf::new(), |dir| dir.join(format!("log-{pid}.txt")));
-        let log = Log { path, on: Arc::new(AtomicBool::new(logging)) };
         let socket = socket_dir(runtime_dir).ok().and_then(|dir| {
             let socket = dir.join(format!("{SOCKET_PREFIX}{pid}{SOCKET_SUFFIX}"));
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            tokio::spawn(accept(listener, calls.clone(), messages, log.clone()));
+            tokio::spawn(accept(listener, calls.clone(), messages.clone()));
             Some(socket)
         });
-        Self { incoming, requeue: calls, socket, log, waiting: HashMap::new(), next_id: 0 }
+        Self { incoming, requeue: calls, socket, messages, waiting: HashMap::new(), next_id: 0 }
     }
 
     /// Adds an entry to the log of what agents did.
     pub fn note(&self, entry: &str) {
-        self.log.write(&format!("{entry}\n\n"));
+        note(&self.messages, entry);
     }
 
     /// Where a call comes back once something it needs is known.
@@ -165,51 +266,95 @@ impl Agent {
         self.requeue.clone()
     }
 
-    /// Notes a command waiting for the user's answer.
-    pub fn ask(&mut self, reply: oneshot::Sender<Reply>, command: String, target: Target) -> u64 {
+    /// Notes an ask waiting for the user's answer.
+    pub fn ask(&mut self, reply: oneshot::Sender<Reply>, work: Work) -> u64 {
         self.next_id += 1;
-        self.waiting.insert(self.next_id, (reply, command, target));
+        self.waiting.insert(self.next_id, (reply, work));
         self.next_id
     }
 
-    /// Takes an answered command: an approved one is returned to run, a declined one is
+    /// Takes an answered ask: an approved one is returned to carry out, a declined one is
     /// answered here.
     pub fn answer(&mut self, id: u64, approved: bool) -> Option<Approved> {
-        let (reply, command, target) = self.waiting.remove(&id)?;
+        let (reply, work) = self.waiting.remove(&id)?;
         if approved {
-            return Some(Approved { id, reply, command, target });
+            return Some(Approved { id, reply, work });
         }
-        self.note(&format!("declined in {}\n$ {command}", place(&target)));
-        let _ = reply.send(Reply::error("The user declined to run this command."));
+        let what = match &work {
+            Work::Run { command, target } => format!("declined in {}\n$ {command}", place(target)),
+            Work::Write { spot, before, .. } => {
+                format!("declined {} {}", if before.is_some() { "editing" } else { "creating" }, spot.uri())
+            }
+        };
+        self.note(&what);
+        let _ = reply.send(Reply::error("The user declined this."));
         None
     }
 
-    /// Runs an approved host command and answers with its output.
-    pub fn run_on_host(&self, approved: Approved, dir: PathBuf, messages: UnboundedSender<Msg>) {
-        let Approved { id, reply, command, .. } = approved;
-        let log = self.log.clone();
+    /// Runs a command on this machine in the background, for a console that cannot take it
+    /// (a shell without Borg's integration, or a container's console), and answers with its
+    /// output, which the log keeps since no terminal shows it.
+    pub fn run_in_background(&self, id: u64, reply: oneshot::Sender<Reply>, command: String, dir: PathBuf) {
+        let messages = self.messages.clone();
         tokio::spawn(async move {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
-            log.write(&format!("ran in {}\n$ {command}\n{output}[{status}]\n\n", dir.display()));
+            note(&messages, &format!("ran in {}\n$ {command}\n{output}[{status}]", home_relative(&dir)));
             let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
-            let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, command, exit }));
+            let notice = match exit {
+                Some(code) => format!(tr!(agent_ran), command = command, code = code),
+                None => format!(tr!(agent_stopped), command = command),
+            };
+            let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, notice }));
         });
+    }
+
+    /// Writes an approved change, unless the file changed while the user looked at it.
+    pub fn write(&self, id: u64, reply: oneshot::Sender<Reply>, spot: Spot, before: Option<String>, after: String) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let uri = spot.uri();
+            let result = async {
+                let now = files::load(&spot).await?;
+                if now != before {
+                    bail!("{uri} changed while the user was deciding; read it again");
+                }
+                files::store(&spot, &after).await
+            }
+            .await;
+            let (reply_text, notice) = match &result {
+                Ok(()) => {
+                    let lines = after.lines().count();
+                    let done = if before.is_some() { "Edited" } else { "Created" };
+                    note(&messages, &format!("{} {uri}", done.to_lowercase()));
+                    (format!("{done} {uri} ({lines} lines)"), format!(tr!(agent_wrote), path = uri))
+                }
+                Err(error) => (format!("{error:#}"), format!(tr!(agent_write_failed), path = uri)),
+            };
+            let _ = reply.send(Reply { ok: result.is_ok(), text: reply_text });
+            let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, notice }));
+        });
+    }
+}
+
+/// A folder on this machine, with the home folder as `~`.
+pub fn home_relative(dir: &Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from).filter(|home| home.as_os_str().len() > 1);
+    match home.and_then(|home| dir.strip_prefix(home).ok().map(Path::to_path_buf)) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => dir.display().to_string(),
     }
 }
 
 /// Where a command runs, for the log and the user's question.
 pub fn place(target: &Target) -> String {
     match target {
-        Target::Host(dir) => {
-            let home = std::env::var_os("HOME").map(PathBuf::from).filter(|home| home.as_os_str().len() > 1);
-            match home.and_then(|home| dir.strip_prefix(home).ok().map(Path::to_path_buf)) {
-                Some(rest) if rest.as_os_str().is_empty() => "~".into(),
-                Some(rest) => format!("~/{}", rest.display()),
-                None => dir.display().to_string(),
-            }
+        Target::Host(dir) => home_relative(dir),
+        Target::Container { name, dir: None, .. } => format!(tr!(agent_container_place), name = name),
+        Target::Container { name, dir: Some(dir), .. } => {
+            format!(tr!(agent_container_folder_place), dir = dir.display(), name = name)
         }
-        Target::Container(_, name) => format!(borg_i18n::tr!(agent_container_place), name = name),
     }
 }
 
@@ -273,21 +418,6 @@ fn strip_escapes(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// A path without `.` and with `..` applied, so the agent reads back the path it means.
-fn clean(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
-}
-
 /// The containers, for an agent to choose one.
 pub async fn containers() -> Reply {
     match borg_docker::list().await {
@@ -323,36 +453,6 @@ impl Drop for Agent {
         if let Some(socket) = &self.socket {
             let _ = std::fs::remove_file(socket);
         }
-        let _ = std::fs::remove_file(&self.log.path);
-    }
-}
-
-/// The log of what agents did in this session: readable only by its owner, written only
-/// while the user keeps it, and removed when Borg exits.
-#[derive(Clone)]
-pub struct Log {
-    path: PathBuf,
-    on: Arc<AtomicBool>,
-}
-
-impl Log {
-    /// Follows the user's setting; turning the log off removes what it has.
-    pub fn keep(&self, on: bool) {
-        if self.on.swap(on, Ordering::SeqCst) && !on {
-            let _ = std::fs::remove_file(&self.path);
-        }
-    }
-
-    fn write(&self, entry: &str) {
-        use std::{io::Write as _, os::unix::fs::OpenOptionsExt};
-        if !self.on.load(Ordering::SeqCst) {
-            return;
-        }
-        let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
-        let file = std::fs::OpenOptions::new().create(true).append(true).mode(PRIVATE_FILE).open(&self.path);
-        if let Ok(mut file) = file {
-            let _ = write!(file, "── {time} {entry}");
-        }
     }
 }
 
@@ -360,19 +460,18 @@ async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
-    log: Log,
 ) {
     let clients = Arc::new(AtomicUsize::new(0));
     while let Ok((stream, _)) = listener.accept().await {
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
-        let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count, log: log.path.clone() }));
-        log.write("an agent connected\n\n");
-        let (calls, messages, clients, log) = (calls.clone(), messages.clone(), clients.clone(), log.clone());
+        let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
+        note(&messages, "an agent connected");
+        let (calls, messages, clients) = (calls.clone(), messages.clone(), clients.clone());
         tokio::spawn(async move {
             let _ = serve_connection(stream, &calls).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
-            let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count, log: log.path.clone() }));
-            log.write("an agent disconnected\n\n");
+            let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
+            note(&messages, "an agent disconnected");
         });
     }
 }
@@ -425,16 +524,13 @@ async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
     }
 }
 
-/// What the user sees, in words an agent can use.
+/// What the user sees, in words an agent can use. Panels show as locations, which every
+/// tool takes as they are.
 pub fn screen(state: &AppState) -> String {
     let mut text = format!("Borg on {}\nActive panel: {}\n", hostname(), side_name(state.active));
     for side in Side::ALL {
         let panel = state.panel(side);
-        let place = match &panel.mount {
-            Some(mount) => format!("container {} filesystem, {}", mount.name, panel.dir().display()),
-            None => panel.dir().display().to_string(),
-        };
-        let _ = writeln!(text, "{} panel: {place}", side_name(side));
+        let _ = writeln!(text, "{} panel: {}", side_name(side), panel_location(state, side));
         match panel.hovered() {
             Some(Row::Entry(entry)) => drop(writeln!(text, "  highlighted: {}", entry.name)),
             Some(Row::Parent) => drop(writeln!(text, "  highlighted: .. (the parent folder)")),
@@ -448,7 +544,7 @@ pub fn screen(state: &AppState) -> String {
     }
     let console = match &state.console {
         Console::Host => format!("host shell in {}", state.shell.cwd.display()),
-        Console::Container(_) => format!("container {}", state.console_container().unwrap_or_default()),
+        Console::Container(_) => format!("the {} container's shell", state.console_container().unwrap_or_default()),
     };
     let _ = writeln!(text, "Command line: {console}");
     let shells: Vec<&str> = state.docker.shells.iter().map(|shell| shell.name.as_str()).collect();
@@ -472,14 +568,23 @@ fn side_name(side: Side) -> &'static str {
     }
 }
 
-/// A path from an agent, relative to the active panel's folder unless absolute.
-pub fn resolve(state: &AppState, path: &str) -> PathBuf {
-    let path = Path::new(path);
-    clean(&if path.is_absolute() { path.to_path_buf() } else { host_dir(state).join(path) })
+/// Where a panel is: a folder on this machine, or in a container's filesystem.
+pub fn panel_location(state: &AppState, side: Side) -> Location {
+    let panel = state.panel(side);
+    match &panel.mount {
+        Some(mount) => Location::Container { container: mount.name.clone(), path: panel.dir().to_path_buf() },
+        None => Location::Host(panel.dir().to_path_buf()),
+    }
 }
 
-/// Where an agent's commands run: the active panel's folder, or the other panel's while the
-/// active one shows a container, since commands run on this machine.
+/// A location an agent wrote, relative to the active panel unless it says otherwise.
+pub fn locate(state: &AppState, text: &str) -> Location {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    Location::parse(text, &panel_location(state, state.active), home.as_deref())
+}
+
+/// Where an agent's commands run on this machine without a folder of their own: the active
+/// panel's folder, or the other panel's while the active one shows a container.
 pub fn host_dir(state: &AppState) -> PathBuf {
     [state.active, state.active.other()]
         .into_iter()
@@ -488,73 +593,29 @@ pub fn host_dir(state: &AppState) -> PathBuf {
         .map_or_else(|| state.shell.cwd.clone(), |panel| panel.dir().to_path_buf())
 }
 
-pub fn list_folder(dir: &Path) -> Reply {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) => return Reply::error(format!("{}: {error}", dir.display())),
-    };
-    let mut lines: Vec<String> = entries
-        .filter_map(Result::ok)
-        .map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            match entry.metadata() {
-                Ok(meta) if meta.is_dir() => format!("{name}/"),
-                Ok(meta) => format!("{name}  {} bytes", meta.len()),
-                Err(_) => name,
-            }
-        })
-        .collect();
-    lines.sort();
-    let total = lines.len();
-    lines.truncate(LIST_LIMIT);
-    let more = if total > LIST_LIMIT { format!("\n… and {} more", total - LIST_LIMIT) } else { String::new() };
-    Reply::ok(format!("{} ({total} entries)\n{}{more}", dir.display(), lines.join("\n")))
-}
-
-pub fn read_file(path: &Path, offset: u64, limit: u64) -> Reply {
-    use std::io::{Read, Seek, SeekFrom};
-    let limit = limit.clamp(1, READ_LIMIT);
-    let read = || -> io::Result<(Vec<u8>, u64)> {
-        let mut file = std::fs::File::open(path)?;
-        let size = file.metadata()?.len();
-        file.seek(SeekFrom::Start(offset))?;
-        let mut bytes = Vec::new();
-        file.take(limit).read_to_end(&mut bytes)?;
-        Ok((bytes, size))
-    };
-    match read() {
-        Ok((bytes, size)) if bytes.contains(&0) => Reply::ok(format!("{} is binary ({size} bytes)", path.display())),
-        Ok((bytes, size)) => {
-            let end = offset + bytes.len() as u64;
-            let range =
-                if offset > 0 || end < size { format!(" (bytes {offset}–{end} of {size})") } else { String::new() };
-            Reply::ok(format!("{}{range}\n{}", path.display(), String::from_utf8_lossy(&bytes)))
-        }
-        Err(error) => Reply::error(format!("{}: {error}", path.display())),
-    }
-}
-
 /// The tools `borg mcp` offers, as MCP describes them: few and general. The agent looks with
 /// `screen` and `read` without asking, puts things in front of the user with `show`, and
-/// changes anything only through `run`, which waits for the user's approval.
+/// changes anything only through `write`, `edit` and `run`, which wait for the user's approval.
 fn tools() -> Value {
+    const LOCATIONS: &str = "A location is an absolute path on the machine Borg runs on, ~/… for its home folder, docker://CONTAINER/path inside a container (by name, Compose service or id), or a path relative to the active panel's folder, wherever that panel is. `screen` names the panels this way.";
     let read_only = json!({ "readOnlyHint": true });
     json!([
         {
             "name": "screen",
-            "description": "What the user sees in Borg right now: both panels' folders (or a container's filesystem), the highlighted and marked files, which panel is active, where the command line runs, container shells open in Borg, and an open Docker view or activity monitor.",
+            "description": "What the user sees in Borg right now: both panels' locations, the highlighted and marked files, which panel is active, where the command line runs, container shells open in Borg, and an open Docker view or activity monitor.",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": read_only,
         },
         {
             "name": "read",
-            "description": "Reads on the machine Borg runs on, without asking the user. With `path`: a folder's entries, or a text file, up to 128 KiB from `offset` (relative paths start at the active panel's folder). With `source` \"processes\": the `limit` (default 40) busiest processes, as Borg's activity monitor shows them, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project.",
+            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. {LOCATIONS}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
+                    "lines": { "type": "string" },
+                    "find": { "type": "string" },
                     "source": { "type": "string", "enum": ["processes", "containers"] },
-                    "offset": { "type": "integer", "minimum": 0 },
                     "limit": { "type": "integer", "minimum": 1 },
                     "sort": { "type": "string", "enum": ["memory", "cpu"] }
                 }
@@ -563,24 +624,56 @@ fn tools() -> Value {
         },
         {
             "name": "show",
-            "description": "Shows a file or folder to the user in Borg's other panel: a folder opens, a file is selected in its folder. The user's active panel stays where it is. Answers once the panel shows it.",
+            "description": format!("Shows a location to the user in Borg's other panel: a folder opens, a file is selected in its folder. The user's active panel stays where it is. Answers once the panel shows it. {LOCATIONS}"),
             "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
         },
         {
-            "name": "run",
-            "description": "Runs a shell command after the user approves it in Borg, and returns its exit status and output. Without `container`: on the machine Borg runs on, with sh, in `cwd` or the active panel's folder; stops after 10 minutes. With `container` (a name, Compose service or id): typed into that container's shell in Borg, which opens the Docker view on it so the user watches; the shell keeps its folder and variables between commands. Explain what you run and why: the user sees each command before it runs.",
+            "name": "write",
+            "description": format!("Creates a text file, or replaces all of one, with `content`, after the user approves it in Borg: they see the new file, or the change as a diff. The folder must exist. For a small change to an existing file, use edit. {LOCATIONS}"),
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string" }, "content": { "type": "string" } },
+                "required": ["path", "content"]
+            },
+            "annotations": { "destructiveHint": true },
+        },
+        {
+            "name": "edit",
+            "description": format!("Replaces the text `old` in a file with `new`, after the user approves the diff in Borg. `old` must match the file exactly, spaces and line breaks included, and only once, unless `all` replaces every match; read the file first and include enough surrounding lines to make it unique. {LOCATIONS}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string" },
-                    "container": { "type": "string" },
-                    "cwd": { "type": "string" }
+                    "path": { "type": "string" },
+                    "old": { "type": "string" },
+                    "new": { "type": "string" },
+                    "all": { "type": "boolean" }
                 },
+                "required": ["path", "old", "new"]
+            },
+            "annotations": { "destructiveHint": true },
+        },
+        {
+            "name": "run",
+            "description": "Runs a shell command after the user approves it in Borg, and returns its exit status and output. It is typed into a shell the user watches: Borg's own command line on the machine Borg runs on, or with `at` set to docker://CONTAINER (or docker://CONTAINER/folder) that container's shell in Borg's Docker view. The shell keeps its folder and variables between commands; the user can answer prompts in it. `at` may also be a folder on the machine to run in. Explain what you run and why: the user sees each command before it runs. While the shell is busy (the user is typing, or a program runs), the command is refused; try again later.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "command": { "type": "string" }, "at": { "type": "string" } },
                 "required": ["command"]
             },
             "annotations": { "destructiveHint": true },
+        },
+        {
+            "name": "type",
+            "description": "Types `text` at the cursor of whatever runs in Borg's console (what Ctrl-O shows): the shell's command line, or an editor such as vim or nano. Nothing runs: Enter is never pressed, text with several lines goes in as a paste, and control keys are left out, so the user reviews the text, corrects it if needed, and runs or saves it. Use it to suggest a command the user runs, or to put a script into the editor the user has open. It is refused where the program there cannot take pasted text safely.",
+            "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
         }
     ])
+}
+
+/// Text an agent types, with every control character left out but line breaks and tabs, so
+/// nothing in it can end a paste or act as a key.
+pub fn typable(text: &str) -> String {
+    text.replace("\r\n", "\n").chars().filter(|&c| c == '\n' || c == '\t' || !c.is_control()).collect()
 }
 
 /// The `shown` busiest processes, by memory or CPU, with the machine's totals.
@@ -765,8 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn paths_lose_dots_and_containers_are_found_by_name_service_or_id() {
-        assert_eq!(clean(Path::new("/srv/app/./logs/../conf")), Path::new("/srv/app/conf"));
+    fn containers_are_found_by_name_service_or_id() {
         let container = |id: &str, name: &str, service: Option<&str>| borg_docker::Container {
             id: id.into(),
             name: name.into(),

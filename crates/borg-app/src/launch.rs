@@ -36,7 +36,7 @@ const TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// How often a running borg says it still uses the runtime folder.
 pub(crate) const TTL_REFRESH: Duration = Duration::from_secs(60 * 60);
 const TTL_NOTE: &str = "Borg Commander keeps the files of running sessions in this folder: shell integration
-scripts, folder requests for the shell, files copied out of containers, and agent logs.
+scripts, folder requests for the shell, and files copied out of containers.
 Every running borg moves the time above forward each hour. Once it has passed, no borg
 uses this folder and it can be removed.
 ";

@@ -195,19 +195,9 @@ pub struct Prompt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmPurpose {
-    Delete {
-        sources: Vec<PathBuf>,
-    },
+    Delete { sources: Vec<PathBuf> },
     Quit,
-    Docker {
-        action: borg_docker::Action,
-        ids: Vec<String>,
-    },
-    /// An agent's command waiting for the user's approval.
-    Agent {
-        id: u64,
-        command: String,
-    },
+    Docker { action: borg_docker::Action, ids: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,11 +218,23 @@ pub enum Overlay {
     Question(Question),
     Jobs(JobList),
     Themes(Picker),
-    Settings { selected: usize },
-    Plugins { selected: usize },
+    Settings {
+        selected: usize,
+    },
+    Plugins {
+        selected: usize,
+    },
     Menu(MenuCursor),
     Prompt(Prompt),
     Confirm(Confirm),
+    /// An agent's command, new file or edit, waiting for the user's approval.
+    Approval(crate::agent::Approval),
+    /// The log of what agents did; `scroll` is `None` while it follows the newest entries.
+    AgentLog {
+        scroll: Option<usize>,
+    },
+    /// How to connect Claude to this borg.
+    Connect(crate::agent::Connect),
 }
 
 #[derive(Debug, Clone)]

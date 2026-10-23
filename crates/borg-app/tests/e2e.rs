@@ -1248,7 +1248,7 @@ fn search_collect_preview_copy_remove_and_restore() -> Result<()> {
     app.send(keys::ctrl('t'))?;
     app.send(keys::ctrl('t'))?;
     app.wait_text("2 marked")?;
-    app.send(keys::alt(KeyCode::Char('b')))?;
+    app.send(keys::alt(KeyCode::Char('k')))?;
     app.wait_text("Collected in Collection")?;
     app.send(keys::tab())?;
     app.wait_text("Collection: Collection")?;
@@ -1635,6 +1635,11 @@ stats)
 inspect) echo '{"started":"2026-10-22T09:00:01Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":null,"restarts":0,"policy":"always","entrypoint":null,"cmd":["nginx"],"workdir":"","platform":"linux","mounts":[],"networks":{"shop_default":{"IPAddress":"172.18.0.4"}}}' ;;
 stop) touch "$here/stopped" ;;
 exec)
+    if [ "$2" = "-i" ]; then
+        # Writes a file in the container's filesystem, which lives in root/ beside this script.
+        sh -c "$6" sh "$here/root$8"
+        exit
+    fi
     if [ "$2" = "-it" ]; then
         # Run Borg's own start-up script with its environment, as a container would.
         shift 2
@@ -1660,6 +1665,7 @@ exec)
             shift 6
             for p; do if [ "$p" = /motd ]; then printf '12/1729600001//motd\n'; fi; done
             ;;
+        '[ -d'*) sh -c "$5" sh "$here/root$7" "$8" "$9" ;;
         esac
         ;;
     rm|mkdir) ;;
@@ -1915,7 +1921,7 @@ impl Drop for Mcp {
 }
 
 #[test]
-fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -> Result<()> {
+fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "agent")?;
     let mut mcp = Mcp::start(&fixture)?;
@@ -1923,13 +1929,13 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     ensure!(init["serverInfo"]["name"] == "borg", "{init}");
     let tools = mcp.request("tools/list", serde_json::json!({}))?;
     let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    ensure!(names == ["screen", "read", "show", "run"], "{names:?}");
+    ensure!(names == ["screen", "read", "show", "write", "edit", "run", "type"], "{names:?}");
     app.wait_text("Claude connected to Borg")?;
 
     let (error, screen) = mcp.call("screen", serde_json::json!({}))?;
     ensure!(!error && screen.contains("Active panel: left") && screen.contains("highlighted: .."), "{screen}");
     let (_, notes) = mcp.call("read", serde_json::json!({ "path": "notes.txt" }))?;
-    ensure!(notes.ends_with("hello\n"), "{notes}");
+    ensure!(notes.ends_with("lines 1–1 of 1\n     1\thello\n"), "{notes}");
     let (_, listing) = mcp.call("read", serde_json::json!({ "path": "alpha" }))?;
     ensure!(listing.contains("inner/") && listing.contains("one.txt  2 bytes"), "{listing}");
     let (_, here) = mcp.call("read", serde_json::json!({}))?;
@@ -1940,12 +1946,9 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
         .lines()
         .skip(2)
         .filter(|line| line.split_whitespace().next().is_some_and(|pid| pid.parse::<u32>().is_ok()));
-    ensure!(
-        !error && processes.starts_with("CPU ") && processes.contains("\nPID      CPU%") && rows.count() == 3,
-        "{processes}"
-    );
-    let (error, text) = mcp.call("read", serde_json::json!({ "source": "nothing" }))?;
-    ensure!(error && text.contains("no source nothing"), "{text}");
+    ensure!(!error && processes.starts_with("CPU ") && rows.count() == 3, "{processes}");
+    let (error, text) = mcp.call("read", serde_json::json!({ "path": "notes.txt", "lines": "x" }))?;
+    ensure!(error && text.contains("not like 120-180"), "{text}");
 
     mcp.call("show", serde_json::json!({ "path": "alpha/one.txt" }))?;
     let (_, screen) = mcp.call("screen", serde_json::json!({}))?;
@@ -1953,9 +1956,52 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
         screen.contains("right panel: ") && screen.contains("/work/alpha\n  highlighted: one.txt"),
         "the reveal is done when it answers:\n{screen}"
     );
-    app.wait_until("one.txt shown in the right panel", |s| s.contains("› alpha") && s.contains("one.txt"))?;
 
-    // The command waits for the user: n declines it, y runs it.
+    // A new file shows whole, scrolling through its lines, before the user approves it.
+    let content: String = (1..=100).map(|n| format!("step {n}\n")).collect();
+    let asking = std::thread::spawn(move || {
+        let created = mcp.call("write", serde_json::json!({ "path": "plan.txt", "content": content }));
+        (mcp, created)
+    });
+    app.wait_text("Claude wants to create")?;
+    app.wait_text("of 100")?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_text("100 + step 100")?;
+    app.send("y")?;
+    let (mut mcp, created) = asking.join().unwrap();
+    let (error, text) = created?;
+    ensure!(!error && text.contains("Created") && text.contains("plan.txt (100 lines)"), "{text}");
+    ensure!(fs::read_to_string(fixture.work().join("plan.txt"))?.ends_with("step 100\n"));
+
+    // An edit shows as a diff; one whose text is not in the file fails without asking.
+    let (error, text) = mcp.call("edit", serde_json::json!({ "path": "plan.txt", "old": "step 999", "new": "x" }))?;
+    ensure!(error && text.contains("was not found"), "{text}");
+    let (error, text) = mcp.call("edit", serde_json::json!({ "path": "plan.txt", "old": "step 5", "new": "x" }))?;
+    ensure!(error && text.contains("matches 11 places"), "{text}");
+    let asking = std::thread::spawn(move || {
+        let edited =
+            mcp.call("edit", serde_json::json!({ "path": "plan.txt", "old": "step 50\n", "new": "step fifty\n" }));
+        (mcp, edited)
+    });
+    app.wait_text("Claude wants to edit")?;
+    app.wait_until("the diff", |s| s.contains("50 - step 50") && s.contains("50 + step fifty"))?;
+    app.send("y")?;
+    let (mut mcp, edited) = asking.join().unwrap();
+    ensure!(!edited?.0, "the edit is written");
+    ensure!(fs::read_to_string(fixture.work().join("plan.txt"))?.contains("step 49\nstep fifty\nstep 51\n"));
+
+    // Typed text waits at the prompt: only the user's Enter runs it.
+    let (error, text) = mcp.call("type", serde_json::json!({ "text": "touch typed-by-claude" }))?;
+    ensure!(!error && text.contains("nothing ran"), "{text}");
+    app.wait_until("the text at the prompt", |s| prompt(s).contains("touch typed-by-claude"))?;
+    app.pump(std::time::Duration::from_millis(300))?;
+    ensure!(!fixture.work().join("typed-by-claude").exists(), "typing runs nothing");
+    app.send(keys::enter())?;
+    app.wait_until("the user ran it", |_| fixture.work().join("typed-by-claude").exists())?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("6 items")?;
+
+    // A command waits for the user: n declines it, y types it into Borg's console.
     let mut declined = Mcp::start(&fixture)?;
     declined.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
     let asking = std::thread::spawn(move || declined.call("run", serde_json::json!({ "command": "touch nope" })));
@@ -1965,63 +2011,39 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     ensure!(error && text.contains("declined") && !fixture.work().join("nope").exists(), "{text}");
 
     let asking = std::thread::spawn(move || {
-        mcp.call("run", serde_json::json!({ "command": "echo from-claude > made.txt; echo done" }))
+        mcp.call("run", serde_json::json!({ "command": "echo from-claude > made.txt; echo done-$((6*7))" }))
     });
-    app.wait_text("echo from-claude > made.txt; echo done")?;
+    app.wait_text("echo from-claude > made.txt; echo done-$((6*7))")?;
     app.send("y")?;
     let (error, text) = asking.join().unwrap()?;
-    ensure!(!error && text.starts_with("exit 0") && text.contains("done"), "{text}");
+    ensure!(!error && text == "exit 0\ndone-42\n", "{text:?}");
     ensure!(fs::read_to_string(fixture.work().join("made.txt"))? == "from-claude\n");
-    app.wait_text("Claude ran echo from-claude")?;
-    app.wait_text("made.txt")?;
-
-    let agents = fixture.runtime().join("borg-commander").join("agent");
-    let log =
-        fs::read_dir(&agents)?.filter_map(Result::ok).find(|e| e.file_name().to_string_lossy().starts_with("log-"));
-    let log_file = log.expect("a log").path();
-    let log = fs::read_to_string(&log_file)?;
-    for entry in
-        ["looked at the screen", "read ", "read the processes", "showed ", "declined", "$ touch nope", "ran in", "done"]
-    {
-        ensure!(log.contains(entry), "the log records everything: no {entry:?} in\n{log}");
-    }
-
-    // Only the user can read the session's folder and the log, and the TTL file says until
-    // when the folder is in use.
-    let runtime = fixture.runtime().join("borg-commander");
-    let mode =
-        |path: &Path| fs::metadata(path).map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o777);
-    ensure!(mode(&runtime)? == 0o700 && mode(&agents)? == 0o700 && mode(&log_file)? == 0o600);
-    let ttl = fs::read_to_string(runtime.join("TTL"))?;
-    ensure!(ttl.contains("can be removed"), "{ttl}");
-
-    app.send(keys::f(10))?;
-    app.wait_text("Quit Borg Commander?")?;
-    app.send("y")?;
-    app.wait_exit()?;
-    ensure!(!log_file.exists(), "the log goes when Borg exits");
+    app.wait_until("the command ran in the console the user sees", |s| {
+        s.contains(" echo from-claude > made.txt") && s.contains("done-42")
+    })?;
     Ok(())
 }
 
 #[test]
-fn with_the_claude_log_off_nothing_is_written() -> Result<()> {
+fn the_connect_dialog_copies_a_command_that_starts_claude_on_this_borg() -> Result<()> {
     let fixture = fixture()?;
-    fixture.configure("return-to-panels = false\n[plugins]\nagent-log = false\n")?;
-    let _app = start(&fixture, "agent-no-log")?;
-    let mut mcp = Mcp::start(&fixture)?;
-    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
-    let (error, screen) = mcp.call("screen", serde_json::json!({}))?;
-    ensure!(!error && screen.contains("Active panel"), "{screen}");
-    let agents = fixture.runtime().join("borg-commander").join("agent");
-    let logs = fs::read_dir(&agents)?.filter_map(Result::ok).count();
-    ensure!(logs == 0, "{logs} logs in {}", agents.display());
+    let mut app = start(&fixture, "agent-connect")?;
+    app.send(keys::f(1))?;
+    app.wait_text("C  Connect Claude to this borg")?;
+    app.send("c")?;
+    app.wait_text("Start Claude Code connected to this borg")?;
+    app.wait_text("claude --mcp-config")?;
+    app.send(keys::enter())?;
+    app.wait_text("Copied; paste it into a terminal on your computer")?;
     Ok(())
 }
 
 #[test]
-fn an_agent_works_in_a_container_shell_the_user_watches() -> Result<()> {
+fn an_agent_edits_container_files_and_works_in_a_container_shell_the_user_watches() -> Result<()> {
     let fixture = fixture()?;
     let bin = fake_docker(&fixture)?;
+    fs::create_dir_all(bin.join("root/etc"))?;
+    fs::write(bin.join("root/etc/app.conf"), "name = shop\nport = 80\n")?;
     let mut app = Session::builder(BORG, &fixture).path(&bin).size(130, 30).label("agent-docker").spawn()?;
     app.wait_text(READY)?;
     let mut mcp = Mcp::start_with_path(&fixture, &bin)?;
@@ -2029,12 +2051,29 @@ fn an_agent_works_in_a_container_shell_the_user_watches() -> Result<()> {
     let (_, containers) = mcp.call("read", serde_json::json!({ "source": "containers" }))?;
     ensure!(containers.contains("shop-web-1") && containers.contains("Running"), "{containers}");
 
+    let (error, text) = mcp.call("read", serde_json::json!({ "path": "docker://web/etc/app.conf", "find": "port" }))?;
+    ensure!(!error && text.contains("     2\tport = 80"), "{text}");
+    let asking = std::thread::spawn(move || {
+        let edited = mcp.call(
+            "edit",
+            serde_json::json!({ "path": "docker://web/etc/app.conf", "old": "port = 80", "new": "port = 8080" }),
+        );
+        (mcp, edited)
+    });
+    app.wait_text("Claude wants to edit")?;
+    app.wait_text("/etc/app.conf in the shop-web-1 container")?;
+    app.send("y")?;
+    let (mut mcp, edited) = asking.join().unwrap();
+    let (error, text) = edited?;
+    ensure!(!error && text.contains("docker://shop-web-1/etc/app.conf"), "{text}");
+    ensure!(fs::read_to_string(bin.join("root/etc/app.conf"))? == "name = shop\nport = 8080\n");
+
     let asking = std::thread::spawn(move || {
         let first =
-            mcp.call("run", serde_json::json!({ "container": "web", "command": "cd /tmp && echo in-$((6*7))" }));
+            mcp.call("run", serde_json::json!({ "at": "docker://web", "command": "cd /tmp && echo in-$((6*7))" }));
         (mcp, first)
     });
-    app.wait_text("the shop-web-1 container")?;
+    app.wait_text("cd /tmp && echo in-$((6*7))")?;
     app.send("y")?;
     let (mut mcp, first) = asking.join().unwrap();
     let (error, text) = first?;
@@ -2043,11 +2082,29 @@ fn an_agent_works_in_a_container_shell_the_user_watches() -> Result<()> {
         s.contains("Alt-2 Shell ●") && s.contains("in-42")
     })?;
 
-    let asking =
-        std::thread::spawn(move || mcp.call("run", serde_json::json!({ "container": "shop-web-1", "command": "pwd" })));
+    let asking = std::thread::spawn(move || {
+        mcp.call("run", serde_json::json!({ "at": "docker://shop-web-1", "command": "pwd" }))
+    });
     app.wait_text("Claude wants to run")?;
     app.send("y")?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(!error && text.trim_end().ends_with("/tmp"), "the shell keeps its folder between commands: {text:?}");
+    Ok(())
+}
+
+#[test]
+fn option_left_and_right_move_by_words_on_the_command_line() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "word-moves")?;
+    app.send("echo one two")?;
+    app.wait_until("typed", |s| prompt(s).contains("echo one two"))?;
+    // Option-Left and Option-Right as terminals send them: Esc b and Esc f.
+    app.send("\x1bb")?;
+    app.send("X")?;
+    app.wait_until("the cursor moved a word left", |s| prompt(s).contains("echo one Xtwo"))?;
+    app.send("\x1bb\x1bb\x1bf")?;
+    app.send("Y")?;
+    app.wait_until("and a word right", |s| prompt(s).contains("echo oneY Xtwo"))?;
+    ensure!(!app.snapshot().contains("Collection"), "no collections panel opened");
     Ok(())
 }

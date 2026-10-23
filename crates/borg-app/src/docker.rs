@@ -168,22 +168,23 @@ struct Shell {
 /// An agent's command typed into a shell, collecting what the terminal receives until the
 /// shell announces the command's end.
 struct Capture {
-    approved: crate::agent::Approved,
+    command: crate::agent::Typed,
     typed: bool,
     bytes: Vec<u8>,
 }
 
 /// A finished agent command: its exit status and output.
 pub struct Captured {
-    pub approved: crate::agent::Approved,
+    pub command: crate::agent::Typed,
     pub exit: Option<i32>,
     pub output: String,
 }
 
-/// Types a command at the shell's prompt, clearing anything half typed there first (Ctrl-U).
+/// Types a command at the shell's prompt, clearing anything half typed there first (Ctrl-U),
+/// with a space before it so the shell's history leaves it out.
 fn type_command(shell: &mut Shell, command: &str) {
     shell.emulator.scroll(Scroll::Bottom);
-    let _ = shell.pty.write(format!("\x15{command}\r").as_bytes());
+    let _ = shell.pty.write(format!("\x15 {command}\r").as_bytes());
 }
 
 /// Shells running inside containers, each with its own terminal, kept until they exit.
@@ -250,11 +251,11 @@ impl Shells {
                     _ => None,
                 });
                 if let (Some(exit), Some(capture)) = (end, end.and_then(|_| self.captures.remove(container))) {
-                    let output = crate::agent::shell_output(&capture.bytes, &capture.approved.command);
-                    captured = Some(Captured { approved: capture.approved, exit, output });
+                    let output = crate::agent::shell_output(&capture.bytes, &capture.command.line);
+                    captured = Some(Captured { command: capture.command, exit, output });
                 }
             } else if shell.prompted {
-                type_command(shell, &capture.approved.command);
+                type_command(shell, &capture.command.line);
                 capture.typed = true;
             }
         }
@@ -263,13 +264,13 @@ impl Shells {
 
     /// Types an approved agent command into a container's shell, now if it is at its prompt,
     /// or at its first prompt if it is starting. Without a shell, the command comes back.
-    pub fn run(&mut self, container: &str, approved: crate::agent::Approved) -> Result<(), crate::agent::Approved> {
-        let Some(shell) = self.shells.get_mut(container) else { return Err(approved) };
+    pub fn run(&mut self, container: &str, command: crate::agent::Typed) -> Result<(), crate::agent::Typed> {
+        let Some(shell) = self.shells.get_mut(container) else { return Err(command) };
         let typed = shell.prompted;
         if typed {
-            type_command(shell, &approved.command);
+            type_command(shell, &command.line);
         }
-        self.captures.insert(container.to_owned(), Capture { approved, typed, bytes: Vec::new() });
+        self.captures.insert(container.to_owned(), Capture { command, typed, bytes: Vec::new() });
         Ok(())
     }
 
@@ -301,9 +302,9 @@ impl Shells {
     }
 
     /// Forgets a shell that closed, returning an agent command still waiting on it.
-    pub fn close(&mut self, container: &str) -> Option<crate::agent::Approved> {
+    pub fn close(&mut self, container: &str) -> Option<crate::agent::Typed> {
         self.shells.remove(container);
-        self.captures.remove(container).map(|capture| capture.approved)
+        self.captures.remove(container).map(|capture| capture.command)
     }
 
     pub fn screen(&self, container: &str) -> Option<Screen<'_>> {

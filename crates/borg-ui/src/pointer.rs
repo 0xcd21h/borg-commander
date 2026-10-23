@@ -74,6 +74,20 @@ pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Insta
             .contains(point)
             .then_some(Msg::Pointer(Pointer::SearchStart));
     }
+    if let Some(Overlay::Approval(_) | Overlay::AgentLog { .. }) = &state.overlay {
+        match event.kind {
+            MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::DialogScroll(-WHEEL_ROWS))),
+            MouseEventKind::ScrollDown => return Some(Msg::Pointer(Pointer::DialogScroll(WHEEL_ROWS))),
+            _ => {}
+        }
+        if let Some(Overlay::Approval(approval)) = &state.overlay {
+            return click
+                .then(|| crate::agent_view::approval_button_at(approval, layout.screen, point))
+                .flatten()
+                .map(|accept| Msg::Pointer(Pointer::Confirm(accept)));
+        }
+        return None;
+    }
     if let Some(Overlay::Confirm(confirm)) = &state.overlay {
         return click
             .then(|| crate::dialog_view::confirm_at(confirm, layout.screen, point))

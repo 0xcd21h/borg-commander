@@ -34,7 +34,10 @@ mod viewer;
 #[cfg(test)]
 mod update_tests;
 
-pub use agent::{Agent, AgentEvent};
+pub use agent::{
+    Agent, AgentEvent, Approval, Ask, AskKind, Change, Connect, ConnectInfo, DiffLine, approval_layout, approval_rows,
+    connect_commands, host_console_ready, log_layout, log_rows, shell_quote, typing_refusal,
+};
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
