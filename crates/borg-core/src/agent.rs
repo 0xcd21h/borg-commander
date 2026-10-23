@@ -5,7 +5,10 @@
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{AppState, Console, Effect, Mount, Overlay, View};
@@ -21,6 +24,9 @@ const MARGIN: u16 = 4;
 const APPROVAL_CHROME: u16 = 8;
 /// Columns before a numbered diff line: the number, the change mark, and spaces.
 const NUMBER_WIDTH: usize = 7;
+/// How long an approval that appears while the user types ignores Yes, so a key meant for the
+/// shell or an editor cannot approve what the user has not read.
+pub const APPROVAL_GRACE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentEvent {
@@ -95,6 +101,8 @@ pub struct Approval {
     pub accept: bool,
     /// The dialog fills the screen.
     pub full: bool,
+    /// Until when Yes is ignored: the user was typing when the dialog appeared.
+    pub guarded_until: Option<Instant>,
 }
 
 /// How to connect Claude to this borg, as the Connect dialog shows it.
@@ -213,21 +221,32 @@ fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
 }
 
 /// Asks about the oldest waiting request once nothing else is on screen.
-pub(crate) fn surface(state: &mut AppState) {
+pub(crate) fn surface(state: &mut AppState, now: Instant) {
     if state.overlay.is_some() || state.agent.asks.is_empty() {
         return;
     }
     let (id, ask) = state.agent.asks.remove(0);
-    state.overlay = Some(Overlay::Approval(Approval { id, ask, scroll: 0, accept: false, full: false }));
+    let typing = now.saturating_duration_since(state.idle_since) < APPROVAL_GRACE;
+    let guarded_until = typing.then(|| now + APPROVAL_GRACE);
+    state.overlay = Some(Overlay::Approval(Approval { id, ask, scroll: 0, accept: false, full: false, guarded_until }));
 }
 
-pub(crate) fn on_approval_key(state: &mut AppState, mut approval: Approval, key: &KeyEvent) -> Vec<Effect> {
+pub(crate) fn on_approval_key(
+    state: &mut AppState,
+    mut approval: Approval,
+    key: &KeyEvent,
+    now: Instant,
+) -> Vec<Effect> {
     let decided = match key.code {
         KeyCode::Char(ACCEPT_KEY) => Some(true),
         KeyCode::Char(REJECT_KEY) | KeyCode::Esc => Some(false),
         KeyCode::Enter => Some(approval.accept),
         _ => None,
     };
+    if decided == Some(true) && approval.guarded_until.is_some_and(|until| now < until) {
+        state.overlay = Some(Overlay::Approval(approval));
+        return Vec::new();
+    }
     if let Some(approved) = decided {
         state.overlay = None;
         if approved {

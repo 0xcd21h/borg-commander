@@ -100,7 +100,12 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
     let state = scene.state;
     if let Some(viewer) = &state.viewer {
-        return (None, draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf));
+        let placements = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
+        // An agent's approval shows over the viewer too; pictures under it would cover it.
+        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+            return (console_overlay(buf, scene), Vec::new());
+        }
+        return (None, placements);
     }
     if state.screensaver {
         art_view::draw_screensaver(&scene.look(theme), state.saver, area, buf);
@@ -119,6 +124,7 @@ fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Positio
     let mut placements = Vec::new();
     if opacity <= FULLY_HIDDEN {
         draw_console(buf, scene, area);
+        cursor = console_overlay(buf, scene);
     } else if opacity >= FULLY_SHOWN {
         let chrome = chrome(scene, area);
         *buf = chrome.buf;
@@ -127,10 +133,23 @@ fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Positio
     } else {
         let mut terminal = Buffer::empty(area);
         draw_console(&mut terminal, scene, area);
+        console_overlay(&mut terminal, scene);
         let chrome = chrome(scene, area);
         crossfade(&chrome.buf, &terminal, opacity, scene.palette, buf);
     }
     (cursor.or_else(|| shell_cursor(scene, opacity)), placements)
+}
+
+/// A dialog over the console while the panels are hidden, such as an agent's approval or a
+/// job's question: it shows where the user is looking, since it takes the keys.
+fn console_overlay(buf: &mut Buffer, scene: &Scene<'_>) -> Option<Position> {
+    let state = scene.state;
+    let overlay = state.overlay.as_ref()?;
+    let look = scene.look(scene.theme_at(state.appearance.current()));
+    let layout = state.layout(scene.now);
+    let opacity = state.overlay_fade.value(scene.now);
+    backdrop(scene, &look, &layout, overlay, buf);
+    layer(scene, &look, &layout, buf, overlay, opacity).filter(|_| opacity >= CURSOR_HANDOFF)
 }
 
 fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {

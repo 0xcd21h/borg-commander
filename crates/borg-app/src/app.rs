@@ -411,7 +411,7 @@ impl App {
                 | MouseEventKind::ScrollLeft
                 | MouseEventKind::ScrollRight
         ) {
-            let target = if self.state.effective_view() == View::Shell {
+            let target = if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
                 WheelTarget::Console
             } else if self.state.viewer.is_some() {
                 WheelTarget::Viewer

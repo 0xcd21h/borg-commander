@@ -45,6 +45,14 @@ fn start_with(fixture: &Fixture, label: &str, shell: Shell) -> Result<Session> {
     Ok(session)
 }
 
+/// Approves an agent's ask once its dialog takes Yes: one that appears right after a key
+/// ignores Yes for a moment.
+fn approve(app: &mut Session) -> Result<()> {
+    app.pump(std::time::Duration::from_millis(600))?;
+    app.send("y")?;
+    Ok(())
+}
+
 fn prompt(snapshot: &Snapshot) -> String {
     snapshot.lines()[usize::from(snapshot.rows() - PROMPT_FROM_BOTTOM)].clone()
 }
@@ -1967,7 +1975,7 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     app.wait_text("of 100")?;
     app.send(keys::key(KeyCode::End))?;
     app.wait_text("100 + step 100")?;
-    app.send("y")?;
+    approve(&mut app)?;
     let (mut mcp, created) = asking.join().unwrap();
     let (error, text) = created?;
     ensure!(!error && text.contains("Created") && text.contains("plan.txt (100 lines)"), "{text}");
@@ -1985,7 +1993,7 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     });
     app.wait_text("Claude wants to edit")?;
     app.wait_until("the diff", |s| s.contains("50 - step 50") && s.contains("50 + step fifty"))?;
-    app.send("y")?;
+    approve(&mut app)?;
     let (mut mcp, edited) = asking.join().unwrap();
     ensure!(!edited?.0, "the edit is written");
     ensure!(fs::read_to_string(fixture.work().join("plan.txt"))?.contains("step 49\nstep fifty\nstep 51\n"));
@@ -2001,11 +2009,15 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     app.send(keys::ctrl('o'))?;
     app.wait_text("6 items")?;
 
-    // A command waits for the user: n declines it, y types it into Borg's console.
+    // A command waits for the user: n declines it, y types it into Borg's console. The
+    // dialog shows over the console too, where the user may be.
+    app.send(keys::ctrl('o'))?;
+    app.wait_text("Borg console")?;
     let mut declined = Mcp::start(&fixture)?;
     declined.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
     let asking = std::thread::spawn(move || declined.call("run", serde_json::json!({ "command": "touch nope" })));
-    app.wait_text("Claude wants to run")?;
+    app.wait_until("the dialog over the console", |s| s.contains("Claude wants to run") && s.contains("Borg console"))?;
+    app.checkpoint("approval-over-console")?;
     app.send("n")?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(error && text.contains("declined") && !fixture.work().join("nope").exists(), "{text}");
@@ -2014,7 +2026,7 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
         mcp.call("run", serde_json::json!({ "command": "echo from-claude > made.txt; echo done-$((6*7))" }))
     });
     app.wait_text("echo from-claude > made.txt; echo done-$((6*7))")?;
-    app.send("y")?;
+    approve(&mut app)?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(!error && text == "exit 0\ndone-42\n", "{text:?}");
     ensure!(fs::read_to_string(fixture.work().join("made.txt"))? == "from-claude\n");
@@ -2062,7 +2074,7 @@ fn an_agent_edits_container_files_and_works_in_a_container_shell_the_user_watche
     });
     app.wait_text("Claude wants to edit")?;
     app.wait_text("/etc/app.conf in the shop-web-1 container")?;
-    app.send("y")?;
+    approve(&mut app)?;
     let (mut mcp, edited) = asking.join().unwrap();
     let (error, text) = edited?;
     ensure!(!error && text.contains("docker://shop-web-1/etc/app.conf"), "{text}");
@@ -2074,7 +2086,7 @@ fn an_agent_edits_container_files_and_works_in_a_container_shell_the_user_watche
         (mcp, first)
     });
     app.wait_text("cd /tmp && echo in-$((6*7))")?;
-    app.send("y")?;
+    approve(&mut app)?;
     let (mut mcp, first) = asking.join().unwrap();
     let (error, text) = first?;
     ensure!(!error && text == "exit 0\nin-42\n", "{text:?}");
@@ -2086,7 +2098,7 @@ fn an_agent_edits_container_files_and_works_in_a_container_shell_the_user_watche
         mcp.call("run", serde_json::json!({ "at": "docker://shop-web-1", "command": "pwd" }))
     });
     app.wait_text("Claude wants to run")?;
-    app.send("y")?;
+    approve(&mut app)?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(!error && text.trim_end().ends_with("/tmp"), "the shell keeps its folder between commands: {text:?}");
     Ok(())

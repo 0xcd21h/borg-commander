@@ -1810,7 +1810,8 @@ fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() 
     press(&mut state, now, key(KeyCode::Down));
     assert_eq!(state.overlay, Some(Overlay::Approval(scrolled.clone())), "it stops at the end");
 
-    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    // Asked as the test starts, which counts as typing: Yes counts after the grace.
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
     assert_eq!(effects, vec![Effect::AgentAnswer { id: 7, approved: true }]);
     assert_eq!(state.agent.running, Some((7, "echo 1".into())));
     let effects = update(&mut state, Msg::Agent(AgentEvent::Type { line: "make test".into() }), now);
@@ -1859,4 +1860,34 @@ fn an_agent_types_at_the_cursor_as_a_paste_and_never_runs_what_it_types() {
     state.shell.running = true;
     state.shell.observed.mode = TermMode::empty();
     assert!(typing_refusal(&state, "dd").is_some(), "a program without paste support would take text as keys");
+}
+
+#[test]
+fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears() {
+    use crate::{AgentEvent, Ask, AskKind, DiffLine, agent::APPROVAL_GRACE};
+    use borg_term::TermMode;
+    use std::time::Duration;
+    let (mut state, now) = setup_with(Vec::new());
+    state.view = View::Shell;
+    state.shell.observed.mode = TermMode::ALT_SCREEN;
+    let ask = |command: &str| Ask {
+        kind: AskKind::Run,
+        summary: command.into(),
+        place: "~".into(),
+        body: vec![DiffLine::plain(command)],
+    };
+    // The user is typing in a full-screen editor when Claude asks.
+    press(&mut state, now, key(KeyCode::Char('i')));
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: ask("make") }), now);
+    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    let typed_on = press(&mut state, now + Duration::from_millis(100), key(KeyCode::Char('y')));
+    assert!(typed_on.is_empty(), "a y typed as the dialog appears neither approves nor reaches the editor");
+    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    let approved = press(&mut state, now + APPROVAL_GRACE, key(KeyCode::Char('y')));
+    assert_eq!(approved, vec![Effect::AgentAnswer { id: 1, approved: true }]);
+
+    // Asked while the user is idle, Yes counts at once.
+    let later = now + Duration::from_secs(5);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: ask("ls") }), later);
+    assert_eq!(press(&mut state, later, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 2, approved: true }]);
 }

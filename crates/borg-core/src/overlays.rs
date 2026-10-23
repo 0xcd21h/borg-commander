@@ -33,7 +33,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
-        Some(Overlay::Approval(approval)) => crate::agent::on_approval_key(state, approval, key),
+        Some(Overlay::Approval(approval)) => crate::agent::on_approval_key(state, approval, key, now),
         Some(Overlay::AgentLog { scroll }) => crate::agent::on_log_key(state, scroll, key),
         Some(Overlay::Connect(connect)) => crate::agent::on_connect_key(state, connect, key),
         None => Vec::new(),
