@@ -106,6 +106,8 @@ pub struct App {
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,
     agent: crate::agent::Agent,
+    /// Agent reveals waiting for their panel to show the folder.
+    reveals: Vec<(Side, PathBuf, tokio::sync::oneshot::Sender<crate::agent::Reply>, PathBuf)>,
 }
 
 enum Flow {
@@ -190,6 +192,7 @@ impl App {
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
             agent,
+            reveals: Vec::new(),
         })
     }
 
@@ -476,22 +479,32 @@ impl App {
         }
     }
 
-    /// Answers an agent's tool call from what the session knows. Reading happens off the
-    /// event loop; commands wait for the user's approval.
+    /// Answers an agent's tool call from what the session knows, and logs it. Reading happens
+    /// off the event loop, a reveal answers once the panel shows it, and commands wait for the
+    /// user's approval.
     fn on_agent(
         &mut self,
         call: crate::agent::Call,
         reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
     ) -> Result<Flow> {
-        use crate::agent::{self, Reply};
-        let text = |key: &str| call.args[key].as_str().map(str::to_owned);
+        use crate::agent::{self, Reply, Target};
+        use borg_core::AgentEvent;
+        let text = |key: &str| call.args[key].as_str().map(str::to_owned).filter(|value| !value.trim().is_empty());
         match call.tool.as_str() {
-            "borg_screen" => drop(reply.send(Reply { ok: true, text: agent::screen(&self.state) })),
+            "borg_screen" => {
+                self.agent.note("looked at the screen");
+                drop(reply.send(Reply { ok: true, text: agent::screen(&self.state) }));
+            }
             "list_folder" | "read_file" => {
-                let path = agent::resolve(&self.state, &text("path").unwrap_or_else(|| ".".into()));
+                let list = call.tool == "list_folder";
+                let Some(path) = text("path").or_else(|| list.then(|| ".".into())) else {
+                    drop(reply.send(Reply { ok: false, text: "read_file needs a path".into() }));
+                    return Ok(Flow::Continue);
+                };
+                let path = agent::resolve(&self.state, &path);
                 let offset = call.args["offset"].as_u64().unwrap_or(0);
                 let limit = call.args["limit"].as_u64().unwrap_or(agent::READ_DEFAULT);
-                let list = call.tool == "list_folder";
+                self.agent.note(&format!("{} {}", if list { "listed" } else { "read" }, path.display()));
                 tokio::task::spawn_blocking(move || {
                     drop(reply.send(if list {
                         agent::list_folder(&path)
@@ -501,35 +514,170 @@ impl App {
                 });
             }
             "show_in_panel" => {
-                let path = agent::resolve(&self.state, &text("path").unwrap_or_default());
+                let Some(path) = text("path") else {
+                    drop(reply.send(Reply { ok: false, text: "show_in_panel needs a path".into() }));
+                    return Ok(Flow::Continue);
+                };
+                let path = agent::resolve(&self.state, &path);
                 let (dir, focus) = if path.is_dir() {
                     (path.clone(), None)
                 } else {
                     let parent = path.parent().map_or_else(|| PathBuf::from("/"), Path::to_path_buf);
                     (parent, path.file_name().map(|name| name.to_string_lossy().into_owned()))
                 };
-                drop(reply.send(Reply { ok: true, text: format!("Showing {} in Borg's other panel", path.display()) }));
-                return self.dispatch(Msg::Agent(borg_core::AgentEvent::Reveal { dir, focus }));
+                self.agent.note(&format!("showed {}", path.display()));
+                let flow = self.dispatch(Msg::Agent(AgentEvent::Reveal { dir, focus }))?;
+                let side = self.state.active.other();
+                let shown = self.state.panel(side).destination().to_path_buf();
+                self.reveals.push((side, shown, reply, path));
+                self.settle_reveals();
+                return Ok(flow);
+            }
+            "docker_containers" => {
+                self.agent.note("listed the containers");
+                tokio::spawn(async move { drop(reply.send(agent::containers().await)) });
+            }
+            "run_in_container" => {
+                let (Some(wanted), Some(command)) = (text("container"), text("command")) else {
+                    drop(
+                        reply
+                            .send(Reply { ok: false, text: "run_in_container needs a container and a command".into() }),
+                    );
+                    return Ok(Flow::Continue);
+                };
+                if let Some(found) = agent::find_container(&self.state.docker.containers, &wanted) {
+                    let args = serde_json::json!({ "id": found.id, "name": found.name, "running": found.state == borg_docker::State::Running, "command": command });
+                    return self.on_agent(crate::agent::Call { tool: "_run_in_container".into(), args }, reply);
+                }
+                // The Docker view has not listed containers yet: ask Docker, then come back.
+                let requeue = self.agent.requeue_sender();
+                tokio::spawn(async move {
+                    let containers = borg_docker::list().await.unwrap_or_default();
+                    match agent::find_container(&containers, &wanted) {
+                        Some(found) => {
+                            let args = serde_json::json!({ "id": found.id, "name": found.name, "running": found.state == borg_docker::State::Running, "command": command });
+                            drop(requeue.send((crate::agent::Call { tool: "_run_in_container".into(), args }, reply)));
+                        }
+                        None => drop(reply.send(Reply {
+                            ok: false,
+                            text: format!("No container named {wanted}. docker_containers lists them."),
+                        })),
+                    }
+                });
+            }
+            "_run_in_container" => {
+                let (Some(id), Some(name), Some(command)) = (text("id"), text("name"), text("command")) else {
+                    drop(reply.send(Reply { ok: false, text: "unreadable container command".into() }));
+                    return Ok(Flow::Continue);
+                };
+                let busy = if call.args["running"] != true {
+                    Some(format!("{name} is not running."))
+                } else if borg_core::container_shell_busy(&self.state, &id) {
+                    Some(format!("The shell in {name} is running something; try again when it is back at its prompt."))
+                } else {
+                    None
+                };
+                if let Some(problem) = busy {
+                    drop(reply.send(Reply { ok: false, text: problem }));
+                    return Ok(Flow::Continue);
+                }
+                let target = Target::Container(id, name);
+                let place = agent::place(&target);
+                let id = self.agent.ask(reply, command.clone(), target);
+                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, command, place }));
             }
             "run_command" => {
-                let Some(command) = text("command").filter(|c| !c.trim().is_empty()) else {
+                let Some(command) = text("command") else {
                     drop(reply.send(Reply { ok: false, text: "run_command needs a command".into() }));
                     return Ok(Flow::Continue);
                 };
                 let dir =
                     text("cwd").map_or_else(|| agent::host_dir(&self.state), |cwd| agent::resolve(&self.state, &cwd));
-                let id = self.agent.ask(reply, command.clone(), dir.clone());
-                return self.dispatch(Msg::Agent(borg_core::AgentEvent::Ask { id, command, dir }));
+                let target = Target::Host(dir);
+                let place = agent::place(&target);
+                let id = self.agent.ask(reply, command.clone(), target);
+                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, command, place }));
             }
             other => drop(reply.send(Reply { ok: false, text: format!("unknown tool {other}") })),
         }
         Ok(Flow::Continue)
     }
 
+    /// Answers reveals once their panel shows the folder, or is going somewhere else.
+    fn settle_reveals(&mut self) {
+        let state = &self.state;
+        let (done, waiting): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.reveals).into_iter().partition(|(side, dir, ..)| {
+                let panel = state.panel(*side);
+                panel.destination() != dir || (panel.dir() == dir && *panel.listing() != borg_core::Listing::Loading)
+            });
+        self.reveals = waiting;
+        for (side, dir, reply, path) in done {
+            let panel = self.state.panel(side);
+            let answer = match panel.listing() {
+                _ if panel.destination() != dir => crate::agent::Reply {
+                    ok: true,
+                    text: format!("Showed {}; the panel has moved on since", path.display()),
+                },
+                borg_core::Listing::Failed(error) => {
+                    crate::agent::Reply { ok: false, text: format!("{}: {error}", path.display()) }
+                }
+                _ => {
+                    crate::agent::Reply { ok: true, text: format!("Showing {} in Borg's other panel", path.display()) }
+                }
+            };
+            drop(reply.send(answer));
+        }
+    }
+
+    /// Runs an approved agent command: on this machine, or typed into a container's shell,
+    /// which the Docker view then shows.
+    fn agent_answer(&mut self, id: u64, approved: bool) -> Result<Flow> {
+        use crate::agent::{Reply, Target};
+        let Some(approved) = self.agent.answer(id, approved) else { return Ok(Flow::Continue) };
+        match approved.target.clone() {
+            Target::Host(dir) => {
+                self.agent.run_on_host(approved, dir, self.messages.clone());
+                Ok(Flow::Continue)
+            }
+            Target::Container(container, name) => {
+                let flow =
+                    self.dispatch(Msg::Agent(borg_core::AgentEvent::ShowShell { container: container.clone(), name }))?;
+                if let Err(approved) = self.shells.run(&container, approved) {
+                    let command = approved.command.clone();
+                    drop(
+                        approved
+                            .reply
+                            .send(Reply { ok: false, text: "Borg could not open a shell in that container.".into() }),
+                    );
+                    return self.dispatch(Msg::Agent(borg_core::AgentEvent::Finished { id, command, exit: None }));
+                }
+                Ok(flow)
+            }
+        }
+    }
+
+    /// Answers an agent's container command once its shell reports the end.
+    fn finish_capture(&mut self, captured: crate::docker::Captured) -> Result<Flow> {
+        use crate::agent::{Reply, place};
+        let crate::docker::Captured { approved, exit, output } = captured;
+        let status = exit.map_or_else(|| "finished".to_owned(), |code| format!("exit {code}"));
+        self.agent.note(&format!("ran in {}\n$ {}\n{output}[{status}]", place(&approved.target), approved.command));
+        drop(approved.reply.send(Reply { ok: exit.is_none_or(|code| code == 0), text: format!("{status}\n{output}") }));
+        self.dispatch(Msg::Agent(borg_core::AgentEvent::Finished { id: approved.id, command: approved.command, exit }))
+    }
+
     fn on_container_shell(&mut self, container: String, event: PtyEvent) -> Result<Flow> {
         match event {
             PtyEvent::Output(bytes) => {
-                let Some((mode, signals)) = self.shells.feed(&container, &bytes) else { return Ok(Flow::Continue) };
+                let Some((mode, signals, captured)) = self.shells.feed(&container, &bytes) else {
+                    return Ok(Flow::Continue);
+                };
+                if let Some(captured) = captured
+                    && let Flow::Quit = self.finish_capture(captured)?
+                {
+                    return Ok(Flow::Quit);
+                }
                 let console = self.console == borg_core::Console::Container(container.clone());
                 for signal in signals {
                     let msg = if console {
@@ -548,7 +696,12 @@ impl App {
                 }
             }
             PtyEvent::Closed => {
-                self.shells.close(&container);
+                if let Some(approved) = self.shells.close(&container) {
+                    let (id, command) = (approved.id, approved.command.clone());
+                    let text = "The shell closed before the command finished.".to_owned();
+                    drop(approved.reply.send(crate::agent::Reply { ok: false, text }));
+                    self.dispatch(Msg::Agent(borg_core::AgentEvent::Finished { id, command, exit: None }))?;
+                }
                 self.dispatch(Msg::DockerShellClosed { container })
             }
         }
@@ -606,6 +759,7 @@ impl App {
         }
         let flow = self.apply(effects)?;
         self.fit_container_shell();
+        self.settle_reveals();
         Ok(flow)
     }
 
@@ -690,7 +844,11 @@ impl App {
                 }
                 Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
                 Effect::UseConsole(console) => self.console = console,
-                Effect::AgentAnswer { id, approved } => self.agent.answer(id, approved, self.messages.clone()),
+                Effect::AgentAnswer { id, approved } => {
+                    if let Flow::Quit = self.agent_answer(id, approved)? {
+                        return Ok(Flow::Quit);
+                    }
+                }
                 Effect::View(path) => self.open_viewer(path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),

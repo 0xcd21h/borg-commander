@@ -161,11 +161,35 @@ struct Shell {
     pty: Pty,
     emulator: Emulator,
     size: GridSize,
+    /// The shell has shown its first prompt, so typed commands reach it.
+    prompted: bool,
+}
+
+/// An agent's command typed into a shell, collecting what the terminal receives until the
+/// shell announces the command's end.
+struct Capture {
+    approved: crate::agent::Approved,
+    typed: bool,
+    bytes: Vec<u8>,
+}
+
+/// A finished agent command: its exit status and output.
+pub struct Captured {
+    pub approved: crate::agent::Approved,
+    pub exit: Option<i32>,
+    pub output: String,
+}
+
+/// Types a command at the shell's prompt, clearing anything half typed there first (Ctrl-U).
+fn type_command(shell: &mut Shell, command: &str) {
+    shell.emulator.scroll(Scroll::Bottom);
+    let _ = shell.pty.write(format!("\x15{command}\r").as_bytes());
 }
 
 /// Shells running inside containers, each with its own terminal, kept until they exit.
 pub struct Shells {
     shells: HashMap<String, Shell>,
+    captures: HashMap<String, Capture>,
     events: UnboundedSender<(String, PtyEvent)>,
     pub incoming: UnboundedReceiver<(String, PtyEvent)>,
 }
@@ -173,7 +197,7 @@ pub struct Shells {
 impl Shells {
     pub fn new() -> Self {
         let (events, incoming) = unbounded_channel();
-        Self { shells: HashMap::new(), events, incoming }
+        Self { shells: HashMap::new(), captures: HashMap::new(), events, incoming }
     }
 
     pub fn open(
@@ -202,19 +226,51 @@ impl Shells {
                 }
             }
         });
-        self.shells.insert(container, Shell { pty, emulator: Emulator::new(size, SHELL_SCROLLBACK), size });
+        let emulator = Emulator::new(size, SHELL_SCROLLBACK);
+        self.shells.insert(container, Shell { pty, emulator, size, prompted: false });
         Ok(())
     }
 
-    /// Feeds a shell's output to its terminal and returns the terminal's input mode and the
-    /// shell's signals: prompts, commands, and folder changes.
-    pub fn feed(&mut self, container: &str, bytes: &[u8]) -> Option<(TermMode, Vec<ShellSignal>)> {
+    /// Feeds a shell's output to its terminal and returns the terminal's input mode, the
+    /// shell's signals (prompts, commands, and folder changes), and an agent's command that
+    /// this output finished.
+    pub fn feed(&mut self, container: &str, bytes: &[u8]) -> Option<(TermMode, Vec<ShellSignal>, Option<Captured>)> {
         let shell = self.shells.get_mut(container)?;
         let signals = shell.emulator.feed(bytes);
         for reply in shell.emulator.drain_replies() {
             let _ = shell.pty.write(reply.as_bytes());
         }
-        Some((shell.emulator.mode(), signals))
+        shell.prompted |= signals.iter().any(|signal| matches!(signal, ShellSignal::PromptStart));
+        let mut captured = None;
+        if let Some(capture) = self.captures.get_mut(container) {
+            if capture.typed {
+                capture.bytes.extend_from_slice(bytes);
+                let end = signals.iter().find_map(|signal| match signal {
+                    ShellSignal::CommandEnd { exit } => Some(*exit),
+                    _ => None,
+                });
+                if let (Some(exit), Some(capture)) = (end, end.and_then(|_| self.captures.remove(container))) {
+                    let output = crate::agent::shell_output(&capture.bytes, &capture.approved.command);
+                    captured = Some(Captured { approved: capture.approved, exit, output });
+                }
+            } else if shell.prompted {
+                type_command(shell, &capture.approved.command);
+                capture.typed = true;
+            }
+        }
+        Some((shell.emulator.mode(), signals, captured))
+    }
+
+    /// Types an approved agent command into a container's shell, now if it is at its prompt,
+    /// or at its first prompt if it is starting. Without a shell, the command comes back.
+    pub fn run(&mut self, container: &str, approved: crate::agent::Approved) -> Result<(), crate::agent::Approved> {
+        let Some(shell) = self.shells.get_mut(container) else { return Err(approved) };
+        let typed = shell.prompted;
+        if typed {
+            type_command(shell, &approved.command);
+        }
+        self.captures.insert(container.to_owned(), Capture { approved, typed, bytes: Vec::new() });
+        Ok(())
     }
 
     /// The terminal and process of a shell, while it is the console.
@@ -244,8 +300,10 @@ impl Shells {
         }
     }
 
-    pub fn close(&mut self, container: &str) {
+    /// Forgets a shell that closed, returning an agent command still waiting on it.
+    pub fn close(&mut self, container: &str) -> Option<crate::agent::Approved> {
         self.shells.remove(container);
+        self.captures.remove(container).map(|capture| capture.approved)
     }
 
     pub fn screen(&self, container: &str) -> Option<Screen<'_>> {

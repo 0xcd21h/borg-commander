@@ -43,7 +43,7 @@ pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
 pub use docker::{
     ContainerShell, Docker, DockerData, DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, ShellRequest,
-    Usage, Working, shell_rect,
+    Usage, Working, container_shell_busy, shell_rect,
 };
 pub use find::{Find, Query, summary as find_summary};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};

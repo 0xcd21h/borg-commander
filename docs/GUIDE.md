@@ -296,11 +296,16 @@ connect to the borg on the SSH host `prod`; `borg mcp setup` without a host conn
 machine. Your SSH key must work without a password prompt (an SSH agent is fine).
 
 Connected, the agent sees what you see: both panels, the highlighted and marked files, and
-where the command line runs. It can list folders and read files, and show a file or folder
-in your other panel. Every command it wants to run waits for you in borg, which shows the
-command and the folder it runs in; No is selected until you choose Yes. While an agent is
-connected, **◈ Claude** sits at the start of the shortcut row; click it for the log of
-everything it did. Commands run as you, with `sh`, and stop after 10 minutes.
+where the command line runs. It can list folders and read files, list containers, and show a
+file or folder in your other panel. Every command it wants to run waits for you in borg,
+which shows the command and where it runs; No is selected until you choose Yes. Commands on
+the machine run as you, with `sh`, and stop after 10 minutes. Commands in a container are
+typed into that container's shell in borg: the Docker view opens on its Shell tab so you
+watch them run, and the shell keeps its folder and variables between commands.
+
+While an agent is connected, **◈ Claude** sits at the start of the shortcut row; click it
+for the log of everything it did: what it looked at, read and showed, and every command,
+approved or declined, with its output.
 
 ## Find, jobs, and viewers
 

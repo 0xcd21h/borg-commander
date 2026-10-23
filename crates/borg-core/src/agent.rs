@@ -13,11 +13,16 @@ pub enum AgentEvent {
         clients: usize,
         log: PathBuf,
     },
-    /// An agent asks to run `command` in `dir`.
+    /// An agent asks to run `command`; `place` says where, for the question.
     Ask {
         id: u64,
         command: String,
-        dir: PathBuf,
+        place: String,
+    },
+    /// An approved command is about to run in a container's shell: the Docker view shows it.
+    ShowShell {
+        container: String,
+        name: String,
     },
     /// An agent asks to show a folder in a panel, with `focus` selected in it.
     Reveal {
@@ -37,8 +42,8 @@ pub struct Agent {
     pub log: Option<PathBuf>,
     /// The approved command running now.
     pub running: Option<(u64, String)>,
-    /// Commands waiting for the user's answer, oldest first.
-    asks: Vec<(u64, String, PathBuf)>,
+    /// Commands waiting for the user's answer, oldest first, with where they would run.
+    asks: Vec<(u64, String, String)>,
 }
 
 impl Agent {
@@ -56,7 +61,8 @@ pub(crate) fn receive(state: &mut AppState, event: AgentEvent) -> Vec<Effect> {
             state.agent.clients = clients;
             state.agent.log = Some(log);
         }
-        AgentEvent::Ask { id, command, dir } => state.agent.asks.push((id, command, dir)),
+        AgentEvent::Ask { id, command, place } => state.agent.asks.push((id, command, place)),
+        AgentEvent::ShowShell { container, name } => return crate::docker::show_shell(state, &container, &name),
         AgentEvent::Reveal { dir, focus } => return reveal(state, dir, focus),
         AgentEvent::Finished { id, command, exit } => {
             if state.agent.running.as_ref().is_some_and(|(running, _)| *running == id) {
@@ -77,10 +83,10 @@ pub(crate) fn surface(state: &mut AppState) {
     if state.overlay.is_some() || state.agent.asks.is_empty() {
         return;
     }
-    let (id, command, dir) = state.agent.asks.remove(0);
+    let (id, command, place) = state.agent.asks.remove(0);
     state.overlay = Some(Overlay::Confirm(Confirm {
         title: tr!(agent_title),
-        message: format!(tr!(agent_asks_to_run), command = command, dir = dir.display()),
+        message: format!(tr!(agent_asks_to_run), command = command, place = place),
         purpose: ConfirmPurpose::Agent { id, command },
         accept: false,
     }));

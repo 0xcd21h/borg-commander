@@ -324,7 +324,8 @@ impl Docker {
             .collect();
         let found = self.selected.clone().and_then(|key| self.rows.iter().position(|&row| self.key_at(row) == key));
         self.cursor = found.unwrap_or(self.cursor.min(self.rows.len().saturating_sub(1)));
-        if found.is_none() {
+        // Before the first list, a wanted selection waits for it.
+        if found.is_none() && !self.rows.is_empty() {
             self.selected = self.row().map(|row| self.key_at(row));
         }
     }
@@ -705,6 +706,38 @@ pub(crate) fn shell_closed(state: &mut AppState, container: &str, now: Instant) 
         }
     }
     state.notice = Some(format!(tr!(docker_shell_closed), name = shell.name));
+}
+
+/// Opens the Docker view on a container's Shell tab, opening its shell if it has none, so the
+/// user watches what an agent runs there. The container is selected once the list has it.
+pub(crate) fn show_shell(state: &mut AppState, id: &str, name: &str) -> Vec<Effect> {
+    let now = state.epoch;
+    let mut effects = if state.docker.is_open() { Vec::new() } else { open(state, now) };
+    let docker = &mut state.docker;
+    docker.selected = Some(Key::Container(id.to_owned()));
+    docker.rebuild();
+    docker.shell_tab = true;
+    docker.details_focused = false;
+    if docker.shell(id).is_none() {
+        let container = docker.containers.iter().find(|c| c.id == id).cloned().unwrap_or_else(|| Container {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            ..placeholder()
+        });
+        let side = docker.side.unwrap_or(state.active).other();
+        let area = shell_rect(state.layout(now).panels[side.index()]);
+        let size = GridSize { cols: area.width.max(MIN_SHELL.0), rows: area.height.max(MIN_SHELL.1) };
+        effects.extend(start_shell(state, &container, size, None, now));
+    }
+    effects
+}
+
+/// Whether a container's shell is running a command, so nothing should be typed into it.
+pub fn container_shell_busy(state: &AppState, id: &str) -> bool {
+    if state.console == Console::Container(id.to_owned()) {
+        return state.shell.busy();
+    }
+    state.docker.shell(id).is_some_and(|shell| shell.status.running)
 }
 
 /// Keys while typing in a shell: Alt-C returns to the list, Alt-W maximizes, Ctrl-O shows

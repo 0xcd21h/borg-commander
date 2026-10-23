@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use anyhow::{Result, ensure};
 use borg_testkit::{Fixture, Session, Shell, Snapshot, keys};
@@ -1869,8 +1869,18 @@ struct Mcp {
 
 impl Mcp {
     fn start(fixture: &Fixture) -> Result<Self> {
+        Self::start_with_path(fixture, Path::new(""))
+    }
+
+    /// Starts `borg mcp` with `dir` ahead of `PATH`, where a fake `docker` may be.
+    fn start_with_path(fixture: &Fixture, dir: &Path) -> Result<Self> {
+        let path = std::env::join_paths(
+            std::iter::once(dir.to_path_buf())
+                .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())),
+        )?;
         let mut child = std::process::Command::new(BORG)
             .arg("mcp")
+            .env("PATH", path)
             .env("XDG_RUNTIME_DIR", fixture.runtime())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -1913,7 +1923,19 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     ensure!(init["serverInfo"]["name"] == "borg", "{init}");
     let tools = mcp.request("tools/list", serde_json::json!({}))?;
     let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    ensure!(names == ["borg_screen", "list_folder", "read_file", "show_in_panel", "run_command"], "{names:?}");
+    ensure!(
+        names
+            == [
+                "borg_screen",
+                "list_folder",
+                "read_file",
+                "show_in_panel",
+                "docker_containers",
+                "run_in_container",
+                "run_command"
+            ],
+        "{names:?}"
+    );
     app.wait_text("Claude connected to Borg")?;
 
     let (error, screen) = mcp.call("borg_screen", serde_json::json!({}))?;
@@ -1922,8 +1944,17 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     ensure!(notes.ends_with("hello\n"), "{notes}");
     let (_, listing) = mcp.call("list_folder", serde_json::json!({ "path": "alpha" }))?;
     ensure!(listing.contains("inner/") && listing.contains("one.txt  2 bytes"), "{listing}");
+    let (_, here) = mcp.call("list_folder", serde_json::json!({ "path": "." }))?;
+    ensure!(here.lines().next().is_some_and(|line| line.contains("/work (")), "a clean path: {here}");
+    let (error, text) = mcp.call("read_file", serde_json::json!({}))?;
+    ensure!(error && text.contains("needs a path"), "{text}");
 
     mcp.call("show_in_panel", serde_json::json!({ "path": "alpha/one.txt" }))?;
+    let (_, screen) = mcp.call("borg_screen", serde_json::json!({}))?;
+    ensure!(
+        screen.contains("right panel: ") && screen.contains("/work/alpha\n  highlighted: one.txt"),
+        "the reveal is done when it answers:\n{screen}"
+    );
     app.wait_until("one.txt shown in the right panel", |s| s.contains("› alpha") && s.contains("one.txt"))?;
 
     // The command waits for the user: n declines it, y runs it.
@@ -1946,5 +1977,50 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     ensure!(fs::read_to_string(fixture.work().join("made.txt"))? == "from-claude\n");
     app.wait_text("Claude ran echo from-claude")?;
     app.wait_text("made.txt")?;
+
+    let agents = fixture.runtime().join("borg-commander").join("agent");
+    let log =
+        fs::read_dir(&agents)?.filter_map(Result::ok).find(|e| e.file_name().to_string_lossy().starts_with("log-"));
+    let log = fs::read_to_string(log.expect("a log").path())?;
+    for entry in ["looked at the screen", "read ", "listed ", "showed ", "declined", "$ touch nope", "ran in", "done"] {
+        ensure!(log.contains(entry), "the log records everything: no {entry:?} in\n{log}");
+    }
+    Ok(())
+}
+
+#[test]
+fn an_agent_works_in_a_container_shell_the_user_watches() -> Result<()> {
+    let fixture = fixture()?;
+    let bin = fake_docker(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).path(&bin).size(130, 30).label("agent-docker").spawn()?;
+    app.wait_text(READY)?;
+    let mut mcp = Mcp::start_with_path(&fixture, &bin)?;
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
+    let (_, containers) = mcp.call("docker_containers", serde_json::json!({}))?;
+    ensure!(containers.contains("shop-web-1") && containers.contains("Running"), "{containers}");
+
+    let asking = std::thread::spawn(move || {
+        let first = mcp.call(
+            "run_in_container",
+            serde_json::json!({ "container": "web", "command": "cd /tmp && echo in-$((6*7))" }),
+        );
+        (mcp, first)
+    });
+    app.wait_text("the shop-web-1 container")?;
+    app.send("y")?;
+    let (mut mcp, first) = asking.join().unwrap();
+    let (error, text) = first?;
+    ensure!(!error && text == "exit 0\nin-42\n", "{text:?}");
+    app.wait_until("the user watches it in the Docker view's shell", |s| {
+        s.contains("Alt-2 Shell ●") && s.contains("in-42")
+    })?;
+
+    let asking = std::thread::spawn(move || {
+        mcp.call("run_in_container", serde_json::json!({ "container": "shop-web-1", "command": "pwd" }))
+    });
+    app.wait_text("Claude wants to run")?;
+    app.send("y")?;
+    let (error, text) = asking.join().unwrap()?;
+    ensure!(!error && text.trim_end().ends_with("/tmp"), "the shell keeps its folder between commands: {text:?}");
     Ok(())
 }

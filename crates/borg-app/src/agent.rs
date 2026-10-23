@@ -113,10 +113,28 @@ fn hostname() -> String {
 /// the app, which answers them with what it knows.
 pub struct Agent {
     pub incoming: UnboundedReceiver<(Call, oneshot::Sender<Reply>)>,
+    /// For calls that come back once something they need is known, such as a container.
+    requeue: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     socket: Option<PathBuf>,
     pub log: PathBuf,
-    waiting: HashMap<u64, (oneshot::Sender<Reply>, String, PathBuf)>,
+    waiting: HashMap<u64, (oneshot::Sender<Reply>, String, Target)>,
     next_id: u64,
+}
+
+/// Where an agent's command runs.
+#[derive(Debug, Clone)]
+pub enum Target {
+    Host(PathBuf),
+    /// A container's shell in borg, by id and name.
+    Container(String, String),
+}
+
+/// An approved command, handed back to the app to run.
+pub struct Approved {
+    pub id: u64,
+    pub reply: oneshot::Sender<Reply>,
+    pub command: String,
+    pub target: Target,
 }
 
 impl Agent {
@@ -129,28 +147,45 @@ impl Agent {
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            tokio::spawn(accept(listener, calls, messages, log.clone()));
+            tokio::spawn(accept(listener, calls.clone(), messages, log.clone()));
             Some(socket)
         });
-        Self { incoming, socket, log, waiting: HashMap::new(), next_id: 0 }
+        Self { incoming, requeue: calls, socket, log, waiting: HashMap::new(), next_id: 0 }
+    }
+
+    /// Adds an entry to the log of what agents did.
+    pub fn note(&self, entry: &str) {
+        append(&self.log, &format!("{entry}\n\n"));
+    }
+
+    /// Where a call comes back once something it needs is known.
+    pub fn requeue_sender(&self) -> UnboundedSender<(Call, oneshot::Sender<Reply>)> {
+        self.requeue.clone()
     }
 
     /// Notes a command waiting for the user's answer.
-    pub fn ask(&mut self, reply: oneshot::Sender<Reply>, command: String, dir: PathBuf) -> u64 {
+    pub fn ask(&mut self, reply: oneshot::Sender<Reply>, command: String, target: Target) -> u64 {
         self.next_id += 1;
-        self.waiting.insert(self.next_id, (reply, command, dir));
+        self.waiting.insert(self.next_id, (reply, command, target));
         self.next_id
     }
 
-    /// Runs an approved command, or tells the agent the user declined it.
-    pub fn answer(&mut self, id: u64, approved: bool, messages: UnboundedSender<Msg>) {
-        let Some((reply, command, dir)) = self.waiting.remove(&id) else { return };
-        let log = self.log.clone();
-        if !approved {
-            append(&log, &format!("declined in {}\n$ {command}\n\n", dir.display()));
-            let _ = reply.send(Reply::error("The user declined to run this command."));
-            return;
+    /// Takes an answered command: an approved one is returned to run, a declined one is
+    /// answered here.
+    pub fn answer(&mut self, id: u64, approved: bool) -> Option<Approved> {
+        let (reply, command, target) = self.waiting.remove(&id)?;
+        if approved {
+            return Some(Approved { id, reply, command, target });
         }
+        self.note(&format!("declined in {}\n$ {command}", place(&target)));
+        let _ = reply.send(Reply::error("The user declined to run this command."));
+        None
+    }
+
+    /// Runs an approved host command and answers with its output.
+    pub fn run_on_host(&self, approved: Approved, dir: PathBuf, messages: UnboundedSender<Msg>) {
+        let Approved { id, reply, command, .. } = approved;
+        let log = self.log.clone();
         tokio::spawn(async move {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
@@ -159,6 +194,119 @@ impl Agent {
             let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, command, exit }));
         });
     }
+}
+
+/// Where a command runs, for the log and the user's question.
+pub fn place(target: &Target) -> String {
+    match target {
+        Target::Host(dir) => dir.display().to_string(),
+        Target::Container(_, name) => format!(borg_i18n::tr!(agent_container_place), name = name),
+    }
+}
+
+/// The output of `command` typed into a shell, from what the terminal received between the
+/// command starting and the shell announcing its end (OSC 133): escape sequences and carriage
+/// returns removed, the echoed command line left out, and long output cut to its end.
+pub fn shell_output(bytes: &[u8], command: &str) -> String {
+    const COMMAND_START: &[u8] = b"\x1b]133;C";
+    const COMMAND_END: &[u8] = b"\x1b]133;D";
+    let find = |needle: &[u8]| bytes.windows(needle.len()).position(|window| window == needle);
+    let end = find(COMMAND_END).unwrap_or(bytes.len());
+    let text = match find(COMMAND_START) {
+        Some(start) if start < end => String::from_utf8_lossy(&strip_escapes(&bytes[start..end])).replace('\r', ""),
+        // A shell without a command-start mark (sh, older bash): the output starts on the line
+        // after the echoed command, or after the first line if the echo cannot be found.
+        _ => {
+            let text = String::from_utf8_lossy(&strip_escapes(&bytes[..end])).replace('\r', "");
+            let echo = text.rfind(command).map_or(0, |at| at + command.len());
+            text[echo..].find('\n').map_or_else(String::new, |line| text[echo + line + 1..].to_owned())
+        }
+    };
+    let text = if text.len() > OUTPUT_LIMIT {
+        let cut = text.len() - OUTPUT_LIMIT;
+        let from = (cut..text.len()).find(|&i| text.is_char_boundary(i)).unwrap_or(text.len());
+        format!("[earlier output left out]\n{}", &text[from..])
+    } else {
+        text
+    };
+    if text.is_empty() || text.ends_with('\n') { text } else { format!("{text}\n") }
+}
+
+/// Removes terminal escape sequences: CSI (`ESC [ … final`), OSC (`ESC ] … BEL` or `ESC \\`)
+/// and two-byte escapes.
+fn strip_escapes(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != 0x1b {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        match bytes.get(i + 1) {
+            Some(b'[') => {
+                i += 2;
+                while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
+                    i += 1;
+                }
+                i += 1;
+            }
+            Some(b']') => {
+                i += 2;
+                while i < bytes.len() && bytes[i] != 0x07 && !(bytes[i] == 0x1b && bytes.get(i + 1) == Some(&b'\\')) {
+                    i += 1;
+                }
+                i += if bytes.get(i) == Some(&0x07) { 1 } else { 2 };
+            }
+            _ => i += 2,
+        }
+    }
+    out
+}
+
+/// A path without `.` and with `..` applied, so the agent reads back the path it means.
+fn clean(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The containers, for an agent to choose one.
+pub async fn containers() -> Reply {
+    match borg_docker::list().await {
+        Ok(containers) if containers.is_empty() => Reply::ok("No containers."),
+        Ok(containers) => Reply::ok(
+            containers
+                .iter()
+                .map(|c| {
+                    let project = c.project.as_deref().map_or_else(String::new, |p| format!("  project {p}"));
+                    format!("{}  {:?}  {}  {}{project}", c.name, c.state, c.status, c.image)
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        Err(error) => Reply::error(format!("{error:#}")),
+    }
+}
+
+/// Finds a container by name, Compose service, or id prefix.
+pub fn find_container<'a>(
+    containers: &'a [borg_docker::Container],
+    wanted: &str,
+) -> Option<&'a borg_docker::Container> {
+    containers.iter().find(|c| c.name == wanted).or_else(|| {
+        let matches: Vec<_> =
+            containers.iter().filter(|c| c.service.as_deref() == Some(wanted) || c.id.starts_with(wanted)).collect();
+        (matches.len() == 1).then(|| matches[0])
+    })
 }
 
 impl Drop for Agent {
@@ -272,6 +420,10 @@ pub fn screen(state: &AppState) -> String {
         Console::Container(_) => format!("container {}", state.console_container().unwrap_or_default()),
     };
     let _ = writeln!(text, "Command line: {console}");
+    let shells: Vec<&str> = state.docker.shells.iter().map(|shell| shell.name.as_str()).collect();
+    if !shells.is_empty() {
+        let _ = writeln!(text, "Container shells open in Borg: {}", shells.join(", "));
+    }
     if state.docker.is_open() {
         let selected = state.docker.container().map_or_else(String::new, |c| format!(", on {} ({})", c.name, c.status));
         let _ = writeln!(text, "Docker view open{selected}");
@@ -292,7 +444,7 @@ fn side_name(side: Side) -> &'static str {
 /// A path from an agent, relative to the active panel's folder unless absolute.
 pub fn resolve(state: &AppState, path: &str) -> PathBuf {
     let path = Path::new(path);
-    if path.is_absolute() { path.to_path_buf() } else { host_dir(state).join(path) }
+    clean(&if path.is_absolute() { path.to_path_buf() } else { host_dir(state).join(path) })
 }
 
 /// Where an agent's commands run: the active panel's folder, or the other panel's while the
@@ -385,6 +537,22 @@ fn tools() -> Value {
             "name": "show_in_panel",
             "description": "Shows a file or folder to the user in Borg's other panel: a folder opens, a file is selected in its folder. The user's active panel stays where it is.",
             "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
+        },
+        {
+            "name": "docker_containers",
+            "description": "Lists the Docker containers on the machine Borg runs on: name, state, status, image and Compose project.",
+            "inputSchema": { "type": "object", "properties": {} },
+            "annotations": read_only,
+        },
+        {
+            "name": "run_in_container",
+            "description": "Runs a command in a running container's shell in Borg, after the user approves it, and returns its exit status and output. Borg opens the Docker view on that container's Shell tab, so the user watches it run; the shell keeps its folder and variables between commands. `container` is a container name, Compose service or id. Stops waiting after 10 minutes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "container": { "type": "string" }, "command": { "type": "string" } },
+                "required": ["container", "command"]
+            },
+            "annotations": { "destructiveHint": true },
         },
         {
             "name": "run_command",
@@ -543,6 +711,39 @@ mod tests {
             "{text}"
         );
         assert!(text.contains(r#""command": "ssh""#) && text.contains(r#""borg-prod""#), "{text}");
+    }
+
+    #[test]
+    fn shell_output_runs_from_the_command_start_to_its_end() {
+        let bash = b"\x15ls -l\r\n\x1b]133;C\x07total 0\r\n\x1b[1;34mbin\x1b[0m\r\n\x1b]133;D;0\x07\x1b]7;file://box/\x07\x1b]133;A\x07$ ";
+        assert_eq!(shell_output(bash, "ls -l"), "total 0\nbin\n");
+        let sh = b"\x1b[7m web \x1b[0m $ \x1b]133;B\x07\r\n\x1b[7m web \x1b[0m $ echo hi\r\nhi\r\n\x1b]133;D;0\x07\x1b]133;A\x07/ # ";
+        assert_eq!(shell_output(sh, "echo hi"), "hi\n", "without a command-start mark, the echoed command is left out");
+        assert_eq!(shell_output(b"true\r\n\x1b]133;D;0\x07", "true"), "");
+    }
+
+    #[test]
+    fn paths_lose_dots_and_containers_are_found_by_name_service_or_id() {
+        assert_eq!(clean(Path::new("/srv/app/./logs/../conf")), Path::new("/srv/app/conf"));
+        let container = |id: &str, name: &str, service: Option<&str>| borg_docker::Container {
+            id: id.into(),
+            name: name.into(),
+            image: String::new(),
+            command: String::new(),
+            created: String::new(),
+            state: borg_docker::State::Running,
+            status: String::new(),
+            ports: String::new(),
+            networks: String::new(),
+            project: None,
+            service: service.map(str::to_owned),
+            project_dir: None,
+            config_files: Vec::new(),
+        };
+        let all = [container("a1b2", "shop-web-1", Some("web")), container("c3d4", "blog-web-1", Some("web"))];
+        assert_eq!(find_container(&all, "shop-web-1").map(|c| c.id.as_str()), Some("a1b2"));
+        assert_eq!(find_container(&all, "c3"), Some(&all[1]));
+        assert!(find_container(&all, "web").is_none(), "two services named web are ambiguous");
     }
 
     #[test]
