@@ -157,7 +157,8 @@ pub async fn mkdir(id: &str, path: &Path) -> Result<()> {
 
 /// Copies one file out of a container into `into`, for viewing, and returns its host path.
 pub async fn fetch(id: &str, path: &Path, into: &Path) -> Result<PathBuf> {
-    tokio::fs::create_dir_all(into).await?;
+    // Files copied out of a container stay readable only by the user.
+    tokio::fs::DirBuilder::new().recursive(true).mode(0o700).create(into).await?;
     copy_out(id, path, into).await?;
     Ok(into.join(path.file_name().unwrap_or_default()))
 }

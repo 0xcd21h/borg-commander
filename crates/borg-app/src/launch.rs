@@ -28,6 +28,18 @@ const PRIVATE_DIR: u32 = 0o700;
 const OPEN_TO_OTHERS: u32 = 0o077;
 /// How many names `private_dir` tries before giving up.
 const PRIVATE_NAMES: usize = 16;
+const PRIVATE_FILE: u32 = 0o600;
+/// The file in the runtime folder that says until when Borg uses it.
+const TTL_FILE: &str = "TTL";
+/// How long the runtime folder stays in use after a running borg last said so.
+const TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often a running borg says it still uses the runtime folder.
+pub(crate) const TTL_REFRESH: Duration = Duration::from_secs(60 * 60);
+const TTL_NOTE: &str = "Borg Commander keeps the files of running sessions in this folder: shell integration
+scripts, folder requests for the shell, files copied out of containers, and agent logs.
+Every running borg moves the time above forward each hour. Once it has passed, no borg
+uses this folder and it can be removed.
+";
 
 #[derive(Debug, Clone)]
 pub struct Launch {
@@ -176,6 +188,18 @@ pub(crate) fn private_dir(dir: &Path) -> Result<PathBuf> {
     bail!("{} and the names after it belong to someone else or are open to others", dir.display())
 }
 
+/// Writes the TTL file: until when this folder is in use, then what it is.
+pub(crate) fn mark_in_use(dir: &Path) -> Result<()> {
+    use std::{io::Write as _, os::unix::fs::OpenOptionsExt};
+    let until = jiff::Timestamp::now().checked_add(TTL)?;
+    let staged = dir.join(format!("{TTL_FILE}.{}", std::process::id()));
+    let mut out = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(PRIVATE_FILE).open(&staged)?;
+    write!(out, "{}\n\n{TTL_NOTE}", until.strftime("%Y-%m-%dT%H:%M:%SZ"))?;
+    drop(out);
+    fs::rename(&staged, dir.join(TTL_FILE))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +221,18 @@ mod tests {
         fs::remove_dir(&next).unwrap();
         std::os::unix::fs::symlink(temp.path(), &next).unwrap();
         assert_eq!(private_dir(&dir).unwrap(), temp.path().join("borg-commander-501-2"), "a link is not followed");
+    }
+
+    #[test]
+    fn the_ttl_file_says_until_when_the_folder_is_in_use() {
+        let temp = tempfile::tempdir().unwrap();
+        mark_in_use(temp.path()).unwrap();
+        let text = fs::read_to_string(temp.path().join(TTL_FILE)).unwrap();
+        let until: jiff::Timestamp = text.lines().next().unwrap().parse().unwrap();
+        let ahead = until.duration_since(jiff::Timestamp::now()).as_secs();
+        assert!((TTL.as_secs() as i64 - 60..=TTL.as_secs() as i64).contains(&ahead), "{text}");
+        assert!(text.contains("can be removed"));
+        assert_eq!(fs::metadata(temp.path().join(TTL_FILE)).unwrap().mode() & 0o777, PRIVATE_FILE);
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1, "nothing staged is left behind");
     }
 }

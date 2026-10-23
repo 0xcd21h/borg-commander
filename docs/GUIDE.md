@@ -305,7 +305,8 @@ watch them run, and the shell keeps its folder and variables between commands.
 
 While an agent is connected, **◈ Claude** sits at the start of the shortcut row; click it
 for the log of everything it did: what it looked at, read and showed, and every command,
-approved or declined, with its output.
+approved or declined, with its output. Only you can read the log, and it is removed when
+Borg exits. To keep no log at all, turn it off in Options → Plugins.
 
 ## Find, jobs, and viewers
 
@@ -368,6 +369,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
+agent-log = true            # log what Claude does while Borg runs
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;
@@ -376,6 +378,13 @@ in the panels.
 
 Panel folders, cursor position, split, listing mode, and sorting are saved in
 `~/.local/state/borg-commander`, or the location selected by `$XDG_STATE_HOME` or `$BORG_STATE_DIR`.
+
+While it runs, Borg keeps shell integration scripts, files copied out of containers and the
+agent log in `$XDG_RUNTIME_DIR/borg-commander`, or `borg-commander-<uid>` in the temporary
+folder. Only you can open it; one that someone else made, or that others can enter, is
+passed over for a fresh name. Its `TTL` file starts with the time until which it is in use:
+every running borg moves that time a day ahead each hour, so once it has passed, the folder
+can be removed.
 
 Custom themes go in `~/.config/borg-commander/themes/`. A theme can extend a built-in theme:
 

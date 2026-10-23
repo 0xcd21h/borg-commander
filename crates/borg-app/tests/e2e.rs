@@ -1978,12 +1978,43 @@ fn an_agent_sees_the_session_shows_files_and_runs_commands_the_user_approves() -
     let agents = fixture.runtime().join("borg-commander").join("agent");
     let log =
         fs::read_dir(&agents)?.filter_map(Result::ok).find(|e| e.file_name().to_string_lossy().starts_with("log-"));
-    let log = fs::read_to_string(log.expect("a log").path())?;
+    let log_file = log.expect("a log").path();
+    let log = fs::read_to_string(&log_file)?;
     for entry in
         ["looked at the screen", "read ", "read the processes", "showed ", "declined", "$ touch nope", "ran in", "done"]
     {
         ensure!(log.contains(entry), "the log records everything: no {entry:?} in\n{log}");
     }
+
+    // Only the user can read the session's folder and the log, and the TTL file says until
+    // when the folder is in use.
+    let runtime = fixture.runtime().join("borg-commander");
+    let mode =
+        |path: &Path| fs::metadata(path).map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o777);
+    ensure!(mode(&runtime)? == 0o700 && mode(&agents)? == 0o700 && mode(&log_file)? == 0o600);
+    let ttl = fs::read_to_string(runtime.join("TTL"))?;
+    ensure!(ttl.contains("can be removed"), "{ttl}");
+
+    app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
+    app.wait_exit()?;
+    ensure!(!log_file.exists(), "the log goes when Borg exits");
+    Ok(())
+}
+
+#[test]
+fn with_the_claude_log_off_nothing_is_written() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = false\n[plugins]\nagent-log = false\n")?;
+    let _app = start(&fixture, "agent-no-log")?;
+    let mut mcp = Mcp::start(&fixture)?;
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
+    let (error, screen) = mcp.call("screen", serde_json::json!({}))?;
+    ensure!(!error && screen.contains("Active panel"), "{screen}");
+    let agents = fixture.runtime().join("borg-commander").join("agent");
+    let logs = fs::read_dir(&agents)?.filter_map(Result::ok).count();
+    ensure!(logs == 0, "{logs} logs in {}", agents.display());
     Ok(())
 }
 

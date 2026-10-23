@@ -597,6 +597,8 @@ catalog! {
     agent_stopped => "Claude's command {command} stopped",
     agent_running => "Claude · {command}…",
     agent_chip => "◈ Claude",
+    agent_log_plugin_label => "Claude — log what it does while Borg runs",
+    agent_log_off => "The Claude log is off; turn it on in Options → Plugins",
     docker_console_plugin_label => "Docker — command line follows container panels",
     docker_command_line_host => "This command line runs on the host. Switch to a host panel to run it, or let it follow containers in Options → Plugins",
     docker_host_chip => " ⌂ host ",

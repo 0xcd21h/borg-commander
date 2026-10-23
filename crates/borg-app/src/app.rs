@@ -161,7 +161,16 @@ impl App {
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
-        let agent = crate::agent::Agent::start(&launch.runtime_dir, messages.clone());
+        let agent =
+            crate::agent::Agent::start(&launch.runtime_dir, messages.clone(), launch.settings.preferences.agent_log);
+        let runtime_dir = launch.runtime_dir.clone();
+        tokio::spawn(async move {
+            let mut refresh = tokio::time::interval(crate::launch::TTL_REFRESH);
+            loop {
+                refresh.tick().await;
+                let _ = crate::launch::mark_in_use(&runtime_dir);
+            }
+        });
         Ok(Self {
             search: crate::search::Search::new(),
             emulator,
@@ -762,6 +771,7 @@ impl App {
         let flow = self.apply(effects)?;
         self.fit_container_shell();
         self.settle_reveals();
+        self.agent.log.keep(self.state.settings.preferences.agent_log);
         Ok(flow)
     }
 

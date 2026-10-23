@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -36,6 +36,7 @@ const AGENT_DIR: &str = "agent";
 const SOCKET_PREFIX: &str = "session-";
 const SOCKET_SUFFIX: &str = ".sock";
 const OWNER_ONLY: u32 = 0o700;
+const PRIVATE_FILE: u32 = 0o600;
 const OTHERS: u32 = 0o077;
 const LIST_LIMIT: usize = 500;
 pub const READ_DEFAULT: u64 = 32 * 1024;
@@ -116,7 +117,7 @@ pub struct Agent {
     /// For calls that come back once something they need is known, such as a container.
     requeue: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     socket: Option<PathBuf>,
-    pub log: PathBuf,
+    pub log: Log,
     waiting: HashMap<u64, (oneshot::Sender<Reply>, String, Target)>,
     next_id: u64,
 }
@@ -138,10 +139,11 @@ pub struct Approved {
 }
 
 impl Agent {
-    pub fn start(runtime_dir: &Path, messages: UnboundedSender<Msg>) -> Self {
+    pub fn start(runtime_dir: &Path, messages: UnboundedSender<Msg>, logging: bool) -> Self {
         let (calls, incoming) = unbounded_channel();
         let pid = std::process::id();
-        let log = agent_dir(runtime_dir).map_or_else(|_| PathBuf::new(), |dir| dir.join(format!("log-{pid}.txt")));
+        let path = agent_dir(runtime_dir).map_or_else(|_| PathBuf::new(), |dir| dir.join(format!("log-{pid}.txt")));
+        let log = Log { path, on: Arc::new(AtomicBool::new(logging)) };
         let socket = socket_dir(runtime_dir).ok().and_then(|dir| {
             let socket = dir.join(format!("{SOCKET_PREFIX}{pid}{SOCKET_SUFFIX}"));
             let _ = std::fs::remove_file(&socket);
@@ -155,7 +157,7 @@ impl Agent {
 
     /// Adds an entry to the log of what agents did.
     pub fn note(&self, entry: &str) {
-        append(&self.log, &format!("{entry}\n\n"));
+        self.log.write(&format!("{entry}\n\n"));
     }
 
     /// Where a call comes back once something it needs is known.
@@ -189,7 +191,7 @@ impl Agent {
         tokio::spawn(async move {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
-            append(&log, &format!("ran in {}\n$ {command}\n{output}[{status}]\n\n", dir.display()));
+            log.write(&format!("ran in {}\n$ {command}\n{output}[{status}]\n\n", dir.display()));
             let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
             let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, command, exit }));
         });
@@ -321,14 +323,36 @@ impl Drop for Agent {
         if let Some(socket) = &self.socket {
             let _ = std::fs::remove_file(socket);
         }
+        let _ = std::fs::remove_file(&self.log.path);
     }
 }
 
-fn append(log: &Path, entry: &str) {
-    use std::io::Write as _;
-    let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
-        let _ = write!(file, "── {time} {entry}");
+/// The log of what agents did in this session: readable only by its owner, written only
+/// while the user keeps it, and removed when Borg exits.
+#[derive(Clone)]
+pub struct Log {
+    path: PathBuf,
+    on: Arc<AtomicBool>,
+}
+
+impl Log {
+    /// Follows the user's setting; turning the log off removes what it has.
+    pub fn keep(&self, on: bool) {
+        if self.on.swap(on, Ordering::SeqCst) && !on {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn write(&self, entry: &str) {
+        use std::{io::Write as _, os::unix::fs::OpenOptionsExt};
+        if !self.on.load(Ordering::SeqCst) {
+            return;
+        }
+        let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
+        let file = std::fs::OpenOptions::new().create(true).append(true).mode(PRIVATE_FILE).open(&self.path);
+        if let Ok(mut file) = file {
+            let _ = write!(file, "── {time} {entry}");
+        }
     }
 }
 
@@ -336,19 +360,19 @@ async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
-    log: PathBuf,
+    log: Log,
 ) {
     let clients = Arc::new(AtomicUsize::new(0));
     while let Ok((stream, _)) = listener.accept().await {
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
-        let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count, log: log.clone() }));
-        append(&log, "an agent connected\n\n");
+        let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count, log: log.path.clone() }));
+        log.write("an agent connected\n\n");
         let (calls, messages, clients, log) = (calls.clone(), messages.clone(), clients.clone(), log.clone());
         tokio::spawn(async move {
             let _ = serve_connection(stream, &calls).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
-            let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count, log: log.clone() }));
-            append(&log, "an agent disconnected\n\n");
+            let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count, log: log.path.clone() }));
+            log.write("an agent disconnected\n\n");
         });
     }
 }

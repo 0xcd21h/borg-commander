@@ -77,11 +77,14 @@ pub struct Plugins {
     /// The command line follows container panels into their containers.
     #[serde(rename = "docker-console")]
     pub docker_console: bool,
+    /// Borg logs what connected agents do.
+    #[serde(rename = "agent-log")]
+    pub agent_log: bool,
 }
 
 impl Default for Plugins {
     fn default() -> Self {
-        Self { git: true, system: true, docker: true, docker_console: true }
+        Self { git: true, system: true, docker: true, docker_console: true, agent_log: true }
     }
 }
 
@@ -103,6 +106,7 @@ impl Config {
             system_plugin: self.plugins.as_ref().map_or(base.system_plugin, |plugins| plugins.system),
             docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
             docker_console: self.plugins.as_ref().map_or(base.docker_console, |plugins| plugins.docker_console),
+            agent_log: self.plugins.as_ref().map_or(base.agent_log, |plugins| plugins.agent_log),
             after_command,
             show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
             status_line: self.status_line.unwrap_or(base.status_line),
@@ -143,6 +147,7 @@ impl Config {
                 system: prefs.system_plugin,
                 docker: prefs.docker_plugin,
                 docker_console: prefs.docker_console,
+                agent_log: prefs.agent_log,
             }),
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),

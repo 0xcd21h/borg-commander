@@ -278,6 +278,13 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.docker_console),
                 enabled: state.settings.preferences.docker_plugin,
             },
+            MenuItem {
+                label: tr!(agent_log_plugin_label),
+                hint: "",
+                action: Action::ToggleAgentLog,
+                checked: Some(state.settings.preferences.agent_log),
+                enabled: true,
+            },
         ]
     } else {
         settings_items(state)

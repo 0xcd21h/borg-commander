@@ -1774,3 +1774,16 @@ fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
         "and is not retried"
     );
 }
+
+#[test]
+fn the_claude_log_opens_while_it_is_kept_and_says_so_when_it_is_off() {
+    use crate::AgentEvent;
+    let (mut state, now) = setup_with(Vec::new());
+    let log = PathBuf::from("/run/borg-commander/agent/log-1.txt");
+    update(&mut state, Msg::Agent(AgentEvent::Connected { clients: 1, log: log.clone() }), now);
+    assert_eq!(crate::actions::perform(&mut state, Action::AgentLog, now), vec![Effect::View(log)]);
+
+    assert_eq!(crate::actions::perform(&mut state, Action::ToggleAgentLog, now), vec![Effect::SaveConfig]);
+    assert!(crate::actions::perform(&mut state, Action::AgentLog, now).is_empty());
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("The Claude log is off")));
+}

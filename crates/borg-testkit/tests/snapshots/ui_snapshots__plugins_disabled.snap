@@ -15,9 +15,9 @@ expression: describe(&buffer)
 │ · 日本語メモ.tx│ [x] System — processes and memory                    │                │
 │                │ [x] Docker — containers and Compose projects         │                │
 │                │ [x] Docker — command line follows container panels   │                │
+│                │ [x] Claude — log what it does while Borg runs        │                │
 │                │                                                      │                │
 │                ╰ Space toggle · Esc close · saved immediately ────────╯                │
-│                                           ││                                           │
 │                                           ││                                           │
 ╰ 9 items ──────────────────────────────────╯╰ 5 items ──────────────────────────────────╯
  Up to the parent directory
@@ -39,9 +39,9 @@ Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size             ◈ Bor
  11: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-16 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 17-17 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 18-71 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 72-72 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 73-74 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
  12: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-16 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 17-17 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 18-71 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 72-72 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 73-74 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
  13: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-16 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 17-17 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 18-71 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 72-72 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 73-74 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
- 14: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-16 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 17-72 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 73-74 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
- 15: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-18 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 19-43 Rgb(82, 82, 82) Rgb(20, 20, 20) NONE | 44-44 Rgb(15, 69, 82) Rgb(20, 20, 20) NONE | 45-45 Rgb(38, 38, 38) Rgb(20, 20, 20) NONE | 46-72 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 73-74 Rgb(41, 41, 41) Rgb(13, 13, 13) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
- 16: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-43 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 44-44 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 45-45 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 46-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
+ 14: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-16 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 17-17 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 18-71 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 72-72 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 73-74 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
+ 15: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-16 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 17-72 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 73-74 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
+ 16: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-18 Rgb(126, 126, 126) Rgb(30, 30, 30) NONE | 19-43 Rgb(82, 82, 82) Rgb(20, 20, 20) NONE | 44-44 Rgb(15, 69, 82) Rgb(20, 20, 20) NONE | 45-45 Rgb(38, 38, 38) Rgb(20, 20, 20) NONE | 46-72 Rgb(63, 63, 63) Rgb(20, 20, 20) NONE | 73-74 Rgb(41, 41, 41) Rgb(13, 13, 13) NONE | 75-88 Rgb(97, 97, 97) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
  17: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-9 Rgb(70, 70, 70) Rgb(30, 30, 30) NONE | 10-44 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 45-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
  18: 0-89 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE
  19: 0-89 Rgb(126, 126, 126) Reset NONE
