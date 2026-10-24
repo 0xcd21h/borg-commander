@@ -15,6 +15,7 @@ borg-docker = { path = "crates/borg-docker" }
 borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
+borg-link = { path = "crates/borg-link" }
 borg-update = { path = "crates/borg-update" }
 borg-term = { path = "crates/borg-term" }
 borg-testkit = { path = "crates/borg-testkit" }
@@ -53,6 +54,11 @@ sysinfo            = { version = "0.39", default-features = false, features = ["
 read-process-memory = "0.2"
 serde_json         = "1"
 similar            = "2"
+snow               = "0.10"
+getrandom          = "0.3"
+tokio-tungstenite  = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+tokio-rustls       = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls-acme        = { version = "0.15", default-features = false, features = ["ring", "tls12", "webpki-roots", "tokio"] }
 icy_sixel          = "0.7"
 tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util", "io-std", "net"] }
 tokio-stream       = "0.1"
