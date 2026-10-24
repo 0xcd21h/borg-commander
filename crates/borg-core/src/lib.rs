@@ -35,8 +35,9 @@ mod viewer;
 mod update_tests;
 
 pub use agent::{
-    Agent, AgentEvent, Approval, Ask, AskKind, Change, Connect, ConnectInfo, DiffLine, approval_layout, approval_rows,
-    connect_commands, host_console_ready, log_layout, log_rows, shell_quote, typing_refusal,
+    Agent, AgentEvent, Approval, Ask, AskKind, CONNECT_CLOUD, CONNECT_KEEP, CONNECT_START, Change, Connect,
+    ConnectInfo, DiffLine, approval_layout, approval_rows, connect_commands, host_console_ready, log_layout, log_rows,
+    pair_command, shell_quote, typing_refusal,
 };
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};

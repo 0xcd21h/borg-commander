@@ -326,10 +326,74 @@ The agent can also type text for you to review: a command at the prompt, or a sc
 vim or nano open in the console. Nothing runs: no Enter is pressed, and text with several
 lines goes in as a paste, which shells and editors insert without running.
 
+### Borg cloud
+
+Borg cloud lets Claude reach a borg it has no SSH route to: a server you open in a browser
+terminal, a container, a machine behind NAT. Both sides connect out to a relay, and the relay
+joins them.
+
+1. In borg on the server, press F1 then C. The first choice is `borg pair` with a link; Enter
+   copies it. The link works once, for ten minutes.
+2. Run it in a terminal on your computer, where borg is installed too. It prints this
+   computer's fingerprint.
+3. Borg on the server asks whether to pair, showing the computer's name and fingerprint. Choose
+   Yes if they match. `borg pair` then offers to add the server to Claude Code, as
+   `claude mcp add borg-NAME -- borg mcp remote NAME`.
+
+From then on, Claude reaches that borg whenever it is open there. `borg pair` alone lists the
+paired servers, and `borg pair --forget NAME` forgets one; on the server, F8 in the Connect
+dialog forgets every paired computer. Through borg cloud Claude also gets `download` and
+`upload`, which copy files between the server and your computer; `borg get NAME:PATH [TO]` and
+`borg put FROM NAME:PATH` do the same from your terminal. Uploads wait for your approval in
+borg. Every approval names the computer that asked.
+
+The connection is encrypted end to end. Each borg keeps a private key, readable only by you,
+in its state folder. Pairing exchanges the public keys, and every connection opens with a
+Noise IK handshake bound to them, so the relay forwards only ciphertext and cannot answer in
+either borg's name. Calls from another computer can read without asking, like local ones;
+Options → Plugins → "ask before another computer reads" makes those reads wait for approval
+too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
+none at all when borg cloud is off in Options → Plugins.
+
+The relay is set in the config, as `relay = "wss://relay.example.com"`.
+
 While an agent is connected, **◈ Claude** sits at the start of the shortcut row; click it
 for the log of what it did: what it looked at, read, showed and typed, and every command
 and change, approved or declined. Borg keeps the log in memory only, until it exits; to
 keep no log at all, turn it off in Options → Plugins.
+
+### Running a relay
+
+`borg-relay` is the relay borgs meet through. On a Linux server whose domain points at it,
+with port 443 free, one command installs it as a service with a TLS certificate from Let's
+Encrypt:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install-relay.sh | sudo sh -s -- relay.example.com you@example.com
+```
+
+Run it again to update.
+
+On Dokploy, Coolify or another Docker host whose proxy adds TLS, run the image
+`ghcr.io/0xcd21h/borg-relay:latest` and give it a domain on port 8080: in Dokploy, an
+application from that Docker image with a domain on container port 8080 and HTTPS on; in
+Coolify, a resource from that Docker image with port 8080 exposed and a domain. Either also
+takes [packaging/relay/docker-compose.yml](../packaging/relay/docker-compose.yml) as a compose
+service. The image runs `borg-relay --behind-proxy`: the proxy serves HTTPS and passes
+WebSockets through, and the relay counts its limits by the client address the proxy reports
+in `X-Forwarded-For`. It runs as an unprivileged user and has a health check (`GET /health`).
+
+On a Docker host without such a proxy, the same image serves TLS itself:
+
+```sh
+docker run -d --restart unless-stopped -p 443:443 -v borg-relay:/data ghcr.io/0xcd21h/borg-relay --domain relay.example.com --cache /data
+```
+
+Behind another proxy that adds TLS, run `borg-relay --behind-proxy --listen 127.0.0.1:8080`;
+only use it behind a proxy, since the relay trusts the client address the proxy reports. The relay keeps limits per address, on servers and sessions, on
+frame size, bandwidth, bytes per session, idle time and session length. It stores nothing
+but its certificate, and logs the start of each server's key and the bytes each session
+carried.
 
 ## Find, jobs, and viewers
 
@@ -386,6 +450,7 @@ screensaver = true          # a spinning cube or a glitching logo, picked at ran
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
+relay = "wss://relay.example.com"  # the relay for borg cloud
 
 [plugins]
 git = true
@@ -393,6 +458,8 @@ system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
 agent-log = true            # log what Claude does while Borg runs
+agent-cloud = true          # paired computers reach this borg through borg cloud
+agent-ask-reads = false     # reads from another computer wait for approval
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;

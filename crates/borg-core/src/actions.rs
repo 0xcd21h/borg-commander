@@ -119,6 +119,14 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.settings.preferences.docker_console = !state.settings.preferences.docker_console;
             vec![Effect::SaveConfig]
         }
+        Action::ToggleAgentCloud => {
+            state.settings.preferences.agent_cloud = !state.settings.preferences.agent_cloud;
+            vec![Effect::SaveConfig]
+        }
+        Action::ToggleAgentAskReads => {
+            state.settings.preferences.agent_ask_reads = !state.settings.preferences.agent_ask_reads;
+            vec![Effect::SaveConfig]
+        }
         Action::ToggleAgentLog => {
             state.settings.preferences.agent_log = !state.settings.preferences.agent_log;
             if !state.settings.preferences.agent_log {

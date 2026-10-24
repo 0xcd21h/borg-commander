@@ -139,6 +139,10 @@ pub enum Effect {
     },
     /// Puts text on the clipboard of the computer the user sits at, through the terminal.
     Copy(String),
+    /// Makes a pairing link for borg cloud, for the Connect dialog.
+    StartPairing,
+    /// Forgets every computer paired through borg cloud, and ends their sessions.
+    ForgetComputers,
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,

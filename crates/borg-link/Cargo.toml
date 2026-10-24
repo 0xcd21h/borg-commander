@@ -1,0 +1,22 @@
+[package]
+name                 = "borg-link"
+description          = "An end-to-end encrypted channel between two borgs through a relay"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow            = { workspace = true }
+futures           = { workspace = true }
+getrandom         = { workspace = true }
+rustix            = { workspace = true }
+snow              = { workspace = true }
+tokio             = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

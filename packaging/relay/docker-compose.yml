@@ -1,0 +1,9 @@
+# borg-relay for Dokploy, Coolify or any Docker host with a proxy that adds TLS. Give the
+# service a domain on port 8080: the proxy serves HTTPS and passes WebSockets through, and
+# the relay counts its limits by the client address the proxy reports.
+services:
+  borg-relay:
+    image: ghcr.io/0xcd21h/borg-relay:latest
+    restart: unless-stopped
+    expose:
+      - "8080"

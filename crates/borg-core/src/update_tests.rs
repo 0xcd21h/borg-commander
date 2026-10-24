@@ -1820,13 +1820,22 @@ fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() 
 }
 
 #[test]
-fn the_connect_dialog_copies_the_command_for_the_target_typed() {
+fn the_connect_dialog_offers_borg_cloud_and_copies_the_command_picked() {
+    use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());
     state.agent.connect = crate::ConnectInfo {
         name: "borg-web1".into(),
         program: "/usr/bin/borg".into(),
         ssh: Some("me@10.0.0.5".into()),
     };
+    let effects = crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    assert_eq!(effects, vec![Effect::StartPairing], "opening it asks borg cloud for a pairing link");
+    // Enter does nothing while the link is on its way.
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    update(&mut state, Msg::Agent(AgentEvent::Pairing(Ok("borg://relay.example.com/ab#cd".into()))), now);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(effects, vec![Effect::Copy("borg pair 'borg://relay.example.com/ab#cd'".into())]);
+
     crate::actions::perform(&mut state, Action::ConnectClaude, now);
     for _ in 0.."me@10.0.0.5".len() {
         press(&mut state, now, key(KeyCode::Backspace));
@@ -1835,12 +1844,23 @@ fn the_connect_dialog_copies_the_command_for_the_target_typed() {
         press(&mut state, now, key(KeyCode::Char(c)));
     }
     press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Tab));
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert_eq!(
         effects,
         vec![Effect::Copy("claude mcp add borg-web1 -- ssh -o BatchMode=yes prod '/usr/bin/borg mcp'".into())]
     );
     assert!(state.overlay.is_none() && state.notice.as_deref().is_some_and(|n| n.starts_with("Copied")));
+
+    // Paired computers can be forgotten from the dialog; borg cloud switched off says so.
+    update(&mut state, Msg::Agent(AgentEvent::Paired { computers: vec!["me@laptop".into()] }), now);
+    crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    assert_eq!(press(&mut state, now, key(KeyCode::F(8))), vec![Effect::ForgetComputers]);
+    assert!(state.agent.computers.is_empty());
+    press(&mut state, now, key(KeyCode::Esc));
+    crate::actions::perform(&mut state, Action::ToggleAgentCloud, now);
+    assert!(crate::actions::perform(&mut state, Action::ConnectClaude, now).is_empty());
+    assert!(matches!(&state.agent.pairing, Some(Err(reason)) if reason.starts_with("Borg cloud is off")));
 }
 
 #[test]

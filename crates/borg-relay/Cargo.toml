@@ -1,0 +1,31 @@
+[package]
+name                 = "borg-relay"
+description          = "The relay borgs meet through: it forwards their encrypted traffic"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[[bin]]
+name = "borg-relay"
+path = "src/main.rs"
+
+[dependencies]
+anyhow            = { workspace = true }
+borg-link         = { workspace = true }
+futures           = { workspace = true }
+getrandom         = { workspace = true }
+rustls-acme       = { workspace = true }
+tokio             = { workspace = true }
+tokio-rustls      = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+[dev-dependencies]
+borg-link         = { workspace = true }
+tokio             = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures           = { workspace = true }
+snow              = { workspace = true }
+
+[lints]
+workspace = true

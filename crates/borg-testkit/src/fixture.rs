@@ -66,6 +66,12 @@ impl Fixture {
         self.config().join(CONFIG_FILE)
     }
 
+    /// The fixture's own folder, beside work, home and the rest: for what stands for another
+    /// machine.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn work(&self) -> PathBuf {
         self.root.join(WORK)
     }

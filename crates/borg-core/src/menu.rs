@@ -286,6 +286,20 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.agent_log),
                 enabled: true,
             },
+            MenuItem {
+                label: tr!(agent_cloud_plugin_label),
+                hint: "",
+                action: Action::ToggleAgentCloud,
+                checked: Some(state.settings.preferences.agent_cloud),
+                enabled: true,
+            },
+            MenuItem {
+                label: tr!(agent_ask_reads_plugin_label),
+                hint: "",
+                action: Action::ToggleAgentAskReads,
+                checked: Some(state.settings.preferences.agent_ask_reads),
+                enabled: state.settings.preferences.agent_cloud,
+            },
         ]
     } else {
         settings_items(state)

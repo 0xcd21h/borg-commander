@@ -47,6 +47,10 @@ pub enum AgentEvent {
     Paste { text: String },
     /// An approved ask is done; `notice` says how it went.
     Finished { id: u64, notice: String },
+    /// The pairing link the Connect dialog shows, or why there is none.
+    Pairing(Result<String, String>),
+    /// The computers paired with this borg through borg cloud.
+    Paired { computers: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +58,11 @@ pub enum AskKind {
     Run,
     Create,
     Edit,
+    /// A computer asks to pair with this borg through borg cloud.
+    Pair,
+    /// Another computer asks to read, while the user wants those reads approved.
+    Read,
+    Upload,
 }
 
 /// What an agent asks to do, as the approval dialog shows it.
@@ -121,9 +130,15 @@ pub struct ConnectInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Connect {
     pub target: crate::input::LineInput,
-    /// The command for keeping the connection in Claude Code, rather than starting now.
-    pub keep: bool,
+    /// Which command Enter copies: through borg cloud, start now, or keep.
+    pub pick: usize,
 }
+
+/// The commands the Connect dialog offers.
+pub const CONNECT_CLOUD: usize = 0;
+pub const CONNECT_START: usize = 1;
+pub const CONNECT_KEEP: usize = 2;
+const CONNECT_CHOICES: usize = 3;
 
 #[derive(Debug, Clone, Default)]
 pub struct Agent {
@@ -135,6 +150,10 @@ pub struct Agent {
     /// What agents did, oldest first, while the user keeps the log; nothing is written to disk.
     pub log: Vec<String>,
     pub connect: ConnectInfo,
+    /// The pairing link borg cloud gave, or why there is none; `None` until asked for.
+    pub pairing: Option<Result<String, String>>,
+    /// The computers paired with this borg through borg cloud.
+    pub computers: Vec<String>,
 }
 
 impl Agent {
@@ -164,6 +183,8 @@ pub(crate) fn receive(state: &mut AppState, event: AgentEvent) -> Vec<Effect> {
         AgentEvent::Reveal { dir, focus, mount } => return reveal(state, dir, focus, mount),
         AgentEvent::Type { line } => return type_line(state, &line),
         AgentEvent::Paste { text } => return paste(state, &text),
+        AgentEvent::Pairing(pairing) => state.agent.pairing = Some(pairing),
+        AgentEvent::Paired { computers } => state.agent.computers = computers,
         AgentEvent::Finished { id, notice } => {
             if state.agent.running.as_ref().is_some_and(|(running, _)| *running == id) {
                 state.agent.running = None;
@@ -434,8 +455,14 @@ pub(crate) fn open_log(state: &mut AppState) -> Vec<Effect> {
 
 pub(crate) fn open_connect(state: &mut AppState) -> Vec<Effect> {
     let target = state.agent.connect.ssh.clone().unwrap_or_default();
-    state.overlay = Some(Overlay::Connect(Connect { target: crate::input::LineInput::new(target), keep: false }));
-    Vec::new()
+    state.overlay =
+        Some(Overlay::Connect(Connect { target: crate::input::LineInput::new(target), pick: CONNECT_CLOUD }));
+    if !state.settings.preferences.agent_cloud {
+        state.agent.pairing = Some(Err(tr!(agent_cloud_off).into()));
+        return Vec::new();
+    }
+    state.agent.pairing = None;
+    vec![Effect::StartPairing]
 }
 
 pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &KeyEvent) -> Vec<Effect> {
@@ -444,12 +471,27 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
             state.overlay = None;
             return Vec::new();
         }
-        KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => connect.keep = !connect.keep,
+        KeyCode::Tab | KeyCode::Down => connect.pick = (connect.pick + 1) % CONNECT_CHOICES,
+        KeyCode::BackTab | KeyCode::Up => connect.pick = (connect.pick + CONNECT_CHOICES - 1) % CONNECT_CHOICES,
+        KeyCode::F(8) if !state.agent.computers.is_empty() => {
+            state.agent.computers.clear();
+            state.notice = Some(tr!(agent_cloud_forgotten).into());
+            state.overlay = Some(Overlay::Connect(connect));
+            return vec![Effect::ForgetComputers];
+        }
         KeyCode::Enter => {
             let [start, keep] = connect_commands(&state.agent.connect, connect.target.text().trim());
+            let command = match connect.pick {
+                CONNECT_CLOUD => match &state.agent.pairing {
+                    Some(Ok(link)) => pair_command(link),
+                    _ => return Vec::new(),
+                },
+                CONNECT_START => start,
+                _ => keep,
+            };
             state.overlay = None;
             state.notice = Some(tr!(agent_connect_copied).into());
-            return vec![Effect::Copy(if connect.keep { keep } else { start })];
+            return vec![Effect::Copy(command)];
         }
         _ if state.agent.connect.ssh.is_some() => {
             connect.target.apply(key);
@@ -484,6 +526,11 @@ pub fn connect_commands(info: &ConnectInfo, target: &str) -> [String; 2] {
         format!("claude --mcp-config {}", shell_quote(&config)),
         format!("claude mcp add {} -- {} {}", info.name, shell_quote(&command), shell_args.join(" ")),
     ]
+}
+
+/// The command that pairs the user's computer with this borg through borg cloud.
+pub fn pair_command(link: &str) -> String {
+    format!("borg pair {}", shell_quote(link))
 }
 
 /// `text` as one shell word: unchanged when it is plain, otherwise in single quotes.

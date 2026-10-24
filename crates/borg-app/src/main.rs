@@ -6,6 +6,7 @@ mod config;
 mod docker;
 mod document;
 mod launch;
+mod link;
 mod memory_search;
 mod peek;
 mod plugins;
@@ -49,9 +50,36 @@ async fn main() -> Result<ExitCode> {
         Some("mcp") => {
             match env::args().nth(2).as_deref() {
                 Some("setup") => println!("{}", agent::setup(env::args().nth(3).as_deref())),
+                Some("remote") => {
+                    let Some(name) = env::args().nth(3) else {
+                        eprintln!("usage: borg mcp remote NAME");
+                        return Ok(ExitCode::from(USAGE_ERROR));
+                    };
+                    let state = session::StateDir::locate().map(|dir| dir.path().to_path_buf());
+                    let Some(state) = state else {
+                        eprintln!("borg has no folder for its keys: set HOME or BORG_STATE_DIR");
+                        return Ok(ExitCode::FAILURE);
+                    };
+                    agent::serve_remote(state, &name).await?;
+                }
                 _ => agent::serve(launch::runtime_dir()).await?,
             }
             return Ok(ExitCode::SUCCESS);
+        }
+        Some(command @ ("pair" | "get" | "put")) => {
+            let args: Vec<String> = env::args().skip(2).collect();
+            let done = match command {
+                "pair" => link::pair_command(&args).await,
+                "get" => link::get_command(&args).await,
+                _ => link::put_command(&args).await,
+            };
+            return Ok(match done {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("borg {command}: {error:#}");
+                    ExitCode::FAILURE
+                }
+            });
         }
         Some("--version" | "-V") => {
             println!("borg {}", update::VERSION);

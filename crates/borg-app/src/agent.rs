@@ -36,7 +36,7 @@ use tokio::{
     },
 };
 
-pub use files::{Spot, diff, is_folder, load, parse_lines, read, whole};
+pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};
 pub use location::{DOCKER_SCHEME, Location};
 
 const SOCKET_PREFIX: &str = "session-";
@@ -49,11 +49,44 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL: &str = "2025-06-18";
 
 /// A tool call relayed from `borg mcp` to the session, one JSON object per line.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Call {
     pub tool: String,
     #[serde(default)]
     pub args: Value,
+    /// The paired computer a call came from through borg cloud; `None` for this machine.
+    /// Never read from the wire, so a client cannot claim another's name.
+    #[serde(skip)]
+    pub origin: Option<String>,
+    /// The user already approved this call, as a read from another computer.
+    #[serde(skip)]
+    pub approved: bool,
+}
+
+/// The prefix of tools and arguments only the session itself uses.
+const INTERNAL: char = '_';
+
+impl Call {
+    pub fn new(tool: &str, args: Value) -> Self {
+        Self { tool: tool.to_owned(), args, origin: None, approved: false }
+    }
+
+    /// A call the session makes for this one, with its origin and approval.
+    pub fn follow(&self, tool: &str, args: Value) -> Self {
+        Self { tool: tool.to_owned(), args, origin: self.origin.clone(), approved: self.approved }
+    }
+
+    /// A call as it may come from outside: internal tools are refused, and internal arguments
+    /// (such as a container already looked up) are left out, so a client cannot pass them off.
+    pub fn external(mut self) -> Result<Self, Reply> {
+        if self.tool.starts_with(INTERNAL) {
+            return Err(Reply::error(format!("unknown tool {}", self.tool)));
+        }
+        if let Value::Object(args) = &mut self.args {
+            args.retain(|key, _| !key.starts_with(INTERNAL));
+        }
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,7 +137,7 @@ fn owner_only(dir: &Path) -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn hostname() -> String {
+pub fn hostname() -> String {
     rustix::system::uname().nodename().to_string_lossy().into_owned()
 }
 
@@ -144,7 +177,7 @@ pub fn connect_info() -> borg_core::ConnectInfo {
 
 /// This program's path, preferring the one on `PATH` that leads to it, since a package
 /// manager's versioned folder changes with each upgrade.
-fn program_path() -> String {
+pub fn program_path() -> String {
     let exe = std::env::current_exe().ok();
     let real = exe.as_ref().and_then(|exe| std::fs::canonicalize(exe).ok());
     if let (Some(path), Some(real)) = (std::env::var_os("PATH"), &real) {
@@ -166,6 +199,8 @@ pub struct Agent {
     requeue: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     socket: Option<PathBuf>,
     messages: UnboundedSender<Msg>,
+    /// Agents connected now: through the socket here, and from paired computers.
+    clients: Arc<AtomicUsize>,
     waiting: HashMap<u64, (oneshot::Sender<Reply>, Work)>,
     next_id: u64,
 }
@@ -183,6 +218,17 @@ pub enum Work {
         spot: Spot,
         before: Option<String>,
         after: String,
+    },
+    /// A computer asks to pair through borg cloud.
+    Pair {
+        name: String,
+    },
+    /// A call from another computer, run once the user approves it.
+    Forward(Call),
+    /// A file from another computer, written to `spot` once the user approves it.
+    Upload {
+        spot: Spot,
+        size: u64,
     },
 }
 
@@ -236,7 +282,7 @@ impl Typed {
 
 /// Adds an entry, with the time, to the log of what agents did; the session keeps it in
 /// memory while the user wants a log.
-fn note(messages: &UnboundedSender<Msg>, entry: &str) {
+pub fn note(messages: &UnboundedSender<Msg>, entry: &str) {
     let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
     let _ = messages.send(Msg::Agent(AgentEvent::Note(format!("{time}  {entry}"))));
 }
@@ -245,15 +291,16 @@ impl Agent {
     pub fn start(runtime_dir: &Path, messages: UnboundedSender<Msg>) -> Self {
         let (calls, incoming) = unbounded_channel();
         let pid = std::process::id();
+        let clients = Arc::new(AtomicUsize::new(0));
         let socket = socket_dir(runtime_dir).ok().and_then(|dir| {
             let socket = dir.join(format!("{SOCKET_PREFIX}{pid}{SOCKET_SUFFIX}"));
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            tokio::spawn(accept(listener, calls.clone(), messages.clone()));
+            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone()));
             Some(socket)
         });
-        Self { incoming, requeue: calls, socket, messages, waiting: HashMap::new(), next_id: 0 }
+        Self { incoming, requeue: calls, socket, messages, clients, waiting: HashMap::new(), next_id: 0 }
     }
 
     /// Adds an entry to the log of what agents did.
@@ -261,9 +308,14 @@ impl Agent {
         note(&self.messages, entry);
     }
 
-    /// Where a call comes back once something it needs is known.
+    /// Where a call comes back once something it needs is known; also where calls from
+    /// paired computers come in.
     pub fn requeue_sender(&self) -> UnboundedSender<(Call, oneshot::Sender<Reply>)> {
         self.requeue.clone()
+    }
+
+    pub fn clients(&self) -> Arc<AtomicUsize> {
+        self.clients.clone()
     }
 
     /// Notes an ask waiting for the user's answer.
@@ -285,6 +337,9 @@ impl Agent {
             Work::Write { spot, before, .. } => {
                 format!("declined {} {}", if before.is_some() { "editing" } else { "creating" }, spot.uri())
             }
+            Work::Pair { name } => format!("declined pairing with {name}"),
+            Work::Forward(call) => format!("declined a {} from {}", call.tool, call.origin.as_deref().unwrap_or("?")),
+            Work::Upload { spot, .. } => format!("declined an upload to {}", spot.uri()),
         };
         self.note(&what);
         let _ = reply.send(Reply::error("The user declined this."));
@@ -460,8 +515,8 @@ async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
+    clients: Arc<AtomicUsize>,
 ) {
-    let clients = Arc::new(AtomicUsize::new(0));
     while let Ok((stream, _)) = listener.accept().await {
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
@@ -480,12 +535,13 @@ async fn serve_connection(stream: UnixStream, calls: &UnboundedSender<(Call, one
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let reply = match serde_json::from_str::<Call>(&line) {
-            Ok(call) => {
+        let reply = match serde_json::from_str::<Call>(&line).map(Call::external) {
+            Ok(Ok(call)) => {
                 let (sender, receiver) = oneshot::channel();
                 calls.send((call, sender)).context("the session closed")?;
                 receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."))
             }
+            Ok(Err(refused)) => refused,
             Err(error) => Reply::error(format!("unreadable call: {error}")),
         };
         write.write_all(format!("{}\n", serde_json::to_string(&reply)?).as_bytes()).await?;
@@ -805,11 +861,171 @@ impl Session {
     }
 }
 
+/// Where `borg mcp` sends the calls it gets: the borg open on this machine, or a paired
+/// borg reached through borg cloud.
+enum Backend {
+    Local { runtime_dir: PathBuf, session: Option<Session> },
+    Remote { state: PathBuf, server: crate::link::Server, remote: Option<Box<crate::link::Remote>> },
+}
+
+impl Backend {
+    fn instructions(&self) -> String {
+        match self {
+            Self::Local { .. } => format!(
+                "Borg Commander is a terminal file manager the user has open on {}. These tools see what the user sees there and work on that machine. Every command and change waits for the user's approval in Borg, so explain what you want to do and why.",
+                hostname()
+            ),
+            Self::Remote { server, .. } => format!(
+                "Borg Commander is a terminal file manager the user has open on {}, which these tools reach through borg cloud, encrypted end to end. They see what the user sees there and work on that machine; `download` and `upload` copy files between it and this computer, where you run. Every command and change waits for the user's approval in Borg, so explain what you want to do and why.",
+                server.name
+            ),
+        }
+    }
+
+    fn tools(&self) -> Value {
+        let mut tools = tools();
+        if let (Self::Remote { .. }, Value::Array(list)) = (self, &mut tools) {
+            list.extend(transfer_tools());
+        }
+        tools
+    }
+
+    async fn call(&mut self, call: &Call) -> Reply {
+        match self {
+            Self::Local { runtime_dir, session } => {
+                if session.is_none() {
+                    *session = Session::open(runtime_dir).await;
+                }
+                let mut reply = match session.as_mut() {
+                    Some(open) => open.call(call).await,
+                    None => None,
+                };
+                if reply.is_none() {
+                    // The session may have restarted: try the newest one once more.
+                    *session = Session::open(runtime_dir).await;
+                    if let Some(open) = session.as_mut() {
+                        reply = open.call(call).await;
+                    }
+                }
+                reply.unwrap_or_else(|| {
+                    Reply::error(format!(
+                        "Borg is not open on {}. Ask the user to start borg in their session there.",
+                        hostname()
+                    ))
+                })
+            }
+            Self::Remote { state, server, remote } => {
+                // A session the relay dropped, after idling or a restart, is opened again once.
+                for attempt in 0..2 {
+                    if remote.is_none() {
+                        match crate::link::Remote::open(state, server).await {
+                            Ok(opened) => *remote = Some(Box::new(opened)),
+                            Err(error) => return Reply::error(format!("{error:#}")),
+                        }
+                    }
+                    let Some(open) = remote.as_mut() else { break };
+                    let result = match call.tool.as_str() {
+                        "download" => transfer_download(open, call).await,
+                        "upload" => transfer_upload(open, call).await,
+                        _ => open.call(call).await,
+                    };
+                    match result {
+                        Ok(reply) => return reply,
+                        Err(error) if attempt == 1 => return Reply::error(format!("{error:#}")),
+                        Err(_) => *remote = None,
+                    }
+                }
+                Reply::error(format!("borg on {} is not reachable", server.name))
+            }
+        }
+    }
+}
+
+/// The tools only `borg mcp remote` offers: it runs on the user's computer, so it can copy
+/// files between that and the server.
+fn transfer_tools() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "download",
+            "description": "Copies a file from the machine Borg runs on to this computer, where you run. `path` is a location there; `to` is a path here: a folder keeps the file's name, and ~/Downloads is used when it is left out. The relay carries about 2 MB a second.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string" }, "to": { "type": "string" } },
+                "required": ["path"]
+            },
+        }),
+        json!({
+            "name": "upload",
+            "description": "Copies a file from this computer, where you run, to `to`, a location on the machine Borg runs on, after the user approves it in Borg there. Up to 1 GiB; the relay carries about 2 MB a second.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "from": { "type": "string" }, "to": { "type": "string" } },
+                "required": ["from", "to"]
+            },
+            "annotations": { "destructiveHint": true },
+        }),
+    ]
+}
+
+/// A path on this computer: absolute, under ~, or from the folder `borg mcp` runs in.
+fn local_path(text: &str) -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match (text.strip_prefix('~'), home) {
+        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => home.join(rest.trim_start_matches('/')),
+        _ => PathBuf::from(text),
+    }
+}
+
+async fn transfer_download(remote: &mut crate::link::Remote, call: &Call) -> Result<Reply> {
+    let Some(path) = call.args["path"].as_str() else { return Ok(Reply::error("download needs a path")) };
+    let name = Path::new(path).file_name().map_or_else(|| "download".into(), |name| name.to_os_string());
+    let mut to = match call.args["to"].as_str() {
+        Some(to) => local_path(to),
+        None => {
+            let downloads = local_path("~/Downloads");
+            if downloads.is_dir() { downloads } else { PathBuf::from(".") }
+        }
+    };
+    if to.is_dir() {
+        to = to.join(name);
+    }
+    match crate::link::download(remote, path, &to, |_, _| {}).await {
+        Ok(size) => Ok(Reply::ok(format!("Downloaded {path} ({size} bytes) to {}", to.display()))),
+        Err(error) if error.downcast_ref::<std::io::Error>().is_some() => Ok(Reply::error(format!("{error:#}"))),
+        Err(error) => Err(error),
+    }
+}
+
+async fn transfer_upload(remote: &mut crate::link::Remote, call: &Call) -> Result<Reply> {
+    let (Some(from), Some(to)) = (call.args["from"].as_str(), call.args["to"].as_str()) else {
+        return Ok(Reply::error("upload needs from and to"));
+    };
+    let from = local_path(from);
+    if !from.is_file() {
+        return Ok(Reply::error(format!("{} is not a file on this computer", from.display())));
+    }
+    match crate::link::upload(remote, &from, to, |_, _| {}).await {
+        Ok(size) => Ok(Reply::ok(format!("Uploaded {} ({size} bytes) to {to}", from.display()))),
+        Err(error) => Ok(Reply::error(format!("{error:#}"))),
+    }
+}
+
 /// `borg mcp`: an MCP server on stdin and stdout for the Borg session open on this machine.
 pub async fn serve(runtime_dir: PathBuf) -> Result<()> {
+    // Connects at once, so borg shows that Claude connected before its first call.
+    let session = Session::open(&runtime_dir).await;
+    serve_with(Backend::Local { runtime_dir, session }).await
+}
+
+/// `borg mcp remote NAME`: the same for a borg paired through borg cloud.
+pub async fn serve_remote(state: PathBuf, name: &str) -> Result<()> {
+    let server = crate::link::server(&state, name)?;
+    serve_with(Backend::Remote { state, server, remote: None }).await
+}
+
+async fn serve_with(mut backend: Backend) -> Result<()> {
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     let mut output = tokio::io::stdout();
-    let mut session = Session::open(&runtime_dir).await;
     while let Some(line) = input.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue };
@@ -819,38 +1035,13 @@ pub async fn serve(runtime_dir: PathBuf) -> Result<()> {
                 "protocolVersion": params["protocolVersion"].as_str().unwrap_or(PROTOCOL),
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "borg", "version": crate::update::VERSION },
-                "instructions": format!(
-                    "Borg Commander is a terminal file manager the user has open on {}. These tools see what the user sees there and work on that machine. Every command waits for the user's approval in Borg, so explain what you want to run and why.",
-                    hostname()
-                ),
+                "instructions": backend.instructions(),
             }),
             "ping" => json!({}),
-            "tools/list" => json!({ "tools": tools() }),
+            "tools/list" => json!({ "tools": backend.tools() }),
             "tools/call" => {
-                let call = Call {
-                    tool: params["name"].as_str().unwrap_or_default().to_owned(),
-                    args: params["arguments"].clone(),
-                };
-                if session.is_none() {
-                    session = Session::open(&runtime_dir).await;
-                }
-                let mut reply = match session.as_mut() {
-                    Some(open) => open.call(&call).await,
-                    None => None,
-                };
-                if reply.is_none() {
-                    // The session may have restarted: try the newest one once more.
-                    session = Session::open(&runtime_dir).await;
-                    if let Some(open) = session.as_mut() {
-                        reply = open.call(&call).await;
-                    }
-                }
-                let reply = reply.unwrap_or_else(|| {
-                    Reply::error(format!(
-                        "Borg is not open on {}. Ask the user to start borg in their session there.",
-                        hostname()
-                    ))
-                });
+                let call = Call::new(params["name"].as_str().unwrap_or_default(), params["arguments"].clone());
+                let reply = backend.call(&call).await;
                 json!({ "content": [{ "type": "text", "text": reply.text }], "isError": !reply.ok })
             }
             _ => {

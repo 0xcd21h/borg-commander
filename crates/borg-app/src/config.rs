@@ -66,6 +66,8 @@ pub struct Config {
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
     pub update_check: Option<bool>,
+    /// The borg cloud relay, as `wss://host`.
+    pub relay: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,11 +82,25 @@ pub struct Plugins {
     /// Borg logs what connected agents do.
     #[serde(rename = "agent-log")]
     pub agent_log: bool,
+    /// Paired computers reach this borg through borg cloud.
+    #[serde(rename = "agent-cloud")]
+    pub agent_cloud: bool,
+    /// Reads from another computer wait for approval.
+    #[serde(rename = "agent-ask-reads")]
+    pub agent_ask_reads: bool,
 }
 
 impl Default for Plugins {
     fn default() -> Self {
-        Self { git: true, system: true, docker: true, docker_console: true, agent_log: true }
+        Self {
+            git: true,
+            system: true,
+            docker: true,
+            docker_console: true,
+            agent_log: true,
+            agent_cloud: true,
+            agent_ask_reads: false,
+        }
     }
 }
 
@@ -107,6 +123,8 @@ impl Config {
             docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
             docker_console: self.plugins.as_ref().map_or(base.docker_console, |plugins| plugins.docker_console),
             agent_log: self.plugins.as_ref().map_or(base.agent_log, |plugins| plugins.agent_log),
+            agent_cloud: self.plugins.as_ref().map_or(base.agent_cloud, |plugins| plugins.agent_cloud),
+            agent_ask_reads: self.plugins.as_ref().map_or(base.agent_ask_reads, |plugins| plugins.agent_ask_reads),
             after_command,
             show_hidden: self.show_hidden.unwrap_or(base.show_hidden),
             status_line: self.status_line.unwrap_or(base.status_line),
@@ -148,6 +166,8 @@ impl Config {
                 docker: prefs.docker_plugin,
                 docker_console: prefs.docker_console,
                 agent_log: prefs.agent_log,
+                agent_cloud: prefs.agent_cloud,
+                agent_ask_reads: prefs.agent_ask_reads,
             }),
             theme: theme.map(str::to_owned),
             status_line: Some(prefs.status_line),
@@ -168,6 +188,7 @@ impl Config {
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
             update_check: self.update_check,
+            relay: self.relay.clone(),
         }
     }
 }

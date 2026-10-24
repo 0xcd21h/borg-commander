@@ -180,6 +180,25 @@ pub async fn read_file(id: &str, path: &Path, limit: u64, tail: bool) -> Result<
     }
 }
 
+/// Prints a file's size on a line, then up to `$3` of its bytes from offset `$2`.
+const READ_RANGE: &str = r#"[ -f "$1" ] || { echo "$1 is not a file" >&2; exit 1; }; wc -c < "$1"; tail -c +"$(($2 + 1))" -- "$1" | head -c "$3""#;
+
+/// Up to `limit` bytes of a file in a running container from `offset`, and its size.
+pub async fn read_range(id: &str, path: &Path, offset: u64, limit: u64) -> Result<(u64, Vec<u8>)> {
+    let (offset, limit) = (offset.to_string(), limit.to_string());
+    let output = tokio::time::timeout(
+        QUERY_TIMEOUT,
+        docker(&["exec", id, "sh", "-c", READ_RANGE, "sh", &inside(path), &offset, &limit]).output(),
+    )
+    .await
+    .context(tr!(docker_timed_out))?
+    .map_err(spawn_error)?;
+    ensure!(output.status.success(), "{}", files_error(anyhow!("{}", String::from_utf8_lossy(&output.stderr).trim())));
+    let newline = output.stdout.iter().position(|&byte| byte == b'\n').context("no size")?;
+    let size = String::from_utf8_lossy(&output.stdout[..newline]).trim().parse().context("no size")?;
+    Ok((size, output.stdout[newline + 1..].to_vec()))
+}
+
 /// Writes a file in a running container, replacing what it holds or creating it. The file
 /// is written in place, so an existing one keeps its owner and permissions.
 pub async fn write_file(id: &str, path: &Path, bytes: &[u8]) -> Result<()> {
