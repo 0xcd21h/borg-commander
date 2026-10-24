@@ -1012,7 +1012,9 @@ async fn transfer_upload(remote: &mut crate::link::Remote, call: &Call) -> Resul
 
 /// `borg mcp`: an MCP server on stdin and stdout for the Borg session open on this machine.
 pub async fn serve(runtime_dir: PathBuf) -> Result<()> {
-    serve_with(Backend::Local { runtime_dir, session: None }).await
+    // Connects at once, so borg shows that Claude connected before its first call.
+    let session = Session::open(&runtime_dir).await;
+    serve_with(Backend::Local { runtime_dir, session }).await
 }
 
 /// `borg mcp remote NAME`: the same for a borg paired through borg cloud.

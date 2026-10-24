@@ -2058,6 +2058,9 @@ fn the_connect_dialog_copies_a_command_that_starts_claude_on_this_borg() -> Resu
     app.send("c")?;
     app.wait_text("Start Claude Code connected to this borg")?;
     app.wait_text("claude --mcp-config")?;
+    // Without a relay, borg cloud says what is missing, and Enter copies nothing there.
+    app.wait_text("No relay is set")?;
+    app.send(keys::tab())?;
     app.send(keys::enter())?;
     app.wait_text("Copied; paste it into a terminal on your computer")?;
     Ok(())

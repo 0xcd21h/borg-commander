@@ -593,12 +593,7 @@ impl App {
                     DiffLine::plain(""),
                     DiffLine::plain("Pair only if `borg pair` shows this fingerprint on that computer."),
                 ];
-                let ask = Ask {
-                    kind: AskKind::Pair,
-                    summary: name.clone(),
-                    place: format!("fingerprint {fingerprint}"),
-                    body,
-                };
+                let ask = Ask { kind: AskKind::Pair, summary: name.clone(), place: String::new(), body };
                 let id = self.agent.ask(reply, Work::Pair { name });
                 return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
             }
@@ -857,9 +852,14 @@ impl App {
             };
             let location = agent::locate(&self.state, path);
             let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
-            let shown = borg_ui::size_text(size);
+            // Small sizes show as bytes; larger ones as the panels show them, with the bytes.
+            let shown = if size < 10_000 {
+                format!("{size} bytes")
+            } else {
+                format!("{} ({size} bytes)", borg_ui::size_text(size))
+            };
             let place = from_origin(shown.clone(), call.origin.as_deref());
-            let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(format!("{shown} ({size} bytes)"))];
+            let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(shown)];
             let ask = Ask { kind: AskKind::Upload, summary: spot.uri(), place, body };
             let id = self.agent.ask(reply, Work::Upload { spot, size });
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
