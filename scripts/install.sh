@@ -3,13 +3,32 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install.sh | sh
 #
-# BORG_INSTALL_DIR and BORG_DATA_DIR choose where the binary and fonts go. NO_COLOR turns
-# colours off, FORCE_COLOR turns them on, and BORG_NO_ANIMATION skips the animated logo.
+# It installs into a folder already on PATH when it can (~/.local/bin, or /usr/local/bin
+# where that is writable, as for root), so borg runs in this very terminal; otherwise into
+# ~/.local/bin, which it adds to the shell's startup file. Then it starts borg.
+#
+# BORG_INSTALL_DIR and BORG_DATA_DIR choose where the binary and fonts go. BORG_NO_RUN
+# installs without starting borg. NO_COLOR turns colours off, FORCE_COLOR turns them on,
+# and BORG_NO_ANIMATION skips the animated logo.
 set -eu
 
 repo="0xcd21h/borg-commander"
-dest="${BORG_INSTALL_DIR:-${HOME}/.local/bin}"
 work=""
+
+on_path() {
+    case ":${PATH}:" in *":$1:"*) return 0 ;; esac
+    return 1
+}
+local_bin="${HOME}/.local/bin"
+if [ -n "${BORG_INSTALL_DIR:-}" ]; then
+    dest="${BORG_INSTALL_DIR}"
+elif on_path "${local_bin}"; then
+    dest="${local_bin}"
+elif on_path /usr/local/bin && [ -w /usr/local/bin ]; then
+    dest="/usr/local/bin"
+else
+    dest="${local_bin}"
+fi
 
 # Terminal: colour depth, Unicode, and whether the logo may animate.
 tty=false
@@ -184,56 +203,77 @@ field "Release" "${bold}borg ${version}${reset}"
 field "Platform" "${target}"
 printf '\n'
 
-work="$(mktemp -d)"
-waiting "Downloading ${name}.tar.gz…"
-curl -fsSL -o "${work}/${name}.tar.gz" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz" ||
-    fail "Download failed" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz"
-curl -fsSL -o "${work}/${name}.tar.gz.sha256" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz.sha256" ||
-    fail "Checksum download failed"
-size="$(wc -c <"${work}/${name}.tar.gz" | awk '{ printf "%.1f MB", $1 / 1048576 }')"
-finished "Downloaded" "${name}.tar.gz ${dim}${size}${reset}"
+installed="$("${dest}/borg" --version 2>/dev/null | sed -n 's/^borg //p' || true)"
+if [ "${installed}" = "${version}" ]; then
+    finished "Installed" "${dest}/borg ${dim}${rule} already borg ${version}${reset}"
+else
+    work="$(mktemp -d)"
+    waiting "Downloading ${name}.tar.gz…"
+    curl -fsSL -o "${work}/${name}.tar.gz" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz" ||
+        fail "Download failed" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz"
+    curl -fsSL -o "${work}/${name}.tar.gz.sha256" "https://github.com/${repo}/releases/download/${tag}/${name}.tar.gz.sha256" ||
+        fail "Checksum download failed"
+    size="$(wc -c <"${work}/${name}.tar.gz" | awk '{ printf "%.1f MB", $1 / 1048576 }')"
+    finished "Downloaded" "${name}.tar.gz ${dim}${size}${reset}"
 
-waiting "Verifying…"
-(cd "${work}" && ${verify} "${name}.tar.gz.sha256" >/dev/null 2>&1) ||
-    fail "The download does not match its checksum" "Nothing was installed. Try again, or report it at https://github.com/${repo}/issues"
-finished "Verified" "SHA-256"
+    waiting "Verifying…"
+    (cd "${work}" && ${verify} "${name}.tar.gz.sha256" >/dev/null 2>&1) ||
+        fail "The download does not match its checksum" "Nothing was installed. Try again, or report it at https://github.com/${repo}/issues"
+    finished "Verified" "SHA-256"
 
-waiting "Installing…"
-tar -xzf "${work}/${name}.tar.gz" -C "${work}"
-mkdir -p "${dest}"
-install -m 0755 "${work}/${name}/borg" "${dest}/borg"
-finished "Installed" "${dest}/borg"
-if [ -d "${work}/${name}/fonts" ]; then
-    data="${BORG_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/borg-commander}"
-    mkdir -p "${data}"
-    cp -R "${work}/${name}/fonts" "${data}/"
-    finished "Fonts" "${data}/fonts ${dim}${rule} optional, select Borg Mono in your terminal${reset}"
+    waiting "Installing…"
+    tar -xzf "${work}/${name}.tar.gz" -C "${work}"
+    mkdir -p "${dest}"
+    install -m 0755 "${work}/${name}/borg" "${dest}/borg"
+    finished "Installed" "${dest}/borg"
+    if [ -d "${work}/${name}/fonts" ]; then
+        data="${BORG_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/borg-commander}"
+        mkdir -p "${data}"
+        cp -R "${work}/${name}/fonts" "${data}/"
+        finished "Fonts" "${data}/fonts ${dim}${rule} optional, select Borg Mono in your terminal${reset}"
+    fi
 fi
 
-printf '\n  %s%sborg %s is ready.%s\n' "${good}" "${bold}" "${version}" "${reset}"
-case ":${PATH}:" in
-    *":${dest}:"*)
-        printf '  Run %sborg%s in any folder. Update later with %sborg update%s.\n\n' "${accent}" "${reset}" "${accent}" "${reset}"
-        ;;
-    *)
-        shown="${dest}"
-        case "${dest}" in "${HOME}"/*) shown="\$HOME${dest#"${HOME}"}" ;; esac
-        # The shell that ran the installer, when SHELL is not exported (docker exec, su).
-        shell="${SHELL:-}"
-        if [ -z "${shell}" ] && [ -r "/proc/${PPID}/comm" ]; then shell="$(cat "/proc/${PPID}/comm")"; fi
-        if [ -z "${shell}" ]; then shell="$(ps -o comm= -p "${PPID}" 2>/dev/null || true)"; fi
-        case "$(basename "${shell:-sh}" | sed 's/^-//')" in
-            fish) add="fish_add_path ${shown}" ;;
-            zsh) add="echo 'export PATH=\"${shown}:\$PATH\"' >> ~/.zshrc" ;;
-            bash)
-                rc="~/.bashrc"
-                if [ "$(uname -s)" = Darwin ]; then rc="~/.bash_profile"; fi
-                add="echo 'export PATH=\"${shown}:\$PATH\"' >> ${rc}"
-                ;;
-            *) add="echo 'export PATH=\"${shown}:\$PATH\"' >> ~/.profile" ;;
-        esac
-        printf '  %s%s%s %s is not on your PATH yet. Add it:\n\n' "${warn}" "${arrow}" "${reset}" "${dest}"
-        printf '      %s%s%s\n\n' "${accent}" "${add}" "${reset}"
-        printf '  Then open a new terminal and run %sborg%s.\n\n' "${accent}" "${reset}"
-        ;;
-esac
+# A folder off PATH goes into the shell's startup file, so new terminals find borg.
+if ! on_path "${dest}"; then
+    shown="${dest}"
+    case "${dest}" in "${HOME}"/*) shown="\$HOME${dest#"${HOME}"}" ;; esac
+    # The shell that ran the installer, when SHELL is not exported (docker exec, su).
+    shell="${SHELL:-}"
+    if [ -z "${shell}" ] && [ -r "/proc/${PPID}/comm" ]; then shell="$(cat "/proc/${PPID}/comm")"; fi
+    if [ -z "${shell}" ]; then shell="$(ps -o comm= -p "${PPID}" 2>/dev/null || true)"; fi
+    line="export PATH=\"${shown}:\$PATH\""
+    case "$(basename "${shell:-sh}" | sed 's/^-//')" in
+        fish)
+            rc="${HOME}/.config/fish/conf.d/borg.fish"
+            line="fish_add_path ${shown}"
+            ;;
+        zsh) rc="${HOME}/.zshrc" ;;
+        bash) if [ "$(uname -s)" = Darwin ]; then rc="${HOME}/.bash_profile"; else rc="${HOME}/.bashrc"; fi ;;
+        *) rc="${HOME}/.profile" ;;
+    esac
+    if grep -qsF "${line}" "${rc}"; then
+        finished "PATH" "${shown} ${dim}${rule} already in ${rc}${reset}"
+    else
+        mkdir -p "$(dirname "${rc}")"
+        printf '\n# borg\n%s\n' "${line}" >>"${rc}"
+        finished "PATH" "${shown} ${dim}${rule} added to ${rc}${reset}"
+    fi
+fi
+
+printf '\n  %s%sborg %s is ready.%s ' "${good}" "${bold}" "${version}" "${reset}"
+if on_path "${dest}"; then
+    printf 'Run %sborg%s in any folder; update later with %sborg update%s.\n\n' "${accent}" "${reset}" "${accent}" "${reset}"
+else
+    printf 'New terminals find it. In this one, first run\n\n      %sexport PATH="%s:$PATH"%s\n\n' "${accent}" "${dest}" "${reset}"
+fi
+
+# Start borg in this terminal, with its folder on PATH for the console inside it. The
+# script came through a pipe, so borg reads the terminal itself.
+if [ -z "${BORG_NO_RUN:-}${CI:-}" ] && $tty && [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
+    cleanup
+    trap - EXIT INT TERM
+    PATH="${dest}:${PATH}"
+    export PATH
+    exec "${dest}/borg" </dev/tty
+fi
