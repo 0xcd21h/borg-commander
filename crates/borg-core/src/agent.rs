@@ -494,18 +494,16 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
             return vec![Effect::SetRelay(relay)];
         }
         KeyCode::Enter => {
-            let [start, keep] = connect_commands(&state.agent.connect, connect.target.text().trim());
-            let command = match connect.pick {
-                CONNECT_CLOUD => match &state.agent.pairing {
-                    Some(Ok(link)) => pair_command(link),
-                    _ => return Vec::new(),
-                },
-                CONNECT_START => start,
-                _ => keep,
-            };
+            let Some(command) = picked_command(state, &connect) else { return Vec::new() };
             state.overlay = None;
             state.notice = Some(tr!(agent_connect_copied).into());
             return vec![Effect::Copy(command)];
+        }
+        // For terminals that do not take the clipboard: the command as plain text to select.
+        KeyCode::F(3) => {
+            let shown = picked_command(state, &connect).map(Effect::ShowPlain);
+            state.overlay = Some(Overlay::Connect(connect));
+            return shown.into_iter().collect();
         }
         _ => {
             if let Some(input) = connect_field(&mut connect, state.agent.connect.ssh.is_some()) {
@@ -515,6 +513,19 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
     }
     state.overlay = Some(Overlay::Connect(connect));
     Vec::new()
+}
+
+/// The command the Connect dialog has picked; `None` while borg cloud has no link to show.
+fn picked_command(state: &AppState, connect: &Connect) -> Option<String> {
+    let [start, keep] = connect_commands(&state.agent.connect, connect.target.text().trim());
+    match connect.pick {
+        CONNECT_CLOUD => match &state.agent.pairing {
+            Some(Ok(link)) => Some(pair_command(link)),
+            _ => None,
+        },
+        CONNECT_START => Some(start),
+        _ => Some(keep),
+    }
 }
 
 /// The field the picked block of the Connect dialog edits: the relay for borg cloud, and the

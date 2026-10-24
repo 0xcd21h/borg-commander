@@ -12,7 +12,7 @@ expression: describe(&buffer)
 ｶ     5  ｾ   ｲ│    ⠑⢦⣾⣡⢋⢿⢮⣠⠟⡳⣽⣝⢠⠃    ██████   ████◥█  █▙   ▐░  ΨΨ████      │ 2  ｶ >     0|
 ｵ     ｷ  ｿ   >│      ⠙⢿⣯⣧⣴⢋⢞⢼⡊⡔⠁                                           │ ｸ  ｽ +     2ｵ
 *     8  ｱ   *│        ⠑⠽⢽⣟⣞⣁⠎       c o m m a n d e r                     │ :  ｻ       ｴｲ
-5     2       │            ⠈⠉        version 0.7.1                         │ｹ   9        ｳ
+5     2       │            ⠈⠉        version 0.7.2                         │ｹ   9        ｳ
 ｼ     ｿ       │                                                            │2   |        ｶ
 ｶ     <       │  F1 Help      F2 File      F3 View      F4 Edit            │ｺ  ｾ4        :
       0    Z  │  F5 Copy      F6 Move      F7 Mkdir     F8 Delete          │=  5         ｾ

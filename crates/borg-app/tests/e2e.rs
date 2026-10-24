@@ -2087,6 +2087,32 @@ fn a_relay_typed_into_the_connect_dialog_is_saved_and_gives_a_pairing_link() -> 
 }
 
 #[test]
+fn f3_shows_the_pairing_command_alone_to_select_where_the_clipboard_does_not_work() -> Result<()> {
+    let fixture = fixture()?;
+    let relay = relay()?;
+    fixture.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut app = start(&fixture, "agent-plain")?;
+    app.send(keys::f(1))?;
+    app.wait_text("C  Remote access to this borg")?;
+    app.send("c")?;
+    let shown = app.wait_until("the pairing link", |s| pairing_link(s).is_some())?;
+    let link = pairing_link(&shown).unwrap();
+    app.send(keys::f(3))?;
+    let plain = app.wait_until("the command alone", |s| s.contains("Press any key to return to borg"))?;
+    // The terminal wraps the command itself, so its rows join into the link again.
+    let lines = plain.lines();
+    let first = lines.iter().position(|line| line.starts_with("borg pair '")).context("the command is shown")?;
+    let command: String =
+        lines[first..].iter().take_while(|line| !line.is_empty()).map(|line| line.trim_end()).collect();
+    ensure!(command == format!("borg pair '{link}'"), "{command}\n{}", lines.join("\n"));
+    ensure!(!lines.iter().any(|line| line.contains('│')), "nothing of borg's screen: {}", lines.join("\n"));
+    app.send("x")?;
+    app.wait_text("Remote access")?;
+    app.wait_text("Tab picks")?;
+    Ok(())
+}
+
+#[test]
 fn an_agent_edits_container_files_and_works_in_a_container_shell_the_user_watches() -> Result<()> {
     let fixture = fixture()?;
     let bin = fake_docker(&fixture)?;

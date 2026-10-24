@@ -16,13 +16,13 @@ borg-link         = { workspace = true }
 futures           = { workspace = true }
 getrandom         = { workspace = true }
 rustls-acme       = { workspace = true }
-tokio             = { workspace = true }
+tokio             = { workspace = true, features = ["test-util"] }
 tokio-rustls      = { workspace = true }
 tokio-tungstenite = { workspace = true }
 
 [dev-dependencies]
 borg-link         = { workspace = true }
-tokio             = { workspace = true }
+tokio             = { workspace = true, features = ["test-util"] }
 tokio-tungstenite = { workspace = true }
 futures           = { workspace = true }
 snow              = { workspace = true }

@@ -36,6 +36,8 @@ const KEY_FILE: &str = "key";
 /// On a server: the computers paired with it. On a computer: the servers it paired with.
 const COMPUTERS_FILE: &str = "computers.json";
 const SERVERS_FILE: &str = "servers.json";
+/// Held by the one borg on this machine that borg cloud reaches, with its process id inside.
+const CLAIM_FILE: &str = "cloud.lock";
 const PRIVATE_FILE: u32 = 0o600;
 /// How long a pairing link works, and how many wrong secrets end it sooner.
 const PAIRING_TIME: Duration = Duration::from_secs(10 * 60);
@@ -87,6 +89,36 @@ pub struct Server {
 pub fn identity(state: &Path) -> Result<Identity> {
     let path = state.join(LINK_DIR).join(KEY_FILE);
     Identity::load_or_create(&path).with_context(|| format!("reading the key in {}", path.display()))
+}
+
+/// Takes borg cloud for this borg. Borgs on one machine share a key, and at the relay each
+/// would take the other's place, ending its sessions; so the first one keeps it, and the
+/// others say which borg has it. The claim lasts while the file stays open.
+fn claim(state: &Path) -> Result<std::fs::File> {
+    use std::io::{Read, Seek, Write};
+    let path = state.join(LINK_DIR).join(CLAIM_FILE);
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(PRIVATE_FILE)
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => {
+            file.set_len(0)?;
+            file.rewind()?;
+            write!(file, "{}", std::process::id())?;
+            Ok(file)
+        }
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let mut holder = String::new();
+            let _ = file.read_to_string(&mut holder);
+            bail!("another borg on this machine (PID {}) has borg cloud; quit it to use borg cloud here", holder.trim())
+        }
+        Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
+    }
 }
 
 fn load<T: DeserializeOwned>(path: &Path) -> Vec<T> {
@@ -153,6 +185,10 @@ pub struct LinkServer {
     identity: Option<Identity>,
     shared: Arc<Mutex<Shared>>,
     task: Option<JoinHandle<()>>,
+    /// This borg's claim on borg cloud, held while it keeps a connection to the relay.
+    claimed: Option<std::fs::File>,
+    /// Whether the user heard that another borg has borg cloud.
+    told_taken: bool,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
@@ -169,7 +205,18 @@ impl LinkServer {
         let computers =
             state.as_ref().map(|state| load(&state.join(LINK_DIR).join(COMPUTERS_FILE))).unwrap_or_default();
         let shared = Arc::new(Mutex::new(Shared { computers, pairing: None }));
-        Self { state, relay, identity: None, shared, task: None, calls, messages, clients }
+        Self {
+            state,
+            relay,
+            identity: None,
+            shared,
+            task: None,
+            claimed: None,
+            told_taken: false,
+            calls,
+            messages,
+            clients,
+        }
     }
 
     pub fn relay(&self) -> Option<&Relay> {
@@ -200,10 +247,21 @@ impl LinkServer {
         Ok(identity)
     }
 
+    /// Holds borg cloud for this borg, unless another borg on this machine has it.
+    fn claim(&mut self) -> Result<()> {
+        if self.claimed.is_none() {
+            self.identity()?;
+            let state = self.state.as_deref().context("borg has no folder to keep its key in")?;
+            self.claimed = Some(claim(state)?);
+        }
+        Ok(())
+    }
+
     /// A pairing link that works once, for ten minutes, and replaces any earlier one.
     pub fn pair(&mut self) -> Result<String> {
         let relay = self.relay.clone().context("no relay is set")?;
         let identity = self.identity()?;
+        self.claim()?;
         let secret = borg_link::secret();
         self.shared.lock().expect("link lock").pairing =
             Some(Pairing { secret, until: Instant::now() + PAIRING_TIME, tries: 0, claimed: false });
@@ -230,6 +288,12 @@ impl LinkServer {
         };
         let running = self.task.as_ref().is_some_and(|task| !task.is_finished());
         if wanted && !running {
+            if let Err(error) = self.claim() {
+                if !std::mem::replace(&mut self.told_taken, true) {
+                    let _ = self.messages.send(Msg::Notice(format!("Borg cloud: {error:#}")));
+                }
+                return;
+            }
             let (Some(relay), Ok(identity)) = (self.relay.clone(), self.identity()) else { return };
             let server = Served {
                 relay,
@@ -241,8 +305,11 @@ impl LinkServer {
                 clients: self.clients.clone(),
             };
             self.task = Some(tokio::spawn(server.run()));
-        } else if !wanted && let Some(task) = self.task.take() {
-            task.abort();
+        } else if !wanted {
+            if let Some(task) = self.task.take() {
+                task.abort();
+            }
+            self.claimed = None;
         }
     }
 }
@@ -273,12 +340,13 @@ impl Served {
     async fn run(self) {
         let mut retry = RETRY_FIRST;
         let mut told = false;
+        // Sessions outlast a registration the relay dropped: each has a socket of its own.
+        let mut sessions = JoinSet::new();
         loop {
             match relay::Listener::register(&self.relay, &self.identity).await {
                 Ok(mut listener) => {
                     retry = RETRY_FIRST;
                     told = false;
-                    let mut sessions = JoinSet::new();
                     loop {
                         tokio::select! {
                             next = listener.next() => match next {
@@ -339,15 +407,20 @@ impl Served {
         let name = clean_name(name);
         let key = *channel.peer();
         let (reply, answer) = oneshot::channel();
-        let ask = Call::new(PAIR_CALL, json!({ "name": name, "code": channel.pairing_code().rows() }));
+        let code = channel.pairing_code();
+        let ask = Call::new(PAIR_CALL, json!({ "name": name, "code": code.rows(true), "names": code.rows(false) }));
         self.calls.send((ask, reply)).context("borg closed")?;
         let approved = matches!(tokio::time::timeout(APPROVAL_WAIT, answer).await, Ok(Ok(reply)) if reply.ok);
-        self.shared.lock().expect("link lock").pairing = None;
+        // The pairing lasts until the computer has its answer: with it gone and no computer
+        // paired, borg would leave the relay and end this session first.
         if !approved {
-            return refuse(&mut channel, "the pairing was declined in borg").await;
+            let refused = refuse(&mut channel, "the pairing was declined in borg").await;
+            self.shared.lock().expect("link lock").pairing = None;
+            return refused;
         }
         let computers = {
             let mut shared = self.shared.lock().expect("link lock");
+            shared.pairing = None;
             shared.computers.retain(|computer| computer.key != hex(&key));
             shared.computers.push(Computer { name: name.clone(), key: hex(&key) });
             shared.computers.clone()
@@ -601,7 +674,7 @@ pub async fn pair_command(args: &[String]) -> Result<()> {
         [link] => {
             println!("Pairing through borg cloud…");
             let server = pair(&state, link, |code| {
-                let [first, second] = code.rows();
+                let [first, second] = code.rows(true);
                 println!("The pairing code is\n\n  {first}\n  {second}\n");
                 println!("Approve this computer in borg on the server when it shows the same code.");
             })
@@ -686,6 +759,22 @@ pub async fn put_command(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_borg_on_a_machine_has_borg_cloud_and_others_say_which() {
+        let state = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(state.path().join(LINK_DIR)).unwrap();
+        let first = claim(state.path()).unwrap();
+        let error = claim(state.path()).unwrap_err().to_string();
+        assert!(error.contains(&format!("PID {}", std::process::id())), "{error}");
+        drop(first);
+        // A process another test forks holds a copy of the file until it runs its program.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while claim(state.path()).is_err() {
+            assert!(Instant::now() < deadline, "the claim ends with the borg that held it");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 
     #[test]
     fn secrets_compare_whole_and_names_stay_short_and_printable() {

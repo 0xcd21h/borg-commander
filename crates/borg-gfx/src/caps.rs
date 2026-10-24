@@ -15,6 +15,14 @@ const KITTY_OK: &str = "\x1b_Gi=31;OK";
 const CELL_QUERY: &str = "\x1b[16t";
 const CELL_REPLY: &str = "\x1b[6;";
 const DEVICE_QUERY: &str = "\x1b[c";
+/// An emoji at the top left, then a question for the cursor's place: the column it answers
+/// says how wide the terminal draws emoji. The line is cleared again after the answers.
+const EMOJI_QUERY: &str = "\x1b[1;1H\u{1f436}\x1b[6n";
+const EMOJI_CLEAR: &str = "\x1b[1;1H\x1b[2K";
+const CSI: &str = "\x1b[";
+const POSITION_END: char = 'R';
+/// The column after a two-column emoji at the first.
+const AFTER_WIDE: u16 = 3;
 const OSC: &str = "\x1b]";
 const FOREGROUND_SLOT: &str = "10";
 const BACKGROUND_SLOT: &str = "11";
@@ -127,6 +135,9 @@ pub struct Replies {
     pub sixel: bool,
     pub cell: Option<CellSize>,
     pub colors: TerminalColors,
+    /// Whether the terminal draws emoji two columns wide, as Borg lays them out; `None`
+    /// when it did not say.
+    pub wide_emoji: Option<bool>,
     pub complete: bool,
 }
 
@@ -178,9 +189,20 @@ impl Replies {
                 cell(width.parse().ok()?, height.parse().ok()?)
             }),
             colors: color_replies(&text),
+            wide_emoji: cursor_column(&text).map(|column| column == AFTER_WIDE),
             complete: device.is_some(),
         }
     }
+}
+
+/// The column of the first cursor position report in `text`, as `ESC [ row ; column R`.
+fn cursor_column(text: &str) -> Option<u16> {
+    text.split(CSI).skip(1).find_map(|reply| {
+        let (position, _) = reply.split_once(POSITION_END)?;
+        let (row, column) = position.split_once(';')?;
+        row.parse::<u16>().ok()?;
+        column.parse().ok()
+    })
 }
 
 fn cell(width: u16, height: u16) -> Option<CellSize> {
@@ -194,7 +216,7 @@ fn winsize_cell() -> Option<CellSize> {
 
 pub fn probe(timeout: Duration) -> io::Result<Replies> {
     let mut out = io::stdout();
-    out.write_all(format!("{KITTY_QUERY}{CELL_QUERY}{}{DEVICE_QUERY}", color_queries()).as_bytes())?;
+    out.write_all(format!("{EMOJI_QUERY}{KITTY_QUERY}{CELL_QUERY}{}{DEVICE_QUERY}", color_queries()).as_bytes())?;
     out.flush()?;
 
     let deadline = Instant::now() + timeout;
@@ -217,6 +239,8 @@ pub fn probe(timeout: Duration) -> io::Result<Replies> {
         received.extend_from_slice(&chunk[..read]);
         replies = Replies::parse(&received);
     }
+    out.write_all(EMOJI_CLEAR.as_bytes())?;
+    out.flush()?;
     replies.cell = winsize_cell().or(replies.cell);
     Ok(replies)
 }
@@ -242,6 +266,13 @@ mod tests {
         let plain = Replies::parse(b"\x1b[?6c");
         assert_eq!(plain, Replies { complete: true, ..Replies::default() });
         assert!(!Replies::parse(b"\x1b[6;20;10t").complete);
+    }
+
+    #[test]
+    fn the_cursor_after_an_emoji_tells_how_wide_the_terminal_draws_it() {
+        assert_eq!(Replies::parse(b"\x1b[1;3R\x1b[6;20;10t\x1b[?62c").wide_emoji, Some(true));
+        assert_eq!(Replies::parse(b"\x1b[1;2R\x1b[?62c").wide_emoji, Some(false));
+        assert_eq!(Replies::parse(b"\x1b[6;20;10t\x1b[?62c").wide_emoji, None);
     }
 
     #[test]

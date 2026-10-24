@@ -18,9 +18,14 @@ use borg_term::{Emulator, GridSize, Pty, PtyEvent, Scroll, encode_mouse, shell_c
 use borg_ui::{Palette, Pixels, Rgb, Scene, ThemeSet, draw, local_now, mouse_input};
 use borg_vfs::{Backend, Local};
 use crossterm::{
-    event::{Event, EventStream, KeyEventKind, MouseButton, MouseEvent, MouseEventKind},
-    queue,
-    terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind, MouseButton, MouseEvent,
+        MouseEventKind,
+    },
+    execute, queue,
+    terminal::{
+        BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+    },
 };
 use futures::StreamExt;
 use jiff::Zoned;
@@ -112,6 +117,10 @@ pub struct App {
     host_capture: Option<(crate::agent::Typed, Vec<u8>)>,
     /// Text to put on the user's clipboard with the next frame.
     clipboard: Option<String>,
+    /// Text shown alone in the terminal, outside borg's screen, for the user to select.
+    plain: Option<Plain>,
+    /// The terminal draws emoji two columns wide, as Borg lays them out.
+    wide_emoji: bool,
     /// Borg cloud: this borg reachable from paired computers through a relay.
     link: crate::link::LinkServer,
     /// Files arriving from another computer, by token.
@@ -230,6 +239,8 @@ impl App {
             runtime_dir: launch.runtime_dir.clone(),
             host_capture: None,
             clipboard: None,
+            plain: None,
+            wide_emoji: detected.wide_emoji,
         })
     }
 
@@ -319,6 +330,25 @@ impl App {
     }
 
     fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
+        match self.plain.take() {
+            Some(Plain::Waiting(text)) => {
+                show_plain(terminal.backend_mut(), &text)?;
+                self.plain = Some(Plain::Shown);
+                return Ok(());
+            }
+            Some(Plain::Shown) => {
+                self.plain = Some(Plain::Shown);
+                return Ok(());
+            }
+            Some(Plain::Ending) => {
+                // Cleared here and drawn whole: Terminal::clear would ask the terminal where
+                // its cursor is, and not every terminal answers.
+                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture, Clear(ClearType::All))?;
+                terminal.swap_buffers();
+                terminal.swap_buffers();
+            }
+            None => {}
+        }
         self.state.settle();
         let clock = local_now();
         queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
@@ -414,6 +444,15 @@ impl App {
     }
 
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
+        // While text is shown plainly, a key brings borg back and does nothing else.
+        if self.plain.is_some() {
+            if let Event::Key(key) = event
+                && key.kind == KeyEventKind::Press
+            {
+                self.plain = Some(Plain::Ending);
+            }
+            return Ok(Flow::Continue);
+        }
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 self.last_click = None;
@@ -588,7 +627,9 @@ impl App {
         match call.tool.as_str() {
             crate::link::PAIR_CALL => {
                 let name = text("name").unwrap_or_default();
-                let code = call.args["code"].as_array().cloned().unwrap_or_default();
+                // Emoji only where the terminal draws them as wide as they are laid out.
+                let code =
+                    call.args[if self.wide_emoji { "code" } else { "names" }].as_array().cloned().unwrap_or_default();
                 let mut body = vec![DiffLine::plain(format!("Computer: {name}")), DiffLine::plain("")];
                 body.extend(code.iter().filter_map(|row| row.as_str()).map(|row| DiffLine::plain(format!("  {row}"))));
                 body.extend([
@@ -1214,6 +1255,7 @@ impl App {
                 Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
                 Effect::UseConsole(console) => self.console = console,
                 Effect::Copy(text) => self.clipboard = Some(text),
+                Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
                 Effect::StartPairing => self.start_pairing(),
                 Effect::SetRelay(text) => self.set_relay(&text),
                 Effect::ForgetComputers => {
@@ -1463,6 +1505,24 @@ pub(crate) fn picture(path: &Path, bounds: (u32, u32)) -> Result<Image> {
 
 fn appearance(launch: &Launch) -> Appearance {
     launch.themes.appearance(launch.config.theme.as_deref(), launch.config.unlocked())
+}
+
+/// Where text shown plainly stands: waiting for the next frame, on the terminal, or about to
+/// give way to borg's screen again.
+enum Plain {
+    Waiting(String),
+    Shown,
+    Ending,
+}
+
+/// Leaves borg's screen and lets the mouse select again, then prints `text` as one line, which
+/// the terminal wraps itself, so a selection copies it whole and without borg's frames.
+fn show_plain(out: &mut impl std::io::Write, text: &str) -> Result<()> {
+    execute!(out, LeaveAlternateScreen, DisableMouseCapture)?;
+    // Raw mode is on, so each line ends with a carriage return too.
+    write!(out, "\r\n{}\r\n\r\n{text}\r\n\r\n{}\r\n", tr!(agent_plain_intro), tr!(agent_plain_return))?;
+    out.flush()?;
+    Ok(())
 }
 
 #[cfg(test)]
