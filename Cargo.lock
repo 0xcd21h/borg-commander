@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "borg-app"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "borg-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "borg-docker",
  "borg-gfx",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "borg-docker"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "borg-i18n",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "borg-gfx"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
  "icy_sixel",
@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "borg-git"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "borg-i18n",
@@ -307,11 +307,11 @@ dependencies = [
 
 [[package]]
 name = "borg-i18n"
-version = "0.6.0"
+version = "0.6.1"
 
 [[package]]
 name = "borg-jobs"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "borg-term"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "borg-testkit"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "borg-ui"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "borg-core",
  "borg-docker",
@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "borg-update"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "flate2",
  "serde",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "borg-vfs"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "futures",
  "tokio",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "borg-view"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "proptest",
  "pulldown-cmark",
