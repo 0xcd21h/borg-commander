@@ -38,7 +38,8 @@ const MAX_WAITING: usize = 8;
 /// How long a server has to answer the proof, and to take a session a client opened.
 const PROOF_TIMEOUT: Duration = Duration::from_secs(10);
 const JOIN_TIMEOUT: Duration = Duration::from_secs(10);
-/// A registered server is pinged this often, and dropped when it stops answering.
+/// A registered server is pinged this often, and dropped when it stops answering. Both ends of
+/// a session are pinged as often, since proxies in front close sockets that stay quiet.
 const PING_EVERY: Duration = Duration::from_secs(30);
 const SILENCE_LIMIT: Duration = Duration::from_secs(90);
 /// The largest frame forwarded: one Noise message.
@@ -323,6 +324,7 @@ async fn forward(client: Socket, server: Socket) -> (u64, (u16, &'static str)) {
     let mut bucket = Bucket { tokens: BURST, refilled: Instant::now() };
     let (started, mut active) = (Instant::now(), Instant::now());
     let mut carried: u64 = 0;
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
     let reason = loop {
         let idle = tokio::time::sleep_until((active + IDLE_LIMIT).into());
         let over = tokio::time::sleep_until((started + LIFETIME).into());
@@ -331,6 +333,14 @@ async fn forward(client: Socket, server: Socket) -> (u64, (u16, &'static str)) {
             message = server_rx.next() => (message, false),
             () = idle => break (u16::from(CloseCode::Normal), "idle"),
             () = over => break (LIMITED, "session too long"),
+            // A ping is not activity: a session with nothing to carry still ends when idle.
+            _ = ping.tick() => {
+                let ping = || Message::Ping(Vec::new().into());
+                if client_tx.send(ping()).await.is_err() || server_tx.send(ping()).await.is_err() {
+                    break (u16::from(CloseCode::Normal), "closed");
+                }
+                continue;
+            }
         };
         let bytes = match message {
             Some(Ok(Message::Binary(bytes))) => bytes,
@@ -361,4 +371,35 @@ async fn forward(client: Socket, server: Socket) -> (u64, (u16, &'static str)) {
         let _ = tx.send(Message::Close(Some(frame))).await;
     }
     (carried, reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio_tungstenite::tungstenite::protocol::Role;
+
+    use super::*;
+
+    /// A socket as the relay holds it, and the borg at its other end.
+    async fn joined() -> (Socket, WebSocketStream<tokio::io::DuplexStream>) {
+        let (near, far) = tokio::io::duplex(64 * 1024);
+        let near: Box<dyn Io> = Box::new(near);
+        (
+            WebSocketStream::from_raw_socket(near, Role::Server, None).await,
+            WebSocketStream::from_raw_socket(far, Role::Client, None).await,
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_quiet_session_is_pinged_at_both_ends_and_goes_on() {
+        let ((client, mut client_borg), (server, mut server_borg)) = (joined().await, joined().await);
+        let forwarding = tokio::spawn(forward(client, server));
+        tokio::time::sleep(PING_EVERY + Duration::from_secs(1)).await;
+        for borg in [&mut client_borg, &mut server_borg] {
+            assert!(matches!(borg.next().await, Some(Ok(Message::Ping(_)))));
+        }
+        client_borg.send(Message::Binary(b"after".to_vec().into())).await.unwrap();
+        let forwarded = server_borg.next().await;
+        assert!(matches!(&forwarded, Some(Ok(Message::Binary(bytes))) if &bytes[..] == b"after"), "{forwarded:?}");
+        assert!(!forwarding.is_finished());
+    }
 }

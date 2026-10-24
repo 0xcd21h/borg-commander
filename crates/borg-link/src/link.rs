@@ -53,8 +53,11 @@ pub struct PairingLink {
 }
 
 impl PairingLink {
+    /// Reads a link, leaving out any spaces and line breaks: a link has none, but copying
+    /// one that a terminal wrapped over two rows can add them.
     pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim();
+        let text: String = text.split_whitespace().collect();
+        let text = text.as_str();
         let (rest, tls) = match text.strip_prefix(SCHEME) {
             Some(rest) => (rest, true),
             None => (text.strip_prefix(PLAIN_SCHEME)?, false),
@@ -102,6 +105,10 @@ mod tests {
         let text = link.to_string();
         assert!(text.starts_with("borg://relay.example.com/0707"), "{text}");
         assert_eq!(PairingLink::parse(&text), Some(link.clone()));
+        // Copied from a dialog that wrapped it over two rows.
+        let (first, second) = text.split_at(40);
+        assert_eq!(PairingLink::parse(&format!("{first} {second}")), Some(link.clone()));
+        assert_eq!(PairingLink::parse(&format!("{first}\n  {second}")), Some(link.clone()));
         let plain = PairingLink { relay: Relay::parse("ws://127.0.0.1:9000").unwrap(), ..link };
         assert!(plain.to_string().starts_with("borg+ws://127.0.0.1:9000/"));
         assert_eq!(PairingLink::parse(&plain.to_string()), Some(plain));

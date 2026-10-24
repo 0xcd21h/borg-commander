@@ -128,12 +128,14 @@ impl Launch {
 pub struct Terminal {
     pub capabilities: Capabilities,
     pub colors: TerminalColors,
+    /// The terminal draws emoji two columns wide, as Borg lays them out.
+    pub wide_emoji: bool,
 }
 
 pub fn terminal(preference: Preference) -> Terminal {
     let replies = probe(PROBE_TIMEOUT).unwrap_or_default();
     let capabilities = Capabilities::choose(preference, &replies, Hints::from_env(|name| env::var(name).ok()));
-    Terminal { capabilities, colors: replies.colors }
+    Terminal { capabilities, colors: replies.colors, wide_emoji: replies.wide_emoji == Some(true) }
 }
 
 fn truecolor() -> bool {

@@ -88,10 +88,14 @@ impl PairingCode {
         Self(std::array::from_fn(|n| EMOJI[(bits >> (64 - BITS * (n as u32 + 1))) as usize % EMOJI.len()]))
     }
 
-    /// The code in two rows of three, as both ends show it.
-    pub fn rows(&self) -> [String; 2] {
+    /// The code in two rows of three, as both ends show it: with each emoji before its name,
+    /// or the names alone, for a terminal that draws emoji narrower than they are laid out.
+    pub fn rows(&self, emoji: bool) -> [String; 2] {
         let row = |symbols: &[(&str, &str)]| {
-            symbols.iter().map(|(emoji, name)| format!("{emoji} {name}")).collect::<Vec<_>>().join(" · ")
+            let shown = symbols
+                .iter()
+                .map(|(symbol, name)| if emoji { format!("{symbol} {name}") } else { (*name).to_owned() });
+            shown.collect::<Vec<_>>().join(" · ")
         };
         [row(&self.0[..SYMBOLS / 2]), row(&self.0[SYMBOLS / 2..])]
     }
@@ -126,7 +130,11 @@ mod tests {
         let hash = [0b0000_0000, 0b0001_0000, 0b1000_0011, 0b1111_1111, 0b1110_0000, 0xff, 0xff, 0xff];
         let code = PairingCode::of(&hash);
         assert_eq!(code.names(), ["Dog", "Cat", "Lion", "Horse", "Pin", "Folder"]);
-        assert_eq!(code.rows(), ["🐶 Dog · 🐱 Cat · 🦁 Lion".to_owned(), "🐎 Horse · 📌 Pin · 📁 Folder".to_owned()]);
+        assert_eq!(
+            code.rows(true),
+            ["🐶 Dog · 🐱 Cat · 🦁 Lion".to_owned(), "🐎 Horse · 📌 Pin · 📁 Folder".to_owned()]
+        );
+        assert_eq!(code.rows(false), ["Dog · Cat · Lion".to_owned(), "Horse · Pin · Folder".to_owned()]);
         assert_ne!(PairingCode::of(&[1; 32]), PairingCode::of(&[2; 32]));
     }
 }

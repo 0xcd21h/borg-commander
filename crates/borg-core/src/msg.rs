@@ -139,6 +139,9 @@ pub enum Effect {
     },
     /// Puts text on the clipboard of the computer the user sits at, through the terminal.
     Copy(String),
+    /// Shows text alone in the terminal, outside borg's screen, for the user to select and
+    /// copy where the terminal does not take the clipboard; a key brings borg back.
+    ShowPlain(String),
     /// Makes a pairing link for borg cloud, for the Connect dialog.
     StartPairing,
     /// Saves the relay borg cloud goes through, empty for none, and makes a pairing link there.

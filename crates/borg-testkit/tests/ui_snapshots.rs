@@ -2177,7 +2177,7 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
     let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
-    body.extend(code.rows().into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
+    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
     body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
     let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));

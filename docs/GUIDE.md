@@ -300,6 +300,8 @@ commands to paste into a terminal on your computer: one starts Claude Code alrea
 to this borg, the other keeps the connection in Claude Code for every session. Tab picks one,
 Enter copies it to your computer's clipboard through the terminal, which works over SSH in
 iTerm2, Ghostty, kitty, WezTerm and Alacritty (in tmux, with `set -g set-clipboard on`).
+Where the terminal does not take it, as in many browser terminals, F3 shows the command alone
+as plain text, with the mouse free to select it; any key returns to borg.
 Over SSH, borg fills in the address you came in on; if your computer reaches the server by
 another name, such as an SSH alias or through a jump host, type that name instead. SSH must
 log in without a password prompt: a key, or an SSH agent. `borg mcp setup prod` prints the
@@ -344,7 +346,8 @@ joins them.
 The code comes from the encrypted handshake the two borgs just finished, so it is the same on
 both screens only when your computer is the one talking to the server. Someone who got hold
 of the link and used it first would show the server a different code, and cannot pick one
-that matches yours. Compare the names where a terminal draws no emoji.
+that matches yours. Where a terminal draws emoji narrower than borg lays them out, borg
+shows the names alone; compare the names.
 
 From then on, Claude reaches that borg whenever it is open there. `borg pair` alone lists the
 paired servers, and `borg pair --forget NAME` forgets one; on the server, F8 in the Remote
@@ -363,7 +366,8 @@ none at all when borg cloud is off in Options → Plugins.
 
 Borg saves the relay in the config, as `relay = "wss://relay.example.com"`. A computer
 reaches the server through the relay it paired through; after the server changes relay,
-pair the computer again.
+pair the computer again. Borgs on one machine share a key, so only the first one open
+connects to the relay; the others say which one has borg cloud.
 
 While an agent is connected, **◈ Remote** sits at the start of the shortcut row; click it
 for the log of what it did: what it looked at, read, showed and typed, and every command
