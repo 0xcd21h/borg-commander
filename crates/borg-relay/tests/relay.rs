@@ -23,8 +23,12 @@ impl Drop for Running {
 
 /// Starts the relay without TLS on a free port, and waits until it listens.
 fn start() -> Running {
+    start_with("--plain")
+}
+
+fn start_with(mode: &str) -> Running {
     let mut child = Command::new(env!("CARGO_BIN_EXE_borg-relay"))
-        .args(["--plain", "--listen", "127.0.0.1:0"])
+        .args([mode, "--listen", "127.0.0.1:0"])
         .stderr(Stdio::piped())
         .spawn()
         .expect("the relay starts");
@@ -93,4 +97,34 @@ async fn a_server_without_the_key_cannot_register_under_it() {
     let _ = impostor;
     let error = relay::dial(&running.relay, owner.public()).await.err().unwrap();
     assert!(error.to_string().contains("not open"), "{error}");
+}
+
+#[tokio::test]
+async fn the_relay_answers_health_checks_over_plain_http() {
+    let running = start();
+    let address = running.relay.host.clone();
+    assert!(tokio::task::spawn_blocking(move || borg_relay::health(&address)).await.unwrap());
+    assert!(!borg_relay::health("127.0.0.1:1"), "nothing listens there");
+}
+
+#[tokio::test]
+async fn behind_a_proxy_each_forwarded_client_has_its_own_share() {
+    use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValue};
+    const SHARE: usize = 32;
+    let running = start_with("--behind-proxy");
+    let open = |client: &'static str| {
+        let url = running.relay.url(&format!("{}{}", relay::LISTEN, hex(Identity::generate().public())));
+        async move {
+            let mut request = url.into_client_request().unwrap();
+            request.headers_mut().insert("X-Forwarded-For", HeaderValue::from_static(client));
+            tokio_tungstenite::connect_async(request).await
+        }
+    };
+    // Registrations wait for their proof, so each holds its connection open.
+    let mut held = Vec::new();
+    for _ in 0..SHARE {
+        held.push(open("203.0.113.1").await.expect("within the share"));
+    }
+    assert!(open("203.0.113.1").await.is_err(), "the same client past its share is refused");
+    assert!(open("203.0.113.2").await.is_ok(), "another client behind the same proxy gets in");
 }

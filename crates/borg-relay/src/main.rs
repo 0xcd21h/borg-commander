@@ -14,14 +14,19 @@ macro_rules! log {
 }
 
 const USAGE: &str = "usage: borg-relay --domain NAME [--email ADDRESS] [--cache DIR] [--listen ADDRESS] [--staging]
+       borg-relay --behind-proxy [--listen ADDRESS]
        borg-relay --plain [--listen ADDRESS]
+       borg-relay --health [ADDRESS]
 
   --domain NAME     serve TLS for NAME, with a certificate from Let's Encrypt
   --email ADDRESS   the contact Let's Encrypt writes to about the certificate
   --cache DIR       where the certificate is kept (default /var/lib/borg-relay)
-  --listen ADDRESS  where to listen (default [::]:443, or 127.0.0.1:8080 with --plain)
+  --listen ADDRESS  where to listen (default [::]:443, or 127.0.0.1:8080 without TLS)
   --staging         use Let's Encrypt's staging service, for trying the setup
-  --plain           no TLS: behind a proxy that adds it, or for tests";
+  --behind-proxy    no TLS: a proxy in front adds it and reports each client's address
+                    (X-Forwarded-For), which limits are counted by
+  --plain           no TLS and no proxy, for tests on one machine
+  --health          ask the relay at ADDRESS (default 127.0.0.1:8080) whether it runs";
 const DEFAULT_CACHE: &str = "/var/lib/borg-relay";
 const TLS_LISTEN: &str = "[::]:443";
 const PLAIN_LISTEN: &str = "127.0.0.1:8080";
@@ -33,6 +38,7 @@ struct Args {
     listen: Option<SocketAddr>,
     staging: bool,
     plain: bool,
+    behind_proxy: bool,
 }
 
 fn args() -> Result<Args> {
@@ -43,6 +49,7 @@ fn args() -> Result<Args> {
         listen: None,
         staging: false,
         plain: false,
+        behind_proxy: false,
     };
     let mut rest = std::env::args().skip(1);
     while let Some(arg) = rest.next() {
@@ -56,6 +63,14 @@ fn args() -> Result<Args> {
             }
             "--staging" => args.staging = true,
             "--plain" => args.plain = true,
+            "--behind-proxy" => {
+                args.plain = true;
+                args.behind_proxy = true;
+            }
+            "--health" => {
+                let address = rest.next().unwrap_or_else(|| PLAIN_LISTEN.to_owned());
+                std::process::exit(if borg_relay::health(&address) { 0 } else { 1 });
+            }
             "--version" | "-V" => {
                 println!("borg-relay {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
@@ -68,7 +83,7 @@ fn args() -> Result<Args> {
         }
     }
     if args.domain.is_none() && !args.plain {
-        bail!("give --domain, or --plain to serve without TLS");
+        bail!("give --domain, or --behind-proxy to serve behind a proxy that adds TLS");
     }
     Ok(args)
 }
@@ -107,6 +122,6 @@ async fn serve(args: Args) -> Result<()> {
         env!("CARGO_PKG_VERSION"),
         if tls.is_some() { " with TLS" } else { "" }
     );
-    borg_relay::serve(listener, tls).await;
+    borg_relay::serve(listener, borg_relay::Options { tls, behind_proxy: args.behind_proxy }).await;
     Ok(())
 }

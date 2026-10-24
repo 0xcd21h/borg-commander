@@ -12,7 +12,10 @@ macro_rules! log {
     }};
 }
 
+mod http;
 mod hub;
+
+pub use http::check as health;
 
 use std::{
     path::PathBuf,
@@ -32,9 +35,24 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
-/// Serves borgs on `listener` until the process ends: with TLS when `tls` is given.
-pub async fn serve(listener: TcpListener, tls: Option<Tls>) {
+/// Connections the relay holds at once, from every address together, before it reads who
+/// they are.
+const MAX_CONNECTIONS: usize = 20_000;
+
+/// How the relay meets the outside.
+#[derive(Clone, Default)]
+pub struct Options {
+    /// Serve TLS itself, with a certificate from Let's Encrypt.
+    pub tls: Option<Tls>,
+    /// A proxy in front adds TLS and reports each client's address, which the relay then
+    /// counts limits by. Only trusted when set, since a client could claim any address.
+    pub behind_proxy: bool,
+}
+
+/// Serves borgs on `listener` until the process ends.
+pub async fn serve(listener: TcpListener, options: Options) {
     let hub = Arc::new(Mutex::new(hub::Hub::default()));
+    let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     loop {
         let (tcp, peer) = match listener.accept().await {
             Ok(accepted) => accepted,
@@ -43,23 +61,40 @@ pub async fn serve(listener: TcpListener, tls: Option<Tls>) {
                 continue;
             }
         };
-        let Some(guard) = hub::Hub::admit(&hub, peer.ip()) else {
+        if open.load(std::sync::atomic::Ordering::SeqCst) >= MAX_CONNECTIONS {
             drop(tcp);
             continue;
-        };
-        let (hub, tls) = (hub.clone(), tls.clone());
+        }
+        let (hub, options, open) = (hub.clone(), options.clone(), open.clone());
+        open.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tokio::spawn(async move {
-            let stream: Box<dyn Io> = match tls {
-                None => Box::new(tcp),
-                Some(tls) => match tokio::time::timeout(HANDSHAKE_TIMEOUT, tls.accept(tcp)).await {
-                    Ok(Ok(Some(stream))) => Box::new(stream),
-                    _ => return,
-                },
-            };
-            hub::handle(hub, stream, peer.ip()).await;
-            drop(guard);
+            connection(hub, options, tcp, peer.ip()).await;
+            open.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         });
     }
+}
+
+/// One connection: TLS when the relay serves it, the request's head, then a health check's
+/// answer or the WebSocket the head asks for, counted against the client's address.
+async fn connection(hub: Arc<Mutex<hub::Hub>>, options: Options, tcp: tokio::net::TcpStream, peer: std::net::IpAddr) {
+    let mut stream: Box<dyn Io> = match options.tls {
+        None => Box::new(tcp),
+        Some(tls) => match tokio::time::timeout(HANDSHAKE_TIMEOUT, tls.accept(tcp)).await {
+            Ok(Ok(Some(stream))) => Box::new(stream),
+            _ => return,
+        },
+    };
+    let Ok(Ok((head, read))) = tokio::time::timeout(HANDSHAKE_TIMEOUT, http::read_head(&mut stream)).await else {
+        return;
+    };
+    let address = if options.behind_proxy { head.forwarded.unwrap_or(peer) } else { peer };
+    if !head.upgrade {
+        let _ = http::answer(&mut stream, &head).await;
+        return;
+    }
+    let Some(guard) = hub::Hub::admit(&hub, address) else { return };
+    hub::handle(hub, Box::new(http::Rewind::new(read, stream)), address).await;
+    drop(guard);
 }
 
 /// TLS with a certificate from Let's Encrypt, which the relay renews itself. The challenge is

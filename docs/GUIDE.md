@@ -372,8 +372,25 @@ Encrypt:
 curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install-relay.sh | sudo sh -s -- relay.example.com you@example.com
 ```
 
-Run it again to update. Behind a proxy that adds TLS, run `borg-relay --plain --listen
-127.0.0.1:8080` instead. The relay keeps limits per address, on servers and sessions, on
+Run it again to update.
+
+On Dokploy, Coolify or another Docker host whose proxy adds TLS, run the image
+`ghcr.io/0xcd21h/borg-relay:latest` and give it a domain on port 8080: in Dokploy, an
+application from that Docker image with a domain on container port 8080 and HTTPS on; in
+Coolify, a resource from that Docker image with port 8080 exposed and a domain. Either also
+takes [packaging/relay/docker-compose.yml](../packaging/relay/docker-compose.yml) as a compose
+service. The image runs `borg-relay --behind-proxy`: the proxy serves HTTPS and passes
+WebSockets through, and the relay counts its limits by the client address the proxy reports
+in `X-Forwarded-For`. It runs as an unprivileged user and has a health check (`GET /health`).
+
+On a Docker host without such a proxy, the same image serves TLS itself:
+
+```sh
+docker run -d --restart unless-stopped -p 443:443 -v borg-relay:/data ghcr.io/0xcd21h/borg-relay --domain relay.example.com --cache /data
+```
+
+Behind another proxy that adds TLS, run `borg-relay --behind-proxy --listen 127.0.0.1:8080`;
+only use it behind a proxy, since the relay trusts the client address the proxy reports. The relay keeps limits per address, on servers and sessions, on
 frame size, bandwidth, bytes per session, idle time and session length. It stores nothing
 but its certificate, and logs the start of each server's key and the bytes each session
 carried.

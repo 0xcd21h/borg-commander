@@ -2146,7 +2146,7 @@ fn relay() -> Result<String> {
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
         runtime.block_on(async move {
             let listener = tokio::net::TcpListener::from_std(listener).expect("the listener");
-            borg_relay::serve(listener, None).await;
+            borg_relay::serve(listener, borg_relay::Options::default()).await;
         });
     });
     Ok(format!("ws://{address}"))
