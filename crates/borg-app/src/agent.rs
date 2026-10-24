@@ -172,7 +172,7 @@ pub fn connect_info() -> borg_core::ConnectInfo {
         }
         None => "borg".to_owned(),
     };
-    borg_core::ConnectInfo { name, program: program_path(), ssh }
+    borg_core::ConnectInfo { name, program: program_path(), ssh, relay: String::new() }
 }
 
 /// This program's path, preferring the one on `PATH` that leads to it, since a package

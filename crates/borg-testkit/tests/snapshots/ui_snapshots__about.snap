@@ -12,13 +12,13 @@ expression: describe(&buffer)
 │ @ latest.log│     ⠘⣌⢿⣷⡽⣦⡺⢧⣼⣸⡗⠹⡀    ██████   ██████  ██   ██  ██████      │             │
 │ · README.md │      ⠸⣙⡾⢗⣹⠵⡺⣎⡜⣏⠭⠃                                          │             │
 │ ? socket    │       ⠉⠺⢞⣍⡿⠮⣣⠜⠁      c o m m a n d e r                     │             │
-│ · 日本語メモ│          ⠉⠾⠔⠁        version 0.7.0                         │             │
+│ · 日本語メモ│          ⠉⠾⠔⠁        version 0.7.1                         │             │
 │             │                                                            │             │
 │             │  F1 Help      F2 File      F3 View      F4 Edit            │             │
 │             │  F5 Copy      F6 Move      F7 Mkdir     F8 Delete          │             │
 │             │  F9 Menu      F10 Quit     ^O Shell                        │             │
 │             │                                                            │             │
-│             │  C  Connect Claude to this borg                            │             │
+│             │  C  Remote access to this borg                             │             │
 ╰ 9 items ────│                                                            │─────────────╯
  Up to the par│                                                            │
 $             │                   Resistance is futile.                    │

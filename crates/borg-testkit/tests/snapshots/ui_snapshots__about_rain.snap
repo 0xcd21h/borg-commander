@@ -12,13 +12,13 @@ expression: describe(&buffer)
 ｶ     5  ｾ   ｲ│    ⠑⢦⣾⣡⢋⢿⢮⣠⠟⡳⣽⣝⢠⠃    ██████   ████◥█  █▙   ▐░  ΨΨ████      │ 2  ｶ >     0|
 ｵ     ｷ  ｿ   >│      ⠙⢿⣯⣧⣴⢋⢞⢼⡊⡔⠁                                           │ ｸ  ｽ +     2ｵ
 *     8  ｱ   *│        ⠑⠽⢽⣟⣞⣁⠎       c o m m a n d e r                     │ :  ｻ       ｴｲ
-5     2       │            ⠈⠉        version 0.7.0                         │ｹ   9        ｳ
+5     2       │            ⠈⠉        version 0.7.1                         │ｹ   9        ｳ
 ｼ     ｿ       │                                                            │2   |        ｶ
 ｶ     <       │  F1 Help      F2 File      F3 View      F4 Edit            │ｺ  ｾ4        :
       0    Z  │  F5 Copy      F6 Move      F7 Mkdir     F8 Delete          │=  5         ｾ
       8   |ｻ  │  F9 Menu      F10 Quit     ^O Shell                        │9  +   ｼ
       3   34  │                                                            │ｺ  7   ｱ
-      |   5ｷ  │  C  Connect Claude to this borg                            │9  |   ｽ
+      |   5ｷ  │  C  Remote access to this borg                             │9  |   ｽ
  ｻ    ｿ   ｷｼ  │                                                            │       |
  ｹｵ   +   ｿ1  │                                                            │     3 :
  ｲ9       :>  │                   Resistance is futile.                    │     ｿ    Z

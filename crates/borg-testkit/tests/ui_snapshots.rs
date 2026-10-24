@@ -2142,3 +2142,46 @@ fn docker_shell_runs_in_the_details_panel() -> Result<()> {
     ensure_text(&buffer, "web ›_")?;
     check("docker_shell", &stage, buffer)
 }
+
+#[test]
+fn remote_access_shows_the_pairing_link_and_takes_a_relay() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;
+    stage.state.agent.connect = borg_core::ConnectInfo {
+        name: "borg-web1".into(),
+        program: "/home/deploy/.local/bin/borg".into(),
+        ssh: Some("deploy@203.0.113.9".into()),
+        relay: "wss://relay.example.com".into(),
+    };
+    stage.state.agent.computers = vec!["me@laptop".into()];
+    stage.send(key(KeyCode::F(1))).send(key(KeyCode::Char('c')));
+    let link = format!("borg://relay.example.com/{}#{}", "ab".repeat(32), "cd".repeat(16));
+    stage.send(Msg::Agent(borg_core::AgentEvent::Pairing(Ok(link))));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Relay: wss://relay.example.com")?;
+    check("remote_access", &stage, buffer)?;
+    // A relay typed over the saved one: Enter saves it.
+    for _ in 0.."relay.example.com".len() {
+        stage.send(key(KeyCode::Backspace));
+    }
+    chars("relay.example.org").for_each(|msg| {
+        stage.send(msg);
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Enter saves the relay")?;
+    check("remote_access_new_relay", &stage, buffer)
+}
+
+#[test]
+fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
+    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
+    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
+    body.extend(code.rows().into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
+    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
+    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "shows this code")?;
+    check("pairing_code", &stage, buffer)
+}

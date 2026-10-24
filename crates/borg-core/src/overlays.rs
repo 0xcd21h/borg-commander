@@ -53,7 +53,12 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
         },
         Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,
         Some(Overlay::Find(find)) => &mut find.input,
-        Some(Overlay::Connect(connect)) if state.agent.connect.ssh.is_some() => &mut connect.target,
+        Some(Overlay::Connect(connect)) => {
+            match crate::agent::connect_field(connect, state.agent.connect.ssh.is_some()) {
+                Some(input) => input,
+                None => return Vec::new(),
+            }
+        }
         _ => return Vec::new(),
     };
     line.chars().for_each(|c| {
