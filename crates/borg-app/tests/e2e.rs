@@ -1443,7 +1443,7 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     }
     app.send(keys::esc())?;
     app.wait_text("Activity monitor")?;
-    app.wait_text("Process memory")?;
+    app.wait_until("process details ready", |s| s.contains("2 Open files") && !s.contains("Memory preview"))?;
     app.send("2")?;
     let files = app.wait_until("open files loaded for own process", |s| {
         s.contains("Open files") && s.contains("Descriptor") && s.contains("File details")
@@ -2184,15 +2184,49 @@ fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::Pat
     let link = pairing_link(&shown).unwrap();
     ensure!(link.starts_with("borg+ws://127.0.0.1:"), "{link}");
     app.send(keys::esc())?;
+    let target = borg_link::PairingLink::parse(&link).expect("the dialog shows a valid pairing link");
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let registration_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match runtime.block_on(borg_link::relay::dial(&target.relay, &target.server)) {
+            Ok(socket) => {
+                drop(socket);
+                break;
+            }
+            Err(_) if std::time::Instant::now() < registration_deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(error) => anyhow::bail!("the test server did not register at its relay: {error:#}"),
+        }
+    }
     let computer = fixture.root().join("computer");
-    let pairing = std::process::Command::new(BORG)
+    let mut pairing = std::process::Command::new(BORG)
         .args(["pair", &link])
         .env("BORG_STATE_DIR", &computer)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
-    app.wait_text("Pair this computer with borg?")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        if app.snapshot().contains("Pair this computer with borg?") {
+            break;
+        }
+        if let Some(status) = pairing.try_wait()? {
+            let output = pairing.wait_with_output()?;
+            anyhow::bail!(
+                "borg pair exited {status} before asking for approval: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for pairing approval\n{}",
+            app.snapshot().lines().join("\n")
+        );
+        app.pump(std::time::Duration::from_millis(100))?;
+    }
     app.wait_text("Fingerprint:")?;
     approve(app)?;
     let paired = pairing.wait_with_output()?;
