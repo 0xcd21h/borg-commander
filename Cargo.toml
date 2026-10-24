@@ -16,6 +16,7 @@ borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
 borg-link = { path = "crates/borg-link" }
+borg-relay = { path = "crates/borg-relay" }
 borg-update = { path = "crates/borg-update" }
 borg-term = { path = "crates/borg-term" }
 borg-testkit = { path = "crates/borg-testkit" }

@@ -39,6 +39,10 @@ pub struct Preferences {
     pub docker_console: bool,
     /// Borg keeps a log of what connected agents do, until it exits.
     pub agent_log: bool,
+    /// Paired computers reach this borg through borg cloud while it is open.
+    pub agent_cloud: bool,
+    /// Reads asked from another computer wait for the user's approval too.
+    pub agent_ask_reads: bool,
 }
 
 impl Preferences {
@@ -56,6 +60,8 @@ impl Preferences {
         docker_plugin: true,
         docker_console: true,
         agent_log: true,
+        agent_cloud: true,
+        agent_ask_reads: false,
     };
 }
 

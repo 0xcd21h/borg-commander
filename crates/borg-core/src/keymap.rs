@@ -13,6 +13,8 @@ pub enum Action {
     ToggleDockerPlugin,
     ToggleDockerConsole,
     ToggleAgentLog,
+    ToggleAgentCloud,
+    ToggleAgentAskReads,
     DockerAct(borg_docker::Action),
     DockerFilter,
     DockerFiles,

@@ -117,6 +117,10 @@ impl StateDir {
         explicit.or_else(xdg).or_else(home).map(Self)
     }
 
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
     pub fn load_session(&self) -> Result<Option<Session>> {
         let path = self.0.join(SESSION_FILE);
         match fs::read_to_string(&path) {

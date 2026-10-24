@@ -427,6 +427,8 @@ dependencies = [
  "borg-git",
  "borg-i18n",
  "borg-jobs",
+ "borg-link",
+ "borg-relay",
  "borg-term",
  "borg-testkit",
  "borg-ui",

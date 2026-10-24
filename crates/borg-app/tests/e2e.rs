@@ -2133,3 +2133,169 @@ fn option_left_and_right_move_by_words_on_the_command_line() -> Result<()> {
     ensure!(!app.snapshot().contains("Collection"), "no collections panel opened");
     Ok(())
 }
+
+/// Runs a relay without TLS in this process, on a free port, for the test's lifetime.
+fn relay() -> Result<String> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    listener.set_nonblocking(true)?;
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).expect("the listener");
+            borg_relay::serve(listener, None).await;
+        });
+    });
+    Ok(format!("ws://{address}"))
+}
+
+/// The pairing link in the Connect dialog: the dialog wraps it over rows that start at the
+/// same column as the command.
+fn pairing_link(snapshot: &Snapshot) -> Option<String> {
+    const COMMAND: &str = "borg pair '";
+    let lines: Vec<Vec<char>> = snapshot.lines().iter().map(|line| line.chars().collect()).collect();
+    let (row, column) = lines.iter().enumerate().find_map(|(row, line)| {
+        let text: String = line.iter().collect();
+        text.find(COMMAND).map(|byte| (row, text[..byte].chars().count()))
+    })?;
+    let mut command = String::new();
+    for line in &lines[row..] {
+        let piece: String = line.iter().skip(column).take_while(|&&c| c != '│').collect();
+        command.push_str(piece.trim_end());
+        if command.len() > COMMAND.len() && command.ends_with('\'') {
+            return Some(command[COMMAND.len()..command.len() - 1].to_owned());
+        }
+    }
+    None
+}
+
+/// Pairs a computer, whose borg keeps its key in a folder of the fixture, with the borg in
+/// `app` through the Connect dialog's link, approving it there: the computer's folder and the
+/// name it knows the server by.
+fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::PathBuf, String)> {
+    // The server shows a link; the computer pairs with it, and the user approves it here.
+    app.send(keys::f(1))?;
+    app.wait_text("Connect Claude to this borg")?;
+    app.send("c")?;
+    let shown = app.wait_until("the pairing link", |s| pairing_link(s).is_some())?;
+    let link = pairing_link(&shown).unwrap();
+    ensure!(link.starts_with("borg+ws://127.0.0.1:"), "{link}");
+    app.send(keys::esc())?;
+    let computer = fixture.root().join("computer");
+    let pairing = std::process::Command::new(BORG)
+        .args(["pair", &link])
+        .env("BORG_STATE_DIR", &computer)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    app.wait_text("Pair this computer with borg?")?;
+    app.wait_text("Fingerprint:")?;
+    approve(app)?;
+    let paired = pairing.wait_with_output()?;
+    let said = format!("{}{}", String::from_utf8_lossy(&paired.stdout), String::from_utf8_lossy(&paired.stderr));
+    ensure!(paired.status.success() && said.contains("Paired with"), "{said}");
+    let name =
+        said.lines().find_map(|line| line.strip_prefix("Paired with ")).unwrap().trim_end_matches('.').to_owned();
+    ensure!(said.contains(&format!("mcp remote {name}")), "it shows the line for Claude Code: {said}");
+
+    Ok((computer, name))
+}
+
+/// `borg mcp remote NAME` on a computer whose borg keeps its key in `state`.
+fn remote_mcp(state: &Path, name: &str) -> Result<Mcp> {
+    let mut child = std::process::Command::new(BORG)
+        .args(["mcp", "remote", name])
+        .env("BORG_STATE_DIR", state)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    let input = child.stdin.take().unwrap();
+    let output = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut mcp = Mcp { child, input, output, next: 0 };
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
+    Ok(mcp)
+}
+
+#[test]
+fn a_computer_pairs_through_borg_cloud_and_claude_works_there_end_to_end_encrypted() -> Result<()> {
+    let relay = relay()?;
+    let fixture = fixture()?;
+    fixture.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut app = Session::builder(BORG, &fixture).size(130, 34).label("cloud").spawn()?;
+    app.wait_text(READY)?;
+
+    let (computer, name) = pair_computer(&mut app, &fixture)?;
+
+    // Claude on the computer works in the borg on the server.
+    let mut mcp = remote_mcp(&computer, &name)?;
+    let tools = mcp.request("tools/list", serde_json::json!({}))?;
+    let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    ensure!(names.contains(&"download") && names.contains(&"upload") && names.contains(&"run"), "{names:?}");
+    let (error, screen) = mcp.call("screen", serde_json::json!({}))?;
+    ensure!(!error && screen.contains("The user is looking at the panels"), "{screen}");
+    let (_, notes) = mcp.call("read", serde_json::json!({ "path": "notes.txt" }))?;
+    ensure!(notes.ends_with("     1\thello\n"), "{notes}");
+
+    let downloads = fixture.root().join("downloads");
+    fs::create_dir_all(&downloads)?;
+    let (error, text) =
+        mcp.call("download", serde_json::json!({ "path": "notes.txt", "to": downloads.to_string_lossy() }))?;
+    ensure!(!error && fs::read_to_string(downloads.join("notes.txt"))? == "hello\n", "{text}");
+
+    let big: Vec<u8> = (0..3_000_000u32).map(|n| (n % 253) as u8).collect();
+    let local = fixture.root().join("big.bin");
+    fs::write(&local, &big)?;
+    let asking = std::thread::spawn(move || {
+        let uploaded = mcp.call("upload", serde_json::json!({ "from": local.to_string_lossy(), "to": "big.bin" }));
+        (mcp, uploaded)
+    });
+    app.wait_text("Claude wants to upload a file")?;
+    app.wait_text("asked from")?;
+    approve(&mut app)?;
+    let (mut mcp, uploaded) = asking.join().unwrap();
+    let (error, text) = uploaded?;
+    ensure!(!error && fs::read(fixture.work().join("big.bin"))? == big, "{text}");
+
+    let asking = std::thread::spawn(move || mcp.call("run", serde_json::json!({ "command": "echo remote-$((6*7))" })));
+    app.wait_text("echo remote-$((6*7))")?;
+    approve(&mut app)?;
+    let (error, text) = asking.join().unwrap()?;
+    ensure!(!error && text == "exit 0\nremote-42\n", "{text:?}");
+
+    // Another computer, which knows the server but holds no paired key, is refused.
+    let stranger = fixture.root().join("stranger");
+    fs::create_dir_all(stranger.join("link"))?;
+    fs::copy(computer.join("link/servers.json"), stranger.join("link/servers.json"))?;
+    let mut intruder = remote_mcp(&stranger, &name)?;
+    let (error, text) = intruder.call("screen", serde_json::json!({}))?;
+    ensure!(error && text.contains("not paired"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn reads_from_another_computer_wait_for_approval_when_the_user_asks_for_that() -> Result<()> {
+    let relay = relay()?;
+    let fixture = fixture()?;
+    fixture
+        .configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-ask-reads = true\n"))?;
+    let mut app = Session::builder(BORG, &fixture).size(130, 34).label("cloud-reads").spawn()?;
+    app.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut app, &fixture)?;
+    let mut mcp = remote_mcp(&computer, &name)?;
+    let asking = std::thread::spawn(move || {
+        let read = mcp.call("read", serde_json::json!({ "path": "notes.txt" }));
+        (mcp, read)
+    });
+    app.wait_text("Claude wants to read")?;
+    app.send("n")?;
+    let (mut mcp, read) = asking.join().unwrap();
+    let (error, text) = read?;
+    ensure!(error && text.contains("declined"), "{text}");
+    let asking = std::thread::spawn(move || mcp.call("read", serde_json::json!({ "path": "notes.txt" })));
+    app.wait_text("Claude wants to read")?;
+    approve(&mut app)?;
+    let (error, text) = asking.join().unwrap()?;
+    ensure!(!error && text.ends_with("     1\thello\n"), "{text}");
+    Ok(())
+}

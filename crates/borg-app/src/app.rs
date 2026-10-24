@@ -112,6 +112,14 @@ pub struct App {
     host_capture: Option<(crate::agent::Typed, Vec<u8>)>,
     /// Text to put on the user's clipboard with the next frame.
     clipboard: Option<String>,
+    /// Borg cloud: this borg reachable from paired computers through a relay.
+    link: crate::link::LinkServer,
+    /// Files arriving from another computer, by token.
+    uploads: HashMap<String, crate::agent::Upload>,
+    /// Files another computer may download in pieces without asking again, by computer
+    /// and path, once the user approved the first piece.
+    downloads: std::collections::HashSet<(String, String)>,
+    runtime_dir: PathBuf,
 }
 
 enum Flow {
@@ -167,6 +175,15 @@ impl App {
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
         let agent = crate::agent::Agent::start(&launch.runtime_dir, messages.clone());
         state.agent.connect = crate::agent::connect_info();
+        let relay = launch.config.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse);
+        let link = crate::link::LinkServer::new(
+            launch.state_dir.as_ref().map(|dir| dir.path().to_path_buf()),
+            relay,
+            agent.requeue_sender(),
+            messages.clone(),
+            agent.clients(),
+        );
+        state.agent.computers = link.computers();
         let runtime_dir = launch.runtime_dir.clone();
         tokio::spawn(async move {
             let mut refresh = tokio::time::interval(crate::launch::TTL_REFRESH);
@@ -206,6 +223,10 @@ impl App {
             console: borg_core::Console::Host,
             agent,
             reveals: Vec::new(),
+            link,
+            uploads: HashMap::new(),
+            downloads: std::collections::HashSet::new(),
+            runtime_dir: launch.runtime_dir.clone(),
             host_capture: None,
             clipboard: None,
         })
@@ -537,14 +558,67 @@ impl App {
         call: crate::agent::Call,
         reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
     ) -> Result<Flow> {
-        use crate::agent::{self, Call, Location, Reply, Spot, Target, Work};
+        use crate::agent::{self, Location, Reply, Spot, Target, Work};
         use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
         let text = |key: &str| call.args[key].as_str().map(str::to_owned).filter(|value| !value.trim().is_empty());
         let fail = |reply: tokio::sync::oneshot::Sender<Reply>, text: String| {
             drop(reply.send(Reply::error(text)));
             Ok(Flow::Continue)
         };
+        // With the user's say-so, what another computer reads waits for approval too: once per
+        // file for a download, which comes in pieces.
+        if let Some(origin) = call.origin.clone()
+            && !call.approved
+            && self.state.settings.preferences.agent_ask_reads
+            && matches!(call.tool.as_str(), "screen" | "read" | "get")
+            && !(call.tool == "get" && self.downloads.contains(&(origin.clone(), text("path").unwrap_or_default())))
+        {
+            let summary = match call.tool.as_str() {
+                "screen" => "what borg shows".to_owned(),
+                "get" => format!("download {}", text("path").unwrap_or_default()),
+                _ => text("source").or_else(|| text("path")).unwrap_or_else(|| ".".into()),
+            };
+            let place = tr!(agent_asked_from).replace("{origin}", &origin);
+            let ask =
+                Ask { kind: AskKind::Read, summary: summary.clone(), place, body: vec![DiffLine::plain(summary)] };
+            let id = self.agent.ask(reply, Work::Forward(call));
+            return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+        }
         match call.tool.as_str() {
+            crate::link::PAIR_CALL => {
+                let (name, fingerprint) = (text("name").unwrap_or_default(), text("fingerprint").unwrap_or_default());
+                let body = vec![
+                    DiffLine::plain(format!("Computer:    {name}")),
+                    DiffLine::plain(format!("Fingerprint: {fingerprint}")),
+                    DiffLine::plain(""),
+                    DiffLine::plain("Pair only if `borg pair` shows this fingerprint on that computer."),
+                ];
+                let ask = Ask {
+                    kind: AskKind::Pair,
+                    summary: name.clone(),
+                    place: format!("fingerprint {fingerprint}"),
+                    body,
+                };
+                let id = self.agent.ask(reply, Work::Pair { name });
+                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+            }
+            "get" => {
+                let Some(path) = text("path") else { return fail(reply, "get needs a path".into()) };
+                let offset = call.args["offset"].as_u64().unwrap_or(0);
+                let location = agent::locate(&self.state, &path);
+                let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
+                if offset == 0 {
+                    self.agent.note(&format!("downloading {}", spot.uri()));
+                }
+                tokio::spawn(async move {
+                    let piece = agent::piece(&spot, offset).await;
+                    drop(reply.send(match piece {
+                        Ok(piece) => Reply::ok(piece),
+                        Err(error) => Reply::error(format!("{}: {error:#}", spot.uri())),
+                    }));
+                });
+            }
+            "put" => return self.put(call, reply),
             "screen" => {
                 self.agent.note("looked at the screen");
                 let (emulator, _) = self.console();
@@ -590,7 +664,7 @@ impl App {
                 tokio::spawn(async move {
                     let folder = agent::is_folder(&spot).await;
                     let args = serde_json::json!({ "spot": spot, "folder": folder });
-                    drop(requeue.send((Call { tool: "_show".into(), args }, reply)));
+                    drop(requeue.send((call.follow("_show", args), reply)));
                 });
             }
             "_show" => {
@@ -660,7 +734,7 @@ impl App {
                         },
                     };
                     let args = serde_json::json!({ "spot": spot, "before": before, "after": after });
-                    drop(requeue.send((Call { tool: "_propose".into(), args }, reply)));
+                    drop(requeue.send((call.follow("_propose", args), reply)));
                 });
             }
             "_propose" => {
@@ -685,6 +759,7 @@ impl App {
                     }
                 };
                 let kind = if before.is_some() { AskKind::Edit } else { AskKind::Create };
+                let place = from_origin(place, call.origin.as_deref());
                 let ask = Ask { kind, summary, place, body };
                 let id = self.agent.ask(reply, Work::Write { spot, before, after });
                 return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
@@ -736,7 +811,7 @@ impl App {
                 let ask = Ask {
                     kind: AskKind::Run,
                     summary: command.clone(),
-                    place: agent::place(&target),
+                    place: from_origin(agent::place(&target), call.origin.as_deref()),
                     body: command.lines().map(DiffLine::plain).collect(),
                 };
                 let id = self.agent.ask(reply, Work::Run { command, target });
@@ -765,6 +840,63 @@ impl App {
         Ok(Flow::Continue)
     }
 
+    /// An upload from another computer: the first call announces the file and waits for the
+    /// user's approval; the calls after it bring its pieces, the last one marked done.
+    fn put(
+        &mut self,
+        call: crate::agent::Call,
+        reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
+    ) -> Result<Flow> {
+        use crate::agent::{self, Reply, Work};
+        use base64::Engine as _;
+        use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+        let Some(token) = call.args["token"].as_str().map(str::to_owned) else {
+            let (Some(path), Some(size)) = (call.args["path"].as_str(), call.args["size"].as_u64()) else {
+                drop(reply.send(Reply::error("put needs a path and a size")));
+                return Ok(Flow::Continue);
+            };
+            let location = agent::locate(&self.state, path);
+            let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
+            let shown = borg_ui::size_text(size);
+            let place = from_origin(shown.clone(), call.origin.as_deref());
+            let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(format!("{shown} ({size} bytes)"))];
+            let ask = Ask { kind: AskKind::Upload, summary: spot.uri(), place, body };
+            let id = self.agent.ask(reply, Work::Upload { spot, size });
+            return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+        };
+        let Some(upload) = self.uploads.get_mut(&token) else {
+            drop(reply.send(Reply::error("no such upload; start it again")));
+            return Ok(Flow::Continue);
+        };
+        let data = base64::engine::general_purpose::STANDARD.decode(call.args["data"].as_str().unwrap_or_default());
+        let written = data.map_err(anyhow::Error::from).and_then(|data| upload.write(&data));
+        if let Err(error) = written {
+            self.uploads.remove(&token);
+            drop(reply.send(Reply::error(format!("{error:#}"))));
+            return Ok(Flow::Continue);
+        }
+        if call.args["done"] != true {
+            drop(reply.send(Reply::ok("")));
+            return Ok(Flow::Continue);
+        }
+        let Some(upload) = self.uploads.remove(&token) else { return Ok(Flow::Continue) };
+        let uri = upload.spot.uri();
+        self.agent.note(&format!("uploaded {uri}"));
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let finished = upload.finish().await;
+            drop(reply.send(match finished {
+                Ok(size) => Reply::ok(format!("Uploaded {uri} ({size} bytes)")),
+                Err(error) => Reply::error(format!("{uri}: {error:#}")),
+            }));
+            drop(
+                messages
+                    .send(Msg::Agent(AgentEvent::Finished { id: 0, notice: format!(tr!(agent_wrote), path = uri) })),
+            );
+        });
+        Ok(Flow::Continue)
+    }
+
     /// The spot a location names, and whether its container runs, when the container is
     /// known now: found earlier for this call, or in the Docker view's list. Otherwise the
     /// call comes back once Docker has listed the containers, or fails if none matches.
@@ -774,7 +906,7 @@ impl App {
         call: &crate::agent::Call,
         reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
     ) -> Option<(crate::agent::Spot, bool, tokio::sync::oneshot::Sender<crate::agent::Reply>)> {
-        use crate::agent::{self, Call, Location, Reply, Spot};
+        use crate::agent::{self, Location, Reply, Spot};
         let (container, path) = match location {
             Location::Host(path) => return Some((Spot::Host(path.clone()), true, reply)),
             Location::Container { container, path } => (container.clone(), path.clone()),
@@ -788,7 +920,7 @@ impl App {
             return Some((Spot::Container { id: found.id.clone(), name: found.name.clone(), path }, running, reply));
         }
         let requeue = self.agent.requeue_sender();
-        let mut call = Call { tool: call.tool.clone(), args: call.args.clone() };
+        let mut call = call.clone();
         tokio::spawn(async move {
             let containers = borg_docker::list().await.unwrap_or_default();
             match agent::find_container(&containers, &container) {
@@ -837,6 +969,32 @@ impl App {
         let (command, target) = match work {
             Work::Write { spot, before, after } => {
                 self.agent.write(id, reply, spot, before, after);
+                return Ok(Flow::Continue);
+            }
+            Work::Pair { .. } => {
+                drop(reply.send(crate::agent::Reply::ok("approved")));
+                return Ok(Flow::Continue);
+            }
+            Work::Forward(mut call) => {
+                if call.tool == "get"
+                    && let (Some(origin), Some(path)) = (call.origin.clone(), call.args["path"].as_str())
+                {
+                    self.downloads.insert((origin, path.to_owned()));
+                }
+                call.approved = true;
+                drop(self.agent.requeue_sender().send((call, reply)));
+                return Ok(Flow::Continue);
+            }
+            Work::Upload { spot, size } => {
+                let token = borg_link::hex(&borg_link::secret());
+                let scratch = self.runtime_dir.join(DOCKER_SCRATCH);
+                drop(reply.send(match crate::agent::Upload::begin(spot, size, &scratch, &token) {
+                    Ok(upload) => {
+                        self.uploads.insert(token.clone(), upload);
+                        crate::agent::Reply::ok(token)
+                    }
+                    Err(error) => crate::agent::Reply::error(format!("{error:#}")),
+                }));
                 return Ok(Flow::Continue);
             }
             Work::Run { command, target } => (command, target),
@@ -968,6 +1126,7 @@ impl App {
         let flow = self.apply(effects)?;
         self.fit_container_shell();
         self.settle_reveals();
+        self.link.sync(self.state.settings.preferences.agent_cloud);
         Ok(flow)
     }
 
@@ -1053,6 +1212,20 @@ impl App {
                 Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
                 Effect::UseConsole(console) => self.console = console,
                 Effect::Copy(text) => self.clipboard = Some(text),
+                Effect::StartPairing => {
+                    let pairing = if self.link.relay().is_none() {
+                        Err(tr!(agent_cloud_no_relay).to_owned())
+                    } else {
+                        self.link.pair().map_err(|error| format!("{error:#}"))
+                    };
+                    self.state.agent.pairing = Some(pairing);
+                    self.link.sync(self.state.settings.preferences.agent_cloud);
+                }
+                Effect::ForgetComputers => {
+                    if let Err(error) = self.link.forget() {
+                        self.state.notice = Some(format!("{error:#}"));
+                    }
+                }
                 Effect::AgentAnswer { id, approved } => {
                     if let Flow::Quit = self.agent_answer(id, approved)? {
                         return Ok(Flow::Quit);
@@ -1209,6 +1382,15 @@ impl App {
         if let Some(previous) = self.listings[side.index()].replace(task) {
             previous.abort();
         }
+    }
+}
+
+/// Where an ask happens, with the computer that asked when it came through borg cloud.
+fn from_origin(place: String, origin: Option<&str>) -> String {
+    match origin {
+        None => place,
+        Some(origin) if place.is_empty() => tr!(agent_asked_from).replace("{origin}", origin),
+        Some(origin) => tr!(agent_from).replace("{place}", &place).replace("{origin}", origin),
     }
 }
 

@@ -62,6 +62,9 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
         AskKind::Run => tr!(agent_wants_run),
         AskKind::Create => tr!(agent_wants_create),
         AskKind::Edit => tr!(agent_wants_edit),
+        AskKind::Pair => tr!(agent_wants_pair),
+        AskKind::Read => tr!(agent_wants_read),
+        AskKind::Upload => tr!(agent_wants_upload),
     };
     Line::styled(heading, styles.overlay).centered().render(row(rect, rect.y + 1), buf);
 
@@ -80,6 +83,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
     let (ask, place) = (&approval.ask, &approval.ask.place);
     let place = match ask.kind {
         AskKind::Run => tr!(agent_in_place).replace("{place}", place),
+        AskKind::Pair | AskKind::Read | AskKind::Upload => place.clone(),
         _ if place.is_empty() => ask.summary.clone(),
         _ => tr!(agent_file_place).replace("{path}", &ask.summary).replace("{place}", place),
     };
@@ -141,31 +145,52 @@ pub fn draw_connect(
     buf: &mut Buffer,
 ) -> (Rect, Option<Position>) {
     let styles = &theme.styles;
+    let note = styles.overlay.fg(styles.meta.fg.unwrap_or(Color::DarkGray));
     let info = &state.agent.connect;
     let remote = info.ssh.is_some();
     let width = screen.width.saturating_sub(MARGIN).min(CONNECT_WIDTH);
     let inner_width = width.saturating_sub(4);
     let [start, keep] = borg_core::connect_commands(info, connect.target.text().trim());
-    let (start, keep) = (command_rows(&start, inner_width), command_rows(&keep, inner_width));
-    // Intro, a gap, each label and command with a gap after, and the target field with its note.
-    let mut height = 2 + 2 + (1 + start.len() as u16 + 1) + (1 + keep.len() as u16) + 2;
-    if remote {
-        height += 3;
+    // Through borg cloud: the command that pairs, or why there is none yet.
+    let (cloud, cloud_style, cloud_note) = match &state.agent.pairing {
+        Some(Ok(link)) => (borg_core::pair_command(link), styles.input, tr!(agent_connect_cloud_note)),
+        Some(Err(reason)) => (reason.clone(), note, ""),
+        None => (tr!(agent_connect_cloud_wait).to_owned(), note, ""),
+    };
+    let blocks = [
+        (
+            borg_core::CONNECT_CLOUD,
+            tr!(agent_connect_cloud),
+            command_rows(&cloud, inner_width),
+            cloud_style,
+            cloud_note,
+        ),
+        (borg_core::CONNECT_START, tr!(agent_connect_start), command_rows(&start, inner_width), styles.input, ""),
+        (borg_core::CONNECT_KEEP, tr!(agent_connect_keep), command_rows(&keep, inner_width), styles.input, ""),
+    ];
+    // The intro and a gap, each block with a gap after, the SSH target with its note, and
+    // the paired computers.
+    let mut height: u16 = 2 + 2;
+    for (_, _, rows, _, extra) in &blocks {
+        height += 1 + rows.len() as u16 + 1 + u16::from(!extra.is_empty());
     }
+    height += if remote { 2 } else { 0 } + u16::from(!state.agent.computers.is_empty());
     let rect = centered(screen, width, height.min(screen.height));
     frame(tr!(agent_connect_title), Some(tr!(agent_connect_hint).to_owned()), theme, rect, buf);
 
     let mut y = rect.y + 1;
     put(buf, rect, &mut y, tr!(agent_connect_intro), styles.overlay, 0);
     y += 1;
-    for (keep_block, label, rows) in [(false, tr!(agent_connect_start), &start), (true, tr!(agent_connect_keep), &keep)]
-    {
-        let picked = connect.keep == keep_block;
+    for (pick, label, rows, style, extra) in &blocks {
+        let picked = connect.pick == *pick;
         let marker = if picked { "▸ " } else { "  " };
-        let style = if picked { styles.overlay_selected } else { styles.overlay };
-        put(buf, rect, &mut y, &format!("{marker}{label}"), style, 0);
+        let label_style = if picked { styles.overlay_selected } else { styles.overlay };
+        put(buf, rect, &mut y, &format!("{marker}{label}"), label_style, 0);
         for text in rows {
-            put(buf, rect, &mut y, text, styles.input, INDENT);
+            put(buf, rect, &mut y, text, *style, INDENT);
+        }
+        if !extra.is_empty() {
+            put(buf, rect, &mut y, extra, note, INDENT);
         }
         y += 1;
     }
@@ -181,8 +206,11 @@ pub fn draw_connect(
         let before: String = connect.target.text().chars().take(connect.target.cursor_chars()).collect();
         cursor = Some(Position::new((field.x + before.width() as u16).min(field.right().saturating_sub(1)), field.y));
         y += 1;
-        let note = styles.overlay.fg(styles.meta.fg.unwrap_or(Color::DarkGray));
         put(buf, rect, &mut y, tr!(agent_connect_ssh), note, 0);
+    }
+    if !state.agent.computers.is_empty() {
+        let names = state.agent.computers.join(", ");
+        put(buf, rect, &mut y, &tr!(agent_connect_paired).replace("{names}", &names), note, 0);
     }
     (rect, cursor)
 }

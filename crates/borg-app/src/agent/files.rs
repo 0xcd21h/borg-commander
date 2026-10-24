@@ -283,6 +283,104 @@ pub async fn store(spot: &Spot, text: &str) -> Result<()> {
     }
 }
 
+/// Bytes one piece of a download or an upload carries.
+pub const PIECE: u64 = 1024 * 1024;
+/// The largest file an upload writes.
+const UPLOAD_LIMIT: u64 = 1024 * 1024 * 1024;
+
+/// A piece of a file for a download: its size and up to [`PIECE`] bytes from `offset`, as
+/// JSON with the bytes in base64.
+pub async fn piece(spot: &Spot, offset: u64) -> Result<String> {
+    use base64::Engine as _;
+    let (size, bytes) = match spot {
+        Spot::Host(path) => {
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || -> Result<(u64, Vec<u8>)> {
+                let mut file = std::fs::File::open(&path)?;
+                let meta = file.metadata()?;
+                if meta.is_dir() {
+                    bail!("it is a folder");
+                }
+                file.seek(SeekFrom::Start(offset))?;
+                let mut bytes = Vec::new();
+                file.take(PIECE).read_to_end(&mut bytes)?;
+                Ok((meta.len(), bytes))
+            })
+            .await??
+        }
+        Spot::Container { id, path, .. } => borg_docker::read_range(id, path, offset, PIECE).await?,
+    };
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(serde_json::json!({ "size": size, "data": data }).to_string())
+}
+
+/// A file arriving from another computer: written to a staged file, which takes the file's
+/// name only once all of it arrived, so a broken upload never leaves half a file.
+pub struct Upload {
+    pub spot: Spot,
+    staged: PathBuf,
+    file: Option<std::fs::File>,
+    size: u64,
+    written: u64,
+}
+
+impl Upload {
+    /// Stages an upload of `size` bytes: beside the file on this machine, so it moves into
+    /// place in one step, or in `scratch` for a container.
+    pub fn begin(spot: Spot, size: u64, scratch: &Path, token: &str) -> Result<Self> {
+        if size > UPLOAD_LIMIT {
+            bail!("the file is larger than 1 GiB");
+        }
+        let staged = match &spot {
+            Spot::Host(path) => {
+                let name = path.file_name().context("the path names no file")?.to_string_lossy();
+                path.with_file_name(format!(".{name}.borg-upload-{token}"))
+            }
+            Spot::Container { .. } => {
+                std::fs::create_dir_all(scratch)?;
+                scratch.join(format!("upload-{token}"))
+            }
+        };
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staged)
+            .with_context(|| format!("could not write beside {}", spot.uri()))?;
+        Ok(Self { spot, staged, file: Some(file), size, written: 0 })
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        use std::io::Write as _;
+        if self.written + bytes.len() as u64 > self.size {
+            bail!("more data than the upload announced");
+        }
+        self.file.as_mut().context("the upload is finished")?.write_all(bytes)?;
+        self.written += bytes.len() as u64;
+        Ok(())
+    }
+
+    /// Puts the complete file in place.
+    pub async fn finish(mut self) -> Result<u64> {
+        drop(self.file.take());
+        let (written, size) = (self.written, self.size);
+        if written != size {
+            bail!("the upload ended after {written} of {size} bytes");
+        }
+        match &self.spot {
+            Spot::Host(path) => std::fs::rename(&self.staged, path)?,
+            Spot::Container { id, path, .. } => borg_docker::copy_in(id, &self.staged, path).await?,
+        }
+        Ok(size)
+    }
+}
+
+impl Drop for Upload {
+    /// Whatever happened, the staged file goes: it was moved into place, or the upload broke.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.staged);
+    }
+}
+
 /// A new file, every line of it added.
 pub fn whole(text: &str) -> Vec<DiffLine> {
     text.lines()
