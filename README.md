@@ -26,6 +26,20 @@ c o m m a n d e r
 
 <p align="center"><em>Resistance is futile.</em></p>
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install.sh | sh
+```
+
+The installer verifies the checksum, puts `borg` in `~/.local/bin` (or `/usr/local/bin` as
+root), adds it to your PATH if needed, and starts it. Update with `borg update`. Binaries for
+**macOS** (Apple Silicon or Intel) and **Linux** (ARM64 or x86-64) are on
+[Releases](https://github.com/0xcd21h/borg-commander/releases/latest).
+
+[Controls, settings, and source installation →](docs/GUIDE.md) ·
+[Build, test, and contribute →](DEVELOPMENT.md)
+
 ## Files and a real shell
 
 Keep two folders side by side and type commands at the prompt below. Borg runs your
@@ -105,21 +119,6 @@ Six built-in themes, from Classic blue to Paper. Pick one from the menu or make 
 
 Every download includes **Borg Mono**, a font with file icons. Ghostty uses rich icons
 automatically; other terminals start with portable symbols. [Font setup](fonts/README.md).
-
-## Install
-
-Download a binary for **macOS** (Apple Silicon or Intel) or **Linux** (ARM64 or x86-64)
-from [Releases](https://github.com/0xcd21h/borg-commander/releases/latest), or use the installer:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install.sh | sh
-```
-
-Run `borg` in any folder. The installer verifies the checksum and puts the binary in
-`~/.local/bin`. Update with `borg update`.
-
-[Controls, settings, and source installation →](docs/GUIDE.md) ·
-[Build, test, and contribute →](DEVELOPMENT.md)
 
 ## License
 

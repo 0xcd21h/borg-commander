@@ -15,8 +15,12 @@ or run the installer for macOS or Linux, on Intel or ARM:
 curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install.sh | sh
 ```
 
-The installer verifies the archive checksum and installs `borg` in `~/.local/bin`.
-To build from source, use Rust 1.97 or newer:
+The installer verifies the archive checksum and installs `borg` in a folder on your PATH,
+so it runs in the same terminal: `~/.local/bin` when it is on your PATH, `/usr/local/bin`
+when that is writable (as for root, in a container), and otherwise `~/.local/bin`, which
+it adds to your shell's startup file. Then it starts borg; `BORG_NO_RUN=1` skips that, and
+`BORG_INSTALL_DIR` picks the folder. Run again, it skips the download when that version
+is installed. To build from source, use Rust 1.97 or newer:
 
 ```sh
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
