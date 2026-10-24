@@ -14,9 +14,9 @@ expression: describe(&buffer)
 │ ? socket       │ [x] System — processes and memory                    │                │
 │ · 日本語メモ.tx│ [x] Docker — containers and Compose projects         │                │
 │                │ [x] Docker — command line follows container panels   │                │
-│                │ [x] Claude — log what it does while Borg runs        │                │
-│                │ [x] Claude — reachable through borg cloud            │                │
-│                │ [ ] Claude — ask before another computer reads       │                │
+│                │ [x] Remote — log what it does while Borg runs        │                │
+│                │ [x] Remote — reachable through borg cloud            │                │
+│                │ [ ] Remote — ask before another computer reads       │                │
 │                │                                                      │                │
 │                ╰ Space toggle · Esc close · saved immediately ────────╯                │
 ╰ 9 items · Git main ───────────────────────╯╰ 5 items ──────────────────────────────────╯

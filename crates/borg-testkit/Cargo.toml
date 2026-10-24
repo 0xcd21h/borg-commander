@@ -29,6 +29,7 @@ borg-docker = { workspace = true }
 borg-git = { workspace = true }
 borg-gfx  = { workspace = true }
 borg-jobs = { workspace = true }
+borg-link = { workspace = true }
 borg-view = { workspace = true }
 insta     = { workspace = true }
 

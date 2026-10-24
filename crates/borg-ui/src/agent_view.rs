@@ -1,7 +1,9 @@
 //! The dialogs of an agent connected through `borg mcp`: the approval of a command or a
 //! change to a file, the log of what agents did, and how to connect Claude to this borg.
 
-use borg_core::{AppState, Approval, AskKind, Change, Connect, approval_layout, approval_rows, log_layout, log_rows};
+use borg_core::{
+    AppState, Approval, AskKind, Change, Connect, LineInput, approval_layout, approval_rows, log_layout, log_rows,
+};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -12,7 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{Theme, dialog_view::centered};
+use crate::{Styles, Theme, dialog_view::centered};
 
 const YES: &str = tr!(yes);
 const NO: &str = tr!(no);
@@ -168,17 +170,21 @@ pub fn draw_connect(
         (borg_core::CONNECT_START, tr!(agent_connect_start), command_rows(&start, inner_width), styles.input, ""),
         (borg_core::CONNECT_KEEP, tr!(agent_connect_keep), command_rows(&keep, inner_width), styles.input, ""),
     ];
-    // The intro and a gap, each block with a gap after, the SSH target with its note, and
-    // the paired computers.
+    // A relay typed in, which Enter saves.
+    let relay_changed = connect.relay.text().trim() != info.relay;
+    // The intro and a gap, each block with a gap after, the relay field with its note, the
+    // SSH target with its note, and the paired computers.
     let mut height: u16 = 2 + 2;
     for (_, _, rows, _, extra) in &blocks {
         height += 1 + rows.len() as u16 + 1 + u16::from(!extra.is_empty());
     }
+    height += 1 + u16::from(relay_changed);
     height += if remote { 2 } else { 0 } + u16::from(!state.agent.computers.is_empty());
     let rect = centered(screen, width, height.min(screen.height));
     frame(tr!(agent_connect_title), Some(tr!(agent_connect_hint).to_owned()), theme, rect, buf);
 
     let mut y = rect.y + 1;
+    let mut cursor = None;
     put(buf, rect, &mut y, tr!(agent_connect_intro), styles.overlay, 0);
     y += 1;
     for (pick, label, rows, style, extra) in &blocks {
@@ -192,20 +198,23 @@ pub fn draw_connect(
         if !extra.is_empty() {
             put(buf, rect, &mut y, extra, note, INDENT);
         }
+        let mut field_cursor = None;
+        if *pick == borg_core::CONNECT_CLOUD {
+            field_cursor = Some(field(buf, rect, &mut y, tr!(agent_connect_relay), &connect.relay, styles, INDENT));
+            if relay_changed {
+                put(buf, rect, &mut y, tr!(agent_connect_relay_note), note, INDENT);
+            }
+        }
+        if picked {
+            cursor = field_cursor;
+        }
         y += 1;
     }
-    let mut cursor = None;
     if remote {
-        let label = format!("{}: ", tr!(agent_connect_target));
-        let area = row(rect, y);
-        Line::styled(label.clone(), styles.overlay).render(area, buf);
-        let field =
-            Rect { x: area.x + label.width() as u16, width: area.width.saturating_sub(label.width() as u16), ..area };
-        buf.set_style(field, styles.input);
-        Line::styled(connect.target.text().to_owned(), styles.input).render(field, buf);
-        let before: String = connect.target.text().chars().take(connect.target.cursor_chars()).collect();
-        cursor = Some(Position::new((field.x + before.width() as u16).min(field.right().saturating_sub(1)), field.y));
-        y += 1;
+        let target = field(buf, rect, &mut y, tr!(agent_connect_target), &connect.target, styles, 0);
+        if connect.pick != borg_core::CONNECT_CLOUD {
+            cursor = Some(target);
+        }
         put(buf, rect, &mut y, tr!(agent_connect_ssh), note, 0);
     }
     if !state.agent.computers.is_empty() {
@@ -213,6 +222,30 @@ pub fn draw_connect(
         put(buf, rect, &mut y, &tr!(agent_connect_paired).replace("{names}", &names), note, 0);
     }
     (rect, cursor)
+}
+
+/// Draws a labelled text field of the Connect dialog at `y`, `indent` columns in, moves `y`
+/// down, and returns where the field's cursor goes.
+fn field(
+    buf: &mut Buffer,
+    rect: Rect,
+    y: &mut u16,
+    label: &str,
+    input: &LineInput,
+    styles: &Styles<Style>,
+    indent: u16,
+) -> Position {
+    let label = format!("{label}: ");
+    let area = row(rect, *y);
+    let area = Rect { x: area.x + indent, width: area.width.saturating_sub(indent), ..area };
+    Line::styled(label.clone(), styles.overlay).render(area, buf);
+    let width = label.width() as u16;
+    let field = Rect { x: area.x + width, width: area.width.saturating_sub(width), ..area };
+    buf.set_style(field, styles.input);
+    Line::styled(input.text().to_owned(), styles.input).render(field, buf);
+    let before: String = input.text().chars().take(input.cursor_chars()).collect();
+    *y += 1;
+    Position::new((field.x + before.width() as u16).min(field.right().saturating_sub(1)), field.y)
 }
 
 /// Writes a line of the Connect dialog at `y`, `indent` columns in, and moves `y` down.

@@ -1780,7 +1780,7 @@ fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
     use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());
     crate::actions::perform(&mut state, Action::AgentLog, now);
-    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("Claude has not done anything")));
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("Nothing remote has happened")));
     update(&mut state, Msg::Agent(AgentEvent::Note("14:00:00  read /srv/app".into())), now);
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert_eq!(state.overlay, Some(Overlay::AgentLog { scroll: None }));
@@ -1791,7 +1791,7 @@ fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
     update(&mut state, Msg::Agent(AgentEvent::Note("14:00:01  showed /srv".into())), now);
     assert!(state.agent.log.is_empty());
     crate::actions::perform(&mut state, Action::AgentLog, now);
-    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("The Claude log is off")));
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("The remote log is off")));
 }
 
 #[test]
@@ -1820,6 +1820,19 @@ fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() 
 }
 
 #[test]
+fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
+    use crate::{AgentEvent, Ask, AskKind};
+    let (mut state, now) = setup_with(Vec::new());
+    for (id, kind) in [(1, AskKind::Pair), (2, AskKind::Read), (3, AskKind::Upload)] {
+        let ask = Ask { kind, summary: "me@laptop".into(), place: String::new(), body: Vec::new() };
+        update(&mut state, Msg::Agent(AgentEvent::Ask { id, ask }), now);
+        let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+        assert_eq!(effects, vec![Effect::AgentAnswer { id, approved: true }]);
+        assert_eq!(state.agent.running, None, "{kind:?} is answered at once, so the footer shows no work");
+    }
+}
+
+#[test]
 fn the_connect_dialog_offers_borg_cloud_and_copies_the_command_picked() {
     use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());
@@ -1827,6 +1840,7 @@ fn the_connect_dialog_offers_borg_cloud_and_copies_the_command_picked() {
         name: "borg-web1".into(),
         program: "/usr/bin/borg".into(),
         ssh: Some("me@10.0.0.5".into()),
+        relay: "wss://relay.example.com".into(),
     };
     let effects = crate::actions::perform(&mut state, Action::ConnectClaude, now);
     assert_eq!(effects, vec![Effect::StartPairing], "opening it asks borg cloud for a pairing link");
@@ -1836,14 +1850,27 @@ fn the_connect_dialog_offers_borg_cloud_and_copies_the_command_picked() {
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert_eq!(effects, vec![Effect::Copy("borg pair 'borg://relay.example.com/ab#cd'".into())]);
 
+    // On borg cloud, keys edit the relay; Enter saves an address pasted there.
     crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    for _ in 0.."wss://relay.example.com".len() {
+        press(&mut state, now, key(KeyCode::Backspace));
+    }
+    update(&mut state, Msg::Paste("relay.example.org".into()), now);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(effects, vec![Effect::SetRelay("relay.example.org".into())]);
+    assert!(state.agent.pairing.is_none(), "the dialog waits for a link from the new relay");
+    assert!(matches!(state.overlay, Some(Overlay::Connect(_))));
+    press(&mut state, now, key(KeyCode::Esc));
+
+    // The commands through SSH edit the target.
+    crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    press(&mut state, now, key(KeyCode::Tab));
     for _ in 0.."me@10.0.0.5".len() {
         press(&mut state, now, key(KeyCode::Backspace));
     }
     for c in "prod".chars() {
         press(&mut state, now, key(KeyCode::Char(c)));
     }
-    press(&mut state, now, key(KeyCode::Tab));
     press(&mut state, now, key(KeyCode::Tab));
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert_eq!(

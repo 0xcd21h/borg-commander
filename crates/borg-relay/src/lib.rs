@@ -12,6 +12,16 @@ macro_rules! log {
     }};
 }
 
+/// Writes a line to the event log, which is off unless the operator turns it on: it records
+/// when servers and clients came, and from where.
+macro_rules! event {
+    ($($arg:tt)*) => {{
+        if crate::EVENT_LOG.load(std::sync::atomic::Ordering::Relaxed) {
+            log!($($arg)*);
+        }
+    }};
+}
+
 mod http;
 mod hub;
 
@@ -38,6 +48,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 /// Connections the relay holds at once, from every address together, before it reads who
 /// they are.
 const MAX_CONNECTIONS: usize = 20_000;
+/// How often the relay logs how busy it is, when that changed.
+const STATS_EVERY: Duration = Duration::from_secs(60);
+
+static EVENT_LOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// How the relay meets the outside.
 #[derive(Clone, Default)]
@@ -47,12 +61,16 @@ pub struct Options {
     /// A proxy in front adds TLS and reports each client's address, which the relay then
     /// counts limits by. Only trusted when set, since a client could claim any address.
     pub behind_proxy: bool,
+    /// Log each server's registration, each session and each limit reached, for debugging.
+    pub log: bool,
 }
 
 /// Serves borgs on `listener` until the process ends.
 pub async fn serve(listener: TcpListener, options: Options) {
+    EVENT_LOG.store(options.log, std::sync::atomic::Ordering::Relaxed);
     let hub = Arc::new(Mutex::new(hub::Hub::default()));
     let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    tokio::spawn(report(hub.clone(), open.clone()));
     loop {
         let (tcp, peer) = match listener.accept().await {
             Ok(accepted) => accepted,
@@ -71,6 +89,20 @@ pub async fn serve(listener: TcpListener, options: Options) {
             connection(hub, options, tcp, peer.ip()).await;
             open.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         });
+    }
+}
+
+/// Logs how busy the relay is, counts only, once a minute when they changed.
+async fn report(hub: Arc<Mutex<hub::Hub>>, open: Arc<std::sync::atomic::AtomicUsize>) {
+    let mut every = tokio::time::interval_at(tokio::time::Instant::now() + STATS_EVERY, STATS_EVERY);
+    let mut last = hub.lock().expect("hub lock").stats(0);
+    loop {
+        every.tick().await;
+        let line = hub.lock().expect("hub lock").stats(open.load(std::sync::atomic::Ordering::SeqCst));
+        if line != last {
+            log!("{line}");
+            last = line;
+        }
     }
 }
 

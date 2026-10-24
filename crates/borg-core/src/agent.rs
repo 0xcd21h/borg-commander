@@ -124,11 +124,15 @@ pub struct ConnectInfo {
     /// How SSH reaches this machine, guessed from the connection the user came in on; `None`
     /// when Borg runs on the user's own computer.
     pub ssh: Option<String>,
+    /// The relay borg cloud uses, as saved; empty while none is set.
+    pub relay: String,
 }
 
-/// The Connect dialog: the target SSH reaches this machine as, and which command is picked.
+/// The Connect dialog: the relay borg cloud goes through, the target SSH reaches this machine
+/// as, and which command is picked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Connect {
+    pub relay: crate::input::LineInput,
     pub target: crate::input::LineInput,
     /// Which command Enter copies: through borg cloud, start now, or keep.
     pub pick: usize,
@@ -270,7 +274,9 @@ pub(crate) fn on_approval_key(
     }
     if let Some(approved) = decided {
         state.overlay = None;
-        if approved {
+        // The footer shows a command or a write until borg reports it done; a pairing, a read
+        // or an upload is answered at once, and nothing would clear it.
+        if approved && matches!(approval.ask.kind, AskKind::Run | AskKind::Create | AskKind::Edit) {
             state.agent.running = Some((approval.id, approval.ask.summary.clone()));
         }
         return vec![Effect::AgentAnswer { id: approval.id, approved }];
@@ -454,9 +460,9 @@ pub(crate) fn open_log(state: &mut AppState) -> Vec<Effect> {
 }
 
 pub(crate) fn open_connect(state: &mut AppState) -> Vec<Effect> {
-    let target = state.agent.connect.ssh.clone().unwrap_or_default();
-    state.overlay =
-        Some(Overlay::Connect(Connect { target: crate::input::LineInput::new(target), pick: CONNECT_CLOUD }));
+    let relay = crate::input::LineInput::new(state.agent.connect.relay.clone());
+    let target = crate::input::LineInput::new(state.agent.connect.ssh.clone().unwrap_or_default());
+    state.overlay = Some(Overlay::Connect(Connect { relay, target, pick: CONNECT_CLOUD }));
     if !state.settings.preferences.agent_cloud {
         state.agent.pairing = Some(Err(tr!(agent_cloud_off).into()));
         return Vec::new();
@@ -479,6 +485,14 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
             state.overlay = Some(Overlay::Connect(connect));
             return vec![Effect::ForgetComputers];
         }
+        // A relay typed in is saved, and borg cloud asks it for a pairing link.
+        KeyCode::Enter if connect.pick == CONNECT_CLOUD && connect.relay.text().trim() != state.agent.connect.relay => {
+            let relay = connect.relay.text().trim().to_owned();
+            state.agent.connect.relay = relay.clone();
+            state.agent.pairing = None;
+            state.overlay = Some(Overlay::Connect(connect));
+            return vec![Effect::SetRelay(relay)];
+        }
         KeyCode::Enter => {
             let [start, keep] = connect_commands(&state.agent.connect, connect.target.text().trim());
             let command = match connect.pick {
@@ -493,13 +507,24 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
             state.notice = Some(tr!(agent_connect_copied).into());
             return vec![Effect::Copy(command)];
         }
-        _ if state.agent.connect.ssh.is_some() => {
-            connect.target.apply(key);
+        _ => {
+            if let Some(input) = connect_field(&mut connect, state.agent.connect.ssh.is_some()) {
+                input.apply(key);
+            }
         }
-        _ => {}
     }
     state.overlay = Some(Overlay::Connect(connect));
     Vec::new()
+}
+
+/// The field the picked block of the Connect dialog edits: the relay for borg cloud, and the
+/// SSH target for the commands that go through SSH.
+pub(crate) fn connect_field(connect: &mut Connect, ssh: bool) -> Option<&mut crate::input::LineInput> {
+    match connect.pick {
+        CONNECT_CLOUD => Some(&mut connect.relay),
+        _ if ssh => Some(&mut connect.target),
+        _ => None,
+    }
 }
 
 /// The commands that connect Claude Code to this borg: one that starts Claude connected now,
@@ -577,6 +602,7 @@ mod tests {
             name: "borg-web1".into(),
             program: "/home/deploy/.local/bin/borg".into(),
             ssh: Some("deploy@10.0.3.17".into()),
+            relay: String::new(),
         };
         let [start, keep] = connect_commands(&info, "prod");
         assert_eq!(
@@ -585,7 +611,8 @@ mod tests {
         );
         assert_eq!(keep, "claude mcp add borg-web1 -- ssh -o BatchMode=yes prod '/home/deploy/.local/bin/borg mcp'");
 
-        let local = ConnectInfo { name: "borg".into(), program: "/opt/my tools/borg".into(), ssh: None };
+        let local =
+            ConnectInfo { name: "borg".into(), program: "/opt/my tools/borg".into(), ssh: None, relay: String::new() };
         let [start, keep] = connect_commands(&local, "");
         assert_eq!(
             start,

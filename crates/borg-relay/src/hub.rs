@@ -71,6 +71,11 @@ pub struct Hub {
     addresses: HashMap<IpAddr, usize>,
     sessions: usize,
     generation: u64,
+    /// Since the relay started: sessions joined, bytes they carried, and connections or
+    /// sessions refused or ended by a limit.
+    joined: u64,
+    carried: u64,
+    limited: u64,
 }
 
 /// One connection counted against its address while it lasts.
@@ -97,12 +102,25 @@ impl Hub {
         let mut locked = hub.lock().expect("hub lock");
         let count = locked.addresses.entry(address).or_default();
         if *count >= PER_ADDRESS {
+            locked.limited += 1;
             drop(locked);
-            log!("limit: too many connections from {address}");
+            event!("limit: too many connections from {address}");
             return None;
         }
         *count += 1;
         Some(Admitted { hub: hub.clone(), address })
+    }
+
+    /// How busy the relay is, in counts only, given the `connections` it holds.
+    pub fn stats(&self, connections: usize) -> String {
+        format!(
+            "stats: connections={connections} servers={} sessions={} joined={} carried={:.1}MiB limited={}",
+            self.servers.len(),
+            self.sessions,
+            self.joined,
+            self.carried as f64 / (1024.0 * 1024.0),
+            self.limited
+        )
     }
 }
 
@@ -144,8 +162,10 @@ pub async fn handle(hub: Arc<Mutex<Hub>>, stream: Box<dyn Io>, address: IpAddr) 
 /// while it stays connected. A new registration for the same key replaces the old one.
 async fn listen(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey) {
     let full = {
-        let locked = hub.lock().expect("hub lock");
-        locked.servers.len() >= MAX_LISTENERS && !locked.servers.contains_key(&key)
+        let mut locked = hub.lock().expect("hub lock");
+        let full = locked.servers.len() >= MAX_LISTENERS && !locked.servers.contains_key(&key);
+        locked.limited += u64::from(full);
+        full
     };
     if full {
         log!("limit: too many servers registered");
@@ -158,7 +178,7 @@ async fn listen(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey) {
     let answer = tokio::time::timeout(PROOF_TIMEOUT, socket.next()).await;
     let Ok(Some(Ok(Message::Binary(answer)))) = answer else { return };
     if !verify(handshake, &answer) {
-        log!("server {}: proof refused", short(&key));
+        event!("server {}: proof refused", short(&key));
         return close(socket, u16::from(CloseCode::Policy), "proof refused").await;
     }
     let (notify, mut announced) = mpsc::channel(MAX_WAITING);
@@ -169,7 +189,7 @@ async fn listen(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey) {
         locked.servers.insert(key, Registered { generation, notify, waiting: 0 });
         generation
     };
-    log!("server {}: registered", short(&key));
+    event!("server {}: registered", short(&key));
     if socket.send(Message::Text(READY.into())).await.is_ok() {
         let mut ping = tokio::time::interval(PING_EVERY);
         let mut heard = Instant::now();
@@ -197,7 +217,7 @@ async fn listen(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey) {
         locked.servers.remove(&key);
     }
     drop(locked);
-    log!("server {}: gone", short(&key));
+    event!("server {}: gone", short(&key));
 }
 
 /// A client asks for the server with `key`: the relay announces it, waits for the server to
@@ -229,7 +249,8 @@ async fn connect(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey, addre
     };
     if let Some((code, reason)) = refused {
         if code == LIMITED {
-            log!("limit: {reason} for server {} from {address}", short(&key));
+            hub.lock().expect("hub lock").limited += 1;
+            event!("limit: {reason} for server {} from {address}", short(&key));
         }
         return close(socket, code, reason).await;
     }
@@ -244,17 +265,26 @@ async fn connect(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey, addre
         match taken {
             Ok(Ok(server_socket)) => {
                 locked.sessions += 1;
+                locked.joined += 1;
                 Some(server_socket)
             }
             _ => None,
         }
     };
     let Some(server_socket) = server_socket else { return close(socket, OFFLINE, "the server did not answer").await };
-    if socket.send(Message::Text(READY.into())).await.is_ok() {
-        let carried = forward(socket, server_socket).await;
-        log!("session for server {}: ended after {carried} bytes", short(&key));
+    let ended = if socket.send(Message::Text(READY.into())).await.is_ok() {
+        let (carried, (code, reason)) = forward(socket, server_socket).await;
+        event!("session for server {}: {reason} after {carried} bytes", short(&key));
+        Some((carried, code == LIMITED))
+    } else {
+        None
+    };
+    let mut locked = hub.lock().expect("hub lock");
+    locked.sessions -= 1;
+    if let Some((carried, limited)) = ended {
+        locked.carried += carried;
+        locked.limited += u64::from(limited);
     }
-    hub.lock().expect("hub lock").sessions -= 1;
 }
 
 /// A server takes the session `id` it was told of.
@@ -286,8 +316,8 @@ impl Bucket {
 }
 
 /// Forwards binary frames both ways until either side closes or a limit ends the session;
-/// returns how many bytes it carried.
-async fn forward(client: Socket, server: Socket) -> u64 {
+/// returns how many bytes it carried, and the close code and reason it ended with.
+async fn forward(client: Socket, server: Socket) -> (u64, (u16, &'static str)) {
     let (mut client_tx, mut client_rx) = client.split();
     let (mut server_tx, mut server_rx) = server.split();
     let mut bucket = Bucket { tokens: BURST, refilled: Instant::now() };
@@ -330,5 +360,5 @@ async fn forward(client: Socket, server: Socket) -> u64 {
         let frame = CloseFrame { code: CloseCode::from(code), reason: text.into() };
         let _ = tx.send(Message::Close(Some(frame))).await;
     }
-    carried
+    (carried, reason)
 }

@@ -59,8 +59,8 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
   nano, for you to check and run yourself.
 
 **Why the connection cannot be taken over.** Each borg holds its own key. Pairing exchanges
-the keys through a link that only your screen shows, and you confirm the computer's
-fingerprint in borg. Every connection then opens with a Noise handshake bound to those keys,
+the keys through a link that only your screen shows, and you confirm in borg that both
+screens show the same pairing code, six emoji with their names. Every connection then opens with a Noise handshake bound to those keys,
 and everything after it is encrypted from one borg to the other. The relay forwards bytes it
 cannot read. Whoever runs the relay, or breaks into it, can neither read nor change the
 traffic, nor answer in either borg's name: the private keys never leave the two machines.

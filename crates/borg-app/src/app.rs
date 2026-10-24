@@ -176,6 +176,7 @@ impl App {
         let agent = crate::agent::Agent::start(&launch.runtime_dir, messages.clone());
         state.agent.connect = crate::agent::connect_info();
         let relay = launch.config.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse);
+        state.agent.connect.relay = relay.as_ref().map(ToString::to_string).unwrap_or_default();
         let link = crate::link::LinkServer::new(
             launch.state_dir.as_ref().map(|dir| dir.path().to_path_buf()),
             relay,
@@ -586,13 +587,14 @@ impl App {
         }
         match call.tool.as_str() {
             crate::link::PAIR_CALL => {
-                let (name, fingerprint) = (text("name").unwrap_or_default(), text("fingerprint").unwrap_or_default());
-                let body = vec![
-                    DiffLine::plain(format!("Computer:    {name}")),
-                    DiffLine::plain(format!("Fingerprint: {fingerprint}")),
+                let name = text("name").unwrap_or_default();
+                let code = call.args["code"].as_array().cloned().unwrap_or_default();
+                let mut body = vec![DiffLine::plain(format!("Computer: {name}")), DiffLine::plain("")];
+                body.extend(code.iter().filter_map(|row| row.as_str()).map(|row| DiffLine::plain(format!("  {row}"))));
+                body.extend([
                     DiffLine::plain(""),
-                    DiffLine::plain("Pair only if `borg pair` shows this fingerprint on that computer."),
-                ];
+                    DiffLine::plain("Pair only if `borg pair` shows this code on that computer."),
+                ]);
                 let ask = Ask { kind: AskKind::Pair, summary: name.clone(), place: String::new(), body };
                 let id = self.agent.ask(reply, Work::Pair { name });
                 return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
@@ -1212,15 +1214,8 @@ impl App {
                 Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
                 Effect::UseConsole(console) => self.console = console,
                 Effect::Copy(text) => self.clipboard = Some(text),
-                Effect::StartPairing => {
-                    let pairing = if self.link.relay().is_none() {
-                        Err(tr!(agent_cloud_no_relay).to_owned())
-                    } else {
-                        self.link.pair().map_err(|error| format!("{error:#}"))
-                    };
-                    self.state.agent.pairing = Some(pairing);
-                    self.link.sync(self.state.settings.preferences.agent_cloud);
-                }
+                Effect::StartPairing => self.start_pairing(),
+                Effect::SetRelay(text) => self.set_relay(&text),
                 Effect::ForgetComputers => {
                     if let Err(error) = self.link.forget() {
                         self.state.notice = Some(format!("{error:#}"));
@@ -1304,6 +1299,39 @@ impl App {
             JobCommand::Cancel => control.cancel(),
             JobCommand::Answer(decision) => control.answer(decision),
         }
+    }
+
+    /// Makes a pairing link for the Connect dialog, or says why there is none.
+    fn start_pairing(&mut self) {
+        let pairing = if !self.state.settings.preferences.agent_cloud {
+            Err(tr!(agent_cloud_off).to_owned())
+        } else if self.link.relay().is_none() {
+            Err(tr!(agent_cloud_no_relay).to_owned())
+        } else {
+            self.link.pair().map_err(|error| format!("{error:#}"))
+        };
+        self.state.agent.pairing = Some(pairing);
+        self.link.sync(self.state.settings.preferences.agent_cloud);
+    }
+
+    /// Saves the relay typed into the Connect dialog, empty for none, in its full form, and
+    /// asks it for a pairing link.
+    fn set_relay(&mut self, text: &str) {
+        let relay = borg_link::Relay::parse(text);
+        if relay.is_none() && !text.is_empty() {
+            self.state.agent.connect.relay = self.link.relay().map(ToString::to_string).unwrap_or_default();
+            self.state.agent.pairing = Some(Err(tr!(agent_cloud_bad_relay).to_owned()));
+            return;
+        }
+        let saved = relay.as_ref().map(ToString::to_string);
+        self.state.agent.connect.relay = saved.clone().unwrap_or_default();
+        if let Some(borg_core::Overlay::Connect(connect)) = self.state.overlay.as_mut() {
+            connect.relay = borg_core::LineInput::new(self.state.agent.connect.relay.clone());
+        }
+        self.config.relay = saved;
+        self.save_config();
+        self.link.set_relay(relay);
+        self.start_pairing();
     }
 
     fn save_config(&self) {

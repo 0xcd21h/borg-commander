@@ -27,12 +27,19 @@ pub struct Channel {
     socket: Socket,
     noise: snow::TransportState,
     peer: PublicKey,
+    /// The hash of the whole handshake, the same at both ends.
+    handshake_hash: Vec<u8>,
 }
 
 impl Channel {
     /// The key of the borg at the other end, proven by the handshake.
     pub fn peer(&self) -> &PublicKey {
         &self.peer
+    }
+
+    /// The code both ends of this channel show while pairing.
+    pub fn pairing_code(&self) -> crate::PairingCode {
+        crate::PairingCode::of(&self.handshake_hash)
     }
 
     pub async fn send(&mut self, message: &[u8]) -> Result<()> {
@@ -101,8 +108,9 @@ pub async fn initiate(mut socket: Socket, identity: &Identity, server: &PublicKe
     socket.send(Message::Binary(buffer[..size].to_vec().into())).await?;
     let answer = next_binary(&mut socket).await?.context("the server closed the connection")?;
     handshake.read_message(&answer, &mut buffer).context("the server's answer failed to decrypt")?;
+    let handshake_hash = handshake.get_handshake_hash().to_vec();
     let noise = handshake.into_transport_mode()?;
-    Ok(Channel { socket, noise, peer: *server })
+    Ok(Channel { socket, noise, peer: *server, handshake_hash })
 }
 
 /// Answers a channel a client opened over a socket the relay joined: the channel, with the
@@ -119,6 +127,7 @@ pub async fn respond(mut socket: Socket, identity: &Identity) -> Result<(Channel
         .context("the client sent no key")?;
     let size = handshake.write_message(&[], &mut buffer)?;
     socket.send(Message::Binary(buffer[..size].to_vec().into())).await?;
+    let handshake_hash = handshake.get_handshake_hash().to_vec();
     let noise = handshake.into_transport_mode()?;
-    Ok((Channel { socket, noise, peer }, hello))
+    Ok((Channel { socket, noise, peer, handshake_hash }, hello))
 }

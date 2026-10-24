@@ -13,9 +13,10 @@ macro_rules! log {
     }};
 }
 
-const USAGE: &str = "usage: borg-relay --domain NAME [--email ADDRESS] [--cache DIR] [--listen ADDRESS] [--staging]
-       borg-relay --behind-proxy [--listen ADDRESS]
-       borg-relay --plain [--listen ADDRESS]
+const USAGE: &str =
+    "usage: borg-relay --domain NAME [--email ADDRESS] [--cache DIR] [--listen ADDRESS] [--staging] [--log]
+       borg-relay --behind-proxy [--listen ADDRESS] [--log]
+       borg-relay --plain [--listen ADDRESS] [--log]
        borg-relay --health [ADDRESS]
 
   --domain NAME     serve TLS for NAME, with a certificate from Let's Encrypt
@@ -26,8 +27,12 @@ const USAGE: &str = "usage: borg-relay --domain NAME [--email ADDRESS] [--cache 
   --behind-proxy    no TLS: a proxy in front adds it and reports each client's address
                     (X-Forwarded-For), which limits are counted by
   --plain           no TLS and no proxy, for tests on one machine
+  --log             log each server's registration, each session and each limit reached,
+                    with client addresses; also on when BORG_RELAY_LOG=1. Without it the
+                    relay logs counts only
   --health          ask the relay at ADDRESS (default 127.0.0.1:8080) whether it runs";
 const DEFAULT_CACHE: &str = "/var/lib/borg-relay";
+const LOG_VARIABLE: &str = "BORG_RELAY_LOG";
 const TLS_LISTEN: &str = "[::]:443";
 const PLAIN_LISTEN: &str = "127.0.0.1:8080";
 
@@ -39,6 +44,7 @@ struct Args {
     staging: bool,
     plain: bool,
     behind_proxy: bool,
+    log: bool,
 }
 
 fn args() -> Result<Args> {
@@ -50,6 +56,7 @@ fn args() -> Result<Args> {
         staging: false,
         plain: false,
         behind_proxy: false,
+        log: std::env::var(LOG_VARIABLE).is_ok_and(|value| !matches!(value.as_str(), "" | "0" | "false")),
     };
     let mut rest = std::env::args().skip(1);
     while let Some(arg) = rest.next() {
@@ -62,6 +69,7 @@ fn args() -> Result<Args> {
                 args.listen = Some(value("--listen")?.parse().context("--listen takes an address such as 0.0.0.0:443")?)
             }
             "--staging" => args.staging = true,
+            "--log" => args.log = true,
             "--plain" => args.plain = true,
             "--behind-proxy" => {
                 args.plain = true;
@@ -118,10 +126,12 @@ async fn serve(args: Args) -> Result<()> {
     };
     let bound = listener.local_addr().unwrap_or(address);
     log!(
-        "borg-relay {} listening on {bound}{}",
+        "borg-relay {} listening on {bound}{}{}",
         env!("CARGO_PKG_VERSION"),
-        if tls.is_some() { " with TLS" } else { "" }
+        if tls.is_some() { " with TLS" } else { "" },
+        if args.log { ", event log on" } else { "" }
     );
-    borg_relay::serve(listener, borg_relay::Options { tls, behind_proxy: args.behind_proxy }).await;
+    let options = borg_relay::Options { tls, behind_proxy: args.behind_proxy, log: args.log };
+    borg_relay::serve(listener, options).await;
     Ok(())
 }

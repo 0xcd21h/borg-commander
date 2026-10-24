@@ -295,7 +295,7 @@ on a server you reach over SSH. Nothing needs installing beside borg: the agent 
 `borg mcp` itself, through SSH for a server, and it connects to the borg session open there.
 The server needs no open port and no internet access.
 
-To connect, press F1 and then C (or F9 → Command → Connect Claude…). Borg shows two
+To connect, press F1 and then C (or F9 → Command → Remote access…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected
 to this borg, the other keeps the connection in Claude Code for every session. Tab picks one,
 Enter copies it to your computer's clipboard through the terminal, which works over SSH in
@@ -333,16 +333,22 @@ terminal, a container, a machine behind NAT. Both sides connect out to a relay, 
 joins them.
 
 1. In borg on the server, press F1 then C. The first choice is `borg pair` with a link; Enter
-   copies it. The link works once, for ten minutes.
-2. Run it in a terminal on your computer, where borg is installed too. It prints this
-   computer's fingerprint.
-3. Borg on the server asks whether to pair, showing the computer's name and fingerprint. Choose
-   Yes if they match. `borg pair` then offers to add the server to Claude Code, as
+   copies it. The link works once, for ten minutes. Under it is the relay: paste another
+   relay's address there and press Enter to save it and get a link through it.
+2. Run it in a terminal on your computer, where borg is installed too. It prints a pairing
+   code: six emoji, each with its name, such as `🐱 Cat · 🦁 Lion · 🐎 Horse`.
+3. Borg on the server asks whether to pair, showing the computer's name and the code. Choose
+   Yes if the codes match. `borg pair` then offers to add the server to Claude Code, as
    `claude mcp add borg-NAME -- borg mcp remote NAME`.
 
+The code comes from the encrypted handshake the two borgs just finished, so it is the same on
+both screens only when your computer is the one talking to the server. Someone who got hold
+of the link and used it first would show the server a different code, and cannot pick one
+that matches yours. Compare the names where a terminal draws no emoji.
+
 From then on, Claude reaches that borg whenever it is open there. `borg pair` alone lists the
-paired servers, and `borg pair --forget NAME` forgets one; on the server, F8 in the Connect
-dialog forgets every paired computer. Through borg cloud Claude also gets `download` and
+paired servers, and `borg pair --forget NAME` forgets one; on the server, F8 in the Remote
+access dialog forgets every paired computer. Through borg cloud Claude also gets `download` and
 `upload`, which copy files between the server and your computer; `borg get NAME:PATH [TO]` and
 `borg put FROM NAME:PATH` do the same from your terminal. Uploads wait for your approval in
 borg. Every approval names the computer that asked.
@@ -355,9 +361,11 @@ Options → Plugins → "ask before another computer reads" makes those reads wa
 too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
 none at all when borg cloud is off in Options → Plugins.
 
-The relay is set in the config, as `relay = "wss://relay.example.com"`.
+Borg saves the relay in the config, as `relay = "wss://relay.example.com"`. A computer
+reaches the server through the relay it paired through; after the server changes relay,
+pair the computer again.
 
-While an agent is connected, **◈ Claude** sits at the start of the shortcut row; click it
+While an agent is connected, **◈ Remote** sits at the start of the shortcut row; click it
 for the log of what it did: what it looked at, read, showed and typed, and every command
 and change, approved or declined. Borg keeps the log in memory only, until it exits; to
 keep no log at all, turn it off in Options → Plugins.
@@ -392,8 +400,20 @@ docker run -d --restart unless-stopped -p 443:443 -v borg-relay:/data ghcr.io/0x
 Behind another proxy that adds TLS, run `borg-relay --behind-proxy --listen 127.0.0.1:8080`;
 only use it behind a proxy, since the relay trusts the client address the proxy reports. The relay keeps limits per address, on servers and sessions, on
 frame size, bandwidth, bytes per session, idle time and session length. It stores nothing
-but its certificate, and logs the start of each server's key and the bytes each session
-carried.
+but its certificate.
+
+The relay logs counts only: once a minute, when they changed, a line such as
+
+```text
+stats: connections=3 servers=2 sessions=1 joined=14 carried=3.2MiB limited=0
+```
+
+with the connections it holds, the servers registered and the sessions open, and since it
+started, the sessions joined, the bytes they carried, and the connections and sessions a
+limit refused or ended. For debugging, `--log`, or the environment variable
+`BORG_RELAY_LOG=1` for the image, also logs each server's registration by the start of its
+key, each session with the bytes it carried, and each limit reached with the client's
+address.
 
 ## Find, jobs, and viewers
 

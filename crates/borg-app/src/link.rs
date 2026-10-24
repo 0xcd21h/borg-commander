@@ -19,7 +19,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use borg_core::{AgentEvent, Msg};
 use borg_link::{
-    Channel, Identity, PairingLink, PublicKey, Relay, SECRET_LEN, fingerprint, hex, initiate, relay, respond, unhex,
+    Channel, Identity, PairingCode, PairingLink, PublicKey, Relay, SECRET_LEN, fingerprint, hex, initiate, relay,
+    respond, unhex,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
@@ -175,6 +176,16 @@ impl LinkServer {
         self.relay.as_ref()
     }
 
+    /// Goes through `relay` from now on; the connection to the one before ends.
+    pub fn set_relay(&mut self, relay: Option<Relay>) {
+        if relay != self.relay {
+            self.relay = relay;
+            if let Some(task) = self.task.take() {
+                task.abort();
+            }
+        }
+    }
+
     pub fn computers(&self) -> Vec<String> {
         self.shared.lock().expect("link lock").computers.iter().map(|computer| computer.name.clone()).collect()
     }
@@ -300,7 +311,7 @@ impl Served {
     }
 
     /// A computer pairs: its secret must match the link this borg shows, and the user must
-    /// approve it here, by name and fingerprint.
+    /// approve it here, by name and the code both ends show.
     async fn pair(&self, mut channel: Channel, secret: &str, name: &str) -> Result<()> {
         let valid = {
             let mut shared = self.shared.lock().expect("link lock");
@@ -328,7 +339,7 @@ impl Served {
         let name = clean_name(name);
         let key = *channel.peer();
         let (reply, answer) = oneshot::channel();
-        let ask = Call::new(PAIR_CALL, json!({ "name": name, "fingerprint": fingerprint(&key) }));
+        let ask = Call::new(PAIR_CALL, json!({ "name": name, "code": channel.pairing_code().rows() }));
         self.calls.send((ask, reply)).context("borg closed")?;
         let approved = matches!(tokio::time::timeout(APPROVAL_WAIT, answer).await, Ok(Ok(reply)) if reply.ok);
         self.shared.lock().expect("link lock").pairing = None;
@@ -400,14 +411,14 @@ async fn refuse(channel: &mut Channel, error: &str) -> Result<()> {
 }
 
 /// The computer's side: pairs with the server a link names. The user approves it in borg on
-/// the server, comparing the fingerprint printed here; then the server is saved by name.
-pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&str)) -> Result<Server> {
+/// the server, comparing the code `shown` here; then the server is saved by name.
+pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&PairingCode)) -> Result<Server> {
     let link = PairingLink::parse(link).context("that is not a borg pairing link")?;
     let identity = identity(state)?;
     let socket = relay::dial(&link.relay, &link.server).await?;
     let hello = serde_json::to_vec(&Hello::Pair { secret: hex(&link.secret), name: this_computer() })?;
     let mut channel = initiate(socket, &identity, &link.server, &hello).await?;
-    shown(&fingerprint(identity.public()));
+    shown(&channel.pairing_code());
     let reply = tokio::time::timeout(APPROVAL_WAIT + Duration::from_secs(30), channel.recv())
         .await
         .context("no answer from borg on the server")??
@@ -589,9 +600,10 @@ pub async fn pair_command(args: &[String]) -> Result<()> {
         }
         [link] => {
             println!("Pairing through borg cloud…");
-            let server = pair(&state, link, |fingerprint| {
-                println!("This computer's fingerprint is {fingerprint}.");
-                println!("Approve it in borg on the server when it shows the same.");
+            let server = pair(&state, link, |code| {
+                let [first, second] = code.rows();
+                println!("The pairing code is\n\n  {first}\n  {second}\n");
+                println!("Approve this computer in borg on the server when it shows the same code.");
             })
             .await?;
             let program = crate::agent::program_path();

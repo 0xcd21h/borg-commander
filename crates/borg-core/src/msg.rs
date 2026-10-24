@@ -141,6 +141,8 @@ pub enum Effect {
     Copy(String),
     /// Makes a pairing link for borg cloud, for the Connect dialog.
     StartPairing,
+    /// Saves the relay borg cloud goes through, empty for none, and makes a pairing link there.
+    SetRelay(String),
     /// Forgets every computer paired through borg cloud, and ends their sessions.
     ForgetComputers,
     ExportMemory {

@@ -7,3 +7,6 @@ services:
     restart: unless-stopped
     expose:
       - "8080"
+    # For debugging: log each registration, session and limit reached, with client addresses.
+    # environment:
+    #   BORG_RELAY_LOG: "1"
