@@ -610,7 +610,7 @@ catalog! {
     agent_running => "Claude · {command}…",
     agent_chip => "◈ Claude",
     agent_log_plugin_label => "Claude — log what it does while Borg runs",
-    agent_cloud_plugin_label => "Claude — reachable from paired computers through borg cloud",
+    agent_cloud_plugin_label => "Claude — reachable through borg cloud",
     agent_ask_reads_plugin_label => "Claude — ask before another computer reads",
     agent_cloud_off => "Borg cloud is off; turn it on in Options → Plugins",
     agent_cloud_no_relay => "No relay is set: add relay = \"wss://…\" to the config",
