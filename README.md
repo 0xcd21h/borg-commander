@@ -40,6 +40,36 @@ root), adds it to your PATH if needed, and starts it. Update with `borg update`.
 [Controls, settings, and source installation →](docs/GUIDE.md) ·
 [Build, test, and contribute →](DEVELOPMENT.md)
 
+## Claude in any terminal
+
+Open borg on a server, in a container, or in a terminal in your browser, and Claude on your
+computer works there with you. Borg connects out to borg cloud, a relay, so the machine needs
+no open port, no SSH key and no public address. Firewalls and NAT stay as they are.
+
+- **Pair once.** F1 then C shows a link. Run `borg pair` with it on your computer and approve
+  the computer in borg. Claude Code then reaches that borg whenever it is open.
+- **Claude sees what you see.** The screen, both panels, the console and what is typed at the
+  prompt. It reads files, folders, processes and containers, and shows you files in a panel.
+- **You approve every change.** Commands, new files and edits wait in a dialog that shows the
+  whole command or the diff. Commands run in your console, where you watch them and answer
+  prompts such as sudo's.
+- **Files both ways.** `borg get` and `borg put`, or Claude's download and upload tools, copy
+  files between the server and your computer. Uploads wait for your approval.
+- **Help at the prompt.** Claude can type a command at your prompt, or a script into vim or
+  nano, for you to check and run yourself.
+
+**Why the connection cannot be taken over.** Each borg holds its own key. Pairing exchanges
+the keys through a link that only your screen shows, and you confirm the computer's
+fingerprint in borg. Every connection then opens with a Noise handshake bound to those keys,
+and everything after it is encrypted from one borg to the other. The relay forwards bytes it
+cannot read. Whoever runs the relay, or breaks into it, can neither read nor change the
+traffic, nor answer in either borg's name: the private keys never leave the two machines.
+
+**Fair use.** borg cloud is a free relay shared by everyone who uses borg. It carries borg's
+traffic only, within limits on bandwidth and connections, and it may change or stop without
+notice. Use it for machines you own or are allowed to work on. To keep the relay under your
+own control, [run your own](docs/GUIDE.md#running-a-relay).
+
 ## Files and a real shell
 
 Keep two folders side by side and type commands at the prompt below. Borg runs your

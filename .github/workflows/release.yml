@@ -42,7 +42,7 @@ jobs:
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
-        run: cargo zigbuild --release --locked -p borg-app --target ${{ matrix.target }}
+        run: cargo zigbuild --release --locked -p borg-app -p borg-relay --target ${{ matrix.target }}
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
@@ -51,6 +51,11 @@ jobs:
       - name: Package
         shell: bash
         run: scripts/package.sh "${GITHUB_REF_NAME#v}" "${{ matrix.target }}" dist
+
+      - name: Package the relay (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: scripts/package-relay.sh "${GITHUB_REF_NAME#v}" "${{ matrix.target }}" dist
 
       - uses: actions/upload-artifact@v4
         with:
