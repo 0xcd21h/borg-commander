@@ -25,6 +25,7 @@ mod panel;
 mod pattern;
 mod plugins;
 mod pointer;
+mod remote;
 mod results;
 mod settings;
 mod state;
@@ -58,7 +59,7 @@ pub use layout::{Chrome, EVEN_SPLIT, Layout};
 pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items};
 pub use motion::{EMPTY_ART_WINDOW, Pace, PanelMotion};
 pub use msg::{Effect, Msg};
-pub use panel::{Listing, ListingMode, Panel, Row, Seek, Sort, SortKey, order};
+pub use panel::{Listing, ListingMode, Panel, RemoteMount, Row, Seek, Sort, SortKey, order};
 pub use pattern::{Pattern, PatternError};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
@@ -72,6 +73,8 @@ pub use state::{
 pub use update::update;
 pub use viewer::{Content, Image, Viewer, viewer_size};
 
+pub use remote::{RemoteBrowser, RemoteChoice, RemoteHostInfo, RemoteHostNames, RemoteNames};
+pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
     COLLECTION_LIMIT, Collection, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results, SearchProgress,
     SearchRequest, selected_paths,

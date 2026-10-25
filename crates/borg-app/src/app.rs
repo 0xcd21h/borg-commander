@@ -19,8 +19,8 @@ use borg_ui::{Palette, Pixels, Rgb, Scene, ThemeSet, draw, local_now, mouse_inpu
 use borg_vfs::{Backend, Local};
 use crossterm::{
     event::{
-        DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind, MouseButton, MouseEvent,
-        MouseEventKind,
+        DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event, EventStream, KeyEventKind, MouseButton,
+        MouseEvent, MouseEventKind,
     },
     execute, queue,
     terminal::{
@@ -91,6 +91,10 @@ pub struct App {
     messages: UnboundedSender<Msg>,
     inbox: UnboundedReceiver<Msg>,
     listings: [Option<JoinHandle<()>>; 2],
+    remote_listings: crate::remote_fs::Listings,
+    remote_catalog: Option<JoinHandle<()>>,
+    remote_consoles: crate::remote_console::Clients,
+    console_server: crate::remote_console::Server,
     palette: Palette,
     themes: ThemeSet,
     config_dir: Option<ConfigDir>,
@@ -128,7 +132,10 @@ pub struct App {
     /// Files another computer may download in pieces without asking again, by computer
     /// and path, once the user approved the first piece.
     downloads: std::collections::HashSet<(String, String)>,
+    approve_all: std::collections::HashSet<String>,
     runtime_dir: PathBuf,
+    mirror_target: Option<(String, String)>,
+    cloud_suppressed: bool,
 }
 
 enum Flow {
@@ -147,9 +154,30 @@ impl App {
         let grid = GridSize::console(size.width, size.height);
         let now = Instant::now();
         let appearance = appearance(launch);
-        let (mut state, pending) =
+        let (mut state, mut pending) =
             AppState::new(launch.startup.clone(), size.width, size.height, launch.settings.clone(), appearance, now);
-        state.notice = launch.warnings.first().cloned();
+        if let Some(dir) = StateDir::locate() {
+            state.remote_identities =
+                crate::link::servers(dir.path()).into_iter().map(|server| (server.name, server.key)).collect();
+            match crate::remote_names::load(dir.path()) {
+                Ok(names) => state.remote_names = names,
+                Err(error) => state.notice = Some(format!(tr!(remote_names_error), error = error)),
+            }
+        }
+        if let Some(target) = &launch.remote {
+            pending.retain(|effect| !matches!(effect, Effect::List { side: Side::Left, .. }));
+            pending.extend(update(
+                &mut state,
+                Msg::MountRemote {
+                    side: Side::Left,
+                    machine: target.machine.clone(),
+                    session: target.session.clone(),
+                    name: target.name.clone(),
+                },
+                now,
+            ));
+        }
+        state.notice = launch.warnings.first().cloned().or(state.notice.take());
         // The glitch intro plays only where animations do: not over SSH or without truecolor.
         if state.settings.motion == borg_core::Motion::LOCAL {
             state.intro = Some(now);
@@ -182,12 +210,14 @@ impl App {
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
-        let agent = crate::agent::Agent::start(&launch.runtime_dir, messages.clone());
+        let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         state.agent.connect = crate::agent::connect_info();
         let relay = launch.config.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse);
         state.agent.connect.relay = relay.as_ref().map(ToString::to_string).unwrap_or_default();
         let link = crate::link::LinkServer::new(
             launch.state_dir.as_ref().map(|dir| dir.path().to_path_buf()),
+            launch.runtime_dir.clone(),
+            launch.session_id.clone(),
             relay,
             agent.requeue_sender(),
             messages.clone(),
@@ -213,6 +243,10 @@ impl App {
             messages,
             inbox,
             listings: [None, None],
+            remote_listings: crate::remote_fs::Listings::default(),
+            remote_catalog: None,
+            remote_consoles: crate::remote_console::Clients::new(),
+            console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),
             palette: palette(&detected.colors),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
@@ -236,7 +270,10 @@ impl App {
             link,
             uploads: HashMap::new(),
             downloads: std::collections::HashSet::new(),
+            approve_all: std::collections::HashSet::new(),
             runtime_dir: launch.runtime_dir.clone(),
+            mirror_target: None,
+            cloud_suppressed: launch.remote.is_some() || std::env::var_os("BORG_SERVICE_CHILD").is_some(),
             host_capture: None,
             clipboard: None,
             plain: None,
@@ -291,6 +328,7 @@ impl App {
                     None => Flow::Quit,
                 },
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
+                Some((key, event)) = self.remote_consoles.incoming.recv() => self.on_remote_console(key, event)?,
                 Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
                 Some((call, reply)) = self.agent.incoming.recv() => self.on_agent(call, reply)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
@@ -301,6 +339,17 @@ impl App {
 
             if let Flow::Quit = flow {
                 return Ok(());
+            }
+            if let Some((machine, session)) = self.mirror_target.take() {
+                ratatui::restore();
+                let mirrored =
+                    crate::mirror::command_with_input(&format!("{machine}:{session}"), false, &mut input).await;
+                *terminal = ratatui::init();
+                execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
+                terminal.clear()?;
+                if let Err(error) = mirrored {
+                    self.state.notice = Some(format!("Remote mirror: {error:#}"));
+                }
             }
             dirty = true;
         }
@@ -395,6 +444,10 @@ impl App {
             screen: match &self.console {
                 borg_core::Console::Container(id) => self.shells.screen(id).unwrap_or_else(|| self.emulator.screen()),
                 borg_core::Console::Host => self.emulator.screen(),
+                borg_core::Console::Remote { machine, session } => self
+                    .remote_consoles
+                    .screen(&(machine.clone(), session.clone()))
+                    .unwrap_or_else(|| self.emulator.screen()),
             },
             docker_shell: self.state.docker.visible_shell().and_then(|shell| self.shells.screen(&shell.container)),
             palette: &self.palette,
@@ -431,7 +484,7 @@ impl App {
 
     /// The terminal and process of the console: the host's shell, or the container shell
     /// whose panel is active.
-    fn console(&mut self) -> (&mut Emulator, &mut Pty) {
+    fn local_console(&mut self) -> (&mut Emulator, &mut Pty) {
         if let borg_core::Console::Container(id) = &self.console
             && self.shells.screen(id).is_some()
         {
@@ -441,6 +494,59 @@ impl App {
             }
         }
         (&mut self.emulator, &mut self.pty)
+    }
+
+    fn console_emulator(&mut self) -> &mut Emulator {
+        if let borg_core::Console::Remote { machine, session } = &self.console {
+            return self
+                .remote_consoles
+                .emulator(&(machine.clone(), session.clone()))
+                .expect("remote console emulator");
+        }
+        self.local_console().0
+    }
+
+    fn write_console(&mut self, bytes: Vec<u8>) -> Result<()> {
+        if let borg_core::Console::Remote { machine, session } = &self.console {
+            if let Err(error) = self.remote_consoles.write(&(machine.clone(), session.clone()), bytes) {
+                self.state.notice = Some(format!(tr!(remote_console_error), machine = machine, error = error));
+            }
+        } else {
+            let (emulator, pty) = self.local_console();
+            emulator.scroll(Scroll::Bottom);
+            pty.write(&bytes)?;
+        }
+        Ok(())
+    }
+
+    fn on_remote_console(&mut self, key: (String, String), event: crate::remote_console::Event) -> Result<Flow> {
+        match event {
+            crate::remote_console::Event::Output { bytes, foreground, raw_input } => {
+                let echoed = !bytes.is_empty();
+                self.remote_consoles.set_input_mode(&key, foreground, raw_input);
+                let Some(emulator) = self.remote_consoles.emulator(&key) else { return Ok(Flow::Continue) };
+                let signals = emulator.feed(&bytes);
+                let replies = emulator.drain_replies();
+                for reply in replies {
+                    let _ = self.remote_consoles.write(&key, reply.into_bytes());
+                }
+                let emulator = self.remote_consoles.emulator(&key).expect("remote console emulator");
+                let view = ShellView {
+                    prompt: emulator.prompt_state(),
+                    command_rows: emulator.command_rows(),
+                    foreground,
+                    raw_input,
+                    mode: emulator.mode(),
+                };
+                self.dispatch(Msg::RemoteConsoleOutput { echoed, machine: key.0, session: key.1, view, signals })
+            }
+            crate::remote_console::Event::Closed(error) => {
+                let error = format!(tr!(remote_console_error), machine = key.0, error = error);
+                self.dispatch(Msg::RemoteConsoleClosed { machine: key.0.clone(), session: key.1.clone(), error })?;
+                self.remote_consoles.close(&key);
+                Ok(Flow::Continue)
+            }
+        }
     }
 
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
@@ -500,13 +606,13 @@ impl App {
         }
         if self.state.effective_view() == View::Shell && self.state.overlay.is_none() {
             let captured = self.state.shell.captured();
-            let (emulator, pty) = self.console();
+            let emulator = self.console_emulator();
             if event.row >= emulator.screen().rows() {
                 return Ok(Flow::Continue);
             }
             if captured {
                 if let Some(bytes) = encode_mouse(event, emulator.mode()) {
-                    pty.write(&bytes)?;
+                    self.write_console(bytes)?;
                 }
             } else {
                 let scroll = match event.kind {
@@ -610,7 +716,7 @@ impl App {
         if let Some(origin) = call.origin.clone()
             && !call.approved
             && self.state.settings.preferences.agent_ask_reads
-            && matches!(call.tool.as_str(), "screen" | "read" | "get")
+            && matches!(call.tool.as_str(), "screen" | "read" | "get" | "fs_list")
             && !(call.tool == "get" && self.downloads.contains(&(origin.clone(), text("path").unwrap_or_default())))
         {
             let summary = match call.tool.as_str() {
@@ -625,6 +731,65 @@ impl App {
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
         }
         match call.tool.as_str() {
+            tool if tool.starts_with("console_") => self.console_server.handle(call, reply),
+            "fs_list" => {
+                let Some(path) = text("path").map(PathBuf::from).filter(|path| path.is_absolute()) else {
+                    return fail(reply, "fs_list needs an absolute path".into());
+                };
+                let offset = call.args["offset"].as_u64().unwrap_or(0).min(usize::MAX as u64) as usize;
+                let streaming = call.args["stream"] == true;
+                let cursor = text("cursor");
+                let owner = call.origin.clone();
+                let limit = call.args["limit"].as_u64().unwrap_or(128).min(1024) as usize;
+                let listings = self.remote_listings.clone();
+                tokio::task::spawn_blocking(move || {
+                    if streaming {
+                        let answer = match listings.page(path, owner, cursor, limit) {
+                            Ok(page) => Reply::ok(serde_json::to_string(&page).expect("directory page")),
+                            Err(error) => Reply::error(error.to_string()),
+                        };
+                        drop(reply.send(answer));
+                        return;
+                    }
+                    let answer = match crate::remote_fs::legacy_page(&path, offset) {
+                        Ok(page) => Reply::ok(serde_json::to_string(&page).expect("directory page")),
+                        Err(error) => Reply::error(format!("{}: {error}", path.display())),
+                    };
+                    drop(reply.send(answer));
+                });
+            }
+            "approval_mode" => {
+                let Some(origin) = call.origin.clone() else {
+                    return fail(reply, "Approve all applies only to a paired computer".into());
+                };
+                let Some(enabled) = call.args["enabled"].as_bool() else {
+                    return fail(reply, "approval_mode needs enabled: true or false".into());
+                };
+                if !enabled {
+                    self.approve_all.remove(&origin);
+                    self.state.agent.auto_approve.retain(|name| name != &origin);
+                    self.agent.note(&format!("Approve all off for {origin}"));
+                    drop(reply.send(Reply::ok(format!("Approve all off for {origin}"))));
+                    return Ok(Flow::Continue);
+                }
+                if self.approve_all.contains(&origin) {
+                    drop(reply.send(Reply::ok(format!("Approve all is already on for {origin}"))));
+                    return Ok(Flow::Continue);
+                }
+                let ask = Ask {
+                    kind: AskKind::ApprovalMode,
+                    summary: origin.clone(),
+                    place: format!("session: {}", self.state.agent.connect.name),
+                    body: vec![
+                        DiffLine::plain(format!(
+                            "Allow {origin} to run commands and change files without individual prompts?"
+                        )),
+                        DiffLine::plain("Pairing and trust changes still ask. This ends when its connection closes."),
+                    ],
+                };
+                let id = self.agent.ask(reply, Work::ApprovalMode { origin });
+                return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+            }
             crate::link::PAIR_CALL => {
                 let name = text("name").unwrap_or_default();
                 // Emoji only where the terminal draws them as wide as they are laid out.
@@ -659,7 +824,7 @@ impl App {
             "put" => return self.put(call, reply),
             "screen" => {
                 self.agent.note("looked at the screen");
-                let (emulator, _) = self.console();
+                let emulator = self.console_emulator();
                 let console =
                     agent::ConsoleText { lines: emulator.screen().live_text(), typed: emulator.command_line() };
                 drop(reply.send(Reply::ok(agent::screen(&self.state, &self.screen_text(), &console))));
@@ -800,6 +965,9 @@ impl App {
                 let place = from_origin(place, call.origin.as_deref());
                 let ask = Ask { kind, summary, place, body };
                 let id = self.agent.ask(reply, Work::Write { spot, before, after });
+                if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
+                    return self.agent_answer(id, true);
+                }
                 return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
             }
             "run" => {
@@ -853,6 +1021,9 @@ impl App {
                     body: command.lines().map(DiffLine::plain).collect(),
                 };
                 let id = self.agent.ask(reply, Work::Run { command, target });
+                if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
+                    return self.agent_answer(id, true);
+                }
                 return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
             }
             "type" => {
@@ -905,6 +1076,9 @@ impl App {
             let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(shown)];
             let ask = Ask { kind: AskKind::Upload, summary: spot.uri(), place, body };
             let id = self.agent.ask(reply, Work::Upload { spot, size });
+            if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
+                return self.agent_answer(id, true);
+            }
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
         };
         let Some(upload) = self.uploads.get_mut(&token) else {
@@ -1018,6 +1192,13 @@ impl App {
                 drop(reply.send(crate::agent::Reply::ok("approved")));
                 return Ok(Flow::Continue);
             }
+            Work::ApprovalMode { origin } => {
+                self.approve_all.insert(origin.clone());
+                self.state.agent.auto_approve.push(origin.clone());
+                self.agent.note(&format!("Approve all on for {origin}"));
+                drop(reply.send(crate::agent::Reply::ok(format!("Approve all on for {origin}"))));
+                return Ok(Flow::Continue);
+            }
             Work::Forward(mut call) => {
                 if call.tool == "get"
                     && let (Some(origin), Some(path)) = (call.origin.clone(), call.args["path"].as_str())
@@ -1119,6 +1300,7 @@ impl App {
     /// Keeps container shells the size they show at: the Docker view's panel, or the whole
     /// screen while one is the console.
     fn fit_container_shell(&mut self) {
+        self.remote_consoles.fit(GridSize::console(self.state.cols, self.state.rows));
         if let borg_core::Console::Container(id) = &self.console {
             let id = id.clone();
             self.shells.fit(&id, GridSize::console(self.state.cols, self.state.rows));
@@ -1133,11 +1315,18 @@ impl App {
     }
 
     fn observe(&mut self, message: fn(ShellView) -> Msg) -> Result<Flow> {
-        let (emulator, pty) = self.console();
+        let (foreground, raw_input) = if let borg_core::Console::Remote { machine, session } = &self.console {
+            self.remote_consoles.input_mode(&(machine.clone(), session.clone()))
+        } else {
+            let pty = self.local_console().1;
+            (pty.foreground(), pty.raw_input())
+        };
+        let emulator = self.console_emulator();
         let view = ShellView {
             prompt: emulator.prompt_state(),
             command_rows: emulator.command_rows(),
-            foreground: pty.foreground(),
+            foreground,
+            raw_input,
             mode: emulator.mode(),
         };
         self.dispatch(message(view))
@@ -1169,7 +1358,7 @@ impl App {
         let flow = self.apply(effects)?;
         self.fit_container_shell();
         self.settle_reveals();
-        self.link.sync(self.state.settings.preferences.agent_cloud);
+        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_suppressed);
         Ok(flow)
     }
 
@@ -1240,11 +1429,7 @@ impl App {
                         let _ = messages.send(Msg::GitFinished { id, result });
                     });
                 }
-                Effect::Write(bytes) => {
-                    let (emulator, pty) = self.console();
-                    emulator.scroll(Scroll::Bottom);
-                    pty.write(&bytes)?;
-                }
+                Effect::Write(bytes) => self.write_console(bytes)?,
                 Effect::ChangeShellDir { dir, typed } => {
                     self.emulator.scroll(Scroll::Bottom);
                     match borg_term::request_cd(&self.cd_request, &dir) {
@@ -1252,8 +1437,61 @@ impl App {
                         Err(_) => self.pty.write(&typed)?,
                     }
                 }
-                Effect::ScrollConsole(scroll) => self.console().0.scroll(scroll),
-                Effect::UseConsole(console) => self.console = console,
+                Effect::ScrollConsole(scroll) => self.console_emulator().scroll(scroll),
+                Effect::UseConsole(console) => {
+                    if let borg_core::Console::Remote { machine, session } = &console {
+                        self.remote_consoles.open(
+                            (machine.clone(), session.clone()),
+                            self.state.active_panel().destination().into(),
+                            GridSize::console(self.state.cols, self.state.rows),
+                            self.state.settings.scrollback,
+                        );
+                    }
+                    self.console = console;
+                }
+                Effect::MirrorRemote { machine, session } => self.mirror_target = Some((machine, session)),
+                Effect::SaveRemoteName { identity, session, name } => {
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = StateDir::locate()
+                            .context("Borg has no state folder")
+                            .and_then(|state| {
+                                crate::remote_names::rename(state.path(), &identity, session.as_deref(), &name)
+                            })
+                            .map_err(|error| format!(tr!(remote_names_error), error = error));
+                        let _ = messages.send(Msg::RemoteNames(result));
+                    });
+                }
+                Effect::OpenRemotes => {
+                    let messages = self.messages.clone();
+                    if let Some(previous) = self.remote_catalog.take() {
+                        previous.abort();
+                    }
+                    self.remote_catalog = Some(tokio::spawn(async move {
+                        if let Some(dir) = StateDir::locate() {
+                            let names = crate::remote_names::load(dir.path())
+                                .map_err(|error| format!(tr!(remote_names_error), error = error));
+                            let _ = messages.send(Msg::RemoteNames(names));
+                        }
+                        crate::remote::catalog(|choices, complete| {
+                            let _ = messages.send(Msg::RemoteCatalog { choices, complete });
+                        })
+                        .await;
+                    }));
+                }
+                Effect::MountRemote { side, machine, session, name } => {
+                    let effects =
+                        update(&mut self.state, Msg::MountRemote { side, machine, session, name }, Instant::now());
+                    if let Flow::Quit = self.apply(effects)? {
+                        return Ok(Flow::Quit);
+                    }
+                }
+                Effect::ApprovalModeOff => {
+                    self.approve_all.clear();
+                    self.state.agent.auto_approve.clear();
+                    self.state.notice = Some("Approve all is off for this session.".into());
+                    self.agent.note("Approve all turned off locally");
+                }
                 Effect::Copy(text) => self.clipboard = Some(text),
                 Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
                 Effect::StartPairing => self.start_pairing(),
@@ -1269,6 +1507,7 @@ impl App {
                     }
                 }
                 Effect::View(path) => self.open_viewer(path),
+                Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
                 Effect::StartDockerCopy { id, container, inbound, sources, target } => {
@@ -1345,7 +1584,9 @@ impl App {
 
     /// Makes a pairing link for the Connect dialog, or says why there is none.
     fn start_pairing(&mut self) {
-        let pairing = if !self.state.settings.preferences.agent_cloud {
+        let pairing = if self.cloud_suppressed {
+            Err("The background service or viewer owns no pairing connection; use borg service pair.".into())
+        } else if !self.state.settings.preferences.agent_cloud {
             Err(tr!(agent_cloud_off).to_owned())
         } else if self.link.relay().is_none() {
             Err(tr!(agent_cloud_no_relay).to_owned())
@@ -1353,7 +1594,7 @@ impl App {
             self.link.pair().map_err(|error| format!("{error:#}"))
         };
         self.state.agent.pairing = Some(pairing);
-        self.link.sync(self.state.settings.preferences.agent_cloud);
+        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_suppressed);
     }
 
     /// Saves the relay typed into the Connect dialog, empty for none, in its full form, and
@@ -1404,6 +1645,53 @@ impl App {
         });
     }
 
+    fn open_remote_viewer(&self, machine: String, session: String, path: PathBuf) {
+        let (width, height) = viewer_size(self.state.cols, self.state.rows);
+        let cell = self.graphics.capabilities().cell;
+        let state = self.state_dir.clone();
+        let scratch = self.runtime_dir.join("remote-preview");
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let opened: Result<borg_core::Content> = async {
+                let state = state.context("Borg has no state folder for paired servers")?;
+                let server = crate::link::server(state.path(), &machine)?;
+                let mut remote = crate::link::Remote::open(state.path(), &server).await?;
+                std::fs::create_dir_all(&scratch)?;
+                let suffix = path
+                    .extension()
+                    .and_then(|part| part.to_str())
+                    .filter(|part| part.len() <= 16 && part.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+                    .map_or(String::new(), |part| format!(".{part}"));
+                let temporary =
+                    tempfile::Builder::new().prefix("view-").suffix(&suffix).tempfile_in(&scratch)?.into_temp_path();
+                crate::link::download_in_session(
+                    &mut remote,
+                    Some(&session),
+                    &path.to_string_lossy(),
+                    &temporary,
+                    |_, _| {},
+                )
+                .await?;
+                let local = temporary.to_path_buf();
+                let content = tokio::task::spawn_blocking(move || {
+                    crate::document::open(
+                        &local,
+                        (width, height),
+                        (cell.width, cell.height),
+                        Arc::new(AtomicBool::new(false)),
+                    )
+                })
+                .await??;
+                Ok(content)
+            }
+            .await;
+            let msg = opened
+                .map(|content| Msg::Opened(Viewer { path: path.clone(), content }))
+                .unwrap_or_else(|error| Msg::Notice(format!("{} on {}: {error:#}", path.display(), machine)));
+            let _ = messages.send(msg);
+        });
+    }
+
     fn peek(&mut self, aside: Aside, path: PathBuf, size: (usize, usize)) {
         let cell = self.graphics.capabilities().cell;
         self.preview.request(aside, path, size, (cell.width, cell.height));
@@ -1411,13 +1699,15 @@ impl App {
 
     fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
         let mount = self.state.panel(side).mount.clone();
-        let mut batches = match &mount {
-            Some(mount) => crate::docker::listing(mount.id.clone(), dir.clone()),
-            None => self.backend.list(&dir),
+        let remote = self.state.panel(side).remote_mount.clone();
+        let mut batches = match (&mount, &remote) {
+            (_, Some(remote)) => crate::remote::listing(remote.machine.clone(), remote.session.clone(), dir.clone()),
+            (Some(mount), None) => crate::docker::listing(mount.id.clone(), dir.clone()),
+            (None, None) => self.backend.list(&dir),
         };
         let messages = self.messages.clone();
         // Measured folder sizes belong to this machine, not to a container.
-        let cache = mount.is_none().then(|| self.search.cache.clone());
+        let cache = (mount.is_none() && remote.is_none()).then(|| self.search.cache.clone());
         let task = tokio::spawn(async move {
             let observed_dir = dir.clone();
             let totals = match cache {

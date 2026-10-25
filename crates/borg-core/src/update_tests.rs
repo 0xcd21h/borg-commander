@@ -21,8 +21,149 @@ fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
+#[test]
+fn remote_mount_stays_distinct_from_local_paths_and_blocks_local_changes() {
+    let (mut state, now) = setup();
+    let local = state.panel(Side::Left).dir().to_path_buf();
+    let other = state.panel(Side::Right).dir().to_path_buf();
+    let effects = crate::mount_remote(&mut state, Side::Left, "prod".into(), "remote-id".into(), "Deploy".into());
+    assert!(matches!(&effects[..], [Effect::List { side: Side::Left, dir, .. }] if dir == Path::new("/")));
+    assert_eq!(state.panel(Side::Left).destination(), Path::new("/"));
+    assert_eq!(state.panel(Side::Right).dir(), other);
+    assert!(!state.console_owns_panel());
+    assert_eq!(
+        crate::actions::perform(&mut state, Action::MirrorRemote, now),
+        vec![Effect::MirrorRemote { machine: "prod".into(), session: "remote-id".into() }]
+    );
+    let Effect::List { generation, .. } = effects[0] else { panic!("remote list effect") };
+    update(&mut state, Msg::Batch { side: Side::Left, generation, entries: vec![file("readme.md")] }, now);
+    update(&mut state, Msg::Listed { side: Side::Left, generation, error: None }, now);
+    state.panel_mut(Side::Left).move_by(1);
+    assert_eq!(state.panel(Side::Left).entries().len(), 1);
+    assert!(state.panel(Side::Left).hovered_entry().is_some(), "remote file should be selected");
+    assert_eq!(
+        crate::actions::perform(&mut state, Action::View, now),
+        vec![Effect::RemoteView {
+            machine: "prod".into(),
+            session: "remote-id".into(),
+            path: PathBuf::from("/readme.md")
+        }]
+    );
+    assert!(crate::actions::perform(&mut state, Action::Delete, now).is_empty());
+    assert!(state.notice.as_deref().unwrap_or_default().contains("read-only"));
+    let effect = crate::unmount_remote(&mut state, Side::Left).unwrap();
+    assert!(matches!(effect, Effect::List { side: Side::Left, dir, .. } if dir == local));
+}
+
+#[test]
+fn remote_browser_opens_switches_and_mirrors_named_sessions() {
+    let (mut state, now) = setup();
+    assert_eq!(
+        crate::keymap::lookup(
+            &KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT),
+            crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false },
+        ),
+        Some(Action::BrowseRemotes)
+    );
+    assert_eq!(
+        crate::keymap::lookup(
+            &KeyEvent::new(KeyCode::Char('R'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false },
+        ),
+        Some(Action::BackResults)
+    );
+    assert_eq!(
+        crate::keymap::lookup(
+            &KeyEvent::new(KeyCode::Char('M'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false },
+        ),
+        Some(Action::MirrorRemote)
+    );
+    let menu = &menus(&state)[3];
+    assert_eq!(menu.title, "Remote");
+    assert_eq!(menu.item(0).map(|item| item.action), Some(Action::BrowseRemotes));
+    assert_eq!(menu.item(1).map(|item| item.enabled), Some(false));
+    let host = state.panel(Side::Left).dir().to_path_buf();
+    state.settings.preferences.docker_console = false;
+    assert_eq!(
+        update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now),
+        vec![Effect::OpenRemotes]
+    );
+    assert!(matches!(state.overlay, Some(Overlay::Remotes(_))));
+    assert_eq!(state.overlay_fade.target(), 1.0, "the remote dialog must become visible");
+    let choices = vec![
+        crate::RemoteChoice {
+            machine: "first".into(),
+            session: Some("one".into()),
+            name: "Default".into(),
+            ..Default::default()
+        },
+        crate::RemoteChoice {
+            machine: "second".into(),
+            session: Some("two".into()),
+            name: "Work".into(),
+            ..Default::default()
+        },
+    ];
+    update(&mut state, Msg::RemoteCatalog { choices: choices.clone(), complete: true }, now);
+    assert!(
+        matches!(state.overlay, Some(Overlay::Remotes(ref browser)) if !browser.loading && browser.choices == choices)
+    );
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
+        vec![Effect::MountRemote {
+            side: Side::Left,
+            machine: "first".into(),
+            session: "one".into(),
+            name: "Default".into()
+        }]
+    );
+    crate::mount_remote(&mut state, Side::Left, "first".into(), "one".into(), "Default".into());
+    state.overlay = Some(Overlay::Remotes(crate::RemoteBrowser {
+        side: Side::Left,
+        choices: choices.clone(),
+        selected: 1,
+        loading: false,
+    }));
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
+        vec![Effect::MountRemote {
+            side: Side::Left,
+            machine: "second".into(),
+            session: "two".into(),
+            name: "Work".into()
+        }]
+    );
+    crate::mount_remote(&mut state, Side::Left, "second".into(), "two".into(), "Work".into());
+    assert_eq!(state.panel(Side::Left).remote_mount.as_ref().unwrap().host, host);
+    state.overlay =
+        Some(Overlay::Remotes(crate::RemoteBrowser { side: Side::Left, choices, selected: 1, loading: false }));
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),
+        vec![Effect::MirrorRemote { machine: "second".into(), session: "two".into() }]
+    );
+}
+
 fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+#[test]
+fn remote_navigation_shows_spinner_before_first_chunk_and_until_completion() {
+    let (mut state, now) = setup();
+    let effects = update(
+        &mut state,
+        Msg::MountRemote { side: Side::Left, machine: "server".into(), session: "id".into(), name: "Work".into() },
+        now,
+    );
+    let Effect::List { generation, .. } = effects[0] else { panic!("listing") };
+    let shown = now + crate::SPINNER_DELAY + std::time::Duration::from_millis(1);
+    update(&mut state, Msg::Tick, shown);
+    assert!(state.busy.shown_since(crate::Task::Listing(Side::Left), shown).is_some());
+    update(&mut state, Msg::Batch { side: Side::Left, generation, entries: vec![file("first")] }, shown);
+    assert!(state.busy.shown_since(crate::Task::Listing(Side::Left), shown).is_some());
+    update(&mut state, Msg::Listed { side: Side::Left, generation, error: None }, shown);
+    assert!(state.busy.since(crate::Task::Listing(Side::Left)).is_none());
 }
 
 fn shift(code: KeyCode) -> KeyEvent {
@@ -52,7 +193,13 @@ fn file(name: &str) -> Entry {
 }
 
 fn idle_prompt() -> ShellView {
-    ShellView { prompt: PromptState::Empty, command_rows: 1, foreground: Foreground::Shell, mode: TermMode::empty() }
+    ShellView {
+        prompt: PromptState::Empty,
+        command_rows: 1,
+        foreground: Foreground::Shell,
+        mode: TermMode::empty(),
+        raw_input: false,
+    }
 }
 
 fn text(viewer: &crate::Viewer) -> &borg_view::Pager {
@@ -1196,7 +1343,13 @@ fn screensaver_does_not_cover_a_running_program_or_spin_an_overdue_timer() {
     update(&mut state, Msg::Tick, due);
     assert!(!state.screensaver);
     assert!(state.wake_at().is_none());
-    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), due);
+    let effects = update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), due);
+    assert_eq!(state.wake_at(), Some(due + crate::SPINNER_DELAY));
+    for effect in effects {
+        if let Effect::List { side, generation, .. } = effect {
+            update(&mut state, Msg::Listed { side, generation, error: None }, due);
+        }
+    }
     assert_eq!(state.wake_at(), Some(due + state.settings.screensaver_after));
 }
 
@@ -1721,7 +1874,7 @@ fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
     type_text(&mut state, now, "ls");
     let effects = press(&mut state, now, key(KeyCode::Enter));
     assert!(effects.is_empty(), "Enter runs nothing on the host under a container's files");
-    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("This command line runs on the host")));
+    assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("This command line runs on the client")));
     assert!(!state.console_owns_panel() && state.view == View::Panels);
 
     crate::actions::perform(&mut state, Action::ToggleDockerConsole, now);
@@ -1937,4 +2090,284 @@ fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears
     let later = now + Duration::from_secs(5);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: ask("ls") }), later);
     assert_eq!(press(&mut state, later, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 2, approved: true }]);
+}
+
+#[test]
+fn remote_picker_mounts_the_panel_that_opened_it() {
+    let (mut state, now) = setup();
+    state.active = Side::Right;
+    let left = state.panel(Side::Left).dir().to_path_buf();
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![crate::RemoteChoice {
+                machine: "server".into(),
+                session: Some("id".into()),
+                name: "Work".into(),
+                ..Default::default()
+            }],
+            complete: true,
+        },
+        now,
+    );
+    state.active = Side::Left;
+    let effects = update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+    assert_eq!(
+        effects[0],
+        Effect::MountRemote { side: Side::Right, machine: "server".into(), session: "id".into(), name: "Work".into() }
+    );
+    update(
+        &mut state,
+        Msg::MountRemote { side: Side::Right, machine: "server".into(), session: "id".into(), name: "Work".into() },
+        now,
+    );
+    assert!(state.panel(Side::Right).remote_mount.is_some());
+    assert!(state.panel(Side::Left).remote_mount.is_none());
+    assert_eq!(state.panel(Side::Left).dir(), left);
+}
+
+#[test]
+fn follow_routes_commands_and_ctrl_o_to_the_remote_and_restores_local_shell() {
+    let (mut state, now) = setup();
+    let local = state.shell.cwd.clone();
+    let remote = crate::Console::Remote { machine: "server".into(), session: "id".into() };
+    let effects = update(
+        &mut state,
+        Msg::MountRemote { side: Side::Left, machine: "server".into(), session: "id".into(), name: "Work".into() },
+        now,
+    );
+    assert!(effects.contains(&Effect::UseConsole(remote.clone())));
+    assert_eq!(state.console, remote);
+    assert!(state.console_owns_panel());
+    update(&mut state, Msg::Key(key(KeyCode::Char('x'))), now);
+    let effects = update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+    assert!(effects.contains(&Effect::Write(b"\r".to_vec())));
+    assert_eq!(state.view, View::Shell);
+    assert_eq!(state.console, remote);
+    update(&mut state, Msg::Key(ctrl('o')), now);
+    assert_eq!(state.view, View::Panels);
+    update(&mut state, Msg::Key(key(KeyCode::Tab)), now);
+    assert_eq!(state.console, crate::Console::Host);
+    assert_eq!(state.shell.cwd, local);
+    update(&mut state, Msg::Key(key(KeyCode::Tab)), now);
+    assert_eq!(state.console, remote);
+    update(&mut state, Msg::Key(ctrl('o')), now);
+    assert_eq!(state.console, remote);
+    assert_eq!(state.view, View::Shell);
+    update(
+        &mut state,
+        Msg::RemoteConsoleClosed { machine: "server".into(), session: "id".into(), error: "disconnected".into() },
+        now,
+    );
+    assert_eq!(state.view, View::Panels);
+    assert_eq!(state.console, crate::Console::Host);
+    assert!(!state.console_owns_panel());
+    assert!(update(&mut state, Msg::Key(ctrl('o')), now).is_empty());
+    assert_eq!(state.view, View::Panels);
+    assert!(update(&mut state, Msg::Paste("echo wrong-machine\n".into()), now).is_empty());
+    assert!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now).iter().all(|effect| !matches!(effect, Effect::Write(_)))
+    );
+}
+
+#[test]
+fn failed_remote_console_keeps_its_error_while_typing_and_can_be_retried_from_alt_r() {
+    let (mut state, now) = setup();
+    let target =
+        || Msg::MountRemote { side: Side::Left, machine: "server".into(), session: "id".into(), name: "Work".into() };
+    update(&mut state, target(), now);
+    let error = "Host needs a new Borg binary";
+    update(
+        &mut state,
+        Msg::RemoteConsoleClosed { machine: "server".into(), session: "id".into(), error: error.into() },
+        now,
+    );
+    assert!(state.settings.preferences.docker_console);
+    for message in [Msg::Key(key(KeyCode::Char('a'))), Msg::Key(ctrl('o')), Msg::Paste("uname -a\n".into())] {
+        assert!(update(&mut state, message, now).is_empty());
+        assert_eq!(state.notice.as_deref(), Some(error));
+    }
+    let effects = update(&mut state, target(), now);
+    assert!(
+        effects
+            .contains(&Effect::UseConsole(crate::Console::Remote { machine: "server".into(), session: "id".into() }))
+    );
+    assert!(state.failed_remote_console.is_none());
+}
+
+#[test]
+fn raw_foreground_program_captures_keys_without_an_alternate_screen() {
+    let (mut state, now) = setup();
+    let captured = ShellView { foreground: Foreground::Program, raw_input: true, ..idle_prompt() };
+    update(&mut state, Msg::Observe(captured), now);
+    assert_eq!(state.effective_view(), View::Shell);
+    assert_eq!(writes(&press(&mut state, now, ctrl('o'))), "\u{f}");
+    assert_eq!(writes(&press(&mut state, now, key(KeyCode::F(1)))), "\u{1b}OP");
+    assert!(state.overlay.is_none());
+    update(&mut state, Msg::Observe(idle_prompt()), now);
+    assert_eq!(state.effective_view(), View::Panels);
+}
+
+#[test]
+fn remote_mode_updates_do_not_claim_that_pending_input_was_echoed() {
+    let (mut state, now) = setup();
+    update(
+        &mut state,
+        Msg::MountRemote { side: Side::Left, machine: "server".into(), session: "id".into(), name: "Work".into() },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    assert!(state.shell.unechoed);
+    update(
+        &mut state,
+        Msg::RemoteConsoleOutput {
+            echoed: false,
+            machine: "server".into(),
+            session: "id".into(),
+            view: idle_prompt(),
+            signals: Vec::new(),
+        },
+        now,
+    );
+    assert!(state.shell.unechoed);
+    assert!(!state.shell.line_empty());
+}
+
+#[test]
+fn remote_labels_rename_without_changing_connection_targets_and_preserve_the_picker() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    let choices = vec![crate::RemoteChoice {
+        identity: "public-key".into(),
+        machine: "server-id".into(),
+        session: Some("default".into()),
+        name: "Default".into(),
+        ..Default::default()
+    }];
+    update(&mut state, Msg::RemoteCatalog { choices: choices.clone(), complete: false }, now);
+    update(&mut state, Msg::Key(key(KeyCode::F(2))), now);
+    assert!(matches!(state.overlay, Some(Overlay::Prompt(ref p)) if p.title == "Rename host label"));
+    update(&mut state, Msg::Key(ctrl('u')), now);
+    update(&mut state, Msg::Paste("Production".into()), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
+        vec![Effect::SaveRemoteName { identity: "public-key".into(), session: None, name: "Production".into() }]
+    );
+    let mut names = crate::RemoteNames::default();
+    names.set("public-key", None, "Production").unwrap();
+    names.set("public-key", Some("default"), "Deploy").unwrap();
+    update(&mut state, Msg::RemoteNames(Ok(names)), now);
+    let Some(Overlay::Remotes(browser)) = &state.overlay else { panic!("picker") };
+    assert_eq!(browser.choices[0].host_name(), "Production");
+    assert_eq!(browser.choices[0].session_name(), "Deploy");
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
+        vec![Effect::MountRemote {
+            side: Side::Left,
+            machine: "server-id".into(),
+            session: "default".into(),
+            name: "Default".into()
+        }]
+    );
+    update(
+        &mut state,
+        Msg::MountRemote {
+            side: Side::Left,
+            machine: "server-id".into(),
+            session: "default".into(),
+            name: "Default".into(),
+        },
+        now,
+    );
+    assert_eq!(state.remote_host_name("server-id"), "Production");
+    assert_eq!(state.remote_session_name("server-id", "default", "Default"), "Deploy");
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(&mut state, Msg::RemoteCatalog { choices: choices.clone(), complete: false }, now);
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::F(2), KeyModifiers::SHIFT)), now);
+    update(&mut state, Msg::Key(ctrl('u')), now);
+    update(&mut state, Msg::RemoteCatalog { choices, complete: true }, now);
+    update(&mut state, Msg::Key(key(KeyCode::Esc)), now);
+    assert!(
+        matches!(state.overlay, Some(Overlay::Remotes(ref browser)) if !browser.loading && browser.choices[0].session_name() == "Deploy")
+    );
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::F(2), KeyModifiers::SHIFT)), now);
+    update(&mut state, Msg::Key(ctrl('u')), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
+        vec![Effect::SaveRemoteName {
+            identity: "public-key".into(),
+            session: Some("default".into()),
+            name: String::new()
+        }]
+    );
+}
+
+#[test]
+fn remote_labels_are_scoped_to_the_paired_key_and_validate_user_input() {
+    let mut names = crate::RemoteNames::default();
+    names.set("key-one", None, "Prødüction").unwrap();
+    names.set("key-one", Some("default"), "Deploy").unwrap();
+    let mut first = crate::RemoteChoice {
+        identity: "key-one".into(),
+        machine: "hostname".into(),
+        session: Some("default".into()),
+        name: "Default".into(),
+        ..Default::default()
+    };
+    names.apply(&mut first);
+    assert_eq!(first.host_name(), "Prødüction");
+    assert_eq!(first.session_name(), "Deploy");
+    let mut second = first.clone();
+    second.identity = "key-two".into();
+    names.apply(&mut second);
+    assert_eq!(second.host_name(), "hostname");
+    assert_eq!(second.session_name(), "Default");
+    assert!(names.set("key-one", None, "bad\nlabel").is_err());
+    assert!(names.set("key-one", None, &"x".repeat(41)).is_err());
+}
+
+#[test]
+fn a_catalog_refresh_cannot_redirect_an_open_rename_to_another_remote() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![crate::RemoteChoice {
+                identity: "first-key".into(),
+                machine: "first".into(),
+                session: Some("first-session".into()),
+                name: "Work".into(),
+                ..Default::default()
+            }],
+            complete: false,
+        },
+        now,
+    );
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::F(2), KeyModifiers::SHIFT)), now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![crate::RemoteChoice {
+                identity: "second-key".into(),
+                machine: "second".into(),
+                session: Some("second-session".into()),
+                name: "Default".into(),
+                ..Default::default()
+            }],
+            complete: true,
+        },
+        now,
+    );
+    update(&mut state, Msg::Key(ctrl('u')), now);
+    update(&mut state, Msg::Paste("Deploy".into()), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
+        vec![Effect::SaveRemoteName {
+            identity: "first-key".into(),
+            session: Some("first-session".into()),
+            name: "Deploy".into()
+        }]
+    );
 }

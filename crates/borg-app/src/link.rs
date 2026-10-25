@@ -181,6 +181,8 @@ struct Shared {
 /// The server's side: this borg reachable through the relay by the computers paired with it.
 pub struct LinkServer {
     state: Option<PathBuf>,
+    runtime_dir: PathBuf,
+    session_id: Option<String>,
     relay: Option<Relay>,
     identity: Option<Identity>,
     shared: Arc<Mutex<Shared>>,
@@ -189,6 +191,7 @@ pub struct LinkServer {
     claimed: Option<std::fs::File>,
     /// Whether the user heard that another borg has borg cloud.
     told_taken: bool,
+    background_service: bool,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
@@ -197,6 +200,8 @@ pub struct LinkServer {
 impl LinkServer {
     pub fn new(
         state: Option<PathBuf>,
+        runtime_dir: PathBuf,
+        session_id: Option<String>,
         relay: Option<Relay>,
         calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
         messages: UnboundedSender<Msg>,
@@ -207,12 +212,15 @@ impl LinkServer {
         let shared = Arc::new(Mutex::new(Shared { computers, pairing: None }));
         Self {
             state,
+            runtime_dir,
+            session_id,
             relay,
             identity: None,
             shared,
             task: None,
             claimed: None,
             told_taken: false,
+            background_service: false,
             calls,
             messages,
             clients,
@@ -221,6 +229,10 @@ impl LinkServer {
 
     pub fn relay(&self) -> Option<&Relay> {
         self.relay.as_ref()
+    }
+
+    pub fn set_background_service(&mut self) {
+        self.background_service = true;
     }
 
     /// Goes through `relay` from now on; the connection to the one before ends.
@@ -296,10 +308,13 @@ impl LinkServer {
             }
             let (Some(relay), Ok(identity)) = (self.relay.clone(), self.identity()) else { return };
             let server = Served {
+                background_service: self.background_service,
                 relay,
                 identity,
                 shared: self.shared.clone(),
                 state: self.state.clone(),
+                runtime_dir: self.runtime_dir.clone(),
+                session_id: self.session_id.clone(),
                 calls: self.calls.clone(),
                 messages: self.messages.clone(),
                 clients: self.clients.clone(),
@@ -325,10 +340,13 @@ impl Drop for LinkServer {
 /// What the relay connection and its sessions need.
 #[derive(Clone)]
 struct Served {
+    background_service: bool,
     relay: Relay,
     identity: Identity,
     shared: Arc<Mutex<Shared>>,
     state: Option<PathBuf>,
+    runtime_dir: PathBuf,
+    session_id: Option<String>,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
@@ -457,24 +475,252 @@ impl Served {
     }
 
     async fn calls_of(&self, channel: &mut Channel, computer: &Computer) -> Result<()> {
-        while let Some(message) = channel.recv().await? {
-            // A computer forgotten while connected is cut off.
-            if !self.shared.lock().expect("link lock").computers.iter().any(|c| c.key == computer.key) {
-                break;
-            }
-            let reply = match serde_json::from_slice::<Call>(&message).map(Call::external) {
-                Ok(Ok(mut call)) => {
-                    call.origin = Some(computer.name.clone());
-                    let (sender, receiver) = oneshot::channel();
-                    self.calls.send((call, sender)).context("borg closed")?;
-                    receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."))
+        // The name is only a label; approval and mirror leases must bind to the paired key.
+        let origin = format!("{} [{}]", computer.name, computer.key.get(..32).unwrap_or(&computer.key));
+        let mut sessions: std::collections::HashMap<String, crate::agent::Session> = std::collections::HashMap::new();
+        let mut mirror_leases = std::collections::HashSet::new();
+        let mut console_leases = std::collections::HashSet::new();
+        let mut approval_leases = std::collections::HashSet::new();
+        let result: Result<()> = async {
+            let mut next_message = None;
+            loop {
+                let continuation = next_message.is_some();
+                let message = match next_message.take() {
+                    Some(message) => message,
+                    None => match channel.recv().await? { Some(message) => message, None => break },
+                };
+                // A computer forgotten while connected is cut off.
+                if !self.shared.lock().expect("link lock").computers.iter().any(|c| c.key == computer.key) {
+                    break;
                 }
-                Ok(Err(refused)) => refused,
-                Err(error) => Reply::error(format!("unreadable call: {error}")),
-            };
-            channel.send(&serde_json::to_vec(&reply)?).await?;
+                let mut approval_target = None;
+                let mut push_request = None;
+                let mut reply = match serde_json::from_slice::<Call>(&message).map(Call::external) {
+                    Ok(Ok(mut call)) => {
+                        call.origin = Some(origin.clone());
+                        // Only a server-created continuation inherits the first chunk's
+                        // read approval. External callers still cannot claim approval.
+                        if continuation { call.approved = true; }
+                        if call.tool == "fs_list" && call.args["stream"] == true && call.args["push"] == true {
+                            push_request = Some(call.clone());
+                        }
+                        if call.tool == "approval_mode" {
+                            let requested = call.args["session"].as_str();
+                            let target = self
+                                .state
+                                .as_ref()
+                                .and_then(|state| {
+                                    crate::sessions::list(&crate::session::StateDir::at(state.clone())).ok()
+                                })
+                                .and_then(|entries| {
+                                    requested
+                                        .and_then(|name| {
+                                            entries.iter().find(|entry| entry.id == name || entry.name == name)
+                                        })
+                                        .or_else(|| {
+                                            if requested.is_none() {
+                                                entries
+                                                    .iter()
+                                                    .filter(|entry| !entry.archived)
+                                                    .max_by_key(|entry| entry.last_opened)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .map(|entry| entry.id.clone())
+                                })
+                                .or_else(|| if requested.is_none() { self.session_id.clone() } else { None });
+                            if let Some(target) = target {
+                                approval_target = Some((target.clone(), call.args["enabled"] == true));
+                                call.args["session"] = json!(target);
+                            }
+                        }
+                        if call.tool.starts_with("mirror_") {
+                            let action = call.tool.clone();
+                            let target = call.args["session"].as_str().map(str::to_owned);
+                            let (sender, receiver) = oneshot::channel();
+                            self.calls.send((call, sender)).context("borg closed")?;
+                            let reply =
+                                receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."));
+                            if reply.ok
+                                && let Some(target) = target
+                            {
+                                if action == "mirror_take" {
+                                    mirror_leases.insert(target);
+                                } else if action == "mirror_release" {
+                                    mirror_leases.remove(&target);
+                                }
+                            }
+                            reply
+                        } else if call.tool.starts_with("console_") {
+                            let target = call.args["session"].as_str();
+                            let valid = self.state.as_ref().and_then(|state| {
+                                crate::sessions::list(&crate::session::StateDir::at(state.clone())).ok()
+                            }).is_some_and(|sessions| sessions.iter().any(|session| !session.archived && Some(session.id.as_str()) == target));
+                            if valid {
+                                let (sender, receiver) = oneshot::channel();
+                                let target = call.args["session"].as_str().unwrap_or_default().to_owned();
+                                let action = call.tool.clone();
+                                let id = call.args["id"].as_str().unwrap_or_default().to_owned();
+                                self.calls.send((call, sender)).context("borg closed")?;
+                                let reply = receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."));
+                                if reply.ok {
+                                    if action == "console_open" {
+                                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&reply.text)
+                                            && let Some(id) = value["id"].as_str()
+                                        { console_leases.insert((target, id.to_owned())); }
+                                    } else if action == "console_close" { console_leases.remove(&(target, id)); }
+                                }
+                                reply
+                            } else { Reply::error("No active named session for this console") }
+                        } else if call.tool == "host_info" {
+                            let found = self.state.as_ref().map(|state| {
+                                crate::sessions::list(&crate::session::StateDir::at(state.clone()))
+                            });
+                            match found {
+                                Some(Ok(sessions)) => Reply::ok(json!({
+                                    "version": env!("CARGO_PKG_VERSION"),
+                                    "hostname": this_computer(),
+                                    "os": std::env::consts::OS,
+                                    "arch": std::env::consts::ARCH,
+                                    "service": self.background_service,
+                                    "sessions": sessions.into_iter().filter(|entry| !entry.archived).collect::<Vec<_>>(),
+                                }).to_string()),
+                                Some(Err(error)) => Reply::error(format!("{error:#}")),
+                                None => Reply::error("Borg has no state folder for sessions"),
+                            }
+                        } else if call.tool == "list_sessions" {
+                            match self
+                                .state
+                                .as_ref()
+                                .map(|state| crate::sessions::list(&crate::session::StateDir::at(state.clone())))
+                            {
+                                Some(Ok(found)) => Reply::ok(
+                                    found
+                                        .into_iter()
+                                        .map(|entry| {
+                                            format!(
+                                                "{}  {}{}",
+                                                entry.id,
+                                                entry.name,
+                                                if entry.archived { " (archived)" } else { "" }
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n"),
+                                ),
+                                Some(Err(error)) => Reply::error(format!("{error:#}")),
+                                None => Reply::error("Borg has no state folder for sessions"),
+                            }
+                        } else {
+                            let target = call.args["session"].as_str().map(str::to_owned);
+                            if let serde_json::Value::Object(args) = &mut call.args {
+                                args.remove("session");
+                            }
+                            if let Some(target) = target {
+                                let found = self
+                                    .state
+                                    .as_ref()
+                                    .and_then(|state| {
+                                        crate::sessions::list(&crate::session::StateDir::at(state.clone())).ok()
+                                    })
+                                    .and_then(|entries| {
+                                        entries.into_iter().find(|entry| entry.id == target || entry.name == target)
+                                    });
+                                match found {
+                                    Some(entry) if self.session_id.as_deref() == Some(entry.id.as_str()) => {
+                                        let (sender, receiver) = oneshot::channel();
+                                        self.calls.send((call, sender)).context("borg closed")?;
+                                        receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."))
+                                    }
+                                    Some(entry) => {
+                                        if !sessions.contains_key(&entry.id)
+                                            && let Some(open) =
+                                                crate::agent::Session::open(&self.runtime_dir, Some(&entry.id)).await
+                                            {
+                                                sessions.insert(entry.id.clone(), open);
+                                            }
+                                        let reply = match sessions.get_mut(&entry.id) {
+                                            Some(open) => open.call(&call).await,
+                                            None => None,
+                                        };
+                                        if reply.is_none() {
+                                            sessions.remove(&entry.id);
+                                        }
+                                        reply.unwrap_or_else(|| {
+                                            Reply::error(format!("session {} is offline or disconnected", entry.name))
+                                        })
+                                    }
+                                    None => Reply::error(format!("no session named {target}")),
+                                }
+                            } else {
+                                let (sender, receiver) = oneshot::channel();
+                                self.calls.send((call, sender)).context("borg closed")?;
+                                receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."))
+                            }
+                        }
+                    }
+                    Ok(Err(refused)) => refused,
+                    Err(error) => Reply::error(format!("unreadable call: {error}")),
+                };
+                if reply.ok
+                    && let Some((target, enabled)) = approval_target
+                {
+                    if enabled {
+                        approval_leases.insert(target);
+                    } else {
+                        approval_leases.remove(&target);
+                    }
+                }
+                if reply.ok
+                    && let Some(mut request) = push_request
+                    && let Ok(mut page) = serde_json::from_str::<serde_json::Value>(&reply.text)
+                    && page["streaming"] == true
+                {
+                    page["pushed"] = json!(true);
+                    if let Some(cursor) = page["cursor"].as_str() {
+                        request.args["cursor"] = json!(cursor);
+                        request.args["limit"] = json!(512);
+                        next_message = Some(serde_json::to_vec(&request)?);
+                    }
+                    reply.text = serde_json::to_string(&page)?;
+                }
+                channel.send(&serde_json::to_vec(&reply)?).await?;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        for (session, id) in console_leases {
+            let mut close = Call::new("console_close", json!({"session":session,"id":id}));
+            close.origin = Some(origin.clone());
+            let (sender, _) = oneshot::channel();
+            let _ = self.calls.send((close, sender));
+        }
+        for id in mirror_leases {
+            let mut release = Call::new("mirror_release", json!({ "session": id }));
+            release.origin = Some(origin.clone());
+            let (sender, receiver) = oneshot::channel();
+            if self.calls.send((release, sender)).is_ok() {
+                let _ = receiver.await;
+            }
+        }
+        for id in approval_leases {
+            let mut args = json!({ "enabled": false });
+            if !id.is_empty() {
+                args["session"] = json!(id);
+            }
+            let mut release = Call::new("approval_mode", args);
+            release.origin = Some(origin.clone());
+            let (sender, receiver) = oneshot::channel();
+            if id.is_empty() || self.session_id.as_deref() == Some(id.as_str()) {
+                if self.calls.send((release, sender)).is_ok() {
+                    let _ = receiver.await;
+                }
+            } else if let Some(mut session) = crate::agent::Session::open(&self.runtime_dir, Some(&id)).await {
+                let _ = session.call(&release).await;
+            }
+        }
+        result
     }
 }
 
@@ -559,6 +805,11 @@ impl Remote {
 
     pub async fn call(&mut self, call: &Call) -> Result<Reply> {
         self.channel.send(&serde_json::to_vec(call)?).await?;
+        self.receive().await
+    }
+
+    /// Next reply from a directory stream already requested on this connection.
+    pub async fn receive(&mut self) -> Result<Reply> {
         let reply = self.channel.recv().await?.context("the server closed the connection")?;
         Ok(serde_json::from_slice(&reply)?)
     }
@@ -574,7 +825,13 @@ struct Piece {
 }
 
 /// Copies a file from the server to `to` on this computer, piece by piece; its size.
-pub async fn download(remote: &mut Remote, path: &str, to: &Path, mut progress: impl FnMut(u64, u64)) -> Result<u64> {
+pub async fn download_in_session(
+    remote: &mut Remote,
+    session: Option<&str>,
+    path: &str,
+    to: &Path,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<u64> {
     use base64::Engine as _;
     use std::io::Write as _;
     let staged = to.with_extension(format!("borg-download-{}", std::process::id()));
@@ -582,7 +839,8 @@ pub async fn download(remote: &mut Remote, path: &str, to: &Path, mut progress: 
     let mut offset = 0;
     let result = async {
         loop {
-            let reply = remote.call(&Call::new("get", json!({ "path": path, "offset": offset }))).await?;
+            let reply =
+                remote.call(&Call::new("get", json!({ "session": session, "path": path, "offset": offset }))).await?;
             if !reply.ok {
                 bail!("{}", reply.text);
             }
@@ -612,12 +870,18 @@ pub async fn download(remote: &mut Remote, path: &str, to: &Path, mut progress: 
 
 /// Copies a file from this computer to `path` on the server, after the user approves it
 /// there; its size.
-pub async fn upload(remote: &mut Remote, from: &Path, path: &str, mut progress: impl FnMut(u64, u64)) -> Result<u64> {
+pub async fn upload_in_session(
+    remote: &mut Remote,
+    session: Option<&str>,
+    from: &Path,
+    path: &str,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<u64> {
     use base64::Engine as _;
     use std::io::Read as _;
     let mut file = std::fs::File::open(from).with_context(|| format!("could not read {}", from.display()))?;
     let size = file.metadata()?.len();
-    let reply = remote.call(&Call::new("put", json!({ "path": path, "size": size }))).await?;
+    let reply = remote.call(&Call::new("put", json!({ "session": session, "path": path, "size": size }))).await?;
     if !reply.ok {
         bail!("{}", reply.text);
     }
@@ -628,7 +892,7 @@ pub async fn upload(remote: &mut Remote, from: &Path, path: &str, mut progress: 
         let read = file.read(&mut buffer)?;
         let done = read == 0;
         let data = base64::engine::general_purpose::STANDARD.encode(&buffer[..read]);
-        let args = json!({ "token": token, "data": data, "done": done });
+        let args = json!({ "session": session, "token": token, "data": data, "done": done });
         let reply = remote.call(&Call::new("put", args)).await?;
         if !reply.ok {
             bail!("{}", reply.text);
@@ -726,7 +990,8 @@ fn progress(done: u64, total: u64) {
 /// `borg get NAME:PATH [TO]`: copies a file from a paired server to this computer.
 pub async fn get_command(args: &[String]) -> Result<()> {
     let [from, rest @ ..] = args else { bail!("usage: borg get NAME:PATH [TO]") };
-    let (name, path) = on_server(from)?;
+    let (target, path) = on_server(from)?;
+    let (name, session) = target.split_once('/').map_or((target, None), |(name, session)| (name, Some(session)));
     let state = state_dir()?;
     let server = server(&state, name)?;
     let mut remote = Remote::open(&state, &server).await?;
@@ -735,7 +1000,7 @@ pub async fn get_command(args: &[String]) -> Result<()> {
     if to.is_dir() {
         to = to.join(file_name);
     }
-    let size = download(&mut remote, path, &to, progress).await?;
+    let size = download_in_session(&mut remote, session, path, &to, progress).await?;
     eprintln!();
     println!("Downloaded {name}:{path} ({}) to {}", borg_ui::size_text(size), to.display());
     Ok(())
@@ -745,12 +1010,13 @@ pub async fn get_command(args: &[String]) -> Result<()> {
 /// user approves it in borg there.
 pub async fn put_command(args: &[String]) -> Result<()> {
     let [from, to] = args else { bail!("usage: borg put FROM NAME:PATH") };
-    let (name, path) = on_server(to)?;
+    let (target, path) = on_server(to)?;
+    let (name, session) = target.split_once('/').map_or((target, None), |(name, session)| (name, Some(session)));
     let state = state_dir()?;
     let server = server(&state, name)?;
     let mut remote = Remote::open(&state, &server).await?;
     println!("Approve the upload in borg on {name}…");
-    let size = upload(&mut remote, Path::new(from), path, progress).await?;
+    let size = upload_in_session(&mut remote, session, Path::new(from), path, progress).await?;
     eprintln!();
     println!("Uploaded {from} ({}) to {name}:{path}", borg_ui::size_text(size));
     Ok(())

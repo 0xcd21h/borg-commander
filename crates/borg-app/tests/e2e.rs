@@ -7,11 +7,11 @@ use crossterm::event::KeyCode;
 const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 3;
-const MENU_TITLES: &str = "Left    File    Command    Options    Right";
-const MENU_NAMES: [&str; 8] = ["Left", "File", "Command", "Options", "Right", "Git", "Docker", "Search"];
+const MENU_TITLES: &str = "Left    File    Command    Remote    Options    Right";
+const MENU_NAMES: [&str; 9] = ["Left", "File", "Command", "Remote", "Options", "Right", "Git", "Docker", "Search"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
-const OPTIONS_MENU: usize = 3;
+const OPTIONS_MENU: usize = 4;
 const FIRST_KEY: &str = "F1He";
 const SPLASH_SUBTITLE: &str = "c o m m a n d e r";
 const UNLOCK: &str = "borg";
@@ -1171,7 +1171,7 @@ fn git(fixture: &Fixture, args: &[&str]) -> Result<String> {
 
 #[test]
 fn git_plugin_views_diffs_stages_unstages_and_persists_disabling() -> Result<()> {
-    const GIT_MENU: usize = 5;
+    const GIT_MENU: usize = 6;
     let fixture = fixture()?;
     git(&fixture, &["init", "-b", "main"])?;
     git(&fixture, &["config", "user.name", "Borg Test"])?;
@@ -1247,7 +1247,7 @@ fn search_collect_preview_copy_remove_and_restore() -> Result<()> {
     let (x, y) = screen.find("[-]").unwrap();
     app.send(mouse(0, x, y))?;
     app.wait_gone("Search: one.txt")?;
-    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.send(keys::alt(KeyCode::Char('R')))?;
     app.wait_text("Search: one.txt")?;
     app.send(keys::ctrl('q'))?;
     app.wait_text("BETA source")?;
@@ -1325,7 +1325,7 @@ fn folder_analysis_finds_small_file_accumulations_and_confirms_deletion() -> Res
     app.wait_until("Space analysis rescans on request", |s| s.contains("finished") && s.contains("490 content bytes"))?;
     app.send(keys::esc())?;
     app.wait_gone("Folder sizes: node_modules")?;
-    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.send(keys::alt(KeyCode::Char('R')))?;
     app.wait_text("Folder sizes: node_modules")?;
     app.send(keys::f(8))?;
     app.wait_text("permanently?")?;
@@ -1358,7 +1358,7 @@ fn folder_tree_expands_hides_refreshes_copies_and_reopens_saved_measurements() -
         !s.contains("Size tree:") && left_panel(s).contains("~102")
     })?;
     ensure!(normal.contains("cached"));
-    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.send(keys::alt(KeyCode::Char('R')))?;
     let resumed = app.wait_text("Cached")?;
     ensure!(left_panel(&resumed).contains("nested"));
     ensure!(highlighted(&resumed, "cache"));
@@ -1868,7 +1868,7 @@ fn the_host_command_line_waits_for_a_host_panel_when_it_does_not_follow() -> Res
     browse_web(&mut app)?;
     app.wait_text("⌂ host")?;
     app.send("echo nope\r")?;
-    app.wait_text("This command line runs on the host")?;
+    app.wait_text("This command line runs on the client")?;
     ensure!(!app.snapshot().contains("Borg console"), "nothing ran");
     Ok(())
 }
@@ -1937,7 +1937,24 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     ensure!(init["serverInfo"]["name"] == "borg", "{init}");
     let tools = mcp.request("tools/list", serde_json::json!({}))?;
     let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    ensure!(names == ["screen", "read", "show", "write", "edit", "run", "type"], "{names:?}");
+    ensure!(
+        [
+            "screen",
+            "read",
+            "show",
+            "write",
+            "edit",
+            "run",
+            "type",
+            "list_sessions",
+            "use_session",
+            "list_remote_sessions",
+            "approval_mode"
+        ]
+        .iter()
+        .all(|name| names.contains(name)),
+        "{names:?}"
+    );
     app.wait_text("Remote connected to Borg")?;
 
     let (error, screen) = mcp.call("screen", serde_json::json!({}))?;
@@ -2395,5 +2412,341 @@ fn reads_from_another_computer_wait_for_approval_when_the_user_asks_for_that() -
     approve(&mut app)?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(!error && text.ends_with("     1\thello\n"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_pages() -> Result<()> {
+    let relay_url = relay()?;
+    let fixture = fixture()?;
+    fixture.configure(&format!("return-to-panels = false\nrelay = \"{relay_url}\"\n"))?;
+    let mut app = Session::builder(BORG, &fixture).size(130, 34).label("remote-pages").spawn()?;
+    app.wait_text(READY)?;
+    let (computer, _) = pair_computer(&mut app, &fixture)?;
+    let directory = fixture.work().join("large");
+    fs::create_dir(&directory)?;
+    for n in 0..2048 {
+        fs::write(directory.join(format!("entry-{n}")), b"")?;
+    }
+    let servers: serde_json::Value = serde_json::from_slice(&fs::read(computer.join("link/servers.json"))?)?;
+    let server = &servers[0];
+    let relay = borg_link::Relay::parse(server["relay"].as_str().unwrap()).unwrap();
+    let key = borg_link::unhex(server["key"].as_str().unwrap()).unwrap();
+    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    runtime.block_on(async {
+        let socket = borg_link::relay::dial(&relay, &key).await?;
+        let mut channel = borg_link::initiate(socket, &identity, &key, br#"{"kind":"session"}"#).await?;
+        let answer: serde_json::Value = serde_json::from_slice(&channel.recv().await?.context("hello")?)?;
+        ensure!(answer["ok"] == true);
+        async fn call(
+            channel: &mut borg_link::Channel,
+            tool: &str,
+            args: serde_json::Value,
+        ) -> Result<serde_json::Value> {
+            channel.send(&serde_json::to_vec(&serde_json::json!({"tool":tool,"args":args}))?).await?;
+            receive(channel).await
+        }
+        async fn receive(channel: &mut borg_link::Channel) -> Result<serde_json::Value> {
+            let bytes =
+                tokio::time::timeout(std::time::Duration::from_secs(10), channel.recv()).await??.context("reply")?;
+            let reply: serde_json::Value = serde_json::from_slice(&bytes)?;
+            ensure!(reply["ok"] == true, "{reply}");
+            Ok(serde_json::from_str(reply["text"].as_str().unwrap())?)
+        }
+        let host = call(&mut channel, "host_info", serde_json::json!({})).await?;
+        ensure!(host["version"] == env!("CARGO_PKG_VERSION"));
+        ensure!(host["os"] == std::env::consts::OS && host["service"] == false);
+        ensure!(host["sessions"].as_array().is_some_and(|sessions| !sessions.is_empty()));
+        let mut cursor = serde_json::Value::Null;
+        let mut names = std::collections::HashSet::new();
+        let mut chunks = 0;
+        loop {
+            let page = call(
+                &mut channel,
+                "fs_list",
+                serde_json::json!({
+                    "session":"default", "path":directory, "stream":true, "cursor":cursor, "limit":128
+                }),
+            )
+            .await?;
+            ensure!(page["streaming"] == true);
+            let entries = page["entries"].as_array().context("entries")?;
+            ensure!(entries.len() <= 128);
+            for entry in entries {
+                ensure!(names.insert(entry["name"].as_str().unwrap().to_owned()), "duplicate entry");
+            }
+            chunks += 1;
+            cursor = page["cursor"].clone();
+            if cursor.is_null() {
+                break;
+            }
+        }
+        ensure!(names.len() == 2048 && chunks >= 16, "{} entries, {chunks} chunks", names.len());
+        names.clear();
+        let start = std::time::Instant::now();
+        let mut page = call(
+            &mut channel,
+            "fs_list",
+            serde_json::json!({
+                "session":"default", "path":directory, "stream":true, "push":true, "limit":128
+            }),
+        )
+        .await?;
+        let first = start.elapsed();
+        let mut chunks = 0;
+        loop {
+            ensure!(page["pushed"] == true);
+            let entries = page["entries"].as_array().context("pushed entries")?;
+            ensure!(entries.len() <= if chunks == 0 { 128 } else { 512 });
+            for entry in entries {
+                ensure!(names.insert(entry["name"].as_str().unwrap().to_owned()), "duplicate pushed entry");
+            }
+            chunks += 1;
+            if page["cursor"].is_null() {
+                break;
+            }
+            // No new client request: the host sends the remaining chunks over this stream.
+            page = receive(&mut channel).await?;
+        }
+        ensure!(names.len() == 2048 && chunks > 1);
+        eprintln!(
+            "encrypted localhost listing: {} entries / {chunks} pushed chunks; first {:?}, complete {:?}",
+            names.len(),
+            first,
+            start.elapsed()
+        );
+        Ok::<_, anyhow::Error>(())
+    })?;
+    Ok(())
+}
+
+#[test]
+fn remote_panel_console_follows_the_right_panel_and_ctrl_o_stays_remote() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let grabber = host.home().join("remote-grabber.sh");
+    fs::write(
+        &grabber,
+        r#"mode="$1"
+stty raw -echo -iexten min 0 time 1
+if [ "$mode" = alternate ]; then printf '\033[?1049h'; fi
+draw() { printf '\033[H\033[2Jremote-fullscreen-%s\033[2;1Hremote-size=%s' "$mode" "$(stty size)"; }
+trap draw WINCH
+draw
+while :; do
+    key=$(dd bs=1 count=1 2>/dev/null)
+    [ -z "$key" ] && continue
+    code=$(printf '%s' "$key" | od -An -tu1 | tr -d ' ')
+    [ "$code" = 15 ] && break
+    printf '\033[4;1Hremote-key=%s' "$code"
+done
+trap - WINCH
+stty sane
+if [ "$mode" = alternate ]; then printf '\033[?1049l'; fi
+printf '\r\nremote-got=%s\r\n' "$code"
+"#,
+    )?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("console-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(150, 34).label("console-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::tab())?;
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send(keys::enter())?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default console"))?;
+    local.send("printf 'remote-proof' > \"$HOME/remote-console-proof\"")?;
+    local.send(keys::enter())?;
+    local.wait_until("command executed on the host", |_| host.home().join("remote-console-proof").exists())?;
+    ensure!(fs::read_to_string(host.home().join("remote-console-proof"))? == "remote-proof");
+    ensure!(!client.home().join("remote-console-proof").exists());
+    local.send("sleep 30")?;
+    local.send(keys::enter())?;
+    local.wait_text("sleep 30")?;
+    local.send(keys::ctrl('c'))?;
+    local.send("printf 'interrupt-proof' > \"$HOME/interrupt-proof\"")?;
+    local.send(keys::enter())?;
+    local.wait_until("Ctrl-C interrupts the remote command", |_| host.home().join("interrupt-proof").exists())?;
+    local.wait_text("printf 'interrupt-proof'")?;
+    local.wait_until("remote prompt is ready to switch panels", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+    local.send(keys::tab())?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text("Borg console")?;
+    local.send("printf 'local-proof' > \"$HOME/local-console-proof\"")?;
+    local.send(keys::enter())?;
+    local.wait_until("local console restored", |_| client.home().join("local-console-proof").exists())?;
+    ensure!(!host.home().join("local-console-proof").exists());
+    local.wait_text("printf 'local-proof'")?;
+    local.wait_until("local prompt is ready to switch panels", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    local.send(keys::ctrl('o'))?;
+    local.send(keys::tab())?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default console"))?;
+    for (mode, cols, rows) in [("normal", 90, 27), ("alternate", 120, 32)] {
+        local.send(keys::ctrl('o'))?;
+        local.wait_text("F1He")?;
+        local.send(format!("bash '{}' {mode}", grabber.display()))?;
+        local.send(keys::enter())?;
+        local.wait_text(&format!("remote-fullscreen-{mode}"))?;
+        local.send(keys::f(1))?;
+        local.wait_text("remote-key=80")?;
+        ensure!(!local.snapshot().contains("Remote access to this borg"));
+        local.resize(cols, rows)?;
+        local.wait_text(&format!("remote-size={} {cols}", rows - 1))?;
+        local.send(keys::ctrl('o'))?;
+        local.wait_until("panels return after the remote app exits", |screen| {
+            screen.contains("F1He") && !screen.contains("remote-fullscreen-")
+        })?;
+        local.send(keys::ctrl('o'))?;
+        local.wait_text("remote-got=15")?;
+    }
+    local.send("cd ")?;
+    local.send(format!("'{}'", host.work().join("alpha").display()))?;
+    local.send(keys::enter())?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text("one.txt")?;
+    ensure!(remote.snapshot().contains("4 items"), "the remote Borg's own panels stay in their original folder");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a paired Linux host with procps top and BORG_TEST_REMOTE_* settings"]
+fn paired_linux_top_captures_the_remote_console_resizes_and_restores_the_prompt() -> Result<()> {
+    let state = std::path::PathBuf::from(std::env::var("BORG_TEST_REMOTE_STATE")?);
+    let machine = std::env::var("BORG_TEST_REMOTE_MACHINE")?;
+    let session = std::env::var("BORG_TEST_REMOTE_SESSION")?;
+    let servers: serde_json::Value = serde_json::from_slice(&fs::read(state.join("link/servers.json"))?)?;
+    let server = servers
+        .as_array()
+        .context("paired servers")?
+        .iter()
+        .find(|server| server["name"].as_str() == Some(machine.as_str()))
+        .context("paired test machine")?;
+    let client = fixture()?;
+    client.configure(&format!(
+        "return-to-panels = false\nrelay = {:?}\n[plugins]\nagent-cloud = false\n",
+        server["relay"].as_str().context("relay")?
+    ))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    fs::copy(state.join("link/key"), client.state().join("link/key"))?;
+    fs::write(client.state().join("link/servers.json"), serde_json::to_vec(&serde_json::json!([server]))?)?;
+    let mut local = Session::builder(BORG, &client).size(140, 34).label("live-remote-top").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    let label = format!("Host {machine} · {session} ·");
+    local.wait_text(&label)?;
+    local.send(keys::key(KeyCode::Home))?;
+    let mut selected = false;
+    for _ in 0..64 {
+        let screen = local.settle()?;
+        let (x, y) = screen.find(&label).context("session in picker")?;
+        let (base_x, base_y) = screen.find("This Borg:").context("picker body")?;
+        if screen.style_at(x, y).bg != screen.style_at(base_x, base_y).bg {
+            selected = true;
+            break;
+        }
+        local.send(keys::down())?;
+    }
+    ensure!(selected, "test session could not be selected");
+    local.send(keys::enter())?;
+    local.wait_text(&format!("Host {machine}:{session}"))?;
+    local.send("top -d 0.5")?.send(keys::enter())?;
+    local.wait_text("load average")?;
+    let screen = local.wait_text("program running")?;
+    ensure!(!screen.contains("F1Help"));
+    let images = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/screenshots/remote-top");
+    fs::create_dir_all(&images)?;
+    screen.save_png(&images.join("initial.png"))?;
+    local.send("h")?;
+    let help = local.wait_text("Help for Interactive Commands")?;
+    help.save_png(&images.join("help.png"))?;
+    local.send("q")?;
+    local.wait_text("load average")?;
+    local.resize(100, 26)?;
+    let resized = local.wait_until("top resized with the remote console", |screen| {
+        screen.cols() == 100
+            && screen.rows() == 26
+            && screen.contains("load average")
+            && screen.lines()[25].contains("program running")
+    })?;
+    resized.save_png(&images.join("resized.png"))?;
+    local.send("q")?;
+    local.wait_text("F1Help")?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {machine}:{session} console"))?;
+    local.send("printf '__TOP_RETURN__:%s:%s\\n' \"$(stty size)\" \"$(uname -n)\"")?.send(keys::enter())?;
+    local.wait_text(&format!("__TOP_RETURN__:25 100:{machine}"))?;
+    local.send(keys::ctrl('o'))?;
+    let restored = local.wait_text("F1Help")?;
+    restored.save_png(&images.join("restored.png"))?;
+    Ok(())
+}
+
+#[test]
+fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("rename-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, machine) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(140, 34).label("rename-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {machine} · Default"))?;
+    local.send(keys::f(2))?;
+    local.wait_text("Rename host label")?;
+    local.send(keys::ctrl('u'))?.send("Production")?.send(keys::enter())?;
+    local.wait_text("Host Production · Default")?;
+    local.send(keys::with(KeyCode::F(2), crossterm::event::KeyModifiers::SHIFT))?;
+    local.wait_text("Rename session label")?;
+    local.send(keys::ctrl('u'))?.send("Deploy")?.send(keys::enter())?;
+    local.wait_text("Host Production · Deploy")?;
+    local.send("r")?;
+    local.wait_text("Host Production · Deploy")?;
+    local.send(keys::enter())?;
+    local.wait_text("Host Production:Deploy")?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text("Host Production:Deploy console")?;
+    drop(local);
+    let mut reopened = Session::builder(BORG, &client).size(140, 34).label("renamed-reopened").spawn()?;
+    reopened.wait_text(READY)?;
+    reopened.send(keys::alt(KeyCode::Char('r')))?;
+    reopened.wait_text("Host Production · Deploy")?;
+    reopened.wait_text(&format!("Original host: {machine} · Session: Default"))?;
+    reopened.send(keys::f(2))?;
+    reopened.wait_text("Rename host label")?;
+    reopened.send(keys::ctrl('u'))?.send(keys::enter())?;
+    reopened.wait_text(&format!("Host {machine} · Deploy"))?;
+    reopened.send(keys::with(KeyCode::F(2), crossterm::event::KeyModifiers::SHIFT))?;
+    reopened.wait_text("Rename session label")?;
+    reopened.send(keys::ctrl('u'))?.send(keys::enter())?;
+    reopened.wait_text(&format!("Host {machine} · Default"))?;
+    let names: serde_json::Value = serde_json::from_slice(&fs::read(client.state().join("remote-names.json"))?)?;
+    ensure!(names.as_object().is_some_and(|names| names.is_empty()));
     Ok(())
 }

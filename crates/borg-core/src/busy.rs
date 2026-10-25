@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{AppState, Listing, Side};
+use crate::{AppState, Side};
 
 /// Work that finishes sooner never shows a spinner, so quick refreshes do not flicker.
 pub const SPINNER_DELAY: Duration = Duration::from_millis(500);
@@ -19,6 +19,7 @@ pub enum Task {
     Docker,
     /// The quick view or Info pane preparing its contents.
     Preview,
+    RemoteCatalog,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,8 +50,11 @@ impl Busy {
 
 pub(crate) fn sync(state: &mut AppState, now: Instant) {
     let mut active = Vec::new();
+    if matches!(&state.overlay, Some(crate::Overlay::Remotes(browser)) if browser.loading) {
+        active.push(Task::RemoteCatalog);
+    }
     for side in Side::ALL {
-        if state.panel(side).listing() == &Listing::Loading {
+        if state.panel(side).loading() {
             active.push(Task::Listing(side));
         }
         let job = state.jobs.iter().any(|job| job.shown_on == side);

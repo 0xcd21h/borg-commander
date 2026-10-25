@@ -22,6 +22,7 @@ mod palette;
 mod panel_view;
 mod picker_view;
 mod pointer;
+mod remote_view;
 mod results_view;
 mod settings_view;
 mod shortcuts;

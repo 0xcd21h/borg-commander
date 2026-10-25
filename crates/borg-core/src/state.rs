@@ -56,6 +56,10 @@ pub enum Console {
     Host,
     /// A container's shell, while its filesystem panel is active (Docker command line).
     Container(String),
+    Remote {
+        machine: String,
+        session: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,11 +68,18 @@ pub struct ShellView {
     pub command_rows: u16,
     pub foreground: Foreground,
     pub mode: TermMode,
+    pub raw_input: bool,
 }
 
 impl Default for ShellView {
     fn default() -> Self {
-        Self { prompt: PromptState::Unknown, command_rows: 1, foreground: Foreground::Unknown, mode: TermMode::empty() }
+        Self {
+            prompt: PromptState::Unknown,
+            command_rows: 1,
+            foreground: Foreground::Unknown,
+            mode: TermMode::empty(),
+            raw_input: false,
+        }
     }
 }
 
@@ -116,7 +127,7 @@ impl ShellStatus {
     }
 
     pub fn captured(&self) -> bool {
-        self.observed.mode.contains(TermMode::ALT_SCREEN)
+        self.observed.raw_input || self.observed.mode.contains(TermMode::ALT_SCREEN)
     }
 
     pub fn busy(&self) -> bool {
@@ -164,6 +175,12 @@ pub enum PromptPurpose {
         root: PathBuf,
     },
     Collection,
+    RemoteName {
+        browser: Box<crate::RemoteBrowser>,
+        identity: String,
+        session: Option<String>,
+        original: String,
+    },
     ResultsFilter,
     Select,
     Unselect,
@@ -235,6 +252,8 @@ pub enum Overlay {
     },
     /// How to connect Claude to this borg.
     Connect(crate::agent::Connect),
+    /// Paired Borg machines and their named sessions.
+    Remotes(crate::RemoteBrowser),
 }
 
 #[derive(Debug, Clone)]
@@ -296,6 +315,11 @@ pub struct AppState {
     /// The console's shell: the host's, or a container's while its panel is active.
     pub shell: ShellStatus,
     pub console: Console,
+    pub remote_names: crate::RemoteNames,
+    pub remote_identities: std::collections::BTreeMap<String, String>,
+    pub(crate) remote_consoles: std::collections::HashMap<(String, String), ShellStatus>,
+    pub(crate) failed_remote_console: Option<(String, String)>,
+    pub(crate) remote_console_failure: Option<String>,
     /// The host shell while a container's shell is the console.
     pub(crate) parked_host: Option<ShellStatus>,
     pub fade: Fade,
@@ -353,6 +377,11 @@ impl AppState {
             docker: crate::Docker::default(),
             agent: crate::Agent::default(),
             console: Console::Host,
+            remote_names: Default::default(),
+            remote_identities: Default::default(),
+            remote_consoles: Default::default(),
+            failed_remote_console: None,
+            remote_console_failure: None,
             parked_host: None,
             busy: crate::Busy::default(),
             game2048: None,
@@ -516,6 +545,10 @@ impl AppState {
     /// Whether the active panel shows the console's own files: a host folder for the host's
     /// shell, or the container's filesystem for its shell.
     pub fn console_owns_panel(&self) -> bool {
+        if let Some(mount) = &self.active_panel().remote_mount {
+            return self.console
+                == (Console::Remote { machine: mount.machine.clone(), session: mount.session.clone() });
+        }
         match (&self.console, &self.active_panel().mount) {
             (Console::Host, None) => true,
             (Console::Container(id), Some(mount)) => *id == mount.id,
@@ -524,6 +557,23 @@ impl AppState {
     }
 
     /// The container whose shell is the console, by name, for marking the console.
+    pub fn remote_host_name<'a>(&'a self, machine: &'a str) -> &'a str {
+        self.remote_identities
+            .get(machine)
+            .and_then(|identity| self.remote_names.0.get(identity))
+            .and_then(|labels| labels.host.as_deref())
+            .unwrap_or(machine)
+    }
+
+    pub fn remote_session_name<'a>(&'a self, machine: &str, session: &str, name: &'a str) -> &'a str {
+        self.remote_identities
+            .get(machine)
+            .and_then(|identity| self.remote_names.0.get(identity))
+            .and_then(|labels| labels.sessions.get(session))
+            .map(String::as_str)
+            .unwrap_or(name)
+    }
+
     pub fn console_container(&self) -> Option<&str> {
         let Console::Container(id) = &self.console else { return None };
         let mount = self.panels.iter().filter_map(|panel| panel.mount.as_ref()).find(|mount| mount.id == *id);

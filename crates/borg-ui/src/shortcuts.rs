@@ -66,7 +66,7 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         ]);
     } else {
         if state.last_results[state.active.index()].is_some() {
-            items.push((tr!(alt_r_resume), Action::BackResults));
+            items.push((tr!(alt_shift_r_resume), Action::BackResults));
         }
         items.push((tr!(alt_k_collect), Action::Collect));
     }
@@ -88,10 +88,14 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
     if let Some((label, waiting)) = jobs(state) {
         items.insert(0, (label, Action::Jobs, waiting));
     }
-    // A connected agent stays in sight; the chip opens the log of what it did.
+    // A connected agent stays in sight; its chip opens the log, and the mode chip stops automatic approvals.
     if state.agent.connected() {
         items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));
     }
+    if !state.agent.auto_approve.is_empty() {
+        items.insert(0, (tr!(agent_approve_all_chip).to_owned(), Action::ApprovalModeOff, true));
+    }
+    items.insert(0, (tr!(alt_r_remote_hosts).to_owned(), Action::BrowseRemotes, false));
     let mut x = area.x;
     items
         .into_iter()

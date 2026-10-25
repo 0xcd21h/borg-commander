@@ -103,6 +103,17 @@ pub struct Panel {
     pub git: crate::GitPanel,
     /// The container whose filesystem the panel shows, if any.
     pub mount: Option<crate::Mount>,
+    /// A paired Borg session whose filesystem this panel shows.
+    pub remote_mount: Option<RemoteMount>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteMount {
+    pub machine: String,
+    pub session: String,
+    pub name: String,
+    /// The local folder to return to when leaving the remote root.
+    pub host: PathBuf,
 }
 
 impl Panel {
@@ -125,6 +136,7 @@ impl Panel {
             replacing: false,
             git: crate::GitPanel::default(),
             mount: None,
+            remote_mount: None,
         }
     }
 
@@ -140,6 +152,11 @@ impl Panel {
         &self.listing
     }
 
+    /// Includes the wait for a first batch while the previous folder remains visible.
+    pub fn loading(&self) -> bool {
+        self.incoming.is_some() || self.listing == Listing::Loading
+    }
+
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -149,7 +166,9 @@ impl Panel {
     }
 
     pub fn git_repository(&self) -> Option<&borg_git::Repository> {
-        (!self.is_results() && self.dir() == self.destination()).then_some(self.git.repository.as_ref()).flatten()
+        (!self.is_results() && self.remote_mount.is_none() && self.dir() == self.destination())
+            .then_some(self.git.repository.as_ref())
+            .flatten()
     }
 
     pub fn mode(&self) -> ListingMode {
@@ -525,7 +544,9 @@ impl Panel {
 
     fn parent_rows(&self) -> usize {
         // A container's root still has `..`, which returns to the host folder.
-        usize::from(!self.is_results() && (self.dir.parent().is_some() || self.mount.is_some()))
+        usize::from(
+            !self.is_results() && (self.dir.parent().is_some() || self.mount.is_some() || self.remote_mount.is_some()),
+        )
     }
 
     fn anchor(&self) -> Option<Anchor> {

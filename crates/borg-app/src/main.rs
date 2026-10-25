@@ -8,11 +8,19 @@ mod document;
 mod launch;
 mod link;
 mod memory_search;
+mod mirror;
 mod peek;
 mod plugins;
 mod preview;
+mod remote;
+mod remote_console;
+mod remote_fs;
+mod remote_names;
 mod search;
+mod service;
+mod service_install;
 mod session;
+mod sessions;
 mod size_cache;
 mod store;
 mod update;
@@ -41,8 +49,62 @@ const NESTED_MESSAGE: &str = tr!(cli_already_running);
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
+    let mut requested_session = None;
+    let mut requested_remote = None;
     match env::args().nth(1).as_deref() {
         None => {}
+        Some("--session") => {
+            let Some(name) = env::args().nth(2) else {
+                eprintln!("usage: borg --session NAME");
+                return Ok(ExitCode::from(USAGE_ERROR));
+            };
+            requested_session = Some(name);
+        }
+        Some("--remote") => {
+            let Some(target) = env::args().nth(2) else {
+                eprintln!("usage: borg --remote MACHINE:SESSION");
+                return Ok(ExitCode::from(USAGE_ERROR));
+            };
+            requested_remote = Some(target);
+        }
+        Some("sessions") => {
+            let Some(state) = session::StateDir::locate() else {
+                eprintln!("borg has no folder for sessions: set HOME or BORG_STATE_DIR");
+                return Ok(ExitCode::FAILURE);
+            };
+            let args: Vec<String> = env::args().skip(2).collect();
+            return Ok(match sessions::command(&state, &args) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("borg sessions: {error:#}");
+                    ExitCode::FAILURE
+                }
+            });
+        }
+        Some("service") => {
+            let args: Vec<String> = env::args().skip(2).collect();
+            return Ok(match service::command(&args).await {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("borg service: {error:#}");
+                    ExitCode::FAILURE
+                }
+            });
+        }
+        Some("mirror") => {
+            let Some(target) = env::args().nth(2) else {
+                eprintln!("usage: borg mirror SERVER:SESSION [--take]");
+                return Ok(ExitCode::from(USAGE_ERROR));
+            };
+            let force = env::args().nth(3).as_deref() == Some("--take");
+            return Ok(match mirror::command(&target, force).await {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("borg mirror: {error:#}");
+                    ExitCode::FAILURE
+                }
+            });
+        }
         Some("--inspect-process") => {
             activity::helper(&env::args().skip(2).collect::<Vec<_>>()).await?;
             return Ok(ExitCode::SUCCESS);
@@ -62,7 +124,17 @@ async fn main() -> Result<ExitCode> {
                     };
                     agent::serve_remote(state, &name).await?;
                 }
-                _ => agent::serve(launch::runtime_dir()).await?,
+                _ => {
+                    let local = launch::runtime_dir();
+                    let runtime = if agent::Session::open(&local, None).await.is_some() {
+                        local
+                    } else if service::available().await {
+                        service::runtime_dir().unwrap_or_else(|_| launch::runtime_dir())
+                    } else {
+                        local
+                    };
+                    agent::serve(runtime).await?
+                }
             }
             return Ok(ExitCode::SUCCESS);
         }
@@ -108,7 +180,31 @@ async fn main() -> Result<ExitCode> {
         return Ok(ExitCode::FAILURE);
     }
 
-    let launch = Launch::detect()?;
+    let remote = match requested_remote {
+        Some(target) => Some(remote::resolve(&target).await?),
+        None => None,
+    };
+    let selected_id = if let Some(target) = &remote {
+        Some(remote::viewer_id(target))
+    } else {
+        session::StateDir::locate()
+            .map(|state| sessions::choose(&state, requested_session.as_deref()))
+            .transpose()?
+            .map(|session| session.id)
+    };
+    if remote.is_none()
+        && env::var_os("BORG_SERVICE_CHILD").is_none()
+        && service::available().await
+        && let Some(session) = &selected_id
+    {
+        service::attach_session(session, false).await?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let _session_lock = session::StateDir::locate()
+        .zip(selected_id.as_ref())
+        .map(|(state, session)| sessions::lock(&state, session))
+        .transpose()?;
+    let launch = Launch::detect(selected_id.as_deref(), remote)?;
     let mut terminal = ratatui::try_init()?;
 
     let modes = TerminalModes { enhanced: supports_keyboard_enhancement().unwrap_or(false) };

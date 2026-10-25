@@ -1,9 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntryKind {
     Dir,
     File,
@@ -17,7 +18,7 @@ impl EntryKind {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FolderUsage {
     pub direct_bytes: u64,
     pub direct_files: u64,
@@ -28,7 +29,7 @@ pub struct FolderUsage {
     pub partial: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub usage: Option<FolderUsage>,
     pub source: Option<PathBuf>,

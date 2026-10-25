@@ -70,6 +70,7 @@ impl Stage {
             prompt: self.emulator.prompt_state(),
             command_rows: self.emulator.command_rows(),
             foreground: Foreground::Shell,
+            raw_input: false,
             mode: self.emulator.mode(),
         };
         update(&mut self.state, Msg::ShellOutput(view), self.started);

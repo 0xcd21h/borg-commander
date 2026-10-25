@@ -74,10 +74,18 @@ impl Session {
     pub fn capture(state: &AppState) -> Self {
         let panel = |side: Side| {
             let panel = state.panel(side);
-            // A container panel comes back as the host folder it replaced.
+            // A remote or container panel comes back as the host folder it replaced.
             PanelState {
-                dir: panel.mount.as_ref().map_or_else(|| panel.dir().to_path_buf(), |mount| mount.host.clone()),
-                focus: panel.hovered_entry().filter(|_| panel.mount.is_none()).map(|entry| entry.name.clone()),
+                dir: panel
+                    .remote_mount
+                    .as_ref()
+                    .map(|mount| mount.host.clone())
+                    .or_else(|| panel.mount.as_ref().map(|mount| mount.host.clone()))
+                    .unwrap_or_else(|| panel.dir().to_path_buf()),
+                focus: panel
+                    .hovered_entry()
+                    .filter(|_| panel.mount.is_none() && panel.remote_mount.is_none())
+                    .map(|entry| entry.name.clone()),
                 mode: panel.mode().into(),
                 sort: panel.sort().key.into(),
                 reverse: panel.sort().reverse,
@@ -104,7 +112,10 @@ impl Session {
 }
 
 #[derive(Debug, Clone)]
-pub struct StateDir(PathBuf);
+pub struct StateDir {
+    root: PathBuf,
+    workspace: Option<String>,
+}
 
 impl StateDir {
     pub fn locate() -> Option<Self> {
@@ -114,15 +125,31 @@ impl StateDir {
             env::var_os(ENV_HOME)
                 .map(|home| DOT_STATE.iter().fold(PathBuf::from(home), |p, part| p.join(part)).join(APP_DIR))
         };
-        explicit.or_else(xdg).or_else(home).map(Self)
+        explicit.or_else(xdg).or_else(home).map(Self::at)
+    }
+
+    pub fn at(root: PathBuf) -> Self {
+        Self { root, workspace: None }
+    }
+
+    pub fn for_session(&self, id: &str) -> Self {
+        Self { root: self.root.clone(), workspace: Some(id.to_owned()) }
+    }
+
+    pub fn workspace(&self, id: &str) -> PathBuf {
+        if id == "default" { self.root.clone() } else { self.root.join("sessions").join(id) }
+    }
+
+    fn session_path(&self, name: &str) -> PathBuf {
+        self.workspace.as_ref().map_or_else(|| self.root.join(name), |id| self.workspace(id).join(name))
     }
 
     pub fn path(&self) -> &std::path::Path {
-        &self.0
+        &self.root
     }
 
     pub fn load_session(&self) -> Result<Option<Session>> {
-        let path = self.0.join(SESSION_FILE);
+        let path = self.session_path(SESSION_FILE);
         match fs::read_to_string(&path) {
             Ok(text) => toml::from_str(&text).map(Some).with_context(|| format!("parsing {}", path.display())),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -132,12 +159,12 @@ impl StateDir {
 
     pub fn save_session(&self, session: &Session) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.0.join(SESSION_FILE), toml::to_string(session)?.as_bytes())
+        write_atomically(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
     }
 
     pub fn load_game2048(&self) -> Result<Option<borg_core::Game2048>> {
         use std::io::Read;
-        let file = match fs::File::open(self.0.join(GAME2048_FILE)) {
+        let file = match fs::File::open(self.root.join(GAME2048_FILE)) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
@@ -151,12 +178,12 @@ impl StateDir {
 
     pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.0.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+        write_atomically(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
     }
 
     pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {
         use std::os::unix::ffi::OsStringExt;
-        let path = self.0.join(COLLECTIONS_FILE);
+        let path = self.root.join(COLLECTIONS_FILE);
         let metadata = match fs::metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -202,27 +229,27 @@ impl StateDir {
         let bytes = serde_json::to_vec(&saved)?;
         anyhow::ensure!(bytes.len() as u64 <= MAX_COLLECTION_BYTES, "collections exceed storage limit");
         self.ensure()?;
-        write_atomically(&self.0.join(COLLECTIONS_FILE), &bytes)
+        write_atomically(&self.root.join(COLLECTIONS_FILE), &bytes)
     }
 
     pub fn load_terminal(&self) -> Option<Vec<u8>> {
-        fs::read(self.0.join(TERMINAL_FILE)).ok().filter(|bytes| !bytes.is_empty())
+        fs::read(self.session_path(TERMINAL_FILE)).ok().filter(|bytes| !bytes.is_empty())
     }
 
     pub fn save_terminal(&self, bytes: &[u8]) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.0.join(TERMINAL_FILE), bytes)
+        write_atomically(&self.session_path(TERMINAL_FILE), bytes)
     }
 
     pub fn forget_terminal(&self) -> Result<()> {
-        match fs::remove_file(self.0.join(TERMINAL_FILE)) {
+        match fs::remove_file(self.session_path(TERMINAL_FILE)) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e).context("removing saved terminal output"),
             _ => Ok(()),
         }
     }
 
     pub fn update_check_due(&self, now: SystemTime, every: Duration) -> bool {
-        let last = fs::read_to_string(self.0.join(UPDATE_CHECK_FILE))
+        let last = fs::read_to_string(self.root.join(UPDATE_CHECK_FILE))
             .ok()
             .and_then(|text| text.trim().parse::<u64>().ok())
             .map(|secs| UNIX_EPOCH + Duration::from_secs(secs));
@@ -232,11 +259,12 @@ impl StateDir {
     pub fn record_update_check(&self, now: SystemTime) -> Result<()> {
         self.ensure()?;
         let secs = now.duration_since(UNIX_EPOCH).map(|age| age.as_secs()).unwrap_or_default();
-        write_atomically(&self.0.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
+        write_atomically(&self.root.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
     }
 
     fn ensure(&self) -> Result<()> {
-        fs::create_dir_all(&self.0).with_context(|| format!("creating {}", self.0.display()))
+        let path = self.workspace.as_ref().map_or_else(|| self.root.clone(), |id| self.workspace(id));
+        fs::create_dir_all(&path).with_context(|| format!("creating {}", path.display()))
     }
 }
 
@@ -309,13 +337,13 @@ mod tests {
     #[test]
     fn game2048_round_trips_and_rejects_corrupt_or_oversized_saves() {
         let temp = tempfile::tempdir().unwrap();
-        let dir = StateDir(temp.path().join("state"));
+        let dir = StateDir::at(temp.path().join("state"));
         assert!(dir.load_game2048().unwrap().is_none());
         let mut game = borg_core::Game2048::new(42);
         game.slide(borg_core::GameDirection::Left);
         dir.save_game2048(&game).unwrap();
         assert_eq!(dir.load_game2048().unwrap().unwrap().saved(), game.saved());
-        let file = dir.0.join(GAME2048_FILE);
+        let file = dir.path().join(GAME2048_FILE);
         fs::write(&file, b"{invalid").unwrap();
         assert!(dir.load_game2048().is_err());
         fs::write(&file, vec![b' '; MAX_GAME_BYTES as usize + 1]).unwrap();
@@ -329,7 +357,7 @@ mod tests {
     #[test]
     fn update_checks_are_due_once_a_day() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let state = StateDir(dir.path().join("state"));
+        let state = StateDir::at(dir.path().join("state"));
         let day = Duration::from_secs(86_400);
         let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
         assert!(state.update_check_due(now, day));
@@ -400,7 +428,7 @@ mod collection_tests {
     #[test]
     fn saved_collections_survive_missing_sources_and_non_utf8_names() {
         let temp = tempfile::tempdir().unwrap();
-        let dir = StateDir(temp.path().into());
+        let dir = StateDir::at(temp.path().into());
         let raw = PathBuf::from(std::ffi::OsString::from_vec(b"/work/raw-\xff".to_vec()));
         let entries =
             vec![borg_vfs::Entry::unavailable(raw.clone()), borg_vfs::Entry::unavailable("/missing/file".into())];

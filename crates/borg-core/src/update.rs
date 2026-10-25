@@ -41,6 +41,53 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Agent(event) => crate::agent::receive(state, event),
+        Msg::MountRemote { side, machine, session, name } => crate::remote::mount(state, side, machine, session, name),
+        Msg::RemoteConsoleOutput { echoed, machine, session, view, signals } => {
+            if state.console == (crate::Console::Remote { machine: machine.clone(), session: session.clone() }) {
+                let effects = signals.into_iter().flat_map(|signal| on_signal(state, signal)).collect();
+                state.shell.observe(view);
+                if echoed {
+                    state.shell.unechoed = false;
+                }
+                effects
+            } else {
+                if let Some(status) = state.remote_consoles.get_mut(&(machine, session)) {
+                    for signal in signals {
+                        status.note(&signal);
+                    }
+                    status.observe(view);
+                }
+                Vec::new()
+            }
+        }
+        Msg::RemoteConsoleClosed { machine, session, error } => {
+            state.remote_consoles.remove(&(machine.clone(), session.clone()));
+            state.failed_remote_console = Some((machine.clone(), session.clone()));
+            state.remote_console_failure = Some(error.clone());
+            if state.console == (crate::Console::Remote { machine, session }) {
+                state.shell = state.parked_host.take().unwrap_or_else(|| crate::ShellStatus::new(Default::default()));
+                state.console = crate::Console::Host;
+                state.view = View::Panels;
+                state.notice = Some(error);
+                vec![Effect::UseConsole(crate::Console::Host)]
+            } else {
+                Vec::new()
+            }
+        }
+        Msg::RemoteNames(result) => {
+            match result {
+                Ok(names) => {
+                    state.remote_names = names;
+                    crate::remote::apply_names(state);
+                }
+                Err(error) => state.notice = Some(error),
+            }
+            Vec::new()
+        }
+        Msg::RemoteCatalog { choices, complete } => {
+            crate::remote::catalog(state, choices, complete);
+            Vec::new()
+        }
         Msg::ParkedSignal { container, signal } => {
             crate::docker::parked_signal(state, container.as_deref(), &signal);
             Vec::new()
@@ -326,6 +373,10 @@ fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     if state.overlay.is_some() {
         return overlays::on_paste(state, text);
     }
+    if state.active_panel().remote_mount.is_some() && !state.console_owns_panel() {
+        state.notice = Some(crate::remote::blocked_console_notice(state));
+        return Vec::new();
+    }
     let mut effects = prepare_shell(state);
     effects.push(Effect::Write(encode_paste(text, state.shell.observed.mode)));
     state.shell.mark_typed();
@@ -333,6 +384,10 @@ fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
 }
 
 fn forward(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
+    if state.active_panel().remote_mount.is_some() && !state.console_owns_panel() {
+        state.notice = Some(crate::remote::blocked_console_notice(state));
+        return Vec::new();
+    }
     let shell_key = if !state.shell.busy() && !state.shell.captured() && key.modifiers == KeyModifiers::ALT {
         match key.code {
             KeyCode::Left => KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
@@ -383,7 +438,7 @@ fn sync_cwd(state: &mut AppState) -> Option<Effect> {
         return None;
     }
     let typed = CommandLine::program("cd").path(dir).submit_hidden();
-    let effect = if state.shell.silent_cd {
+    let effect = if state.shell.silent_cd && !matches!(state.console, crate::Console::Remote { .. }) {
         Effect::ChangeShellDir { dir: dir.to_path_buf(), typed }
     } else {
         Effect::Write(typed)

@@ -106,6 +106,10 @@ impl Emulator {
         crate::export::export(&self.term, max_lines)
     }
 
+    pub fn snapshot_ansi(&self) -> Vec<u8> {
+        crate::export::snapshot(&self.term)
+    }
+
     pub fn screen(&self) -> Screen<'_> {
         Screen { term: &self.term, input_start: self.input_start }
     }

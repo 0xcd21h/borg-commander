@@ -2,7 +2,7 @@ use crate::{Action, AfterCommand, AppState, ListingMode, Side, SortKey, ops::Arc
 use borg_i18n::tr;
 
 pub const FILE_MENU: usize = 1;
-pub const RIGHT_MENU: usize = 4;
+pub const RIGHT_MENU: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuItem {
@@ -67,6 +67,7 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
         panel_menu(tr!(left), state, Side::Left),
         file_menu(state),
         command_menu(state),
+        remote_menu(state),
         options_menu(state),
         panel_menu(tr!(right), state, Side::Right),
     ];
@@ -212,8 +213,22 @@ fn command_menu(state: &AppState) -> Menu {
             MenuEntry::Separator,
             item(tr!(show_shell), "C-o", Action::ToggleShell),
             MenuEntry::Separator,
-            item(tr!(connect_claude), "", Action::ConnectClaude),
             item(tr!(about_borg), "F1", Action::About),
+        ],
+    }
+}
+
+fn remote_menu(state: &AppState) -> Menu {
+    Menu {
+        title: tr!(remote_menu_title),
+        entries: vec![
+            item(tr!(remote_borgs), "M-r", Action::BrowseRemotes),
+            when(
+                item(tr!(remote_mirror_mounted), "M-S-M", Action::MirrorRemote),
+                state.panels.iter().any(|panel| panel.remote_mount.is_some()),
+            ),
+            MenuEntry::Separator,
+            item(tr!(remote_share_this_borg), "", Action::ConnectClaude),
         ],
     }
 }
@@ -277,7 +292,7 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 hint: "",
                 action: Action::ToggleDockerConsole,
                 checked: Some(state.settings.preferences.docker_console),
-                enabled: state.settings.preferences.docker_plugin,
+                enabled: true,
             },
             MenuItem {
                 label: tr!(agent_log_plugin_label),
@@ -369,7 +384,7 @@ fn results_menu(state: &AppState) -> Menu {
                     && panel.listing() == &crate::Listing::Loading,
             ),
             when(
-                item(if result { tr!(return_to_folder) } else { tr!(resume_results) }, "M-r", Action::BackResults),
+                item(if result { tr!(return_to_folder) } else { tr!(resume_results) }, "M-S-r", Action::BackResults),
                 if result {
                     state.result_history[state.active.index()].is_some()
                 } else {

@@ -61,6 +61,41 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
 
     let mounted = state.panel(side).mount.is_some();
     let other_mounted = state.panel(side.other()).mount.is_some();
+    let remote = state.panel(side).remote_mount.is_some();
+    let other_remote = state.panel(side.other()).remote_mount.is_some();
+    if (remote || other_remote)
+        && matches!(
+            action,
+            Action::Copy
+                | Action::Move
+                | Action::Delete
+                | Action::DeleteOriginals
+                | Action::Edit
+                | Action::Mkdir
+                | Action::Compress
+                | Action::ExtractHere
+                | Action::ExtractToOther
+                | Action::Collect
+                | Action::Git(_)
+                | Action::QuickView
+                | Action::Info
+                | Action::Search
+                | Action::AnalyzeSpace
+                | Action::FolderTree
+                | Action::CalculateSizes
+                | Action::OpenCollection
+                | Action::InsertName
+                | Action::InsertPath(_)
+                | Action::MeasureSizes
+                | Action::RefreshSizes
+                | Action::RevealOriginal
+                | Action::RemoveReferences
+        )
+    {
+        state.notice =
+            Some("Remote file operations are available through borg get/put; the panel is read-only.".into());
+        return Vec::new();
+    }
     if mounted
         && matches!(
             action,
@@ -175,6 +210,28 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => toggle_shell(state),
+        Action::MirrorRemote => {
+            let mounted = state.panels.iter().find_map(|panel| panel.remote_mount.as_ref());
+            match mounted {
+                Some(mount) => {
+                    vec![Effect::MirrorRemote { machine: mount.machine.clone(), session: mount.session.clone() }]
+                }
+                None => {
+                    state.notice = Some("Open Remote Borgs with Alt-R, then choose a session to mirror.".into());
+                    Vec::new()
+                }
+            }
+        }
+        Action::BrowseRemotes => {
+            state.overlay = Some(Overlay::Remotes(crate::RemoteBrowser {
+                side: state.active,
+                choices: Vec::new(),
+                selected: 0,
+                loading: true,
+            }));
+            vec![Effect::OpenRemotes]
+        }
+        Action::ApprovalModeOff => vec![Effect::ApprovalModeOff],
         Action::SwitchPanel if state.aside.is_some() => {
             state.preview_focused = !state.preview_focused;
             Vec::new()
@@ -265,6 +322,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::View if mounted => {
             hovered_file(state).map(|path| crate::docker::view(state, &path)).unwrap_or_default()
         }
+        Action::View if remote => remote_view(state, side),
         Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
         Action::Edit => edit(state),
         Action::Copy if mounted || other_mounted => {
@@ -403,6 +461,10 @@ fn prompt(state: &mut AppState, title: &'static str, label: &str, value: &str, p
 }
 
 fn toggle_shell(state: &mut AppState) -> Vec<Effect> {
+    if state.view == View::Panels && state.active_panel().remote_mount.is_some() && !state.console_owns_panel() {
+        state.notice = Some(crate::remote::blocked_console_notice(state));
+        return Vec::new();
+    }
     match state.view {
         View::Panels => {
             state.view = View::Shell;
@@ -426,6 +488,7 @@ fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
         }
         Some(Row::Parent) => leave(state, side).into_iter().collect(),
         Some(Row::Entry(entry)) if entry.is_dir() => descend(state, side).into_iter().collect(),
+        Some(Row::Entry(_)) if panel.remote_mount.is_some() => remote_view(state, side),
         Some(Row::Entry(entry)) if panel.mount.is_some() => {
             let path = entry.path(panel.dir());
             crate::docker::view(state, &path)
@@ -455,6 +518,9 @@ fn descend(state: &mut AppState, side: Side) -> Option<Effect> {
 }
 
 fn leave(state: &mut AppState, side: Side) -> Option<Effect> {
+    if state.panel(side).remote_mount.is_some() && state.panel(side).dir().parent().is_none() {
+        return crate::remote::unmount(state, side);
+    }
     if state.panel(side).mount.is_some() && state.panel(side).dir().parent().is_none() {
         return crate::docker::unmount(state, side);
     }
@@ -498,6 +564,21 @@ fn selected_names(panel: &Panel) -> Vec<String> {
 fn hovered_file(state: &AppState) -> Option<std::path::PathBuf> {
     let panel = state.active_panel();
     panel.hovered_entry().filter(|entry| !entry.is_dir()).map(|entry| entry.path(panel.dir()))
+}
+
+fn remote_view(state: &AppState, side: Side) -> Vec<Effect> {
+    let panel = state.panel(side);
+    let Some(mount) = &panel.remote_mount else { return Vec::new() };
+    panel
+        .hovered_entry()
+        .filter(|entry| !entry.is_dir())
+        .map(|entry| Effect::RemoteView {
+            machine: mount.machine.clone(),
+            session: mount.session.clone(),
+            path: entry.path(panel.dir()),
+        })
+        .into_iter()
+        .collect()
 }
 
 fn edit(state: &mut AppState) -> Vec<Effect> {

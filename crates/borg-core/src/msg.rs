@@ -53,6 +53,29 @@ pub enum Msg {
         container: String,
     },
     Agent(crate::AgentEvent),
+    RemoteConsoleOutput {
+        echoed: bool,
+        machine: String,
+        session: String,
+        view: ShellView,
+        signals: Vec<ShellSignal>,
+    },
+    RemoteConsoleClosed {
+        machine: String,
+        session: String,
+        error: String,
+    },
+    RemoteNames(Result<crate::RemoteNames, String>),
+    RemoteCatalog {
+        choices: Vec<crate::RemoteChoice>,
+        complete: bool,
+    },
+    MountRemote {
+        side: Side,
+        machine: String,
+        session: String,
+        name: String,
+    },
     /// A signal from a shell that is not the console: the host's, or a container's.
     ParkedSignal {
         container: Option<String>,
@@ -132,6 +155,23 @@ pub enum Effect {
     DockerShell(crate::ShellRequest),
     /// The command line and Ctrl-O console now belong to this shell.
     UseConsole(crate::Console),
+    MirrorRemote {
+        machine: String,
+        session: String,
+    },
+    OpenRemotes,
+    SaveRemoteName {
+        identity: String,
+        session: Option<String>,
+        name: String,
+    },
+    MountRemote {
+        side: Side,
+        machine: String,
+        session: String,
+        name: String,
+    },
+    ApprovalModeOff,
     /// The user's answer to an agent's command.
     AgentAnswer {
         id: u64,
@@ -179,6 +219,11 @@ pub enum Effect {
     },
     ScrollConsole(Scroll),
     View(PathBuf),
+    RemoteView {
+        machine: String,
+        session: String,
+        path: PathBuf,
+    },
     SaveConfig,
     StartJob {
         id: u64,

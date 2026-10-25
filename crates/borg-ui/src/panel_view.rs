@@ -66,8 +66,10 @@ pub struct Activity {
 }
 
 pub struct PanelScene<'a> {
+    pub state: &'a borg_core::AppState,
     pub expanded: bool,
     pub panel: &'a Panel,
+    pub client_of_remote: bool,
     pub active: bool,
     pub area: Rect,
     pub motion: &'a PanelMotion,
@@ -184,14 +186,25 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
     Line::from(spans)
 }
 
-/// The folder path as breadcrumbs. A container's filesystem leads with the container's name,
-/// so it never passes for a host folder.
+/// The folder path as breadcrumbs. Container and remote panels lead with their source,
+/// so they never pass for a local folder.
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
     let mount = scene.panel.mount.as_ref();
-    let label = mount.map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name));
+    let label = mount
+        .map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name))
+        .or_else(|| {
+            scene.panel.remote_mount.as_ref().map(|remote| {
+                format!(
+                    " ◈ Host {}:{} ",
+                    scene.state.remote_host_name(&remote.machine),
+                    scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name)
+                )
+            })
+        })
+        .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
-    let home = if mount.is_some() { None } else { scene.home };
+    let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };
     let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), home), width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);
     let separator = Style { fg: separator.fg, ..style.remove_modifier(Modifier::BOLD) };
@@ -234,7 +247,7 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     };
     let line = match (scene.spinner, &scene.activity, panel.listing()) {
         (Some(spinner), Some(activity), _) => spinning(spinner, activity.label.clone()),
-        (Some(spinner), None, Listing::Loading) => spinning(spinner, format!(tr!(loading), panel.received())),
+        (Some(spinner), None, _) if panel.loading() => spinning(spinner, format!(tr!(loading), panel.received())),
         (_, _, Listing::Ready | Listing::Loading) => {
             let git = if let Some(repository) = panel.git_repository() {
                 format!(tr!(panel_view_git), repository.branch)

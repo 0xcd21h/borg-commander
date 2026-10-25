@@ -76,7 +76,7 @@ pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
 }
 
 pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
-    if state.active_panel().mount.is_some() {
+    if state.active_panel().mount.is_some() || state.active_panel().remote_mount.is_some() {
         state.aside = None;
     }
     let aside = state.aside?;

@@ -10,8 +10,14 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 const CONTRAST: u32 = 140_000;
-pub(crate) fn label(width: u16) -> &'static str {
-    if usize::from(width) >= tr!(borg_badge).width() + 2 { tr!(borg_badge) } else { tr!(borg_brand_short) }
+pub(crate) fn label(width: u16) -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let full = format!("{} v{version}", tr!(borg_badge));
+    if usize::from(width) >= full.width() + 2 {
+        return full;
+    }
+    let short = format!("{} v{version}", tr!(borg_brand_short));
+    if usize::from(width) >= short.width() + 2 { short } else { tr!(borg_brand_short).to_owned() }
 }
 pub(crate) fn content(area: Rect) -> Rect {
     let width = (label(area.width).width() as u16 + 2).min(area.width);
@@ -23,7 +29,8 @@ pub(crate) fn draw(area: Rect, theme: &Theme, palette: &Palette, buf: &mut Buffe
     }
     let width = area.width.saturating_sub(content(area).width);
     let badge = Rect { x: area.right() - width, y: area.bottom() - 1, width, height: 1 };
-    let value = if width < 6 { label(area.width).to_owned() } else { format!(" {} ", label(area.width)) };
+    let label = label(area.width);
+    let value = if width < 6 { label } else { format!(" {label} ") };
     let look = Look { theme, palette, t: 0.0 };
     let gradient = look.accent();
     let spans = value

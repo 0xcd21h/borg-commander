@@ -63,6 +63,8 @@ pub enum AskKind {
     /// Another computer asks to read, while the user wants those reads approved.
     Read,
     Upload,
+    /// A paired computer asks to run commands and change files without individual prompts.
+    ApprovalMode,
 }
 
 /// What an agent asks to do, as the approval dialog shows it.
@@ -158,6 +160,8 @@ pub struct Agent {
     pub pairing: Option<Result<String, String>>,
     /// The computers paired with this borg through borg cloud.
     pub computers: Vec<String>,
+    /// Paired computers whose changes this session currently approves automatically.
+    pub auto_approve: Vec<String>,
 }
 
 impl Agent {

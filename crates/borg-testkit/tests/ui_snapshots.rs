@@ -830,8 +830,11 @@ fn mouse_targets_match_the_drawn_menu_and_brief_rows() -> Result<()> {
     let (x, y) = screen.find("9Menu").unwrap();
     assert!(matches!(hit(&stage, x, y), Some(Msg::Pointer(Pointer::Action(borg_core::Action::OpenMenuBar)))));
     stage.send(hit(&stage, x, y).unwrap());
-    assert!(matches!(hit(&stage, 29, 0), Some(Msg::Pointer(Pointer::Menu(3)))));
-    stage.send(hit(&stage, 29, 0).unwrap());
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (x, y) = screen.find("Options").unwrap();
+    assert!(matches!(hit(&stage, x, y), Some(Msg::Pointer(Pointer::Menu(4)))));
+    stage.send(hit(&stage, x, y).unwrap());
     let buffer = stage.render(stage.started)?;
     let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
     let (x, y) = screen.find("Theme…").unwrap();
@@ -1145,7 +1148,7 @@ fn discovery_mouse_targets_and_tiny_windows() -> Result<()> {
     let bar = stage.state.layout(stage.started).keybar;
     assert!(matches!(
         borg_ui::mouse_input(&stage.state, click(bar.x, bar.y + 1), false, stage.started),
-        Some(Msg::Pointer(Pointer::Action(Action::Search)))
+        Some(Msg::Pointer(Pointer::Action(Action::BrowseRemotes)))
     ));
     stage.send(Msg::Pointer(Pointer::Action(Action::Quit)));
     let buffer = stage.render(stage.started)?;
@@ -1240,7 +1243,7 @@ fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Res
     assert_eq!(footer.height, 2);
     assert_eq!(footer.bottom(), stage.state.rows);
     assert!(screen.lines()[usize::from(footer.y)].contains("F1Help"));
-    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Alt-I Count sizes"));
+    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Alt-R Remote hosts"));
     assert!(!screen.lines()[0].contains("Ctrl-F Search"));
     let (x, y) = screen.find("Ctrl-F Search").unwrap();
     assert!(matches!(
@@ -2184,4 +2187,125 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
     check("pairing_code", &stage, buffer)
+}
+
+#[test]
+fn remote_console_names_the_host_and_session_and_mounts_the_right_panel() -> Result<()> {
+    use borg_core::Side;
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    stage.state.active = Side::Right;
+    stage.send(Msg::MountRemote {
+        side: Side::Right,
+        machine: "prod".into(),
+        session: "session-id".into(),
+        name: "Deploy".into(),
+    });
+    let generation = stage.state.panel(Side::Right).generation();
+    stage.send(Msg::Batch {
+        side: Side::Right,
+        generation,
+        entries: vec![entry("etc", EntryKind::Dir, 4096, RECENT, false)],
+    });
+    stage.send(Msg::Listed { side: Side::Right, generation, error: None });
+    stage.emulator.feed(b"\x1b[2J\x1b[Hremote:/# ");
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Host prod:Deploy")?;
+    check("remote_console_panels", &stage, buffer)?;
+    stage.send(ctrl('o'));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Host prod:Deploy console")?;
+    check("remote_console", &stage, buffer)
+}
+
+#[test]
+fn remote_console_failure_remains_visible_when_typing() -> Result<()> {
+    use borg_core::Side;
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    stage.send(Msg::MountRemote {
+        side: Side::Left,
+        machine: "prod".into(),
+        session: "id".into(),
+        name: "Deploy".into(),
+    });
+    let error = "Host prod does not support remote consoles. Update and restart its Borg binary.";
+    stage.send(Msg::RemoteConsoleClosed { machine: "prod".into(), session: "id".into(), error: error.into() });
+    stage.send(key(KeyCode::Char('a')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, error)?;
+    check("remote_console_failure", &stage, buffer)
+}
+
+#[test]
+fn raw_remote_app_owns_the_screen_without_using_an_alternate_buffer() -> Result<()> {
+    use borg_core::{ShellView, Side};
+    let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
+    stage.send(Msg::MountRemote {
+        side: Side::Left,
+        machine: "prod".into(),
+        session: "id".into(),
+        name: "Deploy".into(),
+    });
+    stage.emulator.feed(
+        b"\x1b[2J\x1b[Htop - remote host\r\nPID  USER      COMMAND\r\n123  admin     worker\r\n456  admin     top",
+    );
+    stage.send(Msg::Observe(ShellView {
+        foreground: borg_term::Foreground::Program,
+        raw_input: true,
+        ..Default::default()
+    }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "top - remote host")?;
+    ensure_text(&buffer, "Host prod:Deploy console")?;
+    ensure_text(&buffer, "program running")?;
+    check("remote_raw_app", &stage, buffer)
+}
+
+#[test]
+fn remote_labels_are_visible_in_picker_rename_prompt_panels_and_console() -> Result<()> {
+    use borg_core::{RemoteChoice, RemoteHostInfo, RemoteNames, Side};
+    let mut stage = stage(GridSize { cols: 130, rows: 28 }, Motion::STILL)?;
+    let choices = vec![RemoteChoice {
+        identity: "paired-key".into(),
+        machine: "66b791da6ce5".into(),
+        session: Some("default".into()),
+        name: "Default".into(),
+        info: RemoteHostInfo {
+            version: Some("0.8.0".into()),
+            platform: Some("linux / x86_64".into()),
+            service: Some(true),
+            latency_ms: Some(172),
+            relay: "wss://relay.example".into(),
+        },
+        ..Default::default()
+    }];
+    let mut names = RemoteNames::default();
+    names.set("paired-key", None, "Docker Lab").unwrap();
+    names.set("paired-key", Some("default"), "Deploy").unwrap();
+    stage.send(Msg::RemoteNames(Ok(names)));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog { choices, complete: true });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Host Docker Lab · Deploy · v0.8.0")?;
+    ensure_text(&buffer, "Original host: 66b791da6ce5 · Session: Default")?;
+    ensure_text(&buffer, "F2: rename host")?;
+    check("remote_labels_picker", &stage, buffer)?;
+    stage.send(key(KeyCode::F(2)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Rename host label")?;
+    ensure_text(&buffer, "Docker Lab")?;
+    check("remote_labels_prompt", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    stage.send(Msg::MountRemote {
+        side: Side::Left,
+        machine: "66b791da6ce5".into(),
+        session: "default".into(),
+        name: "Default".into(),
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Host Docker Lab:Deploy")?;
+    check("remote_labels_panels", &stage, buffer)?;
+    stage.send(ctrl('o'));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Host Docker Lab:Deploy console")?;
+    check("remote_labels_console", &stage, buffer)
 }

@@ -52,6 +52,14 @@ impl Pty {
         self.master.resize(size.into())
     }
 
+    pub fn raw_input(&self) -> bool {
+        self.foreground() == Foreground::Program
+            && self
+                .master
+                .get_termios()
+                .is_some_and(|termios| termios.local_flags.bits() & rustix::termios::LocalModes::ICANON.bits() == 0)
+    }
+
     pub fn foreground(&self) -> Foreground {
         let shell = self.child.process_id().and_then(|pid| i32::try_from(pid).ok());
         match (self.master.process_group_leader(), shell) {

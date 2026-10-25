@@ -56,10 +56,10 @@ pub struct Call {
     pub args: Value,
     /// The paired computer a call came from through borg cloud; `None` for this machine.
     /// Never read from the wire, so a client cannot claim another's name.
-    #[serde(skip)]
+    #[serde(default)]
     pub origin: Option<String>,
     /// The user already approved this call, as a read from another computer.
-    #[serde(skip)]
+    #[serde(default)]
     pub approved: bool,
 }
 
@@ -79,6 +79,8 @@ impl Call {
     /// A call as it may come from outside: internal tools are refused, and internal arguments
     /// (such as a container already looked up) are left out, so a client cannot pass them off.
     pub fn external(mut self) -> Result<Self, Reply> {
+        self.origin = None;
+        self.approved = false;
         if self.tool.starts_with(INTERNAL) {
             return Err(Reply::error(format!("unknown tool {}", self.tool)));
         }
@@ -230,6 +232,9 @@ pub enum Work {
         spot: Spot,
         size: u64,
     },
+    ApprovalMode {
+        origin: String,
+    },
 }
 
 /// Where an agent's command runs.
@@ -288,16 +293,20 @@ pub fn note(messages: &UnboundedSender<Msg>, entry: &str) {
 }
 
 impl Agent {
-    pub fn start(runtime_dir: &Path, messages: UnboundedSender<Msg>) -> Self {
+    pub fn start(runtime_dir: &Path, session_id: Option<&str>, messages: UnboundedSender<Msg>) -> Self {
         let (calls, incoming) = unbounded_channel();
         let pid = std::process::id();
         let clients = Arc::new(AtomicUsize::new(0));
         let socket = socket_dir(runtime_dir).ok().and_then(|dir| {
-            let socket = dir.join(format!("{SOCKET_PREFIX}{pid}{SOCKET_SUFFIX}"));
+            let socket = dir.join(match session_id {
+                Some(id) => format!("{SOCKET_PREFIX}{id}-{pid}{SOCKET_SUFFIX}"),
+                None => format!("{SOCKET_PREFIX}{pid}{SOCKET_SUFFIX}"),
+            });
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone()));
+            let service_child = std::env::var_os("BORG_SERVICE_CHILD").is_some();
+            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service_child));
             Some(socket)
         });
         Self { incoming, requeue: calls, socket, messages, clients, waiting: HashMap::new(), next_id: 0 }
@@ -340,6 +349,7 @@ impl Agent {
             Work::Pair { name } => format!("declined pairing with {name}"),
             Work::Forward(call) => format!("declined a {} from {}", call.tool, call.origin.as_deref().unwrap_or("?")),
             Work::Upload { spot, .. } => format!("declined an upload to {}", spot.uri()),
+            Work::ApprovalMode { origin } => format!("declined Approve all for {origin}"),
         };
         self.note(&what);
         let _ = reply.send(Reply::error("The user declined this."));
@@ -516,6 +526,7 @@ async fn accept(
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
+    service_child: bool,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
@@ -523,7 +534,7 @@ async fn accept(
         note(&messages, "an agent connected");
         let (calls, messages, clients) = (calls.clone(), messages.clone(), clients.clone());
         tokio::spawn(async move {
-            let _ = serve_connection(stream, &calls).await;
+            let _ = serve_connection(stream, &calls, service_child).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
             let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
             note(&messages, "an agent disconnected");
@@ -531,11 +542,17 @@ async fn accept(
     }
 }
 
-async fn serve_connection(stream: UnixStream, calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>) -> Result<()> {
+async fn serve_connection(
+    stream: UnixStream,
+    calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>,
+    service_child: bool,
+) -> Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let reply = match serde_json::from_str::<Call>(&line).map(Call::external) {
+        let decoded =
+            serde_json::from_str::<Call>(&line).map(|call| if service_child { Ok(call) } else { call.external() });
+        let reply = match decoded {
             Ok(Ok(call)) => {
                 let (sender, receiver) = oneshot::channel();
                 calls.send((call, sender)).context("the session closed")?;
@@ -624,6 +641,7 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         }
     }
     let shell = match &state.console {
+        Console::Remote { machine, session } => format!("remote shell on {machine}:{session}"),
         Console::Host => format!("host shell in {}", state.shell.cwd.display()),
         Console::Container(_) => format!("the {} container's shell", state.console_container().unwrap_or_default()),
     };
@@ -787,6 +805,11 @@ fn tools() -> Value {
             "name": "type",
             "description": "Types `text` at the cursor of whatever runs in Borg's console (what Ctrl-O shows): the shell's command line, or an editor such as vim or nano. Nothing runs: Enter is never pressed, text with several lines goes in as a paste, and control keys are left out, so the user reviews the text, corrects it if needed, and runs or saves it. Use it to suggest a command the user runs, or to put a script into the editor the user has open. It is refused where the program there cannot take pasted text safely.",
             "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+        },
+        {
+            "name": "approval_mode",
+            "description": "Requests Approve all for this paired computer in the selected Borg session, or turns it off. Enabling requires the user's approval in Borg. While enabled, this computer's commands, edits, and uploads run without separate prompts. It ends when this connection closes.",
+            "inputSchema": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "required": ["enabled"] },
         }
     ])
 }
@@ -824,14 +847,18 @@ pub fn processes(sample: &borg_core::SystemSample, by_cpu: bool, shown: usize) -
 }
 
 /// The newest session that answers, among the sockets in the agent folder.
-async fn connect(runtime_dir: &Path) -> Result<UnixStream> {
+async fn connect(runtime_dir: &Path, session_id: Option<&str>) -> Result<UnixStream> {
     let dir = socket_dir(runtime_dir)?;
     let mut sockets: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(&dir)?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            name.starts_with(SOCKET_PREFIX) && name.ends_with(SOCKET_SUFFIX)
+            if let Some(id) = session_id {
+                name.starts_with(&format!("{SOCKET_PREFIX}{id}-")) && name.ends_with(SOCKET_SUFFIX)
+            } else {
+                name.starts_with(SOCKET_PREFIX) && name.ends_with(SOCKET_SUFFIX)
+            }
         })
         .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
         .collect();
@@ -844,18 +871,18 @@ async fn connect(runtime_dir: &Path) -> Result<UnixStream> {
     bail!("no session")
 }
 
-struct Session {
+pub(crate) struct Session {
     lines: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
     write: tokio::net::unix::OwnedWriteHalf,
 }
 
 impl Session {
-    async fn open(runtime_dir: &Path) -> Option<Self> {
-        let (read, write) = connect(runtime_dir).await.ok()?.into_split();
+    pub(crate) async fn open(runtime_dir: &Path, session_id: Option<&str>) -> Option<Self> {
+        let (read, write) = connect(runtime_dir, session_id).await.ok()?.into_split();
         Some(Self { lines: BufReader::new(read).lines(), write })
     }
 
-    async fn call(&mut self, call: &Call) -> Option<Reply> {
+    pub(crate) async fn call(&mut self, call: &Call) -> Option<Reply> {
         self.write.write_all(format!("{}\n", serde_json::to_string(call).ok()?).as_bytes()).await.ok()?;
         serde_json::from_str(&self.lines.next_line().await.ok()??).ok()
     }
@@ -864,8 +891,193 @@ impl Session {
 /// Where `borg mcp` sends the calls it gets: the borg open on this machine, or a paired
 /// borg reached through borg cloud.
 enum Backend {
-    Local { runtime_dir: PathBuf, session: Option<Session> },
+    Local { runtime_dir: PathBuf, session_id: String, session: Option<Session> },
     Remote { state: PathBuf, server: crate::link::Server, remote: Option<Box<crate::link::Remote>> },
+    Routing(Router),
+}
+
+/// One MCP connection can address this computer or any server paired with it. Selection is
+/// private to this MCP process, so two agents cannot silently redirect each other's calls.
+struct Router {
+    runtime_dir: PathBuf,
+    state: Option<PathBuf>,
+    selected: String,
+    locals: HashMap<String, Session>,
+    remotes: HashMap<String, Box<crate::link::Remote>>,
+}
+
+impl Router {
+    fn servers(&self) -> Vec<crate::link::Server> {
+        self.state.as_deref().map(crate::link::servers).unwrap_or_default()
+    }
+
+    fn local_sessions(&self) -> Vec<crate::sessions::NamedSession> {
+        self.state
+            .as_ref()
+            .map(|state| crate::sessions::list(&crate::session::StateDir::at(state.clone())).unwrap_or_default())
+            .filter(|sessions| !sessions.is_empty())
+            .unwrap_or_else(|| {
+                vec![crate::sessions::NamedSession {
+                    id: "default".into(),
+                    name: "Default".into(),
+                    archived: false,
+                    last_opened: 0,
+                }]
+            })
+    }
+
+    fn resolve(&self, text: &str) -> Result<String, String> {
+        if let Some((machine, session)) = text.strip_prefix("remote:").and_then(|rest| rest.split_once('/'))
+            && !session.is_empty()
+            && self.servers().iter().any(|server| server.name == machine)
+        {
+            return Ok(format!("remote:{machine}/{session}"));
+        }
+        let local_matches: Vec<_> = self
+            .local_sessions()
+            .into_iter()
+            .filter(|session| text == format!("local:{}", session.id) || text == session.id || text == session.name)
+            .collect();
+        if text == "local" {
+            return Ok(format!(
+                "local:{}",
+                self.local_sessions()
+                    .into_iter()
+                    .filter(|session| !session.archived)
+                    .max_by_key(|session| session.last_opened)
+                    .map_or_else(|| "default".into(), |session| session.id)
+            ));
+        }
+        let servers = self.servers();
+        let remote_matches: Vec<_> =
+            servers.iter().filter(|server| text == format!("remote:{}", server.name) || text == server.name).collect();
+        match (local_matches.as_slice(), remote_matches.as_slice()) {
+            ([session], []) => Ok(format!("local:{}", session.id)),
+            ([], [server]) => Ok(format!("remote:{}", server.name)),
+            ([], []) => Err(format!("No session named {text}. Call list_sessions to see available targets.")),
+            _ => Err(format!("{text} is ambiguous. Use the full session ID from list_sessions.")),
+        }
+    }
+
+    async fn call(&mut self, call: &Call) -> Reply {
+        match call.tool.as_str() {
+            "list_sessions" => {
+                let mut lines: Vec<_> = self
+                    .local_sessions()
+                    .into_iter()
+                    .map(|session| {
+                        format!(
+                            "local:{}  {}  {}{}",
+                            session.id,
+                            hostname(),
+                            session.name,
+                            if session.archived { " (archived)" } else { "" }
+                        )
+                    })
+                    .collect();
+                lines.extend(
+                    self.servers().into_iter().map(|server| format!("remote:{}  {}", server.name, server.relay)),
+                );
+                return Reply::ok(lines.join("\n"));
+            }
+            "use_session" => {
+                let Some(name) = call.args["session"].as_str() else {
+                    return Reply::error("use_session needs a session ID or name from list_sessions");
+                };
+                return match self.resolve(name) {
+                    Ok(id) => {
+                        self.selected = id.clone();
+                        Reply::ok(format!("Selected {id} for this MCP connection."))
+                    }
+                    Err(error) => Reply::error(error),
+                };
+            }
+            "list_remote_sessions" => {
+                let Some(machine) = call.args["server"].as_str() else {
+                    return Reply::error("list_remote_sessions needs a paired server name");
+                };
+                let Some(server) = self.servers().into_iter().find(|server| server.name == machine) else {
+                    return Reply::error(format!("no paired server named {machine}"));
+                };
+                let Some(state) = self.state.as_ref() else {
+                    return Reply::error("Borg has no state folder for paired servers");
+                };
+                let key = format!("remote:{machine}");
+                if !self.remotes.contains_key(&key) {
+                    match crate::link::Remote::open(state, &server).await {
+                        Ok(open) => {
+                            self.remotes.insert(key.clone(), Box::new(open));
+                        }
+                        Err(error) => return Reply::error(format!("{error:#}")),
+                    }
+                }
+                let reply = self
+                    .remotes
+                    .get_mut(&key)
+                    .expect("opened remote")
+                    .call(&Call::new("list_sessions", json!({})))
+                    .await;
+                return match reply {
+                    Ok(reply) if reply.ok => Reply::ok(
+                        reply
+                            .text
+                            .lines()
+                            .map(|line| format!("remote:{machine}/{line}"))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    ),
+                    Ok(reply) => reply,
+                    Err(error) => {
+                        self.remotes.remove(&key);
+                        Reply::error(format!("{error:#}"))
+                    }
+                };
+            }
+            _ => {}
+        }
+        let requested = call.args["session"].as_str().unwrap_or(&self.selected);
+        let target = match self.resolve(requested) {
+            Ok(id) => id,
+            Err(error) => return Reply::error(error),
+        };
+        let mut routed = call.clone();
+        if let Value::Object(args) = &mut routed.args {
+            args.remove("session");
+        }
+        if let Some(id) = target.strip_prefix("local:") {
+            let mut backend = Backend::Local {
+                runtime_dir: self.runtime_dir.clone(),
+                session_id: id.into(),
+                session: self.locals.remove(id),
+            };
+            let reply = Box::pin(backend.call(&routed)).await;
+            if let Backend::Local { session: Some(session), .. } = backend {
+                self.locals.insert(id.into(), session);
+            }
+            return reply;
+        }
+        let Some(state) = self.state.as_ref() else {
+            return Reply::error("Borg has no state folder for paired servers");
+        };
+        let remote_target = target.trim_start_matches("remote:");
+        let (name, remote_session) =
+            remote_target.split_once('/').map_or((remote_target, None), |(name, id)| (name, Some(id)));
+        let Some(server) = self.servers().into_iter().find(|server| server.name == name) else {
+            return Reply::error(format!("{target} is no longer paired"));
+        };
+        if let Some(id) = remote_session
+            && let Value::Object(args) = &mut routed.args
+        {
+            args.insert("session".into(), json!(id));
+        }
+        let cache_key = format!("remote:{name}");
+        let mut backend = Backend::Remote { state: state.clone(), server, remote: self.remotes.remove(&cache_key) };
+        let reply = Box::pin(backend.call(&routed)).await;
+        if let Backend::Remote { remote: Some(remote), .. } = backend {
+            self.remotes.insert(cache_key, remote);
+        }
+        reply
+    }
 }
 
 impl Backend {
@@ -879,6 +1091,10 @@ impl Backend {
                 "Borg Commander is a terminal file manager the user has open on {}, which these tools reach through borg cloud, encrypted end to end. They see what the user sees there and work on that machine; `download` and `upload` copy files between it and this computer, where you run. Every command and change waits for the user's approval in Borg, so explain what you want to do and why.",
                 server.name
             ),
+            Self::Routing(_) => format!(
+                "Borg Commander can work in the local session on {} or a paired remote. Call list_sessions, then use_session to choose the target for this MCP connection. Every tool also accepts an optional session ID to override the target for one call. Commands and changes wait for approval in the target Borg.",
+                hostname()
+            ),
         }
     }
 
@@ -887,14 +1103,24 @@ impl Backend {
         if let (Self::Remote { .. }, Value::Array(list)) = (self, &mut tools) {
             list.extend(transfer_tools());
         }
+        if let (Self::Routing(_), Value::Array(list)) = (self, &mut tools) {
+            list.extend(transfer_tools());
+            list.extend(routing_tools());
+            for tool in list.iter_mut() {
+                tool["inputSchema"]["properties"]["session"] = json!({
+                    "type": "string",
+                    "description": "Target ID from list_sessions. Overrides the session selected with use_session for this call."
+                });
+            }
+        }
         tools
     }
 
     async fn call(&mut self, call: &Call) -> Reply {
         match self {
-            Self::Local { runtime_dir, session } => {
+            Self::Local { runtime_dir, session_id, session } => {
                 if session.is_none() {
-                    *session = Session::open(runtime_dir).await;
+                    *session = Session::open(runtime_dir, Some(session_id)).await;
                 }
                 let mut reply = match session.as_mut() {
                     Some(open) => open.call(call).await,
@@ -902,7 +1128,7 @@ impl Backend {
                 };
                 if reply.is_none() {
                     // The session may have restarted: try the newest one once more.
-                    *session = Session::open(runtime_dir).await;
+                    *session = Session::open(runtime_dir, Some(session_id)).await;
                     if let Some(open) = session.as_mut() {
                         reply = open.call(call).await;
                     }
@@ -937,8 +1163,37 @@ impl Backend {
                 }
                 Reply::error(format!("borg on {} is not reachable", server.name))
             }
+            Self::Routing(router) => router.call(call).await,
         }
     }
+}
+
+fn routing_tools() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "list_sessions",
+            "description": "Lists the local Borg and all paired remote targets with the IDs to use for subsequent calls.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": "use_session",
+            "description": "Selects the target for subsequent calls on this MCP connection. Other MCP connections are unaffected.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "session": { "type": "string" } },
+                "required": ["session"]
+            }
+        }),
+        json!({
+            "name": "list_remote_sessions",
+            "description": "Lists named Borg sessions on one paired server and returns IDs for use_session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "server": { "type": "string" } },
+                "required": ["server"]
+            }
+        }),
+    ]
 }
 
 /// The tools only `borg mcp remote` offers: it runs on the user's computer, so it can copy
@@ -989,7 +1244,7 @@ async fn transfer_download(remote: &mut crate::link::Remote, call: &Call) -> Res
     if to.is_dir() {
         to = to.join(name);
     }
-    match crate::link::download(remote, path, &to, |_, _| {}).await {
+    match crate::link::download_in_session(remote, call.args["session"].as_str(), path, &to, |_, _| {}).await {
         Ok(size) => Ok(Reply::ok(format!("Downloaded {path} ({size} bytes) to {}", to.display()))),
         Err(error) if error.downcast_ref::<std::io::Error>().is_some() => Ok(Reply::error(format!("{error:#}"))),
         Err(error) => Err(error),
@@ -1004,17 +1259,38 @@ async fn transfer_upload(remote: &mut crate::link::Remote, call: &Call) -> Resul
     if !from.is_file() {
         return Ok(Reply::error(format!("{} is not a file on this computer", from.display())));
     }
-    match crate::link::upload(remote, &from, to, |_, _| {}).await {
+    match crate::link::upload_in_session(remote, call.args["session"].as_str(), &from, to, |_, _| {}).await {
         Ok(size) => Ok(Reply::ok(format!("Uploaded {} ({size} bytes) to {to}", from.display()))),
         Err(error) => Ok(Reply::error(format!("{error:#}"))),
     }
 }
 
-/// `borg mcp`: an MCP server on stdin and stdout for the Borg session open on this machine.
+/// `borg mcp`: one MCP server for this machine and every server paired with it.
 pub async fn serve(runtime_dir: PathBuf) -> Result<()> {
-    // Connects at once, so borg shows that Claude connected before its first call.
-    let session = Session::open(&runtime_dir).await;
-    serve_with(Backend::Local { runtime_dir, session }).await
+    let state = crate::session::StateDir::locate().map(|dir| dir.path().to_path_buf());
+    let mut selected = state
+        .as_ref()
+        .and_then(|root| crate::sessions::list(&crate::session::StateDir::at(root.clone())).ok())
+        .and_then(|sessions| {
+            sessions.into_iter().filter(|session| !session.archived).max_by_key(|session| session.last_opened)
+        })
+        .map_or_else(|| "local:default".to_owned(), |session| format!("local:{}", session.id));
+    // Connects at once, so the selected borg shows that Claude connected before its first call.
+    let mut locals = HashMap::new();
+    let mut open = Session::open(&runtime_dir, selected.strip_prefix("local:")).await;
+    if open.is_none() {
+        // The MCP process may have a different state-folder environment from the terminal
+        // that launched Borg. The runtime socket is still the authority for the live session.
+        selected = "local:default".into();
+        open = Session::open(&runtime_dir, Some("default")).await;
+        if open.is_none() {
+            open = Session::open(&runtime_dir, None).await;
+        }
+    }
+    if let Some(session) = open {
+        locals.insert(selected.trim_start_matches("local:").to_owned(), session);
+    }
+    serve_with(Backend::Routing(Router { runtime_dir, state, selected, locals, remotes: HashMap::new() })).await
 }
 
 /// `borg mcp remote NAME`: the same for a borg paired through borg cloud.
@@ -1091,6 +1367,36 @@ pub fn setup(host: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_calls_cannot_claim_an_origin_or_prior_approval() {
+        let forged: Call = serde_json::from_value(json!({
+            "tool": "run", "args": { "command": "true" }, "origin": "trusted", "approved": true
+        }))
+        .unwrap();
+        let checked = forged.external().unwrap();
+        assert!(checked.origin.is_none());
+        assert!(!checked.approved);
+    }
+
+    #[test]
+    fn router_resolves_named_local_sessions_without_redirecting_other_connections() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::session::StateDir::at(temp.path().join("state"));
+        let _ = crate::sessions::ensure_default(&state).unwrap();
+        let prod = crate::sessions::create(&state, "prod").unwrap();
+        let router = Router {
+            runtime_dir: temp.path().into(),
+            state: Some(state.path().into()),
+            selected: "local:default".into(),
+            locals: HashMap::new(),
+            remotes: HashMap::new(),
+        };
+        assert_eq!(router.resolve("prod"), Ok(format!("local:{}", prod.id)));
+        assert_eq!(router.resolve(&format!("local:{}", prod.id)), Ok(format!("local:{}", prod.id)));
+        assert!(router.resolve("missing").is_err());
+        assert_eq!(router.selected, "local:default");
+    }
 
     #[test]
     fn setup_connects_over_ssh_with_the_installers_folder_on_the_path() {

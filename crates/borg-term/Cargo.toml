@@ -11,6 +11,7 @@ alacritty_terminal = { workspace = true }
 anyhow             = { workspace = true }
 crossterm          = { workspace = true }
 portable-pty       = { workspace = true }
+rustix             = { workspace = true }
 tokio              = { workspace = true }
 
 [dev-dependencies]

@@ -68,14 +68,14 @@ results with source paths and the existing viewer and quick preview.
 - **Alt-V:** choose a saved collection from a scrollable list with entry counts and
   size estimates. Press F7 or N to create one. Collections survive restarting Borg.
 - **Esc:** hide results, preserving the cursor, scroll, marks, filter, and grouping.
-- **Alt-R:** resume the hidden view. A scan continues while hidden.
+- **Alt-Shift-R:** resume the hidden view. A scan continues while hidden.
 - **Alt-D — Folder sizes:** find folders by their total size or file count, including
   hidden files by default. It opens the Ctrl-F dialog set to *Folder totals*; switching
   *Look for* moves between the two. Ctrl-C stops a scan.
 - **Alt-S:** calculate sizes for the selected folder. **Alt-Shift-D:** open a size tree for the current folder.
 - **Alt-W:** maximize or restore the active result pane. Results open in a normal
   pane by default. The title-bar `[+]` (maximize), `[=]` (restore), and `[-]` (fold) controls are clickable.
-  Fold hides the view; Alt-R resumes it with its layout and selection preserved.
+  Fold hides the view; Alt-Shift-R resumes it with its layout and selection preserved.
 - **Ctrl-S:** filter results by name or source path. An empty filter shows everything.
 
 Click a column heading to sort or reverse it. The Left/Right menus also offer sorting;
@@ -89,7 +89,7 @@ F8 removes references from a collection. In search results, F8 asks to delete th
 originals. Shift-F8 also deletes originals from a collection, after confirmation.
 When both a folder and its contents are marked, the folder is sent to the job once.
 Reveal original opens its source folder in the other panel. Left or Esc hides
-results; Alt-R resumes them in the same place. Tab switches virtual panels even
+results; Alt-Shift-R resumes them in the same place. Tab switches virtual panels even
 when the shell has a pending command. The shell keeps a real working directory.
 F10 always asks before quitting.
 
@@ -112,7 +112,7 @@ not read file contents. Results appear after measurement; the scan remains cance
 Right expands a branch or enters an expanded branch; Left folds it or selects its
 parent. Enter opens the real folder. Click a branch arrow to fold or expand, or a
 column heading to sort siblings by name, size, or file count. Esc hides the tree;
-Alt-R restores its branches, marks, and cursor. File operations use real paths,
+Alt-Shift-R restores its branches, marks, and cursor. File operations use real paths,
 and marking a parent and child sends only the parent to a copy or delete job.
 
 To measure sizes while keeping ordinary file panels open, press **Alt-I** or
@@ -295,7 +295,70 @@ on a server you reach over SSH. Nothing needs installing beside borg: the agent 
 `borg mcp` itself, through SSH for a server, and it connects to the borg session open there.
 The server needs no open port and no internet access.
 
-To connect, press F1 and then C (or F9 → Command → Remote access…). Borg shows two
+With named workspaces, `borg sessions list` shows their IDs and names; `borg sessions create NAME`
+adds one, and `borg --session NAME` opens it. `borg mcp` can call `list_sessions`,
+`list_remote_sessions`, and `use_session` to choose a target for that MCP connection. A tool call
+can also supply a `session` ID for a one-call override. The selected target stays private to that
+MCP connection.
+
+`borg service install`, `enable`, and `start` set up the optional background service. It owns the
+machine's pairing connection and keeps named sessions running when their terminals detach.
+`borg service attach NAME` reconnects to one. Ctrl-] detaches without ending its shell. Use
+`borg service stop`, `disable`, or `uninstall` to control the service lifecycle.
+In a container without systemd, have the container's process supervisor run `borg service run`;
+the `install` and `enable` commands require a systemd host on Linux.
+
+After pairing, `borg --remote MACHINE:SESSION` opens that session's filesystem in the left local
+panel. It is read-only; Enter or F3 previews a remote file through a temporary local download.
+The right panel remains on your computer. With **Options → Plugins → Follow** enabled, the
+command line and **Ctrl-O** use an interactive shell on the remote host. Its terminal is rendered
+locally; keys, paste, Ctrl-C and terminal programs run remotely. Each remote session retains
+its own shell while you switch panels. Selecting a client panel restores the local shell.
+Apps using the alternate screen, and foreground apps using raw input such as `top`, receive
+all keys while running, including Ctrl-O. Terminal resizing reaches the remote PTY. Quit the
+app using its own keys (`q` in `top`); Borg returns to the panels if you launched it from
+the panel command line, or leaves the remote console open if you launched it there.
+The remote Borg’s own panels and shell are independent of this console. Update both binaries
+to use remote consoles; older hosts display a connection error and cannot execute from a remote panel.
+Use
+`borg get MACHINE/SESSION:PATH [TO]` and `borg put FROM MACHINE/SESSION:PATH` for file transfers.
+In local Borg, press **Alt-R**, use the bottom **Remote hosts** shortcut, or choose
+**F9 → Remote → Browse hosts and sessions…** to see paired machines
+and their named sessions. Enter opens the selected session’s files in the panel that opened
+the picker, replacing that panel’s previous location. Press **M** in the picker to mirror its screen; **R** refreshes the list.
+In the picker, **F2** renames the selected host label for every session on that host;
+**Shift-F2** renames the selected session label. These labels are saved on this client and
+appear in the picker, panel titles, and console footer. Leave a name blank to restore the
+original. The details retain the original host and session names. Labels are bound to the
+paired host's key and session ID; command targets and names on the remote host stay the same.
+The picker labels this Borg as the client and paired machines as hosts. The Remote menu also
+offers **Mirror mounted host** and **Share this Borg as host…**.
+The picker shows each host's Borg version; selecting a session shows OS/architecture,
+background service or terminal mode, request latency, and relay address. Hosts are checked
+concurrently, so an unavailable host does not hide results from others. Older hosts show
+**version unavailable** until they are updated; the relay's version is not the host's version.
+
+Remote folders arrive in chunks with a loading spinner and received-entry count. Updated
+hosts keep an open directory cursor between chunks, read each entry's metadata once, and
+return early when metadata reads are slow. The first chunk contains at most 128 entries;
+later chunks contain at most 512 and are pushed over the same request. Navigation cancels the local request; abandoned cursors
+are bounded and expire after 30 seconds of inactivity when listings are next accessed.
+`borg mirror MACHINE:SESSION` shows the remote session's live screen in your local terminal;
+Alt+Shift+M opens the same mirror from a local Borg with a remote panel. **Ctrl-G** leaves the
+mirror and returns to the local panels: hold Control and press G. You can also click the bottom
+banner line. The mirror keeps its control status visible on the line above; Ctrl-] also exits.
+`--take` explicitly takes control from another viewer. The remote
+machine must run the background service for the mirror.
+If another terminal controls the remote session, the mirror opens in view-only mode; its keys do
+not change the remote session. Press **Ctrl-T** or click the status line to take control, detach the other
+terminal, or use `borg mirror MACHINE:SESSION --take` to take control when starting it. After taking
+control, the first key wakes a sleeping remote screen; subsequent keys and mouse input reach it.
+Mirror input and display use independent connections, with typing bursts batched into requests.
+Updated services wait for fresh output and send the current visible screen when a viewer falls
+behind, instead of replaying old animation frames. The complete cursor-listing and mirror
+improvements require updating both the local Borg and the host's running service.
+
+To connect, press F1 and then C (or F9 → Remote → Share this Borg as host…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected
 to this borg, the other keeps the connection in Claude Code for every session. Tab picks one,
 Enter copies it to your computer's clipboard through the terminal, which works over SSH in
@@ -319,6 +382,9 @@ Anything that changes the machine waits for you in a dialog that shows all of it
 command and where it runs, a new file, or an edit as a diff. Long ones scroll with the arrow
 keys, PgUp and PgDn or the mouse wheel, and F3 shows the dialog full screen. No is selected
 until you choose Yes; an edit is refused if the file changed while you were deciding.
+For a paired computer, `approval_mode` asks once before enabling Approve all for that session.
+Its badge stays visible; click the badge or press Ctrl+Alt+A to turn it off immediately. It also
+turns off when that paired connection closes. Pairing approvals remain separate.
 Commands are typed into a shell you watch, and kept out of its history: commands on this
 machine into borg's own console, which shows while they run, so you can answer a prompt
 such as sudo's; commands in a container into that container's shell in the Docker view.

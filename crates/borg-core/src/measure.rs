@@ -35,6 +35,7 @@ pub(crate) fn toggle(state: &mut AppState) -> Vec<Effect> {
     }
     if state.active_panel().is_results()
         || state.active_panel().mount.is_some()
+        || state.active_panel().remote_mount.is_some()
         || state.activity.side.is_some()
         || state.docker.is_open()
     {

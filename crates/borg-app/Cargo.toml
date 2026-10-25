@@ -36,17 +36,19 @@ borg-vfs  = { workspace = true }
 borg-view = { workspace = true }
 crossterm = { workspace = true }
 futures   = { workspace = true }
+getrandom = { workspace = true }
+portable-pty = { workspace = true }
 jiff      = { workspace = true }
 ratatui   = { workspace = true }
 rustix    = { workspace = true }
 serde     = { workspace = true }
 tokio     = { workspace = true }
+tempfile  = { workspace = true }
 toml      = { workspace = true }
 uzers     = { workspace = true }
 
 [dev-dependencies]
 anyhow       = { workspace = true }
-tempfile     = { workspace = true }
 borg-gfx     = { workspace = true }
 borg-testkit = { workspace = true }
 borg-relay   = { workspace = true }

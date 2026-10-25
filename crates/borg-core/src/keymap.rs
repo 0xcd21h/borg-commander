@@ -41,6 +41,9 @@ pub enum Action {
     CancelSearch,
     Quit,
     ToggleShell,
+    MirrorRemote,
+    BrowseRemotes,
+    ApprovalModeOff,
     SwitchPanel,
     Up,
     Down,
@@ -144,6 +147,7 @@ const CTRL: KeyModifiers = KeyModifiers::CONTROL;
 const ALT: KeyModifiers = KeyModifiers::ALT;
 const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
 const ALT_SHIFT: KeyModifiers = KeyModifiers::ALT.union(KeyModifiers::SHIFT);
+const CTRL_ALT: KeyModifiers = KeyModifiers::CONTROL.union(KeyModifiers::ALT);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathOf {
@@ -154,13 +158,18 @@ pub enum PathOf {
 pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('i'), ALT, Action::MeasureSizes, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('m'), ALT, Action::Activity, Scope::Panels),
+    bind(KeyCode::Char('M'), ALT, Action::MirrorRemote, Scope::Panels),
+    bind(KeyCode::Char('r'), ALT, Action::BrowseRemotes, Scope::Panels),
+    bind(KeyCode::Char('a'), CTRL_ALT, Action::ApprovalModeOff, Scope::Anywhere),
     bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('D'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('d'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('s'), ALT, Action::CalculateSizes, Scope::Panels),
     bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
-    bind(KeyCode::Char('r'), ALT, Action::BackResults, Scope::Panels),
+    bind(KeyCode::Char('R'), ALT, Action::BackResults, Scope::Panels),
+    bind(KeyCode::Char('R'), ALT_SHIFT, Action::BackResults, Scope::Panels),
+    bind(KeyCode::Char('r'), ALT_SHIFT, Action::BackResults, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
     bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
     // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.

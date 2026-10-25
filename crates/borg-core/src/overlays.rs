@@ -36,6 +36,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Approval(approval)) => crate::agent::on_approval_key(state, approval, key, now),
         Some(Overlay::AgentLog { scroll }) => crate::agent::on_log_key(state, scroll, key),
         Some(Overlay::Connect(connect)) => crate::agent::on_connect_key(state, connect, key),
+        Some(Overlay::Remotes(browser)) => crate::remote::on_key(state, browser, key),
         None => Vec::new(),
     }
 }
@@ -122,6 +123,27 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
 }
 
 fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if let PromptPurpose::RemoteName { browser, identity, session, original } = &prompt.purpose {
+        if key.code == KeyCode::Esc {
+            state.overlay = Some(Overlay::Remotes(*browser.clone()));
+            return Vec::new();
+        }
+        if key.code == KeyCode::Enter {
+            if let Err(error) = crate::RemoteNames::validate(prompt.input.text()) {
+                state.notice = Some(error);
+                state.overlay = Some(Overlay::Prompt(prompt));
+                return Vec::new();
+            }
+            let name = prompt.input.text().trim();
+            let effect = Effect::SaveRemoteName {
+                identity: identity.clone(),
+                session: session.clone(),
+                name: if name == original { String::new() } else { name.into() },
+            };
+            state.overlay = Some(Overlay::Remotes(*browser.clone()));
+            return vec![effect];
+        }
+    }
     if let PromptPurpose::Copy { optimize_hdd, .. } = &mut prompt.purpose {
         match key.code {
             KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
@@ -162,6 +184,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         return Vec::new();
     }
     match purpose {
+        PromptPurpose::RemoteName { .. } => Vec::new(),
         PromptPurpose::Search { root } => crate::results::start_search(
             state,
             crate::SearchRequest {

@@ -51,12 +51,21 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
 - **Claude sees what you see.** The screen, both panels, the console and what is typed at the
   prompt. It reads files, folders, processes and containers, and shows you files in a panel.
 - **You approve every change.** Commands, new files and edits wait in a dialog that shows the
-  whole command or the diff. Commands run in your console, where you watch them and answer
+  whole command or the diff. For a paired computer, Approve all can temporarily accept its
+  changes for one session until you turn it off or disconnect. Commands run in your console, where you watch them and answer
   prompts such as sudo's.
 - **Files both ways.** `borg get` and `borg put`, or Claude's download and upload tools, copy
   files between the server and your computer. Uploads wait for your approval.
 - **Help at the prompt.** Claude can type a command at your prompt, or a script into vim or
   nano, for you to check and run yourself.
+
+`borg sessions` manages named workspaces. `borg service install` prepares a background service;
+`borg service enable` starts it at boot, and `borg service start` starts it now. The service keeps
+session shells and the pairing connection alive when no terminal is attached. Open a workspace
+with `borg --session NAME`; Ctrl-] detaches. One `borg mcp` connection can list and select local
+or paired targets. `borg --remote MACHINE:SESSION` opens a paired session's filesystem in a local
+read-only panel, and `borg mirror MACHINE:SESSION` shows its live screen in the local terminal.
+The mirror displays its control status; Ctrl-T takes control from a view-only mirror, and Ctrl-G exits.
 
 **Why the connection cannot be taken over.** Each borg holds its own key. Pairing exchanges
 the keys through a link that only your screen shows, and you confirm in borg that both

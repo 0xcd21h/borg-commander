@@ -43,6 +43,8 @@ uses this folder and it can be removed.
 
 #[derive(Debug, Clone)]
 pub struct Launch {
+    pub session_id: Option<String>,
+    pub remote: Option<crate::remote::Target>,
     pub shell: PathBuf,
     pub home: Option<PathBuf>,
     pub runtime_dir: PathBuf,
@@ -58,7 +60,7 @@ pub struct Launch {
 }
 
 impl Launch {
-    pub fn detect() -> Result<Self> {
+    pub fn detect(session_id: Option<&str>, remote: Option<crate::remote::Target>) -> Result<Self> {
         let shell = borg_term::user_shell();
         let cwd = env::current_dir().context("reading current directory")?;
         let config_dir = ConfigDir::locate();
@@ -79,7 +81,7 @@ impl Launch {
             ..defaults
         };
 
-        let state_dir = StateDir::locate();
+        let state_dir = StateDir::locate().map(|state| session_id.map_or(state.clone(), |id| state.for_session(id)));
         let session = match state_dir.as_ref().map(StateDir::load_session) {
             Some(Ok(session)) => session,
             Some(Err(e)) => {
@@ -108,6 +110,8 @@ impl Launch {
         warnings.extend(errors.iter().map(ToString::to_string));
 
         Ok(Self {
+            session_id: session_id.map(str::to_owned),
+            remote,
             shell,
             home: env::var_os(ENV_HOME).map(PathBuf::from),
             runtime_dir: private_dir(&runtime_dir())?,
@@ -154,6 +158,9 @@ fn motion() -> Motion {
 /// Where Borg keeps the files of a running session: shell integration scripts, folder
 /// requests for the shell, Docker copies and agent logs. Use it through `private_dir`.
 pub(crate) fn runtime_dir() -> PathBuf {
+    if let Some(dir) = env::var_os("BORG_RUNTIME_DIR") {
+        return PathBuf::from(dir);
+    }
     match env::var_os(ENV_RUNTIME_DIR) {
         Some(dir) => PathBuf::from(dir).join(APP_DIR),
         None => env::temp_dir().join(format!("{APP_DIR}-{}", rustix::process::getuid().as_raw())),

@@ -588,6 +588,13 @@ const FAILED_START: Duration = Duration::from_secs(3);
 /// Whose shell the console should be: a container's while its filesystem panel is active and
 /// the Docker command line is on, otherwise the host's. The Docker view keeps the host's.
 fn wanted_console(state: &AppState) -> Console {
+    if let Some(mount) = &state.active_panel().remote_mount
+        && state.settings.preferences.docker_console
+        && !state.docker.is_open()
+        && state.failed_remote_console.as_ref() != Some(&(mount.machine.clone(), mount.session.clone()))
+    {
+        return Console::Remote { machine: mount.machine.clone(), session: mount.session.clone() };
+    }
     let follow = state.settings.preferences.docker_plugin && state.settings.preferences.docker_console;
     match state.active_panel().mount.as_ref() {
         Some(mount) if follow && !state.docker.is_open() && state.docker.failed_console.as_ref() != Some(&mount.id) => {
@@ -603,6 +610,11 @@ pub(crate) fn sync_console(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mount = state.active_panel().mount.as_ref().map(|mount| mount.id.clone());
     if state.docker.failed_console.is_some() && state.docker.failed_console != mount {
         state.docker.failed_console = None;
+    }
+    let remote = state.active_panel().remote_mount.as_ref().map(|m| (m.machine.clone(), m.session.clone()));
+    if state.failed_remote_console.is_some() && state.failed_remote_console != remote {
+        state.failed_remote_console = None;
+        state.remote_console_failure = None;
     }
     let wanted = wanted_console(state);
     // A console in use keeps its shell until the panels come back.
@@ -625,6 +637,10 @@ pub(crate) fn sync_console(state: &mut AppState, now: Instant) -> Vec<Effect> {
         effects.extend(start_shell(state, &container, size, Some(dir), now));
     }
     let incoming = match &wanted {
+        Console::Remote { machine, session } => state
+            .remote_consoles
+            .remove(&(machine.clone(), session.clone()))
+            .unwrap_or_else(|| ShellStatus::new(state.active_panel().destination().into())),
         Console::Host => {
             state.parked_host.take().unwrap_or_else(|| ShellStatus::new(state.active_panel().dir().into()))
         }
@@ -637,6 +653,9 @@ pub(crate) fn sync_console(state: &mut AppState, now: Instant) -> Vec<Effect> {
     };
     let outgoing = std::mem::replace(&mut state.shell, incoming);
     match std::mem::replace(&mut state.console, wanted.clone()) {
+        Console::Remote { machine, session } => {
+            state.remote_consoles.insert((machine, session), outgoing);
+        }
         Console::Host => state.parked_host = Some(outgoing),
         Console::Container(id) => {
             if let Some(shell) = state.docker.shells.iter_mut().find(|shell| shell.container == id) {

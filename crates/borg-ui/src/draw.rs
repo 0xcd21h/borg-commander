@@ -171,9 +171,28 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
     };
     buf.set_style(footer, theme.styles.key_label);
     // A container's console names the container, so its output is never taken for the host's.
-    let label = match scene.state.console_container() {
-        Some(name) => Span::styled(format!(" ▣ {name}{} ", tr!(docker_console_label)), theme.styles.cursor),
-        None => Span::styled(tr!(borg_console), theme.styles.key),
+    let label = if let borg_core::Console::Remote { machine, session } = &scene.state.console {
+        let name = scene
+            .state
+            .panels
+            .iter()
+            .filter_map(|p| p.remote_mount.as_ref())
+            .find(|m| m.machine == *machine && m.session == *session)
+            .map(|m| m.name.as_str())
+            .unwrap_or(session);
+        Span::styled(
+            format!(
+                tr!(remote_console_label),
+                machine = scene.state.remote_host_name(machine),
+                session = scene.state.remote_session_name(machine, session, name)
+            ),
+            theme.styles.cursor,
+        )
+    } else {
+        match scene.state.console_container() {
+            Some(name) => Span::styled(format!(" ▣ {name}{} ", tr!(docker_console_label)), theme.styles.cursor),
+            None => Span::styled(tr!(borg_console), theme.styles.key),
+        }
     };
     Line::from(vec![label, Span::styled(history, theme.styles.key_label), Span::styled(hint, theme.styles.key_label)])
         .render(footer, buf);
@@ -266,8 +285,11 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             }
         }
         let panel = PanelScene {
+            state,
             expanded: active && state.results_expanded(),
             panel: state.panel(side),
+            client_of_remote: state.panel(side).remote_mount.is_none()
+                && state.panels.iter().any(|panel| panel.remote_mount.is_some()),
             active: active && !state.preview_focused,
             area: rect,
             motion: &state.motions[side.index()],
@@ -323,7 +345,8 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     // it runs nothing there until a host panel is active.
     if !state.console_owns_panel() && !layout.prompt.is_empty() && !state.docker.is_open() {
         fx::fade_to_background(&mut buf, layout.prompt, HOST_PROMPT_DIM, scene.palette);
-        let chip = tr!(docker_host_chip);
+        let chip =
+            if state.active_panel().remote_mount.is_some() { tr!(remote_client_chip) } else { tr!(docker_host_chip) };
         let width = (unicode_width::UnicodeWidthStr::width(chip) as u16).min(layout.prompt.width);
         let area = Rect { x: layout.prompt.right() - width, width, height: 1, ..layout.prompt };
         Line::styled(chip, styles.notice.add_modifier(ratatui::style::Modifier::REVERSED)).render(area, &mut buf);
@@ -477,6 +500,9 @@ fn paint_overlay(
         Overlay::Connect(connect) => {
             let (rect, cursor) = crate::agent_view::draw_connect(state, connect, theme, screen, buf);
             (rect, cursor, Unfold::FromCenter)
+        }
+        Overlay::Remotes(browser) => {
+            (crate::remote_view::draw(browser, theme, screen, buf, scene.t()), None, Unfold::FromCenter)
         }
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),

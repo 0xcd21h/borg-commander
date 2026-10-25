@@ -93,6 +93,32 @@ pub fn export<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// The visible grid at absolute coordinates, without scrollback or replaying animation.
+/// Restore the live pen and cursor so subsequent incremental PTY output still applies.
+pub fn snapshot<T>(term: &Term<T>) -> Vec<u8> {
+    let grid = term.grid();
+    let mut out = String::from("\x1b[?2026h\x1b[?25l");
+    for line in 0..grid.screen_lines() {
+        let row = &grid[Line(line as i32)];
+        let cells: Vec<&Cell> = (0..grid.columns()).map(|col| &row[Column(col)]).collect();
+        let used = cells.iter().rposition(|cell| !blank(cell)).map_or(0, |i| i + 1);
+        let _ = write!(out, "\x1b[{};1H{RESET}{}{RESET}\x1b[K", line + 1, render(&cells[..used]));
+    }
+    let cursor = &grid.cursor;
+    let _ = write!(
+        out,
+        "\x1b[{};{}H{}",
+        cursor.point.line.0 + 1,
+        cursor.point.column.0 + 1,
+        Pen::of(&cursor.template).sgr()
+    );
+    if term.mode().contains(alacritty_terminal::term::TermMode::SHOW_CURSOR) {
+        out.push_str("\x1b[?25h");
+    }
+    out.push_str("\x1b[?2026l");
+    out.into_bytes()
+}
+
 fn blank(cell: &Cell) -> bool {
     (cell.c == ' ' || cell.c == '\0') && Pen::of(cell) == Pen::plain()
 }
@@ -116,4 +142,23 @@ fn render(cells: &[&Cell]) -> String {
         let _ = write!(out, "{RESET}");
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Emulator, GridSize};
+
+    #[test]
+    fn current_screen_snapshot_preserves_tall_grid_cursor_and_next_delta() {
+        let size = GridSize { cols: 80, rows: 60 };
+        let mut host = Emulator::new(size, 2000);
+        host.feed(b"\x1b[?1049h\x1b[1;1Htop\x1b[55;3H\x1b[31mnear bottom\x1b[40;8H");
+        let mut viewer = Emulator::new(size, 0);
+        viewer.feed(&host.snapshot_ansi());
+        assert_eq!(viewer.export_ansi(60), host.export_ansi(60));
+        assert_eq!(viewer.screen().cursor(), host.screen().cursor());
+        host.feed(b"next delta");
+        viewer.feed(b"next delta");
+        assert_eq!(viewer.export_ansi(60), host.export_ansi(60));
+    }
 }
