@@ -2783,7 +2783,7 @@ fn f5_copies_folders_to_a_paired_host_and_files_back_with_keep_both() -> Result<
     local.send(keys::tab())?;
     local.send(keys::ctrl('s'))?.send("bundle")?.send(keys::enter())?;
     local.send(keys::f(5))?;
-    local.wait_text(&format!("host {name}:Default"))?;
+    local.wait_text(&format!("Copy \"bundle\" to (host {}", name.chars().take(12).collect::<String>()))?;
     local.send(keys::ctrl('u'))?.send(host.work().to_string_lossy().as_bytes())?.send(keys::enter())?;
     local.wait_text("Copied 2 files")?;
     let uploaded = host.work().join("bundle");
