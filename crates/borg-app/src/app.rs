@@ -95,6 +95,7 @@ pub struct App {
     remote_catalog: Option<JoinHandle<()>>,
     remote_consoles: crate::remote_console::Clients,
     console_server: crate::remote_console::Server,
+    native_mirror: crate::native_mirror::Host,
     palette: Palette,
     themes: ThemeSet,
     config_dir: Option<ConfigDir>,
@@ -247,6 +248,10 @@ impl App {
             remote_catalog: None,
             remote_consoles: crate::remote_console::Clients::new(),
             console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),
+            native_mirror: crate::native_mirror::Host::start(
+                &launch.runtime_dir,
+                launch.session_id.as_deref().unwrap_or("default"),
+            )?,
             palette: palette(&detected.colors),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
@@ -323,10 +328,11 @@ impl App {
             let wake = self.state.wake_at();
             let flow = tokio::select! {
                 event = input.next() => match event {
-                    Some(Ok(event)) => self.on_terminal_event(event)?,
+                    Some(Ok(event)) => self.on_local_event(event)?,
                     Some(Err(e)) => return Err(e.into()),
                     None => Flow::Quit,
                 },
+                Some(input) = self.native_mirror.incoming.recv() => self.on_mirror_input(input)?,
                 Some(event) = self.pty_events.recv() => self.on_pty(event)?,
                 Some((key, event)) = self.remote_consoles.incoming.recv() => self.on_remote_console(key, event)?,
                 Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
@@ -382,6 +388,7 @@ impl App {
         match self.plain.take() {
             Some(Plain::Waiting(text)) => {
                 show_plain(terminal.backend_mut(), &text)?;
+                self.native_mirror.plain(&text, self.state.cols, self.state.rows);
                 self.plain = Some(Plain::Shown);
                 return Ok(());
             }
@@ -424,6 +431,7 @@ impl App {
     fn draw_frame(&mut self, terminal: &mut DefaultTerminal, clock: &Zoned, now: Instant) -> Result<Output> {
         let mut placements = Vec::new();
         let mut resized = Ok(());
+        let mut mirror_cursor = None;
         let frame = terminal.draw(|frame| {
             let area = frame.area();
             if (self.state.cols, self.state.rows) != (area.width, area.height) {
@@ -432,9 +440,10 @@ impl App {
                     return;
                 }
             }
-            placements = draw(frame, &self.scene(clock, now));
+            (placements, mirror_cursor) = borg_ui::draw_with_cursor(frame, &self.scene(clock, now));
         })?;
         resized?;
+        self.native_mirror.publish(frame.buffer, mirror_cursor);
         Ok(self.graphics.frame(&placements, frame.buffer))
     }
 
@@ -547,6 +556,48 @@ impl App {
                 Ok(Flow::Continue)
             }
         }
+    }
+
+    fn on_local_event(&mut self, event: Event) -> Result<Flow> {
+        let takes_control = match &event {
+            Event::Key(key) => key.kind != KeyEventKind::Release,
+            Event::Paste(_) => true,
+            Event::Mouse(mouse) => !matches!(mouse.kind, MouseEventKind::Moved),
+            _ => false,
+        };
+        if takes_control && self.native_mirror.local_input() {
+            self.state.notice = Some(tr!(mirror_local_control).into());
+        }
+        self.on_terminal_event(event)
+    }
+
+    fn on_mirror_input(&mut self, input: crate::native_mirror::Input) -> Result<Flow> {
+        if input.events.is_empty() && input.reply.is_none() {
+            self.state.notice = Some(match self.native_mirror.controller() {
+                Some(origin) => {
+                    format!(tr!(mirror_remote_control), computer = origin.split(" [").next().unwrap_or(&origin))
+                }
+                None => tr!(mirror_control_released).into(),
+            });
+            return Ok(Flow::Continue);
+        }
+        if !self.native_mirror.controls(&input.origin) {
+            if let Some(reply) = input.reply {
+                let _ = reply.send(crate::agent::Reply::error("Mirror control was released"));
+            }
+            return Ok(Flow::Continue);
+        }
+        let mut flow = Flow::Continue;
+        for event in input.events {
+            flow = self.on_terminal_event(event)?;
+            if matches!(flow, Flow::Quit) {
+                break;
+            }
+        }
+        if let Some(reply) = input.reply {
+            let _ = reply.send(crate::agent::Reply::ok("Input sent"));
+        }
+        Ok(flow)
     }
 
     fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
@@ -1510,6 +1561,9 @@ impl App {
                 Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
+                Effect::StartRemoteCopy { id, from, to, sources, target } => {
+                    self.start_remote_copy(id, crate::remote_copy::CopyJob { from, to, sources, target });
+                }
                 Effect::StartDockerCopy { id, container, inbound, sources, target } => {
                     self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target });
                 }
@@ -1569,6 +1623,23 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
             let outcome = job.run(&runtime, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
+        });
+    }
+
+    fn start_remote_copy(&mut self, id: u64, job: crate::remote_copy::CopyJob) {
+        let running: Vec<u64> = self.state.jobs.iter().map(|job| job.id).collect();
+        self.jobs.retain(|id, _| running.contains(id));
+        let control = Arc::new(Control::default());
+        self.jobs.insert(id, Arc::clone(&control));
+        let messages = self.messages.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let cache = self.search.cache.clone();
+        let changed = if job.to.is_none() { vec![job.target.clone()] } else { Vec::new() };
+        cache.begin_changes();
+        tokio::task::spawn_blocking(move || {
+            let outcome = job.run(&runtime, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            cache.invalidate(&changed);
             drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
         });
     }

@@ -111,7 +111,7 @@ impl Reply {
 /// their own. With `XDG_RUNTIME_DIR` set, as on Linux desktops and in tests, the folder is
 /// named after the runtime folder, so `borg mcp` finds only its sessions; without it, as on
 /// macOS, every program the user starts shares one, whatever its temporary folder.
-fn socket_dir(runtime_dir: &Path) -> Result<PathBuf> {
+pub(crate) fn socket_dir(runtime_dir: &Path) -> Result<PathBuf> {
     let uid = rustix::process::getuid().as_raw();
     let name = if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
         // FNV-1a, which stays the same from one build of borg to the next.

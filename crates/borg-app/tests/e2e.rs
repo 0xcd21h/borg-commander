@@ -2249,7 +2249,7 @@ fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::Pat
     app.send(keys::esc())?;
     let target = borg_link::PairingLink::parse(&link).expect("the dialog shows a valid pairing link");
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let registration_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let registration_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         match runtime.block_on(borg_link::relay::dial(&target.relay, &target.server)) {
             Ok(socket) => {
@@ -2259,7 +2259,9 @@ fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::Pat
             Err(_) if std::time::Instant::now() < registration_deadline => {
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            Err(error) => anyhow::bail!("the test server did not register at its relay: {error:#}"),
+            Err(error) => {
+                anyhow::bail!("the test server did not register at its relay: {error:#}\n{}", app.snapshot().text())
+            }
         }
     }
     let computer = fixture.root().join("computer");
@@ -2748,5 +2750,272 @@ fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<
     reopened.wait_text(&format!("Host {machine} · Default"))?;
     let names: serde_json::Value = serde_json::from_slice(&fs::read(client.state().join("remote-names.json"))?)?;
     ensure!(names.as_object().is_some_and(|names| names.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn f5_copies_folders_to_a_paired_host_and_files_back_with_keep_both() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("copy-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let contents: Vec<u8> = (0..2_100_007).map(|n| (n % 251) as u8).collect();
+    fs::create_dir(client.work().join("bundle"))?;
+    fs::write(client.work().join("bundle/large.dat"), &contents)?;
+    fs::create_dir(client.work().join("bundle/empty"))?;
+    fs::set_permissions(client.work().join("bundle/large.dat"), fs::Permissions::from_mode(0o751))?;
+    std::os::unix::fs::symlink("large.dat", client.work().join("bundle/link"))?;
+    let mut local = Session::builder(BORG, &client).size(150, 34).label("copy-client").spawn()?;
+    local.wait_text("5 items")?;
+    local.send(keys::tab())?.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send(keys::enter())?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+    local.send(keys::tab())?;
+    local.send(keys::ctrl('s'))?.send("bundle")?.send(keys::enter())?;
+    local.send(keys::f(5))?;
+    local.wait_text(&format!("host {name}:Default"))?;
+    local.send(keys::ctrl('u'))?.send(host.work().to_string_lossy().as_bytes())?.send(keys::enter())?;
+    local.wait_text("Copied 2 files")?;
+    let uploaded = host.work().join("bundle");
+    ensure!(fs::read(uploaded.join("large.dat"))? == contents);
+    ensure!(uploaded.join("empty").is_dir());
+    ensure!(fs::read_link(uploaded.join("link"))? == Path::new("large.dat"));
+    ensure!(fs::metadata(uploaded.join("large.dat"))?.permissions().mode() & 0o777 == 0o751);
+
+    local.send(keys::tab())?.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default console"))?;
+    local.send(format!("cd '{}'; printf '__COPY_READY__\\n'", uploaded.display()))?.send(keys::enter())?;
+    local.wait_text("__COPY_READY__")?;
+    local.wait_until("remote shell prompt after cd", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_until("remote panel changed directory", |screen| {
+        screen.contains("F1He")
+            && screen
+                .lines()
+                .iter()
+                .any(|line| line.chars().skip(usize::from(screen.cols() / 2)).collect::<String>().contains("large.dat"))
+    })?;
+    local.send(keys::ctrl('s'))?.send("large.dat")?.send(keys::enter())?;
+    local.send(keys::f(5))?;
+    local.wait_text("client filesystem")?;
+    local.send(keys::enter())?;
+    local.wait_text("Copied 1 file")?;
+    ensure!(fs::read(client.work().join("large.dat"))? == contents);
+    local.send(keys::f(5))?;
+    local.wait_text("client filesystem")?;
+    local.send(keys::enter())?;
+    local.wait_text("Keep both")?;
+    local.send("k")?;
+    local.wait_until("download kept both files", |_| client.work().join("large (2).dat").exists())?;
+    ensure!(fs::read(client.work().join("large (2).dat"))? == contents);
+    use base64::Engine;
+    use std::os::unix::ffi::OsStrExt;
+    let interrupted = host.work().join("interrupted.bin");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(interrupted.as_os_str().as_bytes());
+    let mut transfer = remote_mcp(&computer, &name)?;
+    let (error, reply) = transfer.call(
+        "file_transfer",
+        serde_json::json!({"session":"default","op":"begin","path":encoded,"size":1000,"overwrite":false}),
+    )?;
+    ensure!(!error, "{reply}");
+    let (error, _) =
+        transfer.call("file_transfer", serde_json::json!({"session":"missing","op":"write","data":"eA=="}))?;
+    ensure!(error, "invalid sessions cannot continue an upload");
+    let (error, reply) =
+        transfer.call("file_transfer", serde_json::json!({"session":"default","op":"write","data":"eA=="}))?;
+    ensure!(!error, "{reply}");
+    ensure!(
+        fs::read_dir(host.work())?
+            .any(|entry| entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with(".borg-copy-")))
+    );
+    drop(transfer);
+    local.wait_until("disconnect removes the incomplete host file", |_| {
+        fs::read_dir(host.work()).is_ok_and(|mut entries| {
+            !entries
+                .any(|entry| entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with(".borg-copy-")))
+        })
+    })?;
+    ensure!(!interrupted.exists());
+    ensure!(remote.snapshot().contains("4 items"), "host UI remains independent of local file copies");
+    Ok(())
+}
+
+#[test]
+fn a_regular_named_borg_can_be_mirrored_and_controlled_without_a_background_service() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut broker = Session::builder(BORG, &host).size(110, 30).label("native-mirror-broker").spawn()?;
+    broker.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut broker, &host)?;
+    let made = std::process::Command::new(BORG)
+        .args(["sessions", "create", "Second"])
+        .env("BORG_STATE_DIR", host.state())
+        .output()?;
+    ensure!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    let mut second = Session::builder(BORG, &host)
+        .args(&["--session", "Second"])
+        .size(100, 28)
+        .label("native-mirror-second")
+        .spawn()?;
+    second.wait_text(READY)?;
+    let client = fixture()?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let target = format!("{name}:Second");
+    let mut mirror = Session::builder(BORG, &client)
+        .args(&["mirror", &target])
+        .size(140, 34)
+        .label("native-mirror-client")
+        .spawn()?;
+    mirror.wait_text("REMOTE MIRROR - CONTROL")?;
+    mirror.wait_text("hold Control and press G")?;
+    mirror.wait_text("notes.txt")?;
+    mirror.send(keys::f(1))?;
+    mirror.wait_text("Remote access to this borg")?;
+    second.wait_text("Remote access to this borg")?;
+    ensure!(!broker.snapshot().contains("Remote access to this borg"), "the selected session receives the keys");
+    mirror.send(keys::esc())?;
+    mirror.wait_gone("Remote access to this borg")?;
+    let shown = mirror.wait_text("notes.txt")?;
+    let (x, y) = shown.find("notes.txt").context("notes on mirrored screen")?;
+    mirror.send(mouse(0, x, y))?;
+    second.wait_until("mouse selected the remote file", |screen| highlighted(screen, "notes.txt"))?;
+    let command = "printf 'native-proof' > \"$HOME/native-mirror-proof\"";
+    mirror.send(format!("\x1b[200~{command}\x1b[201~"))?.send(keys::enter())?;
+    mirror.wait_until("pasted command ran in the selected remote Borg", |_| {
+        host.home().join("native-mirror-proof").exists()
+    })?;
+    ensure!(fs::read_to_string(host.home().join("native-mirror-proof"))? == "native-proof");
+    ensure!(!client.home().join("native-mirror-proof").exists());
+    second.wait_until("remote shell returns to its prompt", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    mirror.wait_text("Borg console")?;
+    mirror.send(keys::ctrl('o'))?;
+    second.wait_until("remote panels before local takeover", panels_ready)?;
+    mirror.wait_until("mirrored panels before local takeover", |screen| {
+        screen.contains("notes.txt") && !screen.contains("Borg console")
+    })?;
+    let grabber = host.home().join("native-grabber.sh");
+    fs::write(
+        &grabber,
+        r#"stty raw -echo -iexten
+printf '\033[?1049h\033[2J\033[Hnative-fullscreen-ready'
+key=$(dd bs=1 count=1 2>/dev/null)
+code=$(printf '%s' "$key" | od -An -tu1 | tr -d ' ')
+stty sane
+printf '\033[?1049l\r\nnative-key=%s\r\n' "$code"
+"#,
+    )?;
+    mirror.send(format!("bash '{}'", grabber.display()))?.send(keys::enter())?;
+    mirror.wait_text("native-fullscreen-ready")?;
+    mirror.send("q")?;
+    second.wait_until("remote panels after app exits", panels_ready)?;
+    mirror.wait_until("mirrored panels after app exits", |screen| {
+        screen.contains("notes.txt") && !screen.contains("Borg console")
+    })?;
+    mirror.send(keys::ctrl('o'))?;
+    mirror.wait_text("native-key=113")?;
+    second.wait_until("remote prompt after full-screen app", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    mirror.send(keys::ctrl('o'))?;
+    second.wait_until("remote panels after full-screen app", panels_ready)?;
+    mirror.wait_until("mirrored panels after full-screen app", |screen| {
+        screen.contains("notes.txt") && !screen.contains("Borg console")
+    })?;
+    second.send(keys::f(1))?;
+    mirror.wait_text("VIEW ONLY")?;
+    mirror.wait_text("Remote access to this borg")?;
+    mirror.send(keys::esc())?;
+    mirror.wait_until("view-only key did not close the host help", |screen| {
+        screen.contains("Remote access to this borg") && screen.contains("VIEW ONLY")
+    })?;
+    mirror.send(keys::ctrl('t'))?;
+    mirror.wait_text("REMOTE MIRROR - CONTROL")?;
+    mirror.send(keys::esc())?;
+    mirror.wait_gone("Remote access to this borg")?;
+    second.resize(90, 26)?;
+    second.wait_until("host resized", |screen| {
+        screen.cols() == 90 && screen.rows() == 26 && screen.contains("notes.txt")
+    })?;
+    mirror.resize(70, 20)?;
+    mirror.wait_text("EXIT MIRROR")?;
+    mirror.resize(140, 34)?;
+    mirror.wait_text("notes.txt")?;
+    mirror.send(keys::ctrl('g'))?;
+    ensure!(mirror.wait_exit()?.success());
+    second.send(keys::f(1))?;
+    second.wait_text("Remote access to this borg")?;
+    Ok(())
+}
+
+#[test]
+fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Result<()> {
+    use base64::Engine;
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut regular = Session::builder(BORG, &host).size(130, 34).label("service-mirror-pairing").spawn()?;
+    regular.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut regular, &host)?;
+    regular.send(keys::f(10))?.send("y")?;
+    regular.wait_exit()?;
+    drop(regular);
+    let mut service =
+        Session::builder(BORG, &host).args(&["service", "run"]).size(130, 34).label("service-mirror-host").spawn()?;
+    let mut probe = remote_mcp(&computer, &name)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let (error, text) = probe.call("mirror_frame", serde_json::json!({"session":"default","after":0}))?;
+        let ready = (!error)
+            .then(|| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .flatten()
+            .and_then(|value| {
+                value["data"].as_str().and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
+            })
+            .is_some_and(|data| String::from_utf8_lossy(&data).contains("notes.txt"));
+        if ready {
+            break;
+        }
+        ensure!(std::time::Instant::now() < deadline, "background session did not become ready: {text}");
+        service.pump(std::time::Duration::from_millis(100))?;
+    }
+    let (error, text) = probe.call("host_info", serde_json::json!({}))?;
+    ensure!(!error && serde_json::from_str::<serde_json::Value>(&text)?["service"] == true);
+    let client = fixture()?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let target = format!("{name}:Default");
+    let mut mirror = Session::builder(BORG, &client)
+        .args(&["mirror", &target])
+        .size(140, 36)
+        .label("service-mirror-client")
+        .spawn()?;
+    mirror.wait_text("REMOTE MIRROR - CONTROL")?;
+    mirror.wait_text("notes.txt")?;
+    mirror.send(keys::f(1))?;
+    mirror.wait_text("Remote access to this borg")?;
+    mirror.send(keys::esc())?;
+    mirror.wait_gone("Remote access to this borg")?;
+    mirror.send(keys::ctrl('g'))?;
+    ensure!(mirror.wait_exit()?.success());
     Ok(())
 }

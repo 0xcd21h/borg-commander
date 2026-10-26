@@ -35,7 +35,7 @@ expression: describe(&buffer)
 compiler · PID 410 · /usr/local/bin/compiler
 $
 Enter Search · Esc Cancel
-Tab Fields · ←→ Mode · Space Toggle · Enter Search · Esc Cancel                                             ◈ Borg Commander v0.8.0
+Tab Fields · ←→ Mode · Space Toggle · Enter Search · Esc Cancel                                             ◈ Borg Commander v0.8.1
 --- styles ---
   0: 0-0 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 1-30 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 31-57 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 58-60 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 61-61 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 62-64 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 65-65 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 66-66 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 67-93 Rgb(255, 255, 255) Rgb(13, 11, 26) BOLD | 94-123 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 124-126 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 127-127 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 128-130 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 131-131 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE
   1: 0-0 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 1-64 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 65-65 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 66-66 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 67-130 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 131-131 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE

@@ -50,6 +50,7 @@ enum Output {
 
 pub struct SessionBuilder<'a> {
     binary: PathBuf,
+    args: Vec<String>,
     fixture: &'a Fixture,
     shell: Shell,
     cwd: Option<PathBuf>,
@@ -63,6 +64,11 @@ pub struct SessionBuilder<'a> {
 }
 
 impl<'a> SessionBuilder<'a> {
+    pub fn args(mut self, args: &[&str]) -> Self {
+        self.args = args.iter().map(|arg| (*arg).into()).collect();
+        self
+    }
+
     /// Puts `dir` ahead of `PATH`, so a fake command there replaces the real one.
     pub fn path(mut self, dir: impl Into<PathBuf>) -> Self {
         self.search_first = Some(dir.into());
@@ -106,6 +112,7 @@ impl<'a> SessionBuilder<'a> {
         let pair = native_pty_system().openpty(grid.into()).context("opening pty")?;
 
         let mut cmd = CommandBuilder::new(&self.binary);
+        cmd.args(&self.args);
         cmd.env_clear();
         PASSTHROUGH_ENV.iter().filter_map(|name| Some((name, env::var_os(name)?))).for_each(|(k, v)| cmd.env(k, v));
         if let Some(dir) = &self.search_first {
@@ -165,6 +172,7 @@ impl Session {
     pub fn builder(binary: impl AsRef<Path>, fixture: &Fixture) -> SessionBuilder<'_> {
         SessionBuilder {
             binary: binary.as_ref().to_path_buf(),
+            args: Vec::new(),
             fixture,
             shell: Shell::Bash,
             cwd: None,

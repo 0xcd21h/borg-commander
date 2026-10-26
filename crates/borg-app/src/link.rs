@@ -478,6 +478,9 @@ impl Served {
         // The name is only a label; approval and mirror leases must bind to the paired key.
         let origin = format!("{} [{}]", computer.name, computer.key.get(..32).unwrap_or(&computer.key));
         let mut sessions: std::collections::HashMap<String, crate::agent::Session> = std::collections::HashMap::new();
+        let mut transfer = crate::remote_copy::Server::default();
+        let mut transfer_session = None::<String>;
+        let mut native_mirrors = std::collections::HashMap::<String, crate::native_mirror::Peer>::new();
         let mut mirror_leases = std::collections::HashSet::new();
         let mut console_leases = std::collections::HashSet::new();
         let mut approval_leases = std::collections::HashSet::new();
@@ -535,13 +538,40 @@ impl Served {
                                 call.args["session"] = json!(target);
                             }
                         }
-                        if call.tool.starts_with("mirror_") {
+                        if call.tool == "file_transfer" {
+                            let target = call.args["session"].as_str();
+                            let valid = self.state.as_ref().and_then(|state| {
+                                crate::sessions::list(&crate::session::StateDir::at(state.clone())).ok()
+                            }).is_some_and(|sessions| sessions.iter().any(|session| !session.archived && Some(session.id.as_str()) == target));
+                            if valid && transfer_session.as_deref().is_none_or(|session| Some(session) == target) {
+                                transfer_session = target.map(str::to_owned);
+                                let (next, reply) = transfer.handle(call.args).await;
+                                transfer = next;
+                                reply
+                            } else { Reply::error("No active named session for this transfer") }
+                        } else if call.tool.starts_with("mirror_") {
                             let action = call.tool.clone();
                             let target = call.args["session"].as_str().map(str::to_owned);
-                            let (sender, receiver) = oneshot::channel();
-                            self.calls.send((call, sender)).context("borg closed")?;
-                            let reply =
-                                receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."));
+                            let reply = if self.background_service {
+                                let (sender, receiver) = oneshot::channel();
+                                self.calls.send((call, sender)).context("borg closed")?;
+                                receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."))
+                            } else if let Some(target) = target.as_deref() {
+                                let result = async {
+                                    let valid = self.state.as_ref().and_then(|state| {
+                                        crate::sessions::list(&crate::session::StateDir::at(state.clone())).ok()
+                                    }).is_some_and(|sessions| sessions.iter().any(|session| !session.archived && session.id == target));
+                                    anyhow::ensure!(valid, "No active named session for this mirror");
+                                    if !native_mirrors.contains_key(target) {
+                                        native_mirrors.insert(target.into(), crate::native_mirror::Peer::open(&self.runtime_dir, target).await?);
+                                    }
+                                    native_mirrors.get_mut(target).context("Mirror session disconnected")?.call(&call).await
+                                }.await;
+                                match result {
+                                    Ok(reply) => reply,
+                                    Err(error) => { native_mirrors.remove(target); Reply::error(format!("{error:#}")) }
+                                }
+                            } else { Reply::error("Mirror needs a session ID") };
                             if reply.ok
                                 && let Some(target) = target
                             {
@@ -699,9 +729,13 @@ impl Served {
         for id in mirror_leases {
             let mut release = Call::new("mirror_release", json!({ "session": id }));
             release.origin = Some(origin.clone());
-            let (sender, receiver) = oneshot::channel();
-            if self.calls.send((release, sender)).is_ok() {
-                let _ = receiver.await;
+            if self.background_service {
+                let (sender, receiver) = oneshot::channel();
+                if self.calls.send((release, sender)).is_ok() {
+                    let _ = receiver.await;
+                }
+            } else if let Some(peer) = native_mirrors.get_mut(&id) {
+                let _ = tokio::time::timeout(Duration::from_secs(1), peer.call(&release)).await;
             }
         }
         for id in approval_leases {

@@ -2309,3 +2309,43 @@ fn remote_labels_are_visible_in_picker_rename_prompt_panels_and_console() -> Res
     ensure_text(&buffer, "Host Docker Lab:Deploy console")?;
     check("remote_labels_console", &stage, buffer)
 }
+
+#[test]
+fn remote_panel_copy_identifies_the_destination_and_shows_transfer_progress() -> Result<()> {
+    use borg_core::{Action, Pointer, Side};
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    stage.send(key(KeyCode::Down));
+    stage.send(Msg::MountRemote {
+        side: Side::Right,
+        machine: "deploy".into(),
+        session: "work".into(),
+        name: "Work".into(),
+    });
+    stage.send(Msg::Pointer(Pointer::Action(Action::Copy)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "host deploy:Work")?;
+    check("remote_copy_prompt", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    let id = stage.state.jobs.last().unwrap().id;
+    stage.send(Msg::Job {
+        id,
+        event: borg_jobs::Event::Progress(borg_jobs::Progress {
+            done: borg_jobs::Totals { files: 1, bytes: 262144 },
+            total: borg_jobs::Totals { files: 3, bytes: 1048576 },
+            current: PathBuf::from("/tmp/deploy/archive.bin"),
+        }),
+    });
+    let buffer = stage.render(stage.started)?;
+    check("remote_copy_progress", &stage, buffer)
+}
+
+#[test]
+fn regular_mirror_host_shows_remote_control_and_local_reclamation() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    stage.state.notice = Some(borg_i18n::tr!(mirror_remote_control).replace("{computer}", "Laptop"));
+    let buffer = stage.render(stage.started)?;
+    check("regular_mirror_remote_control", &stage, buffer)?;
+    stage.state.notice = Some(borg_i18n::tr!(mirror_local_control).into());
+    let buffer = stage.render(stage.started)?;
+    check("regular_mirror_local_control", &stage, buffer)
+}

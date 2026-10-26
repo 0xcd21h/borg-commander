@@ -195,6 +195,11 @@ pub enum PromptPurpose {
     Move {
         sources: Vec<PathBuf>,
     },
+    RemoteCopy {
+        sources: Vec<PathBuf>,
+        from: Option<crate::RemoteMount>,
+        to: Option<crate::RemoteMount>,
+    },
     /// Copy between a container's filesystem and a host folder.
     DockerCopy {
         sources: Vec<PathBuf>,

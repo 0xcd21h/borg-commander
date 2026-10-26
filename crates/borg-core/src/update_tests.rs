@@ -50,7 +50,7 @@ fn remote_mount_stays_distinct_from_local_paths_and_blocks_local_changes() {
         }]
     );
     assert!(crate::actions::perform(&mut state, Action::Delete, now).is_empty());
-    assert!(state.notice.as_deref().unwrap_or_default().contains("read-only"));
+    assert!(state.notice.as_deref().unwrap_or_default().contains("not available"));
     let effect = crate::unmount_remote(&mut state, Side::Left).unwrap();
     assert!(matches!(effect, Effect::List { side: Side::Left, dir, .. } if dir == local));
 }
@@ -2370,4 +2370,38 @@ fn a_catalog_refresh_cannot_redirect_an_open_rename_to_another_remote() {
             name: "Deploy".into()
         }]
     );
+}
+
+#[test]
+fn panel_copy_captures_remote_endpoints_and_keeps_destination_relative_paths_remote() {
+    for source_remote in [false, true] {
+        for side in [Side::Left, Side::Right] {
+            let (mut state, now) = setup();
+            state.active = side;
+            let remote_side = if source_remote { side } else { side.other() };
+            crate::mount_remote(&mut state, remote_side, "server".into(), "remote-id".into(), "Work".into());
+            if source_remote {
+                let panel = state.panel(remote_side);
+                let generation = panel.generation();
+                update(&mut state, Msg::Batch { side: remote_side, generation, entries: vec![file("notes.txt")] }, now);
+                update(&mut state, Msg::Listed { side: remote_side, generation, error: None }, now);
+                state.panel_mut(remote_side).move_by(1);
+            } else {
+                state.panel_mut(side).move_by(1);
+            }
+            crate::actions::perform(&mut state, Action::Copy, now);
+            let Some(Overlay::Prompt(prompt)) = state.overlay.as_mut() else { panic!("copy prompt") };
+            assert!(prompt.label.contains(if source_remote { "client filesystem" } else { "host server:Work" }));
+            let crate::PromptPurpose::RemoteCopy { from, to, .. } = &prompt.purpose else {
+                panic!("remote copy purpose")
+            };
+            assert_eq!(from.is_some(), source_remote);
+            assert_eq!(to.is_some(), !source_remote);
+            prompt.input = crate::LineInput::new("nested");
+            let expected = state.panel(side.other()).dir().join("nested");
+            let effects = update(&mut state, Msg::Key(key(KeyCode::Enter)), now);
+            assert!(effects.iter().any(|effect| matches!(effect, Effect::StartRemoteCopy { from, to, target, .. } if from.is_some() == source_remote && to.is_some() != source_remote && *target == expected)));
+            assert_eq!(state.jobs.len(), 1);
+        }
+    }
 }

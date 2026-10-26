@@ -43,7 +43,7 @@ impl Control {
         self.signal.notify_all();
     }
 
-    fn cancelled(&self) -> bool {
+    pub fn cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
     }
 

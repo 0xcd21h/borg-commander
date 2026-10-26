@@ -66,8 +66,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
     if (remote || other_remote)
         && matches!(
             action,
-            Action::Copy
-                | Action::Move
+            Action::Move
                 | Action::Delete
                 | Action::DeleteOriginals
                 | Action::Edit
@@ -92,8 +91,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::RemoveReferences
         )
     {
-        state.notice =
-            Some("Remote file operations are available through borg get/put; the panel is read-only.".into());
+        state.notice = Some(tr!(remote_operation_unavailable).into());
         return Vec::new();
     }
     if mounted
@@ -325,6 +323,29 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::View if remote => remote_view(state, side),
         Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
         Action::Edit => edit(state),
+        Action::Copy if remote || other_remote => {
+            if mounted || other_mounted || state.panel(side.other()).is_results() {
+                state.notice = Some(tr!(remote_copy_destination).into());
+                return Vec::new();
+            }
+            let from = state.panel(side).remote_mount.clone();
+            let to = state.panel(side.other()).remote_mount.clone();
+            let destination = to
+                .as_ref()
+                .map(|mount| {
+                    format!(
+                        tr!(remote_copy_host),
+                        machine = state.remote_host_name(&mount.machine),
+                        session = state.remote_session_name(&mount.machine, &mount.session, &mount.name)
+                    )
+                })
+                .unwrap_or_else(|| tr!(remote_copy_client).into());
+            let effects = transfer(state, tr!(copy), |sources| PromptPurpose::RemoteCopy { sources, from, to });
+            if let Some(Overlay::Prompt(prompt)) = &mut state.overlay {
+                prompt.label = format!(tr!(remote_copy_label), label = prompt.label, destination = destination);
+            }
+            effects
+        }
         Action::Copy if mounted || other_mounted => {
             transfer(state, tr!(copy), |sources| PromptPurpose::DockerCopy { sources })
         }

@@ -84,6 +84,10 @@ impl Scene<'_> {
 }
 
 pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
+    draw_with_cursor(frame, scene).0
+}
+
+pub fn draw_with_cursor(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
     let area = frame.area();
     let theme = scene.theme_at(scene.state.appearance.current());
     let (cursor, placements) = compose(frame.buffer_mut(), scene, theme, area);
@@ -94,7 +98,7 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
     if let Some(position) = cursor.filter(|position| area.contains(*position)) {
         frame.set_cursor_position(position);
     }
-    placements
+    (placements, cursor.filter(|position| area.contains(*position)))
 }
 
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {

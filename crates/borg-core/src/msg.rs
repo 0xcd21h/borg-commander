@@ -229,6 +229,13 @@ pub enum Effect {
         id: u64,
         spec: Spec,
     },
+    StartRemoteCopy {
+        id: u64,
+        from: Option<crate::RemoteMount>,
+        to: Option<crate::RemoteMount>,
+        sources: Vec<PathBuf>,
+        target: PathBuf,
+    },
     /// A copy job between a container and a host folder; `inbound` copies into the container.
     StartDockerCopy {
         id: u64,

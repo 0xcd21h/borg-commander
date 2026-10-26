@@ -64,7 +64,8 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
 session shells and the pairing connection alive when no terminal is attached. Open a workspace
 with `borg --session NAME`; Ctrl-] detaches. One `borg mcp` connection can list and select local
 or paired targets. `borg --remote MACHINE:SESSION` opens a paired session's filesystem in a local
-read-only panel, and `borg mirror MACHINE:SESSION` shows its live screen in the local terminal.
+panel with F5 copies to and from local folders, and `borg mirror MACHINE:SESSION` shows its live screen in the local terminal.
+Regular sessions can be mirrored while Borg is running, without a background service.
 The mirror displays its control status; Ctrl-T takes control from a view-only mirror, and Ctrl-G exits.
 
 **Why the connection cannot be taken over.** Each borg holds its own key. Pairing exchanges

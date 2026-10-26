@@ -216,6 +216,12 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         PromptPurpose::Mkdir => {
             run_operation(state, tr!(overlays_mkdir), &ops::mkdir(text), Some(first_component(text)), now)
         }
+        PromptPurpose::RemoteCopy { sources, from, to } => {
+            let target = state.panel(state.active.other()).dir().join(text);
+            let (id, mut effects) = jobs::begin(state, JobKind::Copy, now);
+            effects.push(Effect::StartRemoteCopy { id, from, to, sources, target });
+            effects
+        }
         PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text, now),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {

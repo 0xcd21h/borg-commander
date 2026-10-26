@@ -309,7 +309,14 @@ In a container without systemd, have the container's process supervisor run `bor
 the `install` and `enable` commands require a systemd host on Linux.
 
 After pairing, `borg --remote MACHINE:SESSION` opens that session's filesystem in the left local
-panel. It is read-only; Enter or F3 previews a remote file through a temporary local download.
+panel. Enter or F3 previews a remote file through a temporary local download.
+**F5** copies marked files and folders between local and remote panels, or between two paired
+hosts. The destination dialog identifies the client or host. Copies run as background jobs with
+byte progress, pause/cancel, and overwrite, skip, or keep-both choices. Folders include empty
+folders and symlinks; executable permissions and modification times are preserved for regular
+files. A file becomes visible at its final destination only after its contents arrive completely.
+Both client and host need 0.8.1 or newer for panel-copy support; 0.8.0 hosts show an upgrade message.
+Other remote file operations, including F6 move and F8 delete, are not yet available.
 The right panel remains on your computer. With **Options → Plugins → Follow** enabled, the
 command line and **Ctrl-O** use an interactive shell on the remote host. Its terminal is rendered
 locally; keys, paste, Ctrl-C and terminal programs run remotely. Each remote session retains
@@ -347,16 +354,21 @@ are bounded and expire after 30 seconds of inactivity when listings are next acc
 Alt+Shift+M opens the same mirror from a local Borg with a remote panel. **Ctrl-G** leaves the
 mirror and returns to the local panels: hold Control and press G. You can also click the bottom
 banner line. The mirror keeps its control status visible on the line above; Ctrl-] also exits.
-`--take` explicitly takes control from another viewer. The remote
-machine must run the background service for the mirror.
+`--take` explicitly takes control from another viewer. A regular `borg` or `borg --session NAME`
+can be mirrored while it is running; no background service is required. Its local terminal
+remains visible, and local keyboard or mouse input reclaims control from the mirror. The mirror
+follows the host terminal's layout and clips to fit a smaller client window; enlarging the
+client reveals the rest. The optional background host keeps sessions alive after their original
+terminal closes and lets the controlling client resize their PTY. Update both client and host
+to 0.8.1 or newer for mirroring regular sessions; 0.8.0 supports only background-host mirrors.
 If another terminal controls the remote session, the mirror opens in view-only mode; its keys do
 not change the remote session. Press **Ctrl-T** or click the status line to take control, detach the other
 terminal, or use `borg mirror MACHINE:SESSION --take` to take control when starting it. After taking
 control, the first key wakes a sleeping remote screen; subsequent keys and mouse input reach it.
 Mirror input and display use independent connections, with typing bursts batched into requests.
-Updated services wait for fresh output and send the current visible screen when a viewer falls
+Updated hosts wait for fresh output and send the current visible screen when a viewer falls
 behind, instead of replaying old animation frames. The complete cursor-listing and mirror
-improvements require updating both the local Borg and the host's running service.
+improvements require updating the local Borg and restarting the host's Borg with the updated binary.
 
 To connect, press F1 and then C (or F9 → Remote → Share this Borg as host…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected
