@@ -2255,6 +2255,38 @@ fn relay_with_idle_proxy(idle: std::time::Duration) -> Result<String> {
     Ok(format!("ws://{address}"))
 }
 
+fn relay_with_connection_gate() -> Result<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)> {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let target = relay()?.trim_start_matches("ws://").to_owned();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    listener.set_nonblocking(true)?;
+    let paused = Arc::new(AtomicBool::new(false));
+    let gate = paused.clone();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).expect("the gated listener");
+            while let Ok((mut client, _)) = listener.accept().await {
+                let target = target.clone();
+                let gate = gate.clone();
+                tokio::spawn(async move {
+                    while gate.load(Ordering::SeqCst) {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                    }
+                    if let Ok(mut server) = tokio::net::TcpStream::connect(target).await {
+                        let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                    }
+                });
+            }
+        });
+    });
+    Ok((format!("ws://{address}"), paused))
+}
+
 /// The pairing link in the Connect dialog: the dialog wraps it over rows that start at the
 /// same column as the command.
 fn pairing_link(snapshot: &Snapshot) -> Option<String> {
@@ -3233,7 +3265,13 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
         if !background {
             ensure!(target.wait_exit()?.success());
         }
-        local.send(keys::key(KeyCode::Home))?.send(keys::f(8))?;
+        local.wait_text("Remote session removed.")?;
+        local.wait_gone("Checking paired hosts…")?;
+        local.send(keys::key(KeyCode::Home))?;
+        local.wait_until("Default session is selected after removal", |screen| {
+            highlighted(screen, &format!("Host {machine} · Default"))
+        })?;
+        local.send(keys::f(8))?;
         local.wait_text("Default session is protected")?;
         local.send(keys::esc())?;
         local.wait_gone("Remote colony")?;
@@ -3300,13 +3338,8 @@ fn host_colony_shows_paired_clients_and_updates_connection_counts() -> Result<()
 
 #[test]
 fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<()> {
-    struct Paused(u32);
-    impl Drop for Paused {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("kill").args(["-CONT", &self.0.to_string()]).status();
-        }
-    }
-    let relay = relay()?;
+    use std::sync::atomic::Ordering;
+    let (relay, paused) = relay_with_connection_gate()?;
     let host = fixture()?;
     host.configure(&format!("relay = \"{relay}\"\n"))?;
     let mut remote = Session::builder(BORG, &host).size(130, 34).label("stalled-mirror-host").spawn()?;
@@ -3322,9 +3355,7 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     local.wait_text(READY)?;
     local.send(keys::alt(KeyCode::Char('r')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
-    let pid = remote.process_id().context("test host PID")?;
-    ensure!(std::process::Command::new("kill").args(["-STOP", &pid.to_string()]).status()?.success());
-    let paused = Paused(pid);
+    paused.store(true, Ordering::SeqCst);
     local.send("m")?;
     let first = local.wait_text(&format!("Connecting mirror to {name}:Default"))?;
     local.wait_text("Esc: cancel connection")?;
@@ -3341,7 +3372,7 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     local.wait_text("Connection timed out after 10 seconds")?;
     local.wait_text("M: retry mirror")?;
     local.wait_gone("Esc: cancel connection")?;
-    drop(paused);
+    paused.store(false, Ordering::SeqCst);
     remote.send(keys::f(1))?;
     remote.wait_text("Remote access to this borg")?;
     remote.send(keys::esc())?;
