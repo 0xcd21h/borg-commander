@@ -282,6 +282,8 @@ async fn run() -> Result<()> {
     let (events_tx, mut events_rx) = unbounded_channel::<(String, PtyEvent)>();
     cloud.set_background_service();
     let mut children: Children = HashMap::new();
+    let mut removing = std::collections::HashSet::new();
+    let (removed_tx, mut removed_rx) = unbounded_channel::<String>();
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
     loop {
         tokio::select! {
@@ -298,6 +300,7 @@ async fn run() -> Result<()> {
                 let active: std::collections::HashSet<_> = named.iter().map(|session| session.id.as_str()).collect();
                 children.retain(|id, _| active.contains(id.as_str()));
                 for session in named {
+                    if removing.contains(&session.id) { continue; }
                     if let std::collections::hash_map::Entry::Vacant(entry) = children.entry(session.id) {
                         match spawn_child(entry.key(), events_tx.clone()) {
                             Ok(child) => { entry.insert(child); }
@@ -325,6 +328,37 @@ async fn run() -> Result<()> {
                 }
             }
             Some((call, reply)) = calls_rx.recv() => {
+                if call.tool == "session_delete" {
+                    let id = call.args["id"].as_str().unwrap_or_default().to_owned();
+                    if id == "default" || !sessions::list(&state).is_ok_and(|sessions| sessions.iter().any(|session| session.id == id)) {
+                        let _ = reply.send(Reply::error("The Default session is protected, or the requested session no longer exists"));
+                        continue;
+                    }
+                    if !removing.insert(id.clone()) {
+                        let _ = reply.send(Reply::error("This session is already being removed"));
+                        continue;
+                    }
+                    let child = children.remove(&id);
+                    let removed = removed_tx.clone();
+                    let state = state.clone();
+                    let runtime = runtime.clone();
+                    let consoles = console_server.clone();
+                    tokio::spawn(async move {
+                        let result = async {
+                            if let Some(child) = child {
+                                tokio::task::spawn_blocking(move || child.lock().expect("child lock").pty.stop()).await??;
+                            }
+                            sessions::delete_remote(&state, &runtime, &id, None).await
+                        }.await;
+                        let answer = match result {
+                            Ok(()) => { consoles.close_session(&id); Reply::ok("Session removed") },
+                            Err(error) => Reply::error(format!("{error:#}")),
+                        };
+                        let _ = reply.send(answer);
+                        let _ = removed.send(id);
+                    });
+                    continue;
+                }
                 if call.tool.starts_with("console_") {
                     console_server.handle(call, reply);
                     continue;
@@ -354,6 +388,7 @@ async fn run() -> Result<()> {
                     let _ = reply.send(answer);
                 });
             }
+            Some(id) = removed_rx.recv() => { removing.remove(&id); }
             Ok((stream, _)) = listener.accept() => {
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
@@ -366,6 +401,7 @@ async fn run() -> Result<()> {
                     Some("attach") => {
                         let id = request["session"].as_str().unwrap_or_default();
                         if !children.contains_key(id)
+                            && !removing.contains(id)
                             && sessions::list(&state).is_ok_and(|all| all.iter().any(|session| session.id == id && !session.archived))
                             && let Ok(child) = spawn_child(id, events_tx.clone())
                         {

@@ -14,13 +14,27 @@ use crossterm::{
         KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
     },
     execute,
-    terminal::LeaveAlternateScreen,
+    terminal::{EndSynchronizedUpdate, LeaveAlternateScreen},
 };
 use futures::StreamExt;
 use serde_json::{Value, json};
 use tokio::{io::AsyncWriteExt, sync::mpsc, time::Duration};
 
 use crate::{agent::Call, link, session::StateDir};
+
+const KEEPALIVE: Duration = Duration::from_secs(20);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn keepalive_timer() -> tokio::time::Interval {
+    let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + KEEPALIVE, KEEPALIVE);
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    timer
+}
+
+async fn keep_alive(remote: &mut link::Remote, session: &str) -> Result<()> {
+    checked(remote.call(&Call::new("mirror_view", json!({"session":session}))).await?)?;
+    Ok(())
+}
 
 fn checked(reply: crate::agent::Reply) -> Result<String> {
     if !reply.ok {
@@ -76,6 +90,7 @@ async fn frames(
     controlling: Arc<AtomicBool>,
     mode: Arc<AtomicU32>,
     native: bool,
+    mut initial: Option<String>,
 ) -> Result<()> {
     let mut after = 0_u64;
     let mut output = tokio::io::stdout();
@@ -86,11 +101,14 @@ async fn frames(
             after = 0;
             previous_size = Some(size);
         }
-        let reply = checked(
+        let reply = match initial.take() {
+            Some(reply) => reply,
+            None => checked(
             remote
                 .call(&Call::new("mirror_frame", json!({ "session": session, "after": after, "wait_ms": 1000, "cols":size.0,"rows":size.1.saturating_sub(2).max(1) })))
-                .await?,
-        )?;
+                .await.context("Mirror display connection failed")?,
+            )?,
+        };
         let frame: Value = serde_json::from_str(&reply).context("unreadable mirror frame")?;
         if let Some(controller) = frame["controller"].as_bool() {
             controlling.store(controller, Ordering::Relaxed);
@@ -115,7 +133,10 @@ async fn frames(
 }
 
 async fn take_control(control: &mut link::Remote, session: &str, controlling: &AtomicBool) -> Result<()> {
-    let reply = control.call(&Call::new("mirror_take", json!({ "session": session, "force": true }))).await?;
+    let reply = control
+        .call(&Call::new("mirror_take", json!({ "session": session, "force": true })))
+        .await
+        .context("Mirror control connection failed")?;
     if reply.ok {
         controlling.store(true, Ordering::Relaxed);
     }
@@ -142,10 +163,17 @@ async fn send_inputs(
     mut incoming: mpsc::Receiver<MirrorInput>,
 ) -> Result<()> {
     let mut pending = None;
+    let mut keepalive = keepalive_timer();
     loop {
         let first = match pending.take() {
             Some(input) => Some(input),
-            None => incoming.recv().await,
+            None => tokio::select! {
+                input = incoming.recv() => input,
+                _ = keepalive.tick() => {
+                    keep_alive(&mut remote, &session).await.context("Mirror input connection failed")?;
+                    continue;
+                }
+            },
         };
         let Some(first) = first else {
             break;
@@ -182,7 +210,7 @@ async fn send_inputs(
         } else {
             json!({"session":session,"events":events})
         };
-        let reply = remote.call(&Call::new("mirror_input", args)).await?;
+        let reply = remote.call(&Call::new("mirror_input", args)).await.context("Mirror input connection failed")?;
         if !reply.ok {
             controlling.store(false, Ordering::Relaxed);
         }
@@ -224,11 +252,48 @@ async fn forward_event(input: &mpsc::Sender<MirrorInput>, controlling: &AtomicBo
 }
 
 pub async fn command(target: &str, force: bool) -> Result<()> {
+    struct Terminal;
+    impl Drop for Terminal {
+        fn drop(&mut self) {
+            let _ = execute!(
+                std::io::stdout(),
+                EndSynchronizedUpdate,
+                DisableBracketedPaste,
+                DisableMouseCapture,
+                LeaveAlternateScreen
+            );
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+    let _terminal = Terminal;
+    crossterm::terminal::enable_raw_mode()?;
+    execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
     let mut input = EventStream::new();
     command_with_input(target, force, &mut input).await
 }
 
 pub async fn command_with_input(target: &str, force: bool, input: &mut EventStream) -> Result<()> {
+    let connection = connect(target, force).await?;
+    run(connection, input).await
+}
+
+pub struct Connection {
+    control: link::Remote,
+    stream: link::Remote,
+    input_remote: link::Remote,
+    session: String,
+    native: bool,
+    controlling: Arc<AtomicBool>,
+    initial: String,
+}
+
+pub async fn connect(target: &str, force: bool) -> Result<Connection> {
+    tokio::time::timeout(CONNECT_TIMEOUT, connect_inner(target, force))
+        .await
+        .with_context(|| format!(borg_i18n::tr!(remote_mirror_timeout), seconds = CONNECT_TIMEOUT.as_secs()))?
+}
+
+async fn connect_inner(target: &str, force: bool) -> Result<Connection> {
     let (machine, name) = target
         .split_once(':')
         .filter(|(machine, name)| !machine.is_empty() && !name.is_empty())
@@ -260,20 +325,27 @@ pub async fn command_with_input(target: &str, force: bool, input: &mut EventStre
     {
         bail!("{}", take.text);
     }
-    let stream = link::Remote::open(state.path(), &server).await?;
+    let mut stream = link::Remote::open(state.path(), &server).await?;
     let input_remote = link::Remote::open(state.path(), &server).await?;
-    crossterm::terminal::enable_raw_mode()?;
-    struct Terminal;
-    impl Drop for Terminal {
-        fn drop(&mut self) {
-            let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture, LeaveAlternateScreen);
-            let _ = crossterm::terminal::disable_raw_mode();
-        }
-    }
-    let _terminal = Terminal;
-    execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
+    let (cols, rows) = crossterm::terminal::size()?;
+    let initial = checked(
+        stream
+            .call(&Call::new(
+                "mirror_frame",
+                json!({
+                    "session": session, "after": 0, "wait_ms": 0, "cols": cols, "rows": rows.saturating_sub(2).max(1)
+                }),
+            ))
+            .await?,
+    )?;
+    Ok(Connection { control, stream, input_remote, session, native, controlling, initial })
+}
+
+pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> {
+    let Connection { mut control, stream, input_remote, session, native, controlling, initial } = connection;
     let mut current_size = None;
     let mut resize = tokio::time::interval(Duration::from_millis(250));
+    let mut keepalive = keepalive_timer();
     // Older services omit `mode`; these are the terminal modes Borg itself uses for input.
     let fallback =
         TermMode::MOUSE_REPORT_CLICK | TermMode::MOUSE_DRAG | TermMode::SGR_MOUSE | TermMode::BRACKETED_PASTE;
@@ -281,10 +353,9 @@ pub async fn command_with_input(target: &str, force: bool, input: &mut EventStre
     let frame_session = session.clone();
     let frame_control = controlling.clone();
     let frame_mode = mode.clone();
-    let mut displaying =
-        MirrorTask(tokio::spawn(
-            async move { frames(stream, &frame_session, frame_control, frame_mode, native).await },
-        ));
+    let mut displaying = MirrorTask(tokio::spawn(async move {
+        frames(stream, &frame_session, frame_control, frame_mode, native, Some(initial)).await
+    }));
     let (input_tx, input_rx) = mpsc::channel(64);
     let mut sending =
         MirrorTask(tokio::spawn(send_inputs(input_remote, session.clone(), controlling.clone(), input_rx)));
@@ -292,6 +363,9 @@ pub async fn command_with_input(target: &str, force: bool, input: &mut EventStre
         tokio::select! {
             result = &mut displaying.0 => break result.context("mirror display task failed")?,
             result = &mut sending.0 => break result.context("mirror input task failed")?,
+            _ = keepalive.tick() => {
+                keep_alive(&mut control, &session).await.context("Mirror control connection failed")?;
+            }
             _ = resize.tick() => {
                 if !controlling.load(Ordering::Relaxed) {
                     current_size = None;
@@ -302,7 +376,7 @@ pub async fn command_with_input(target: &str, force: bool, input: &mut EventStre
                     current_size = Some(size);
                     let reply = control.call(&Call::new("mirror_resize", json!({
                         "session": session, "cols": size.0, "rows": size.1.saturating_sub(2).max(8)
-                    }))).await?;
+                    }))).await.context("Mirror control connection failed")?;
                     if !reply.ok {
                         controlling.store(false, Ordering::Relaxed);
                         current_size = None;

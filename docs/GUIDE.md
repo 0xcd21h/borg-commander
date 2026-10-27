@@ -321,6 +321,8 @@ The right panel remains on your computer. With **Options → Plugins → Follow*
 command line and **Ctrl-O** use an interactive shell on the remote host. Its terminal is rendered
 locally; keys, paste, Ctrl-C and terminal programs run remotely. Each remote session retains
 its own shell while you switch panels. Selecting a client panel restores the local shell.
+The client keeps quiet console connections alive, including consoles parked while another panel
+is selected. These heartbeats send no terminal input and preserve unfinished command lines.
 Apps using the alternate screen, and foreground apps using raw input such as `top`, receive
 all keys while running, including Ctrl-O. Terminal resizing reaches the remote PTY. Quit the
 app using its own keys (`q` in `top`); Borg returns to the panels if you launched it from
@@ -333,12 +335,31 @@ In local Borg, press **Alt-R**, use the bottom **Remote hosts** shortcut, or cho
 **F9 → Remote → Browse hosts and sessions…** to see paired machines
 and their named sessions. Enter opens the selected session’s files in the panel that opened
 the picker, replacing that panel’s previous location. Press **M** in the picker to mirror its screen; **R** refreshes the list.
+**Tab** switches between **Hosts** (outgoing access) and **Clients** (incoming access).
+Clients lists the computers paired with this Borg, their public-key fingerprints, whether they
+are connected, and their connection counts. One computer appears once even when a mirror uses
+several connections. Status updates while the picker is open, including inside a session whose
+connections are owned by the background service. Pairing is directional: an allowed client does
+not automatically become a host whose files this Borg can browse. If the connection owner is an
+older Borg or cannot answer, paired clients remain visible with **Connection status unavailable**.
+While a mirror connects, the picker shows an animated status and **Esc** cancels immediately.
+Connection setup, including receiving the first screen, times out after 10 seconds. A failed
+attempt keeps the picker open with the error; **M** retries the selected session.
 In the picker, **F2** renames the selected host label for every session on that host;
 **Shift-F2** renames the selected session label. These labels are saved on this client and
 appear in the picker, panel titles, and console footer. Leave a name blank to restore the
 original. The details retain the original host and session names. Labels are bound to the
 paired host's key and session ID; command targets and names on the remote host stay the same.
-The picker labels this Borg as the client and paired machines as hosts. The Remote menu also
+
+**F8** or **Delete** removes the selected host session after a confirmation whose default is
+**No**. Removal closes that session and its remote consoles and removes its saved Borg panels
+and terminal history; files and folders on the host are kept. The Default session is protected.
+A standalone session currently hosting the connection cannot remove itself; close it on the host
+and run Borg in another session first. Failed removal keeps the session visible for retry.
+Both client and the host's connection owner need 0.8.2 or newer for session removal. Service-managed
+sessions are stopped before their saved state is removed, and the service does not recreate them.
+
+The picker distinguishes outgoing hosts from incoming clients; the same Borg can serve both roles. The Remote menu also
 offers **Mirror mounted host** and **Share this Borg as host…**.
 The picker shows each host's Borg version; selecting a session shows OS/architecture,
 background service or terminal mode, request latency, and relay address. Hosts are checked
@@ -366,6 +387,10 @@ not change the remote session. Press **Ctrl-T** or click the status line to take
 terminal, or use `borg mirror MACHINE:SESSION --take` to take control when starting it. After taking
 control, the first key wakes a sleeping remote screen; subsequent keys and mouse input reach it.
 Mirror input and display use independent connections, with typing bursts batched into requests.
+Quiet input and control connections send read-only keepalives, including while viewing without typing.
+Updated hosts show a quit confirmation when `exit` is typed in Borg's main Bash, Zsh or Fish shell.
+**No** is selected by default and keeps the same shell, variables, directory and mirrors running.
+This confirmation runs on the host, so update and restart the host's Borg to enable it.
 Updated hosts wait for fresh output and send the current visible screen when a viewer falls
 behind, instead of replaying old animation frames. The complete cursor-listing and mirror
 improvements require updating the local Borg and restarting the host's Borg with the updated binary.

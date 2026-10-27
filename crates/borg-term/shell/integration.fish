@@ -27,3 +27,14 @@ function fish_prompt
     __borg_user_prompt
     printf '\e]133;B\a'
 end
+
+if test "$BORG_CONFIRM_EXIT" = 1
+    set -e BORG_CONFIRM_EXIT
+    set --global __borg_exit_pid $fish_pid
+    function exit
+        if test "$fish_pid" != "$__borg_exit_pid"
+            builtin exit $argv
+        end
+        command sh "$BORG_INTEGRATION_DIR/confirm-exit-read.sh"
+    end
+end

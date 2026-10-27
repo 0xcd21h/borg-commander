@@ -13,7 +13,7 @@ expression: describe(&buffer)
 │                                          │
 │                                          │
 │    Join matching tiles to reach 2048     │
-╰──↑↓←→ Move · U Un ◈ Borg Commander v0.8.1
+╰──↑↓←→ Move · U Un ◈ Borg Commander v0.8.2
 --- styles ---
   0: 0-43 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE
   1: 0-0 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 1-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE

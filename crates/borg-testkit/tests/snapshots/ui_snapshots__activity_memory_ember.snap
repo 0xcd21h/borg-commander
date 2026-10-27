@@ -35,7 +35,7 @@ expression: describe(&buffer)
 compiler · PID 410 · /usr/local/bin/compiler
 $
 Enter Memory map  / Search  Esc Back
-Enter Memory map · / Search · Tab Processes · Space Pause · Alt-W Maximize                                  ◈ Borg Commander v0.8.1
+Enter Memory map · / Search · Tab Processes · Space Pause · Alt-W Maximize                                  ◈ Borg Commander v0.8.2
 --- styles ---
   0: 0-0 Rgb(74, 60, 52) Rgb(28, 23, 21) NONE | 1-30 Rgb(140, 122, 108) Rgb(28, 23, 21) NONE | 31-57 Rgb(74, 60, 52) Rgb(28, 23, 21) NONE | 58-60 Rgb(216, 203, 189) Rgb(42, 34, 29) NONE | 61-61 Rgb(74, 60, 52) Rgb(28, 23, 21) NONE | 62-64 Rgb(216, 203, 189) Rgb(42, 34, 29) NONE | 65-65 Rgb(74, 60, 52) Rgb(28, 23, 21) NONE | 66-66 Rgb(232, 146, 91) Rgb(28, 23, 21) NONE | 67-94 Rgb(244, 230, 216) Rgb(28, 23, 21) BOLD | 95-123 Rgb(232, 146, 91) Rgb(28, 23, 21) NONE | 124-126 Rgb(216, 203, 189) Rgb(42, 34, 29) NONE | 127-127 Rgb(232, 146, 91) Rgb(28, 23, 21) NONE | 128-130 Rgb(216, 203, 189) Rgb(42, 34, 29) NONE | 131-131 Rgb(232, 146, 91) Rgb(28, 23, 21) NONE
   1: 0-0 Rgb(74, 60, 52) Rgb(28, 23, 21) NONE | 1-64 Rgb(232, 146, 91) Rgb(42, 34, 29) NONE | 65-65 Rgb(74, 60, 52) Rgb(28, 23, 21) NONE | 66-66 Rgb(232, 146, 91) Rgb(28, 23, 21) NONE | 67-130 Rgb(232, 146, 91) Rgb(42, 34, 29) NONE | 131-131 Rgb(232, 146, 91) Rgb(28, 23, 21) NONE

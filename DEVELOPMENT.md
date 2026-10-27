@@ -327,7 +327,9 @@ action with the released version (for example `0.2.0`) to publish it without mak
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release
 from the GitHub API, pick the archive for the target borg was built for (`BORG_TARGET`, set by
-`crates/borg-app/build.rs`), verify the checksum and swap the binary in place.
+`crates/borg-app/build.rs`), verify the checksum and swap the binary in place. GNU Linux builds
+can also update to the published static MUSL build for the same architecture when no exact
+target archive is available.
 
 ## Conventions
 

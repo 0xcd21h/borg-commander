@@ -73,7 +73,7 @@ pub use state::{
 pub use update::update;
 pub use viewer::{Content, Image, Viewer, viewer_size};
 
-pub use remote::{RemoteBrowser, RemoteChoice, RemoteHostInfo, RemoteHostNames, RemoteNames};
+pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
     COLLECTION_LIMIT, Collection, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results, SearchProgress,

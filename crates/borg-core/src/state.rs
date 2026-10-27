@@ -217,8 +217,10 @@ pub struct Prompt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmPurpose {
+    RemoteSessionDelete { machine: String, session: String, browser: Box<crate::RemoteBrowser> },
     Delete { sources: Vec<PathBuf> },
     Quit,
+    ShellExit { token: String },
     Docker { action: borg_docker::Action, ids: Vec<String> },
 }
 

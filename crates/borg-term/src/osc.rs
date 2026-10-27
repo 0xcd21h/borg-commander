@@ -12,6 +12,7 @@ const SEMANTIC_PROMPT: &[u8] = b"133;";
 const CURRENT_DIR: &[u8] = b"7;";
 /// Borg's own announcement, sent by its shell integration (`OSC 6633;silent-cd`).
 const SILENT_CD: &[u8] = b"6633;silent-cd";
+const CONFIRM_EXIT: &[u8] = b"6633;confirm-exit;";
 const FILE_SCHEME: &[u8] = b"file://";
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,11 @@ fn parse_payload(payload: &[u8]) -> Option<ShellSignal> {
         parse_current_dir(rest)
     } else if payload == SILENT_CD {
         Some(ShellSignal::SilentCd)
+    } else if let Some(token) = payload.strip_prefix(CONFIRM_EXIT) {
+        (!token.is_empty()
+            && token.len() <= 64
+            && token.iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-'))
+        .then(|| ShellSignal::ExitRequested { token: String::from_utf8_lossy(token).into_owned() })
     } else {
         None
     }
@@ -142,6 +148,17 @@ mod tests {
     fn silent_cd_is_announced_by_borg_integration_only() {
         assert_eq!(scan_all(&[b"\x1b]6633;silent-cd\x07"]), vec![ShellSignal::SilentCd]);
         assert!(scan_all(&[b"\x1b]6633;silent-cd-later\x07", b"\x1b]6634;silent-cd\x07"]).is_empty());
+    }
+
+    #[test]
+    fn shell_exit_requests_are_bounded_and_survive_split_reads() {
+        assert_eq!(
+            scan_all(&[b"\x1b]6633;confirm-ex", b"it;123-45\x07"]),
+            vec![ShellSignal::ExitRequested { token: "123-45".into() }]
+        );
+        assert!(scan_all(&[b"\x1b]6633;confirm-exit;\x07", b"\x1b]6633;confirm-exit;token:no\x07"]).is_empty());
+        let long = format!("\x1b]6633;confirm-exit;{}\x07", "x".repeat(65));
+        assert!(scan_all(&[long.as_bytes()]).is_empty());
     }
 
     #[test]

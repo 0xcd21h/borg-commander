@@ -59,3 +59,4 @@ __borg_install() {
 }
 
 add-zsh-hook precmd __borg_install
+source "$BORG_INTEGRATION_DIR/confirm-exit.sh"

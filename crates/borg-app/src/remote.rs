@@ -11,6 +11,26 @@ use sha2::{Digest, Sha256};
 
 use crate::{agent::Call, link, session::StateDir};
 
+const DELETE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+pub async fn delete_session(machine: &str, session: &str) -> Result<()> {
+    tokio::time::timeout(DELETE_TIMEOUT, async {
+        let state = StateDir::locate().context("Borg has no state folder")?;
+        let server = link::server(state.path(), machine)?;
+        let mut remote = link::Remote::open(state.path(), &server).await?;
+        let reply = remote.call(&Call::new("session_delete", json!({"id":session}))).await?;
+        if !reply.ok {
+            if reply.text.to_ascii_lowercase().contains("unknown tool") {
+                bail!(borg_i18n::tr!(remote_session_delete_upgrade));
+            }
+            bail!("{}", reply.text);
+        }
+        Ok(())
+    })
+    .await
+    .context(borg_i18n::tr!(remote_session_delete_timeout))?
+}
+
 #[derive(Deserialize)]
 struct HostInfo {
     version: String,

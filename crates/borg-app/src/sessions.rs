@@ -12,6 +12,44 @@ use serde::{Deserialize, Serialize};
 use crate::{session::StateDir, store::write_atomically};
 
 const REGISTRY: &str = "sessions.json";
+const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+pub async fn delete_remote(state: &StateDir, runtime: &std::path::Path, id: &str, serving: Option<&str>) -> Result<()> {
+    let selected = list(state)?.into_iter().find(|session| session.id == id).context("The session no longer exists")?;
+    ensure!(id != "default", "The Default session is protected and cannot be removed");
+    ensure!(
+        serving != Some(id),
+        "This session is hosting the remote connection. Close it on the host before removing it"
+    );
+    archive(state, id, true)?;
+    let result = async {
+        if delete(state, id).is_ok() {
+            return Ok(());
+        }
+        let _ = tokio::time::timeout(STOP_TIMEOUT, async {
+            if let Some(mut session) = crate::agent::Session::open(runtime, Some(id)).await {
+                let _ = session.call(&crate::agent::Call::new("session_stop", serde_json::json!({"id":id}))).await;
+            }
+        })
+        .await;
+        let deadline = tokio::time::Instant::now() + STOP_TIMEOUT;
+        loop {
+            match delete(state, id) {
+                Ok(()) => return Ok(()),
+                Err(error) if tokio::time::Instant::now() >= deadline => {
+                    return Err(error.context("Could not stop the session; close it on the host and retry"));
+                }
+                Err(_) => tokio::time::sleep(STOP_POLL).await,
+            }
+        }
+    }
+    .await;
+    if result.is_err() {
+        let _ = archive(state, id, selected.archived);
+    }
+    result
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NamedSession {
@@ -230,6 +268,38 @@ pub fn command(state: &StateDir, args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn remote_removal_keeps_machine_files_and_protects_default_and_the_serving_session() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let state = StateDir::at(temp.path().join("state"));
+        let first = create(&state, "junk")?;
+        let serving = create(&state, "host")?;
+        state.for_session(&first.id).save_terminal(b"saved history")?;
+        let machine_file = temp.path().join("keep.txt");
+        fs::write(&machine_file, b"keep")?;
+        assert!(delete_remote(&state, temp.path(), "default", None).await.is_err());
+        assert!(delete_remote(&state, temp.path(), &serving.id, Some(&serving.id)).await.is_err());
+        assert!(!list(&state)?.iter().find(|entry| entry.id == serving.id).unwrap().archived);
+        delete_remote(&state, temp.path(), &first.id, Some(&serving.id)).await?;
+        assert!(!state.workspace(&first.id).exists());
+        assert!(!list(&state)?.iter().any(|entry| entry.id == first.id));
+        assert_eq!(fs::read(machine_file)?, b"keep");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_remote_removal_keeps_the_session_visible_and_its_saved_state() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let state = StateDir::at(temp.path().join("state"));
+        let session = create(&state, "busy")?;
+        state.for_session(&session.id).save_terminal(b"keep history")?;
+        let _running = lock(&state, &session.id)?;
+        assert!(delete_remote(&state, temp.path(), &session.id, None).await.is_err());
+        assert!(!list(&state)?.iter().find(|entry| entry.id == session.id).unwrap().archived);
+        assert_eq!(state.for_session(&session.id).load_terminal().as_deref(), Some(b"keep history".as_slice()));
+        Ok(())
+    }
 
     #[test]
     fn names_are_stable_across_rename_archive_and_reopen() {

@@ -66,6 +66,13 @@ pub enum Msg {
         error: String,
     },
     RemoteNames(Result<crate::RemoteNames, String>),
+    RemoteClients(Vec<crate::RemoteClient>),
+    RemoteSessionDeleted {
+        machine: String,
+        session: String,
+        result: Result<(), String>,
+    },
+    RemoteMirrorConnected(Result<(), String>),
     RemoteCatalog {
         choices: Vec<crate::RemoteChoice>,
         complete: bool,
@@ -129,6 +136,9 @@ pub enum Msg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
+    CancelShellExit {
+        token: String,
+    },
     MeasureSizes {
         id: u64,
         root: PathBuf,
@@ -160,6 +170,15 @@ pub enum Effect {
         session: String,
     },
     OpenRemotes,
+    CancelRemoteConnection,
+    DeleteRemoteSession {
+        machine: String,
+        session: String,
+    },
+    CloseRemoteConsole {
+        machine: String,
+        session: String,
+    },
     SaveRemoteName {
         identity: String,
         session: Option<String>,

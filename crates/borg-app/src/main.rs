@@ -36,7 +36,7 @@ use crossterm::{
         PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
-    terminal::supports_keyboard_enhancement,
+    terminal::{EndSynchronizedUpdate, supports_keyboard_enhancement},
 };
 
 use ratatui::DefaultTerminal;
@@ -230,7 +230,7 @@ impl Drop for TerminalModes {
         if self.enhanced {
             let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
         }
-        let _ = execute!(stdout(), DisableBracketedPaste, DisableMouseCapture);
+        let _ = execute!(stdout(), EndSynchronizedUpdate, DisableBracketedPaste, DisableMouseCapture);
         ratatui::restore();
     }
 }

@@ -35,7 +35,7 @@ expression: describe(&buffer)
 shop-web-1 · web:1.4 · a10000000000
 $
 S Start  X Stop  R Restart  P Pause  F Files  E Shell  / Filter  Tab Details  Esc Close
-↑↓ Move · ←→ Fold projects · Alt-W Maximize                                                                 ◈ Borg Commander v0.8.1
+↑↓ Move · ←→ Fold projects · Alt-W Maximize                                                                 ◈ Borg Commander v0.8.2
 --- styles ---
   0: 0-65 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 66-75 Rgb(13, 11, 26) Rgb(255, 79, 216) BOLD | 76-131 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE
   1: 0-0 Rgb(195, 62, 169) Rgb(13, 11, 26) NONE | 1-64 Rgb(52, 185, 202) Rgb(22, 18, 43) NONE | 65-65 Rgb(195, 62, 169) Rgb(13, 11, 26) NONE | 66-91 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 92-130 Rgb(167, 161, 202) Rgb(22, 18, 43) NONE | 131-131 Rgb(35, 29, 67) Rgb(13, 11, 26) NONE

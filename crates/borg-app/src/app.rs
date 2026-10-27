@@ -44,6 +44,7 @@ use crate::{
 };
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+const REMOTE_CLIENT_REFRESH: Duration = Duration::from_secs(1);
 /// The folder under the runtime directory where container files are copied for viewing.
 const DOCKER_SCRATCH: &str = "docker";
 const WHEEL_LINES: i32 = 3;
@@ -135,7 +136,8 @@ pub struct App {
     downloads: std::collections::HashSet<(String, String)>,
     approve_all: std::collections::HashSet<String>,
     runtime_dir: PathBuf,
-    mirror_target: Option<(String, String)>,
+    mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
+    mirror_ready: Option<crate::mirror::Connection>,
     cloud_suppressed: bool,
 }
 
@@ -202,7 +204,8 @@ impl App {
         }
 
         let shell_dir = state.active_panel().dir().to_path_buf();
-        let command = shell_command(&launch.shell, &shell_dir, &launch.runtime_dir).context("preparing shell")?;
+        let mut command = shell_command(&launch.shell, &shell_dir, &launch.runtime_dir).context("preparing shell")?;
+        command.env("BORG_CONFIRM_EXIT", "1");
         let (pty_tx, pty_events) = unbounded_channel();
         let pty = Pty::spawn(command, grid, pty_tx)?;
         let (messages, inbox) = unbounded_channel();
@@ -277,7 +280,8 @@ impl App {
             downloads: std::collections::HashSet::new(),
             approve_all: std::collections::HashSet::new(),
             runtime_dir: launch.runtime_dir.clone(),
-            mirror_target: None,
+            mirror_connect: None,
+            mirror_ready: None,
             cloud_suppressed: launch.remote.is_some() || std::env::var_os("BORG_SERVICE_CHILD").is_some(),
             host_capture: None,
             clipboard: None,
@@ -339,6 +343,21 @@ impl App {
                 Some((call, reply)) = self.agent.incoming.recv() => self.on_agent(call, reply)?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
+                connected = async {
+                    match self.mirror_connect.as_mut() {
+                        Some(connecting) => connecting.await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    self.mirror_connect = None;
+                    match connected {
+                        Ok(connection) => {
+                            self.mirror_ready = Some(connection);
+                            self.dispatch(Msg::RemoteMirrorConnected(Ok(())))?
+                        }
+                        Err(error) => self.dispatch(Msg::RemoteMirrorConnected(Err(format!("{error:#}"))))?,
+                    }
+                },
                 () = sleep_until(deadline.into()), if redraw => Flow::Continue,
                 () = sleep_until(wake.unwrap_or(now + IDLE_WAIT).into()), if wake.is_some() => self.dispatch(Msg::Tick)?,
             };
@@ -346,13 +365,29 @@ impl App {
             if let Flow::Quit = flow {
                 return Ok(());
             }
-            if let Some((machine, session)) = self.mirror_target.take() {
-                ratatui::restore();
-                let mirrored =
-                    crate::mirror::command_with_input(&format!("{machine}:{session}"), false, &mut input).await;
-                *terminal = ratatui::init();
-                execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
-                terminal.clear()?;
+            if !matches!(
+                &self.state.overlay,
+                Some(borg_core::Overlay::Remotes(_))
+                    | Some(borg_core::Overlay::Prompt(borg_core::Prompt {
+                        purpose: borg_core::PromptPurpose::RemoteName { .. },
+                        ..
+                    }))
+            ) && let Some(catalog) = self.remote_catalog.take()
+            {
+                catalog.abort();
+            }
+            if let Some(connection) = self.mirror_ready.take() {
+                terminal.backend_mut().write_all(&self.graphics.reset())?;
+                terminal.backend_mut().flush()?;
+                let mirrored = crate::mirror::run(connection, &mut input).await;
+                execute!(
+                    terminal.backend_mut(),
+                    EndSynchronizedUpdate,
+                    EnterAlternateScreen,
+                    EnableBracketedPaste,
+                    EnableMouseCapture
+                )?;
+                clear_screen(terminal)?;
                 if let Err(error) = mirrored {
                     self.state.notice = Some(format!("Remote mirror: {error:#}"));
                 }
@@ -399,9 +434,8 @@ impl App {
             Some(Plain::Ending) => {
                 // Cleared here and drawn whole: Terminal::clear would ask the terminal where
                 // its cursor is, and not every terminal answers.
-                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture, Clear(ClearType::All))?;
-                terminal.swap_buffers();
-                terminal.swap_buffers();
+                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                clear_screen(terminal)?;
             }
             None => {}
         }
@@ -410,7 +444,7 @@ impl App {
         queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
         let mut output = self.draw_frame(terminal, &clock, now)?;
         if output.repaint {
-            terminal.clear()?;
+            clear_screen(terminal)?;
             output = self.draw_frame(terminal, &clock, now)?;
         }
         let backend = terminal.backend_mut();
@@ -550,6 +584,9 @@ impl App {
                 self.dispatch(Msg::RemoteConsoleOutput { echoed, machine: key.0, session: key.1, view, signals })
             }
             crate::remote_console::Event::Closed(error) => {
+                if self.remote_consoles.screen(&key).is_none() {
+                    return Ok(Flow::Continue);
+                }
                 let error = format!(tr!(remote_console_error), machine = key.0, error = error);
                 self.dispatch(Msg::RemoteConsoleClosed { machine: key.0.clone(), session: key.1.clone(), error })?;
                 self.remote_consoles.close(&key);
@@ -782,6 +819,41 @@ impl App {
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
         }
         match call.tool.as_str() {
+            "session_stop" => {
+                let Some(id) = text("id") else { return fail(reply, "session_stop needs an ID".into()) };
+                let allowed = self.link.session_id() == Some(id.as_str())
+                    && id != "default"
+                    && StateDir::locate().is_some_and(|state| {
+                        crate::sessions::list(&state)
+                            .is_ok_and(|sessions| sessions.iter().any(|session| session.id == id && session.archived))
+                    });
+                if !allowed {
+                    return fail(reply, "Only a session pending removal can be stopped this way".into());
+                }
+                for control in self.jobs.values() {
+                    control.cancel();
+                }
+                let _ = reply.send(Reply::ok("Session stopping"));
+                return Ok(Flow::Quit);
+            }
+            "session_delete" => {
+                let Some(id) = text("id") else { return fail(reply, "session_delete needs an ID".into()) };
+                let Some(state) = StateDir::locate() else { return fail(reply, "Borg has no state folder".into()) };
+                let runtime = self.runtime_dir.clone();
+                let serving = self.link.session_id().map(str::to_owned);
+                let consoles = self.console_server.clone();
+                tokio::spawn(async move {
+                    let result = crate::sessions::delete_remote(&state, &runtime, &id, serving.as_deref()).await;
+                    let answer = match result {
+                        Ok(()) => {
+                            consoles.close_session(&id);
+                            Reply::ok("Session removed")
+                        }
+                        Err(error) => Reply::error(format!("{error:#}")),
+                    };
+                    let _ = reply.send(answer);
+                });
+            }
             tool if tool.starts_with("console_") => self.console_server.handle(call, reply),
             "fs_list" => {
                 let Some(path) = text("path").map(PathBuf::from).filter(|path| path.is_absolute()) else {
@@ -1416,6 +1488,7 @@ impl App {
     fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
         for effect in effects {
             match effect {
+                Effect::CancelShellExit { token } => self.pty.write(format!("{token}:no\n").as_bytes())?,
                 Effect::MeasureSizes { id, root } => self.search.measure(id, root),
                 Effect::CancelMeasure => self.search.cancel_measure(),
                 Effect::CancelMemorySearch => self.monitor.cancel_search(),
@@ -1500,7 +1573,23 @@ impl App {
                     }
                     self.console = console;
                 }
-                Effect::MirrorRemote { machine, session } => self.mirror_target = Some((machine, session)),
+                Effect::MirrorRemote { machine, session } => {
+                    self.mirror_connect =
+                        Some(Box::pin(
+                            async move { crate::mirror::connect(&format!("{machine}:{session}"), false).await },
+                        ));
+                }
+                Effect::CancelRemoteConnection => self.mirror_connect = None,
+                Effect::DeleteRemoteSession { machine, session } => {
+                    let messages = self.messages.clone();
+                    tokio::spawn(async move {
+                        let result = crate::remote::delete_session(&machine, &session)
+                            .await
+                            .map_err(|error| format!("{error:#}"));
+                        let _ = messages.send(Msg::RemoteSessionDeleted { machine, session, result });
+                    });
+                }
+                Effect::CloseRemoteConsole { machine, session } => self.remote_consoles.close(&(machine, session)),
                 Effect::SaveRemoteName { identity, session, name } => {
                     let messages = self.messages.clone();
                     tokio::task::spawn_blocking(move || {
@@ -1524,10 +1613,22 @@ impl App {
                                 .map_err(|error| format!(tr!(remote_names_error), error = error));
                             let _ = messages.send(Msg::RemoteNames(names));
                         }
-                        crate::remote::catalog(|choices, complete| {
+                        let hosts = crate::remote::catalog(|choices, complete| {
                             let _ = messages.send(Msg::RemoteCatalog { choices, complete });
-                        })
-                        .await;
+                        });
+                        let clients = async {
+                            loop {
+                                let clients = match StateDir::locate() {
+                                    Some(dir) => crate::link::paired_clients(dir.path()).await,
+                                    None => Vec::new(),
+                                };
+                                if messages.send(Msg::RemoteClients(clients)).is_err() {
+                                    break;
+                                }
+                                tokio::time::sleep(REMOTE_CLIENT_REFRESH).await;
+                            }
+                        };
+                        tokio::join!(hosts, clients);
                     }));
                 }
                 Effect::MountRemote { side, machine, session, name } => {
@@ -1814,6 +1915,13 @@ impl App {
             previous.abort();
         }
     }
+}
+
+fn clear_screen(terminal: &mut DefaultTerminal) -> Result<()> {
+    execute!(terminal.backend_mut(), Clear(ClearType::All))?;
+    terminal.swap_buffers();
+    terminal.swap_buffers();
+    Ok(())
 }
 
 /// Where an ask happens, with the computer that asked when it came through borg cloud.

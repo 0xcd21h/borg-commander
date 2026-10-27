@@ -211,9 +211,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::MirrorRemote => {
             let mounted = state.panels.iter().find_map(|panel| panel.remote_mount.as_ref());
             match mounted {
-                Some(mount) => {
-                    vec![Effect::MirrorRemote { machine: mount.machine.clone(), session: mount.session.clone() }]
-                }
+                Some(mount) => crate::remote::mirror(state, mount.machine.clone(), mount.session.clone()),
                 None => {
                     state.notice = Some("Open Remote Borgs with Alt-R, then choose a session to mirror.".into());
                     Vec::new()
@@ -226,6 +224,12 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 choices: Vec::new(),
                 selected: 0,
                 loading: true,
+                connecting: false,
+                error: None,
+                clients: None,
+                show_clients: !state.agent.computers.is_empty(),
+                client_selected: 0,
+                deleting: None,
             }));
             vec![Effect::OpenRemotes]
         }

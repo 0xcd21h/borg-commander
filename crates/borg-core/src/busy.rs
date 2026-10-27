@@ -50,7 +50,8 @@ impl Busy {
 
 pub(crate) fn sync(state: &mut AppState, now: Instant) {
     let mut active = Vec::new();
-    if matches!(&state.overlay, Some(crate::Overlay::Remotes(browser)) if browser.loading) {
+    if matches!(&state.overlay, Some(crate::Overlay::Remotes(browser)) if browser.loading || browser.connecting || browser.deleting.is_some())
+    {
         active.push(Task::RemoteCatalog);
     }
     for side in Side::ALL {

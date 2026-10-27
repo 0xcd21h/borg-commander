@@ -29,7 +29,7 @@ expression: describe(&buffer)
  /workspace/archive/cache · 9240 files · 129 folders · at least 123456789 content bytes
 $
 F1Help      F2File      F3View      F4Edit      F5Copy      F6Move      F7Mkdir     F8Delete    F9Menu      F10Quit     ^OShell
-Alt-R Remote hosts  Ctrl-F Search  Ctrl-R Rescan  Esc Hide  Alt-W Restore  Ctrl-S Filter  Ins Mark          ◈ Borg Commander v0.8.1
+Alt-R Remote hosts  Ctrl-F Search  Ctrl-R Rescan  Esc Hide  Alt-W Restore  Ctrl-S Filter  Ins Mark          ◈ Borg Commander v0.8.2
 --- styles ---
   0: 0-123 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 124-126 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 127-127 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 128-130 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 131-131 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-130 Rgb(70, 70, 70) Rgb(30, 30, 30) NONE | 131-131 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE

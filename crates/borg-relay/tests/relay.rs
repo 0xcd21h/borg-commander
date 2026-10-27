@@ -20,6 +20,9 @@ struct Running {
 
 impl Drop for Running {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("relay process: {:?}; log: {:?}", self.child.try_wait(), self.log.lock().unwrap());
+        }
         let _ = self.child.kill();
     }
 }

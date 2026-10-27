@@ -2215,6 +2215,46 @@ fn relay() -> Result<String> {
     Ok(format!("ws://{address}"))
 }
 
+fn relay_with_idle_proxy(idle: std::time::Duration) -> Result<String> {
+    let target = relay()?.trim_start_matches("ws://").to_owned();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    listener.set_nonblocking(true)?;
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
+        runtime.block_on(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::from_std(listener).expect("the proxy listener");
+            while let Ok((client, _)) = listener.accept().await {
+                let target = target.clone();
+                tokio::spawn(async move {
+                    let Ok(server) = tokio::net::TcpStream::connect(target).await else { return };
+                    let (mut client_read, mut client_write) = client.into_split();
+                    let (mut server_read, mut server_write) = server.into_split();
+                    let mut outbound = [0; 64 * 1024];
+                    let mut inbound = [0; 64 * 1024];
+                    let mut active = tokio::time::Instant::now();
+                    loop {
+                        tokio::select! {
+                            next = client_read.read(&mut outbound) => {
+                                let Ok(count) = next else { break };
+                                if count == 0 || server_write.write_all(&outbound[..count]).await.is_err() { break; }
+                                active = tokio::time::Instant::now();
+                            }
+                            next = server_read.read(&mut inbound) => {
+                                let Ok(count) = next else { break };
+                                if count == 0 || client_write.write_all(&inbound[..count]).await.is_err() { break; }
+                            }
+                            () = tokio::time::sleep_until(active + idle) => break,
+                        }
+                    }
+                });
+            }
+        });
+    });
+    Ok(format!("ws://{address}"))
+}
+
 /// The pairing link in the Connect dialog: the dialog wraps it over rows that start at the
 /// same column as the command.
 fn pairing_link(snapshot: &Snapshot) -> Option<String> {
@@ -2520,6 +2560,58 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
         );
         Ok::<_, anyhow::Error>(())
     })?;
+    Ok(())
+}
+
+#[test]
+fn remote_panel_console_preserves_its_shell_while_idle_and_parked() -> Result<()> {
+    let relay = relay_with_idle_proxy(std::time::Duration::from_secs(25))?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("idle-console-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(150, 34).label("idle-console-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send(keys::enter())?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default console"))?;
+    local.send("keep_console=alive")?.send(keys::enter())?;
+    local.wait_until("remote shell ready before waiting", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    local.send("printf '%s' \"$keep_console\"")?;
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(35);
+    while std::time::Instant::now() < until {
+        local.pump(std::time::Duration::from_millis(100))?;
+        ensure!(local.snapshot().contains(&format!("Host {name}:Default console")), "the idle console stays open");
+    }
+    local.send(keys::enter())?;
+    local.wait_text("alive")?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text("F1Help")?;
+    local.send(keys::tab())?;
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(35);
+    while std::time::Instant::now() < until {
+        local.pump(std::time::Duration::from_millis(100))?;
+        ensure!(!local.snapshot().contains("Remote console is closed"), "the parked console stays open");
+    }
+    local.send(keys::tab())?.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default console"))?;
+    local.send("printf '%s' \"$keep_console\" > \"$HOME/idle-console-proof\"")?.send(keys::enter())?;
+    local.wait_until("the same remote shell survived idle and parked time", |_| {
+        fs::read(host.home().join("idle-console-proof")).is_ok_and(|data| data == b"alive")
+    })?;
+    ensure!(!client.home().join("idle-console-proof").exists());
     Ok(())
 }
 
@@ -2950,6 +3042,16 @@ printf '\033[?1049l\r\nnative-key=%s\r\n' "$code"
     mirror.wait_text("REMOTE MIRROR - CONTROL")?;
     mirror.send(keys::esc())?;
     mirror.wait_gone("Remote access to this borg")?;
+    mirror.send("exit")?.send(keys::enter())?;
+    mirror.wait_text("No keeps the current shell running.")?;
+    second.wait_text("No keeps the current shell running.")?;
+    mirror.send(keys::enter())?;
+    mirror.wait_gone("No keeps the current shell running.")?;
+    second.wait_until("remote prompt after declining exit", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    mirror.send(keys::ctrl('o'))?;
+    second.wait_until("remote panels after declining exit", panels_ready)?;
     second.resize(90, 26)?;
     second.wait_until("host resized", |screen| {
         screen.cols() == 90 && screen.rows() == 26 && screen.contains("notes.txt")
@@ -2998,6 +3100,7 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
     }
     let (error, text) = probe.call("host_info", serde_json::json!({}))?;
     ensure!(!error && serde_json::from_str::<serde_json::Value>(&text)?["service"] == true);
+    drop(probe);
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
     for file in ["key", "servers.json"] {
@@ -3011,11 +3114,387 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
         .spawn()?;
     mirror.wait_text("REMOTE MIRROR - CONTROL")?;
     mirror.wait_text("notes.txt")?;
+    mirror.send(keys::alt(KeyCode::Char('r')))?;
+    mirror.wait_text("This Borg is the host for the selected client.")?;
+    mirror.wait_text("Connections: 3")?;
+    mirror.send(keys::esc())?;
+    mirror.wait_gone("Remote colony")?;
     mirror.send(keys::f(1))?;
     mirror.wait_text("Remote access to this borg")?;
     mirror.send(keys::esc())?;
     mirror.wait_gone("Remote access to this borg")?;
+    mirror.send("exit")?.send(keys::enter())?;
+    mirror.wait_text("No keeps the current shell running.")?;
+    mirror.send(keys::esc())?;
+    mirror.wait_gone("No keeps the current shell running.")?;
     mirror.send(keys::ctrl('g'))?;
     ensure!(mirror.wait_exit()?.success());
+    Ok(())
+}
+
+#[test]
+fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> Result<()> {
+    for background in [false, true] {
+        let relay = relay()?;
+        let host = fixture()?;
+        host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+        let mut broker = Session::builder(BORG, &host).size(130, 34).label("remove-session-broker").spawn()?;
+        broker.wait_text(READY)?;
+        let (computer, machine) = pair_computer(&mut broker, &host)?;
+        for name in ["Throwaway", "Keep"] {
+            let output = std::process::Command::new(BORG)
+                .args(["sessions", "create", name])
+                .env("BORG_STATE_DIR", host.state())
+                .output()?;
+            ensure!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        }
+        let registry: serde_json::Value = serde_json::from_slice(&fs::read(host.state().join("sessions.json"))?)?;
+        let entries = registry.as_array().context("session registry")?;
+        let id = entries
+            .iter()
+            .find(|entry| entry["name"] == "Throwaway")
+            .and_then(|entry| entry["id"].as_str())
+            .context("Throwaway ID")?;
+        let keep = entries
+            .iter()
+            .find(|entry| entry["name"] == "Keep")
+            .and_then(|entry| entry["id"].as_str())
+            .context("Keep ID")?;
+        let workspace = host.state().join("sessions").join(id);
+        let kept_workspace = host.state().join("sessions").join(keep);
+        fs::create_dir_all(&workspace)?;
+        fs::create_dir_all(&kept_workspace)?;
+        fs::write(workspace.join("saved-proof"), b"saved workspace")?;
+        fs::write(kept_workspace.join("saved-proof"), b"keep workspace")?;
+        fs::write(host.home().join("keep-machine-file"), b"keep machine file")?;
+        let mut target = if background {
+            broker.send(keys::f(10))?.send("y")?;
+            ensure!(broker.wait_exit()?.success());
+            drop(broker);
+            Session::builder(BORG, &host)
+                .args(&["service", "run"])
+                .size(130, 34)
+                .label("remove-session-service")
+                .spawn()?
+        } else {
+            Session::builder(BORG, &host)
+                .args(&["--session", id])
+                .size(130, 34)
+                .label("remove-session-target")
+                .spawn()?
+        };
+        if !background {
+            target.wait_text(READY)?;
+        }
+        let client = fixture()?;
+        client
+            .configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+        fs::create_dir_all(client.state().join("link"))?;
+        for file in ["key", "servers.json"] {
+            fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+        }
+        let mut local = Session::builder(BORG, &client).size(150, 36).label("remove-session-client").spawn()?;
+        local.wait_text(READY)?;
+        local.wait_until("target session holds its running lock", |_| {
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(workspace.join(".lock"))
+                .is_ok_and(|file| file.try_lock().is_err())
+        })?;
+        local.send(keys::alt(KeyCode::Char('r')))?;
+        local.wait_text(&format!("Host {machine} · Throwaway"))?;
+        local.send(keys::down())?.send(keys::enter())?;
+        local.wait_text(&format!("Host {machine}:Throwaway"))?;
+        local.send(keys::ctrl('o'))?;
+        local.wait_text(&format!("Host {machine}:Throwaway console"))?;
+        local.send("printf 'remote console' > \"$HOME/remove-console-proof\"")?.send(keys::enter())?;
+        local
+            .wait_until("target remote console is connected", |_| host.home().join("remove-console-proof").exists())?;
+        local.wait_until("remote console prompt ready", |screen| {
+            screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+        })?;
+        local.send(keys::ctrl('o'))?.send(keys::alt(KeyCode::Char('r')))?;
+        local.wait_text(&format!("Host {machine} · Throwaway"))?;
+        local.send(keys::down())?.send(keys::f(8))?;
+        local.wait_text("Remove remote session")?;
+        local.wait_text("Files on the machine are kept.")?;
+        local.send(keys::enter())?;
+        local.wait_gone("Remove remote session")?;
+        ensure!(workspace.exists(), "No keeps the session and its saved workspace");
+        local.send(keys::f(8))?;
+        local.wait_text("Remove remote session")?;
+        local.send("y")?;
+        local.wait_gone(&format!("Host {machine} · Throwaway"))?;
+        local.wait_text(&format!("Host {machine} · Keep"))?;
+        local.wait_until("saved workspace removed after the session exits", |_| !workspace.exists())?;
+        ensure!(fs::read(kept_workspace.join("saved-proof"))? == b"keep workspace");
+        ensure!(fs::read(host.home().join("keep-machine-file"))? == b"keep machine file");
+        if !background {
+            ensure!(target.wait_exit()?.success());
+        }
+        local.send(keys::key(KeyCode::Home))?.send(keys::f(8))?;
+        local.wait_text("Default session is protected")?;
+        local.send(keys::esc())?;
+        local.wait_gone("Remote colony")?;
+        local.send(keys::ctrl('o'))?;
+        local.wait_text("Borg console")?;
+        local.send("printf 'local console' > \"$HOME/remove-local-proof\"")?.send(keys::enter())?;
+        local.wait_until("client console restored after removal", |_| {
+            client.home().join("remove-local-proof").exists()
+        })?;
+        ensure!(!host.home().join("remove-local-proof").exists());
+        if background {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while std::time::Instant::now() < until {
+                local.pump(std::time::Duration::from_millis(100))?;
+                ensure!(!workspace.exists(), "the service must not recreate a removed session");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn host_colony_shows_paired_clients_and_updates_connection_counts() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(140, 36).label("colony-clients-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let paired: serde_json::Value = serde_json::from_slice(&fs::read(host.state().join("link/computers.json"))?)?;
+    let client_name = paired[0]["name"].as_str().context("paired client name")?;
+    let target = format!("{name}:Default");
+    let client = fixture()?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut mirror = Session::builder(BORG, &client)
+        .args(&["mirror", &target])
+        .size(140, 36)
+        .label("colony-clients-viewer")
+        .spawn()?;
+    mirror.wait_text("REMOTE MIRROR - CONTROL")?;
+    mirror.wait_text("notes.txt")?;
+    remote.send(keys::alt(KeyCode::Char('r')))?;
+    remote.wait_text(&format!("Client {client_name} · Connected"))?;
+    let screen = remote.wait_text("Connections: 3")?;
+    ensure!(screen.lines().iter().filter(|line| line.contains(&format!("Client {client_name}"))).count() == 1);
+    ensure!(!screen.contains("This Borg: client"));
+    ensure!(fs::metadata(host.state().join("link/clients.sock"))?.permissions().mode() & 0o777 == 0o600);
+    remote.send(keys::tab())?;
+    remote.wait_text("No paired hosts")?;
+    remote.send(keys::tab())?;
+    remote.wait_text(&format!("Client {client_name} · Connected"))?;
+    mirror.send(keys::ctrl('g'))?;
+    ensure!(mirror.wait_exit()?.success());
+    remote.wait_text(&format!("Client {client_name} · Not connected"))?;
+    remote.wait_text("Connections: 0")?;
+    remote.send(keys::esc())?;
+    remote.wait_gone("Remote colony")?;
+    Ok(())
+}
+
+#[test]
+fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<()> {
+    struct Paused(u32);
+    impl Drop for Paused {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("kill").args(["-CONT", &self.0.to_string()]).status();
+        }
+    }
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("stalled-mirror-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(140, 34).label("stalled-mirror-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    let pid = remote.process_id().context("test host PID")?;
+    ensure!(std::process::Command::new("kill").args(["-STOP", &pid.to_string()]).status()?.success());
+    let paused = Paused(pid);
+    local.send("m")?;
+    let first = local.wait_text(&format!("Connecting mirror to {name}:Default"))?;
+    local.wait_text("Esc: cancel connection")?;
+    local.wait_until("the connection spinner keeps animating", |screen| {
+        screen.text() != first.text() && screen.contains("Connecting mirror to")
+    })?;
+    let cancelled = std::time::Instant::now();
+    local.send(keys::esc())?;
+    local.wait_gone("Connecting mirror to")?;
+    ensure!(cancelled.elapsed() < std::time::Duration::from_secs(2), "Esc must cancel promptly");
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send("m")?;
+    local.wait_text("Connecting mirror to")?;
+    local.wait_text("Connection timed out after 10 seconds")?;
+    local.wait_text("M: retry mirror")?;
+    local.wait_gone("Esc: cancel connection")?;
+    drop(paused);
+    remote.send(keys::f(1))?;
+    remote.wait_text("Remote access to this borg")?;
+    remote.send(keys::esc())?;
+    remote.wait_gone("Remote access to this borg")?;
+    local.send("m")?;
+    local.wait_text("REMOTE MIRROR - CONTROL")?;
+    local.wait_text("notes.txt")?;
+    local.send(keys::ctrl('g'))?;
+    local.wait_text("F1Help")?;
+    local.send(keys::f(1))?;
+    local.wait_text("Remote access to this borg")?;
+    Ok(())
+}
+
+#[test]
+fn mirror_keeps_connections_alive_while_quiet_and_while_typing() -> Result<()> {
+    let relay = relay_with_idle_proxy(std::time::Duration::from_secs(25))?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("idle-mirror-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let target = format!("{name}:Default");
+    let mut mirror =
+        Session::builder(BORG, &client).args(&["mirror", &target]).size(140, 36).label("idle-mirror-client").spawn()?;
+    mirror.wait_text("REMOTE MIRROR - CONTROL")?;
+    mirror.wait_text("notes.txt")?;
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(50);
+    while std::time::Instant::now() < until {
+        mirror.pump(std::time::Duration::from_millis(100))?;
+        ensure!(mirror.snapshot().contains("REMOTE MIRROR - CONTROL"), "the quiet mirror stays connected");
+    }
+    ensure!(!remote.snapshot().contains("Remote access to this borg"), "keepalives do not send host keys");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < until {
+        mirror.send(keys::f(1))?;
+        mirror.wait_text("Remote access to this borg")?;
+        mirror.send(keys::esc())?;
+        mirror.wait_gone("Remote access to this borg")?;
+        mirror.pump(std::time::Duration::from_millis(500))?;
+        ensure!(mirror.snapshot().contains("REMOTE MIRROR - CONTROL"), "the active mirror stays connected");
+    }
+    mirror.send(keys::ctrl('t'))?;
+    mirror.send(keys::f(1))?;
+    mirror.wait_text("Remote access to this borg")?;
+    remote.wait_text("Remote access to this borg")?;
+    mirror.send(keys::esc())?;
+    mirror.wait_gone("Remote access to this borg")?;
+    mirror.send(keys::ctrl('g'))?;
+    ensure!(mirror.wait_exit()?.success());
+    Ok(())
+}
+
+#[test]
+fn shell_exit_confirmation_preserves_the_current_shell_when_declined() -> Result<()> {
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fixture.configure("return-to-panels = false\n")?;
+        let mut app = start_with(&fixture, &format!("exit-confirm-{}", shell.program()), shell)?;
+        let command =
+            if shell == Shell::Fish { "set --global keep_exit alive; cd alpha" } else { "keep_exit=alive; cd alpha" };
+        app.send(command)?.send(keys::enter())?;
+        app.wait_until("shell ready before exit", |screen| {
+            screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+        })?;
+        app.send("exit")?.send(keys::enter())?;
+        app.wait_text("No keeps the current shell running.")?;
+        app.send(keys::enter())?;
+        app.wait_gone("No keeps the current shell running.")?;
+        app.wait_until("same shell resumes after No", |screen| {
+            screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+        })?;
+        let nested = if shell == Shell::Fish { "fish -c 'exit 0'" } else { "(exit 0)" };
+        app.send(format!(
+            "{nested}; bash -c 'exit 0'; printf '%s' \"$keep_exit\" > \"$HOME/kept-exit\"; pwd > \"$HOME/kept-cwd\""
+        ))?
+        .send(keys::enter())?;
+        app.wait_until("variables and cwd survive; nested exits do not ask", |_| {
+            fs::read(fixture.home().join("kept-exit")).is_ok_and(|data| data == b"alive")
+                && fixture.home().join("kept-cwd").exists()
+        })?;
+        let cwd = fs::read_to_string(fixture.home().join("kept-cwd"))?;
+        ensure!(Path::new(cwd.trim()).canonicalize()? == fixture.work().join("alpha").canonicalize()?);
+        app.wait_until("shell ready before accepting exit", |screen| {
+            screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+        })?;
+        app.send("exit")?.send(keys::enter())?;
+        app.wait_text("No keeps the current shell running.")?;
+        app.send("y")?;
+        ensure!(app.wait_exit()?.success());
+    }
+    Ok(())
+}
+
+#[test]
+fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("mirror-handoff-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local =
+        Session::builder(BORG, &client).size(150, 36).terminal_replies(false).label("mirror-handoff-client").spawn()?;
+    local.wait_text(READY)?;
+    for _ in 0..3 {
+        local.send(keys::alt(KeyCode::Char('r')))?;
+        local.wait_text(&format!("Host {name} · Default"))?;
+        local.send("m")?;
+        local.wait_text("REMOTE MIRROR - CONTROL")?;
+        local.send(keys::f(1))?;
+        local.wait_text("Remote access to this borg")?;
+        local.send(keys::esc())?;
+        local.wait_gone("Remote access to this borg")?;
+        local.send(keys::ctrl('g'))?;
+        local.wait_until("local panels after mirror without cursor replies", |screen| {
+            panels_ready(screen) && !screen.contains("REMOTE MIRROR")
+        })?;
+        local.send(keys::f(1))?;
+        local.wait_text("Remote access to this borg")?;
+        local.send(keys::esc())?;
+        local.wait_gone("Remote access to this borg")?;
+    }
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send("m")?;
+    local.wait_text("REMOTE MIRROR - CONTROL")?;
+    remote.send(keys::f(10))?.send("y")?;
+    ensure!(remote.wait_exit()?.success());
+    local.wait_text("Remote mirror:")?;
+    local.wait_until("local panels after remote disconnect", |screen| {
+        panels_ready(screen) && !screen.contains("REMOTE MIRROR")
+    })?;
+    let shown = local.wait_text("notes.txt")?;
+    let (x, y) = shown.find("notes.txt").context("local file on screen")?;
+    local.send(mouse(0, x, y))?;
+    local.wait_until("mouse still selects local files after mirror", |screen| highlighted(screen, "notes.txt"))?;
+    local.send("echo handoff-ready")?;
+    local
+        .wait_until("local command line works after mirror", |screen| prompt(screen).contains("echo handoff-ready"))?;
+    local.send(keys::ctrl('u'))?;
+    local.send(keys::f(10))?.send("y")?;
+    ensure!(local.wait_exit()?.success());
     Ok(())
 }

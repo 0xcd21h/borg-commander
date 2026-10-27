@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -26,6 +26,7 @@ const SHELL_LIMIT: usize = 64;
 const OWNER_LIMIT: usize = 16;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
+const KEEPALIVE: Duration = Duration::from_secs(20);
 
 type Key = (String, String);
 type Hosts = Arc<Mutex<HashMap<String, Arc<Mutex<Host>>>>>;
@@ -42,13 +43,23 @@ struct Host {
     _runtime: tempfile::TempDir,
 }
 
+#[derive(Clone)]
 pub struct Server {
     hosts: Hosts,
+    retired: Arc<Mutex<HashSet<String>>>,
     shell: PathBuf,
     runtime: PathBuf,
 }
 
 impl Server {
+    pub fn close_session(&self, session: &str) {
+        self.retired.lock().expect("retired remote consoles").insert(session.to_owned());
+        self.hosts
+            .lock()
+            .expect("remote consoles")
+            .retain(|_, host| host.lock().expect("remote console").session.as_deref() != Some(session));
+    }
+
     pub fn new(shell: PathBuf, runtime: PathBuf) -> Self {
         let hosts: Hosts = Default::default();
         let weak = Arc::downgrade(&hosts);
@@ -63,10 +74,14 @@ impl Server {
                     .retain(|_, host| host.lock().expect("remote console").touched.elapsed() < IDLE_TIMEOUT);
             }
         });
-        Self { hosts, shell, runtime }
+        Self { hosts, retired: Default::default(), shell, runtime }
     }
 
     fn open(&self, owner: String, args: &Value) -> Result<Value> {
+        let retired = self.retired.lock().expect("retired remote consoles");
+        if args["session"].as_str().is_some_and(|session| retired.contains(session)) {
+            bail!("This session was removed");
+        }
         let dir = args["path"]
             .as_str()
             .map(Path::new)
@@ -117,6 +132,7 @@ impl Server {
             }
         });
         hosts.insert(id.clone(), host);
+        drop(retired);
         Ok(json!({"id":id}))
     }
 
@@ -382,9 +398,16 @@ async fn connect(
         Ok::<_, anyhow::Error>(())
     }));
     let mut pending = None;
+    let mut keepalive = tokio::time::interval_at(tokio::time::Instant::now() + KEEPALIVE, KEEPALIVE);
+    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let result = loop {
         tokio::select! {
-            result = &mut read.0 => break result.context("remote console reader")?,
+            result = &mut read.0 => break result.context("remote console reader")?.context("Remote console output connection failed"),
+            _ = keepalive.tick() => {
+                if let Err(error) = rpc(&mut writer, &key.1, "console_input", json!({"id":id,"data":""})).await {
+                    break Err(error.context("Remote console input connection failed"));
+                }
+            }
             command = async { match pending.take() { Some(command) => Some(command), None => input.recv().await } } => {
                 let result = match command {
                     Some(Input::Write(mut data)) => {
@@ -401,7 +424,7 @@ async fn connect(
                     Some(Input::Resize(size)) => rpc(&mut writer, &key.1, "console_resize", json!({"id":id,"cols":size.cols,"rows":size.rows})).await,
                     None => break Ok(()),
                 };
-                if let Err(error) = result { break Err(error); }
+                if let Err(error) = result { break Err(error.context("Remote console input connection failed")); }
             }
         }
     };
@@ -420,6 +443,29 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel();
         server.handle(call, tx);
         rx.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn removed_sessions_close_their_consoles_and_cannot_reopen_them() -> Result<()> {
+        let runtime = tempfile::tempdir()?;
+        let server = Server::new(PathBuf::from("/bin/bash"), runtime.path().into());
+        let open = json!({"path":runtime.path(),"cols":100,"rows":24,"session":"removed"});
+        let opened = call(&server, Some("owner"), "console_open", open.clone()).await;
+        assert!(opened.ok, "{}", opened.text);
+        let id: Value = serde_json::from_str(&opened.text)?;
+        server.close_session("removed");
+        assert!(!call(&server, Some("owner"), "console_frame", json!({"id":id["id"],"session":"removed"})).await.ok);
+        assert!(!call(&server, Some("owner"), "console_open", open).await.ok);
+        let kept = call(
+            &server,
+            Some("owner"),
+            "console_open",
+            json!({"path":runtime.path(),"cols":100,"rows":24,"session":"kept"}),
+        )
+        .await;
+        assert!(kept.ok, "{}", kept.text);
+        server.close_session("kept");
+        Ok(())
     }
 
     #[tokio::test]

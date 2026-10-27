@@ -25,3 +25,4 @@ __borg_mark() {
 
 PROMPT_COMMAND=$'__borg_status\n'"${PROMPT_COMMAND}"$'\n__borg_mark'
 PS0="${PS0}"$'\033]133;C\007'
+. "$BORG_INTEGRATION_DIR/confirm-exit.sh"

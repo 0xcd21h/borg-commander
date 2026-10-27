@@ -29,6 +29,9 @@ const BASH_RC: Script = Script { name: "bashrc.bash", body: include_str!("../she
 const ZSH_ENV: Script = Script { name: ".zshenv", body: include_str!("../shell/zshenv.zsh") };
 const ZSH_INTEGRATION: Script = Script { name: "integration.zsh", body: include_str!("../shell/integration.zsh") };
 const FISH_INTEGRATION: Script = Script { name: "integration.fish", body: include_str!("../shell/integration.fish") };
+const CONFIRM_EXIT: Script = Script { name: "confirm-exit.sh", body: include_str!("../shell/confirm-exit.sh") };
+const CONFIRM_EXIT_READ: Script =
+    Script { name: "confirm-exit-read.sh", body: include_str!("../shell/confirm-exit-read.sh") };
 
 struct Script {
     name: &'static str,
@@ -55,9 +58,9 @@ impl ShellKind {
 
     fn scripts(self) -> &'static [Script] {
         match self {
-            Self::Bash => &[BASH_RC],
-            Self::Zsh => &[ZSH_ENV, ZSH_INTEGRATION],
-            Self::Fish => &[FISH_INTEGRATION],
+            Self::Bash => &[BASH_RC, CONFIRM_EXIT, CONFIRM_EXIT_READ],
+            Self::Zsh => &[ZSH_ENV, ZSH_INTEGRATION, CONFIRM_EXIT, CONFIRM_EXIT_READ],
+            Self::Fish => &[FISH_INTEGRATION, CONFIRM_EXIT_READ],
             Self::Other => &[],
         }
     }

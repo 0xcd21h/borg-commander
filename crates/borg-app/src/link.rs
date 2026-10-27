@@ -17,14 +17,16 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use borg_core::{AgentEvent, Msg};
+use borg_core::{AgentEvent, Msg, RemoteClient};
 use borg_link::{
-    Channel, Identity, PairingCode, PairingLink, PublicKey, Relay, SECRET_LEN, fingerprint, hex, initiate, relay,
-    respond, unhex,
+    Channel, Identity, KEY_LEN, PairingCode, PairingLink, PublicKey, Relay, SECRET_LEN, fingerprint, hex, initiate,
+    relay, respond, unhex,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{UnixListener, UnixStream},
     sync::{mpsc::UnboundedSender, oneshot},
     task::{JoinHandle, JoinSet},
 };
@@ -36,6 +38,9 @@ const KEY_FILE: &str = "key";
 /// On a server: the computers paired with it. On a computer: the servers it paired with.
 const COMPUTERS_FILE: &str = "computers.json";
 const SERVERS_FILE: &str = "servers.json";
+const CLIENTS_SOCKET: &str = "clients.sock";
+const CLIENTS_TIMEOUT: Duration = Duration::from_secs(2);
+const CLIENTS_LIMIT: u64 = 64 * 1024;
 /// Held by the one borg on this machine that borg cloud reaches, with its process id inside.
 const CLAIM_FILE: &str = "cloud.lock";
 const PRIVATE_FILE: u32 = 0o600;
@@ -176,6 +181,77 @@ impl Pairing {
 struct Shared {
     computers: Vec<Computer>,
     pairing: Option<Pairing>,
+    connections: std::collections::HashMap<String, usize>,
+}
+
+fn client_status(shared: &Shared) -> Vec<RemoteClient> {
+    shared
+        .computers
+        .iter()
+        .map(|computer| RemoteClient {
+            name: computer.name.clone(),
+            fingerprint: unhex::<KEY_LEN>(&computer.key).map(|key| fingerprint(&key)).unwrap_or_default(),
+            connections: Some(shared.connections.get(&computer.key).copied().unwrap_or_default()),
+        })
+        .collect()
+}
+
+struct ClientConnection {
+    shared: Arc<Mutex<Shared>>,
+    clients: Arc<AtomicUsize>,
+    messages: UnboundedSender<Msg>,
+    computer: Computer,
+}
+
+impl ClientConnection {
+    fn new(
+        shared: Arc<Mutex<Shared>>,
+        clients: Arc<AtomicUsize>,
+        messages: UnboundedSender<Msg>,
+        computer: Computer,
+    ) -> Self {
+        *shared.lock().expect("link lock").connections.entry(computer.key.clone()).or_default() += 1;
+        let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
+        note(&messages, &format!("{} connected through borg cloud", computer.name));
+        Self { shared, clients, messages, computer }
+    }
+}
+
+impl Drop for ClientConnection {
+    fn drop(&mut self) {
+        let mut shared = self.shared.lock().expect("link lock");
+        if let Some(count) = shared.connections.get_mut(&self.computer.key) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                shared.connections.remove(&self.computer.key);
+            }
+        }
+        drop(shared);
+        let count = self.clients.fetch_sub(1, Ordering::SeqCst) - 1;
+        let _ = self.messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
+        note(&self.messages, &format!("{} disconnected", self.computer.name));
+    }
+}
+
+pub async fn paired_clients(state: &Path) -> Vec<RemoteClient> {
+    let status = async {
+        let stream = UnixStream::connect(state.join(LINK_DIR).join(CLIENTS_SOCKET)).await?;
+        let mut line = String::new();
+        BufReader::new(stream.take(CLIENTS_LIMIT)).read_line(&mut line).await?;
+        Ok::<Vec<RemoteClient>, anyhow::Error>(serde_json::from_str(&line)?)
+    };
+    if let Ok(Ok(clients)) = tokio::time::timeout(CLIENTS_TIMEOUT, status).await {
+        return clients;
+    }
+    load::<Computer>(&state.join(LINK_DIR).join(COMPUTERS_FILE))
+        .into_iter()
+        .map(|computer| RemoteClient {
+            name: computer.name,
+            fingerprint: unhex::<KEY_LEN>(&computer.key).map(|key| fingerprint(&key)).unwrap_or_default(),
+            connections: None,
+        })
+        .collect()
 }
 
 /// The server's side: this borg reachable through the relay by the computers paired with it.
@@ -209,7 +285,7 @@ impl LinkServer {
     ) -> Self {
         let computers =
             state.as_ref().map(|state| load(&state.join(LINK_DIR).join(COMPUTERS_FILE))).unwrap_or_default();
-        let shared = Arc::new(Mutex::new(Shared { computers, pairing: None }));
+        let shared = Arc::new(Mutex::new(Shared { computers, pairing: None, connections: Default::default() }));
         Self {
             state,
             runtime_dir,
@@ -229,6 +305,10 @@ impl LinkServer {
 
     pub fn relay(&self) -> Option<&Relay> {
         self.relay.as_ref()
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
     }
 
     pub fn set_background_service(&mut self) {
@@ -353,9 +433,39 @@ struct Served {
 }
 
 impl Served {
+    async fn run(self) {
+        let status = async {
+            let Some(state) = &self.state else { return std::future::pending::<()>().await };
+            let path = state.join(LINK_DIR).join(CLIENTS_SOCKET);
+            let _ = std::fs::remove_file(&path);
+            let listener = match UnixListener::bind(&path) {
+                Ok(listener) => listener,
+                Err(_) => return std::future::pending::<()>().await,
+            };
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::set_permissions(&path, std::fs::Permissions::from_mode(PRIVATE_FILE)).is_err() {
+                return std::future::pending::<()>().await;
+            }
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return std::future::pending::<()>().await;
+                };
+                let status = client_status(&self.shared.lock().expect("link lock"));
+                if let Ok(mut bytes) = serde_json::to_vec(&status) {
+                    bytes.push(b'\n');
+                    let _ = tokio::time::timeout(CLIENTS_TIMEOUT, stream.write_all(&bytes)).await;
+                }
+            }
+        };
+        tokio::select! {
+            _ = self.listen() => {},
+            _ = status => {},
+        }
+    }
+
     /// Registers at the relay and serves the sessions it announces, registering again after
     /// the relay drops it. Ending this task ends every session.
-    async fn run(self) {
+    async fn listen(&self) {
         let mut retry = RETRY_FIRST;
         let mut told = false;
         // Sessions outlast a registration the relay dropped: each has a socket of its own.
@@ -464,14 +574,9 @@ impl Served {
         };
         let answer = Answer { ok: true, name: crate::agent::hostname(), error: String::new() };
         channel.send(&serde_json::to_vec(&answer)?).await?;
-        let count = self.clients.fetch_add(1, Ordering::SeqCst) + 1;
-        let _ = self.messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
-        note(&self.messages, &format!("{} connected through borg cloud", computer.name));
-        let result = self.calls_of(&mut channel, &computer).await;
-        let count = self.clients.fetch_sub(1, Ordering::SeqCst) - 1;
-        let _ = self.messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
-        note(&self.messages, &format!("{} disconnected", computer.name));
-        result
+        let _connection =
+            ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone());
+        self.calls_of(&mut channel, &computer).await
     }
 
     async fn calls_of(&self, channel: &mut Channel, computer: &Computer) -> Result<()> {
@@ -538,7 +643,11 @@ impl Served {
                                 call.args["session"] = json!(target);
                             }
                         }
-                        if call.tool == "file_transfer" {
+                        if call.tool == "session_delete" {
+                            let (sender, receiver) = oneshot::channel();
+                            self.calls.send((call, sender)).context("borg closed")?;
+                            receiver.await.unwrap_or_else(|_| Reply::error("Borg closed before answering."))
+                        } else if call.tool == "file_transfer" {
                             let target = call.args["session"].as_str();
                             let valid = self.state.as_ref().and_then(|state| {
                                 crate::sessions::list(&crate::session::StateDir::at(state.clone())).ok()
@@ -1059,6 +1168,44 @@ pub async fn put_command(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_client_status_counts_connections_per_identity_and_cleans_up_on_drop() {
+        let computer = Computer { name: "laptop".into(), key: hex(&[7; 32]) };
+        let shared = Arc::new(Mutex::new(Shared {
+            computers: vec![computer.clone(), Computer { name: "offline".into(), key: hex(&[8; 32]) }],
+            pairing: None,
+            connections: Default::default(),
+        }));
+        let clients = Arc::new(AtomicUsize::new(0));
+        let (messages, _) = tokio::sync::mpsc::unbounded_channel();
+        let first = ClientConnection::new(shared.clone(), clients.clone(), messages.clone(), computer.clone());
+        let second = ClientConnection::new(shared.clone(), clients.clone(), messages, computer);
+        let status = client_status(&shared.lock().unwrap());
+        assert_eq!(status.len(), 2);
+        assert_eq!(status[0].connections, Some(2));
+        assert_eq!(status[1].connections, Some(0));
+        assert_ne!(status[0].fingerprint, status[1].fingerprint);
+        drop(first);
+        assert_eq!(client_status(&shared.lock().unwrap())[0].connections, Some(1));
+        drop(second);
+        assert_eq!(client_status(&shared.lock().unwrap())[0].connections, Some(0));
+        assert_eq!(clients.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn paired_clients_remain_visible_when_the_status_owner_is_unavailable() -> Result<()> {
+        let state = tempfile::tempdir()?;
+        save(
+            &state.path().join(LINK_DIR).join(COMPUTERS_FILE),
+            &[Computer { name: "laptop".into(), key: hex(&[7; 32]) }],
+        )?;
+        let clients = paired_clients(state.path()).await;
+        assert_eq!(clients.len(), 1);
+        assert_eq!(clients[0].name, "laptop");
+        assert_eq!(clients[0].connections, None);
+        Ok(())
+    }
 
     #[test]
     fn one_borg_on_a_machine_has_borg_cloud_and_others_say_which() {

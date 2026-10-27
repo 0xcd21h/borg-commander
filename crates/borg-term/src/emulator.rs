@@ -194,7 +194,7 @@ impl Emulator {
         self.input_start = match signal {
             ShellSignal::InputStart => Some(self.term.grid().cursor.point),
             ShellSignal::PromptStart | ShellSignal::CommandStart | ShellSignal::CommandEnd { .. } => None,
-            ShellSignal::Cwd { .. } | ShellSignal::SilentCd => self.input_start,
+            ShellSignal::Cwd { .. } | ShellSignal::SilentCd | ShellSignal::ExitRequested { .. } => self.input_start,
         };
     }
 }

@@ -20,6 +20,19 @@ pub fn asset_name(version: Version, target: &str) -> String {
     format!("{BINARY}-{version}-{target}{ARCHIVE_SUFFIX}")
 }
 
+fn release_asset_name(release: &Release, target: &str) -> String {
+    let exact = asset_name(release.version, target);
+    if release.assets.iter().any(|asset| asset.name == exact) {
+        return exact;
+    }
+    let compatible = match target {
+        "x86_64-unknown-linux-gnu" => "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu" => "aarch64-unknown-linux-musl",
+        _ => return exact,
+    };
+    asset_name(release.version, compatible)
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -53,7 +66,7 @@ fn download(release: &Release, name: &str) -> Result<Vec<u8>, UpdateError> {
 }
 
 pub fn install(release: &Release, target: &str, exe: &Path) -> Result<PathBuf, UpdateError> {
-    let name = asset_name(release.version, target);
+    let name = release_asset_name(release, target);
     let archive = download(release, &name)?;
     let checksum = download(release, &format!("{name}{CHECKSUM_SUFFIX}"))?;
     verify(&archive, &String::from_utf8_lossy(&checksum), &name)?;
@@ -73,6 +86,54 @@ mod tests {
     use flate2::{Compression, write::GzEncoder};
 
     use super::*;
+
+    fn release(targets: &[&str]) -> Release {
+        let version = Version { major: 0, minor: 8, patch: 1 };
+        Release {
+            version,
+            assets: targets
+                .iter()
+                .map(|target| crate::Asset { name: asset_name(version, target), url: String::new() })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn gnu_linux_builds_use_static_releases_of_the_same_architecture() {
+        let release = release(&["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]);
+        for arch in ["x86_64", "aarch64"] {
+            assert_eq!(
+                release_asset_name(&release, &format!("{arch}-unknown-linux-gnu")),
+                asset_name(release.version, &format!("{arch}-unknown-linux-musl"))
+            );
+        }
+    }
+
+    #[test]
+    fn exact_release_targets_take_precedence() {
+        let release = release(&["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "aarch64-apple-darwin"]);
+        for target in ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "aarch64-apple-darwin"] {
+            assert_eq!(release_asset_name(&release, target), asset_name(release.version, target));
+        }
+    }
+
+    #[test]
+    fn missing_targets_do_not_install_another_architecture() {
+        let release = release(&["aarch64-unknown-linux-musl"]);
+        let directory = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let exe = directory.path().join(BINARY);
+        fs::write(&exe, b"original").unwrap_or_else(|e| panic!("{e}"));
+        for (target, expected) in [
+            ("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"),
+            ("armv7-unknown-linux-gnueabihf", "armv7-unknown-linux-gnueabihf"),
+            ("aarch64-apple-darwin", "aarch64-apple-darwin"),
+        ] {
+            assert!(
+                matches!(install(&release, target, &exe), Err(UpdateError::MissingAsset(name)) if name == asset_name(release.version, expected))
+            );
+            assert_eq!(fs::read(&exe).unwrap_or_else(|e| panic!("{e}")), b"original");
+        }
+    }
 
     fn archive(files: &[(&str, &[u8])]) -> Vec<u8> {
         let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));

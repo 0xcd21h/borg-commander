@@ -44,7 +44,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         Msg::MountRemote { side, machine, session, name } => crate::remote::mount(state, side, machine, session, name),
         Msg::RemoteConsoleOutput { echoed, machine, session, view, signals } => {
             if state.console == (crate::Console::Remote { machine: machine.clone(), session: session.clone() }) {
-                let effects = signals.into_iter().flat_map(|signal| on_signal(state, signal)).collect();
+                let effects = signals.into_iter().flat_map(|signal| on_signal(state, signal, now)).collect();
                 state.shell.observe(view);
                 if echoed {
                     state.shell.unechoed = false;
@@ -84,11 +84,28 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             }
             Vec::new()
         }
+        Msg::RemoteMirrorConnected(result) => {
+            crate::remote::connected(state, result);
+            Vec::new()
+        }
+        Msg::RemoteClients(clients) => {
+            crate::remote::clients(state, clients);
+            Vec::new()
+        }
+        Msg::RemoteSessionDeleted { machine, session, result } => {
+            crate::remote::deleted(state, machine, session, result)
+        }
         Msg::RemoteCatalog { choices, complete } => {
             crate::remote::catalog(state, choices, complete);
             Vec::new()
         }
+        Msg::ParkedSignal { container: None, signal: ShellSignal::ExitRequested { token } } => {
+            request_shell_exit(state, token, now)
+        }
         Msg::ParkedSignal { container, signal } => {
+            if container.is_none() && matches!(signal, ShellSignal::CommandEnd { .. }) {
+                clear_shell_exit_confirmation(state);
+            }
             crate::docker::parked_signal(state, container.as_deref(), &signal);
             Vec::new()
         }
@@ -144,7 +161,7 @@ pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Signal(signal) => {
             state.idle_since = now;
-            on_signal(state, signal)
+            on_signal(state, signal, now)
         }
         Msg::Opened(viewer) => {
             state.viewer = Some(viewer);
@@ -460,8 +477,38 @@ fn reveal_slow_operation(state: &mut AppState, now: Instant) {
     }
 }
 
-fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
+fn request_shell_exit(state: &mut AppState, token: String, now: Instant) -> Vec<Effect> {
+    if state.overlay.is_some() {
+        return vec![Effect::CancelShellExit { token }];
+    }
+    state.screensaver = false;
+    let effects = actions::perform(state, crate::Action::Quit, now);
+    if let Some(crate::Overlay::Confirm(confirm)) = &mut state.overlay {
+        if state.jobs.is_empty() && state.docker.shells.is_empty() {
+            confirm.message = tr!(quit_shell_exit).into();
+        } else {
+            confirm.message = format!("{}\n{}", tr!(quit_shell_exit), confirm.message);
+        }
+        confirm.purpose = crate::ConfirmPurpose::ShellExit { token };
+    }
+    effects
+}
+
+fn clear_shell_exit_confirmation(state: &mut AppState) {
+    if matches!(
+        state.overlay,
+        Some(crate::Overlay::Confirm(crate::Confirm { purpose: crate::ConfirmPurpose::ShellExit { .. }, .. }))
+    ) {
+        state.overlay = None;
+    }
+}
+
+fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant) -> Vec<Effect> {
     match signal {
+        ShellSignal::ExitRequested { token } if state.console == crate::Console::Host => {
+            request_shell_exit(state, token, now)
+        }
+        ShellSignal::ExitRequested { .. } => Vec::new(),
         ShellSignal::PromptStart | ShellSignal::InputStart => {
             if signal == ShellSignal::PromptStart {
                 state.shell.silent_cd = false;
@@ -479,6 +526,9 @@ fn on_signal(state: &mut AppState, signal: ShellSignal) -> Vec<Effect> {
             Vec::new()
         }
         ShellSignal::CommandEnd { exit } if state.shell.running || state.shell.integrated => {
+            if state.console == crate::Console::Host {
+                clear_shell_exit_confirmation(state);
+            }
             state.shell.running = false;
             finish_command(state, exit)
         }

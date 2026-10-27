@@ -56,6 +56,112 @@ fn remote_mount_stays_distinct_from_local_paths_and_blocks_local_changes() {
 }
 
 #[test]
+fn remote_session_removal_confirms_the_exact_target_and_restores_mounted_panels() {
+    let (mut state, now) = setup();
+    let host = state.active_panel().dir().to_path_buf();
+    crate::mount_remote(&mut state, Side::Left, "server".into(), "junk".into(), "Junk".into());
+    state.remote_names.set("server-key", None, "Lab").unwrap();
+    state.remote_names.set("server-key", Some("junk"), "Scratch").unwrap();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![
+                crate::RemoteChoice {
+                    machine: "server".into(),
+                    session: Some("default".into()),
+                    name: "Default".into(),
+                    ..Default::default()
+                },
+                crate::RemoteChoice {
+                    machine: "server".into(),
+                    identity: "server-key".into(),
+                    session: Some("junk".into()),
+                    name: "Junk".into(),
+                    host_label: Some("Lab".into()),
+                    session_label: Some("Scratch".into()),
+                    ..Default::default()
+                },
+            ],
+            complete: true,
+        },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Delete)), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.error.as_deref().is_some_and(|error| error.contains("Default")))
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Down)), now);
+    update(&mut state, Msg::Key(key(KeyCode::Delete)), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Confirm(confirm)) if !confirm.accept && confirm.message.contains("Scratch") && confirm.message.contains("Lab"))
+    );
+    assert_eq!(update(&mut state, Msg::Key(key(KeyCode::Enter)), now), vec![Effect::OpenRemotes]);
+    assert!(state.panel(Side::Left).remote_mount.is_some());
+    update(&mut state, Msg::Key(key(KeyCode::F(8))), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now),
+        vec![Effect::DeleteRemoteSession { machine: "server".into(), session: "junk".into() }]
+    );
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.deleting == Some(("server".into(), "junk".into())))
+    );
+    update(
+        &mut state,
+        Msg::RemoteSessionDeleted {
+            machine: "server".into(),
+            session: "junk".into(),
+            result: Err("Host unavailable".into()),
+        },
+        now,
+    );
+    assert!(state.panel(Side::Left).remote_mount.is_some());
+    update(&mut state, Msg::Key(key(KeyCode::Delete)), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now);
+    state.console = crate::Console::Remote { machine: "server".into(), session: "junk".into() };
+    state.parked_host = Some(crate::ShellStatus::new(host.clone()));
+    let effects = update(
+        &mut state,
+        Msg::RemoteSessionDeleted { machine: "server".into(), session: "junk".into(), result: Ok(()) },
+        now,
+    );
+    assert!(effects.contains(&Effect::CloseRemoteConsole { machine: "server".into(), session: "junk".into() }));
+    assert!(effects.contains(&Effect::OpenRemotes));
+    assert!(state.panel(Side::Left).remote_mount.is_none());
+    assert_eq!(state.panel(Side::Left).dir(), host);
+    assert_eq!(state.console, crate::Console::Host);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.deleting.is_none() && browser.choices.len() == 1)
+    );
+}
+
+#[test]
+fn remote_browser_shows_incoming_clients_without_turning_them_into_hosts() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    update(&mut state, Msg::RemoteCatalog { choices: Vec::new(), complete: true }, now);
+    let clients = vec![
+        crate::RemoteClient { name: "laptop".into(), fingerprint: "first-key".into(), connections: Some(3) },
+        crate::RemoteClient { name: "workstation".into(), fingerprint: "second-key".into(), connections: None },
+    ];
+    update(&mut state, Msg::RemoteClients(clients.clone()), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.show_clients && browser.clients.as_ref() == Some(&clients) && browser.choices.is_empty())
+    );
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Enter)), now).is_empty());
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now).is_empty());
+    update(&mut state, Msg::Key(key(KeyCode::Down)), now);
+    update(&mut state, Msg::RemoteClients(vec![clients[1].clone(), clients[0].clone()]), now);
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.client_selected == 0));
+    update(&mut state, Msg::Key(key(KeyCode::Tab)), now);
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if !browser.show_clients));
+    update(&mut state, Msg::Key(key(KeyCode::Tab)), now);
+    assert_eq!(update(&mut state, Msg::Key(key(KeyCode::Char('r'))), now), vec![Effect::OpenRemotes]);
+    update(&mut state, Msg::Key(key(KeyCode::Esc)), now);
+    assert!(state.overlay.is_none());
+}
+
+#[test]
 fn remote_browser_opens_switches_and_mirrors_named_sessions() {
     let (mut state, now) = setup();
     assert_eq!(
@@ -124,6 +230,12 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         choices: choices.clone(),
         selected: 1,
         loading: false,
+        connecting: false,
+        error: None,
+        clients: None,
+        show_clients: false,
+        client_selected: 0,
+        deleting: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
@@ -136,11 +248,44 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
     );
     crate::mount_remote(&mut state, Side::Left, "second".into(), "two".into(), "Work".into());
     assert_eq!(state.panel(Side::Left).remote_mount.as_ref().unwrap().host, host);
-    state.overlay =
-        Some(Overlay::Remotes(crate::RemoteBrowser { side: Side::Left, choices, selected: 1, loading: false }));
+    state.overlay = Some(Overlay::Remotes(crate::RemoteBrowser {
+        side: Side::Left,
+        choices,
+        selected: 1,
+        loading: false,
+        connecting: false,
+        error: None,
+        clients: None,
+        show_clients: false,
+        client_selected: 0,
+        deleting: None,
+    }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),
         vec![Effect::MirrorRemote { machine: "second".into(), session: "two".into() }]
+    );
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.connecting && browser.selected == 1));
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Down)), now).is_empty());
+    assert_eq!(update(&mut state, Msg::Key(key(KeyCode::Esc)), now), vec![Effect::CancelRemoteConnection]);
+    update(&mut state, Msg::RemoteMirrorConnected(Err("late failure".into())), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if !browser.connecting && browser.error.is_none())
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now);
+    update(&mut state, Msg::RemoteMirrorConnected(Err("connection timed out".into())), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if !browser.connecting && browser.error.as_deref() == Some("connection timed out") && browser.selected == 1)
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now);
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.connecting && browser.error.is_none()));
+    update(&mut state, Msg::RemoteMirrorConnected(Ok(())), now);
+    assert!(state.overlay.is_none());
+    assert_eq!(
+        crate::actions::perform(&mut state, Action::MirrorRemote, now),
+        vec![Effect::MirrorRemote { machine: "second".into(), session: "two".into() }]
+    );
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.connecting && browser.choices[0].machine == "second")
     );
 }
 
@@ -200,6 +345,44 @@ fn idle_prompt() -> ShellView {
         mode: TermMode::empty(),
         raw_input: false,
     }
+}
+
+#[test]
+fn shell_exit_defaults_to_no_and_only_yes_closes_borg() {
+    let (mut state, now) = setup();
+    let request = || Msg::Signal(ShellSignal::ExitRequested { token: "42-77".into() });
+    assert!(update(&mut state, request(), now).is_empty());
+    assert!(matches!(
+        state.overlay,
+        Some(Overlay::Confirm(crate::Confirm { purpose: crate::ConfirmPurpose::ShellExit { .. }, accept: false, .. }))
+    ));
+    assert_eq!(press(&mut state, now, key(KeyCode::Enter)), vec![Effect::CancelShellExit { token: "42-77".into() }]);
+    assert!(state.overlay.is_none());
+    update(&mut state, request(), now);
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), vec![Effect::CancelShellExit { token: "42-77".into() }]);
+    update(&mut state, request(), now);
+    assert!(press(&mut state, now, key(KeyCode::Char('y'))).contains(&Effect::Quit));
+    crate::actions::perform(&mut state, Action::Quit, now);
+    let before = state.overlay.clone();
+    assert_eq!(update(&mut state, request(), now), vec![Effect::CancelShellExit { token: "42-77".into() }]);
+    assert_eq!(state.overlay, before, "another modal is preserved");
+}
+
+#[test]
+fn shell_exit_confirmation_tracks_its_host_shell_when_another_console_finishes() {
+    let (mut state, now) = setup();
+    state.console = crate::Console::Remote { machine: "server".into(), session: "default".into() };
+    state.shell.running = true;
+    update(
+        &mut state,
+        Msg::ParkedSignal { container: None, signal: ShellSignal::ExitRequested { token: "123".into() } },
+        now,
+    );
+    let before = state.overlay.clone();
+    update(&mut state, Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }), now);
+    assert_eq!(state.overlay, before);
+    update(&mut state, Msg::ParkedSignal { container: None, signal: ShellSignal::CommandEnd { exit: Some(1) } }, now);
+    assert!(state.overlay.is_none());
 }
 
 fn text(viewer: &crate::Viewer) -> &borg_view::Pager {

@@ -58,6 +58,7 @@ pub struct SessionBuilder<'a> {
     rows: u16,
     truecolor: bool,
     terminal_program: Option<String>,
+    terminal_replies: bool,
     timeout: Duration,
     label: String,
     search_first: Option<PathBuf>,
@@ -98,6 +99,11 @@ impl<'a> SessionBuilder<'a> {
 
     pub fn terminal_program(mut self, program: &str) -> Self {
         self.terminal_program = Some(program.to_owned());
+        self
+    }
+
+    pub fn terminal_replies(mut self, enabled: bool) -> Self {
+        self.terminal_replies = enabled;
         self
     }
 
@@ -152,6 +158,7 @@ impl<'a> SessionBuilder<'a> {
             timeout: self.timeout,
             screenshots: env::var_os(ENV_SCREENSHOTS).map(|dir| PathBuf::from(dir).join(&self.label)),
             closed: false,
+            terminal_replies: self.terminal_replies,
         })
     }
 }
@@ -166,6 +173,7 @@ pub struct Session {
     timeout: Duration,
     screenshots: Option<PathBuf>,
     closed: bool,
+    terminal_replies: bool,
 }
 
 impl Session {
@@ -180,6 +188,7 @@ impl Session {
             rows: DEFAULT_ROWS,
             truecolor: true,
             terminal_program: None,
+            terminal_replies: true,
             timeout: configured_timeout(),
             label: String::from("session"),
             search_first: None,
@@ -282,7 +291,9 @@ impl Session {
                 Output::Bytes(bytes) => {
                     self.emulator.feed(&bytes);
                     for reply in self.emulator.drain_replies() {
-                        self.writer.write_all(reply.as_bytes())?;
+                        if self.terminal_replies {
+                            self.writer.write_all(reply.as_bytes())?;
+                        }
                     }
                 }
                 Output::Closed => self.closed = true,

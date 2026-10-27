@@ -256,6 +256,17 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
 
     state.overlay = None;
     match (decided, confirm.purpose) {
+        (answer, ConfirmPurpose::RemoteSessionDelete { machine, session, mut browser }) => {
+            browser.error = None;
+            if answer == Some(true) {
+                browser.deleting = Some((machine.clone(), session.clone()));
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::DeleteRemoteSession { machine, session }]
+            } else {
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::OpenRemotes]
+            }
+        }
         (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
             crate::docker::delete(state, sources)
         }
@@ -263,11 +274,12 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
-        (Some(true), ConfirmPurpose::Quit) => {
+        (Some(true), ConfirmPurpose::Quit | ConfirmPurpose::ShellExit { .. }) => {
             let mut effects = jobs::cancel_all(state);
             effects.push(Effect::Quit);
             effects
         }
+        (Some(false), ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
         _ => Vec::new(),
     }
 }

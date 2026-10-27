@@ -28,6 +28,7 @@ pub struct Pty {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
+    stopped: bool,
 }
 
 impl Pty {
@@ -40,7 +41,19 @@ impl Pty {
         let writer = pair.master.take_writer().context("taking pty writer")?;
         thread::Builder::new().name("pty-reader".into()).spawn(move || pump(reader, &events))?;
 
-        Ok(Self { master: pair.master, writer, child })
+        Ok(Self { master: pair.master, writer, child, stopped: false })
+    }
+
+    pub fn stop(&mut self) -> Result<()> {
+        if self.stopped {
+            return Ok(());
+        }
+        if self.child.try_wait().context("checking the terminal process")?.is_none() {
+            self.child.kill().context("stopping the terminal process")?;
+        }
+        self.child.wait().context("waiting for the terminal process to stop")?;
+        self.stopped = true;
+        Ok(())
     }
 
     pub fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -72,7 +85,9 @@ impl Pty {
 
 impl Drop for Pty {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        if !self.stopped {
+            let _ = self.child.kill();
+        }
     }
 }
 

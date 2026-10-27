@@ -15,4 +15,7 @@ pub enum ShellSignal {
     /// The shell's integration can change directory without a command line; see
     /// [`crate::SILENT_CD_KEY`]. Shells announce it at every prompt.
     SilentCd,
+    ExitRequested {
+        token: String,
+    },
 }

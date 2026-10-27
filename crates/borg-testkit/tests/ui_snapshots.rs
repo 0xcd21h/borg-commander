@@ -1135,6 +1135,87 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
 }
 
 #[test]
+fn remote_session_removal_confirmation_and_progress() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "production".into(),
+            session: Some("junk".into()),
+            name: "Scratch".into(),
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    stage.send(key(KeyCode::Delete));
+    let buffer = stage.render(stage.started)?;
+    check("remote_session_remove_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_session_removing", &stage, buffer)
+}
+
+#[test]
+fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog { choices: Vec::new(), complete: true });
+    stage.send(Msg::RemoteClients(vec![
+        borg_core::RemoteClient {
+            name: "dev@laptop".into(),
+            fingerprint: "aabb:ccdd:eeff".into(),
+            connections: Some(3),
+        },
+        borg_core::RemoteClient {
+            name: "workstation".into(),
+            fingerprint: "1122:3344:5566".into(),
+            connections: Some(0),
+        },
+        borg_core::RemoteClient {
+            name: "old-host-status".into(),
+            fingerprint: "7788:99aa:bbcc".into(),
+            connections: None,
+        },
+    ]));
+    let buffer = stage.render(stage.started)?;
+    check("remote_colony_clients", &stage, buffer)?;
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    check("remote_colony_no_outgoing_hosts", &stage, buffer)
+}
+
+#[test]
+fn remote_mirror_connection_progress_and_failure() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "production".into(),
+            session: Some("default".into()),
+            name: "Default".into(),
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    stage.send(key(KeyCode::Char('m')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_mirror_connecting", &stage, buffer)?;
+    stage.send(Msg::RemoteMirrorConnected(Err(
+        "Connection timed out after 10 seconds. Check that Borg is running on the host.".into(),
+    )));
+    let buffer = stage.render(stage.started)?;
+    check("remote_mirror_connection_failed", &stage, buffer)
+}
+
+#[test]
+fn shell_exit_confirmation_defaults_to_keep_running() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Signal(borg_term::ShellSignal::ExitRequested { token: "123".into() }));
+    let buffer = stage.render(stage.started)?;
+    check("shell_exit_confirmation", &stage, buffer)
+}
+
+#[test]
 fn discovery_mouse_targets_and_tiny_windows() -> Result<()> {
     use borg_core::{Action, Overlay, Pointer};
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
