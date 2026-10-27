@@ -9,6 +9,7 @@ const USER_AGENT: &str = concat!("borg-commander/", env!("CARGO_PKG_VERSION"));
 const ACCEPT_HEADER: &str = "Accept";
 const GITHUB_JSON: &str = "application/vnd.github+json";
 const NOT_FOUND: u16 = 404;
+const RELEASE_METADATA_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Asset {
@@ -47,7 +48,7 @@ fn agent() -> ureq::Agent {
     ureq::Agent::config_builder().tls_config(tls).build().new_agent()
 }
 
-pub(crate) fn fetch(url: &str) -> Result<Vec<u8>, UpdateError> {
+pub(crate) fn fetch(url: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
     let mut response =
         agent().get(url).header(USER_AGENT_HEADER, USER_AGENT).header(ACCEPT_HEADER, GITHUB_JSON).call().map_err(
             |e| match e {
@@ -55,11 +56,11 @@ pub(crate) fn fetch(url: &str) -> Result<Vec<u8>, UpdateError> {
                 other => UpdateError::Network(other.to_string()),
             },
         )?;
-    response.body_mut().read_to_vec().map_err(|e| UpdateError::Network(e.to_string()))
+    response.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| UpdateError::Network(e.to_string()))
 }
 
 pub fn latest(url: &str, current: Version) -> Result<Option<Release>, UpdateError> {
-    match fetch(url) {
+    match fetch(url, RELEASE_METADATA_LIMIT) {
         Ok(json) => Ok(parse_release(&json)?.filter(|release| release.version > current)),
         Err(UpdateError::NoRelease) => Ok(None),
         Err(error) => Err(error),

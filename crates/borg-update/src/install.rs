@@ -15,6 +15,8 @@ const ARCHIVE_SUFFIX: &str = ".tar.gz";
 const CHECKSUM_SUFFIX: &str = ".sha256";
 const STAGING_SUFFIX: &str = ".borg-update";
 const EXECUTABLE: u32 = 0o755;
+const ARCHIVE_LIMIT: u64 = 128 * 1024 * 1024;
+const CHECKSUM_LIMIT: u64 = 16 * 1024;
 
 pub fn asset_name(version: Version, target: &str) -> String {
     format!("{BINARY}-{version}-{target}{ARCHIVE_SUFFIX}")
@@ -56,19 +58,19 @@ fn extract(archive: &[u8]) -> Result<Vec<u8>, UpdateError> {
     Err(UpdateError::MissingBinary(BINARY.to_owned()))
 }
 
-fn download(release: &Release, name: &str) -> Result<Vec<u8>, UpdateError> {
+fn download(release: &Release, name: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
     let asset = release
         .assets
         .iter()
         .find(|asset| asset.name == name)
         .ok_or_else(|| UpdateError::MissingAsset(name.to_owned()))?;
-    fetch(&asset.url)
+    fetch(&asset.url, limit)
 }
 
 pub fn install(release: &Release, target: &str, exe: &Path) -> Result<PathBuf, UpdateError> {
     let name = release_asset_name(release, target);
-    let archive = download(release, &name)?;
-    let checksum = download(release, &format!("{name}{CHECKSUM_SUFFIX}"))?;
+    let archive = download(release, &name, ARCHIVE_LIMIT)?;
+    let checksum = download(release, &format!("{name}{CHECKSUM_SUFFIX}"), CHECKSUM_LIMIT)?;
     verify(&archive, &String::from_utf8_lossy(&checksum), &name)?;
     let binary = extract(&archive)?;
 
@@ -86,6 +88,46 @@ mod tests {
     use flate2::{Compression, write::GzEncoder};
 
     use super::*;
+
+    fn served(body: Vec<u8>, read: impl FnOnce(&str)) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/asset", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() != 0 {
+                if line == "\r\n" {
+                    break;
+                }
+                line.clear();
+            }
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = stream.write_all(header.as_bytes()).and_then(|_| stream.write_all(&body));
+        });
+        read(&url);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn downloads_archives_larger_than_the_http_library_default_limit() {
+        const LARGE_ARCHIVE_BYTES: usize = 11 * 1024 * 1024;
+        let payload = vec![0x5a; LARGE_ARCHIVE_BYTES];
+        served(payload.clone(), |url| {
+            let version = Version { major: 0, minor: 8, patch: 2 };
+            let name = asset_name(version, "x86_64-unknown-linux-musl");
+            let release = Release { version, assets: vec![crate::Asset { name: name.clone(), url: url.into() }] };
+            assert_eq!(download(&release, &name, ARCHIVE_LIMIT).unwrap(), payload);
+        });
+    }
+
+    #[test]
+    fn checksum_downloads_remain_bounded() {
+        served(vec![0; CHECKSUM_LIMIT as usize + 1], |url| {
+            assert!(matches!(fetch(url, CHECKSUM_LIMIT), Err(UpdateError::Network(_))));
+        });
+    }
 
     fn release(targets: &[&str]) -> Release {
         let version = Version { major: 0, minor: 8, patch: 1 };
