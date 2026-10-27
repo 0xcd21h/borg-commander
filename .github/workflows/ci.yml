@@ -10,6 +10,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  public-content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check-public-content.py
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

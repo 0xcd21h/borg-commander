@@ -1,0 +1,25 @@
+:root {
+  --sl-color-accent-low: #073b42;
+  --sl-color-accent: #0d9488;
+  --sl-color-accent-high: #8de5db;
+  --sl-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #def6f2;
+  --sl-color-accent: #087f76;
+  --sl-color-accent-high: #064f49;
+}
+.hero { padding-block: 3rem 2rem; }
+.hero h1 { letter-spacing: -.045em; }
+.hero .tagline { max-width: 36rem; font-size: 1.4rem; }
+.intro { max-width: 70ch; color: var(--sl-color-gray-2); font-size: 1.05rem; }
+.gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-block: 1.5rem 2.5rem; }
+.gallery figure { margin: 0; min-width: 0; }
+.gallery a { display: block; border-radius: .45rem; overflow: hidden; border: 1px solid var(--sl-color-hairline-light); transition: box-shadow .15s; }
+.gallery a:hover { box-shadow: 0 4px 18px #0002; }
+.gallery img { display: block; width: 100%; height: auto; margin: 0; }
+.gallery figcaption { margin-top: .55rem; font-size: .85rem; font-weight: 550; }
+.card { border-radius: .5rem; }
+@media (max-width: 50rem) { .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .gallery { grid-template-columns: 1fr; } .hero { padding-block: 1.5rem; } }
+@media (prefers-reduced-motion: reduce) { .gallery a { transition: none; } }

@@ -16,7 +16,7 @@ c o m m a n d e r
 <p align="center">
   <a href="https://github.com/0xcd21h/borg-commander/releases/latest">Download</a> ·
   <a href="#install">Install</a> ·
-  <a href="docs/GUIDE.md">User guide</a> ·
+  <a href="https://0xcd21h.github.io/borg-commander/">Website &amp; guide</a> ·
   <a href="DEVELOPMENT.md">Development</a>
 </p>
 

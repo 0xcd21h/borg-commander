@@ -2347,7 +2347,7 @@ fn remote_labels_are_visible_in_picker_rename_prompt_panels_and_console() -> Res
     let mut stage = stage(GridSize { cols: 130, rows: 28 }, Motion::STILL)?;
     let choices = vec![RemoteChoice {
         identity: "paired-key".into(),
-        machine: "66b791da6ce5".into(),
+        machine: "demo-host".into(),
         session: Some("default".into()),
         name: "Default".into(),
         info: RemoteHostInfo {
@@ -2367,7 +2367,7 @@ fn remote_labels_are_visible_in_picker_rename_prompt_panels_and_console() -> Res
     stage.send(Msg::RemoteCatalog { choices, complete: true });
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Host Docker Lab · Deploy · v0.8.0")?;
-    ensure_text(&buffer, "Original host: 66b791da6ce5 · Session: Default")?;
+    ensure_text(&buffer, "Original host: demo-host · Session: Default")?;
     ensure_text(&buffer, "F2: rename host")?;
     check("remote_labels_picker", &stage, buffer)?;
     stage.send(key(KeyCode::F(2)));
@@ -2378,7 +2378,7 @@ fn remote_labels_are_visible_in_picker_rename_prompt_panels_and_console() -> Res
     stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
     stage.send(Msg::MountRemote {
         side: Side::Left,
-        machine: "66b791da6ce5".into(),
+        machine: "demo-host".into(),
         session: "default".into(),
         name: "Default".into(),
     });

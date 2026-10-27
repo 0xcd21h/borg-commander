@@ -1,0 +1,67 @@
+---
+title: Borg Commander
+description: A two-panel file manager with your shell built in. Files, Git, Docker, and remote sessions in one terminal.
+template: splash
+hero:
+  tagline: A two-panel file manager with your shell built in.
+  actions:
+    - text: Download
+      link: https://github.com/0xcd21h/borg-commander/releases/latest
+      icon: download
+    - text: Start here
+      link: /borg-commander/guide/start-here/
+      icon: right-arrow
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/0xcd21h/borg-commander
+      icon: external
+      variant: minimal
+editUrl: false
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import Gallery from '../../components/Gallery.astro';
+
+<div className="intro">
+Browse files, preview code, inspect Git changes, and open container or remote sessions without leaving your terminal. Borg runs on **macOS and Linux**, with **Bash, zsh, and fish**.
+</div>
+
+## What it looks like
+
+<Gallery items={[
+  { image: 'classic', title: 'Files & your shell', description: 'Borg file panels in the Classic blue theme, with a file preview and embedded command line.' },
+  { image: 'docker', title: 'Docker, built in', description: 'Container list, live resource statistics, and a container file panel in Borg.' },
+  { image: 'activity', title: 'See what is running', description: 'Borg activity monitor displaying fictional processes and memory usage.' },
+]} />
+
+## Start with what you need
+
+<CardGrid>
+  <Card title="Get up and running" icon="rocket">
+    [Install Borg](/borg-commander/guide/start-here/), then learn the [keys and console](/borg-commander/guide/keys/). F10 quits; Ctrl-O switches between panels and the shell.
+  </Card>
+  <Card title="Work with your files" icon="open-book">
+    [Preview and copy files](/borg-commander/guide/files/), [search folders and save collections](/borg-commander/guide/search/), or inspect a [Git working tree](/borg-commander/guide/git/).
+  </Card>
+  <Card title="Connect to another workspace" icon="setting">
+    Browse [Docker containers](/borg-commander/guide/docker/), connect to [remote Borg sessions](/borg-commander/guide/remote-access/), and pair an assistant through MCP.
+  </Card>
+  <Card title="Make it yours" icon="pencil">
+    Choose a [theme and icon style](/borg-commander/guide/themes/), adjust [settings](/borg-commander/guide/configuration/), or [build and contribute](https://github.com/0xcd21h/borg-commander/blob/main/DEVELOPMENT.md).
+  </Card>
+</CardGrid>
+
+## Themes
+
+Six built-in themes, from familiar blue panels to a quiet paper palette. Change them from **F9 → Options → Theme**.
+
+<Gallery items={[
+  { image: 'midnight', title: 'Midnight', description: 'Borg file panels in the dark Midnight theme.' },
+  { image: 'aurora', title: 'Aurora', description: 'Borg file panels in the Aurora theme.' },
+  { image: 'neon', title: 'Neon', description: 'Borg file panels in the bright Neon theme.' },
+  { image: 'classic', title: 'Classic', description: 'Borg file panels in the blue Classic theme.' },
+  { image: 'paper', title: 'Paper', description: 'Borg file panels in the light Paper theme.' },
+  { image: 'ember', title: 'Ember', description: 'Borg file panels in the warm Ember theme.' },
+]} />
+
+[Set up fonts and icons →](/borg-commander/guide/themes/)

@@ -21,7 +21,7 @@ expression: describe(&buffer)
 │            │                                                                                                      │            │
 │            │                                                                                                      │            │
 │            │                                                                                                      │            │
-│            │ Original host: 66b791da6ce5 · Session: Default                                                       │            │
+│            │ Original host: demo-host · Session: Default                                                          │            │
 │            │ Borg 0.8.0 · linux / x86_64 · background service · RTT 172 ms                                        │            │
 │            │ Relay: wss://relay.example                                                                           │            │
 │            │                                                                                                      │            │

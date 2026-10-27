@@ -345,3 +345,32 @@ before publication. To package locally, install `zopfli` in a Python environment
 - Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints).
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
+
+## Documentation website
+
+The [public website](https://0xcd21h.github.io/borg-commander/) is built with Astro and
+Starlight in `website/`. Use Node 24 LTS:
+
+```sh
+npm ci --prefix website
+npm run dev --prefix website
+npm run build --prefix website
+python3 scripts/check-public-content.py --site website/dist
+```
+
+Edit `docs/GUIDE.md` for guide content. The generator splits its selected sections into
+searchable pages on every build; do not edit the generated `website/src/content/docs/guide/`
+files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide and
+an explicit list of fictional showcase screenshots are copied into the site. Build metadata
+comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a release.
+
+The **Publish guide** workflow checks the source, builds the site and search index, checks
+local links, and deploys GitHub Pages when relevant files change on main. Pull requests build
+without deploying. GitHub Pages must use **GitHub Actions** as its build source.
+
+Keep machine-specific diagnostics in the ignored `.local-notes/` directory. Environment
+files, dependency folders, build output, and generated pages are ignored. Before committing,
+run `python3 scripts/check-public-content.py`; it checks public text for personal home paths,
+private temporary paths, private keys, and common access-token formats without printing
+matched values. It does not inspect binary contents, files above 4 MiB, or Git history and
+cannot replace reviewing a diff. Keep copyright and license attributions intact.
