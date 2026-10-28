@@ -83,6 +83,10 @@ pub async fn serve(listener: TcpListener, options: Options) {
             drop(tcp);
             continue;
         }
+        if let Err(error) = configure_tcp(&tcp) {
+            log!("could not configure TCP connection: {error}");
+            continue;
+        }
         let (hub, options, open) = (hub.clone(), options.clone(), open.clone());
         open.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tokio::spawn(async move {
@@ -90,6 +94,10 @@ pub async fn serve(listener: TcpListener, options: Options) {
             open.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         });
     }
+}
+
+fn configure_tcp(tcp: &tokio::net::TcpStream) -> std::io::Result<()> {
+    tcp.set_nodelay(true)
 }
 
 /// Logs how busy the relay is, counts only, once a minute when they changed.
@@ -171,4 +179,18 @@ pub fn acme(domain: &str, email: Option<&str>, cache: PathBuf, staging: bool) ->
         }
     });
     tls
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn accepted_connections_disable_nagle_before_tls_or_http() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (outgoing, incoming) = tokio::join!(tokio::net::TcpStream::connect(address), listener.accept());
+        let (tcp, _) = incoming.unwrap();
+        super::configure_tcp(&tcp).unwrap();
+        assert!(tcp.nodelay().unwrap());
+        drop(outgoing.unwrap());
+    }
 }

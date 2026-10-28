@@ -62,10 +62,11 @@ fn answer(identity: &Identity, challenge: &[u8]) -> Result<Vec<u8>> {
 }
 
 async fn open(url: &str) -> Result<Socket> {
-    let (socket, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url))
-        .await
-        .context("the relay did not answer in time")?
-        .with_context(|| format!("could not reach the relay at {url}"))?;
+    let (socket, _) =
+        tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async_with_config(url, None, true))
+            .await
+            .context("the relay did not answer in time")?
+            .with_context(|| format!("could not reach the relay at {url}"))?;
     Ok(socket)
 }
 
@@ -132,6 +133,22 @@ pub async fn dial(relay: &Relay, server: &PublicKey) -> Result<Socket> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn relay_connections_disable_nagle_before_the_websocket_handshake() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            tokio_tungstenite::accept_async(tcp).await.unwrap()
+        });
+        let socket = open(&url).await.unwrap();
+        let tokio_tungstenite::MaybeTlsStream::Plain(tcp) = socket.get_ref() else {
+            panic!("the test relay is plain TCP");
+        };
+        assert!(tcp.nodelay().unwrap());
+        drop(server.await.unwrap());
+    }
 
     #[test]
     fn only_the_holder_of_a_key_answers_the_relays_challenge() {

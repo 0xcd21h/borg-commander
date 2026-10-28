@@ -3,6 +3,32 @@
 The local viewer and host use persistent encrypted connections through the relay. Relay round
 trip time remains part of every request; the changes below remove avoidable work around it.
 
+## TCP sockets
+
+Borg enables `TCP_NODELAY` when opening each relay WebSocket, before TLS or the WebSocket
+handshake. The relay enables it on every accepted TCP connection, before wrapping it in TLS
+or reading HTTP. This disables Nagle's small-packet buffering on both relay legs. Encryption,
+message framing, and the TCP/WebSocket protocol remain the same.
+
+The setting takes effect on new connections after restarting the updated Borg or relay.
+Each endpoint controls its own outgoing TCP traffic, so updating a client does not change
+the sockets of an older host or relay. A TLS proxy in front of the relay controls another
+pair of sockets; Borg cannot configure those sockets.
+
+Actual-socket tests verify the flag on outbound Borg sockets and accepted relay sockets.
+A development comparison with 25 ms of application-data transit delay in each direction
+on each relay leg measured median mirror typing echo at 141 ms before and 140 ms after;
+remote console echo measured 117 ms before and 118 ms after. Each typing run used twelve
+samples. These differences do not demonstrate a material speedup. The proxy terminates TCP,
+so this comparison does not reproduce delayed TCP acknowledgements across an Internet path.
+`TCP_NODELAY` removes one potential source of buffering; network RTT and the existing
+request/reply exchanges still contribute to latency.
+
+A public-relay comparison changing only the client measured twelve warm status requests
+at 175 ms median before and 168 ms after. A full 150×60 frame took 270 ms before and
+272 ms after. The host and public relay were unchanged. These samples do not separate
+the small status difference from route variation, and full-frame transfer did not improve.
+
 ## Directory listing
 
 The previous endpoint reopened the directory for every 128-entry page. Skipping to an offset
