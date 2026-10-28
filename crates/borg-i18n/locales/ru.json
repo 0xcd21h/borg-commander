@@ -753,5 +753,10 @@
   "remote_host_forgotten": "Сопряжённый хост забыт.",
   "remote_host_forgetting": "Удаление сопряжения с хостом…",
   "remote_host_forget_shortcut": "Shift-F8: забыть этот хост на этом клиенте",
-  "remote_host_forget_unavailable": "F8: забыть этот недоступный хост на этом клиенте"
+  "remote_host_forget_unavailable": "F8: забыть этот недоступный хост на этом клиенте",
+  "remote_host_no_session": "На {machine} нет доступных сеансов. Проверьте удалённый доступ на хосте и нажмите R для обновления.",
+  "remote_host_unavailable_keys": "R: обновить  F8: забыть хост  Esc: закрыть",
+  "agent_cloud_registered": "Borg cloud: зарегистрирован на {relay}",
+  "agent_cloud_connection_closed": "соединение с ретранслятором закрыто",
+  "agent_cloud_reconnecting": "Borg cloud: {error}. Переподключение…"
 }

@@ -753,5 +753,10 @@
   "remote_host_forgotten": "Host emparejado olvidado.",
   "remote_host_forgetting": "Olvidando el host emparejado…",
   "remote_host_forget_shortcut": "Shift-F8: olvidar este host en este cliente",
-  "remote_host_forget_unavailable": "F8: olvidar este host no disponible en este cliente"
+  "remote_host_forget_unavailable": "F8: olvidar este host no disponible en este cliente",
+  "remote_host_no_session": "No hay ninguna sesión disponible en {machine}. Comprueba Acceso remoto en el anfitrión y pulsa R para actualizar.",
+  "remote_host_unavailable_keys": "R: actualizar  F8: olvidar anfitrión  Esc: cerrar",
+  "agent_cloud_registered": "Borg cloud: registrado en {relay}",
+  "agent_cloud_connection_closed": "la conexión con el relé se ha cerrado",
+  "agent_cloud_reconnecting": "Borg cloud: {error}. Reconectando…"
 }

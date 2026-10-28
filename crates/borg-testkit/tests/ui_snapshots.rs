@@ -2465,6 +2465,11 @@ fn unavailable_hosts_can_be_forgotten_with_a_local_confirmation() -> Result<()> 
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "F8: forget this unavailable host")?;
     check("remote_unavailable_host", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('m')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "No session is available on offline-lab")?;
+    ensure_text(&buffer, "R: refresh  F8: forget host")?;
+    check("remote_unavailable_host_mirror", &stage, buffer)?;
     stage.send(key(KeyCode::F(8)));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Forget paired host")?;

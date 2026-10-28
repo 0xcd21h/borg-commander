@@ -3805,6 +3805,9 @@ fn an_unavailable_host_can_be_forgotten_without_contacting_it_or_changing_the_cl
     app.send(keys::alt(KeyCode::Char('r')))?;
     app.wait_text("Host offline-lab")?;
     app.wait_text("Unavailable:")?;
+    app.send("m")?;
+    app.wait_text("No session is available on offline-lab")?;
+    app.wait_text("R: refresh  F8: forget host")?;
     app.send(keys::f(8))?;
     app.wait_text("Forget paired host")?;
     app.send(keys::enter())?;

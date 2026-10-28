@@ -10,7 +10,7 @@ use futures::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::{Message, protocol::frame::coding::CloseCode};
 
 use crate::{
-    channel::{Socket, next_binary},
+    channel::Socket,
     key::{Identity, PublicKey, hex},
     link::Relay,
 };
@@ -31,6 +31,8 @@ const PROOF: &str = "Noise_NK_25519_ChaChaPoly_BLAKE2s";
 const PROOF_PROLOGUE: &[u8] = b"borg-relay proof 1";
 const PROOF_LIMIT: usize = 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const PING_EVERY: Duration = Duration::from_secs(30);
+const REGISTRATION_SILENCE: Duration = Duration::from_secs(90);
 
 /// The relay's half of the proof: a challenge only the holder of `key` can answer.
 pub fn challenge(key: &PublicKey) -> Result<(snow::HandshakeState, Vec<u8>)> {
@@ -83,32 +85,86 @@ fn closed(code: Option<CloseCode>) -> &'static str {
 /// client that asks for it.
 pub struct Listener {
     socket: Socket,
+    heard: tokio::time::Instant,
+    ping_due: tokio::time::Instant,
 }
 
 impl Listener {
     pub async fn register(relay: &Relay, identity: &Identity) -> Result<Self> {
         let mut socket = open(&relay.url(&format!("{LISTEN}{}", hex(identity.public())))).await?;
-        let challenge = next_binary(&mut socket).await?.context("the relay closed the connection")?;
-        socket.send(Message::Binary(answer(identity, &challenge)?.into())).await?;
-        match socket.next().await {
-            Some(Ok(Message::Text(text))) if text.as_str() == READY => Ok(Self { socket }),
-            Some(Ok(Message::Close(frame))) => bail!(closed(frame.map(|frame| frame.code))),
-            other => bail!("the relay did not accept the registration: {other:?}"),
-        }
+        register_socket(&mut socket, identity).await?;
+        let heard = tokio::time::Instant::now();
+        Ok(Self { socket, heard, ping_due: heard + PING_EVERY })
     }
 
     /// The id of the next session a client opens; `None` once the relay closed.
     pub async fn next(&mut self) -> Result<Option<String>> {
-        loop {
-            match self.socket.next().await {
-                Some(Ok(Message::Text(text))) => {
-                    if let Some(id) = text.as_str().strip_prefix(SESSION) {
-                        return Ok(Some(id.to_owned()));
-                    }
-                }
-                Some(Ok(Message::Close(_))) | None => return Ok(None),
-                Some(Ok(_)) => {}
+        next_session(&mut self.socket, &mut self.heard, &mut self.ping_due).await
+    }
+}
+
+async fn register_socket<S>(socket: &mut tokio_tungstenite::WebSocketStream<S>, identity: &Identity) -> Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    tokio::time::timeout(CONNECT_TIMEOUT, async {
+        let challenge = loop {
+            match socket.next().await {
+                Some(Ok(Message::Binary(challenge))) => break challenge,
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                Some(Ok(Message::Close(frame))) => bail!(closed(frame.map(|frame| frame.code))),
                 Some(Err(error)) => return Err(error.into()),
+                _ => bail!("the relay closed the registration before sending its challenge"),
+            }
+        };
+        socket.send(Message::Binary(answer(identity, &challenge)?.into())).await?;
+        loop {
+            match socket.next().await {
+                Some(Ok(Message::Text(text))) if text.as_str() == READY => return Ok(()),
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                Some(Ok(Message::Close(frame))) => bail!(closed(frame.map(|frame| frame.code))),
+                Some(Err(error)) => return Err(error.into()),
+                _ => bail!("the relay did not accept the registration"),
+            }
+        }
+    })
+    .await
+    .context("the relay did not complete registration in time")?
+}
+
+async fn next_session<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+    heard: &mut tokio::time::Instant,
+    ping_due: &mut tokio::time::Instant,
+) -> Result<Option<String>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    loop {
+        let deadline = *heard + REGISTRATION_SILENCE;
+        let message = match tokio::time::timeout_at(deadline.min(*ping_due), socket.next()).await {
+            Ok(message) => message,
+            Err(_) if tokio::time::Instant::now() >= deadline => {
+                bail!("the relay stopped sending registration heartbeats")
+            }
+            Err(_) => {
+                *ping_due = tokio::time::Instant::now() + PING_EVERY;
+                tokio::time::timeout_at(deadline, socket.send(Message::Ping(Vec::new().into())))
+                    .await
+                    .context("the relay stopped accepting registration heartbeats")??;
+                continue;
+            }
+        };
+        match message {
+            Some(Ok(Message::Close(_))) | None => return Ok(None),
+            Some(Err(error)) => return Err(error.into()),
+            Some(Ok(message)) => {
+                *heard = tokio::time::Instant::now();
+                if let Message::Text(text) = message
+                    && let Some(id) = text.as_str().strip_prefix(SESSION)
+                {
+                    return Ok(Some(id.to_owned()));
+                }
             }
         }
     }
@@ -133,6 +189,128 @@ pub async fn dial(relay: &Relay, server: &PublicKey) -> Result<Socket> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn registration_sockets() -> (
+        tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+        tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+    ) {
+        use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+        let (client, server) = tokio::io::duplex(8192);
+        (
+            WebSocketStream::from_raw_socket(client, Role::Client, None).await,
+            WebSocketStream::from_raw_socket(server, Role::Server, None).await,
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_stalls_expire_before_and_after_the_proof() {
+        for challenged in [false, true] {
+            let identity = Identity::generate();
+            let (mut client, mut server) = registration_sockets().await;
+            let (proof, challenge) = challenge(identity.public()).unwrap();
+            let relay = tokio::spawn(async move {
+                if challenged {
+                    server.send(Message::Binary(challenge.into())).await.unwrap();
+                    let Some(Ok(Message::Binary(answer))) = server.next().await else { panic!("missing proof") };
+                    assert!(verify(proof, &answer));
+                }
+                let _socket = server;
+                std::future::pending::<()>().await;
+            });
+            let start = tokio::time::Instant::now();
+            let error = register_socket(&mut client, &identity).await.unwrap_err();
+            assert!(error.to_string().contains("did not complete registration"));
+            assert_eq!(start.elapsed(), CONNECT_TIMEOUT);
+            relay.abort();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_accepts_the_proof_with_interleaved_heartbeats() {
+        let identity = Identity::generate();
+        let (mut client, mut server) = registration_sockets().await;
+        let (proof, challenge) = challenge(identity.public()).unwrap();
+        let relay = tokio::spawn(async move {
+            server.send(Message::Ping(Vec::new().into())).await.unwrap();
+            server.send(Message::Binary(challenge.into())).await.unwrap();
+            loop {
+                match server.next().await {
+                    Some(Ok(Message::Binary(answer))) => {
+                        assert!(verify(proof, &answer));
+                        break;
+                    }
+                    Some(Ok(Message::Pong(_))) => {}
+                    message => panic!("unexpected proof: {message:?}"),
+                }
+            }
+            server.send(Message::Ping(Vec::new().into())).await.unwrap();
+            server.send(Message::Text(READY.into())).await.unwrap();
+            server
+        });
+        register_socket(&mut client, &identity).await.unwrap();
+        drop(relay.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_silence_expires_even_when_waiting_is_cancelled() {
+        let (mut client, _server) = registration_sockets().await;
+        let start = tokio::time::Instant::now();
+        let mut heard = start;
+        let mut ping_due = start + PING_EVERY;
+        assert!(
+            tokio::time::timeout(REGISTRATION_SILENCE / 2, next_session(&mut client, &mut heard, &mut ping_due))
+                .await
+                .is_err()
+        );
+        let error = next_session(&mut client, &mut heard, &mut ping_due).await.unwrap_err();
+        assert!(error.to_string().contains("stopped sending registration heartbeats"));
+        assert_eq!(start.elapsed(), REGISTRATION_SILENCE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_heartbeats_keep_a_quiet_host_available() {
+        let (mut client, mut server) = registration_sockets().await;
+        let relay = tokio::spawn(async move {
+            for _ in 0..4 {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                server.send(Message::Ping(Vec::new().into())).await.unwrap();
+                loop {
+                    match server.next().await {
+                        Some(Ok(Message::Pong(_))) => break,
+                        Some(Ok(Message::Ping(_))) => {}
+                        message => panic!("unexpected heartbeat: {message:?}"),
+                    }
+                }
+            }
+            server.send(Message::Text(format!("{SESSION}next-client").into())).await.unwrap();
+            server
+        });
+        let start = tokio::time::Instant::now();
+        let mut heard = start;
+        let mut ping_due = start + PING_EVERY;
+        assert_eq!(next_session(&mut client, &mut heard, &mut ping_due).await.unwrap(), Some("next-client".into()));
+        assert_eq!(start.elapsed(), Duration::from_secs(120));
+        drop(relay.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_probes_keep_a_passive_relay_connected() {
+        let (mut client, mut server) = registration_sockets().await;
+        let relay = tokio::spawn(async move {
+            for _ in 0..4 {
+                assert!(matches!(server.next().await, Some(Ok(Message::Ping(_)))));
+                server.flush().await.unwrap();
+            }
+            server.send(Message::Text(format!("{SESSION}passive-relay").into())).await.unwrap();
+            server
+        });
+        let start = tokio::time::Instant::now();
+        let mut heard = start;
+        let mut ping_due = start + PING_EVERY;
+        assert_eq!(next_session(&mut client, &mut heard, &mut ping_due).await.unwrap(), Some("passive-relay".into()));
+        assert_eq!(start.elapsed(), Duration::from_secs(120));
+        drop(relay.await.unwrap());
+    }
 
     #[tokio::test]
     async fn relay_connections_disable_nagle_before_the_websocket_handshake() {

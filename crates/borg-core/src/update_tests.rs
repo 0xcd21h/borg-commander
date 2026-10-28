@@ -2697,3 +2697,31 @@ fn shift_f8_forgets_a_host_even_when_its_default_session_is_available() {
         vec![Effect::ForgetRemoteHost { machine: "server".into() }]
     );
 }
+
+#[test]
+fn unavailable_hosts_explain_why_files_and_mirror_cannot_open() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![crate::RemoteChoice {
+                machine: "offline-lab".into(),
+                name: "Unavailable: connection timed out".into(),
+                ..Default::default()
+            }],
+            complete: true,
+        },
+        now,
+    );
+    for code in [KeyCode::Char('m'), KeyCode::Char('M'), KeyCode::Enter] {
+        assert!(update(&mut state, Msg::Key(key(code)), now).is_empty());
+        assert!(
+            matches!(&state.overlay, Some(Overlay::Remotes(browser)) if !browser.connecting && browser.error.as_ref().is_some_and(|error| error.contains("offline-lab") && error.contains("press R")))
+        );
+    }
+    assert_eq!(update(&mut state, Msg::Key(key(KeyCode::Char('r'))), now), vec![Effect::OpenRemotes]);
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.loading && browser.error.is_none()));
+    update(&mut state, Msg::Key(key(KeyCode::Esc)), now);
+    assert!(state.overlay.is_none());
+}

@@ -475,11 +475,19 @@ impl Served {
                 Ok(mut listener) => {
                     retry = RETRY_FIRST;
                     told = false;
+                    note(&self.messages, &borg_i18n::tr!(agent_cloud_registered, relay = self.relay.to_string()));
                     loop {
                         tokio::select! {
                             next = listener.next() => match next {
                                 Ok(Some(id)) => drop(sessions.spawn(self.clone().session(id))),
-                                _ => break,
+                                ended => {
+                                    let error = match ended {
+                                        Err(error) => format!("{error:#}"),
+                                        _ => borg_i18n::tr!(agent_cloud_connection_closed).into(),
+                                    };
+                                    self.reconnecting(&error);
+                                    break;
+                                },
                             },
                             Some(_) = sessions.join_next(), if !sessions.is_empty() => {}
                         }
@@ -487,13 +495,19 @@ impl Served {
                 }
                 Err(error) if !told => {
                     told = true;
-                    let _ = self.messages.send(Msg::Notice(format!("Borg cloud: {error:#}")));
+                    self.reconnecting(&format!("{error:#}"));
                 }
                 Err(_) => {}
             }
             tokio::time::sleep(retry).await;
             retry = (retry * 2).min(RETRY_LAST);
         }
+    }
+
+    fn reconnecting(&self, error: &str) {
+        let message = borg_i18n::tr!(agent_cloud_reconnecting, error = error);
+        note(&self.messages, &message);
+        let _ = self.messages.send(Msg::Notice(message));
     }
 
     async fn session(self, id: String) {

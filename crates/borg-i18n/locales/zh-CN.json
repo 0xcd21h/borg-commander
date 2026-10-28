@@ -753,5 +753,10 @@
   "remote_host_forgotten": "已忘记配对的主机。",
   "remote_host_forgetting": "正在忘记配对的主机…",
   "remote_host_forget_shortcut": "Shift-F8：在此客户端上忘记此主机",
-  "remote_host_forget_unavailable": "F8：在此客户端上忘记此不可用的主机"
+  "remote_host_forget_unavailable": "F8：在此客户端上忘记此不可用的主机",
+  "remote_host_no_session": "{machine} 上没有可用会话。请检查主机上的远程访问，然后按 R 刷新。",
+  "remote_host_unavailable_keys": "R：刷新  F8：忘记主机  Esc：关闭",
+  "agent_cloud_registered": "Borg cloud：已在 {relay} 注册",
+  "agent_cloud_connection_closed": "中继连接已关闭",
+  "agent_cloud_reconnecting": "Borg cloud：{error}。正在重新连接…"
 }

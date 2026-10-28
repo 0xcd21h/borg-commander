@@ -94,7 +94,12 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
                 .style(styles.overlay)
                 .wrap(Wrap { trim: false })
                 .render(Rect { y: body.bottom().saturating_sub(height + 1), height, ..body }, buf);
-            Line::styled(tr!(remote_mirror_retry), styles.overlay)
+            let keys = if browser.choices.get(browser.selected).is_some_and(|choice| choice.session.is_none()) {
+                tr!(remote_host_unavailable_keys)
+            } else {
+                tr!(remote_mirror_retry)
+            };
+            Line::styled(keys, styles.overlay)
                 .render(Rect { y: body.bottom().saturating_sub(1), height: 1, ..body }, buf);
         } else if let Some(choice) = browser.choices.get(browser.selected) {
             let info = &choice.info;

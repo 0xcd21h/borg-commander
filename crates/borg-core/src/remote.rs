@@ -241,7 +241,11 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
         }
         KeyCode::Enter | KeyCode::Char('m') | KeyCode::Char('M') => {
             let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
-            let Some(session) = choice.session.clone() else { return Vec::new() };
+            let Some(session) = choice.session.clone() else {
+                browser.error = Some(tr!(remote_host_no_session, machine = choice.host_name()));
+                state.overlay = Some(Overlay::Remotes(browser));
+                return Vec::new();
+            };
             let (machine, name) = (choice.machine.clone(), choice.name.clone());
             if matches!(key.code, KeyCode::Enter) {
                 state.overlay = None;
