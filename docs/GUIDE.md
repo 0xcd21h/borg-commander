@@ -352,6 +352,11 @@ appear in the picker, panel titles, and console footer. Leave a name blank to re
 original. The details retain the original host and session names. Labels are bound to the
 paired host's key and session ID; command targets and names on the remote host stay the same.
 
+**F8** on an unavailable host forgets its pairing on this client. **Shift-F8** forgets the
+selected host even when it is online. Confirmation defaults to No. Forgetting closes this
+client's panels and consoles for that host; the host's sessions and files are kept. The
+client's identity and its other pairings are preserved. Pair again to reconnect.
+
 **F8** or **Delete** removes the selected host session after a confirmation whose default is
 **No**. Removal closes that session and its remote consoles and removes its saved Borg panels
 and terminal history; files and folders on the host are kept. The Default session is protected.

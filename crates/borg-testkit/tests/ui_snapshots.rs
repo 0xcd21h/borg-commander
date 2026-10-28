@@ -2449,3 +2449,29 @@ fn translated_panels_language_picker_and_confirmation() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn unavailable_hosts_can_be_forgotten_with_a_local_confirmation() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "offline-lab".into(),
+            name: "Unavailable: connection timed out".into(),
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "F8: forget this unavailable host")?;
+    check("remote_unavailable_host", &stage, buffer)?;
+    stage.send(key(KeyCode::F(8)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Forget paired host")?;
+    ensure_text(&buffer, "files are kept")?;
+    check("remote_host_forget_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Forgetting the paired host")?;
+    check("remote_host_forgetting", &stage, buffer)
+}

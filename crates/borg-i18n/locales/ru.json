@@ -677,7 +677,7 @@
   "remote_session_deleted": "Удаленный сеанс удален.",
   "remote_session_delete_upgrade": "Этот хост не поддерживает удаление сеансов. Обновите и перезапустите Borg на хосте.",
   "remote_session_delete_timeout": "Время ожидания запроса на удаление истекло. Обновите список хостов, чтобы проверить, был ли удален сеанс.",
-  "remote_mirror_retry": "M: повторить попытку зеркала F8: удалить сеанс R: обновить Esc: закрыть",
+  "remote_mirror_retry": "M: повтор зеркала  F8: удалить сеанс  Shift-F8: забыть хост  R: обновить  Esc: закрыть",
   "remote_no_hosts": "Нет парных хостов. Подключите один из них в диалоговом окне удаленного доступа.",
   "remote_host_session": "Ведущий {machine} · {session} · {version}",
   "remote_version_unknown": "версия недоступна",
@@ -747,5 +747,11 @@
   "docker_menu_pause": "Пауза",
   "docker_menu_resume": "Резюме",
   "docker_menu_filter": "Фильтровальные контейнеры",
-  "remote_mirror_step_timeout": "Время соединения истекло через {seconds} секунд, пока {step}."
+  "remote_mirror_step_timeout": "Время соединения истекло через {seconds} секунд, пока {step}.",
+  "remote_host_forget_title": "Забыть сопряжённый хост",
+  "remote_host_forget_confirm": "Забыть хост «{machine}» на этом клиенте? Его сеансы и файлы сохранятся. Для подключения выполните сопряжение заново.",
+  "remote_host_forgotten": "Сопряжённый хост забыт.",
+  "remote_host_forgetting": "Удаление сопряжения с хостом…",
+  "remote_host_forget_shortcut": "Shift-F8: забыть этот хост на этом клиенте",
+  "remote_host_forget_unavailable": "F8: забыть этот недоступный хост на этом клиенте"
 }

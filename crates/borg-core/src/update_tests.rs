@@ -236,6 +236,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         show_clients: false,
         client_selected: 0,
         deleting: None,
+        forgetting: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
@@ -259,6 +260,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         show_clients: false,
         client_selected: 0,
         deleting: None,
+        forgetting: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),
@@ -2604,4 +2606,94 @@ fn language_picker_saves_only_on_accept_and_menus_follow_state() {
     assert!(state.overlay.is_none());
     assert_eq!(menus(&state)[4].title, "Параметры");
     assert_eq!(borg_i18n::locale(), borg_i18n::Locale::English);
+}
+
+#[test]
+fn forgetting_an_offline_host_confirms_locally_and_restores_its_panels_and_consoles() {
+    let (mut state, now) = setup();
+    let left = state.panel(Side::Left).dir().to_path_buf();
+    let right = state.panel(Side::Right).dir().to_path_buf();
+    crate::mount_remote(&mut state, Side::Left, "server".into(), "one".into(), "One".into());
+    crate::mount_remote(&mut state, Side::Right, "server".into(), "two".into(), "Two".into());
+    state.remote_consoles.insert(("server".into(), "two".into()), crate::ShellStatus::new(Default::default()));
+    state.remote_consoles.insert(("other".into(), "default".into()), crate::ShellStatus::new(Default::default()));
+    state.console = crate::Console::Remote { machine: "server".into(), session: "one".into() };
+    state.parked_host = Some(crate::ShellStatus::new(left.clone()));
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![
+                crate::RemoteChoice { machine: "server".into(), name: "Unavailable".into(), ..Default::default() },
+                crate::RemoteChoice {
+                    machine: "other".into(),
+                    session: Some("default".into()),
+                    name: "Default".into(),
+                    ..Default::default()
+                },
+            ],
+            complete: true,
+        },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::F(8))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Confirm(confirm)) if !confirm.accept && confirm.message.contains("server") && confirm.message.contains("files are kept"))
+    );
+    assert_eq!(update(&mut state, Msg::Key(key(KeyCode::Enter)), now), vec![Effect::OpenRemotes]);
+    update(&mut state, Msg::Key(key(KeyCode::F(8))), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now),
+        vec![Effect::ForgetRemoteHost { machine: "server".into() }]
+    );
+    assert!(update(&mut state, Msg::Key(key(KeyCode::F(8))), now).is_empty());
+    update(
+        &mut state,
+        Msg::RemoteHostForgotten { machine: "server".into(), result: Err("Cannot save pairing file".into()) },
+        now,
+    );
+    assert!(state.panel(Side::Left).remote_mount.is_some());
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.forgetting.is_none() && browser.choices.len()==2 && browser.error.as_deref()==Some("Cannot save pairing file"))
+    );
+    update(&mut state, Msg::Key(key(KeyCode::F(8))), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now);
+    let effects = update(&mut state, Msg::RemoteHostForgotten { machine: "server".into(), result: Ok(()) }, now);
+    assert!(effects.contains(&Effect::CloseRemoteConsole { machine: "server".into(), session: "one".into() }));
+    assert!(effects.contains(&Effect::CloseRemoteConsole { machine: "server".into(), session: "two".into() }));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::DeleteRemoteSession { .. })));
+    assert_eq!(state.panel(Side::Left).dir(), left);
+    assert_eq!(state.panel(Side::Right).dir(), right);
+    assert_eq!(state.console, crate::Console::Host);
+    assert!(state.remote_consoles.contains_key(&("other".into(), "default".into())));
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.forgetting.is_none() && browser.choices.len()==1 && browser.choices[0].machine=="other")
+    );
+}
+
+#[test]
+fn shift_f8_forgets_a_host_even_when_its_default_session_is_available() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    update(
+        &mut state,
+        Msg::RemoteCatalog {
+            choices: vec![crate::RemoteChoice {
+                machine: "server".into(),
+                session: Some("default".into()),
+                name: "Default".into(),
+                ..Default::default()
+            }],
+            complete: true,
+        },
+        now,
+    );
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::F(8), KeyModifiers::SHIFT)), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Confirm(confirm)) if matches!(&confirm.purpose, crate::ConfirmPurpose::RemoteHostForget { machine, .. } if machine=="server"))
+    );
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now),
+        vec![Effect::ForgetRemoteHost { machine: "server".into() }]
+    );
 }

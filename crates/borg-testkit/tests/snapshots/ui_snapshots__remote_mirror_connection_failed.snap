@@ -21,7 +21,7 @@ expression: describe(&buffer)
 ││ Remote operation failed: Connection timed out after 10 seconds while loading the     ││
 ╰│ remote screen.                                                                       │╯
  │                                                                                      │
-$│ M: retry mirror  F8: remove session  R: refresh  Esc: close                          │
+$│ M: retry mirror  F8: remove session  Shift-F8: forget host  R: refresh  Esc: close   │
 F╰────── Enter files  M mirror  F2 rename  F8 remove  Tab clients  R reload  Esc ───────╯
 Alt-R Remote hosts  Alt-I Count sizes  Ctrl-F Search              ◈ Borg Commander v0.8.3
 --- styles ---

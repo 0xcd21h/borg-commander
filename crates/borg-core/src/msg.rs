@@ -73,6 +73,10 @@ pub enum Msg {
         result: Result<(), String>,
     },
     RemoteMirrorConnected(Result<(), String>),
+    RemoteHostForgotten {
+        machine: String,
+        result: Result<(), String>,
+    },
     RemoteCatalog {
         choices: Vec<crate::RemoteChoice>,
         complete: bool,
@@ -171,6 +175,9 @@ pub enum Effect {
     },
     OpenRemotes,
     CancelRemoteConnection,
+    ForgetRemoteHost {
+        machine: String,
+    },
     DeleteRemoteSession {
         machine: String,
         session: String,

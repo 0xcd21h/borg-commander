@@ -227,6 +227,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 show_clients: !state.agent.computers.is_empty(),
                 client_selected: 0,
                 deleting: None,
+                forgetting: None,
             }));
             vec![Effect::OpenRemotes]
         }

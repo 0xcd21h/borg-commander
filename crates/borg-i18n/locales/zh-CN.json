@@ -677,7 +677,7 @@
   "remote_session_deleted": "远程会话已删除。",
   "remote_session_delete_upgrade": "该主机不支持删除会话。更新并重新启动主机上的Borg。",
   "remote_session_delete_timeout": "删除请求超时。刷新主机列表，查看会话是否被移除。",
-  "remote_mirror_retry": "M: 重试镜像 F8: 删除会话 R: 刷新 Esc: 关闭",
+  "remote_mirror_retry": "M：重试镜像  F8：移除会话  Shift-F8：忘记主机  R：刷新  Esc：关闭",
   "remote_no_hosts": "没有配对的主机。从其远程访问对话框中进行配对。",
   "remote_host_session": "主机{machine}·{session}·{version}",
   "remote_version_unknown": "版本不可用",
@@ -747,5 +747,11 @@
   "docker_menu_pause": "暂停",
   "docker_menu_resume": "简历",
   "docker_menu_filter": "过滤容器",
-  "remote_mirror_step_timeout": "在{seconds}秒后{step}连接超时。"
+  "remote_mirror_step_timeout": "在{seconds}秒后{step}连接超时。",
+  "remote_host_forget_title": "忘记已配对的主机",
+  "remote_host_forget_confirm": "在此客户端上忘记主机“{machine}”？主机上的会话和文件会保留。重新配对后即可连接。",
+  "remote_host_forgotten": "已忘记配对的主机。",
+  "remote_host_forgetting": "正在忘记配对的主机…",
+  "remote_host_forget_shortcut": "Shift-F8：在此客户端上忘记此主机",
+  "remote_host_forget_unavailable": "F8：在此客户端上忘记此不可用的主机"
 }

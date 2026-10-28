@@ -257,6 +257,17 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
 
     state.overlay = None;
     match (decided, confirm.purpose) {
+        (answer, ConfirmPurpose::RemoteHostForget { machine, mut browser }) => {
+            browser.error = None;
+            if answer == Some(true) {
+                browser.forgetting = Some(machine.clone());
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::ForgetRemoteHost { machine }]
+            } else {
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::OpenRemotes]
+            }
+        }
         (answer, ConfirmPurpose::RemoteSessionDelete { machine, session, mut browser }) => {
             browser.error = None;
             if answer == Some(true) {

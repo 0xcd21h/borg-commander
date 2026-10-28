@@ -3784,3 +3784,54 @@ fn a_saved_language_can_be_changed_from_options_and_is_restored() -> Result<()> 
     reopened.wait_text("Quit")?;
     Ok(())
 }
+
+#[test]
+fn an_unavailable_host_can_be_forgotten_without_contacting_it_or_changing_the_client_key() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("[plugins]\nagent-cloud = false\n")?;
+    let link = fixture.state().join("link");
+    fs::create_dir_all(&link)?;
+    let key = link.join("key");
+    borg_link::Identity::load_or_create(&key)?;
+    let saved_key = fs::read(&key)?;
+    let servers = link.join("servers.json");
+    fs::write(
+        &servers,
+        serde_json::to_vec(&serde_json::json!([{
+            "name":"offline-lab", "relay":"ws://127.0.0.1:1", "key":borg_link::hex(&[7;32])
+        }]))?,
+    )?;
+    let mut app = start(&fixture, "forget-offline-host")?;
+    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.wait_text("Host offline-lab")?;
+    app.wait_text("Unavailable:")?;
+    app.send(keys::f(8))?;
+    app.wait_text("Forget paired host")?;
+    app.send(keys::enter())?;
+    app.wait_gone("Forget paired host")?;
+    let kept: Vec<serde_json::Value> = serde_json::from_slice(&fs::read(&servers)?)?;
+    ensure!(kept.len() == 1, "No is the default and must preserve the pairing");
+    app.send(keys::f(8))?;
+    app.wait_text("Forget paired host")?;
+    app.send("y")?;
+    app.wait_text("No paired hosts")?;
+    let removed: Vec<serde_json::Value> = serde_json::from_slice(&fs::read(&servers)?)?;
+    ensure!(removed.is_empty());
+    ensure!(fs::read(&key)? == saved_key, "forgetting a host must preserve this client's identity");
+    app.send(keys::esc())?;
+    app.wait_gone("Remote colony")?;
+    app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
+    ensure!(app.wait_exit()?.success());
+    let mut restored = start(&fixture, "forgotten-host-stays-forgotten")?;
+    restored.send(keys::alt(KeyCode::Char('r')))?;
+    restored.wait_text("No paired hosts")?;
+    restored.send(keys::esc())?;
+    restored.wait_gone("Remote colony")?;
+    restored.send(keys::f(10))?;
+    restored.wait_text("Quit Borg Commander?")?;
+    restored.send("y")?;
+    ensure!(restored.wait_exit()?.success());
+    Ok(())
+}

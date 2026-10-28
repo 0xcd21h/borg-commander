@@ -677,7 +677,7 @@
   "remote_session_deleted": "Sesión remota eliminada.",
   "remote_session_delete_upgrade": "Este host no admite la eliminación de sesiones. Actualice y reinicie Borg en el host.",
   "remote_session_delete_timeout": "La solicitud de eliminación expiró. Actualice la lista de hosts para verificar si se eliminó la sesión.",
-  "remote_mirror_retry": "M: reintentar espejo F8: eliminar sesión R: actualizar Esc: cerrar",
+  "remote_mirror_retry": "M: reintentar espejo  F8: eliminar sesión  Shift-F8: olvidar host  R: actualizar  Esc: cerrar",
   "remote_no_hosts": "No hay hosts emparejados. Empareje uno desde su cuadro de diálogo de acceso remoto.",
   "remote_host_session": "Anfitrión {machine} · {session} · {version}",
   "remote_version_unknown": "versión no disponible",
@@ -747,5 +747,11 @@
   "docker_menu_pause": "Pausa",
   "docker_menu_resume": "Currículum",
   "docker_menu_filter": "Contenedores de filtro",
-  "remote_mirror_step_timeout": "La conexión se agotó después de {seconds} segundos mientras {step}."
+  "remote_mirror_step_timeout": "La conexión se agotó después de {seconds} segundos mientras {step}.",
+  "remote_host_forget_title": "Olvidar host emparejado",
+  "remote_host_forget_confirm": "¿Olvidar el host \"{machine}\" en este cliente? Sus sesiones y archivos se conservan. Vuelve a emparejarlo para conectar.",
+  "remote_host_forgotten": "Host emparejado olvidado.",
+  "remote_host_forgetting": "Olvidando el host emparejado…",
+  "remote_host_forget_shortcut": "Shift-F8: olvidar este host en este cliente",
+  "remote_host_forget_unavailable": "F8: olvidar este host no disponible en este cliente"
 }

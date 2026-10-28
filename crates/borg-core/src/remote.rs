@@ -100,10 +100,11 @@ pub struct RemoteBrowser {
     pub show_clients: bool,
     pub client_selected: usize,
     pub deleting: Option<(String, String)>,
+    pub forgetting: Option<String>,
 }
 
 pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent) -> Vec<Effect> {
-    if browser.deleting.is_some() {
+    if browser.deleting.is_some() || browser.forgetting.is_some() {
         if key.code == KeyCode::Esc {
             state.overlay = None;
         }
@@ -158,9 +159,22 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
     match key.code {
         KeyCode::Delete | KeyCode::F(8) => {
             let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
+            if choice.session.is_none() || key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                state.overlay = Some(Overlay::Confirm(crate::Confirm {
+                    title: tr!(remote_host_forget_title),
+                    message: tr!(remote_host_forget_confirm, machine = choice.host_name()),
+                    purpose: crate::ConfirmPurpose::RemoteHostForget {
+                        machine: choice.machine.clone(),
+                        browser: Box::new(browser),
+                    },
+                    accept: false,
+                }));
+                return Vec::new();
+            }
             let Some(session) = choice.session.clone() else { return Vec::new() };
             if session == "default" {
-                browser.error = Some(tr!(remote_session_default_protected).into());
+                browser.error =
+                    Some(format!("{} {}", tr!(remote_session_default_protected), tr!(remote_host_forget_shortcut)));
                 state.overlay = Some(Overlay::Remotes(browser));
                 return Vec::new();
             }
@@ -272,6 +286,7 @@ pub(crate) fn mirror(state: &mut AppState, machine: String, session: String) -> 
             show_clients: false,
             client_selected: 0,
             deleting: None,
+            forgetting: None,
         }));
     }
     vec![Effect::MirrorRemote { machine, session }]
@@ -332,6 +347,59 @@ pub(crate) fn deleted(
             Ok(()) => tr!(remote_session_deleted).into(),
             Err(error) => error,
         });
+    }
+    effects
+}
+
+pub(crate) fn forgotten(state: &mut AppState, machine: String, result: Result<(), String>) -> Vec<Effect> {
+    let mut effects = Vec::new();
+    if result.is_ok() {
+        let mut consoles = state
+            .remote_consoles
+            .keys()
+            .filter(|(host, _)| host == &machine)
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        for side in Side::ALL {
+            if let Some(mount) = state.panel(side).remote_mount.as_ref().filter(|mount| mount.machine == machine) {
+                consoles.insert((machine.clone(), mount.session.clone()));
+                if let Some(effect) = unmount(state, side) {
+                    effects.push(effect);
+                }
+            }
+        }
+        if let crate::Console::Remote { machine: host, session } = &state.console
+            && host == &machine
+        {
+            consoles.insert((machine.clone(), session.clone()));
+            state.shell = state.parked_host.take().unwrap_or_else(|| crate::ShellStatus::new(Default::default()));
+            state.console = crate::Console::Host;
+            state.view = crate::View::Panels;
+            effects.push(Effect::UseConsole(crate::Console::Host));
+        }
+        state.remote_consoles.retain(|(host, _), _| host != &machine);
+        effects.extend(consoles.into_iter().map(|(machine, session)| Effect::CloseRemoteConsole { machine, session }));
+        state.remote_identities.remove(&machine);
+        if state.failed_remote_console.as_ref().is_some_and(|(host, _)| host == &machine) {
+            state.failed_remote_console = None;
+            state.remote_console_failure = None;
+        }
+        state.notice = Some(tr!(remote_host_forgotten).into());
+    }
+    if let Some(Overlay::Remotes(browser)) = state.overlay.as_mut() {
+        browser.forgetting = None;
+        match result {
+            Ok(()) => {
+                browser.choices.retain(|choice| choice.machine != machine);
+                browser.selected = browser.selected.min(browser.choices.len().saturating_sub(1));
+                browser.error = None;
+            }
+            Err(error) => browser.error = Some(error),
+        }
+        browser.loading = true;
+        effects.push(Effect::OpenRemotes);
+    } else if let Err(error) = result {
+        state.notice = Some(error);
     }
     effects
 }

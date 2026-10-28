@@ -99,6 +99,7 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
         Msg::RemoteSessionDeleted { machine, session, result } => {
             crate::remote::deleted(state, machine, session, result)
         }
+        Msg::RemoteHostForgotten { machine, result } => crate::remote::forgotten(state, machine, result),
         Msg::RemoteCatalog { choices, complete } => {
             crate::remote::catalog(state, choices, complete);
             Vec::new()

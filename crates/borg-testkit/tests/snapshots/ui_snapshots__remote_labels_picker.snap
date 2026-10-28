@@ -24,7 +24,7 @@ expression: describe(&buffer)
 │            │ Original host: demo-host · Session: Default                                                          │            │
 │            │ Borg 0.8.0 · linux / x86_64 · background service · RTT 172 ms                                        │            │
 │            │ Relay: wss://relay.example                                                                           │            │
-│            │                                                                                                      │            │
+│            │ Shift-F8: forget this host on this client                                                            │            │
 ╰ 9 items ───╰─ Enter files  M mirror  F2: rename host  S-F2 session  F8 remove  Tab clients  R refresh  Esc close ─╯────────────╯
  Up to the parent directory
 $

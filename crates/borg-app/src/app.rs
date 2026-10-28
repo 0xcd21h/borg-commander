@@ -1577,6 +1577,19 @@ impl App {
                         ));
                 }
                 Effect::CancelRemoteConnection => self.mirror_connect = None,
+                Effect::ForgetRemoteHost { machine } => {
+                    if let Some(previous) = self.remote_catalog.take() {
+                        previous.abort();
+                    }
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = StateDir::locate()
+                            .context("Borg has no state folder")
+                            .and_then(|state| crate::link::forget_server(state.path(), &machine).map(|_| ()))
+                            .map_err(|error| format!("{error:#}"));
+                        let _ = messages.send(Msg::RemoteHostForgotten { machine, result });
+                    });
+                }
                 Effect::DeleteRemoteSession { machine, session } => {
                     let messages = self.messages.clone();
                     tokio::spawn(async move {
