@@ -15,7 +15,7 @@ expression: describe(&buffer)
 language-server · PID 411 · /usr/local/bin/l
 $
 Enter Memory map  / Filter  Space Pause
-Enter Memory map ·  ◈ Borg Commander v0.8.2
+Enter Memory map ·  ◈ Borg Commander v0.8.3
 --- styles ---
   0: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-12 Rgb(255, 255, 255) Rgb(13, 11, 26) BOLD | 13-13 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 14-16 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 17-17 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 18-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-34 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 35-35 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 36-38 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 39-39 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 40-42 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
   1: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 23-42 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 43-43 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE

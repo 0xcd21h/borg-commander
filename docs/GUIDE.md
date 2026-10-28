@@ -343,8 +343,9 @@ connections are owned by the background service. Pairing is directional: an allo
 not automatically become a host whose files this Borg can browse. If the connection owner is an
 older Borg or cannot answer, paired clients remain visible with **Connection status unavailable**.
 While a mirror connects, the picker shows an animated status and **Esc** cancels immediately.
-Connection setup, including receiving the first screen, times out after 10 seconds. A failed
-attempt keeps the picker open with the error; **M** retries the selected session.
+Mirror connections open concurrently, and control is requested once the first screen is ready.
+Each startup step has a 10-second deadline, with a 30-second limit for the whole attempt.
+A failed attempt keeps the picker open and identifies the step that failed; **M** retries the selected session.
 In the picker, **F2** renames the selected host label for every session on that host;
 **Shift-F2** renames the selected session label. These labels are saved on this client and
 appear in the picker, panel titles, and console footer. Leave a name blank to restore the
@@ -388,12 +389,26 @@ terminal, or use `borg mirror MACHINE:SESSION --take` to take control when start
 control, the first key wakes a sleeping remote screen; subsequent keys and mouse input reach it.
 Mirror input and display use independent connections, with typing bursts batched into requests.
 Quiet input and control connections send read-only keepalives, including while viewing without typing.
+Queued input is batched without a timer before sending. Screen requests wait only while there is
+no new output; publishing output wakes them immediately. Input requests still await an acknowledgement,
+and screen updates use a separate request/reply connection, so network round trips affect responsiveness.
 Updated hosts show a quit confirmation when `exit` is typed in Borg's main Bash, Zsh or Fish shell.
 **No** is selected by default and keeps the same shell, variables, directory and mirrors running.
 This confirmation runs on the host, so update and restart the host's Borg to enable it.
 Updated hosts wait for fresh output and send the current visible screen when a viewer falls
 behind, instead of replaying old animation frames. The complete cursor-listing and mirror
 improvements require updating the local Borg and restarting the host's Borg with the updated binary.
+
+From a source checkout, measure a paired host without taking control or sending keys:
+
+```sh
+python3 scripts/remote-latency.py HOST --session SESSION --borg target/debug/borg
+```
+
+The diagnostic reports connection time, repeated status round trips, and full-screen and subsequent
+frame timings as JSON lines. It prints byte counts without printing screen contents or identity keys.
+Use `--sizes 1x1,20x5,150x60` to compare small and large responses. A failed frame is followed by a fresh
+status connection to distinguish a stalled display from a host that has become unreachable.
 
 To connect, press F1 and then C (or F9 → Remote → Share this Borg as host…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected

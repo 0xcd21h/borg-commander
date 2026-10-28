@@ -23,7 +23,7 @@ expression: describe(&buffer)
  Up to the╰────────────────────────────╯
 $
 F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
-Alt-R Remote hosts  Alt-I Count sizes  Ctrl-F Search              ◈ Borg Commander v0.8.2
+Alt-R Remote hosts  Alt-I Count sizes  Ctrl-F Search              ◈ Borg Commander v0.8.3
 --- styles ---
   0: 0-9 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 10-17 Rgb(255, 255, 255) Rgb(0, 95, 135) BOLD | 18-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
   1: 0-0 Rgb(20, 134, 161) Rgb(30, 30, 30) NONE | 1-1 Rgb(8, 79, 109) Rgb(30, 30, 30) NONE | 2-5 Rgb(191, 215, 225) Rgb(0, 95, 135) BOLD | 6-9 Rgb(191, 215, 225) Rgb(0, 95, 135) NONE | 10-39 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 40-42 Rgb(191, 215, 225) Rgb(0, 95, 135) NONE | 43-43 Rgb(8, 79, 109) Rgb(30, 30, 30) NONE | 44-44 Rgb(20, 134, 161) Rgb(30, 30, 30) NONE | 45-45 Rgb(68, 68, 68) Rgb(30, 30, 30) NONE | 46-46 Rgb(40, 40, 40) Rgb(30, 30, 30) NONE | 47-50 Rgb(54, 98, 146) Rgb(48, 48, 48) BOLD | 51-68 Rgb(130, 130, 130) Rgb(48, 48, 48) NONE | 69-74 Rgb(77, 77, 77) Rgb(48, 48, 48) NONE | 75-87 Rgb(130, 130, 130) Rgb(48, 48, 48) NONE | 88-88 Rgb(40, 40, 40) Rgb(30, 30, 30) NONE | 89-89 Rgb(68, 68, 68) Rgb(30, 30, 30) NONE

@@ -411,7 +411,6 @@ async fn connect(
             command = async { match pending.take() { Some(command) => Some(command), None => input.recv().await } } => {
                 let result = match command {
                     Some(Input::Write(mut data)) => {
-                        tokio::time::sleep(Duration::from_millis(2)).await;
                         while data.len() < FRAME_LIMIT {
                             match input.try_recv() {
                                 Ok(Input::Write(next)) if data.len() + next.len() <= FRAME_LIMIT => data.extend(next),

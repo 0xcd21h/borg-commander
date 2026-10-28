@@ -2255,30 +2255,62 @@ fn relay_with_idle_proxy(idle: std::time::Duration) -> Result<String> {
     Ok(format!("ws://{address}"))
 }
 
-fn relay_with_connection_gate() -> Result<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)> {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    };
+#[derive(Default)]
+struct ConnectionGate {
+    paused: std::sync::atomic::AtomicBool,
+    delay_ms: std::sync::atomic::AtomicU64,
+    transit_ms: std::sync::atomic::AtomicU64,
+}
+
+fn relay_with_connection_gate() -> Result<(String, std::sync::Arc<ConnectionGate>)> {
+    use std::sync::{Arc, atomic::Ordering};
     let target = relay()?.trim_start_matches("ws://").to_owned();
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
     listener.set_nonblocking(true)?;
-    let paused = Arc::new(AtomicBool::new(false));
+    let paused = Arc::new(ConnectionGate::default());
     let gate = paused.clone();
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
         runtime.block_on(async move {
+            use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+            async fn forward(
+                mut read: impl AsyncRead + Unpin,
+                mut write: impl AsyncWrite + Unpin,
+                gate: Arc<ConnectionGate>,
+            ) -> std::io::Result<()> {
+                const TRANSIT_BUFFER: usize = 16 * 1024;
+                let mut bytes = [0; TRANSIT_BUFFER];
+                loop {
+                    let count = read.read(&mut bytes).await?;
+                    if count == 0 {
+                        return write.shutdown().await;
+                    }
+                    let delay = gate.transit_ms.load(Ordering::SeqCst);
+                    if delay != 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    }
+                    write.write_all(&bytes[..count]).await?;
+                }
+            }
             let listener = tokio::net::TcpListener::from_std(listener).expect("the gated listener");
-            while let Ok((mut client, _)) = listener.accept().await {
+            while let Ok((client, _)) = listener.accept().await {
                 let target = target.clone();
                 let gate = gate.clone();
                 tokio::spawn(async move {
-                    while gate.load(Ordering::SeqCst) {
+                    tokio::time::sleep(std::time::Duration::from_millis(gate.delay_ms.load(Ordering::SeqCst))).await;
+                    while gate.paused.load(Ordering::SeqCst) {
                         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
                     }
-                    if let Ok(mut server) = tokio::net::TcpStream::connect(target).await {
-                        let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                    if let Ok(server) = tokio::net::TcpStream::connect(target).await {
+                        let _ = client.set_nodelay(true);
+                        let _ = server.set_nodelay(true);
+                        let (client_read, client_write) = client.into_split();
+                        let (server_read, server_write) = server.into_split();
+                        let _ = tokio::try_join!(
+                            forward(client_read, server_write, gate.clone()),
+                            forward(server_read, client_write, gate),
+                        );
                     }
                 });
             }
@@ -3355,7 +3387,7 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     local.wait_text(READY)?;
     local.send(keys::alt(KeyCode::Char('r')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
-    paused.store(true, Ordering::SeqCst);
+    paused.paused.store(true, Ordering::SeqCst);
     local.send("m")?;
     let first = local.wait_text(&format!("Connecting mirror to {name}:Default"))?;
     local.wait_text("Esc: cancel connection")?;
@@ -3370,9 +3402,10 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     local.send("m")?;
     local.wait_text("Connecting mirror to")?;
     local.wait_text("Connection timed out after 10 seconds")?;
+    local.wait_text("while opening remote connections")?;
     local.wait_text("M: retry mirror")?;
     local.wait_gone("Esc: cancel connection")?;
-    paused.store(false, Ordering::SeqCst);
+    paused.paused.store(false, Ordering::SeqCst);
     remote.send(keys::f(1))?;
     remote.wait_text("Remote access to this borg")?;
     remote.send(keys::esc())?;
@@ -3384,6 +3417,194 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     local.wait_text("F1Help")?;
     local.send(keys::f(1))?;
     local.wait_text("Remote access to this borg")?;
+    Ok(())
+}
+
+#[test]
+fn a_single_worker_host_serves_large_native_mirror_frames_and_keeps_responding() -> Result<()> {
+    let relay_url = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay_url}\"\n"))?;
+    host.executable(
+        "single-worker-borg",
+        &format!("#!/bin/sh\nTOKIO_WORKER_THREADS=1 exec '{}' \"$@\"\n", BORG.replace('\'', "'\\''")),
+    )?;
+    let binary = host.work().join("single-worker-borg");
+    let mut remote =
+        Session::builder(&binary, &host).size(195, 62).truecolor(true).label("single-worker-host").spawn()?;
+    remote.wait_text("5 items")?;
+    let (computer, _) = pair_computer(&mut remote, &host)?;
+    remote.send(keys::esc())?;
+    remote.wait_gone("Remote access to this borg")?;
+    let servers: serde_json::Value = serde_json::from_slice(&fs::read(computer.join("link/servers.json"))?)?;
+    let server = &servers[0];
+    let relay = borg_link::Relay::parse(server["relay"].as_str().unwrap()).context("test relay")?;
+    let key = borg_link::unhex(server["key"].as_str().unwrap()).context("server key")?;
+    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    runtime.block_on(async {
+        let socket = borg_link::relay::dial(&relay, &key).await?;
+        let mut channel = borg_link::initiate(socket, &identity, &key, br#"{"kind":"session"}"#).await?;
+        channel.recv().await?.context("host hello")?;
+        for (cols, rows) in [(1, 1), (20, 5), (150, 60)] {
+            let request = serde_json::json!({"tool":"mirror_frame","args":{"session":"default","after":0,"wait_ms":0,"cols":cols,"rows":rows}});
+            channel.send(&serde_json::to_vec(&request)?).await?;
+            let response = tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await??;
+            let reply: serde_json::Value = serde_json::from_slice(&response.context("mirror frame")?)?;
+            ensure!(reply["ok"] == true, "{reply}");
+            let frame: serde_json::Value = serde_json::from_str(reply["text"].as_str().context("frame JSON")?)?;
+            ensure!(frame["data"].as_str().is_some_and(|data| !data.is_empty()));
+        }
+        Ok::<_, anyhow::Error>(())
+    })?;
+    remote.send(keys::f(1))?;
+    remote.wait_text("Remote access to this borg")?;
+    Ok(())
+}
+
+#[test]
+fn mirror_opens_all_channels_on_a_slow_connection_before_taking_control() -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let (relay, gate) = relay_with_connection_gate()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("slow-mirror-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(140, 34).label("slow-mirror-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    gate.delay_ms.store(2200, Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    local.send("m")?;
+    local.wait_text("Connecting mirror to")?;
+    local.wait_text("REMOTE MIRROR - CONTROL")?;
+    ensure!(started.elapsed() < std::time::Duration::from_secs(12), "channels must open concurrently");
+    local.wait_text("notes.txt")?;
+    local.send(keys::f(1))?;
+    local.wait_text("Remote access to this borg")?;
+    remote.wait_text("Remote access to this borg")?;
+    local.send(keys::esc())?;
+    local.wait_gone("Remote access to this borg")?;
+    local.send(keys::ctrl('g'))?;
+    local.wait_until("local panels after the slow mirror", |screen| {
+        screen.contains("F1Help") && !screen.contains("REMOTE MIRROR")
+    })?;
+    Ok(())
+}
+
+#[test]
+fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let binary = std::env::var_os("BORG_LATENCY_BINARY").map_or_else(|| Path::new(BORG).to_path_buf(), Into::into);
+    let (relay, gate) = relay_with_connection_gate()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(&binary, &host).size(130, 34).label("latency-console-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    gate.transit_ms.store(25, Ordering::SeqCst);
+    let target = format!("{name}:Default");
+    let mut local = Session::builder(&binary, &client)
+        .args(&["--remote", &target])
+        .size(150, 34)
+        .label("latency-console-client")
+        .spawn()?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default console"))?;
+    local.wait_until("remote prompt", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
+    })?;
+    let mut typed = String::new();
+    let mut timings = Vec::new();
+    for key in "abcdefghijkl".chars() {
+        typed.push(key);
+        let expected = format!("$ {typed}");
+        let started = std::time::Instant::now();
+        local.send(key.to_string())?;
+        local.wait_until("remote echo", |screen| {
+            screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == expected)
+        })?;
+        let elapsed = started.elapsed();
+        timings.push(elapsed.as_millis());
+        ensure!(elapsed < std::time::Duration::from_millis(750), "remote echo took {elapsed:?}");
+    }
+    eprintln!("Remote console echo with 25 ms per leg: {timings:?} ms");
+    local.send(keys::ctrl('u'))?;
+    local.send(keys::ctrl('o'))?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+    Ok(())
+}
+
+#[test]
+fn native_mirror_delivers_keys_and_frames_over_a_delayed_link() -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let binary = std::env::var_os("BORG_LATENCY_BINARY").map_or_else(|| Path::new(BORG).to_path_buf(), Into::into);
+    let (relay, gate) = relay_with_connection_gate()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(&binary, &host).size(195, 62).label("latency-mirror-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    gate.transit_ms.store(25, Ordering::SeqCst);
+    let target = format!("{name}:Default");
+    let mut mirror = Session::builder(&binary, &client)
+        .args(&["mirror", &target])
+        .size(195, 64)
+        .label("latency-mirror-client")
+        .spawn()?;
+    mirror.wait_text("REMOTE MIRROR - CONTROL")?;
+    mirror.wait_text("notes.txt")?;
+    let mut timings = Vec::new();
+    for _ in 0..4 {
+        let started = std::time::Instant::now();
+        mirror.send(keys::f(1))?;
+        mirror.wait_text("Remote access to this borg")?;
+        let elapsed = started.elapsed();
+        timings.push(elapsed.as_millis());
+        ensure!(elapsed < std::time::Duration::from_millis(750), "input-to-screen took {elapsed:?}");
+        mirror.send(keys::esc())?;
+        mirror.wait_gone("Remote access to this borg")?;
+    }
+    eprintln!("Mirror input-to-screen with 25 ms per leg: {timings:?} ms");
+    let mut typed = String::new();
+    let mut echo_timings = Vec::new();
+    for key in "abcdefghijkl".chars() {
+        typed.push(key);
+        let suffix = format!(" {typed}");
+        let started = std::time::Instant::now();
+        mirror.send(key.to_string())?;
+        mirror.wait_until("mirrored typing", |screen| {
+            screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim_end().ends_with(&suffix))
+        })?;
+        let elapsed = started.elapsed();
+        echo_timings.push(elapsed.as_millis());
+        ensure!(elapsed < std::time::Duration::from_millis(750), "mirrored echo took {elapsed:?}");
+    }
+    eprintln!("Mirror typing echo with 25 ms per leg: {echo_timings:?} ms");
+    mirror.send(keys::ctrl('u'))?;
+    mirror.send(keys::ctrl('g'))?;
+    ensure!(mirror.wait_exit()?.success());
+    remote.send(keys::f(1))?;
+    remote.wait_text("Remote access to this borg")?;
     Ok(())
 }
 

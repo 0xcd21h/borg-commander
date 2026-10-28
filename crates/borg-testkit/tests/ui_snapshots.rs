@@ -1201,7 +1201,7 @@ fn remote_mirror_connection_progress_and_failure() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     check("remote_mirror_connecting", &stage, buffer)?;
     stage.send(Msg::RemoteMirrorConnected(Err(
-        "Connection timed out after 10 seconds. Check that Borg is running on the host.".into(),
+        "Connection timed out after 10 seconds while loading the remote screen.".into(),
     )));
     let buffer = stage.render(stage.started)?;
     check("remote_mirror_connection_failed", &stage, buffer)

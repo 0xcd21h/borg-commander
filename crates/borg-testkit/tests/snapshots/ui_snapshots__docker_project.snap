@@ -35,7 +35,7 @@ expression: describe(&buffer)
 shop
 $
 S Start  X Stop  R Restart  P Pause  F Files  E Shell  / Filter  Tab Details  Esc Close
-↑↓ Move · ←→ Fold projects · Alt-W Maximize                                                                 ◈ Borg Commander v0.8.2
+↑↓ Move · ←→ Fold projects · Alt-W Maximize                                                                 ◈ Borg Commander v0.8.3
 --- styles ---
   0: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-24 Rgb(255, 255, 255) Rgb(13, 11, 26) BOLD | 25-57 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 58-60 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 61-61 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 62-64 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 65-65 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 66-66 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 67-72 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 73-123 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 124-126 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 127-127 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 128-130 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 131-131 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE
   1: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-64 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 65-65 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 66-66 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE | 67-130 Rgb(62, 240, 255) Rgb(22, 18, 43) NONE | 131-131 Rgb(42, 35, 80) Rgb(13, 11, 26) NONE

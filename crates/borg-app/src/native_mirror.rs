@@ -12,7 +12,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use crossterm::event::{Event, KeyEventKind};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
-    buffer::{Buffer, Cell},
+    buffer::{Buffer, Cell, CellWidth},
     layout::Position,
 };
 use serde_json::json;
@@ -89,15 +89,31 @@ impl Screen {
     fn frame(&self, after: u64, cols: u16, rows: u16, origin: &str) -> Result<Reply> {
         let buffer = self.buffer.as_ref().context("The session screen is not ready yet")?;
         let oldest = self.replay.front().map_or(self.sequence, |delta| delta.sequence.saturating_sub(1));
-        let behind = self.replay.iter().filter(|delta| delta.sequence > after).map(|delta| delta.bytes).sum::<usize>();
-        let reset = after == 0 || after < oldest || after < self.full_at || after > self.sequence || behind > 64 * 1024;
-        let empty = Buffer::empty(buffer.area);
-        let full;
+        let reset = after == 0 || after < oldest || after < self.full_at || after > self.sequence;
         let cells = if reset {
-            full = empty.diff(buffer).into_iter().map(|(x, y, cell)| (x, y, cell.clone())).collect::<Vec<_>>();
-            full.iter().collect::<Vec<_>>()
+            Buffer::empty(buffer.area).diff(buffer)
         } else {
-            self.replay.iter().filter(|delta| delta.sequence > after).flat_map(|delta| delta.cells.iter()).collect()
+            let cells: Vec<_> = self
+                .replay
+                .iter()
+                .filter(|delta| delta.sequence > after)
+                .flat_map(|delta| delta.cells.iter().map(|(x, y, cell)| (*x, *y, cell)))
+                .collect();
+            let batches = self.replay.iter().filter(|delta| delta.sequence > after).take(2).count();
+            if batches > 1 && cells.iter().all(|(_, _, cell)| cell.cell_width() == 1) {
+                let mut latest = vec![None; buffer.content.len()];
+                for (x, y, cell) in cells {
+                    latest[buffer.index_of(x, y)] = Some(cell);
+                }
+                buffer
+                    .area
+                    .positions()
+                    .zip(latest)
+                    .filter_map(|(position, cell)| cell.map(|cell| (position.x, position.y, cell)))
+                    .collect()
+            } else {
+                cells
+            }
         };
         let mut data = b"\x1b[?2026h\x1b[?25l".to_vec();
         if reset {
@@ -105,14 +121,9 @@ impl Screen {
         }
         {
             let mut backend = CrosstermBackend::new(&mut data);
-            backend.draw(
-                cells
-                    .into_iter()
-                    .filter(|(x, y, cell)| {
-                        *x < cols && *y < rows && usize::from(*x) + cell.symbol().width() <= usize::from(cols)
-                    })
-                    .map(|(x, y, cell)| (*x, *y, cell)),
-            )?;
+            backend.draw(cells.into_iter().filter(|(x, y, cell)| {
+                *x < cols && *y < rows && usize::from(*x) + cell.symbol().width() <= usize::from(cols)
+            }))?;
         }
         data.extend_from_slice(b"\x1b[0m");
         if let Some(cursor) = self.cursor.filter(|cursor| cursor.x < cols && cursor.y < rows) {
@@ -405,6 +416,32 @@ mod tests {
     }
 
     #[test]
+    fn repeated_updates_send_the_latest_cells_without_resetting_the_whole_screen() {
+        let mut screen = Screen::default();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 195, 62));
+        buffer.set_style(buffer.area, Style::default().fg(Color::Cyan).bg(Color::Blue));
+        screen.publish(&buffer, None);
+        let first = frame(&screen, 0, 195, 62);
+        let after = first["sequence"].as_u64().unwrap();
+        let mut viewer = Emulator::new(GridSize { cols: 195, rows: 62 }, 10);
+        viewer.feed(&bytes(&first));
+        for index in 0..24 {
+            let text = format!("frame {index:02} {}", char::from(b'a' + index).to_string().repeat(70));
+            buffer.set_string(2, 2, text, Style::default().fg(Color::White).bg(Color::Blue));
+            screen.publish(&buffer, None);
+        }
+        let latest = frame(&screen, after, 195, 62);
+        let encoded = bytes(&latest);
+        eprintln!("Repeated-cell redraw: reset={}, bytes={}", latest["reset"], encoded.len());
+        assert_eq!(latest["reset"], false);
+        assert!(encoded.len() < 512, "a changed strip must not resend the full screen: {} bytes", encoded.len());
+        viewer.feed(&encoded);
+        let mut expected = Emulator::new(GridSize { cols: 195, rows: 62 }, 10);
+        expected.feed(&bytes(&frame(&screen, 0, 195, 62)));
+        assert_eq!(viewer.export_ansi(62), expected.export_ansi(62));
+    }
+
+    #[test]
     fn slow_viewers_skip_stale_animation_and_small_viewports_do_not_scroll() {
         let mut screen = Screen::default();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 50));
@@ -417,11 +454,63 @@ mod tests {
             screen.publish(&buffer, None);
         }
         let latest = frame(&screen, after, 12, 6);
-        assert_eq!(latest["reset"], true);
+        assert_eq!(latest["reset"], false);
         let mut viewer = Emulator::new(GridSize { cols: 12, rows: 8 }, 10);
         viewer.feed(&bytes(&latest));
         assert!(viewer.screen().live_text()[0].contains("frame 39"));
         assert!(viewer.screen().live_text()[7].is_empty());
+    }
+
+    #[tokio::test]
+    async fn waiting_frames_wake_on_output_without_waiting_for_the_poll_deadline() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().to_string_lossy().into_owned();
+        let host = Host::start(directory.path(), &session).unwrap();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 195, 62));
+        host.publish(&buffer, None);
+        let after = host.shared.screen.lock().unwrap().sequence;
+        let mut call =
+            Call::new("mirror_frame", json!({"session":session,"after":after,"wait_ms":1000,"cols":195,"rows":62}));
+        call.origin = Some("paired".into());
+        let waiting = host.shared.call(call);
+        tokio::pin!(waiting);
+        assert!(futures::poll!(&mut waiting).is_pending());
+        buffer.set_string(1, 1, "immediate output", Style::default());
+        host.publish(&buffer, None);
+        let reply = match futures::poll!(&mut waiting) {
+            std::task::Poll::Ready(reply) => reply,
+            std::task::Poll::Pending => panic!("published output must wake a waiting frame immediately"),
+        };
+        assert!(reply.ok, "{}", reply.text);
+        let value: serde_json::Value = serde_json::from_str(&reply.text).unwrap();
+        assert!(value["sequence"].as_u64().unwrap() > after);
+        assert!(!bytes(&value).is_empty());
+    }
+
+    #[test]
+    fn accumulated_wide_character_updates_preserve_the_same_screen_as_a_full_frame() {
+        let mut screen = Screen::default();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 12));
+        buffer.set_style(buffer.area, Style::default().fg(Color::White).bg(Color::Blue));
+        screen.publish(&buffer, None);
+        let first = frame(&screen, 0, 80, 12);
+        let mut viewer = Emulator::new(GridSize { cols: 80, rows: 12 }, 10);
+        viewer.feed(&bytes(&first));
+        let mut after = first["sequence"].as_u64().unwrap();
+        for texts in [["a界b", "abc", "a🙂b"], ["a界b", "a  b", "xy"], ["🙂ab", "a界", "abc界"]] {
+            for text in texts {
+                buffer.set_string(2, 2, " ".repeat(20), Style::default().bg(Color::Blue));
+                buffer.set_string(2, 2, text, Style::default().fg(Color::Yellow).bg(Color::Blue));
+                screen.publish(&buffer, None);
+            }
+            let update = frame(&screen, after, 80, 12);
+            assert_eq!(update["reset"], false);
+            viewer.feed(&bytes(&update));
+            let mut expected = Emulator::new(GridSize { cols: 80, rows: 12 }, 10);
+            expected.feed(&bytes(&frame(&screen, 0, 80, 12)));
+            assert_eq!(viewer.export_ansi(12), expected.export_ansi(12));
+            after = update["sequence"].as_u64().unwrap();
+        }
     }
 
     #[tokio::test]

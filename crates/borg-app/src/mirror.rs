@@ -24,6 +24,23 @@ use crate::{agent::Call, link, session::StateDir};
 
 const KEEPALIVE: Duration = Duration::from_secs(20);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn timeout_message(timeout: Duration, step: &str) -> String {
+    borg_i18n::tr!(remote_mirror_step_timeout, seconds = timeout.as_secs(), step = step)
+}
+
+async fn connect_step<T>(
+    current: &mut &'static str,
+    step: &'static str,
+    work: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    *current = step;
+    tokio::time::timeout(CONNECT_TIMEOUT, work)
+        .await
+        .with_context(|| timeout_message(CONNECT_TIMEOUT, step))?
+        .with_context(|| borg_i18n::tr!(remote_mirror_step, step = step))
+}
 
 fn keepalive_timer() -> tokio::time::Interval {
     let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + KEEPALIVE, KEEPALIVE);
@@ -60,10 +77,9 @@ fn take_requested(key: &KeyEvent) -> bool {
     control_key(key, 't', '\u{14}')
 }
 
-async fn banner(output: &mut tokio::io::Stdout, controlling: bool) -> Result<()> {
-    let (cols, rows) = crossterm::terminal::size()?;
+fn banner(output: &mut Vec<u8>, (cols, rows): (u16, u16), controlling: bool) {
     if cols == 0 || rows == 0 {
-        return Ok(());
+        return;
     }
     let status = if controlling {
         "REMOTE MIRROR - CONTROL: keys/mouse go to host; a key wakes its screensaver."
@@ -75,13 +91,41 @@ async fn banner(output: &mut tokio::io::Stdout, controlling: bool) -> Result<()>
         let clipped: String = message.chars().take(cols as usize).collect();
         format!("\x1b[{row};1H\x1b[0m\x1b[7m\x1b[2K{clipped}")
     };
-    output.write_all(b"\x1b7").await?;
+    output.extend_from_slice(b"\x1b7");
     if rows > 1 {
-        output.write_all(write_line(rows - 1, status).as_bytes()).await?;
+        output.extend_from_slice(write_line(rows - 1, status).as_bytes());
     }
-    output.write_all(write_line(rows, exit).as_bytes()).await?;
-    output.write_all(b"\x1b[0m\x1b8").await?;
-    Ok(())
+    output.extend_from_slice(write_line(rows, exit).as_bytes());
+    output.extend_from_slice(b"\x1b[0m\x1b8");
+}
+
+#[derive(Default)]
+struct Paint {
+    banner: Option<((u16, u16), bool)>,
+}
+
+impl Paint {
+    fn frame(&mut self, bytes: &[u8], reset: bool, size: (u16, u16), controlling: bool, native: bool) -> Vec<u8> {
+        let mut output = Vec::with_capacity(bytes.len());
+        if reset {
+            output.extend_from_slice(b"\x1b[?2026h");
+            if !native || self.banner.is_none() {
+                output.extend_from_slice(b"\x1b[?1049h");
+            }
+            if !native {
+                output.extend_from_slice(b"\x1b[2J\x1b[H");
+            }
+        }
+        output.extend_from_slice(bytes);
+        if reset || !native || self.banner != Some((size, controlling)) {
+            banner(&mut output, size, controlling);
+            self.banner = Some((size, controlling));
+        }
+        if reset {
+            output.extend_from_slice(b"\x1b[?2026l");
+        }
+        output
+    }
 }
 
 async fn frames(
@@ -95,6 +139,7 @@ async fn frames(
     let mut after = 0_u64;
     let mut output = tokio::io::stdout();
     let mut previous_size = None;
+    let mut paint = Paint::default();
     loop {
         let size = crossterm::terminal::size()?;
         if native && previous_size != Some(size) {
@@ -117,14 +162,11 @@ async fn frames(
             mode.store(bits, Ordering::Relaxed);
         }
         let bytes = base64::engine::general_purpose::STANDARD.decode(frame["data"].as_str().unwrap_or_default())?;
-        if frame["reset"] == true {
-            output.write_all(b"\x1b[?1049h\x1b[2J\x1b[H").await?;
+        let painted = paint.frame(&bytes, frame["reset"] == true, size, controlling.load(Ordering::Relaxed), native);
+        if !painted.is_empty() {
+            output.write_all(&painted).await?;
+            output.flush().await?;
         }
-        if !bytes.is_empty() {
-            output.write_all(&bytes).await?;
-        }
-        banner(&mut output, controlling.load(Ordering::Relaxed)).await?;
-        output.flush().await?;
         after = frame["sequence"].as_u64().context("mirror frame has no sequence")?;
         if bytes.is_empty() && frame["long_poll"] != true {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -182,7 +224,6 @@ async fn send_inputs(
             MirrorInput::Bytes(bytes) => (bytes, Vec::new()),
             MirrorInput::Event(event) => (Vec::new(), vec![event]),
         };
-        tokio::time::sleep(Duration::from_millis(2)).await;
         let mut weight = bytes.len() + serde_json::to_vec(&events)?.len();
         while weight < 128 * 1024 && events.len() < 128 {
             let Ok(next) = incoming.try_recv() else {
@@ -288,20 +329,33 @@ pub struct Connection {
 }
 
 pub async fn connect(target: &str, force: bool) -> Result<Connection> {
-    tokio::time::timeout(CONNECT_TIMEOUT, connect_inner(target, force))
+    let mut step = borg_i18n::tr!(remote_mirror_opening);
+    tokio::time::timeout(STARTUP_TIMEOUT, connect_inner(target, force, &mut step))
         .await
-        .with_context(|| borg_i18n::tr!(remote_mirror_timeout, seconds = CONNECT_TIMEOUT.as_secs()))?
+        .with_context(|| timeout_message(STARTUP_TIMEOUT, step))?
 }
 
-async fn connect_inner(target: &str, force: bool) -> Result<Connection> {
+async fn connect_inner(target: &str, force: bool, step: &mut &'static str) -> Result<Connection> {
     let (machine, name) = target
         .split_once(':')
         .filter(|(machine, name)| !machine.is_empty() && !name.is_empty())
         .context("usage: borg mirror SERVER:SESSION [--take]")?;
     let state = StateDir::locate().context("set HOME or BORG_STATE_DIR")?;
     let server = link::server(state.path(), machine)?;
-    let mut control = link::Remote::open(state.path(), &server).await?;
-    let catalog = checked(control.call(&Call::new("list_sessions", json!({}))).await?)?;
+    let (mut control, mut stream, input_remote) = connect_step(step, borg_i18n::tr!(remote_mirror_opening), async {
+        tokio::try_join!(
+            link::Remote::open(state.path(), &server),
+            link::Remote::open(state.path(), &server),
+            link::Remote::open(state.path(), &server)
+        )
+    })
+    .await?;
+    let catalog = checked(
+        connect_step(step, borg_i18n::tr!(remote_mirror_sessions), async {
+            control.call(&Call::new("list_sessions", json!({}))).await
+        })
+        .await?,
+    )?;
     let session = catalog
         .lines()
         .find_map(|line| {
@@ -309,7 +363,16 @@ async fn connect_inner(target: &str, force: bool) -> Result<Connection> {
             (id == name || label.trim() == name).then(|| id.to_owned())
         })
         .with_context(|| format!("no session named {name} on {machine}"))?;
-    let view = control.call(&Call::new("mirror_view", json!({"session":session}))).await?;
+    let (cols, rows) = crossterm::terminal::size()?;
+    let (view, initial) = connect_step(step, borg_i18n::tr!(remote_mirror_screen), async {
+        let view = Call::new("mirror_view", json!({"session":session}));
+        let frame = Call::new(
+            "mirror_frame",
+            json!({"session":session,"after":0,"wait_ms":0,"cols":cols,"rows":rows.saturating_sub(2).max(1)}),
+        );
+        tokio::try_join!(control.call(&view), stream.call(&frame))
+    })
+    .await?;
     if !view.ok && view.text.contains("unknown tool") {
         bail!(
             "The running Borg on {machine} cannot mirror regular sessions. Update and restart both host and client with regular-session mirror support. {}",
@@ -318,27 +381,20 @@ async fn connect_inner(target: &str, force: bool) -> Result<Connection> {
     }
     let view = checked(view)?;
     let native = serde_json::from_str::<Value>(&view).ok().is_some_and(|value| value["native_input"] == true);
-    let take = control.call(&Call::new("mirror_take", json!({ "session": session, "force": force }))).await?;
+    let mut initial: Value = serde_json::from_str(&checked(initial)?).context("Unreadable mirror frame")?;
+    let frame = initial.as_object_mut().context("Mirror frame is not an object")?;
+    let take = connect_step(step, borg_i18n::tr!(remote_mirror_control), async {
+        control.call(&Call::new("mirror_take", json!({ "session": session, "force": force }))).await
+    })
+    .await?;
     let controlling = Arc::new(AtomicBool::new(take.ok));
     if !controlling.load(Ordering::Relaxed)
         && (force || !take.text.to_ascii_lowercase().contains("another viewer controls"))
     {
         bail!("{}", take.text);
     }
-    let mut stream = link::Remote::open(state.path(), &server).await?;
-    let input_remote = link::Remote::open(state.path(), &server).await?;
-    let (cols, rows) = crossterm::terminal::size()?;
-    let initial = checked(
-        stream
-            .call(&Call::new(
-                "mirror_frame",
-                json!({
-                    "session": session, "after": 0, "wait_ms": 0, "cols": cols, "rows": rows.saturating_sub(2).max(1)
-                }),
-            ))
-            .await?,
-    )?;
-    Ok(Connection { control, stream, input_remote, session, native, controlling, initial })
+    frame.insert("controller".into(), Value::Bool(take.ok));
+    Ok(Connection { control, stream, input_remote, session, native, controlling, initial: initial.to_string() })
 }
 
 pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> {
@@ -442,7 +498,36 @@ pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> 
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{exit_requested, take_requested};
+    use super::{Paint, exit_requested, take_requested};
+
+    #[test]
+    fn native_updates_keep_the_exit_banner_without_repainting_it_on_every_frame() {
+        let mut paint = Paint::default();
+        let first = paint.frame(b"\x1b[?2026h\x1b[2Jhost\x1b[?2026l", true, (120, 40), true, true);
+        assert!(String::from_utf8_lossy(&first).contains("EXIT MIRROR"));
+        let mut viewer = borg_term::Emulator::new(borg_term::GridSize { cols: 120, rows: 40 }, 0);
+        viewer.feed(&first);
+        let update = b"\x1b[2;2Hnext";
+        let painted = paint.frame(update, false, (120, 40), true, true);
+        assert_eq!(painted, update);
+        viewer.feed(&painted);
+        assert!(viewer.screen().live_text()[39].starts_with("EXIT MIRROR"));
+        assert!(paint.frame(b"", false, (120, 40), true, true).is_empty());
+        let changed = paint.frame(b"", false, (120, 40), false, true);
+        assert!(String::from_utf8_lossy(&changed).contains("VIEW ONLY"));
+        assert!(String::from_utf8_lossy(&paint.frame(b"", false, (100, 30), false, true)).contains("EXIT MIRROR"));
+        let reset = paint.frame(b"\x1b[?2026h\x1b[2J\x1b[?2026l", true, (100, 30), false, true);
+        assert!(String::from_utf8_lossy(&reset).contains("EXIT MIRROR"));
+        assert!(!reset.windows(8).any(|bytes| bytes == b"\x1b[?1049h"));
+    }
+
+    #[test]
+    fn pty_updates_restore_the_banner_because_the_host_can_paint_over_it() {
+        let mut paint = Paint::default();
+        paint.frame(b"host", true, (120, 40), true, false);
+        let update = paint.frame(b"\x1b[2Jhost", false, (120, 40), true, false);
+        assert!(String::from_utf8_lossy(&update).contains("EXIT MIRROR"));
+    }
 
     #[test]
     fn documented_control_keys_exit_or_take_the_mirror() {
