@@ -1,0 +1,272 @@
+{
+  "locales": {
+    "zh-CN": {
+      "source": "d15d526fce670f4182e411e518b29fc0fb08b06a98830edb9c2563c3f71d32df",
+      "protected": {
+        "code blocks": "5849f146198c3a399616af86cb0ff7f868ef7bc0028a9dbbfe5f82542f7cd382",
+        "inline code": "82e5a3a97143ca4e26c4f91384ca4252d3b8c455054ed74324f1b0d6828de675",
+        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
+        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+      },
+      "headings": [
+        {
+          "level": 2,
+          "title": "Install"
+        },
+        {
+          "level": 2,
+          "title": "Themes and icons"
+        },
+        {
+          "level": 2,
+          "title": "Collections and recursive search"
+        },
+        {
+          "level": 2,
+          "title": "Keys"
+        },
+        {
+          "level": 2,
+          "title": "Mouse and console"
+        },
+        {
+          "level": 2,
+          "title": "Git plugin"
+        },
+        {
+          "level": 2,
+          "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Claude and other agents (MCP)"
+        },
+        {
+          "level": 3,
+          "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Running a relay"
+        },
+        {
+          "level": 2,
+          "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 2,
+          "title": "Configuration"
+        },
+        {
+          "level": 2,
+          "title": "A small distraction"
+        },
+        {
+          "level": 2,
+          "title": "Activity and memory"
+        }
+      ]
+    },
+    "pt": {
+      "source": "d15d526fce670f4182e411e518b29fc0fb08b06a98830edb9c2563c3f71d32df",
+      "protected": {
+        "code blocks": "5849f146198c3a399616af86cb0ff7f868ef7bc0028a9dbbfe5f82542f7cd382",
+        "inline code": "82e5a3a97143ca4e26c4f91384ca4252d3b8c455054ed74324f1b0d6828de675",
+        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
+        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+      },
+      "headings": [
+        {
+          "level": 2,
+          "title": "Install"
+        },
+        {
+          "level": 2,
+          "title": "Themes and icons"
+        },
+        {
+          "level": 2,
+          "title": "Collections and recursive search"
+        },
+        {
+          "level": 2,
+          "title": "Keys"
+        },
+        {
+          "level": 2,
+          "title": "Mouse and console"
+        },
+        {
+          "level": 2,
+          "title": "Git plugin"
+        },
+        {
+          "level": 2,
+          "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Claude and other agents (MCP)"
+        },
+        {
+          "level": 3,
+          "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Running a relay"
+        },
+        {
+          "level": 2,
+          "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 2,
+          "title": "Configuration"
+        },
+        {
+          "level": 2,
+          "title": "A small distraction"
+        },
+        {
+          "level": 2,
+          "title": "Activity and memory"
+        }
+      ]
+    },
+    "es": {
+      "source": "d15d526fce670f4182e411e518b29fc0fb08b06a98830edb9c2563c3f71d32df",
+      "protected": {
+        "code blocks": "5849f146198c3a399616af86cb0ff7f868ef7bc0028a9dbbfe5f82542f7cd382",
+        "inline code": "82e5a3a97143ca4e26c4f91384ca4252d3b8c455054ed74324f1b0d6828de675",
+        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
+        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+      },
+      "headings": [
+        {
+          "level": 2,
+          "title": "Install"
+        },
+        {
+          "level": 2,
+          "title": "Themes and icons"
+        },
+        {
+          "level": 2,
+          "title": "Collections and recursive search"
+        },
+        {
+          "level": 2,
+          "title": "Keys"
+        },
+        {
+          "level": 2,
+          "title": "Mouse and console"
+        },
+        {
+          "level": 2,
+          "title": "Git plugin"
+        },
+        {
+          "level": 2,
+          "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Claude and other agents (MCP)"
+        },
+        {
+          "level": 3,
+          "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Running a relay"
+        },
+        {
+          "level": 2,
+          "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 2,
+          "title": "Configuration"
+        },
+        {
+          "level": 2,
+          "title": "A small distraction"
+        },
+        {
+          "level": 2,
+          "title": "Activity and memory"
+        }
+      ]
+    },
+    "ru": {
+      "source": "d15d526fce670f4182e411e518b29fc0fb08b06a98830edb9c2563c3f71d32df",
+      "protected": {
+        "code blocks": "5849f146198c3a399616af86cb0ff7f868ef7bc0028a9dbbfe5f82542f7cd382",
+        "inline code": "82e5a3a97143ca4e26c4f91384ca4252d3b8c455054ed74324f1b0d6828de675",
+        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
+        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+      },
+      "headings": [
+        {
+          "level": 2,
+          "title": "Install"
+        },
+        {
+          "level": 2,
+          "title": "Themes and icons"
+        },
+        {
+          "level": 2,
+          "title": "Collections and recursive search"
+        },
+        {
+          "level": 2,
+          "title": "Keys"
+        },
+        {
+          "level": 2,
+          "title": "Mouse and console"
+        },
+        {
+          "level": 2,
+          "title": "Git plugin"
+        },
+        {
+          "level": 2,
+          "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Claude and other agents (MCP)"
+        },
+        {
+          "level": 3,
+          "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Running a relay"
+        },
+        {
+          "level": 2,
+          "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 2,
+          "title": "Configuration"
+        },
+        {
+          "level": 2,
+          "title": "A small distraction"
+        },
+        {
+          "level": 2,
+          "title": "Activity and memory"
+        }
+      ]
+    }
+  }
+}

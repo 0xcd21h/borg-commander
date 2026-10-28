@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { codes, dictionary } from '../locales/index.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const base = '/borg-commander/';
@@ -34,7 +35,16 @@ for (const path of htmlFiles) {
     }
   }
 }
-if (htmlFiles.length !== 12) failures.push(`Expected 12 HTML pages including 404; found ${htmlFiles.length}`);
+if (htmlFiles.length !== 12 * codes.length) failures.push(`Expected ${12 * codes.length} HTML pages including 404; found ${htmlFiles.length}`);
+const englishKeys = Object.keys(dictionary('en')).sort();
+for (const code of codes) {
+  const messages = dictionary(code);
+  if (JSON.stringify(Object.keys(messages).sort()) !== JSON.stringify(englishKeys)) failures.push(`${code}: website message keys differ`);
+  if (Object.values(messages).some(value => typeof value !== 'string' || !value.trim())) failures.push(`${code}: empty website message`);
+  const homepage = join(root, code === 'en' ? '' : code, 'index.html');
+  const content = await readFile(homepage, 'utf8');
+  if (!content.includes('starlight-lang-select')) failures.push(`${code}: language switcher is missing`);
+}
 await stat(join(root, 'pagefind/pagefind.js'));
 if (failures.length) throw new Error(failures.join('\n'));
 console.log(`Checked metadata, local links, fragments, and assets on ${htmlFiles.length} pages; search index exists.`);

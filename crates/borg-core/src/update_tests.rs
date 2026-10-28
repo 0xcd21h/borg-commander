@@ -2588,3 +2588,20 @@ fn panel_copy_captures_remote_endpoints_and_keeps_destination_relative_paths_rem
         }
     }
 }
+
+#[test]
+fn language_picker_saves_only_on_accept_and_menus_follow_state() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::PickLanguage, now);
+    press(&mut state, now, key(KeyCode::Down));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert_eq!(state.settings.preferences.language, borg_i18n::Locale::English);
+    crate::actions::perform(&mut state, Action::PickLanguage, now);
+    press(&mut state, now, key(KeyCode::End));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(effects, vec![Effect::SetLanguage(borg_i18n::Locale::Russian), Effect::SaveConfig]);
+    assert_eq!(state.settings.preferences.language, borg_i18n::Locale::Russian);
+    assert!(state.overlay.is_none());
+    assert_eq!(menus(&state)[4].title, "Параметры");
+    assert_eq!(borg_i18n::locale(), borg_i18n::Locale::English);
+}

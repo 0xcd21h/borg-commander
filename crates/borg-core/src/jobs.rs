@@ -6,19 +6,19 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{AppState, Effect, Overlay, Side};
 
-const CONFLICT_CHOICES: [(Decision, char, &str); 6] = [
-    (Decision::Overwrite, 'o', tr!(overwrite)),
-    (Decision::Skip, 's', tr!(skip)),
-    (Decision::KeepBoth, 'k', tr!(keep_both)),
-    (Decision::OverwriteAll, 'a', tr!(overwrite_all)),
-    (Decision::SkipAll, 'n', tr!(skip_all)),
-    (Decision::Cancel, 'c', tr!(cancel)),
+const CONFLICT_CHOICES: [(Decision, char, borg_i18n::Message); 6] = [
+    (Decision::Overwrite, 'o', tr!(@ overwrite)),
+    (Decision::Skip, 's', tr!(@ skip)),
+    (Decision::KeepBoth, 'k', tr!(@ keep_both)),
+    (Decision::OverwriteAll, 'a', tr!(@ overwrite_all)),
+    (Decision::SkipAll, 'n', tr!(@ skip_all)),
+    (Decision::Cancel, 'c', tr!(@ cancel)),
 ];
-const FAILURE_CHOICES: [(Decision, char, &str); 4] = [
-    (Decision::Retry, 'r', tr!(retry)),
-    (Decision::Skip, 's', tr!(skip)),
-    (Decision::SkipAll, 'a', tr!(skip_all)),
-    (Decision::Cancel, 'c', tr!(cancel)),
+const FAILURE_CHOICES: [(Decision, char, borg_i18n::Message); 4] = [
+    (Decision::Retry, 'r', tr!(@ retry)),
+    (Decision::Skip, 's', tr!(@ skip)),
+    (Decision::SkipAll, 'a', tr!(@ skip_all)),
+    (Decision::Cancel, 'c', tr!(@ cancel)),
 ];
 const PAUSE_KEY: char = 'p';
 const CANCEL_KEY: char = 'c';
@@ -79,7 +79,7 @@ impl Job {
         Some((done / all).clamp(0.0, 1.0) as f32)
     }
 
-    pub fn choices(&self) -> &'static [(Decision, char, &'static str)] {
+    pub fn choices(&self) -> &'static [(Decision, char, borg_i18n::Message)] {
         match self.state {
             JobState::Asking(Ask::Failure { .. }) => &FAILURE_CHOICES,
             JobState::Asking(Ask::Conflict { .. }) | JobState::Scanning(_) | JobState::Running(_) => &CONFLICT_CHOICES,
@@ -160,17 +160,17 @@ fn finish(state: &mut AppState, index: usize, outcome: Outcome) -> Vec<Effect> {
             if skipped == 0 {
                 state.panel_mut(job.origin).clear_marks();
             }
-            let skipped = if skipped > 0 { format!(tr!(skipped), skipped = skipped) } else { String::new() };
+            let skipped = if skipped > 0 { tr!(skipped, skipped = skipped) } else { String::new() };
             format!("{} {}{skipped}", job.kind.done(), summary(done))
         }
-        Outcome::Cancelled { done } => format!(tr!(cancelled_after), job.kind.doing(), summary(done)),
-        Outcome::Failed(message) => format!(tr!(job_failed), job.kind.doing(), message = message),
+        Outcome::Cancelled { done } => tr!(cancelled_after, job.kind.doing(), summary(done)),
+        Outcome::Failed(message) => tr!(job_failed, job.kind.doing(), message = message),
     });
     state.reload_all()
 }
 
 fn summary(totals: Totals) -> String {
-    if totals.files == 1 { tr!(jobs_1_file).to_owned() } else { format!(tr!(files), totals.files) }
+    if totals.files == 1 { tr!(jobs_1_file).to_owned() } else { tr!(files, totals.files) }
 }
 
 pub(crate) fn surface_questions(state: &mut AppState) {

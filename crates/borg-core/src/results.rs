@@ -11,7 +11,6 @@ use crate::{Action, AppState, Effect, LineInput, Overlay, Panel, Prompt, PromptP
 pub const RESULT_LIMIT: usize = 20_000;
 pub const COLLECTION_LIMIT: usize = 64;
 const COLLECTION_NAME_LIMIT: usize = 80;
-const DEFAULT_COLLECTION: &str = tr!(collection);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ResultGroup {
@@ -106,13 +105,13 @@ impl Results {
     pub fn title(&self) -> String {
         match &self.source {
             ResultSource::Search { request, .. } if self.tree.is_some() => {
-                format!(tr!(folder_tree_title), root = request.root.display())
+                tr!(folder_tree_title, root = request.root.display())
             }
-            ResultSource::Collection(name) => format!(tr!(collection_title), name = name),
+            ResultSource::Collection(name) => tr!(collection_title, name = name),
             ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::FolderTotals => {
-                format!(tr!(folder_sizes), request.query)
+                tr!(folder_sizes, request.query)
             }
-            ResultSource::Search { request, .. } => format!(tr!(search_title), request.query),
+            ResultSource::Search { request, .. } => tr!(search_title, request.query),
         }
     }
 
@@ -231,7 +230,7 @@ impl Results {
                 && usage.direct_files > 0
             {
                 self.rows.push(ResultRow::Group {
-                    label: format!(tr!(tree_direct_files), bytes = usage.direct_bytes),
+                    label: tr!(tree_direct_files, bytes = usage.direct_bytes),
                     count: usage.direct_files as usize,
                 });
             }
@@ -324,7 +323,7 @@ pub(crate) fn collect(state: &mut AppState) -> Vec<Effect> {
     }
     let name = match state.panel(side).results.as_ref().map(|r| &r.source) {
         Some(ResultSource::Collection(name)) => name.clone(),
-        _ => DEFAULT_COLLECTION.into(),
+        _ => tr!(collection).into(),
     };
     let existing: HashSet<_> = state
         .collections
@@ -337,7 +336,7 @@ pub(crate) fn collect(state: &mut AppState) -> Vec<Effect> {
     let added: HashSet<_> =
         entries.iter().map(|entry| entry.identity()).filter(|path| !existing.contains(path)).collect();
     if existing.len().saturating_add(added.len()) > RESULT_LIMIT {
-        state.notice = Some(format!(tr!(a_collection_holds_up_to_references), RESULT_LIMIT = RESULT_LIMIT));
+        state.notice = Some(tr!(a_collection_holds_up_to_references, RESULT_LIMIT = RESULT_LIMIT));
         return Vec::new();
     }
     let mut effects = if matches!(state.panel(side).results.as_ref().map(|r| &r.source), Some(ResultSource::Collection(current)) if *current == name)
@@ -358,7 +357,7 @@ pub(crate) fn collect(state: &mut AppState) -> Vec<Effect> {
     if let Some(other) = save_current(state, side) {
         effects.push(Effect::CancelSearch(other));
     }
-    state.notice = Some(format!(tr!(collected_in_tab_opens_the_other_panel), name = name));
+    state.notice = Some(tr!(collected_in_tab_opens_the_other_panel, name = name));
     effects.push(Effect::SaveCollections);
     effects
 }
@@ -424,7 +423,7 @@ pub(crate) fn reveal(state: &mut AppState) -> Vec<Effect> {
 pub(crate) fn open_collection_prompt(state: &mut AppState) -> Vec<Effect> {
     state.overlay = Some(Overlay::Collections(crate::CollectionPicker {
         selected: 0,
-        creating: state.collections.is_empty().then(|| LineInput::new(DEFAULT_COLLECTION)),
+        creating: state.collections.is_empty().then(|| LineInput::new(tr!(collection))),
     }));
     Vec::new()
 }

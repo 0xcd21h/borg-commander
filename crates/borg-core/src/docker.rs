@@ -479,7 +479,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
     if let Some(index) = docker.working.iter().position(|w| w.id == id) {
         let work = docker.working.remove(index);
         if let Err(error) = result {
-            state.notice = Some(format!(tr!(docker_action_failed), error = error));
+            state.notice = Some(tr!(docker_action_failed, error = error));
         } else if work.action == Action::Stop || work.action == Action::Restart || work.action == Action::Start {
             docker.inspect_due = Some(now);
         }
@@ -527,14 +527,14 @@ fn finish_files(state: &mut AppState, work: FileWork, result: Result<DockerData,
     match (result, work.op) {
         (Ok(DockerData::Fetched(path)), _) => crate::viewer::open(state, path),
         (Err(error), FileOp::Fetch { .. }) => {
-            state.notice = Some(format!(tr!(docker_action_failed), error = error));
+            state.notice = Some(tr!(docker_action_failed, error = error));
             Vec::new()
         }
         (result, op) => {
             let count = |paths: &[PathBuf]| borg_i18n::count(paths.len(), borg_i18n::Count::Item);
             state.notice = Some(match (result, op) {
-                (Err(error), _) => format!(tr!(docker_action_failed), error = error),
-                (Ok(_), FileOp::Delete { paths }) => format!(tr!(docker_deleted), items = count(&paths)),
+                (Err(error), _) => tr!(docker_action_failed, error = error),
+                (Ok(_), FileOp::Delete { paths }) => tr!(docker_deleted, items = count(&paths)),
                 (Ok(_), FileOp::Mkdir { .. } | FileOp::Fetch { .. }) => String::new(),
             })
             .filter(|notice| !notice.is_empty());
@@ -724,7 +724,7 @@ pub(crate) fn shell_closed(state: &mut AppState, container: &str, now: Instant) 
             state.docker.failed_console = Some(container.to_owned());
         }
     }
-    state.notice = Some(format!(tr!(docker_shell_closed), name = shell.name));
+    state.notice = Some(tr!(docker_shell_closed, name = shell.name));
 }
 
 /// Opens the Docker view on a container's Shell tab, opening its shell if it has none, so the
@@ -918,10 +918,10 @@ pub(crate) fn act(state: &mut AppState, action: Action) -> Vec<Effect> {
     if matches!(action, Action::Stop | Action::Restart) {
         let what = subject(docker);
         let message = match (action, ids.len()) {
-            (Action::Stop, 1) => format!(tr!(docker_confirm_stop_one), name = what),
-            (Action::Stop, count) => format!(tr!(docker_confirm_stop_many), name = what, count = count),
-            (_, 1) => format!(tr!(docker_confirm_restart_one), name = what),
-            (_, count) => format!(tr!(docker_confirm_restart_many), name = what, count = count),
+            (Action::Stop, 1) => tr!(docker_confirm_stop_one, name = what),
+            (Action::Stop, count) => tr!(docker_confirm_stop_many, name = what, count = count),
+            (_, 1) => tr!(docker_confirm_restart_one, name = what),
+            (_, count) => tr!(docker_confirm_restart_many, name = what, count = count),
         };
         state.overlay = Some(Overlay::Confirm(Confirm {
             title: if action == Action::Stop { tr!(docker_stop_title) } else { tr!(docker_restart_title) },

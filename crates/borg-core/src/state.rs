@@ -242,6 +242,7 @@ pub enum Overlay {
     Question(Question),
     Jobs(JobList),
     Themes(Picker),
+    Languages(Picker),
     Settings {
         selected: usize,
     },

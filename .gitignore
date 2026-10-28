@@ -13,3 +13,7 @@ __pycache__/
 /website/src/generated/
 /website/public/screenshots/
 /website/src/content/docs/guide/
+/website/src/content/docs/zh-cn/
+/website/src/content/docs/pt/
+/website/src/content/docs/es/
+/website/src/content/docs/ru/

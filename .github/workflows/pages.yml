@@ -6,6 +6,7 @@ on:
     paths:
       - 'website/**'
       - 'docs/GUIDE.md'
+      - 'docs/translations/**'
       - 'docs/themes/**'
       - 'docs/showcase/**'
       - 'Cargo.toml'

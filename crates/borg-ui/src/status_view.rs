@@ -19,7 +19,6 @@ const PERMISSION_BITS: [(u32, char); 9] = [
 ];
 const UNSET: char = '-';
 const FULL_DATE: &str = "%Y-%m-%d %H:%M";
-const PARENT_TEXT: &str = tr!(up_to_the_parent_directory);
 
 pub fn draw_status(panel: &Panel, area: Rect, styles: &Styles<Style>, clock: &Zoned, buf: &mut Buffer) {
     buf.set_style(area, styles.status);
@@ -34,7 +33,7 @@ pub fn draw_status(panel: &Panel, area: Rect, styles: &Styles<Style>, clock: &Zo
     let text = match (panel.marked_count(), panel.hovered()) {
         (0, Some(Row::Entry(entry))) => describe(entry, clock),
         (0, Some(Row::Group { .. })) => String::new(),
-        (0, Some(Row::Parent)) => PARENT_TEXT.to_owned(),
+        (0, Some(Row::Parent)) => tr!(up_to_the_parent_directory).to_owned(),
         (0, None) => String::new(),
         (marked, _) => {
             let (dirs, files): (Vec<&Entry>, Vec<&Entry>) = panel.marked().partition(|e| e.is_dir());
@@ -63,7 +62,7 @@ fn describe(entry: &Entry, clock: &Zoned) -> String {
         .unwrap_or_default();
     let cached = entry.usage.as_ref().filter(|u| u.measured.is_some()).map_or_else(String::new, |u| {
         let time = format::modified(u.measured, clock);
-        format!(tr!(sizes_cached_status), time = time)
+        tr!(sizes_cached_status, time = time)
     });
     format!("{}  {size:>6}  {modified}  {}{cached}", permissions(entry), entry.name)
 }

@@ -70,7 +70,7 @@ impl Launch {
             None => (Config::default(), Vec::new()),
         };
         let defaults = Settings::default();
-        let settings = Settings {
+        let mut settings = Settings {
             motion: motion(),
             truecolor: truecolor(),
             preferences: config.preferences_for_terminal(
@@ -80,6 +80,8 @@ impl Launch {
             screensaver_after: config.screensaver_after().unwrap_or(defaults.screensaver_after),
             ..defaults
         };
+
+        settings.preferences.language = borg_i18n::locale();
 
         let state_dir = StateDir::locate().map(|state| session_id.map_or(state.clone(), |id| state.for_session(id)));
         let session = match state_dir.as_ref().map(StateDir::load_session) {

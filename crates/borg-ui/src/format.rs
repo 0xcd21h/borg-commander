@@ -37,7 +37,7 @@ pub fn modified(time: Option<SystemTime>, now: &Zoned) -> String {
 pub use borg_i18n::{Count, count};
 
 pub fn marked_summary(marked: usize, files: usize, bytes: u64, folders: usize) -> String {
-    let mut parts = vec![format!(tr!(marked_total), marked = marked)];
+    let mut parts = vec![tr!(marked_total, marked = marked)];
     if files > 0 {
         parts.push(format!("{}, {}", count(files, Count::File), size(bytes)));
     }
@@ -49,6 +49,14 @@ pub fn marked_summary(marked: usize, files: usize, bytes: u64, folders: usize) -
 
 pub fn now() -> Zoned {
     Zoned::now().with_time_zone(TimeZone::system())
+}
+
+pub fn pad_end(text: &str, width: usize) -> String {
+    format!("{text}{}", " ".repeat(width.saturating_sub(text.width())))
+}
+
+pub fn pad_start(text: &str, width: usize) -> String {
+    format!("{}{text}", " ".repeat(width.saturating_sub(text.width())))
 }
 
 pub fn truncate_end(text: &str, width: usize) -> String {
@@ -117,6 +125,14 @@ pub fn fit_crumbs(mut crumbs: Vec<String>, width: usize, separator: &str) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn padding_uses_terminal_columns_for_wide_labels() {
+        assert_eq!(pad_end("复制", 6), "复制  ");
+        assert_eq!(pad_start("复制", 6), "  复制");
+        assert_eq!(pad_end("Copiar", 6), "Copiar");
+        assert_eq!(pad_end("Русский", 3), "Русский");
+    }
 
     #[test]
     fn formats_sizes_compactly() {

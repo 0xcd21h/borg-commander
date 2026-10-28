@@ -23,8 +23,6 @@ const KONAMI: [KeyCode; 10] = [
     KeyCode::Char('b'),
     KeyCode::Char('a'),
 ];
-const UNLOCKED_NOTICE: &str = tr!(cube_theme_unlocked_options_theme);
-const FUTILE_NOTICE: &str = tr!(resistance_is_futile);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct About {
@@ -57,11 +55,11 @@ pub(crate) fn on_about_key(state: &mut AppState, mut about: About, key: &KeyEven
     if spelled.ends_with(UNLOCK_WORD) {
         return match state.appearance.unlock() {
             Some(_) => {
-                state.notice = Some(UNLOCKED_NOTICE.to_owned());
+                state.notice = Some(tr!(cube_theme_unlocked_options_theme).to_owned());
                 vec![Effect::SaveConfig]
             }
             None => {
-                state.notice = Some(FUTILE_NOTICE.to_owned());
+                state.notice = Some(tr!(resistance_is_futile).to_owned());
                 Vec::new()
             }
         };

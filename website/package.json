@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "node scripts/generate-docs.mjs",
+    "generate": "node scripts/check-translations.mjs && node scripts/generate-docs.mjs",
     "dev": "npm run generate && astro dev --host 127.0.0.1",
     "build": "npm run generate && astro build && node scripts/check-site.mjs",
     "preview": "astro preview --host 127.0.0.1"
@@ -14,5 +14,7 @@
     "astro": "7.4.2",
     "github-slugger": "2.0.0"
   },
-  "engines": { "node": ">=22.23.4" }
+  "engines": {
+    "node": ">=22.23.4"
+  }
 }

@@ -42,6 +42,7 @@ impl IconStyle {
 pub struct Config {
     pub plugins: Option<Plugins>,
     pub theme: Option<String>,
+    pub language: Option<String>,
     pub status_line: Option<bool>,
     pub menu_bar: Option<bool>,
     #[serde(skip_serializing)]
@@ -118,6 +119,7 @@ impl Config {
             None => base.after_command,
         };
         Preferences {
+            language: self.language.as_deref().and_then(borg_i18n::Locale::parse).unwrap_or(base.language),
             git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             system_plugin: self.plugins.as_ref().map_or(base.system_plugin, |plugins| plugins.system),
             docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
@@ -170,6 +172,7 @@ impl Config {
                 agent_ask_reads: prefs.agent_ask_reads,
             }),
             theme: theme.map(str::to_owned),
+            language: Some(prefs.language.code().to_owned()),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),
             animations: None,
@@ -347,5 +350,25 @@ mod plugin_tests {
         assert!(!restored.preferences().git_plugin);
         assert!(!restored.preferences().status_line);
         assert!(toml::from_str::<Config>("[plugins]\ngti = false\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn saved_language_survives_other_preference_changes() {
+        for language in borg_i18n::Locale::ALL {
+            let source = format!("language = {:?}\n", language.code());
+            let config: Config = toml::from_str(&source).unwrap();
+            let mut prefs = config.preferences();
+            assert_eq!(prefs.language, language);
+            prefs.menu_bar = true;
+            let saved = config.capture(None, &prefs, &[]);
+            let restored: Config = toml::from_str(&toml::to_string(&saved).unwrap()).unwrap();
+            assert_eq!(restored.preferences().language, language);
+            assert!(restored.preferences().menu_bar);
+        }
     }
 }

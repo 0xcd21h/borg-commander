@@ -139,7 +139,7 @@ pub(crate) fn finish(state: &mut AppState, id: u64, result: Result<Option<Viewer
             crate::viewer::resize(state);
         }
         Ok(None) => state.notice = Some(tr!(git_index_updated).into()),
-        Err(error) => state.notice = Some(format!(tr!(git_error), error = error)),
+        Err(error) => state.notice = Some(tr!(git_error, error = error)),
         _ => {}
     }
     if tool.changes_index() { state.reload_all() } else { Vec::new() }

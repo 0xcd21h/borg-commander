@@ -45,12 +45,15 @@ use crate::{app::App, launch::Launch};
 
 const USAGE_ERROR: u8 = 2;
 
-const USAGE: &str = tr!(cli_usage);
-
-const NESTED_MESSAGE: &str = tr!(cli_already_running);
-
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
+    let configured = config::ConfigDir::locate().and_then(|dir| dir.load().ok()).and_then(|config| config.language);
+    let requested = env::var("BORG_LANGUAGE").ok().or(configured);
+    let system = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .filter_map(|name| env::var(name).ok())
+        .find(|value| !value.is_empty());
+    borg_i18n::set_locale(borg_i18n::detect(requested.as_deref(), system.as_deref()));
     let mut requested_session = None;
     let mut requested_remote = None;
     match env::args().nth(1).as_deref() {
@@ -160,25 +163,25 @@ async fn main() -> Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         Some("--help" | "-h") => {
-            println!("{USAGE}");
+            println!("{}", tr!(cli_usage));
             return Ok(ExitCode::SUCCESS);
         }
         Some("update") => {
             return Ok(match tokio::task::spawn_blocking(update::run).await? {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => {
-                    eprintln!(tr!(cli_update_failed), error = error);
+                    eprintln!("{}", tr!(cli_update_failed, error = error));
                     ExitCode::FAILURE
                 }
             });
         }
         Some(other) => {
-            eprintln!(tr!(cli_unknown_argument), other = other, USAGE = USAGE);
+            eprintln!("{}", tr!(cli_unknown_argument, other = other, USAGE = tr!(cli_usage)));
             return Ok(ExitCode::from(USAGE_ERROR));
         }
     }
     if env::var_os(borg_term::SESSION_MARKER).is_some() {
-        eprintln!("{NESTED_MESSAGE}");
+        eprintln!("{}", tr!(cli_already_running));
         return Ok(ExitCode::FAILURE);
     }
 

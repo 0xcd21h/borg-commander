@@ -290,7 +290,7 @@ pub struct Connection {
 pub async fn connect(target: &str, force: bool) -> Result<Connection> {
     tokio::time::timeout(CONNECT_TIMEOUT, connect_inner(target, force))
         .await
-        .with_context(|| format!(borg_i18n::tr!(remote_mirror_timeout), seconds = CONNECT_TIMEOUT.as_secs()))?
+        .with_context(|| borg_i18n::tr!(remote_mirror_timeout, seconds = CONNECT_TIMEOUT.as_secs()))?
 }
 
 async fn connect_inner(target: &str, force: bool) -> Result<Connection> {

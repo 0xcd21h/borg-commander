@@ -131,7 +131,7 @@ impl Monitor {
                 .and_then(|r| r),
                 request => inspect(request, cancelled, Some((id, messages.clone()))).await,
             }
-            .map_err(|error| format!(tr!(activity_cannot_inspect), error = error));
+            .map_err(|error| tr!(activity_cannot_inspect, error = error));
             let _ = messages.send(Msg::Activity { id, result });
         }));
     }
@@ -319,7 +319,7 @@ async fn elevate(request: ActivityRequest) -> Result<ActivityData> {
     };
     let bytes = bounded_output(command, ADMIN_TIMEOUT)
         .await
-        .map_err(|e| anyhow!(tr!(activity_admin_unavailable), error = e))?;
+        .map_err(|e| anyhow!("{}", tr!(activity_admin_unavailable, error = e)))?;
     let result: Result<ActivityData, String> = serde_json::from_slice(&bytes)?;
     result.map_err(anyhow::Error::msg)
 }

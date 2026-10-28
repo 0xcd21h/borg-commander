@@ -7,6 +7,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::{AfterCommand, AppState, Effect, Msg, View, actions, command::CommandLine, keymap, overlays};
 
 pub fn update(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
+    borg_i18n::with_locale(state.settings.preferences.language, || update_localized(state, msg, now))
+}
+
+fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     let before = crate::motion::before(state);
     let overlay = state.overlay.clone();
     let effects = match msg {
@@ -559,9 +563,9 @@ fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
     match exit {
         Some(0) => state.panel_mut(operation.side).clear_marks(),
         Some(code) => {
-            state.notice = Some(format!(tr!(failed_exit_ctrl_o_shows_the_output), operation.label, code = code));
+            state.notice = Some(tr!(failed_exit_ctrl_o_shows_the_output, operation.label, code = code));
         }
-        None => state.notice = Some(format!(tr!(finished_ctrl_o_shows_the_output), operation.label)),
+        None => state.notice = Some(tr!(finished_ctrl_o_shows_the_output, operation.label)),
     }
 
     let side = operation.side;

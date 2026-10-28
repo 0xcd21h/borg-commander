@@ -1,9 +1,14 @@
 ---
 import Footer from '@astrojs/starlight/components/Footer.astro';
 import build from '../generated/build.json';
+import { dictionary } from '../../locales/index.mjs';
+const locale = Astro.locals.starlightRoute.locale ?? 'en';
+const t = dictionary(locale);
 ---
 <Footer />
-<p class="build-note">Guide tracks main · Borg {build.version} · <a href={`https://github.com/0xcd21h/borg-commander/commit/${build.revision}`}>{build.revision}</a><br />Release binaries may differ from this guide. <a href="https://github.com/0xcd21h/borg-commander/releases">Release notes</a></p>
+<p class="build-note">{t.tracksMain} · Borg {build.version} · <a href={`https://github.com/0xcd21h/borg-commander/commit/${build.revision}`}>{build.revision}</a><br />{t.releaseDifference} <a href="https://github.com/0xcd21h/borg-commander/releases">{t.releaseNotes}</a></p>
+{locale !== 'en' && <p class="translation-note">{t.translationNote}</p>}
 <style>
+  .translation-note { font-size: .8rem; color: var(--sl-color-gray-3); }
   .build-note { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--sl-color-hairline-light); font-size: .8rem; color: var(--sl-color-gray-3); line-height: 1.8; }
 </style>

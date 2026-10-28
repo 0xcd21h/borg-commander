@@ -63,6 +63,10 @@ fn when(entry: MenuEntry, enabled: bool) -> MenuEntry {
 }
 
 pub fn menus(state: &AppState) -> Vec<Menu> {
+    borg_i18n::with_locale(state.settings.preferences.language, || localized_menus(state))
+}
+
+fn localized_menus(state: &AppState) -> Vec<Menu> {
     let mut menus = vec![
         panel_menu(tr!(left), state, Side::Left),
         file_menu(state),
@@ -240,6 +244,7 @@ fn options_menu(_state: &AppState) -> Menu {
             item(tr!(theme), "", Action::PickTheme),
             item(tr!(settings), "", Action::Settings),
             item(tr!(plugins), "", Action::Plugins),
+            item(tr!(language), "", Action::PickLanguage),
         ],
     }
 }

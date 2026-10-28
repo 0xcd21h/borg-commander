@@ -13,11 +13,6 @@ use ratatui::{
 
 use crate::{Theme, format};
 
-const WRAP_ON: &str = tr!(wrap);
-const WRAP_OFF: &str = tr!(nowrap);
-const HINTS: &str = tr!(w_wrap_scroll_esc_close);
-const MARKDOWN_HINTS: &str = tr!(s_source_render_w_wrap_esc_close);
-const IMAGE_HINTS: &str = tr!(previous_next_esc_close);
 const PICTURE_LAYER: i32 = 0;
 
 pub fn draw_viewer(viewer: &Viewer, theme: &Theme, pixels: bool, area: Rect, buf: &mut Buffer) -> Vec<Placement> {
@@ -46,9 +41,10 @@ fn draw_image(
     let style = theme.styles.viewer_status;
     let (width, height) = image.original;
     let details = format!(" · {width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes));
-    let room = usize::from(status.width).saturating_sub(details.chars().count() + IMAGE_HINTS.chars().count() + 1);
+    let room = usize::from(status.width)
+        .saturating_sub(details.chars().count() + tr!(previous_next_esc_close).chars().count() + 1);
     Line::styled(format!(" {}{details}", title(path, room)), style).render(status, buf);
-    Line::styled(IMAGE_HINTS, style).right_aligned().render(status, buf);
+    Line::styled(tr!(previous_next_esc_close), style).right_aligned().render(status, buf);
     if pixels {
         return vec![Placement::fitted(image.picture.clone(), body, PICTURE_LAYER)];
     }
@@ -59,16 +55,16 @@ fn draw_image(
 fn draw_text(pager: &Pager, path: &Path, theme: &Theme, body: Rect, status: Rect, buf: &mut Buffer) {
     let styles = &theme.styles;
     crate::document_view::draw(pager, styles.viewer, body, buf);
-    let hints = if pager.markdown() { MARKDOWN_HINTS } else { HINTS };
+    let hints = if pager.markdown() { tr!(s_source_render_w_wrap_esc_close) } else { tr!(w_wrap_scroll_esc_close) };
 
-    let mode = if pager.wrapped() { WRAP_ON } else { WRAP_OFF };
+    let mode = if pager.wrapped() { tr!(wrap) } else { tr!(nowrap) };
     let presentation = if pager.markdown() { if pager.formatted() { tr!(rendered) } else { tr!(source) } } else { "" };
     let position = format!(
         " {}/{} · {}% · {mode}{presentation}{}",
         format::size(pager.offset()),
         format::size(pager.len()),
         pager.percent(),
-        if pager.wrapped() { String::new() } else { format!(tr!(col), pager.column()) },
+        if pager.wrapped() { String::new() } else { tr!(col, pager.column()) },
     );
     let room = usize::from(status.width).saturating_sub(position.len() + hints.len());
     Line::styled(format!(" {}{position}", title(path, room)), styles.viewer_status).render(status, buf);

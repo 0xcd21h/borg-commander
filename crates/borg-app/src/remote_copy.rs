@@ -69,7 +69,7 @@ fn node(path: &Path) -> Result<Option<Node>> {
     } else if meta.is_file() {
         Kind::File
     } else {
-        bail!(tr!(remote_copy_special_file), path = path.display());
+        bail!("{}", tr!(remote_copy_special_file, path = path.display()));
     };
     let modified = meta
         .modified()

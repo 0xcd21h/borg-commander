@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import GithubSlugger from 'github-slugger';
+import { createHash } from 'node:crypto';
+import { codes, dictionary } from '../locales/index.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const site = join(root, 'website');
@@ -23,35 +25,64 @@ const pages = [
   ['themes', 'Themes & icons', 'Choose a theme and configure terminal fonts and file icons.', ['Themes and icons']],
   ['configuration', 'Configuration', 'Find settings, state, and command-line options.', ['Configuration']],
 ];
-const sections = new Map([...source.matchAll(/^## (.+)\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)].map(match => [match[1], match[2].trim()]));
-const anchors = new Map();
-const slugger = new GithubSlugger();
-for (const match of source.matchAll(/^(#{2,6}) (.+)$/gm)) {
-  const anchor = slugger.slug(match[2]);
-  const page = pages.find(([, , , titles]) => titles.includes(match[2]));
-  if (match[1].length === 2) {
-    anchors.set(anchor, page ? `${base}guide/${page[0]}/` : `${repository}/blob/main/docs/GUIDE.md#${anchor}`);
-  } else {
-    const previous = [...source.slice(0, match.index).matchAll(/^## (.+)$/gm)].at(-1)?.[1];
-    const parent = pages.find(([, , , titles]) => titles.includes(previous));
-    anchors.set(anchor, parent ? `${base}guide/${parent[0]}/#${anchor}` : `${repository}/blob/main/docs/GUIDE.md#${anchor}`);
+const headings = text => [...text.matchAll(/^(#{2,6}) (.+)$/gm)];
+const englishHeadings = headings(source);
+const englishSections = [...source.matchAll(/^## (.+)\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)];
+const manifest = JSON.parse(await readFile(join(root, 'docs/translations/manifest.json'), 'utf8'));
+const sourceHash = createHash('sha256').update(source).digest('hex');
+for (const locale of codes) {
+  const t = dictionary(locale);
+  const translated = locale !== 'en';
+  const sourceLocale = locale === 'zh-cn' ? 'zh-CN' : locale;
+  const prefix = translated ? `${base}${locale}/` : base;
+  const guide = translated ? await readFile(join(root, 'docs/translations', sourceLocale, 'GUIDE.md'), 'utf8') : source;
+  const localHeadings = headings(guide);
+  const templateHeadings = translated ? manifest.locales[sourceLocale].headings.map(heading => [null, '#'.repeat(heading.level), heading.title]) : englishHeadings;
+  const sectionNames = translated ? manifest.locales[sourceLocale].headings.filter(heading => heading.level === 2).map(heading => heading.title) : englishSections.map(section => section[1]);
+  if (localHeadings.length !== templateHeadings.length) throw new Error(`${locale}: guide heading structure differs`);
+  const localSections = [...guide.matchAll(/^## (.+)\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)];
+  const sections = new Map(sectionNames.map((heading, index) => [heading, { title: localSections[index][1], body: localSections[index][2].trim() }]));
+  const anchors = new Map();
+  const sourceSlugger = new GithubSlugger();
+  const localSlugger = new GithubSlugger();
+  let parent;
+  for (const [index, heading] of templateHeadings.entries()) {
+    if (heading[1] !== localHeadings[index][1]) throw new Error(`${locale}: heading levels differ`);
+    const anchor = sourceSlugger.slug(heading[2]);
+    const localAnchor = localSlugger.slug(localHeadings[index][2]);
+    if (heading[1].length === 2) parent = pages.find(([, , , titles]) => titles.includes(heading[2]));
+    anchors.set(anchor, parent ? `${prefix}guide/${parent[0]}/${heading[1].length === 2 ? '' : `#${localAnchor}`}` : `${repository}/blob/main/docs/GUIDE.md#${anchor}`);
   }
-}
-const rewrite = text => text
-  .replace(/\]\(#([^\s)]+)\)/g, (_, anchor) => `](${anchors.get(anchor) ?? `${repository}/blob/main/docs/GUIDE.md#${anchor}`})`)
-  .replace(/\]\(\.\.\/README\.md#themes\)/g, `](${base}#themes)`)
-  .replace(/\]\(\.\.\/([^\s)]+)\)/g, `](${repository}/blob/main/$1)`);
-const destination = join(site, 'src/content/docs/guide');
-await rm(destination, { recursive: true, force: true });
-await mkdir(destination, { recursive: true });
-for (const [slug, title, description, titles] of pages) {
-  const bodies = titles.map(heading => {
-    if (!sections.has(heading)) throw new Error(`Missing guide section: ${heading}`);
-    const content = sections.get(heading);
-    return titles.length > 1 ? `## ${heading}\n\n${content}` : content;
-  });
-  const frontmatter = `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\neditUrl: ${repository}/edit/main/docs/GUIDE.md\n---\n\n`;
-  await writeFile(join(destination, `${slug}.md`), frontmatter + rewrite(bodies.join('\n\n')) + '\n');
+  const rewrite = text => text
+    .replace(/\]\(#([^\s)]+)\)/g, (_, anchor) => `](${anchors.get(anchor) ?? `${repository}/blob/main/docs/GUIDE.md#${anchor}`})`)
+    .replace(/\]\((?:\.\.\/)+README\.md#themes\)/g, `](${prefix}#themes)`)
+    .replace(/\]\((?:\.\.\/)+([^\s)]+)\)/g, `](${repository}/blob/main/$1)`);
+  const destination = join(site, 'src/content/docs', translated ? `${locale}/guide` : 'guide');
+  await rm(destination, { recursive: true, force: true });
+  await mkdir(destination, { recursive: true });
+  for (const [slug, , , titles] of pages) {
+    const bodies = titles.map(heading => {
+      const section = sections.get(heading);
+      if (!section) throw new Error(`${locale}: missing guide section: ${heading}`);
+      return titles.length > 1 ? `## ${section.title}\n\n${section.body}` : section.body;
+    });
+    const editPath = translated ? `docs/translations/${sourceLocale}/GUIDE.md` : 'docs/GUIDE.md';
+    const frontmatter = `---\ntitle: ${JSON.stringify(t[`${slug}.title`])}\ndescription: ${JSON.stringify(t[`${slug}.description`])}\neditUrl: ${repository}/edit/main/${editPath}\n---\n\n`;
+    const outdated = translated && sourceHash !== manifest.locales[sourceLocale].source;
+    const notice = outdated ? `:::caution\n${t.staleTranslation} [English](${base}guide/${slug}/).\n:::\n\n` : '';
+    await writeFile(join(destination, `${slug}.md`), frontmatter + notice + rewrite(bodies.join('\n\n')) + '\n');
+  }
+  if (translated) {
+    const pageRoot = join(site, 'src/content/docs', locale);
+    const hero = { tagline: t.tagline, actions: [
+      { text: t.download, link: `${repository}/releases/latest`, icon: 'download' },
+      { text: t.start, link: `${prefix}guide/start-here/`, icon: 'right-arrow', variant: 'secondary' },
+      { text: 'GitHub', link: repository, icon: 'external', variant: 'minimal' },
+    ] };
+    const frontmatter = `---\ntitle: Borg Commander\ndescription: ${JSON.stringify(t.description)}\ntemplate: splash\nhero: ${JSON.stringify(hero)}\neditUrl: false\n---\n\n`;
+    await writeFile(join(pageRoot, 'index.mdx'), frontmatter + "import HomeContent from '../../../components/HomeContent.astro';\n\n<HomeContent />\n");
+    await writeFile(join(pageRoot, '404.md'), `---\ntitle: ${JSON.stringify(t.notFound)}\ndescription: ${JSON.stringify(t.notFoundText)}\neditUrl: false\n---\n\n${t.notFoundText}\n\n[${t.start}](${prefix}guide/start-here/)\n`);
+  }
 }
 const screenshots = [
   ...['paper', 'classic', 'midnight', 'aurora', 'ember', 'neon'].map(name => ['themes', name]),
@@ -66,4 +97,4 @@ if (!version) throw new Error('Workspace version is missing');
 const revision = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 await mkdir(join(site, 'src/generated'), { recursive: true });
 await writeFile(join(site, 'src/generated/build.json'), JSON.stringify({ version, revision: revision.slice(0, 7) }));
-console.log(`Generated ${pages.length} guide pages and ${screenshots.length} public screenshots for Borg ${version}.`);
+console.log(`Generated ${pages.length * codes.length} guide pages across ${codes.length} languages and ${screenshots.length} public screenshots for Borg ${version}.`);

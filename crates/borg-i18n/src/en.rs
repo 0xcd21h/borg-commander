@@ -1,18 +1,19 @@
 macro_rules! catalog {
     ($($key:ident => $value:literal,)*) => {
-        #[macro_export]
-        macro_rules! tr {
-            $(($key) => { $value };)*
-        }
-
-        #[cfg(test)]
-        pub(crate) const MESSAGES: &[(&str, &str)] = &[
+        pub const MESSAGES: &[(&str, &str)] = &[
             $((stringify!($key), $value),)*
         ];
     };
 }
 
 catalog! {
+    language => "Language…",
+    language_selected => "Interface language changed",
+    count_file_few => "{count} files",
+    count_folder_few => "{count} folders",
+    count_item_few => "{count} items",
+    count_error_few => "{count} errors",
+    count_region_few => "{count} regions",
     memory_group_heap => "Heap & allocations",
     memory_group_stacks => "Thread stacks",
     memory_group_program => "Program code & data",
@@ -674,6 +675,12 @@ catalog! {
     remote_connecting_mirror => "Connecting mirror to {machine}:{session}…",
     remote_connecting_keys => " Esc: cancel connection ",
     remote_mirror_timeout => "Connection timed out after {seconds} seconds. Check that Borg is running on the host.",
+    remote_mirror_step_timeout => "Connection timed out after {seconds} seconds while {step}.",
+    remote_mirror_step => "While {step}",
+    remote_mirror_opening => "opening remote connections",
+    remote_mirror_sessions => "reading the host's sessions",
+    remote_mirror_screen => "loading the remote screen",
+    remote_mirror_control => "requesting remote control",
     remote_mirror_connection_error => "Remote operation failed: {error}",
     remote_session_delete_title => "Remove remote session",
     remote_session_delete_confirm => "Remove session \"{session}\" on host \"{machine}\"? This stops its apps and remote consoles, and deletes its saved panels and terminal history. Files on the machine are kept.",

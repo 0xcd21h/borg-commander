@@ -208,7 +208,7 @@ fn metrics(page: &mut Page<'_>, totals: &MemoryTotals, whole: Option<u64>, look:
     let labels = [tr!(memory_footprint_column), tr!(memory_resident_column), tr!(memory_mapped_column)];
     let label_width = labels.iter().map(|l| l.width()).max().unwrap_or(0);
     for (i, (label, value)) in labels.into_iter().zip(sizes(totals)).enumerate() {
-        let line = page.line(format!("{label:<label_width$}  {value:>8}"), theme.styles.overlay);
+        let line = page.line(format!("{}  {value:>8}", format::pad_end(label, label_width)), theme.styles.overlay);
         text(page.buf, Rect { width: label_width as u16, ..line }, label, dim(theme));
         let (Some(part), Some(whole)) = (totals.footprint, whole.filter(|&w| w > 0)) else { continue };
         if i != 0 {
@@ -220,7 +220,7 @@ fn metrics(page: &mut Page<'_>, totals: &MemoryTotals, whole: Option<u64>, look:
             0 if part > 0 => "<1".to_owned(),
             percent => percent.to_string(),
         };
-        let note = format!(tr!(memory_footprint_share), percent = percent);
+        let note = tr!(memory_footprint_share, percent = percent);
         let width = METER_WIDTH.min(line.right().saturating_sub(x).saturating_sub(note.width() as u16 + 1));
         if width >= 4 {
             meter(page.buf, Rect { x, width, ..line }, fraction, look);
@@ -600,8 +600,8 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     }
     let cores = activity.sample.cpu.len().max(1) as u64;
     let cpu_total = activity.sample.cpu.iter().map(|&c| u64::from(c)).sum::<u64>() / cores;
-    let summary = format!(
-        tr!(activity_overview),
+    let summary = tr!(
+        activity_overview,
         cpu = format_args!("{:.1}%", cpu_total as f64 / 100.0),
         used = format::size(activity.sample.used),
         total = format::size(activity.sample.total),
@@ -610,7 +610,7 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
         count = activity.sample.processes.len()
     );
     let summary = if page == ActivityPage::FileDetails {
-        format!(tr!(process_files_count), count = activity.files.len(), skipped = activity.files_skipped)
+        tr!(process_files_count, count = activity.files.len(), skipped = activity.files_skipped)
     } else if page == ActivityPage::Snapshot && activity.search_form.is_none() {
         let region = if activity.list == ActivityPage::Search {
             activity.search_report.as_ref().and_then(|r| r.hits.get(activity.search_cursor)).map(|h| &h.region)
@@ -618,8 +618,8 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
             activity.selected_region()
         };
         region.map_or_else(String::new, |r| {
-            format!(
-                tr!(activity_region_summary),
+            tr!(
+                activity_region_summary,
                 access = r.permissions,
                 bytes = format::size(r.mapped()),
                 resident = size(r.resident),
@@ -632,16 +632,16 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     let summary = if processes && page != ActivityPage::Processes {
         let pid = activity.selected.map_or(0, |p| p.pid);
         if activity.regions().is_empty() {
-            format!(
-                tr!(process_memory_sampled),
+            tr!(
+                process_memory_sampled,
                 pid = pid,
                 ram = size(activity.process().and_then(|p| p.resident)),
                 mapped = size(activity.process().and_then(|p| p.virtual_bytes))
             )
         } else {
             let totals = activity.region_totals();
-            format!(
-                tr!(process_memory_summary),
+            tr!(
+                process_memory_summary,
                 pid = pid,
                 footprint = size(totals.footprint),
                 resident = size(totals.resident),
@@ -666,8 +666,8 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     } else if page == ActivityPage::Processes {
         String::new()
     } else if let Some(p) = activity.process() {
-        format!(
-            tr!(activity_process_label),
+        tr!(
+            activity_process_label,
             name = p.name,
             pid = p.key.pid,
             executable = p.executable.as_ref().map_or_else(String::new, |p| p.display().to_string())
@@ -774,10 +774,10 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
         ..inner
     };
     let progress = activity.search_progress.map(|(scanned, total, hits)| {
-        format!(tr!(memory_search_progress), scanned = format::size(scanned), total = format::size(total), hits = hits)
+        tr!(memory_search_progress, scanned = format::size(scanned), total = format::size(total), hits = hits)
     });
     let files_note = (activity.list == ActivityPage::Files && activity.files_loaded)
-        .then(|| format!(tr!(process_files_count), count = activity.files.len(), skipped = activity.files_skipped));
+        .then(|| tr!(process_files_count, count = activity.files.len(), skipped = activity.files_skipped));
     let note = if !live {
         ""
     } else {
@@ -811,11 +811,11 @@ fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: &mut Buffer
         if x < area.right() {
             buf[(x, area.y)].set_style(styles.input.add_modifier(Modifier::REVERSED));
         }
-        let hint = format!(tr!(activity_filter_typing), shown = shown, total = total);
+        let hint = tr!(activity_filter_typing, shown = shown, total = total);
         let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
         text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
     } else if !activity.filter.is_empty() {
-        let hint = format!(tr!(activity_filter_applied), shown = shown, total = total);
+        let hint = tr!(activity_filter_applied, shown = shown, total = total);
         Line::from(vec![
             Span::styled(label, styles.cursor),
             Span::styled(format!(" {} ", activity.filter), heading(theme)),
@@ -1021,7 +1021,7 @@ pub(crate) fn chart(title: &str, values: &[u64], unit: Unit, look: &Look<'_>, ar
         }
     }
     let axis_row = Rect { y: plot.bottom(), height: u16::from(plot.bottom() < area.bottom()), ..plot };
-    text(buf, axis_row, format!(tr!(memory_chart_span), seconds = HISTORY), dim(theme));
+    text(buf, axis_row, tr!(memory_chart_span, seconds = HISTORY), dim(theme));
     let now = tr!(memory_chart_now);
     let x = axis_row.right().saturating_sub(now.width() as u16);
     text(buf, Rect { x, width: axis_row.right() - x, ..axis_row }, now, dim(theme));
@@ -1056,8 +1056,8 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
         return;
     };
     let columns = activity.snapshot_columns(usize::from(body.width));
-    let details = format!(
-        tr!(activity_capture_label),
+    let details = tr!(
+        activity_capture_label,
         pid = snapshot.process.pid,
         address = snapshot.address,
         bytes = snapshot.bytes.len(),
@@ -1296,8 +1296,8 @@ fn search_results(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buff
     text(
         buf,
         row(body, 0),
-        format!(
-            tr!(memory_search_summary),
+        tr!(
+            memory_search_summary,
             hits = report.hits.len(),
             scanned = format::size(report.scanned),
             total = format::size(report.total),

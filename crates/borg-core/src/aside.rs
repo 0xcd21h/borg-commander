@@ -97,7 +97,7 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
             && let Err(error) = pager.resize(size.0, size.1)
         {
-            state.notice = Some(format!(tr!(preview_error), error = error));
+            state.notice = Some(tr!(preview_error, error = error));
         }
         return None;
     }
@@ -139,7 +139,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &crossterm::event::KeyEvent, now
             if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
                 && let Err(error) = crate::viewer::scroll(pager, key.code)
             {
-                state.notice = Some(format!(tr!(preview_error), error = error));
+                state.notice = Some(tr!(preview_error, error = error));
             }
         }
     }

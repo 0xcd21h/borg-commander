@@ -18,9 +18,9 @@ fn jobs(state: &AppState) -> Option<(String, bool)> {
         [] => return None,
         [job] => crate::job_view::status(job),
         _ if waiting => tr!(jobs_waiting).to_owned(),
-        jobs => format!(tr!(jobs_running), count = jobs.len()),
+        jobs => tr!(jobs_running, count = jobs.len()),
     };
-    Some((format!(tr!(alt_j_jobs), status = status), waiting))
+    Some((tr!(alt_j_jobs, status = status), waiting))
 }
 
 /// The Docker shortcut, counting the container shells still open.
@@ -28,7 +28,7 @@ fn docker_label(state: &AppState) -> String {
     match state.docker.shells.len() {
         0 => tr!(alt_c_docker).into(),
         1 => tr!(alt_c_docker_shells_one).into(),
-        count => format!(tr!(alt_c_docker_shells_many), count = count),
+        count => tr!(alt_c_docker_shells_many, count = count),
     }
 }
 

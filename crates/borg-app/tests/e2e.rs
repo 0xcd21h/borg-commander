@@ -3529,3 +3529,37 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
     ensure!(local.wait_exit()?.success());
     Ok(())
 }
+
+#[test]
+fn a_saved_language_can_be_changed_from_options_and_is_restored() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("language = \"es\"\n")?;
+    let mut app = Session::builder(BORG, &fixture).label("language").spawn()?;
+    app.wait_text("4 elementos")?;
+    app.wait_text("Salir")?;
+    app.send(keys::f(9))?;
+    for _ in 0..4 {
+        app.send(keys::right())?;
+    }
+    app.wait_text("Idioma…")?;
+    for _ in 0..3 {
+        app.send(keys::down())?;
+    }
+    app.send(keys::enter())?;
+    app.wait_text("Português (Portugal)")?;
+    for _ in 0..3 {
+        app.send(keys::up())?;
+    }
+    app.send(keys::enter())?;
+    app.wait_text("Quit")?;
+    app.wait_until("language saved", |_| {
+        fs::read_to_string(fixture.config().join("config.toml")).is_ok_and(|text| text.contains("language = \"en\""))
+    })?;
+    app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
+    ensure!(app.wait_exit()?.success(), "non-zero exit");
+    let mut reopened = start(&fixture, "language-restored")?;
+    reopened.wait_text("Quit")?;
+    Ok(())
+}

@@ -47,8 +47,7 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
         width: rect.width.saturating_sub(4),
         height: rect.height.saturating_sub(2),
     };
-    Line::styled(format!(tr!(remote_client_role), version = env!("CARGO_PKG_VERSION")), styles.overlay)
-        .render(body, buf);
+    Line::styled(tr!(remote_client_role, version = env!("CARGO_PKG_VERSION")), styles.overlay).render(body, buf);
     Line::from(vec![
         Span::styled(
             tr!(remote_hosts_tab),
@@ -79,8 +78,8 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
                 .as_ref()
                 .map(|v| format!("v{v}"))
                 .unwrap_or_else(|| tr!(remote_version_unknown).into());
-            let label = format!(
-                tr!(remote_host_session),
+            let label = tr!(
+                remote_host_session,
                 machine = choice.host_name(),
                 session = choice.session_name(),
                 version = version
@@ -91,7 +90,7 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
         }
         if let Some(error) = &browser.error {
             let height = body.height.saturating_sub(1).min(3);
-            Paragraph::new(format!(tr!(remote_mirror_connection_error), error = error))
+            Paragraph::new(tr!(remote_mirror_connection_error, error = error))
                 .style(styles.overlay)
                 .wrap(Wrap { trim: false })
                 .render(Rect { y: body.bottom().saturating_sub(height + 1), height, ..body }, buf);
@@ -105,21 +104,18 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
                 None => tr!(remote_unknown),
             };
             let latency = info.latency_ms.map(|ms| format!("{ms} ms")).unwrap_or_else(|| tr!(remote_unknown).into());
-            let details = format!(
-                tr!(remote_host_details),
+            let details = tr!(
+                remote_host_details,
                 version = info.version.as_deref().unwrap_or(tr!(remote_version_unknown)),
                 platform = info.platform.as_deref().unwrap_or(tr!(remote_unknown)),
                 mode = mode,
                 latency = latency
             );
             let y = body.bottom().saturating_sub(3);
-            Line::styled(
-                format!(tr!(remote_original_names), machine = choice.machine, session = choice.name),
-                styles.overlay,
-            )
-            .render(Rect { y: y.saturating_sub(1), height: 1, ..body }, buf);
+            Line::styled(tr!(remote_original_names, machine = choice.machine, session = choice.name), styles.overlay)
+                .render(Rect { y: y.saturating_sub(1), height: 1, ..body }, buf);
             Line::styled(details, styles.overlay).render(Rect { y, height: 1, ..body }, buf);
-            Line::styled(format!(tr!(remote_relay), relay = info.relay), styles.overlay)
+            Line::styled(tr!(remote_relay, relay = info.relay), styles.overlay)
                 .render(Rect { y: y + 1, height: 1, ..body }, buf);
         }
     }
@@ -133,11 +129,7 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
                 .get(browser.selected)
                 .filter(|_| browser.connecting)
                 .map(|choice| {
-                    format!(
-                        tr!(remote_connecting_mirror),
-                        machine = choice.host_name(),
-                        session = choice.session_name()
-                    )
+                    tr!(remote_connecting_mirror, machine = choice.host_name(), session = choice.session_name())
                 })
                 .unwrap_or_else(|| tr!(remote_checking_hosts).into())
         };
@@ -165,7 +157,7 @@ fn draw_clients(browser: &RemoteBrowser, theme: &Theme, body: Rect, list: Rect, 
             Some(_) => tr!(remote_client_online),
             None => tr!(remote_client_status_unknown),
         };
-        let label = format!(tr!(remote_client_row), name = client.name, status = status);
+        let label = tr!(remote_client_row, name = client.name, status = status);
         let style = if start + row == browser.client_selected { styles.overlay_selected } else { styles.overlay };
         Line::styled(format::truncate_end(&label, usize::from(list.width)), style)
             .render(Rect { y: list.y + row as u16, height: 1, ..list }, buf);
@@ -174,8 +166,8 @@ fn draw_clients(browser: &RemoteBrowser, theme: &Theme, body: Rect, list: Rect, 
         let count = client.connections.map(|count| count.to_string()).unwrap_or_else(|| tr!(remote_unknown).into());
         for (row, label) in [
             tr!(remote_client_direction).to_owned(),
-            format!(tr!(remote_client_fingerprint), fingerprint = client.fingerprint),
-            format!(tr!(remote_client_connections), count = count),
+            tr!(remote_client_fingerprint, fingerprint = client.fingerprint),
+            tr!(remote_client_connections, count = count),
             tr!(remote_clients_tab_hint).to_owned(),
         ]
         .into_iter()

@@ -1,0 +1,39 @@
+---
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import Gallery from './Gallery.astro';
+import { dictionary } from '../../locales/index.mjs';
+const locale = Astro.locals.starlightRoute.locale ?? 'en';
+const t = dictionary(locale);
+const base = import.meta.env.BASE_URL + (locale === 'en' ? '' : `${locale}/`);
+const features = [
+  ['install', 'rocket', 'start-here'],
+  ['files', 'open-book', 'files'],
+  ['connect', 'setting', 'remote-access'],
+  ['customize', 'pencil', 'themes'],
+];
+---
+<div class="intro"><p>{t.intro}</p></div>
+<h2 id="what-it-looks-like">{t.gallery}</h2>
+<Gallery items={[
+  { image: 'classic', title: t.filesScreenshot, description: t.filesAlt },
+  { image: 'docker', title: t.dockerScreenshot, description: t.dockerAlt },
+  { image: 'activity', title: t.activityScreenshot, description: t.activityAlt },
+]} />
+<p class="screenshot-note">{t.englishScreenshots}</p>
+<h2 id="start-with-what-you-need">{t.pathways}</h2>
+<CardGrid>
+  {features.map(([key, icon, slug]) => <Card title={t[`${key}Card`]} icon={icon}>
+    <p>{t[`${key}CardText`]}</p>
+    <a href={`${base}guide/${slug}/`}>{t.readGuide} →</a>
+  </Card>)}
+</CardGrid>
+<h2 id="themes">{t.themes}</h2>
+<p>{t.themesText}</p>
+<Gallery items={['midnight', 'aurora', 'neon', 'classic', 'paper', 'ember'].map(image => {
+  const title = image[0].toUpperCase() + image.slice(1);
+  return { image, title, description: t.themeAlt.replace('{theme}', title) };
+})} />
+<p><a href={`${base}guide/themes/`}>{t.fonts} →</a></p>
+<style>
+  .screenshot-note { font-size: .85rem; color: var(--sl-color-gray-3); }
+</style>

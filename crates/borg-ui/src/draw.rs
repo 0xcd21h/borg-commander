@@ -88,6 +88,10 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
 }
 
 pub fn draw_with_cursor(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
+    borg_i18n::with_locale(scene.state.settings.preferences.language, || draw_localized(frame, scene))
+}
+
+fn draw_localized(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
     let area = frame.area();
     let theme = scene.theme_at(scene.state.appearance.current());
     let (cursor, placements) = compose(frame.buffer_mut(), scene, theme, area);
@@ -165,7 +169,7 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
     let footer = Rect { y: area.bottom() - 1, height: 1, ..area };
     let theme = scene.theme_at(scene.state.appearance.current());
     let offset = scene.screen.scrollback_offset();
-    let history = if offset > 0 { format!(tr!(lines_shift_end_live), offset = offset) } else { String::new() };
+    let history = if offset > 0 { tr!(lines_shift_end_live, offset = offset) } else { String::new() };
     let hint = if scene.state.shell.captured() {
         tr!(program_running)
     } else if area.width >= 100 {
@@ -185,8 +189,8 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
             .map(|m| m.name.as_str())
             .unwrap_or(session);
         Span::styled(
-            format!(
-                tr!(remote_console_label),
+            tr!(
+                remote_console_label,
                 machine = scene.state.remote_host_name(machine),
                 session = scene.state.remote_session_name(machine, session, name)
             ),
@@ -230,16 +234,13 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
                 return Some(Activity { label: format!("{}…", operation.label), fraction: None });
             }
             if let Some((_, command)) = state.agent.running.as_ref().filter(|_| side == state.active) {
-                return Some(Activity { label: format!(tr!(agent_running), command = command), fraction: None });
+                return Some(Activity { label: tr!(agent_running, command = command), fraction: None });
             }
             if let Some(work) = state.docker.files.iter().find(|work| work.side == side) {
                 return Some(Activity { label: crate::docker_view::file_work_label(work), fraction: None });
             }
             let scan = state.sizing.as_ref().filter(|scan| scan.side == side)?;
-            Some(Activity {
-                label: format!(tr!(background_sizes_progress), count = scan.progress.visited),
-                fraction: None,
-            })
+            Some(Activity { label: tr!(background_sizes_progress, count = scan.progress.visited), fraction: None })
         })
     });
 
@@ -326,8 +327,8 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     if let Some(status) = layout.status {
         if state.activity.side.is_some() {
             let value = state.activity.process().map_or_else(String::new, |p| {
-                format!(
-                    tr!(activity_process_label),
+                tr!(
+                    activity_process_label,
                     name = p.name,
                     pid = p.key.pid,
                     executable = p.executable.as_ref().map_or_else(String::new, |p| p.display().to_string())
@@ -486,6 +487,9 @@ fn paint_overlay(
         }
         Overlay::Settings { selected } | Overlay::Plugins { selected } => {
             (crate::settings_view::draw(state, *selected, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::Languages(picker) => {
+            (crate::picker_view::draw_languages(picker, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Themes(picker) => {
             (draw_picker(picker, state.appearance.choices(), theme, screen, buf), None, Unfold::FromCenter)

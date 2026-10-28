@@ -16,16 +16,13 @@ const PROMPT_HEIGHT: u16 = 6;
 const COPY_HEIGHT: u16 = 8;
 const CONFIRM_HEIGHT: u16 = 6;
 const PADDING: u16 = 1;
-const YES: &str = tr!(yes);
-const NO: &str = tr!(no);
 const BUTTON_GAP: &str = "   ";
-const PROMPT_HINT: &str = tr!(enter_ok_esc_cancel);
 
 pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
     let styles = &theme.styles;
     let rect = prompt_rect(prompt, screen);
     let copy = matches!(prompt.purpose, PromptPurpose::Copy { .. });
-    let hint = if copy { tr!(copy_dialog_hint) } else { PROMPT_HINT };
+    let hint = if copy { tr!(copy_dialog_hint) } else { tr!(enter_ok_esc_cancel) };
     let hint = if copy && hint.width() > usize::from(rect.width.saturating_sub(2)) {
         tr!(copy_dialog_hint_compact)
     } else {
@@ -102,7 +99,7 @@ pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Bu
     } else {
         (styles.overlay, styles.overlay_selected)
     };
-    Line::from(vec![Span::styled(YES, yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(NO, no)])
+    Line::from(vec![Span::styled(tr!(yes), yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(tr!(no), no)])
         .centered()
         .render(buttons, buf);
     rect
@@ -151,18 +148,19 @@ fn confirm_rect(confirm: &Confirm, screen: Rect) -> Rect {
 pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Option<bool> {
     let rect = confirm_rect(confirm, screen);
     if !rect.contains(point)
-        || rect.width < (YES.len() + BUTTON_GAP.len() + NO.len()) as u16
+        || rect.width < (tr!(yes).width() + BUTTON_GAP.len() + tr!(no).width()) as u16
         || rect.height < CONFIRM_HEIGHT
     {
         return None;
     }
-    let start = rect.x + rect.width.saturating_sub((YES.len() + BUTTON_GAP.len() + NO.len()) as u16) / 2;
+    let start = rect.x + rect.width.saturating_sub((tr!(yes).width() + BUTTON_GAP.len() + tr!(no).width()) as u16) / 2;
     if point.y != rect.bottom().saturating_sub(2) {
         return None;
     }
-    if (start..start + YES.len() as u16).contains(&point.x) {
+    if (start..start + tr!(yes).width() as u16).contains(&point.x) {
         Some(true)
-    } else if (start + (YES.len() + BUTTON_GAP.len()) as u16..start + (YES.len() + BUTTON_GAP.len() + NO.len()) as u16)
+    } else if (start + (tr!(yes).width() + BUTTON_GAP.len()) as u16
+        ..start + (tr!(yes).width() + BUTTON_GAP.len() + tr!(no).width()) as u16)
         .contains(&point.x)
     {
         Some(false)
@@ -237,5 +235,36 @@ mod tests {
             ["Delete", "/very/long", "/path/name", "permanentl", "y?"]
         );
         assert_eq!(wrapped("First\nsecond line", 40), ["First", "second line"]);
+    }
+}
+
+#[cfg(test)]
+mod localized_button_tests {
+    use super::*;
+
+    #[test]
+    fn confirmation_hit_areas_use_display_columns_for_every_language() {
+        for language in borg_i18n::Locale::ALL {
+            borg_i18n::with_locale(language, || {
+                let confirm = Confirm {
+                    title: tr!(quit),
+                    message: tr!(quit_borg_commander).into(),
+                    purpose: borg_core::ConfirmPurpose::Quit,
+                    accept: false,
+                };
+                let screen = Rect::new(0, 0, 80, 24);
+                let rect = confirm_rect(&confirm, screen);
+                let yes = tr!(yes).width() as u16;
+                let gap = BUTTON_GAP.width() as u16;
+                let no = tr!(no).width() as u16;
+                let start = rect.x + (rect.width - yes - gap - no) / 2;
+                let y = rect.bottom() - 2;
+                assert_eq!(confirm_at(&confirm, screen, Position::new(start, y)), Some(true));
+                assert_eq!(confirm_at(&confirm, screen, Position::new(start + yes - 1, y)), Some(true));
+                assert_eq!(confirm_at(&confirm, screen, Position::new(start + yes, y)), None);
+                assert_eq!(confirm_at(&confirm, screen, Position::new(start + yes + gap, y)), Some(false));
+                assert_eq!(confirm_at(&confirm, screen, Position::new(start + yes + gap + no - 1, y)), Some(false));
+            });
+        }
     }
 }

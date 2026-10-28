@@ -560,6 +560,14 @@ F4 opens the selected file with `$VISUAL` or `$EDITOR`.
 
 ## Configuration
 
+Change the interface language from **F9 → Options → Language**. Choose English,
+Simplified Chinese, Portuguese (Portugal), Spanish, or Russian, then press Enter.
+Esc cancels. The choice is saved in `config.toml` as `language = "en"`, `"zh-CN"`,
+`"pt"`, `"es"`, or `"ru"`. `BORG_LANGUAGE` overrides the saved setting; without either,
+Borg uses `LC_ALL`, `LC_MESSAGES`, or `LANG`, falling back to English for unsupported
+languages. Commands, paths, filenames, and keyboard shortcuts are not translated.
+The website language menu switches the guide language independently.
+
 Settings are saved in `~/.config/borg-commander/config.toml`, or the directory selected by
 `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. F9 → Options → Settings opens checkboxes;
 Space or a click toggles a setting and saves it immediately. Esc closes the window.

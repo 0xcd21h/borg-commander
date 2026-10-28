@@ -41,7 +41,7 @@ pub fn draw(game: Option<&Game2048>, look: &Look<'_>, screen: Rect, buf: &mut Bu
     if inner.height == 0 || inner.width == 0 {
         return rect;
     }
-    let score = format!(tr!(game2048_score), score = game.score(), best = game.best());
+    let score = tr!(game2048_score, score = game.score(), best = game.best());
     Line::styled(format::truncate_end(&score, usize::from(inner.width)), styles.overlay)
         .centered()
         .render(Rect { height: 1, ..inner }, buf);

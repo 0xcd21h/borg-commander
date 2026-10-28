@@ -22,34 +22,12 @@ use crate::{
 };
 
 const PICTURE_Z: i32 = -1;
-const QUICK_VIEW_TITLE: &str = tr!(quick_view);
-const INFO_TITLE: &str = tr!(info);
 const TITLE_SEPARATOR: &str = " · ";
-const BINARY: &str = tr!(binary_file);
-const EMPTY: &str = tr!(empty_file);
 const PADDING: u16 = 1;
 const LABEL_GAP: usize = 2;
 const STAMP: &str = "%Y-%m-%d %H:%M:%S";
 const ARROW: &str = " → ";
-const FOLDER: &str = tr!(folder);
-const FILE: &str = tr!(file);
-const LINK: &str = tr!(link);
-const SPECIAL: &str = tr!(special);
-const BYTES: &str = tr!(bytes);
 const OCTAL_WIDTH: usize = 4;
-
-const NAME_LABEL: &str = tr!(name);
-const KIND_LABEL: &str = tr!(kind);
-const SIZE_LABEL: &str = tr!(size);
-const CONTENTS_LABEL: &str = tr!(contents);
-const MODE_LABEL: &str = tr!(mode);
-const OWNER_LABEL: &str = tr!(owner);
-const MODIFIED_LABEL: &str = tr!(modified);
-const ACCESSED_LABEL: &str = tr!(accessed);
-const CREATED_LABEL: &str = tr!(created);
-const INODE_LABEL: &str = tr!(inode);
-const LINKS_LABEL: &str = tr!(links);
-const DISK_LABEL: &str = tr!(free_space);
 
 pub struct AsideScene<'a> {
     pub aside: Aside,
@@ -68,8 +46,8 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     let styles = look.styles();
     let shown = scene.peeked.filter(|peeked| peeked.aside == scene.aside);
     let heading = match scene.aside {
-        Aside::QuickView => QUICK_VIEW_TITLE,
-        Aside::Info => INFO_TITLE,
+        Aside::QuickView => tr!(quick_view),
+        Aside::Info => tr!(info),
     };
     let name = shown.map(|peeked| name(&peeked.path)).unwrap_or_default();
     let room = usize::from(scene.area.width).saturating_sub(heading.width() + TITLE_SEPARATOR.width() + LABEL_GAP * 2);
@@ -108,11 +86,11 @@ fn content(peeked: &Peeked, scene: &AsideScene<'_>, look: &Look<'_>, body: Rect,
     let styles = look.styles();
     match &peeked.peek {
         Peek::Picture(image) => return picture(image, scene, body, buf),
-        Peek::Text(pager) if pager.is_empty() => centered(EMPTY, styles.meta, body, buf),
+        Peek::Text(pager) if pager.is_empty() => centered(tr!(empty_file), styles.meta, body, buf),
         Peek::Text(pager) => crate::document_view::draw(pager, styles.panel, body, buf),
         Peek::Folder { entries, .. } => lines(entries.iter().map(|entry| listed(entry, scene, look)), body, buf),
         Peek::Info(facts) => info(facts, &peeked.path, scene.clock, look, body, buf),
-        Peek::Binary => centered(BINARY, styles.meta, body, buf),
+        Peek::Binary => centered(tr!(binary_file), styles.meta, body, buf),
         Peek::Unavailable(reason) => {
             centered(&format::truncate_end(reason, usize::from(body.width)), styles.notice, body, buf);
         }
@@ -136,11 +114,9 @@ fn footer(peek: &Peek) -> Option<String> {
             let (width, height) = image.original;
             Some(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes)))
         }
-        Peek::Text(pager) => Some(format!(
-            tr!(tab_focus),
-            pager.percent(),
-            if pager.markdown() { tr!(s_source_render) } else { tr!(w_wrap) }
-        )),
+        Peek::Text(pager) => {
+            Some(tr!(tab_focus, pager.percent(), if pager.markdown() { tr!(s_source_render) } else { tr!(w_wrap) }))
+        }
         Peek::Info(_) | Peek::Binary | Peek::Unavailable(_) => None,
     }
 }
@@ -182,34 +158,29 @@ fn stamp(time: Option<SystemTime>, clock: &Zoned) -> Option<String> {
 
 fn nature(nature: &Nature) -> String {
     match nature {
-        Nature::Folder => FOLDER.to_owned(),
-        Nature::File => FILE.to_owned(),
-        Nature::Link(target) => format!("{LINK}{ARROW}{}", target.display()),
-        Nature::Special => SPECIAL.to_owned(),
+        Nature::Folder => tr!(folder).to_owned(),
+        Nature::File => tr!(file).to_owned(),
+        Nature::Link(target) => format!("{}{ARROW}{}", tr!(link), target.display()),
+        Nature::Special => tr!(special).to_owned(),
     }
 }
 
 fn facts(facts: &Facts, path: &Path, clock: &Zoned) -> Vec<(&'static str, String)> {
-    let exact = format!("{} {BYTES}", facts.size);
+    let exact = format!("{} {}", facts.size, tr!(bytes));
     let human = format::size(facts.size);
     let size = if human == facts.size.to_string() { exact } else { format!("{human} ({exact})") };
     let rows = [
-        Some((NAME_LABEL, name(path))),
-        Some((KIND_LABEL, nature(&facts.nature))),
-        facts
-            .items
-            .map(|items| (CONTENTS_LABEL, format::count(items, format::Count::Item)))
-            .or(Some((SIZE_LABEL, size))),
-        Some((MODE_LABEL, format!("{} {:0OCTAL_WIDTH$o}", rwx(facts.permissions), facts.permissions))),
-        Some((OWNER_LABEL, format!("{}:{}", facts.owner, facts.group))),
-        stamp(facts.modified, clock).map(|time| (MODIFIED_LABEL, time)),
-        stamp(facts.accessed, clock).map(|time| (ACCESSED_LABEL, time)),
-        stamp(facts.created, clock).map(|time| (CREATED_LABEL, time)),
-        Some((INODE_LABEL, facts.inode.to_string())),
-        Some((LINKS_LABEL, facts.links.to_string())),
-        facts
-            .disk
-            .map(|(free, total)| (DISK_LABEL, format!(tr!(space_of_total), format::size(free), format::size(total)))),
+        Some((tr!(name), name(path))),
+        Some((tr!(kind), nature(&facts.nature))),
+        facts.items.map(|items| (tr!(contents), format::count(items, format::Count::Item))).or(Some((tr!(size), size))),
+        Some((tr!(mode), format!("{} {:0OCTAL_WIDTH$o}", rwx(facts.permissions), facts.permissions))),
+        Some((tr!(owner), format!("{}:{}", facts.owner, facts.group))),
+        stamp(facts.modified, clock).map(|time| (tr!(modified), time)),
+        stamp(facts.accessed, clock).map(|time| (tr!(accessed), time)),
+        stamp(facts.created, clock).map(|time| (tr!(created), time)),
+        Some((tr!(inode), facts.inode.to_string())),
+        Some((tr!(links), facts.links.to_string())),
+        facts.disk.map(|(free, total)| (tr!(free_space), tr!(space_of_total, format::size(free), format::size(total)))),
     ];
     rows.into_iter().flatten().collect()
 }
@@ -222,7 +193,7 @@ fn info(facts_of: &Facts, path: &Path, clock: &Zoned, look: &Look<'_>, body: Rec
     lines(
         rows.into_iter().map(|(label, value)| {
             Line::from(vec![
-                Span::styled(format!("{label:<label_width$}"), styles.meta),
+                Span::styled(format::pad_end(label, label_width), styles.meta),
                 Span::styled(format::truncate_end(&value, value_width), styles.panel.add_modifier(Modifier::BOLD)),
             ])
         }),

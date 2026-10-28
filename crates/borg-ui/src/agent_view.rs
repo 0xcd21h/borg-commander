@@ -16,8 +16,6 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{Styles, Theme, dialog_view::centered};
 
-const YES: &str = tr!(yes);
-const NO: &str = tr!(no);
 const BUTTON_GAP: &str = "   ";
 const MARGIN: u16 = 4;
 const CONNECT_WIDTH: u16 = 100;
@@ -97,7 +95,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
     } else {
         (styles.overlay, styles.overlay_selected)
     };
-    Line::from(vec![Span::styled(YES, yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(NO, no)])
+    Line::from(vec![Span::styled(tr!(yes), yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(tr!(no), no)])
         .centered()
         .render(row(rect, rect.bottom().saturating_sub(2)), buf);
     rect
@@ -109,12 +107,12 @@ pub(crate) fn approval_button_at(approval: &Approval, screen: Rect, point: Posit
     if point.y != rect.bottom().saturating_sub(2) {
         return None;
     }
-    let width = (YES.width() + BUTTON_GAP.width() + NO.width()) as u16;
+    let width = (tr!(yes).width() + BUTTON_GAP.width() + tr!(no).width()) as u16;
     let start = rect.x + 2 + rect.width.saturating_sub(4).saturating_sub(width) / 2;
-    let no_start = start + (YES.width() + BUTTON_GAP.width()) as u16;
-    if (start..start + YES.width() as u16).contains(&point.x) {
+    let no_start = start + (tr!(yes).width() + BUTTON_GAP.width()) as u16;
+    if (start..start + tr!(yes).width() as u16).contains(&point.x) {
         Some(true)
-    } else if (no_start..no_start + NO.width() as u16).contains(&point.x) {
+    } else if (no_start..no_start + tr!(no).width() as u16).contains(&point.x) {
         Some(false)
     } else {
         None

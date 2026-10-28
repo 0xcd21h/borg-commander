@@ -10,6 +10,10 @@ use crate::{menu_view, panel_view};
 const WHEEL_ROWS: isize = 3;
 
 pub fn mouse_input(state: &AppState, event: MouseEvent, double: bool, now: Instant) -> Option<Msg> {
+    borg_i18n::with_locale(state.settings.preferences.language, || mouse_localized(state, event, double, now))
+}
+
+fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Instant) -> Option<Msg> {
     let point = Position::new(event.column, event.row);
     let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
     // An agent's dialogs show over the console and the viewer too, and take the mouse there.

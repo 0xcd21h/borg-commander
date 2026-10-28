@@ -95,8 +95,8 @@ pub(crate) fn finish(state: &mut AppState, id: u64, error: Option<String>) -> Ve
         forget(state);
     }
     state.notice = Some(error.clone().unwrap_or_else(|| {
-        format!(
-            tr!(background_sizes_done),
+        tr!(
+            background_sizes_done,
             count = scan.progress.visited,
             errors = scan.progress.errors,
             skipped = scan.progress.skipped

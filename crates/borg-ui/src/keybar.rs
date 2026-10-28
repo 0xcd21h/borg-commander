@@ -14,11 +14,10 @@ use crate::{format, theme::Styles};
 
 const CONTROL_PREFIX: char = '^';
 const ALT_PREFIX: &str = "M-";
-const ALIAS_HINT: &str = tr!(esc_then_1_9_0_f1_f10);
 const HINT_FROM: u16 = 150;
 
 pub(crate) fn actions_area(area: Rect) -> Rect {
-    let hint = if area.width >= HINT_FROM { ALIAS_HINT.width() as u16 } else { 0 };
+    let hint = if area.width >= HINT_FROM { tr!(esc_then_1_9_0_f1_f10).width() as u16 } else { 0 };
     Rect { width: area.width.saturating_sub(hint), ..area }
 }
 
@@ -84,7 +83,7 @@ fn draw_functions(area: Rect, styles: &Styles<Style>, (copy, remove): (&str, &st
                 match binding.action {
                     borg_core::Action::Copy => copy,
                     borg_core::Action::Delete => remove,
-                    _ => binding.label?,
+                    _ => binding.label?.text(),
                 },
             ))
         })
@@ -100,13 +99,13 @@ fn draw_functions(area: Rect, styles: &Styles<Style>, (copy, remove): (&str, &st
             let key_style = if digits && key.len() == 1 { styles.cursor } else { styles.key };
             [
                 Span::styled(format::truncate_end(key, slot), key_style),
-                Span::styled(format!("{:<room$}", format::truncate_end(label, room)), styles.key_label),
+                Span::styled(format::pad_end(&format::truncate_end(label, room), room), styles.key_label),
             ]
         })
         .collect();
     Line::from(spans).render(actions, buf);
     if actions.width < area.width {
-        Line::styled(ALIAS_HINT, styles.key_label).right_aligned().render(area, buf);
+        Line::styled(tr!(esc_then_1_9_0_f1_f10), styles.key_label).right_aligned().render(area, buf);
     }
 }
 

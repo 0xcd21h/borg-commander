@@ -24,6 +24,7 @@ impl Motion {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Preferences {
+    pub language: borg_i18n::Locale,
     pub after_command: AfterCommand,
     pub show_hidden: bool,
     pub status_line: bool,
@@ -47,6 +48,7 @@ pub struct Preferences {
 
 impl Preferences {
     pub const DEFAULT: Self = Self {
+        language: borg_i18n::Locale::English,
         after_command: AfterCommand::ReturnToPanels,
         show_hidden: false,
         status_line: true,

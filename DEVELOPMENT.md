@@ -179,7 +179,7 @@ sentences and format templates in the catalog so translations can change word or
 use borg_i18n::tr;
 
 let label = tr!(search_in);
-let title = format!(tr!(collection_title), name = collection.name);
+let title = tr!(collection_title, name = collection.name);
 ```
 
 Pass format arguments explicitly: the template expands from the catalog's scope.
@@ -187,8 +187,18 @@ Use `borg_i18n::count` with its `Count` enum for singular and plural forms; rend
 must not append an English `s`. Keep field borders and geometry in rendering code, and measure translated labels in terminal cells. Button drawing and mouse hit
 areas must use the same label and geometry.
 
-The first catalog is English only. Locale selection and additional language catalogs
-can follow this foundation. File names, shell commands, protocol values, and output
+The English catalog is the source of truth; Chinese (Simplified), Portuguese (Portugal),
+Spanish, and Russian catalogs live in `crates/borg-i18n/locales/`. A build-time generator
+requires every key and validates format placeholders and padding before compiling the
+localized format strings. Use `tr!(key, argument = value)` for messages with arguments.
+`tr!(@ key)` provides a stable message identity for constant binding tables; call `.text()`
+when rendering it. The language picker is in Options. Configuration and `BORG_LANGUAGE`
+can select it at startup, with the system locale used when neither is set.
+
+Core updates, rendering, and hit testing scope language to the state preferences;
+background workers use the process language. Tests can use `borg_i18n::with_locale`
+without changing another thread's language. Russian counts handle singular, few, and
+many forms. New interface text needs entries in all four translated catalogs. File names, shell commands, protocol values, and output
 from external programs are not message keys. Keep longer explanations in the guide;
 dialogs should contain controls, short labels, and keyboard hints.
 
@@ -374,3 +384,18 @@ run `python3 scripts/check-public-content.py`; it checks public text for persona
 private temporary paths, private keys, and common access-token formats without printing
 matched values. It does not inspect binary contents, files above 4 MiB, or Git history and
 cannot replace reviewing a diff. Keep copyright and license attributions intact.
+
+### Website translations
+
+Website messages and page metadata live in `website/locales/`. Full guide translations
+live in `docs/translations/<locale>/GUIDE.md`; translated routes use `/zh-cn/`, `/pt/`,
+`/es/`, and `/ru/`. Starlight supplies its translated search, navigation, and language picker.
+Keep code blocks, inline commands, placeholders, and link destinations intact. The build
+checks their structure and generates all 50 guide pages from the five guide sources.
+
+The initial translations use machine translation with reviewed interface terminology;
+corrections are welcome. `docs/translations/manifest.json` records the source hash used.
+When the English guide changes, translated pages show a notice until translations have
+been refreshed and the source hash updated. Update the manifest only after reviewing the
+translations; do not hide the notice by changing a hash alone. Website builds never call a
+translation service, and Borg never needs a network connection to load its language catalogs.

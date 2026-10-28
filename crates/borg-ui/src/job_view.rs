@@ -22,10 +22,6 @@ const DIALOG_WIDTH: u16 = 64;
 const MARGIN: u16 = 4;
 const PADDING: u16 = 2;
 const BUTTON_GAP: &str = "  ";
-const CONFLICT_TITLE: &str = tr!(already_exists);
-const FAILURE_TITLE: &str = tr!(something_went_wrong);
-const JOBS_TITLE: &str = tr!(job_view_jobs);
-const JOBS_HINT: &str = tr!(p_pause_c_cancel_esc_close);
 const JOBS_WIDTH: u16 = 72;
 const ROWS_PER_JOB: u16 = 2;
 const BAR_WIDTH: usize = 24;
@@ -57,9 +53,9 @@ fn pace(job: &Job, progress: &Progress, now: Instant) -> Option<(String, String)
 pub fn activity(job: &Job, now: Instant) -> Activity {
     let fraction = job.fraction();
     let label = match (&job.state, job.paused) {
-        (_, true) => format!(tr!(paused), percent(fraction.unwrap_or_default())),
+        (_, true) => tr!(paused, percent(fraction.unwrap_or_default())),
         (JobState::Scanning(found), false) => {
-            format!(tr!(scanning), format::count(found.files as usize, format::Count::File))
+            tr!(scanning, format::count(found.files as usize, format::Count::File))
         }
         (JobState::Asking(_), false) => tr!(waiting_for_you).to_owned(),
         (JobState::Running(progress), false) => {
@@ -77,7 +73,7 @@ pub fn activity(job: &Job, now: Instant) -> Activity {
 pub(crate) fn status(job: &Job) -> String {
     let share = percent(job.fraction().unwrap_or_default());
     match (&job.state, job.paused) {
-        (_, true) => format!(tr!(paused), share),
+        (_, true) => tr!(paused, share),
         (JobState::Asking(_), false) => tr!(waiting_for_you).to_owned(),
         (JobState::Scanning(_), false) => format!("{}…", job.kind.doing()),
         (JobState::Running(_), false) => format!("{} {share}%", job.kind.doing()),
@@ -110,6 +106,12 @@ fn buttons<'a>(job: &Job, selected: usize, width: usize, look: &Look<'_>) -> Vec
     let mut rows: Vec<Vec<Span<'a>>> = vec![Vec::new()];
     let mut used = 0;
     for (index, (_, hotkey, label)) in job.choices().iter().enumerate() {
+        let translated = label.text();
+        let label = if translated.chars().any(|c| c.to_ascii_lowercase() == *hotkey) {
+            translated.to_owned()
+        } else {
+            format!("{hotkey} {translated}")
+        };
         let text = format!("[ {label} ]");
         let needed = text.width() + BUTTON_GAP.width();
         if used + needed > width && used > 0 {
@@ -117,7 +119,7 @@ fn buttons<'a>(job: &Job, selected: usize, width: usize, look: &Look<'_>) -> Vec
             used = 0;
         }
         let style = if index == selected { styles.overlay_selected } else { styles.overlay };
-        let hot = label.chars().position(|c| c.to_ascii_lowercase() == *hotkey);
+        let hot = label.char_indices().find(|(_, c)| c.to_ascii_lowercase() == *hotkey).map(|(offset, _)| offset);
         let row = rows.last_mut().into_iter().next();
         if let Some(row) = row {
             let (before, rest) = label.split_at(hot.unwrap_or(label.len()));
@@ -145,30 +147,25 @@ pub fn draw_question(job: &Job, question: Question, look: &Look<'_>, screen: Rec
             let place = target.parent().map(|dir| dir.display().to_string()).unwrap_or_default();
             let fresher = if *newer { tr!(newer) } else { "" };
             (
-                CONFLICT_TITLE,
+                tr!(already_exists),
                 vec![
                     Line::styled(
                         format::truncate_end(&name(target), text_width),
                         styles.overlay.add_modifier(Modifier::BOLD),
                     ),
                     Line::styled(
-                        format!(tr!(job_source_folder), format::truncate_start(&place, text_width.saturating_sub(3))),
+                        tr!(job_source_folder, format::truncate_start(&place, text_width.saturating_sub(3))),
                         styles.overlay,
                     ),
                     Line::styled(
-                        format!(
-                            tr!(incoming_existing),
-                            format::size(sizes.0),
-                            format::size(sizes.1),
-                            fresher = fresher
-                        ),
+                        tr!(incoming_existing, format::size(sizes.0), format::size(sizes.1), fresher = fresher),
                         styles.overlay,
                     ),
                 ],
             )
         }
         Ask::Failure { path, message } => (
-            FAILURE_TITLE,
+            tr!(something_went_wrong),
             vec![
                 Line::styled(
                     format::truncate_end(&name(path), text_width),
@@ -199,7 +196,7 @@ pub fn draw_jobs(list: JobList, jobs: &[Job], look: &Look<'_>, now: Instant, scr
     let width = screen.width.saturating_sub(MARGIN).min(JOBS_WIDTH);
     let height = u16::try_from(jobs.len()).unwrap_or(u16::MAX).saturating_mul(ROWS_PER_JOB) + BORDER_ROWS + 1;
     let rect = centered(screen, width, height.min(screen.height));
-    let inner = frame(JOBS_TITLE, Some(JOBS_HINT), look, rect, buf);
+    let inner = frame(tr!(job_view_jobs), Some(tr!(p_pause_c_cancel_esc_close)), look, rect, buf);
     let text_width = usize::from(inner.width);
     let accent = look.accent();
     for (index, (job, y)) in jobs.iter().zip((inner.y..).step_by(usize::from(ROWS_PER_JOB))).enumerate() {

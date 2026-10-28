@@ -17,9 +17,6 @@ const LINE_DOWN: isize = 1;
 const PAGE_UP: isize = -1;
 const PAGE_DOWN: isize = 1;
 const SELECT_ALL: &str = "*";
-const SHELL_NOT_READY: &str = tr!(shell_is_busy_finish_or_clear_the);
-const NOTHING_SELECTED: &str = tr!(nothing_selected);
-const QUIT_TITLE: &str = tr!(quit);
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
     let side = state.active;
@@ -186,11 +183,11 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::DeleteOriginals => confirm_delete(state),
         Action::Quit => {
             state.overlay = Some(Overlay::Confirm(Confirm {
-                title: QUIT_TITLE,
+                title: tr!(quit),
                 message: if state.jobs.is_empty() && !state.docker.shells.is_empty() {
                     match state.docker.shells.len() {
                         1 => tr!(quit_shells_one).into(),
-                        count => format!(tr!(quit_shells_many), count = count),
+                        count => tr!(quit_shells_many, count = count),
                     }
                 } else if state.jobs.is_empty() {
                     tr!(quit_borg_commander).into()
@@ -198,7 +195,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                     if state.jobs.len() == 1 {
                         tr!(quit_jobs_one).into()
                     } else {
-                        format!(tr!(quit_jobs_many), count = state.jobs.len())
+                        tr!(quit_jobs_many, count = state.jobs.len())
                     }
                 },
                 purpose: ConfirmPurpose::Quit,
@@ -308,6 +305,11 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             vec![Effect::SaveConfig]
         }
         Action::Git(tool) => crate::plugins::run(state, tool),
+        Action::PickLanguage => {
+            let current = state.settings.preferences.language as usize;
+            state.overlay = Some(Overlay::Languages(Picker { selected: current, original: current }));
+            Vec::new()
+        }
         Action::PickTheme => {
             let current = state.appearance.current();
             state.overlay = Some(Overlay::Themes(Picker { selected: current, original: current }));
@@ -337,8 +339,8 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             let destination = to
                 .as_ref()
                 .map(|mount| {
-                    format!(
-                        tr!(remote_copy_host),
+                    tr!(
+                        remote_copy_host,
                         machine = state.remote_host_name(&mount.machine),
                         session = state.remote_session_name(&mount.machine, &mount.session, &mount.name)
                     )
@@ -346,7 +348,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 .unwrap_or_else(|| tr!(remote_copy_client).into());
             let effects = transfer(state, tr!(copy), |sources| PromptPurpose::RemoteCopy { sources, from, to });
             if let Some(Overlay::Prompt(prompt)) = &mut state.overlay {
-                prompt.label = format!(tr!(remote_copy_label), label = prompt.label, destination = destination);
+                prompt.label = tr!(remote_copy_label, label = prompt.label, destination = destination);
             }
             effects
         }
@@ -615,7 +617,7 @@ fn edit(state: &mut AppState) -> Vec<Effect> {
 
 fn interactive(state: &mut AppState, command: &CommandLine) -> Vec<Effect> {
     if !shell_ready(state) {
-        state.notice = Some(SHELL_NOT_READY.to_owned());
+        state.notice = Some(tr!(shell_is_busy_finish_or_clear_the).to_owned());
         return Vec::new();
     }
     let mut effects = prepare_shell(state);
@@ -633,11 +635,11 @@ fn transfer(
 ) -> Vec<Effect> {
     let sources = crate::selected_paths(state.active_panel());
     if sources.is_empty() {
-        state.notice = Some(NOTHING_SELECTED.to_owned());
+        state.notice = Some(tr!(nothing_selected).to_owned());
         return Vec::new();
     }
-    let label = format!(
-        tr!(transfer_to),
+    let label = tr!(
+        transfer_to,
         title = title,
         selection = if state.active_panel().is_results() {
             describe_result_selection(state.active_panel(), &sources)
@@ -652,11 +654,11 @@ fn transfer(
 fn confirm_delete(state: &mut AppState) -> Vec<Effect> {
     let sources = crate::selected_paths(state.active_panel());
     if sources.is_empty() {
-        state.notice = Some(NOTHING_SELECTED.to_owned());
+        state.notice = Some(tr!(nothing_selected).to_owned());
         return Vec::new();
     }
-    let message = format!(
-        tr!(delete_permanently),
+    let message = tr!(
+        delete_permanently,
         if state.active_panel().is_results() {
             describe_result_selection(state.active_panel(), &sources)
         } else {
@@ -676,20 +678,14 @@ fn compress(state: &mut AppState) -> Vec<Effect> {
     let sources = selected_names(state.active_panel());
     let stem = match sources.as_slice() {
         [] => {
-            state.notice = Some(NOTHING_SELECTED.to_owned());
+            state.notice = Some(tr!(nothing_selected).to_owned());
             return Vec::new();
         }
         [single] => single.clone(),
         _ => state.active_panel().dir().file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
     };
     let default = format!("{stem}{DEFAULT_ARCHIVE_SUFFIX}");
-    prompt(
-        state,
-        tr!(compress),
-        &format!(tr!(archive_as), describe(&sources)),
-        &default,
-        PromptPurpose::Compress { sources },
-    )
+    prompt(state, tr!(compress), &tr!(archive_as, describe(&sources)), &default, PromptPurpose::Compress { sources })
 }
 
 fn extract(state: &mut AppState, dest: &Path, now: Instant) -> Vec<Effect> {
@@ -707,7 +703,7 @@ pub(crate) fn run_operation(
     now: Instant,
 ) -> Vec<Effect> {
     if !shell_ready(state) {
-        state.notice = Some(SHELL_NOT_READY.to_owned());
+        state.notice = Some(tr!(shell_is_busy_finish_or_clear_the).to_owned());
         return Vec::new();
     }
     let mut effects = prepare_shell(state);
@@ -727,7 +723,7 @@ pub(crate) fn run_operation(
 pub(crate) fn describe(names: &[String]) -> String {
     match names {
         [single] => format!("\"{single}\""),
-        many => format!(tr!(items), many.len()),
+        many => tr!(items, many.len()),
     }
 }
 
@@ -739,5 +735,5 @@ fn describe_result_selection(panel: &Panel, paths: &[std::path::PathBuf]) -> Str
     let description = describe_paths(paths);
     let hidden =
         panel.results.as_ref().map_or(0, |results| panel.marked().filter(|entry| !results.matches(entry)).count());
-    if hidden > 0 { format!(tr!(hidden_by_filter), description = description, hidden = hidden) } else { description }
+    if hidden > 0 { tr!(hidden_by_filter, description = description, hidden = hidden) } else { description }
 }

@@ -166,8 +166,8 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
             }
             state.overlay = Some(Overlay::Confirm(crate::Confirm {
                 title: tr!(remote_session_delete_title),
-                message: format!(
-                    tr!(remote_session_delete_confirm),
+                message: tr!(
+                    remote_session_delete_confirm,
                     session = choice.session_name(),
                     machine = choice.host_name()
                 ),

@@ -64,6 +64,7 @@ pub enum Action {
     About,
     OpenFileMenu,
     PickTheme,
+    PickLanguage,
     Settings,
     Plugins,
     ToggleGitPlugin,
@@ -131,14 +132,14 @@ pub struct Binding {
     pub modifiers: KeyModifiers,
     pub action: Action,
     pub scope: Scope,
-    pub label: Option<&'static str>,
+    pub label: Option<borg_i18n::Message>,
 }
 
 const fn bind(code: KeyCode, modifiers: KeyModifiers, action: Action, scope: Scope) -> Binding {
     Binding { code, modifiers, action, scope, label: None }
 }
 
-const fn labeled(binding: Binding, label: &'static str) -> Binding {
+const fn labeled(binding: Binding, label: borg_i18n::Message) -> Binding {
     Binding { label: Some(label), ..binding }
 }
 
@@ -176,17 +177,17 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('k'), ALT, Action::Collect, Scope::Panels),
     bind(KeyCode::Char('v'), ALT, Action::OpenCollection, Scope::Panels),
     bind(KeyCode::Char('w'), ALT, Action::ToggleExpanded, Scope::Panels),
-    labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), tr!(help)),
-    labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), tr!(file)),
-    labeled(bind(KeyCode::F(3), NONE, Action::View, Scope::Panels), tr!(view)),
-    labeled(bind(KeyCode::F(4), NONE, Action::Edit, Scope::Panels), tr!(edit)),
-    labeled(bind(KeyCode::F(5), NONE, Action::Copy, Scope::Panels), tr!(copy)),
-    labeled(bind(KeyCode::F(6), NONE, Action::Move, Scope::Panels), tr!(move)),
-    labeled(bind(KeyCode::F(7), NONE, Action::Mkdir, Scope::Panels), tr!(mkdir)),
-    labeled(bind(KeyCode::F(8), NONE, Action::Delete, Scope::Panels), tr!(delete)),
-    labeled(bind(KeyCode::F(9), NONE, Action::OpenMenuBar, Scope::Panels), tr!(menu)),
-    labeled(bind(KeyCode::F(10), NONE, Action::Quit, Scope::Panels), tr!(quit)),
-    labeled(bind(KeyCode::Char('o'), CTRL, Action::ToggleShell, Scope::Anywhere), tr!(shell)),
+    labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), tr!(@ help)),
+    labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), tr!(@ file)),
+    labeled(bind(KeyCode::F(3), NONE, Action::View, Scope::Panels), tr!(@ view)),
+    labeled(bind(KeyCode::F(4), NONE, Action::Edit, Scope::Panels), tr!(@ edit)),
+    labeled(bind(KeyCode::F(5), NONE, Action::Copy, Scope::Panels), tr!(@ copy)),
+    labeled(bind(KeyCode::F(6), NONE, Action::Move, Scope::Panels), tr!(@ move)),
+    labeled(bind(KeyCode::F(7), NONE, Action::Mkdir, Scope::Panels), tr!(@ mkdir)),
+    labeled(bind(KeyCode::F(8), NONE, Action::Delete, Scope::Panels), tr!(@ delete)),
+    labeled(bind(KeyCode::F(9), NONE, Action::OpenMenuBar, Scope::Panels), tr!(@ menu)),
+    labeled(bind(KeyCode::F(10), NONE, Action::Quit, Scope::Panels), tr!(@ quit)),
+    labeled(bind(KeyCode::Char('o'), CTRL, Action::ToggleShell, Scope::Anywhere), tr!(@ shell)),
     bind(KeyCode::Tab, NONE, Action::SwitchPanel, Scope::PanelsEmptyLine),
     bind(KeyCode::Up, NONE, Action::Up, Scope::Panels),
     bind(KeyCode::Down, NONE, Action::Down, Scope::Panels),

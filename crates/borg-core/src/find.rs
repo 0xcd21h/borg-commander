@@ -107,7 +107,7 @@ pub(crate) fn on_key(state: &mut AppState, mut find: Find, key: &KeyEvent) -> Ve
         KeyCode::Char(ALL_KEY) if ctrl => {
             let query = Query::parse(find.input.text());
             let count = state.panel_mut(find.side).mark_where(|entry| query.accepts(entry), true);
-            state.notice = Some(format!(tr!(marked_count), count = count));
+            state.notice = Some(tr!(marked_count, count = count));
         }
         _ => {
             if find.input.apply(key) == Edit::Changed {

@@ -82,7 +82,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         Ok(true) => {}
         Ok(false) => close(state),
         Err(error) => {
-            state.notice = Some(format!(tr!(viewer_error), error = error));
+            state.notice = Some(tr!(viewer_error, error = error));
             state.viewer = None;
         }
     }
@@ -129,7 +129,7 @@ pub(crate) fn resize(state: &mut AppState) {
         Content::Image(_) => None,
     });
     if let Some(error) = failed {
-        state.notice = Some(format!(tr!(viewer_error), error = error));
+        state.notice = Some(tr!(viewer_error, error = error));
         state.viewer = None;
     }
 }

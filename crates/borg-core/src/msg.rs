@@ -244,6 +244,7 @@ pub enum Effect {
         path: PathBuf,
     },
     SaveConfig,
+    SetLanguage(borg_i18n::Locale),
     StartJob {
         id: u64,
         spec: Spec,

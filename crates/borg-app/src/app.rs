@@ -164,7 +164,7 @@ impl App {
                 crate::link::servers(dir.path()).into_iter().map(|server| (server.name, server.key)).collect();
             match crate::remote_names::load(dir.path()) {
                 Ok(names) => state.remote_names = names,
-                Err(error) => state.notice = Some(format!(tr!(remote_names_error), error = error)),
+                Err(error) => state.notice = Some(tr!(remote_names_error, error = error)),
             }
         }
         if let Some(target) = &launch.remote {
@@ -192,7 +192,7 @@ impl App {
                 Ok(collections) => state.collections = collections,
                 Err(error) => {
                     collections_writable = false;
-                    state.notice = Some(format!(tr!(collections_load_error), error = error));
+                    state.notice = Some(tr!(collections_load_error, error = error));
                 }
             }
         }
@@ -552,7 +552,7 @@ impl App {
     fn write_console(&mut self, bytes: Vec<u8>) -> Result<()> {
         if let borg_core::Console::Remote { machine, session } = &self.console {
             if let Err(error) = self.remote_consoles.write(&(machine.clone(), session.clone()), bytes) {
-                self.state.notice = Some(format!(tr!(remote_console_error), machine = machine, error = error));
+                self.state.notice = Some(tr!(remote_console_error, machine = machine, error = error));
             }
         } else {
             let (emulator, pty) = self.local_console();
@@ -587,7 +587,7 @@ impl App {
                 if self.remote_consoles.screen(&key).is_none() {
                     return Ok(Flow::Continue);
                 }
-                let error = format!(tr!(remote_console_error), machine = key.0, error = error);
+                let error = tr!(remote_console_error, machine = key.0, error = error);
                 self.dispatch(Msg::RemoteConsoleClosed { machine: key.0.clone(), session: key.1.clone(), error })?;
                 self.remote_consoles.close(&key);
                 Ok(Flow::Continue)
@@ -612,7 +612,7 @@ impl App {
         if input.events.is_empty() && input.reply.is_none() {
             self.state.notice = Some(match self.native_mirror.controller() {
                 Some(origin) => {
-                    format!(tr!(mirror_remote_control), computer = origin.split(" [").next().unwrap_or(&origin))
+                    tr!(mirror_remote_control, computer = origin.split(" [").next().unwrap_or(&origin))
                 }
                 None => tr!(mirror_control_released).into(),
             });
@@ -1081,7 +1081,7 @@ impl App {
                 let (summary, place) = match &spot {
                     Spot::Host(path) => (agent::home_relative(path), String::new()),
                     Spot::Container { name, path, .. } => {
-                        (path.display().to_string(), format!(tr!(agent_container_place), name = name))
+                        (path.display().to_string(), tr!(agent_container_place, name = name))
                     }
                 };
                 let kind = if before.is_some() { AskKind::Edit } else { AskKind::Create };
@@ -1229,10 +1229,7 @@ impl App {
                 Ok(size) => Reply::ok(format!("Uploaded {uri} ({size} bytes)")),
                 Err(error) => Reply::error(format!("{uri}: {error:#}")),
             }));
-            drop(
-                messages
-                    .send(Msg::Agent(AgentEvent::Finished { id: 0, notice: format!(tr!(agent_wrote), path = uri) })),
-            );
+            drop(messages.send(Msg::Agent(AgentEvent::Finished { id: 0, notice: tr!(agent_wrote, path = uri) })));
         });
         Ok(Flow::Continue)
     }
@@ -1510,8 +1507,8 @@ impl App {
                     let messages = self.messages.clone();
                     tokio::task::spawn_blocking(move || {
                         let notice = match crate::activity::export(&path, &bytes) {
-                            Ok(()) => format!(tr!(activity_exported), path = path.display()),
-                            Err(error) => format!(tr!(activity_export_error), error = error),
+                            Ok(()) => tr!(activity_exported, path = path.display()),
+                            Err(error) => tr!(activity_export_error, error = error),
                         };
                         let _ = messages.send(Msg::Notice(notice));
                     });
@@ -1520,7 +1517,7 @@ impl App {
                     if let (Some(dir), Some(game)) = (&self.state_dir, &self.state.game2048)
                         && let Err(error) = dir.save_game2048(game)
                     {
-                        self.state.notice = Some(format!(tr!(game2048_save_error), error = error));
+                        self.state.notice = Some(tr!(game2048_save_error, error = error));
                     }
                 }
                 Effect::Search { side, generation, request } => self.search.search(side, generation, request),
@@ -1536,7 +1533,7 @@ impl App {
                     if let Some(dir) = &self.state_dir
                         && let Err(error) = dir.save_collections(&self.state.collections)
                     {
-                        self.state.notice = Some(format!(tr!(collections_save_error), error = error));
+                        self.state.notice = Some(tr!(collections_save_error, error = error));
                     }
                 }
                 Effect::List { side, generation, dir } => {
@@ -1598,7 +1595,7 @@ impl App {
                             .and_then(|state| {
                                 crate::remote_names::rename(state.path(), &identity, session.as_deref(), &name)
                             })
-                            .map_err(|error| format!(tr!(remote_names_error), error = error));
+                            .map_err(|error| tr!(remote_names_error, error = error));
                         let _ = messages.send(Msg::RemoteNames(result));
                     });
                 }
@@ -1610,7 +1607,7 @@ impl App {
                     self.remote_catalog = Some(tokio::spawn(async move {
                         if let Some(dir) = StateDir::locate() {
                             let names = crate::remote_names::load(dir.path())
-                                .map_err(|error| format!(tr!(remote_names_error), error = error));
+                                .map_err(|error| tr!(remote_names_error, error = error));
                             let _ = messages.send(Msg::RemoteNames(names));
                         }
                         let hosts = crate::remote::catalog(|choices, complete| {
@@ -1660,6 +1657,7 @@ impl App {
                 }
                 Effect::View(path) => self.open_viewer(path),
                 Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),
+                Effect::SetLanguage(locale) => borg_i18n::set_locale(locale),
                 Effect::SaveConfig => self.save_config(),
                 Effect::StartJob { id, spec } => self.start_job(id, spec),
                 Effect::StartRemoteCopy { id, from, to, sources, target } => {

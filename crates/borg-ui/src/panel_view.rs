@@ -26,8 +26,6 @@ const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
 const GIT_WIDTH: u16 = 2;
 const NO_MARKER: char = ' ';
-const FIND_LABEL: &str = tr!(panel_find);
-const FIND_HINT: &str = tr!(panel_find_hint);
 const FIND_FIELD: usize = 18;
 const FIND_PAD: usize = 1;
 pub(crate) const ICON_GAP: char = ' ';
@@ -42,10 +40,7 @@ const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const CONTAINER_MARK: char = '▣';
 const PARENT_NAME: &str = "..";
-const PARENT_LABEL: &str = tr!(up);
-const DIR_LABEL: &str = tr!(dir);
 const COLUMN_SEPARATOR: &str = "│";
-const EMPTY_CAPTION: &str = tr!(panel_empty);
 const LEFT_CAP: char = '▐';
 const RIGHT_CAP: char = '▌';
 const GLOW_FALLOFF: f32 = 0.5;
@@ -57,7 +52,6 @@ const STAR_PACE: f32 = 0.35;
 const SEVEN: usize = 7;
 const NINE: usize = 9;
 const ASSIMILATE_FROM: usize = 2;
-const SEVEN_OF_NINE: &str = tr!(seven_of_nine);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Activity {
@@ -159,7 +153,7 @@ pub fn draw_panel(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     }
     scene.find.map(|(find, _)| {
         let typed: String = find.input.text().chars().take(find.input.cursor_chars()).collect();
-        let column = FIND_LABEL.width() + FIND_PAD + typed.width() + 1;
+        let column = tr!(panel_find).width() + FIND_PAD + typed.width() + 1;
         Position::new(area.x + u16::try_from(column).unwrap_or(u16::MAX), area.bottom().saturating_sub(1))
     })
 }
@@ -171,17 +165,18 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
     let text = find.input.text();
     let count = if text.is_empty() { String::new() } else { format!(" {current}/{total} ") };
     let count_style = if total == 0 && !text.is_empty() { styles.notice } else { styles.footer };
-    let field =
-        (text.width() + FIND_PAD * 2 + 1).max(FIND_FIELD).min(room.saturating_sub(FIND_LABEL.width() + count.width()));
+    let field = (text.width() + FIND_PAD * 2 + 1)
+        .max(FIND_FIELD)
+        .min(room.saturating_sub(tr!(panel_find).width() + count.width()));
     let input = format!("{:pad$}{text}", "", pad = FIND_PAD);
     let mut spans = vec![
-        Span::styled(FIND_LABEL, styles.cursor),
-        Span::styled(format!("{input:<field$}"), styles.input),
+        Span::styled(tr!(panel_find), styles.cursor),
+        Span::styled(format::pad_end(&input, field), styles.input),
         Span::styled(count, count_style),
     ];
     let used: usize = spans.iter().map(Span::width).sum();
-    if used + FIND_HINT.width() <= room {
-        spans.push(Span::styled(FIND_HINT, styles.footer));
+    if used + tr!(panel_find_hint).width() <= room {
+        spans.push(Span::styled(tr!(panel_find_hint), styles.footer));
     }
     Line::from(spans)
 }
@@ -226,14 +221,14 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     if marked > 0 && scene.activity.is_none() {
         let bytes: u64 = panel.marked().filter(|e| !e.is_dir()).map(|e| e.size).sum();
         let summary = if bytes > 0 {
-            format!(tr!(marked), format::size(bytes), marked = marked)
+            tr!(marked, format::size(bytes), marked = marked)
         } else {
-            format!(tr!(marked_total), marked = marked)
+            tr!(marked_total, marked = marked)
         };
         let egg = match (marked, total) {
-            (SEVEN, NINE) => Some(SEVEN_OF_NINE.to_owned()),
+            (SEVEN, NINE) => Some(tr!(seven_of_nine).to_owned()),
             (marked, total) if marked == total && total >= ASSIMILATE_FROM => {
-                Some(format!(tr!(all_assimilated), format::size(bytes), total = total))
+                Some(tr!(all_assimilated, format::size(bytes), total = total))
             }
             _ => None,
         };
@@ -247,10 +242,10 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
     };
     let line = match (scene.spinner, &scene.activity, panel.listing()) {
         (Some(spinner), Some(activity), _) => spinning(spinner, activity.label.clone()),
-        (Some(spinner), None, _) if panel.loading() => spinning(spinner, format!(tr!(loading), panel.received())),
+        (Some(spinner), None, _) if panel.loading() => spinning(spinner, tr!(loading, panel.received())),
         (_, _, Listing::Ready | Listing::Loading) => {
             let git = if let Some(repository) = panel.git_repository() {
-                format!(tr!(panel_view_git), repository.branch)
+                tr!(panel_view_git, repository.branch)
             } else if panel.git.error.is_some() {
                 tr!(git_unavailable).into()
             } else {
@@ -332,7 +327,7 @@ fn draw_empty(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, buf: &mut Buf
         fx::draw_stars(buf, art, drift.as_secs_f32() * STAR_PACE, look.background());
     }
     let caption = Rect { y: art.y + art.height / 2, height: 1, ..art };
-    Line::styled(EMPTY_CAPTION, look.styles().meta).centered().render(caption, buf);
+    Line::styled(tr!(panel_empty), look.styles().meta).centered().render(caption, buf);
 }
 
 fn visible<'p>(panel: &'p Panel, scroll: usize) -> impl Iterator<Item = (usize, usize, Row<'p>)> {
@@ -515,11 +510,11 @@ fn draw_full_row(
     buf: &mut Buffer,
 ) {
     let (size, date) = match row {
-        Row::Parent | Row::Group { .. } => (PARENT_LABEL.to_owned(), String::new()),
+        Row::Parent | Row::Group { .. } => (tr!(up).to_owned(), String::new()),
         Row::Entry(entry) => (
             if entry.is_dir() {
                 entry.usage.as_ref().map_or_else(
-                    || DIR_LABEL.to_owned(),
+                    || tr!(dir).to_owned(),
                     |u| {
                         format!(
                             "{}{}{}",

@@ -2430,3 +2430,22 @@ fn regular_mirror_host_shows_remote_control_and_local_reclamation() -> Result<()
     let buffer = stage.render(stage.started)?;
     check("regular_mirror_local_control", &stage, buffer)
 }
+
+#[test]
+fn translated_panels_language_picker_and_confirmation() -> Result<()> {
+    for locale in borg_i18n::Locale::ALL.into_iter().skip(1) {
+        let mut stage = stage(GridSize { cols: 110, rows: 28 }, Motion::STILL)?;
+        stage.state.settings.preferences.language = locale;
+        let buffer = stage.render(stage.started)?;
+        check(&format!("locale_{}_panels", locale.code()), &stage, buffer)?;
+        stage.send(Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::PickLanguage)));
+        let buffer = stage.render(stage.started)?;
+        ensure_text(&buffer, locale.name())?;
+        check(&format!("locale_{}_language_picker", locale.code()), &stage, buffer)?;
+        stage.send(key(KeyCode::Esc));
+        stage.send(key(KeyCode::F(10)));
+        let buffer = stage.render(stage.started)?;
+        check(&format!("locale_{}_quit", locale.code()), &stage, buffer)?;
+    }
+    Ok(())
+}

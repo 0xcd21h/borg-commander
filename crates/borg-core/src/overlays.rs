@@ -30,6 +30,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
         Some(Overlay::Settings { selected } | Overlay::Plugins { selected }) => on_settings(state, selected, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
+        Some(Overlay::Languages(picker)) => on_languages(state, picker, key),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
@@ -206,7 +207,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
                 Ok(pattern) => {
                     let side = state.active;
                     let count = state.panel_mut(side).mark_matching(&pattern, mark);
-                    state.notice = (count == 0).then(|| format!(tr!(nothing_matches), text = text));
+                    state.notice = (count == 0).then(|| tr!(nothing_matches, text = text));
                 }
                 Err(error) => state.notice = Some(error.to_string()),
             }
@@ -229,7 +230,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
                 run_operation(state, tr!(overlays_compress), &command, Some(text.to_owned()), now)
             }
             None => {
-                state.notice = Some(format!(tr!(unknown_archive_type_for_try_tar_gz), text = text));
+                state.notice = Some(tr!(unknown_archive_type_for_try_tar_gz, text = text));
                 Vec::new()
             }
         },
@@ -317,5 +318,28 @@ fn on_settings(state: &mut AppState, selected: usize, key: &KeyEvent, now: Insta
     };
     state.overlay =
         Some(if plugins { Overlay::Plugins { selected: next } } else { Overlay::Settings { selected: next } });
+    Vec::new()
+}
+
+fn on_languages(state: &mut AppState, mut picker: Picker, key: &KeyEvent) -> Vec<Effect> {
+    let last = borg_i18n::Locale::ALL.len() - 1;
+    match key.code {
+        KeyCode::Up => picker.selected = picker.selected.saturating_sub(1),
+        KeyCode::Down => picker.selected = (picker.selected + 1).min(last),
+        KeyCode::Home => picker.selected = 0,
+        KeyCode::End => picker.selected = last,
+        KeyCode::Enter => {
+            let language = borg_i18n::Locale::ALL[picker.selected];
+            state.settings.preferences.language = language;
+            state.overlay = None;
+            return vec![Effect::SetLanguage(language), Effect::SaveConfig];
+        }
+        KeyCode::Esc => {
+            state.overlay = None;
+            return Vec::new();
+        }
+        _ => {}
+    }
+    state.overlay = Some(Overlay::Languages(picker));
     Vec::new()
 }

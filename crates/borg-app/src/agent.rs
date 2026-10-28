@@ -271,8 +271,8 @@ impl Typed {
         note(messages, &format!("ran in {}\n$ {}\n[{status}]", self.place, self.command));
         let _ = self.reply.send(Reply { ok: exit.is_none_or(|code| code == 0), text: format!("{status}\n{output}") });
         let notice = match exit {
-            Some(code) => format!(tr!(agent_ran), command = self.command, code = code),
-            None => format!(tr!(agent_stopped), command = self.command),
+            Some(code) => tr!(agent_ran, command = self.command, code = code),
+            None => tr!(agent_stopped, command = self.command),
         };
         let _ = messages.send(Msg::Agent(AgentEvent::Finished { id: self.id, notice }));
     }
@@ -280,7 +280,7 @@ impl Typed {
     /// Answers that the command did not run.
     pub fn fail(self, text: &str, messages: &UnboundedSender<Msg>) {
         let _ = self.reply.send(Reply::error(text));
-        let notice = format!(tr!(agent_stopped), command = self.command);
+        let notice = tr!(agent_stopped, command = self.command);
         let _ = messages.send(Msg::Agent(AgentEvent::Finished { id: self.id, notice }));
     }
 }
@@ -367,8 +367,8 @@ impl Agent {
             note(&messages, &format!("ran in {}\n$ {command}\n{output}[{status}]", home_relative(&dir)));
             let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
             let notice = match exit {
-                Some(code) => format!(tr!(agent_ran), command = command, code = code),
-                None => format!(tr!(agent_stopped), command = command),
+                Some(code) => tr!(agent_ran, command = command, code = code),
+                None => tr!(agent_stopped, command = command),
             };
             let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, notice }));
         });
@@ -392,9 +392,9 @@ impl Agent {
                     let lines = after.lines().count();
                     let done = if before.is_some() { "Edited" } else { "Created" };
                     note(&messages, &format!("{} {uri}", done.to_lowercase()));
-                    (format!("{done} {uri} ({lines} lines)"), format!(tr!(agent_wrote), path = uri))
+                    (format!("{done} {uri} ({lines} lines)"), tr!(agent_wrote, path = uri))
                 }
-                Err(error) => (format!("{error:#}"), format!(tr!(agent_write_failed), path = uri)),
+                Err(error) => (format!("{error:#}"), tr!(agent_write_failed, path = uri)),
             };
             let _ = reply.send(Reply { ok: result.is_ok(), text: reply_text });
             let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, notice }));
@@ -416,9 +416,9 @@ pub fn home_relative(dir: &Path) -> String {
 pub fn place(target: &Target) -> String {
     match target {
         Target::Host(dir) => home_relative(dir),
-        Target::Container { name, dir: None, .. } => format!(tr!(agent_container_place), name = name),
+        Target::Container { name, dir: None, .. } => tr!(agent_container_place, name = name),
         Target::Container { name, dir: Some(dir), .. } => {
-            format!(tr!(agent_container_folder_place), dir = dir.display(), name = name)
+            tr!(agent_container_folder_place, dir = dir.display(), name = name)
         }
     }
 }

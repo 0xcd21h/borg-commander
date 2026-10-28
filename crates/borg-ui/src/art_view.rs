@@ -17,11 +17,6 @@ use crate::{
     look::Look,
 };
 
-const SUBTITLE: &str = tr!(about_subtitle);
-const TAGLINE: &str = tr!(resistance_is_futile);
-const ABOUT_TITLE: &str = tr!(about);
-const ABOUT_HINT: &str = tr!(about_keys);
-const CONNECT_LINE: &str = tr!(about_connect);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SAVER_CUBE: (u16, u16) = (56, 22);
 const ABOUT_CUBE: (u16, u16) = (18, 8);
@@ -65,7 +60,7 @@ pub fn draw_screensaver(look: &Look<'_>, saver: Saver, area: Rect, buf: &mut Buf
     fill(buf, area, look);
     let background = look.background();
     if saver == Saver::Glitch {
-        fx::draw_glitch_screen(buf, area, look.t, look.accent(), background, SUBTITLE);
+        fx::draw_glitch_screen(buf, area, look.t, look.accent(), background, tr!(about_subtitle));
         return;
     }
     fx::draw_stars(buf, area, look.t, background);
@@ -77,7 +72,7 @@ pub fn draw_screensaver(look: &Look<'_>, saver: Saver, area: Rect, buf: &mut Buf
 /// The startup intro: the glitching logo settles over a plain screen.
 pub fn draw_intro(look: &Look<'_>, elapsed: f32, area: Rect, buf: &mut Buffer) {
     fill(buf, area, look);
-    fx::draw_glitch_intro(buf, area, elapsed, INTRO_SETTLE, look.accent(), look.background(), SUBTITLE);
+    fx::draw_glitch_intro(buf, area, elapsed, INTRO_SETTLE, look.accent(), look.background(), tr!(about_subtitle));
 }
 
 pub fn draw_rain_backdrop(look: &Look<'_>, area: Rect, buf: &mut Buffer) {
@@ -96,8 +91,8 @@ pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
         .border_type(look.theme.border.into())
         .style(styles.overlay)
         .border_style(styles.overlay_border)
-        .title(Line::styled(ABOUT_TITLE, styles.overlay_border).centered())
-        .title_bottom(Line::styled(ABOUT_HINT, styles.overlay).centered());
+        .title(Line::styled(tr!(about), styles.overlay_border).centered())
+        .title_bottom(Line::styled(tr!(about_keys), styles.overlay).centered());
     let inner = block.inner(rect);
     block.render(rect, buf);
     let background = look.bg(styles.overlay);
@@ -114,26 +109,25 @@ pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
     fx::draw_glitch(buf, (right.x, logo_y), inner, heat, look.t, accent, background);
     let info_y = logo_y + GLITCH_HEIGHT + TEXT_GAP;
     let meta = styles.overlay.fg(look.fg(styles.meta).into());
-    Line::styled(SUBTITLE, meta).render(Rect { y: info_y, height: 1, ..right }, buf);
-    Line::styled(format!(tr!(about_version), VERSION = VERSION), meta)
-        .render(Rect { y: info_y + 1, height: 1, ..right }, buf);
+    Line::styled(tr!(about_subtitle), meta).render(Rect { y: info_y, height: 1, ..right }, buf);
+    Line::styled(tr!(about_version, VERSION = VERSION), meta).render(Rect { y: info_y + 1, height: 1, ..right }, buf);
 
     let keys_y = cube.bottom() + TEXT_GAP;
     let keys = Rect { x: inner.x + PADDING, y: keys_y, width: inner.width.saturating_sub(PADDING * 2), height: 1 };
     let reference: Vec<String> = KEYMAP
         .iter()
-        .filter_map(|binding| Some(format!("{} {}", key_name(binding.code, binding.modifiers), binding.label?)))
+        .filter_map(|binding| Some(format!("{} {}", key_name(binding.code, binding.modifiers), binding.label?.text())))
         .collect();
     let mut rows = 0;
     for (row, chunk) in (0u16..).zip(reference.chunks(KEY_COLUMNS)) {
         let line: String =
-            chunk.iter().map(|item| format!("{:<KEY_SLOT$}", format::truncate_end(item, KEY_SLOT))).collect();
+            chunk.iter().map(|item| format::pad_end(&format::truncate_end(item, KEY_SLOT), KEY_SLOT)).collect();
         Line::styled(line, styles.overlay).render(Rect { y: keys.y + row, ..keys }, buf);
         rows = row + 1;
     }
-    Line::styled(CONNECT_LINE, styles.overlay).render(Rect { y: keys.y + rows + TEXT_GAP, ..keys }, buf);
+    Line::styled(tr!(about_connect), styles.overlay).render(Rect { y: keys.y + rows + TEXT_GAP, ..keys }, buf);
 
     let tagline_y = inner.bottom().saturating_sub(2);
-    text(buf, inner, tagline_y, TAGLINE, accent);
+    text(buf, inner, tagline_y, tr!(resistance_is_futile), accent);
     rect
 }

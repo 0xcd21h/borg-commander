@@ -60,12 +60,12 @@ pub(crate) fn collections(
         .title_bottom(tr!(pgup_pgdn_enter_open_f7_n_new))
         .render(area, buf);
     let inner = area.inner(ratatui::layout::Margin::new(2, 1));
-    write(buf, inner, 0, format!(tr!(collection_count), state.collections.len()), theme.styles.overlay);
+    write(buf, inner, 0, tr!(collection_count, state.collections.len()), theme.styles.overlay);
     write(
         buf,
         inner,
         1,
-        format!("{:<42} {:>9}   {}", tr!(collection), tr!(entries), tr!(file_size)),
+        format!("{} {}   {}", format::pad_end(tr!(collection), 42), format::pad_start(tr!(entries), 9), tr!(file_size)),
         theme.styles.menu,
     );
     let list = collection_list(screen);
@@ -104,8 +104,8 @@ pub(crate) fn collections(
             buf,
             inner,
             details,
-            format!(
-                tr!(references_folders_missing_or_not_checked),
+            tr!(
+                references_folders_missing_or_not_checked,
                 collection.entries.len(),
                 collection.entries.iter().filter(|e| e.is_dir()).count(),
                 missing

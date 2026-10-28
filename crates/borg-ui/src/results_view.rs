@@ -127,7 +127,7 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     let visible_paths: std::collections::HashSet<_> = panel.visible_entries().map(|e| e.identity()).collect();
     let visible = visible_paths.len();
     let hidden_marks = panel.marked().filter(|e| !visible_paths.contains(e.identity())).count();
-    let hidden = if hidden_marks > 0 { format!(tr!(hidden_marks), hidden_marks = hidden_marks) } else { String::new() };
+    let hidden = if hidden_marks > 0 { tr!(hidden_marks, hidden_marks = hidden_marks) } else { String::new() };
     let selected: std::collections::HashSet<_> = if panel.marked_count() > 0 {
         borg_core::selected_paths(panel).into_iter().collect()
     } else {
@@ -138,9 +138,9 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
         .filter(|entry| selected.contains(entry.identity()) && (!entry.is_dir() || entry.usage.is_some()))
         .fold(0u64, |total, entry| total.saturating_add(entry.size));
     let total_bytes = if marked_bytes > 0 { format!(" · {}", format::size(marked_bytes)) } else { String::new() };
-    let filter = if results.filter.is_empty() { String::new() } else { format!(tr!(filter), results.filter) };
-    let footer = format!(
-        tr!(items_marked),
+    let filter = if results.filter.is_empty() { String::new() } else { tr!(filter, results.filter) };
+    let footer = tr!(
+        items_marked,
         panel.entries().len(),
         panel.marked_count(),
         filter = filter,
@@ -172,8 +172,8 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
         ResultSource::Collection(_) => tr!(tab_switch_ins_ctrl_t_mark_ctrl).into(),
         ResultSource::Search { request, progress } => {
             if panel.is_size_view() && progress.cached {
-                let cached = format!(tr!(sizes_cached_at), time = format::modified(progress.measured, scene.clock));
-                if progress.limited { format!(tr!(sizes_limited), text = cached) } else { cached }
+                let cached = tr!(sizes_cached_at, time = format::modified(progress.measured, scene.clock));
+                if progress.limited { tr!(sizes_limited, text = cached) } else { cached }
             } else {
                 let state = if progress.cancelled {
                     tr!(cancelled)
@@ -184,8 +184,8 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
                 } else {
                     tr!(finished)
                 };
-                let summary = format!(
-                    tr!(scanned_skipped),
+                let summary = tr!(
+                    scanned_skipped,
                     progress.visited,
                     format::count(progress.errors, format::Count::Error),
                     progress.skipped,
@@ -197,7 +197,7 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
         }
     };
     let context =
-        if let Listing::Failed(error) = panel.listing() { format!(tr!(search_failed), error = error) } else { context };
+        if let Listing::Failed(error) = panel.listing() { tr!(search_failed, error = error) } else { context };
     text(buf, Rect { height: 1, ..inner }, &context, styles.footer);
     let (header, body) = geometry(scene.area);
     for (key, cell) in panel_columns(panel, header) {
@@ -320,7 +320,7 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
                         SortKey::Extension => String::new(),
                     };
                     let value = if key == SortKey::Size {
-                        format!("{:>width$}", value, width = usize::from(cell.width.saturating_sub(1)))
+                        format::pad_start(&value, usize::from(cell.width.saturating_sub(1)))
                     } else {
                         value
                     };
@@ -349,8 +349,8 @@ pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String
     match panel.hovered() {
         Some(Row::Entry(entry)) => {
             let totals = entry.usage.as_ref().map_or_else(String::new, |u| {
-                format!(
-                    tr!(files_folders_content_bytes),
+                tr!(
+                    files_folders_content_bytes,
                     u.files,
                     u.folders,
                     if u.partial { tr!(at_least) } else { "" },
@@ -359,11 +359,7 @@ pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String
             });
             let observation = entry.usage.as_ref().filter(|u| u.measured.is_some()).map_or_else(String::new, |u| {
                 let time = format::modified(u.measured, clock);
-                if u.cached {
-                    format!(tr!(sizes_cached_status), time = time)
-                } else {
-                    format!(tr!(sizes_measured_status), time = time)
-                }
+                if u.cached { tr!(sizes_cached_status, time = time) } else { tr!(sizes_measured_status, time = time) }
             });
             let suffix = format!("{}{totals}{observation}", if entry.missing { tr!(missing_original) } else { "" });
             let path = format::truncate_start(
@@ -373,7 +369,7 @@ pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String
             format!("{path}{suffix}")
         }
         Some(Row::Group { label, .. }) if panel.is_tree() => label.to_owned(),
-        Some(Row::Group { label, count, .. }) => format!(tr!(items_enter_folds_group), count = count, label = label),
+        Some(Row::Group { label, count, .. }) => tr!(items_enter_folds_group, count = count, label = label),
         _ => String::new(),
     }
 }

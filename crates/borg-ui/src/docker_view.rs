@@ -104,7 +104,7 @@ fn project_name(group: &DockerGroup) -> String {
 }
 
 fn running_of(group: &DockerGroup) -> String {
-    format!(tr!(docker_running_of), running = group.running, total = group.containers.len())
+    tr!(docker_running_of, running = group.running, total = group.containers.len())
 }
 
 /// Docker's times in the clock's zone, to the minute.
@@ -204,7 +204,7 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: Option<Spin
     }
     let running = docker.containers.iter().filter(|c| c.state == State::Running).count();
     if docker.loaded && docker.error.is_none() {
-        let summary = format!(tr!(docker_running_of), running = running, total = docker.containers.len());
+        let summary = tr!(docker_running_of, running = running, total = docker.containers.len());
         text(buf, row(inner, 0), summary, emphasis(theme));
     }
     filter_row(docker, look, row(inner, FILTER_ROW), buf);
@@ -318,11 +318,11 @@ fn filter_row(docker: &Docker, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
         if x < area.right() {
             buf[(x, area.y)].set_style(styles.input.add_modifier(Modifier::REVERSED));
         }
-        let hint = format!(tr!(activity_filter_typing), shown = shown, total = total);
+        let hint = tr!(activity_filter_typing, shown = shown, total = total);
         let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
         text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
     } else if !docker.filter.is_empty() {
-        let hint = format!(tr!(activity_filter_applied), shown = shown, total = total);
+        let hint = tr!(activity_filter_applied, shown = shown, total = total);
         Line::from(vec![
             Span::styled(label, styles.cursor),
             Span::styled(format!(" {} ", docker.filter), heading(theme)),
@@ -530,18 +530,10 @@ fn container_details(
                 details.finished.as_deref().map(|t| local(t, clock)).unwrap_or_default(),
             );
             let code = details.exit_code.to_string();
-            facts.add(
-                buf,
-                tr!(docker_exit_code),
-                if details.oom_killed { format!(tr!(docker_oom), code = code) } else { code },
-            );
+            facts.add(buf, tr!(docker_exit_code), if details.oom_killed { tr!(docker_oom, code = code) } else { code });
         }
         let policy = if details.restart_policy.is_empty() { "no" } else { &details.restart_policy };
-        facts.add(
-            buf,
-            tr!(docker_restarts),
-            format!(tr!(docker_restarts_value), policy = policy, count = details.restarts),
-        );
+        facts.add(buf, tr!(docker_restarts), tr!(docker_restarts_value, policy = policy, count = details.restarts));
     } else {
         facts.add(buf, tr!(docker_command), container.command.clone());
         text(buf, row(rest, facts.y), tr!(docker_reading), dim(theme));
@@ -680,7 +672,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
         for (rect, label, _) in typing_buttons(docker, row(area, 0)) {
             text(buf, rect, label, theme.styles.key);
         }
-        let hint = format!(tr!(docker_typing_hint), name = shell.name);
+        let hint = tr!(docker_typing_hint, name = shell.name);
         text(buf, crate::branding::content(row(area, 1)), hint, theme.styles.key_label);
         return;
     }
