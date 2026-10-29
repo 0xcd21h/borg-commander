@@ -135,7 +135,6 @@ mod tests {
             touched: Instant::now(),
         };
         let mut stats = 0;
-        let start = Instant::now();
         let mut names = std::collections::HashSet::new();
         loop {
             let (entries, done) = cursor.batch(128, Duration::from_secs(1), |path| {
@@ -149,28 +148,6 @@ mod tests {
         }
         assert_eq!(names.len(), 2048);
         assert_eq!(stats, 2048, "pagination must not repeat metadata syscalls");
-        let cursor_elapsed = start.elapsed();
-        let start = Instant::now();
-        let mut legacy_stats = 0;
-        let mut offset = 0;
-        loop {
-            let page = borg_vfs::entries(dir.path())
-                .unwrap()
-                .inspect(|_| legacy_stats += 1)
-                .skip(offset)
-                .take(129)
-                .collect::<Vec<_>>();
-            if page.len() <= 128 {
-                break;
-            }
-            offset += 128;
-        }
-        eprintln!(
-            "2048 entries: previous pagination {legacy_stats} metadata calls / {:?}; cursor {stats} calls / {:?}",
-            start.elapsed(),
-            cursor_elapsed
-        );
-        assert!(legacy_stats > stats * 8);
 
         cursor.reader = fs::read_dir(dir.path()).unwrap();
         let (entries, done) = cursor.batch(128, Duration::from_millis(5), |path| {

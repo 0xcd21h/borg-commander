@@ -345,26 +345,26 @@ fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize,
         if let Some(fill) = tone.fill {
             let pill = look.theme.effects.cursor == CursorShape::Pill && body.padded();
             buf.set_style(if pill { content } else { full }, fill);
-            cursor_row = Some((full, content, fill, pill));
+            cursor_row = Some(CursorRow { full, content, fill, pill });
         }
         draw_full_row(row, &columns, content, tone, scene, look, buf);
     }
-    if let Some((full, content, fill, pill)) = cursor_row {
-        paint_cursor(scene.active, full, content, fill, pill, body, look, buf);
+    if let Some(cursor) = cursor_row {
+        paint_cursor(scene.active, cursor, body, look, buf);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_cursor(
-    active: bool,
+/// The cursor row, kept while the other rows are drawn so its gradient, caps and glow go on top.
+#[derive(Clone, Copy)]
+struct CursorRow {
     full: Rect,
     content: Rect,
     fill: Style,
     pill: bool,
-    body: Body,
-    look: &Look<'_>,
-    buf: &mut Buffer,
-) {
+}
+
+fn paint_cursor(active: bool, cursor: CursorRow, body: Body, look: &Look<'_>, buf: &mut Buffer) {
+    let CursorRow { full, content, fill, pill } = cursor;
     let effects = look.theme.effects;
     let gradient = effects.cursor_gradient.filter(|_| active).map(|pair| look.gradient(pair));
     if let Some(gradient) = gradient {
@@ -499,7 +499,6 @@ impl Columns {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_full_row(
     row: Row<'_>,
     columns: &Columns,

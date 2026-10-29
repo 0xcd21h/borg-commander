@@ -1,3 +1,4 @@
+use crate::memory_search::Query;
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{
     ActivityData, ActivityRequest, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT, ProcessInfo, ProcessKey,
@@ -262,9 +263,8 @@ async fn inspect(
         ActivityRequest::Files { process, .. } => Ok(ActivityData::Files(process_files::list(process).await?)),
         ActivityRequest::Capture { process, region, .. } => Ok(ActivityData::Snapshot(capture(process, region).await?)),
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
-            search_memory(process, query, mode, match_case, snapshot, start, cancelled, messages)
-                .await
-                .map(ActivityData::Search)
+            let query = Query { text: query, mode, match_case };
+            search_memory(process, query, snapshot, start, cancelled, messages).await.map(ActivityData::Search)
         }
         ActivityRequest::Sample => bail!(tr!(activity_request_invalid)),
     }
@@ -332,18 +332,10 @@ pub async fn helper(args: &[String]) -> Result<()> {
             }
             let request: ActivityRequest = serde_json::from_str(&args[1])?;
             if let ActivityRequest::Search { process, query, mode, match_case, snapshot: None, start, .. } = request {
-                return search_memory(
-                    process,
-                    query,
-                    mode,
-                    match_case,
-                    None,
-                    start,
-                    Arc::new(AtomicBool::new(false)),
-                    None,
-                )
-                .await
-                .map(ActivityData::Search);
+                let query = Query { text: query, mode, match_case };
+                return search_memory(process, query, None, start, Arc::new(AtomicBool::new(false)), None)
+                    .await
+                    .map(ActivityData::Search);
             }
             bail!(tr!(activity_request_invalid));
         }
@@ -489,18 +481,15 @@ fn parse_smaps(text: &str) -> Vec<MemoryRegion> {
     regions
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn search_memory(
     process: ProcessKey,
-    query: String,
-    mode: borg_core::MemorySearchMode,
-    match_case: bool,
+    query: Query,
     snapshot: Option<MemorySnapshot>,
     start: Option<u64>,
     cancelled: Arc<AtomicBool>,
     messages: Option<(u64, UnboundedSender<Msg>)>,
 ) -> Result<borg_core::MemorySearchReport> {
-    crate::memory_search::validate(&query, mode)?;
+    crate::memory_search::validate(&query.text, query.mode)?;
     let maps = if let Some(snapshot) = &snapshot {
         if snapshot.process != process || snapshot.bytes.len() > SNAPSHOT_LIMIT {
             bail!(tr!(activity_request_invalid));
@@ -526,8 +515,6 @@ async fn search_memory(
                 process,
                 maps,
                 &query,
-                mode,
-                match_case,
                 start,
                 &cancelled,
                 |address, count| {
@@ -543,8 +530,6 @@ async fn search_memory(
                 process,
                 maps,
                 &query,
-                mode,
-                match_case,
                 start,
                 &cancelled,
                 |address, count| Ok(read_process_memory::copy_address(usize::try_from(address)?, count, &handle)?),
@@ -637,18 +622,9 @@ mod tests {
         let process = ProcessKey { pid: u32::MAX, start: 1 };
         let bytes: Vec<_> = "--𝐁𝐨𝐫𝐠--".encode_utf16().flat_map(u16::to_le_bytes).collect();
         let snapshot = MemorySnapshot { process, address: 0x4000, bytes, captured: 1 };
-        let report = search_memory(
-            process,
-            "Borg".into(),
-            borg_core::MemorySearchMode::Unicode,
-            true,
-            Some(snapshot),
-            None,
-            Arc::new(AtomicBool::new(false)),
-            None,
-        )
-        .await
-        .unwrap();
+        let query = Query { text: "Borg".into(), mode: borg_core::MemorySearchMode::Unicode, match_case: true };
+        let report =
+            search_memory(process, query, Some(snapshot), None, Arc::new(AtomicBool::new(false)), None).await.unwrap();
         assert!(report.hits.iter().any(|h| h.address == 0x4004 && h.encoding == "UTF-16LE"));
         assert_eq!(report.skipped, 0);
         assert!(report.next.is_none());

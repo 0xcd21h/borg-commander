@@ -525,7 +525,6 @@ name = "borg-jobs"
 version = "0.8.3"
 dependencies = [
  "tempfile",
- "thiserror 2.0.21",
 ]
 
 [[package]]

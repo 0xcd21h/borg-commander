@@ -2590,7 +2590,6 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
         }
         ensure!(names.len() == 2048 && chunks >= 16, "{} entries, {chunks} chunks", names.len());
         names.clear();
-        let start = std::time::Instant::now();
         let mut page = call(
             &mut channel,
             "fs_list",
@@ -2599,7 +2598,6 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
             }),
         )
         .await?;
-        let first = start.elapsed();
         let mut chunks = 0;
         loop {
             ensure!(page["pushed"] == true);
@@ -2616,12 +2614,6 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
             page = receive(&mut channel).await?;
         }
         ensure!(names.len() == 2048 && chunks > 1);
-        eprintln!(
-            "encrypted localhost listing: {} entries / {chunks} pushed chunks; first {:?}, complete {:?}",
-            names.len(),
-            first,
-            start.elapsed()
-        );
         Ok::<_, anyhow::Error>(())
     })?;
     Ok(())
@@ -3529,7 +3521,6 @@ fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
         screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
     })?;
     let mut typed = String::new();
-    let mut timings = Vec::new();
     for key in "abcdefghijkl".chars() {
         typed.push(key);
         let expected = format!("$ {typed}");
@@ -3539,10 +3530,8 @@ fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
             screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == expected)
         })?;
         let elapsed = started.elapsed();
-        timings.push(elapsed.as_millis());
         ensure!(elapsed < std::time::Duration::from_millis(750), "remote echo took {elapsed:?}");
     }
-    eprintln!("Remote console echo with 25 ms per leg: {timings:?} ms");
     local.send(keys::ctrl('u'))?;
     local.send(keys::ctrl('o'))?;
     local.wait_text(&format!("Host {name}:Default"))?;
@@ -3573,20 +3562,16 @@ fn native_mirror_delivers_keys_and_frames_over_a_delayed_link() -> Result<()> {
         .spawn()?;
     mirror.wait_text("REMOTE MIRROR - CONTROL")?;
     mirror.wait_text("notes.txt")?;
-    let mut timings = Vec::new();
     for _ in 0..4 {
         let started = std::time::Instant::now();
         mirror.send(keys::f(1))?;
         mirror.wait_text("Remote access to this borg")?;
         let elapsed = started.elapsed();
-        timings.push(elapsed.as_millis());
         ensure!(elapsed < std::time::Duration::from_millis(750), "input-to-screen took {elapsed:?}");
         mirror.send(keys::esc())?;
         mirror.wait_gone("Remote access to this borg")?;
     }
-    eprintln!("Mirror input-to-screen with 25 ms per leg: {timings:?} ms");
     let mut typed = String::new();
-    let mut echo_timings = Vec::new();
     for key in "abcdefghijkl".chars() {
         typed.push(key);
         let suffix = format!(" {typed}");
@@ -3596,10 +3581,8 @@ fn native_mirror_delivers_keys_and_frames_over_a_delayed_link() -> Result<()> {
             screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim_end().ends_with(&suffix))
         })?;
         let elapsed = started.elapsed();
-        echo_timings.push(elapsed.as_millis());
         ensure!(elapsed < std::time::Duration::from_millis(750), "mirrored echo took {elapsed:?}");
     }
-    eprintln!("Mirror typing echo with 25 ms per leg: {echo_timings:?} ms");
     mirror.send(keys::ctrl('u'))?;
     mirror.send(keys::ctrl('g'))?;
     ensure!(mirror.wait_exit()?.success());

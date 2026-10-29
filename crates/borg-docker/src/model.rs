@@ -456,8 +456,8 @@ impl Action {
 mod tests {
     use super::*;
 
-    const PS: &str = r#"{"id":"a16b","name":"ac-db-1","image":"pgvector/pgvector:pg15","command":"\"docker-entrypoint.sh postgres\"","created":"2026-10-22 14:49:07 +0100 WEST","state":"running","status":"Up 44 minutes (healthy)","ports":"0.0.0.0:5433->5432/tcp","networks":"ac_default","project":"ac","service":"db","dir":"/srv/ac","files":"/srv/ac/compose.yaml,/srv/ac/compose.override.yaml"}
-{"id":"7a81","name":"scratch","image":"ubuntu:24.04","command":"\"sleep infinity\"","created":"2026-10-22 14:44:12 +0100 WEST","state":"exited","status":"Exited (137) 5 minutes ago","ports":"","networks":"bridge","project":"","service":"","dir":"","files":""}
+    const PS: &str = r#"{"id":"a16b","name":"shop-db-1","image":"postgres:16","command":"\"docker-entrypoint.sh postgres\"","created":"2026-10-22 13:49:07 +0000 UTC","state":"running","status":"Up 44 minutes (healthy)","ports":"127.0.0.1:5432->5432/tcp","networks":"shop_default","project":"shop","service":"db","dir":"/srv/shop","files":"/srv/shop/compose.yaml,/srv/shop/compose.override.yaml"}
+{"id":"7a81","name":"scratch","image":"ubuntu:24.04","command":"\"sleep infinity\"","created":"2026-10-22 13:44:12 +0000 UTC","state":"exited","status":"Exited (137) 5 minutes ago","ports":"","networks":"bridge","project":"","service":"","dir":"","files":""}
 "#;
 
     #[test]
@@ -467,7 +467,7 @@ mod tests {
         let db = &containers[0];
         assert_eq!((db.label(), db.state, db.health()), ("db", State::Running, Some(Health::Healthy)));
         assert_eq!(db.command, "docker-entrypoint.sh postgres");
-        assert_eq!(db.config_files, ["/srv/ac/compose.yaml", "/srv/ac/compose.override.yaml"]);
+        assert_eq!(db.config_files, ["/srv/shop/compose.yaml", "/srv/shop/compose.override.yaml"]);
         let scratch = &containers[1];
         assert_eq!((scratch.label(), scratch.project.as_deref(), scratch.exit_code()), ("scratch", None, Some(137)));
         assert!(!scratch.state.is_up() && Action::Start.applies_to(scratch.state));
@@ -486,8 +486,8 @@ mod tests {
 
     #[test]
     fn the_stats_stream_splits_into_samples_at_each_cursor_home() {
-        let first = r#"{"BlockIO":"723MB / 447MB","CPUPerc":"250.35%","Container":"a16b","ID":"a16b","MemPerc":"0.80%","MemUsage":"144.8MiB / 17.61GiB","Name":"ac-db-1","NetIO":"244MB / 253MB","PIDs":"6"}"#;
-        let second = r#"{"BlockIO":"0B / 0B","CPUPerc":"0.00%","Container":"7a81","ID":"7a81","MemPerc":"0.00%","MemUsage":"804KiB / 17.61GiB","Name":"x","NetIO":"1kB / 0B","PIDs":"2"}"#;
+        let first = r#"{"BlockIO":"723MB / 447MB","CPUPerc":"250.35%","Container":"a16b","ID":"a16b","MemPerc":"0.80%","MemUsage":"144.8MiB / 7.75GiB","Name":"shop-db-1","NetIO":"244MB / 253MB","PIDs":"6"}"#;
+        let second = r#"{"BlockIO":"0B / 0B","CPUPerc":"0.00%","Container":"7a81","ID":"7a81","MemPerc":"0.00%","MemUsage":"804KiB / 7.75GiB","Name":"x","NetIO":"1kB / 0B","PIDs":"2"}"#;
         let mut frames = Frames::default();
         assert_eq!(frames.push(&format!("\x1b[H{first}\x1b[K")), None);
         assert_eq!(frames.push(&format!("{second}\x1b[K")), None);
@@ -497,7 +497,7 @@ mod tests {
         let (id, stats) = &sample[0];
         assert_eq!(id, "a16b");
         assert_eq!((stats.cpu, stats.pids, stats.net_rx, stats.written), (25_035, 6, 244_000_000, 447_000_000));
-        assert_eq!(stats.memory_limit, (17.61 * 1024.0 * 1024.0 * 1024.0_f64).round() as u64);
+        assert_eq!(stats.memory_limit, (7.75 * 1024.0 * 1024.0 * 1024.0_f64).round() as u64);
         assert_eq!(frames.push(&format!("\x1b[J\x1b[H{first}")).map(|s| s.len()), Some(1));
         assert_eq!(frames.push("\x1b[J\x1b[H"), None, "a repeated sample is dropped");
         assert_eq!(frames.push("\x1b[J\x1b[H"), Some(Vec::new()), "no running containers is still a sample");
@@ -525,15 +525,15 @@ mod tests {
 
     #[test]
     fn details_leave_out_unset_times_and_quote_arguments() {
-        let text = r#"{"started":"2026-10-22T13:49:07.966Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":"healthy","restarts":2,"policy":"unless-stopped","entrypoint":["docker-entrypoint.sh"],"cmd":["sh","-c","echo hi"],"workdir":"","platform":"linux","mounts":[{"Type":"volume","Name":"ac_data","Source":"/var/lib/docker/volumes/ac_data/_data","Destination":"/data","RW":true},{"Type":"bind","Source":"/srv/ac/init.sql","Destination":"/init.sql","RW":false}],"networks":{"ac_default":{"IPAddress":"192.168.107.6"}}}"#;
+        let text = r#"{"started":"2026-10-22T13:49:07.966Z","finished":"0001-01-01T00:00:00Z","exit":0,"oom":false,"error":"","health":"healthy","restarts":2,"policy":"unless-stopped","entrypoint":["docker-entrypoint.sh"],"cmd":["sh","-c","echo hi"],"workdir":"","platform":"linux","mounts":[{"Type":"volume","Name":"shop_data","Source":"/var/lib/docker/volumes/shop_data/_data","Destination":"/data","RW":true},{"Type":"bind","Source":"/srv/shop/init.sql","Destination":"/init.sql","RW":false}],"networks":{"shop_default":{"IPAddress":"172.18.0.2"}}}"#;
         let details = parse_details(text).unwrap();
         assert_eq!(details.started.as_deref(), Some("2026-10-22T13:49:07.966Z"));
         assert_eq!(details.finished, None);
         assert_eq!(details.command, "docker-entrypoint.sh sh -c 'echo hi'");
         assert_eq!((details.restarts, details.health.as_deref()), (2, Some("healthy")));
-        assert_eq!(details.mounts[0].source, "ac_data");
+        assert_eq!(details.mounts[0].source, "shop_data");
         assert!(!details.mounts[1].writable);
-        assert_eq!(details.networks, [Network { name: "ac_default".into(), address: "192.168.107.6".into() }]);
+        assert_eq!(details.networks, [Network { name: "shop_default".into(), address: "172.18.0.2".into() }]);
         let none = parse_details(r#"{"health":null,"entrypoint":null,"cmd":null,"mounts":null,"networks":null}"#);
         assert_eq!(none.unwrap().command, "");
     }

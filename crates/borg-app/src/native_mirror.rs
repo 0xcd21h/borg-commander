@@ -432,7 +432,6 @@ mod tests {
         }
         let latest = frame(&screen, after, 195, 62);
         let encoded = bytes(&latest);
-        eprintln!("Repeated-cell redraw: reset={}, bytes={}", latest["reset"], encoded.len());
         assert_eq!(latest["reset"], false);
         assert!(encoded.len() < 512, "a changed strip must not resend the full screen: {} bytes", encoded.len());
         viewer.feed(&encoded);

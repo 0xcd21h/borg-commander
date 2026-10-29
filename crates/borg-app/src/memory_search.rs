@@ -200,19 +200,22 @@ fn decode(data: &[u8], encoding: Encoding, alignment: usize) -> Vec<(char, usize
     }
     out
 }
-#[allow(clippy::too_many_arguments)]
+/// What a memory search looks for: the text, how to read it, and whether case matters.
+pub struct Query {
+    pub text: String,
+    pub mode: MemorySearchMode,
+    pub match_case: bool,
+}
 pub fn scan(
     process: ProcessKey,
     regions: Vec<MemoryRegion>,
-    query: &str,
-    mode: MemorySearchMode,
-    case: bool,
+    query: &Query,
     start: Option<u64>,
     cancelled: &Arc<AtomicBool>,
     mut read: impl FnMut(u64, usize) -> Result<Vec<u8>>,
     mut progress: impl FnMut(u64, u64, usize),
 ) -> Result<MemorySearchReport> {
-    validate(query, mode)?;
+    validate(&query.text, query.mode)?;
     let total = regions.iter().filter(|r| r.readable()).fold(0u64, |n, r| n.saturating_add(r.end - r.start));
     let mut report =
         MemorySearchReport { process, hits: Vec::new(), scanned: 0, total, skipped: 0, next: None, cancelled: false };
@@ -250,7 +253,7 @@ pub fn scan(
             let base = address - carry.len() as u64;
             let read_len = data.len();
             carry.extend(data);
-            for (at, length, encoding) in matches(&carry, base, query, mode, case)? {
+            for (at, length, encoding) in matches(&carry, base, &query.text, query.mode, query.match_case)? {
                 if at + length as u64 > address && seen.insert((at, length)) {
                     report.hits.push(MemoryHit { address: at, length, encoding, region: region.clone() });
                 }
@@ -309,6 +312,9 @@ mod tests {
             assert!(validate(query, MemorySearchMode::Hex).is_err());
         }
     }
+    fn borg() -> Query {
+        Query { text: "Borg".into(), mode: MemorySearchMode::Text, match_case: true }
+    }
     #[test]
     fn scans_cross_chunk_boundaries_and_reports_unreadable_pages() {
         let mut data = vec![0; CHUNK + 32];
@@ -317,9 +323,7 @@ mod tests {
         let report = scan(
             ProcessKey { pid: 1, start: 1 },
             vec![region(0x1000, 0x1000 + data.len() as u64)],
-            "Borg",
-            MemorySearchMode::Text,
-            true,
+            &borg(),
             None,
             &cancelled,
             |address, count| Ok(data[(address - 0x1000) as usize..(address - 0x1000) as usize + count].to_vec()),
@@ -335,9 +339,7 @@ mod tests {
         let report = scan(
             ProcessKey { pid: 1, start: 1 },
             vec![region(0, data.len() as u64)],
-            "Borg",
-            MemorySearchMode::Text,
-            true,
+            &borg(),
             None,
             &cancelled,
             |address, count| {
@@ -359,9 +361,7 @@ mod tests {
         let report = scan(
             ProcessKey { pid: 1, start: 1 },
             vec![region(100, 1000)],
-            "Borg",
-            MemorySearchMode::Text,
-            true,
+            &borg(),
             None,
             &cancelled,
             |_, _| {

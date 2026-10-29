@@ -142,7 +142,7 @@ stored directly in an expanded folder. Errors and skipped subtrees mark totals a
 incomplete. Cache files live in `~/.cache/borg-commander`, respecting `XDG_CACHE_HOME`; `BORG_CACHE_DIR`
 overrides the location. They are disposable measurements, separate from collections.
 Hard-linked files count once per path. These are logical content sizes, not physical
-or recoverable disk usage. Indexed and content search are planned separately.
+or recoverable disk usage.
 
 Git and archive actions currently work from real directory panels. Use Reveal original
 to access them for a collected file.
@@ -315,21 +315,17 @@ hosts. The destination dialog identifies the client or host. Copies run as backg
 byte progress, pause/cancel, and overwrite, skip, or keep-both choices. Folders include empty
 folders and symlinks; executable permissions and modification times are preserved for regular
 files. A file becomes visible at its final destination only after its contents arrive completely.
-Both client and host need 0.8.1 or newer for panel-copy support; 0.8.0 hosts show an upgrade message.
-Other remote file operations, including F6 move and F8 delete, are not yet available.
+F6 move and F8 delete are not available in remote panels.
 The right panel remains on your computer. With **Options → Plugins → Follow** enabled, the
 command line and **Ctrl-O** use an interactive shell on the remote host. Its terminal is rendered
 locally; keys, paste, Ctrl-C and terminal programs run remotely. Each remote session retains
-its own shell while you switch panels. Selecting a client panel restores the local shell.
-The client keeps quiet console connections alive, including consoles parked while another panel
-is selected. These heartbeats send no terminal input and preserve unfinished command lines.
+its own shell and unfinished command line while you switch panels. Selecting a client panel
+restores the local shell.
 Apps using the alternate screen, and foreground apps using raw input such as `top`, receive
 all keys while running, including Ctrl-O. Terminal resizing reaches the remote PTY. Quit the
 app using its own keys (`q` in `top`); Borg returns to the panels if you launched it from
 the panel command line, or leaves the remote console open if you launched it there.
-The remote Borg’s own panels and shell are independent of this console. Update both binaries
-to use remote consoles; older hosts display a connection error and cannot execute from a remote panel.
-Use
+The remote Borg’s own panels and shell are independent of this console. Use
 `borg get MACHINE/SESSION:PATH [TO]` and `borg put FROM MACHINE/SESSION:PATH` for file transfers.
 In local Borg, press **Alt-R**, use the bottom **Remote hosts** shortcut, or choose
 **F9 → Remote → Browse hosts and sessions…** to see paired machines
@@ -340,11 +336,10 @@ Clients lists the computers paired with this Borg, their public-key fingerprints
 are connected, and their connection counts. One computer appears once even when a mirror uses
 several connections. Status updates while the picker is open, including inside a session whose
 connections are owned by the background service. Pairing is directional: an allowed client does
-not automatically become a host whose files this Borg can browse. If the connection owner is an
-older Borg or cannot answer, paired clients remain visible with **Connection status unavailable**.
+not automatically become a host whose files this Borg can browse. When the connection owner
+cannot report connection status, paired clients remain visible with **Connection status unavailable**.
 While a mirror connects, the picker shows an animated status and **Esc** cancels immediately.
-Mirror connections open concurrently, and control is requested once the first screen is ready.
-Each startup step has a 10-second deadline, with a 30-second limit for the whole attempt.
+Each step of connecting has a 10-second deadline, with a 30-second limit for the whole attempt.
 A failed attempt keeps the picker open and identifies the step that failed; **M** retries the selected session.
 In the picker, **F2** renames the selected host label for every session on that host;
 **Shift-F2** renames the selected session label. These labels are saved on this client and
@@ -362,21 +357,18 @@ client's identity and its other pairings are preserved. Pair again to reconnect.
 and terminal history; files and folders on the host are kept. The Default session is protected.
 A standalone session currently hosting the connection cannot remove itself; close it on the host
 and run Borg in another session first. Failed removal keeps the session visible for retry.
-Both client and the host's connection owner need 0.8.2 or newer for session removal. Service-managed
-sessions are stopped before their saved state is removed, and the service does not recreate them.
+Service-managed sessions are stopped before their saved state is removed, and the service does not recreate them.
 
 The picker distinguishes outgoing hosts from incoming clients; the same Borg can serve both roles. The Remote menu also
 offers **Mirror mounted host** and **Share this Borg as host…**.
 The picker shows each host's Borg version; selecting a session shows OS/architecture,
 background service or terminal mode, request latency, and relay address. Hosts are checked
-concurrently, so an unavailable host does not hide results from others. Older hosts show
-**version unavailable** until they are updated; the relay's version is not the host's version.
+concurrently, so an unavailable host does not hide results from others. A host that cannot
+report its version shows **version unavailable**; the relay's version is not the host's version.
+Keep Borg current on both computers: a host without a remote feature shows an upgrade message.
 
-Remote folders arrive in chunks with a loading spinner and received-entry count. Updated
-hosts keep an open directory cursor between chunks, read each entry's metadata once, and
-return early when metadata reads are slow. The first chunk contains at most 128 entries;
-later chunks contain at most 512 and are pushed over the same request. Navigation cancels the local request; abandoned cursors
-are bounded and expire after 30 seconds of inactivity when listings are next accessed.
+Remote folders arrive in chunks with a loading spinner and received-entry count; navigation
+cancels the request.
 `borg mirror MACHINE:SESSION` shows the remote session's live screen in your local terminal;
 Alt+Shift+M opens the same mirror from a local Borg with a remote panel. **Ctrl-G** leaves the
 mirror and returns to the local panels: hold Control and press G. You can also click the bottom
@@ -386,34 +378,14 @@ can be mirrored while it is running; no background service is required. Its loca
 remains visible, and local keyboard or mouse input reclaims control from the mirror. The mirror
 follows the host terminal's layout and clips to fit a smaller client window; enlarging the
 client reveals the rest. The optional background host keeps sessions alive after their original
-terminal closes and lets the controlling client resize their PTY. Update both client and host
-to 0.8.1 or newer for mirroring regular sessions; 0.8.0 supports only background-host mirrors.
+terminal closes and lets the controlling client resize their PTY.
 If another terminal controls the remote session, the mirror opens in view-only mode; its keys do
 not change the remote session. Press **Ctrl-T** or click the status line to take control, detach the other
 terminal, or use `borg mirror MACHINE:SESSION --take` to take control when starting it. After taking
 control, the first key wakes a sleeping remote screen; subsequent keys and mouse input reach it.
-Mirror input and display use independent connections, with typing bursts batched into requests.
-Quiet input and control connections send read-only keepalives, including while viewing without typing.
-Queued input is batched without a timer before sending. Screen requests wait only while there is
-no new output; publishing output wakes them immediately. Input requests still await an acknowledgement,
-and screen updates use a separate request/reply connection, so network round trips affect responsiveness.
-Updated hosts show a quit confirmation when `exit` is typed in Borg's main Bash, Zsh or Fish shell.
-**No** is selected by default and keeps the same shell, variables, directory and mirrors running.
-This confirmation runs on the host, so update and restart the host's Borg to enable it.
-Updated hosts wait for fresh output and send the current visible screen when a viewer falls
-behind, instead of replaying old animation frames. The complete cursor-listing and mirror
-improvements require updating the local Borg and restarting the host's Borg with the updated binary.
-
-From a source checkout, measure a paired host without taking control or sending keys:
-
-```sh
-python3 scripts/remote-latency.py HOST --session SESSION --borg target/debug/borg
-```
-
-The diagnostic reports connection time, repeated status round trips, and full-screen and subsequent
-frame timings as JSON lines. It prints byte counts without printing screen contents or identity keys.
-Use `--sizes 1x1,20x5,150x60` to compare small and large responses. A failed frame is followed by a fresh
-status connection to distinguish a stalled display from a host that has become unreachable.
+A viewer that falls behind receives the current screen instead of old animation frames.
+Typing `exit` in Borg's main Bash, Zsh or Fish shell asks for confirmation. **No** is selected
+by default and keeps the same shell, variables, directory and mirrors running.
 
 To connect, press F1 and then C (or F9 → Remote → Share this Borg as host…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected

@@ -42,6 +42,9 @@ crates/
   borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-docker   bundled Docker plugin: containers, stats, files and shells through the docker CLI
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
+  borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
+  borg-relay    the relay borgs meet through: it forwards traffic it cannot read
+  borg-update   release checks and self-update
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
 
@@ -151,8 +154,7 @@ never starts a delete job. The live recursive search worker streams metadata in 
 batches, coalesces obsolete requests, and stops at the documented match limit. Query
 generations reject late messages; the update loop and renderer perform no search I/O.
 
-The implementation plan in [docs/plans/virtual-panels-and-indexing.md](docs/plans/virtual-panels-and-indexing.md)
-includes subsequent metadata indexing. Folder totals and expandable size trees share
+Folder totals and expandable size trees share
 one postorder metadata scanner. `borg-app::size_cache` writes all completed folder
 summaries into a staged SQLite index with bounded page memory, then publishes it
 atomically. Root and immediate children seed a tree; generation-tagged requests
@@ -168,6 +170,38 @@ explicitly dated observations, never validated as fresh by directory mtimes. Job
 and completion epochs prevent scans spanning file operations from publishing cached
 totals; affected roots are invalidated before completion is delivered. Normal listings
 reuse saved immediate-child totals without starting recursive walks.
+
+### Remote connections
+
+`borg-link` carries every remote request over a Noise channel through the relay. Borg and the
+relay set `TCP_NODELAY` on their sockets before TLS or the WebSocket handshake. A TLS proxy in
+front of the relay owns its own sockets, which Borg cannot configure.
+
+Remote folders stream through a directory cursor held on the host, tied to the requesting
+computer and path. The host enumerates forward once, reads each entry's metadata once, and
+pushes bounded chunks over one request: at most 128 entries first, then up to 512, each
+chunk also yielding after 25 ms of scanning. Disk work runs on blocking workers outside the
+UI loop and the cursor map's lock. A process keeps at most 64 idle cursors and drops those
+idle for 30 seconds; navigation drops the client connection, and network backpressure bounds
+queued output. Hosts answer clients that request pages by offset by skipping raw directory
+records before reading metadata.
+
+Mirror display and input use separate tasks and connections. Input bursts are batched in a
+bounded queue; frame requests wait on the host for new PTY output, outside the service loop
+and child lock. A viewer more than 64 KiB behind receives a snapshot of the visible grid,
+cursor, and attributes instead of the backlog.
+
+`scripts/remote-latency.py` measures a paired host from a source checkout without taking
+control or sending keys:
+
+```sh
+python3 scripts/remote-latency.py HOST --session SESSION --borg target/debug/borg
+```
+
+It prints connection time, status round trips, and full-screen and subsequent frame timings
+as JSON lines, with byte counts but no screen contents or identity keys. `--sizes 1x1,20x5,150x60`
+compares response sizes; a failed frame is followed by a fresh status connection to tell a
+stalled display from an unreachable host.
 
 ### Interface text
 
@@ -378,7 +412,8 @@ The **Publish guide** workflow checks the source, builds the site and search ind
 local links, and deploys GitHub Pages when relevant files change on main. Pull requests build
 without deploying. GitHub Pages must use **GitHub Actions** as its build source.
 
-Keep machine-specific diagnostics in the ignored `.local-notes/` directory. Environment
+Public files describe the current behaviour only. Keep plans, measurements, change logs and
+machine-specific diagnostics in the ignored `.local-notes/` directory. Environment
 files, dependency folders, build output, and generated pages are ignored. Before committing,
 run `python3 scripts/check-public-content.py`; it checks public text for personal home paths,
 private temporary paths, private keys, and common access-token formats without printing
