@@ -38,6 +38,7 @@ const MAX_WAITING: usize = 8;
 /// How long a server has to answer the proof, and to take a session a client opened.
 const PROOF_TIMEOUT: Duration = Duration::from_secs(10);
 const JOIN_TIMEOUT: Duration = Duration::from_secs(10);
+const REGISTRATION_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 /// A registered server is pinged this often, and dropped when it stops answering. Both ends of
 /// a session are pinged as often, since proxies in front close sockets that stay quiet.
 const PING_EVERY: Duration = Duration::from_secs(30);
@@ -173,11 +174,22 @@ async fn listen(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey) {
         return close(socket, LIMITED, "too many servers").await;
     }
     let Ok((handshake, message)) = challenge(&key) else { return };
-    if socket.send(Message::Binary(message.into())).await.is_err() {
+    if let Err(error) = write_registration(&mut socket, Message::Binary(message.into())).await {
+        event!("server {}: challenge failed: {error}", short(&key));
         return;
     }
     let answer = tokio::time::timeout(PROOF_TIMEOUT, socket.next()).await;
-    let Ok(Some(Ok(Message::Binary(answer)))) = answer else { return };
+    let answer = match answer {
+        Ok(Some(Ok(Message::Binary(answer)))) => answer,
+        Err(_) => {
+            event!("server {}: registration proof timed out", short(&key));
+            return;
+        }
+        _ => {
+            event!("server {}: registration closed before proof", short(&key));
+            return;
+        }
+    };
     if !verify(handshake, &answer) {
         event!("server {}: proof refused", short(&key));
         return close(socket, u16::from(CloseCode::Policy), "proof refused").await;
@@ -191,34 +203,76 @@ async fn listen(hub: Arc<Mutex<Hub>>, mut socket: Socket, key: PublicKey) {
         generation
     };
     event!("server {}: registered", short(&key));
-    if socket.send(Message::Text(READY.into())).await.is_ok() {
-        let mut ping = tokio::time::interval(PING_EVERY);
-        let mut heard = Instant::now();
-        loop {
-            tokio::select! {
-                id = announced.recv() => match id {
-                    Some(id) => if socket.send(Message::Text(format!("{SESSION}{id}").into())).await.is_err() { break },
-                    // A newer registration for the key took over.
-                    None => break,
-                },
-                message = socket.next() => match message {
-                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
-                    Some(Ok(_)) => heard = Instant::now(),
-                },
-                _ = ping.tick() => {
-                    if heard.elapsed() > SILENCE_LIMIT || socket.send(Message::Ping(Vec::new().into())).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    let started = tokio::time::Instant::now();
+    let ended = registration(&mut socket, &mut announced).await;
     let mut locked = hub.lock().expect("hub lock");
     if locked.servers.get(&key).is_some_and(|server| server.generation == generation) {
         locked.servers.remove(&key);
     }
     drop(locked);
-    event!("server {}: gone", short(&key));
+    event!(
+        "server {}: gone after {}s: {} (last received {}s ago; pongs={})",
+        short(&key),
+        started.elapsed().as_secs(),
+        ended.reason,
+        ended.last_received.as_secs(),
+        ended.pongs
+    );
+}
+
+struct RegistrationEnd {
+    reason: String,
+    last_received: Duration,
+    pongs: u64,
+}
+
+async fn write_registration(socket: &mut Socket, message: Message) -> Result<(), String> {
+    tokio::time::timeout(REGISTRATION_WRITE_TIMEOUT, socket.send(message))
+        .await
+        .map_err(|_| "write timed out".to_owned())?
+        .map_err(|error| format!("write failed: {error}"))
+}
+
+async fn registration(socket: &mut Socket, announced: &mut mpsc::Receiver<String>) -> RegistrationEnd {
+    let mut heard = tokio::time::Instant::now();
+    let mut pongs = 0;
+    let reason = match write_registration(socket, Message::Text(READY.into())).await {
+        Err(error) => format!("ready {error}"),
+        Ok(()) => {
+            let mut ping = tokio::time::interval(PING_EVERY);
+            loop {
+                tokio::select! {
+                    id = announced.recv() => match id {
+                        Some(id) => if let Err(error) = write_registration(socket, Message::Text(format!("{SESSION}{id}").into())).await {
+                            break format!("session notification {error}");
+                        },
+                        None => break "replaced by another registration".into(),
+                    },
+                    message = socket.next() => match message {
+                        Some(Ok(Message::Close(frame))) => break match frame {
+                            Some(frame) => format!("host closed with code {}", u16::from(frame.code)),
+                            None => "host closed".into(),
+                        },
+                        None => break "connection ended".into(),
+                        Some(Err(error)) => break format!("read failed: {error}"),
+                        Some(Ok(message)) => {
+                            heard = tokio::time::Instant::now();
+                            if matches!(message, Message::Pong(_)) { pongs += 1; }
+                        },
+                    },
+                    _ = ping.tick() => {
+                        if heard.elapsed() > SILENCE_LIMIT {
+                            break "heartbeat timeout".into();
+                        }
+                        if let Err(error) = write_registration(socket, Message::Ping(Vec::new().into())).await {
+                            break format!("heartbeat {error}");
+                        }
+                    }
+                }
+            }
+        }
+    };
+    RegistrationEnd { reason, last_received: heard.elapsed(), pongs }
 }
 
 /// A client asks for the server with `key`: the relay announces it, waits for the server to
@@ -381,12 +435,73 @@ mod tests {
 
     /// A socket as the relay holds it, and the borg at its other end.
     async fn joined() -> (Socket, WebSocketStream<tokio::io::DuplexStream>) {
-        let (near, far) = tokio::io::duplex(64 * 1024);
+        joined_with_capacity(64 * 1024).await
+    }
+
+    async fn joined_with_capacity(capacity: usize) -> (Socket, WebSocketStream<tokio::io::DuplexStream>) {
+        let (near, far) = tokio::io::duplex(capacity);
         let near: Box<dyn Io> = Box::new(near);
         (
             WebSocketStream::from_raw_socket(near, Role::Server, None).await,
             WebSocketStream::from_raw_socket(far, Role::Client, None).await,
         )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_reports_missing_heartbeats_instead_of_a_generic_disconnect() {
+        let (mut socket, _host) = joined().await;
+        let (_sender, mut announced) = mpsc::channel(1);
+        let ended = registration(&mut socket, &mut announced).await;
+        assert_eq!(ended.reason, "heartbeat timeout");
+        assert!(ended.last_received > SILENCE_LIMIT);
+        assert!(ended.last_received <= SILENCE_LIMIT + PING_EVERY);
+        assert_eq!(ended.pongs, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_reports_a_stalled_ready_write_with_a_deadline() {
+        let (mut socket, _host) = joined_with_capacity(1).await;
+        let (_sender, mut announced) = mpsc::channel(1);
+        let start = tokio::time::Instant::now();
+        let ended = registration(&mut socket, &mut announced).await;
+        assert_eq!(ended.reason, "ready write timed out");
+        assert_eq!(start.elapsed(), REGISTRATION_WRITE_TIMEOUT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_reports_host_close_and_replacement_separately() {
+        let (mut socket, mut host) = joined().await;
+        let (_sender, mut announced) = mpsc::channel(1);
+        host.close(Some(CloseFrame { code: CloseCode::Normal, reason: "test".into() })).await.unwrap();
+        let ended = registration(&mut socket, &mut announced).await;
+        assert_eq!(ended.reason, "host closed with code 1000");
+
+        let (mut socket, _host) = joined().await;
+        let (sender, mut announced) = mpsc::channel(1);
+        drop(sender);
+        assert_eq!(registration(&mut socket, &mut announced).await.reason, "replaced by another registration");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_keeps_answering_a_healthy_host_and_reports_its_pongs() {
+        let (mut socket, mut host) = joined().await;
+        let (sender, mut announced) = mpsc::channel(1);
+        let task = tokio::spawn(async move { registration(&mut socket, &mut announced).await });
+        assert!(matches!(host.next().await, Some(Ok(Message::Text(text))) if text == READY));
+        for _ in 0..6 {
+            assert!(matches!(host.next().await, Some(Ok(Message::Ping(_)))));
+            host.flush().await.unwrap();
+        }
+        host.send(Message::Ping(b"sync".to_vec().into())).await.unwrap();
+        assert!(matches!(host.next().await, Some(Ok(Message::Pong(bytes))) if bytes.as_ref() == b"sync"));
+        sender.send("next-client".into()).await.unwrap();
+        assert!(matches!(host.next().await, Some(Ok(Message::Text(text))) if text == format!("{SESSION}next-client")));
+        assert!(!task.is_finished());
+        drop(sender);
+        let ended = task.await.unwrap();
+        assert_eq!(ended.reason, "replaced by another registration");
+        assert_eq!(ended.pongs, 6);
+        assert!(ended.last_received < PING_EVERY);
     }
 
     #[tokio::test(start_paused = true)]
