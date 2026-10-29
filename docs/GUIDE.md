@@ -416,7 +416,9 @@ terminal, or use `borg mirror MACHINE:SESSION --take` to take control when start
 control, the first key wakes a sleeping remote screen; subsequent keys and mouse input reach it.
 A viewer that falls behind receives the current screen instead of old animation frames.
 Typing `exit` in Borg's main Bash, Zsh or Fish shell asks for confirmation. **No** is selected
-by default and keeps the same shell, variables, directory and mirrors running.
+by default and keeps the same shell, variables, directory and mirrors running. In a remote
+console, `exit` asks whether to close the shell on the host; after Yes, choose the session again
+with Alt-R for a new one.
 
 To connect, press F1 and then C (or F9 → Remote → Share this Borg as host…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected

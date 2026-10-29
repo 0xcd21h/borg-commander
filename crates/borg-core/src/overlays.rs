@@ -293,6 +293,14 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             effects
         }
         (Some(false), ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
+        (answer, ConfirmPurpose::RemoteShellExit { token }) => {
+            let close = answer == Some(true);
+            if let (true, crate::Console::Remote { machine, session }) = (close, &state.console) {
+                state.ending_remote = Some((machine.clone(), session.clone()));
+            }
+            let reply = if close { "yes" } else { "no" };
+            vec![Effect::Write(format!("{token}:{reply}\n").into_bytes())]
+        }
         _ => Vec::new(),
     }
 }

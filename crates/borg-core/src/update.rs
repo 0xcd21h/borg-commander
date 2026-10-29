@@ -65,10 +65,23 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
             }
         }
         Msg::RemoteConsoleClosed { machine, session, error } => {
-            state.remote_consoles.remove(&(machine.clone(), session.clone()));
-            state.failed_remote_console = Some((machine.clone(), session.clone()));
+            let key = (machine.clone(), session.clone());
+            state.remote_consoles.remove(&key);
+            let ended = state.ending_remote.take_if(|ending| *ending == key).is_some();
+            let error = if ended { tr!(remote_shell_ended, machine = machine) } else { error };
+            // Either way the console stays closed until the session is chosen again.
+            state.failed_remote_console = Some(key);
             state.remote_console_failure = Some(error.clone());
-            if state.console == (crate::Console::Remote { machine, session }) {
+            if matches!(
+                state.overlay,
+                Some(crate::Overlay::Confirm(crate::Confirm {
+                    purpose: crate::ConfirmPurpose::RemoteShellExit { .. },
+                    ..
+                }))
+            ) {
+                state.overlay = None;
+            }
+            if state.console == (crate::Console::Remote { machine: machine.clone(), session }) {
                 state.shell = state.parked_host.take().unwrap_or_else(|| crate::ShellStatus::new(Default::default()));
                 state.console = crate::Console::Host;
                 state.view = View::Panels;
@@ -536,7 +549,20 @@ fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant) -> Vec<Eff
         ShellSignal::ExitRequested { token } if state.console == crate::Console::Host => {
             request_shell_exit(state, token, now)
         }
-        ShellSignal::ExitRequested { .. } => Vec::new(),
+        ShellSignal::ExitRequested { token } => match state.console.clone() {
+            crate::Console::Remote { machine, .. } if state.overlay.is_none() => {
+                state.screensaver = false;
+                state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
+                    title: tr!(remote_shell_exit_title),
+                    message: tr!(remote_shell_exit, machine = machine),
+                    purpose: crate::ConfirmPurpose::RemoteShellExit { token },
+                    accept: false,
+                }));
+                Vec::new()
+            }
+            crate::Console::Remote { .. } => vec![Effect::Write(format!("{token}:no\n").into_bytes())],
+            _ => Vec::new(),
+        },
         ShellSignal::PromptStart | ShellSignal::InputStart => {
             if signal == ShellSignal::PromptStart {
                 state.shell.silent_cd = false;

@@ -8,5 +8,7 @@ if [ "${BORG_CONFIRM_EXIT-}" = 1 ]; then
             builtin exit "$@"
         fi
         command sh "$BORG_INTEGRATION_DIR/confirm-exit-read.sh"
+        [ "$?" = 2 ] && builtin exit "$@"
+        return 0
     }
 fi

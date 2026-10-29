@@ -36,5 +36,8 @@ if test "$BORG_CONFIRM_EXIT" = 1
             builtin exit $argv
         end
         command sh "$BORG_INTEGRATION_DIR/confirm-exit-read.sh"
+        if test $status = 2
+            builtin exit $argv
+        end
     end
 end

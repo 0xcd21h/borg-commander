@@ -387,6 +387,35 @@ fn shell_exit_confirmation_tracks_its_host_shell_when_another_console_finishes()
     assert!(state.overlay.is_none());
 }
 
+#[test]
+fn exit_in_a_remote_shell_asks_first_and_a_confirmed_close_is_no_error() {
+    let (mut state, now) = setup();
+    let mount =
+        Msg::MountRemote { side: Side::Left, machine: "server".into(), session: "default".into(), name: "Work".into() };
+    update(&mut state, mount, now);
+    assert_eq!(state.console, crate::Console::Remote { machine: "server".into(), session: "default".into() });
+    let exit = |token: &str| Msg::RemoteConsoleOutput {
+        echoed: true,
+        machine: "server".into(),
+        session: "default".into(),
+        view: idle_prompt(),
+        signals: vec![ShellSignal::ExitRequested { token: token.into() }],
+    };
+    update(&mut state, exit("7"), now);
+    assert!(matches!(&state.overlay, Some(Overlay::Confirm(confirm))
+        if confirm.purpose == crate::ConfirmPurpose::RemoteShellExit { token: "7".into() } && !confirm.accept));
+    assert_eq!(writes(&press(&mut state, now, key(KeyCode::Enter))), "7:no\n", "No is the default");
+    update(&mut state, exit("8"), now);
+    assert_eq!(writes(&press(&mut state, now, key(KeyCode::Char('y')))), "8:yes\n");
+    let closed =
+        Msg::RemoteConsoleClosed { machine: "server".into(), session: "default".into(), error: "Shell exited".into() };
+    update(&mut state, closed, now);
+    assert_eq!(state.console, crate::Console::Host);
+    assert!(state.notice.as_deref().is_some_and(|notice| notice.contains("ended")));
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    assert_eq!(state.console, crate::Console::Host, "the closed shell is not reopened by typing");
+}
+
 fn text(viewer: &crate::Viewer) -> &borg_view::Pager {
     match &viewer.content {
         crate::Content::Text(pager) => pager,

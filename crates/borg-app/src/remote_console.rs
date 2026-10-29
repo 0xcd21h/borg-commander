@@ -98,7 +98,11 @@ impl Server {
         getrandom::fill(&mut random).context("creating console ID")?;
         let id = borg_link::hex(&random);
         let runtime = tempfile::Builder::new().prefix("console-").tempdir_in(&self.runtime)?;
-        let command = borg_term::shell_command(&self.shell, dir, runtime.path())?;
+        let mut command = borg_term::shell_command(&self.shell, dir, runtime.path())?;
+        // Only a client that answers the question gets it; an older one would leave `exit` waiting.
+        if args["confirm_exit"] == true {
+            command.env("BORG_CONFIRM_EXIT", "1");
+        }
         let (tx, mut rx) = mpsc::unbounded_channel();
         let pty = Pty::spawn(command, size, tx)?;
         let (output, _) = broadcast::channel(1);
@@ -370,8 +374,13 @@ async fn connect(
     let state = StateDir::locate().context("Borg has no state folder")?;
     let server = link::server(state.path(), &key.0)?;
     let mut writer = tokio::time::timeout(CALL_TIMEOUT, link::Remote::open(state.path(), &server)).await??;
-    let opened =
-        rpc(&mut writer, &key.1, "console_open", json!({"path":dir,"cols":size.cols,"rows":size.rows})).await?;
+    let opened = rpc(
+        &mut writer,
+        &key.1,
+        "console_open",
+        json!({"path":dir,"cols":size.cols,"rows":size.rows,"confirm_exit":true}),
+    )
+    .await?;
     let id = opened["id"].as_str().context("Host did not return a console ID")?.to_owned();
     let mut reader = tokio::time::timeout(CALL_TIMEOUT, link::Remote::open(state.path(), &server)).await??;
     let read_key = key.clone();

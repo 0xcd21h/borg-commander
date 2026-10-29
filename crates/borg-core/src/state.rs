@@ -217,12 +217,30 @@ pub struct Prompt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmPurpose {
-    RemoteSessionDelete { machine: String, session: String, browser: Box<crate::RemoteBrowser> },
-    RemoteHostForget { machine: String, browser: Box<crate::RemoteBrowser> },
-    Delete { sources: Vec<PathBuf> },
+    RemoteSessionDelete {
+        machine: String,
+        session: String,
+        browser: Box<crate::RemoteBrowser>,
+    },
+    RemoteHostForget {
+        machine: String,
+        browser: Box<crate::RemoteBrowser>,
+    },
+    Delete {
+        sources: Vec<PathBuf>,
+    },
     Quit,
-    ShellExit { token: String },
-    Docker { action: borg_docker::Action, ids: Vec<String> },
+    ShellExit {
+        token: String,
+    },
+    /// `exit` typed in a remote shell: Yes lets that shell end, No keeps it.
+    RemoteShellExit {
+        token: String,
+    },
+    Docker {
+        action: borg_docker::Action,
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -329,6 +347,8 @@ pub struct AppState {
     pub(crate) remote_consoles: std::collections::HashMap<(String, String), ShellStatus>,
     pub(crate) failed_remote_console: Option<(String, String)>,
     pub(crate) remote_console_failure: Option<String>,
+    /// The remote shell the user agreed to close, whose ending is then no error.
+    pub(crate) ending_remote: Option<(String, String)>,
     /// The host shell while a container's shell is the console.
     pub(crate) parked_host: Option<ShellStatus>,
     pub fade: Fade,
@@ -396,6 +416,7 @@ impl AppState {
             remote_consoles: Default::default(),
             failed_remote_console: None,
             remote_console_failure: None,
+            ending_remote: None,
             parked_host: None,
             busy: crate::Busy::default(),
             game2048: None,
