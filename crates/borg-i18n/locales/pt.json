@@ -495,6 +495,8 @@
   "panel_find": " Encontrar ",
   "panel_find_hint": " ↑↓ seguinte · Marca Ins · Enter/Esc concluído ",
   "panel_empty": "vazio",
+  "tribute_memory": "Em memória de Sir Patrick Stewart, 1940–2026",
+  "tribute_line": "que comandou a Enterprise e, durante algum tempo, o Coletivo",
   "missing_suffix": " [em falta]",
   "collections_load_error": "Coleções: {error:#}",
   "collections_preserved": "As recolhas guardadas não puderam ser lidas; o ficheiro deles foi preservado",

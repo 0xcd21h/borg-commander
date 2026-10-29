@@ -1,7 +1,7 @@
 use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
-use borg_core::{EMPTY_ART_WINDOW, Find, Listing, ListingMode, Panel, PanelMotion, Query, Row};
+use borg_core::{Find, Listing, ListingMode, Panel, PanelMotion, Query, Row};
 use borg_vfs::{Entry, EntryKind};
 use jiff::Zoned;
 use ratatui::{
@@ -48,7 +48,6 @@ const COMET_WIDTH: u16 = 14;
 const PROGRESS_FILL: char = '━';
 const PROGRESS_TRACK: char = '─';
 const PROGRESS_TRACK_FADE: f32 = 0.4;
-const STAR_PACE: f32 = 0.35;
 const SEVEN: usize = 7;
 const NINE: usize = 9;
 const ASSIMILATE_FROM: usize = 2;
@@ -322,12 +321,33 @@ fn draw_empty(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, buf: &mut Buf
     if art.is_empty() {
         return;
     }
-    {
-        let drift = scene.now.saturating_duration_since(scene.motion.arrived).min(EMPTY_ART_WINDOW);
-        fx::draw_stars(buf, art, drift.as_secs_f32() * STAR_PACE, look.background());
-    }
     let caption = Rect { y: art.y + art.height / 2, height: 1, ..art };
+    if remembrance(scene.clock) {
+        // On the day Sir Patrick Stewart died, empty folders keep still and remember him.
+        let width = usize::from(art.width.saturating_sub(2)).max(1);
+        let lines = [(tr!(tribute_memory), look.styles().meta), (tr!(tribute_line), look.styles().footer)]
+            .into_iter()
+            .flat_map(|(text, style)| {
+                crate::activity_view::wrap(text, width).into_iter().map(move |line| (line, style))
+            });
+        for (offset, (text, style)) in (2..).zip(lines) {
+            let row = Rect { y: caption.y.saturating_add(offset), ..caption };
+            if row.y < art.bottom() {
+                Line::styled(format::truncate_end(&text, width), style).centered().render(row, buf);
+            }
+        }
+    } else {
+        let t = scene.now.saturating_duration_since(scene.state.epoch).as_secs_f32();
+        if let Some(progress) = borg_core::empty_glitch(t) {
+            fx::draw_interference(buf, art, t, progress, look.background());
+        }
+    }
     Line::styled(tr!(panel_empty), look.styles().meta).centered().render(caption, buf);
+}
+
+/// October 28, the day Sir Patrick Stewart died in 2026.
+fn remembrance(clock: &Zoned) -> bool {
+    (clock.month(), clock.day()) == (10, 28)
 }
 
 fn visible<'p>(panel: &'p Panel, scroll: usize) -> impl Iterator<Item = (usize, usize, Row<'p>)> {

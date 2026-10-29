@@ -1588,6 +1588,7 @@ fn screensaver_does_not_cover_a_running_program_or_spin_an_overdue_timer() {
     assert_eq!(state.wake_at(), Some(due + crate::SPINNER_DELAY));
     for effect in effects {
         if let Effect::List { side, generation, .. } = effect {
+            update(&mut state, Msg::Batch { side, generation, entries: vec![file("notes.txt")] }, due);
             update(&mut state, Msg::Listed { side, generation, error: None }, due);
         }
     }

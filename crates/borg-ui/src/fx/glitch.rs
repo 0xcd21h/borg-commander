@@ -138,6 +138,44 @@ pub fn draw_glitch(
     }
 }
 
+/// Brief interference over an empty folder, without the logo: a few torn noise bars and a
+/// colour split. `progress` runs from 0 to 1 through the flash, which fades as it ends.
+pub fn draw_interference(buf: &mut Buffer, area: Rect, t: f32, progress: f32, background: Rgb) {
+    if area.is_empty() {
+        return;
+    }
+    let heat = (1.0 - progress.clamp(0.0, 1.0)).powf(1.5);
+    let frame = (t.max(0.0) * FRAMES_PER_SECOND) as u64;
+    let pick = |salt, items: u64| hash(seed(frame, salt, 0, 30)) % items.max(1);
+    for bar in 0..3 {
+        if unit(seed(frame, bar, 0, 31)) > 0.35 + 0.4 * heat {
+            continue;
+        }
+        let y = area.y + pick(32 + bar, u64::from(area.height)) as u16;
+        let start = area.x + pick(36 + bar, u64::from(area.width)) as u16;
+        let length = 2 + (unit(seed(frame, bar, 0, 40)) * f32::from(area.width) * 0.5 * heat) as u16;
+        let color = VIVID[pick(44 + bar, VIVID.len() as u64) as usize];
+        for x in start..start.saturating_add(length).min(area.right()) {
+            let glyph = NOISE[(hash(seed(frame, bar, u64::from(x), 48)) % NOISE.len() as u64) as usize];
+            buf[(x, y)].set_char(glyph).set_fg(background.mix(color, 0.25 + 0.5 * heat).into());
+        }
+    }
+    if heat > 0.4 {
+        let y = area.y + pick(50, u64::from(area.height)) as u16;
+        let x = area.x + pick(51, u64::from(area.width)) as u16;
+        let reach = 2 + (6.0 * heat) as u16;
+        for (shift, color) in [(0, SPLIT_RED), (2, SPLIT_CYAN)] {
+            for k in 0..reach {
+                let x = x.saturating_add(k + shift);
+                if x < area.right() {
+                    let glyph = SMEAR[usize::from(k) * SMEAR.len() / usize::from(reach)];
+                    buf[(x, y)].set_char(glyph).set_fg(background.mix(color, 0.5 * heat).into());
+                }
+            }
+        }
+    }
+}
+
 /// Heat for periodic bursts: mostly calm, flaring up every few seconds for under a
 /// second, with the timing varying from burst to burst.
 pub fn burst_heat(t: f32, period: f32, calm: f32) -> f32 {

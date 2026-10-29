@@ -390,6 +390,8 @@ pub struct AppState {
     pub search_history: crate::SearchHistory,
     /// A folder just added to the index, whose first build ends with a notice.
     pub indexing: Option<PathBuf>,
+    /// When the next flash over an empty folder starts, while one is shown.
+    pub(crate) glitch_wake: Option<Instant>,
     generation: u64,
 }
 
@@ -462,6 +464,7 @@ impl AppState {
             clipboard: crate::Clipboard::default(),
             search_history: crate::SearchHistory::default(),
             indexing: None,
+            glitch_wake: None,
             generation: 0,
         };
         state.refit();
@@ -648,6 +651,7 @@ impl AppState {
             prefix,
             intro,
             self.busy.reveal_at(),
+            self.glitch_wake,
             crate::plugins::wake_at(self),
             crate::activity::wake_at(self),
             crate::docker::wake_at(self),

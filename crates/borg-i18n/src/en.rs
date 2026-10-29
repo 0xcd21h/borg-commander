@@ -506,6 +506,8 @@ catalog! {
     panel_find => " Find ",
     panel_find_hint => " ↑↓ next · Ins mark · Enter/Esc done ",
     panel_empty => "empty",
+    tribute_memory => "In memory of Sir Patrick Stewart, 1940–2026",
+    tribute_line => "who led the Enterprise and, for a while, the Collective",
     missing_suffix => " [missing]",
     collections_load_error => "Collections: {error:#}",
     collections_preserved => "Saved collections could not be read; their file has been preserved",

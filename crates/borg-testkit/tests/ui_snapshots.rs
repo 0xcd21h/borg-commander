@@ -4,7 +4,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use borg_core::{Motion, Msg, Preferences, Settings};
 use borg_term::GridSize;
 use borg_testkit::{Snapshot, Stage, describe};
@@ -366,11 +366,21 @@ fn seven_of_nine_and_assimilation() -> Result<()> {
 }
 
 #[test]
-fn empty_folder_shows_stars() -> Result<()> {
+fn empty_folders_flash_now_and_then_and_remember_patrick_stewart_on_october_28() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
     let buffer = stage.render(stage.started + Duration::from_secs(2))?;
     ensure_text(&buffer, "empty")?;
-    check("empty_folder", &stage, buffer)
+    check("empty_folder", &stage, buffer)?;
+    let flash = (0..600)
+        .map(|step| step as f32 * 0.05)
+        .find(|t| borg_core::empty_glitch(*t).is_some_and(|progress| progress < 0.2))
+        .context("a flash within half a minute")?;
+    let buffer = stage.render(stage.started + Duration::from_secs_f32(flash))?;
+    check("empty_folder_flash", &stage, buffer)?;
+    let mut stage = staged(Motion::STILL, QUIET, Vec::new(), "2026-10-28T12:00:00+00:00[UTC]")?;
+    let buffer = stage.render(stage.started + Duration::from_secs_f32(flash))?;
+    ensure_text(&buffer, "In memory of Sir Patrick Stewart")?;
+    check("empty_folder_remembrance", &stage, buffer)
 }
 
 #[test]
