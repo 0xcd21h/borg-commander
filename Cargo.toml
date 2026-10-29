@@ -12,6 +12,7 @@ rust-version = "1.97"
 borg-i18n = { path = "crates/borg-i18n" }
 borg-core = { path = "crates/borg-core" }
 borg-docker = { path = "crates/borg-docker" }
+borg-edit = { path = "crates/borg-edit" }
 borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
@@ -51,6 +52,7 @@ sha2               = "0.10"
 rusqlite           = { version = "0.38", features = ["bundled"] }
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
+ropey = "1"
 memchr = "2"
 sysinfo            = { version = "0.39", default-features = false, features = ["system"] }
 read-process-memory = "0.2"

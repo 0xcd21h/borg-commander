@@ -38,6 +38,7 @@ crates/
   borg-term     the embedded shell: PTY, terminal emulator, shell integration (OSC 7 / 133)
   borg-vfs      file system access: streaming directory listings
   borg-view     the pager behind F3: constant memory on files of any size
+  borg-edit     the editor's text buffer: rope, grapheme cursor, selection, grouped undo
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
   borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-docker   bundled Docker plugin: containers, stats, files and shells through the docker CLI

@@ -1,0 +1,18 @@
+[package]
+name                 = "borg-edit"
+description          = "The text buffer behind borg-commander's editor"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+ropey                = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width        = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
