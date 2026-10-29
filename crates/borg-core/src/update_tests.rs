@@ -973,6 +973,33 @@ fn alt_enter_inserts_every_marked_name() {
 }
 
 #[test]
+fn ctrl_insert_copies_marked_names_and_alt_shift_insert_their_paths() {
+    let (mut state, now) = setup_with(vec![file("a b"), file("c")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, key(KeyCode::Insert));
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Insert, KeyModifiers::CONTROL));
+    assert_eq!(effects, vec![Effect::Copy("a b\nc".into())]);
+    let shift_alt = KeyModifiers::ALT | KeyModifiers::SHIFT;
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Insert, shift_alt));
+    assert_eq!(effects, vec![Effect::Copy("/home/a b\n/home/c".into())]);
+    assert_eq!(state.clipboard.entries().collect::<Vec<_>>(), ["/home/a b\n/home/c", "a b\nc"]);
+}
+
+#[test]
+fn ctrl_v_pastes_borg_copies_into_its_fields_but_stays_the_shells_at_the_prompt() {
+    let (mut state, now) = setup_with(vec![file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, KeyEvent::new(KeyCode::Insert, KeyModifiers::CONTROL));
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL));
+    assert_eq!(writes(&effects), "\x16", "the shell's quoted insert");
+    press(&mut state, now, key(KeyCode::F(7)));
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL));
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("expected the folder prompt") };
+    assert_eq!(prompt.input.text(), "notes.txt");
+}
+
+#[test]
 fn viewer_keys_scroll_wrap_and_close() {
     use std::sync::Arc;
 

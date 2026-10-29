@@ -272,6 +272,8 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Descend => descend(state, side).into_iter().collect(),
         Action::Leave => leave(state, side).into_iter().collect(),
         Action::InsertName => insert_names(state, side),
+        Action::CopyNames => copy_selection(state, side, false),
+        Action::CopyPaths => copy_selection(state, side, true),
         Action::InsertPath(which) => {
             let side = match which {
                 PathOf::Active => side,
@@ -576,6 +578,23 @@ fn insert_names(state: &mut AppState, side: Side) -> Vec<Effect> {
         }
     });
     type_words(state, words)
+}
+
+/// Copies the selected names, one per line, or their full paths. Results come from several
+/// folders, so their names are always copied as paths.
+fn copy_selection(state: &mut AppState, side: Side, full: bool) -> Vec<Effect> {
+    let panel = state.panel(side);
+    let paths = full || panel.is_results();
+    let lines: Vec<String> = panel
+        .selection()
+        .iter()
+        .map(|entry| if paths { entry.path(panel.dir()).to_string_lossy().into_owned() } else { entry.name.clone() })
+        .collect();
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    state.notice = Some(if paths { tr!(paths_copied) } else { tr!(names_copied) }.into());
+    crate::clipboard::copy(state, lines.join("\n"))
 }
 
 fn type_words(state: &mut AppState, words: CommandLine) -> Vec<Effect> {

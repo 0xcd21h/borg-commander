@@ -50,6 +50,9 @@ struct Screen {
     replay: VecDeque<Delta>,
     bytes: usize,
     controller: Option<String>,
+    /// The last copy, base64-encoded, and the sequence it came with: only the controlling
+    /// viewer receives it, once, to put on the clipboard of the computer it runs on.
+    clipboard: Option<(u64, String)>,
 }
 
 impl Screen {
@@ -83,6 +86,16 @@ impl Screen {
         if changed_size {
             self.full_at = self.sequence;
         }
+        true
+    }
+
+    /// Keeps `text` for the controlling viewer's next frame; false when no viewer controls.
+    fn copy(&mut self, text: &str) -> bool {
+        if self.controller.is_none() {
+            return false;
+        }
+        self.advance(Vec::new());
+        self.clipboard = Some((self.sequence, STANDARD.encode(text)));
         true
     }
 
@@ -130,7 +143,14 @@ impl Screen {
             write!(data, "\x1b[{};{}H\x1b[?25h", cursor.y + 1, cursor.x + 1)?;
         }
         data.extend_from_slice(b"\x1b[?2026l");
-        Ok(Reply::ok(json!({"sequence":self.sequence,"reset":reset,"data":STANDARD.encode(data),"controller":self.controller.as_deref()==Some(origin),"long_poll":true,"native_input":true,"cols":buffer.area.width,"rows":buffer.area.height}).to_string()))
+        let controller = self.controller.as_deref() == Some(origin);
+        let mut frame = json!({"sequence":self.sequence,"reset":reset,"data":STANDARD.encode(data),"controller":controller,"long_poll":true,"native_input":true,"cols":buffer.area.width,"rows":buffer.area.height});
+        if let Some((_, text)) =
+            self.clipboard.as_ref().filter(|(sequence, _)| controller && after > 0 && *sequence > after)
+        {
+            frame["clipboard"] = json!(text);
+        }
+        Ok(Reply::ok(frame.to_string()))
     }
 }
 
@@ -290,6 +310,14 @@ impl Host {
         self.shared.screen.lock().expect("mirror screen").controller.clone()
     }
 
+    /// Sends `text` to the controlling viewer's clipboard with the next frame.
+    pub fn copy(&self, text: &str) {
+        let mut screen = self.shared.screen.lock().expect("mirror screen");
+        if screen.copy(text) {
+            self.shared.output.send_replace(screen.sequence);
+        }
+    }
+
     pub fn plain(&self, text: &str, cols: u16, rows: u16) {
         use ratatui::widgets::{Paragraph, Widget, Wrap};
         let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, cols, rows));
@@ -385,6 +413,22 @@ mod tests {
 
     fn bytes(value: &serde_json::Value) -> Vec<u8> {
         STANDARD.decode(value["data"].as_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn copies_reach_only_the_controlling_viewer_once_and_never_a_new_connection() {
+        let mut screen = Screen::default();
+        screen.publish(&Buffer::empty(Rect::new(0, 0, 10, 2)), None);
+        assert!(!screen.copy("secret"), "no viewer controls the session");
+        screen.controller = Some("paired".into());
+        let after = frame(&screen, 0, 10, 2)["sequence"].as_u64().unwrap();
+        assert!(screen.copy("notes.txt"));
+        let next = frame(&screen, after, 10, 2);
+        assert_eq!(next["clipboard"], STANDARD.encode("notes.txt"));
+        assert!(frame(&screen, next["sequence"].as_u64().unwrap(), 10, 2).get("clipboard").is_none());
+        assert!(frame(&screen, 0, 10, 2).get("clipboard").is_none(), "a new connection gets no old copy");
+        let watcher = serde_json::from_str::<serde_json::Value>(&screen.frame(after, 10, 2, "watcher").unwrap().text);
+        assert!(watcher.unwrap().get("clipboard").is_none(), "a view-only mirror gets no copy");
     }
 
     #[test]

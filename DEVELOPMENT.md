@@ -189,7 +189,10 @@ records before reading metadata.
 Mirror display and input use separate tasks and connections. Input bursts are batched in a
 bounded queue; frame requests wait on the host for new PTY output, outside the service loop
 and child lock. A viewer more than 64 KiB behind receives a snapshot of the visible grid,
-cursor, and attributes instead of the backlog.
+cursor, and attributes instead of the backlog. A copy made while a viewer controls the session
+travels with that viewer's next frame as a base64 `clipboard` field, which the viewer passes to
+its terminal as OSC 52 after checking it is plain base64; view-only viewers never receive it.
+Copies also stay in `borg-core::clipboard`, so Ctrl-V works in Borg's own fields anywhere.
 
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:

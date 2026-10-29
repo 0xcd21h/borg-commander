@@ -501,7 +501,7 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
             let Some(command) = picked_command(state, &connect) else { return Vec::new() };
             state.overlay = None;
             state.notice = Some(tr!(agent_connect_copied).into());
-            return vec![Effect::Copy(command)];
+            return crate::clipboard::copy(state, command);
         }
         // For terminals that do not take the clipboard: the command as plain text to select.
         KeyCode::F(3) => {

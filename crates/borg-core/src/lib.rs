@@ -5,6 +5,7 @@ mod anim;
 mod appearance;
 mod aside;
 mod busy;
+mod clipboard;
 mod command;
 mod delight;
 mod discovery;
@@ -44,6 +45,7 @@ pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
 pub use busy::{Busy, SPINNER_DELAY, Task};
+pub use clipboard::Clipboard;
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
 pub use docker::{

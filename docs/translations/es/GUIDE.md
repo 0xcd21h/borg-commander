@@ -84,6 +84,7 @@ La barra de acceso directo de dos filas se encuentra debajo de la línea de coma
 | Insertar, Ctrl-T, Shift-Up/Abajo | Marcar archivos |
 | `+` `-` `*` | Seleccionar, deseleccionar o invertir por patrón (`*.rs`, `build/`) |
 | Alt-Enter | Pon los nombres marcados (o el actual) en la línea de comando |
+| Ctrl-Insert / Alt-Shift-Insert | Copiar los nombres marcados / sus rutas completas |
 | Shift-Enter, Ctrl-J | Inserte una nueva línea en el cursor de la línea de comando; Enter ejecuta el comando, Ctrl-C lo borra |
 | Alt-A / Alt-Shift-A | Coloque la ruta de la carpeta de este panel/otro panel en la línea de comando |
 | Shift-PgUp / Shift-PgDn | Desplazar el historial de salida de la consola |
@@ -106,6 +107,8 @@ La barra de acceso directo de dos filas se encuentra debajo de la línea de coma
 | F10 | Salir |
 
 Tab, Enter, Inicio, Fin, Izquierda y Derecha actúan en los paneles mientras la línea de comando está vacía. Una vez que escribes un comando, esas claves van al shell. Ctrl-P, Ctrl-N y Ctrl-R usan el historial de comandos de su shell. Shift-Enter (o Ctrl-J) inserta una nueva línea sin ejecutar el comando. Los comandos multilínea escritos y recuperados expanden la misma área de aviso, reduciendo los paneles y manteniendo el cursor visible. El shell conserva sus claves habituales de edición y finalización.
+
+Las copias llegan al portapapeles de su computadora a través del terminal, también por SSH y en un espejo que usted controla. Borg también guarda sus últimas 20 copias: Ctrl-V o Shift-Insert pega la más reciente en los campos propios de Borg, como los diálogos y la búsqueda en memoria, incluso donde el terminal no llega a su portapapeles. En la línea de comandos Ctrl-V sigue siendo del shell, así que pegue allí con la tecla de pegar de su terminal. El menú Archivo ofrece ambas copias para teclados sin Insert; las copias demasiado grandes para el terminal se quedan en Borg.
 
 Si su terminal reserva teclas F, presione **Esc, luego un dígito** en 1,5 segundos: Esc 1–9 son F1–F9; Esc 0 es F10. Por ejemplo, Esc 9 abre los menús y Esc 5 copia. Mientras Borg espera el dígito, la fila de teclas de función muestra los dígitos que se deben presionar. Esc primero cierra lo que está abierto (un aviso, resultados, la vista rápida o Información); un segundo Esc se cancela. Alt-1–0 también funciona cuando Alt llega a la terminal. El macOS, habilite la Opción como Meta en su terminal si es necesario.
 

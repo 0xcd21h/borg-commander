@@ -25,6 +25,8 @@ use crate::{agent::Call, link, session::StateDir};
 const KEEPALIVE: Duration = Duration::from_secs(20);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+/// The base64 of the host's largest copy that goes to the terminal's clipboard, with room to spare.
+const CLIPBOARD_LIMIT: usize = 512 * 1024;
 
 fn timeout_message(timeout: Duration, step: &str) -> String {
     borg_i18n::tr!(remote_mirror_step_timeout, seconds = timeout.as_secs(), step = step)
@@ -128,6 +130,11 @@ impl Paint {
     }
 }
 
+/// A copy from the host, base64-encoded, which can go inside OSC 52 without ending it early.
+fn clipboard_text(text: &str) -> bool {
+    text.len() <= CLIPBOARD_LIMIT && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+}
+
 async fn frames(
     mut remote: link::Remote,
     session: &str,
@@ -162,7 +169,11 @@ async fn frames(
             mode.store(bits, Ordering::Relaxed);
         }
         let bytes = base64::engine::general_purpose::STANDARD.decode(frame["data"].as_str().unwrap_or_default())?;
-        let painted = paint.frame(&bytes, frame["reset"] == true, size, controlling.load(Ordering::Relaxed), native);
+        let mut painted =
+            paint.frame(&bytes, frame["reset"] == true, size, controlling.load(Ordering::Relaxed), native);
+        if let Some(text) = frame["clipboard"].as_str().filter(|text| clipboard_text(text)) {
+            painted.extend_from_slice(format!("\x1b]52;c;{text}\x07").as_bytes());
+        }
         if !painted.is_empty() {
             output.write_all(&painted).await?;
             output.flush().await?;
@@ -498,7 +509,14 @@ pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> 
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{Paint, exit_requested, take_requested};
+    use super::{CLIPBOARD_LIMIT, Paint, clipboard_text, exit_requested, take_requested};
+
+    #[test]
+    fn only_bounded_base64_from_the_host_reaches_the_terminal_clipboard() {
+        assert!(clipboard_text("bm90ZXMudHh0"));
+        assert!(!clipboard_text("bm90\x07\x1b]0;title"), "an escape would end OSC 52 early");
+        assert!(!clipboard_text(&"A".repeat(CLIPBOARD_LIMIT + 1)));
+    }
 
     #[test]
     fn native_updates_keep_the_exit_banner_without_repainting_it_on_every_frame() {

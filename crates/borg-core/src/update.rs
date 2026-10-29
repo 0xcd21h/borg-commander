@@ -272,6 +272,17 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.viewer.is_some() && !matches!(state.overlay, Some(crate::Overlay::Approval(_))) {
         return crate::viewer::on_key(state, key);
     }
+    // Borg's own fields paste what was copied in Borg; elsewhere Ctrl-V stays the shell's.
+    let field = state.overlay.is_some()
+        || (state.activity.side.is_some()
+            && state.view == View::Panels
+            && (state.activity.search_form.is_some() || state.activity.filtering));
+    if field
+        && crate::clipboard::is_paste(key)
+        && let Some(text) = state.clipboard.latest().map(str::to_owned)
+    {
+        return on_paste(state, &text);
+    }
     if state.overlay.is_some() {
         return overlays::on_key(state, key, now);
     }

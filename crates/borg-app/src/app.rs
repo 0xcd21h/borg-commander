@@ -44,6 +44,8 @@ use crate::{
 };
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// Larger copies stay in Borg's clipboard: terminals drop or cut longer OSC 52 writes.
+const TERMINAL_CLIPBOARD_LIMIT: usize = 256 * 1024;
 const REMOTE_CLIENT_REFRESH: Duration = Duration::from_secs(1);
 /// The folder under the runtime directory where container files are copied for viewing.
 const DOCKER_SCRATCH: &str = "docker";
@@ -1654,7 +1656,13 @@ impl App {
                     self.state.notice = Some("Approve all is off for this session.".into());
                     self.agent.note("Approve all turned off locally");
                 }
-                Effect::Copy(text) => self.clipboard = Some(text),
+                Effect::Copy(text) if text.len() > TERMINAL_CLIPBOARD_LIMIT => {
+                    self.state.notice = Some(tr!(clipboard_borg_only).into());
+                }
+                Effect::Copy(text) => {
+                    self.native_mirror.copy(&text);
+                    self.clipboard = Some(text);
+                }
                 Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
                 Effect::StartPairing => self.start_pairing(),
                 Effect::SetRelay(text) => self.set_relay(&text),

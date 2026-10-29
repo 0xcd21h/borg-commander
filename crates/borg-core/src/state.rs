@@ -365,6 +365,8 @@ pub struct AppState {
     /// When the startup intro began. Any input, or its end, clears it.
     pub intro: Option<Instant>,
     pub rain_until: Option<Instant>,
+    /// What was copied in Borg, for pasting into its own fields.
+    pub clipboard: crate::Clipboard,
     generation: u64,
 }
 
@@ -433,6 +435,7 @@ impl AppState {
             saver: Saver::default(),
             intro: None,
             rain_until: None,
+            clipboard: crate::Clipboard::default(),
             generation: 0,
         };
         state.refit();

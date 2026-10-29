@@ -167,6 +167,7 @@ rows are clickable. Notices temporarily replace the second row.
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line |
+| Ctrl-Insert / Alt-Shift-Insert | Copy the marked names / their full paths |
 | Shift-Enter, Ctrl-J | Insert a newline at the command-line cursor; Enter runs the command, Ctrl-C clears it |
 | Alt-A / Alt-Shift-A | Put this panel's / the other panel's folder path on the command line |
 | Shift-PgUp / Shift-PgDn | Scroll console output history |
@@ -193,6 +194,13 @@ Once you type a command, those keys go to the shell. Ctrl-P, Ctrl-N, and Ctrl-R 
 shell’s command history. Shift-Enter (or Ctrl-J) inserts a newline without running the command.
 Typed and recalled multiline commands expand the same prompt area, shrinking the panels
 and keeping the cursor visible. The shell retains its usual editing and completion keys.
+
+Copies go to your computer's clipboard through the terminal, also over SSH and in a mirror you
+control. Borg also keeps its last 20 copies: Ctrl-V or Shift-Insert pastes the latest into Borg's
+own fields, such as dialogs and the memory search, even where the terminal cannot reach your
+clipboard. At the command line Ctrl-V stays the shell's, so paste there with your terminal's paste
+key. The File menu offers both copies for keyboards without Insert; copies too large for the
+terminal stay in Borg.
 
 If your terminal reserves F-keys, press **Esc, then a digit** within 1.5 seconds:
 Esc 1–9 are F1–F9; Esc 0 is F10. For example, Esc 9 opens the menus and Esc 5 copies.
