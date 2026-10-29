@@ -78,6 +78,7 @@ impl Launch {
                 env::var(ENV_TERM).ok().as_deref(),
             ),
             screensaver_after: config.screensaver_after().unwrap_or(defaults.screensaver_after),
+            search: config.search(),
             ..defaults
         };
 

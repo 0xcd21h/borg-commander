@@ -73,9 +73,29 @@ impl Default for Preferences {
     }
 }
 
+/// What recursive search skips unless a search asks for everything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchSettings {
+    /// Globs for paths below the search folder, or for names, to leave out.
+    pub exclude: Vec<String>,
+    /// Generated folders such as `node_modules`, Cargo's `target` and folders tagged as caches.
+    pub artifacts: bool,
+    /// `.gitignore`, `.ignore`, `.rgignore` and `.borgignore` files.
+    pub ignore_files: bool,
+    /// Searches are remembered for Ctrl-P and Ctrl-N.
+    pub history: bool,
+}
+
+impl Default for SearchSettings {
+    fn default() -> Self {
+        Self { exclude: Vec::new(), artifacts: true, ignore_files: true, history: true }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub preferences: Preferences,
+    pub search: SearchSettings,
     pub motion: Motion,
     pub truecolor: bool,
     pub screensaver_after: Duration,
@@ -93,6 +113,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             preferences: Preferences::default(),
+            search: SearchSettings::default(),
             motion: Motion::LOCAL,
             truecolor: true,
             screensaver_after: DEFAULT_SCREENSAVER_AFTER,

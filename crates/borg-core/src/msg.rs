@@ -231,6 +231,8 @@ pub enum Effect {
     },
     CancelSearch(Side),
     SaveCollections,
+    /// Writes the search history, or removes it once it is empty.
+    SaveSearchHistory,
     List {
         side: Side,
         generation: u64,

@@ -159,6 +159,14 @@ never starts a delete job. The live recursive search worker streams metadata in 
 batches, coalesces obsolete requests, and stops at the documented match limit. Query
 generations reject late messages; the update loop and renderer perform no search I/O.
 
+`borg-core::query` parses the search language and matches entries; `name_search` resolves a
+request's `hidden:` and `excluded:` switches against the window's settings in core, so the
+worker only applies them. The worker walks with the `ignore` crate: ignore files, configured
+globs as overrides, and a `filter_entry` that drops hidden names and generated folders
+(`borg-core::exclude`, plus `CACHEDIR.TAG`). A dropped folder is still tested against the query.
+Name-only queries match on what the listing gives and read metadata for matches alone. The
+search history is core state saved owner-only as `search-history.json` in the state directory.
+
 Folder totals and expandable size trees share
 one postorder metadata scanner. `borg-app::size_cache` writes all completed folder
 summaries into a staged SQLite index with bounded page memory, then publishes it

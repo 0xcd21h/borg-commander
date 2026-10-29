@@ -10,8 +10,10 @@ mod command;
 mod delight;
 mod discovery;
 mod docker;
+mod exclude;
 mod find;
 mod game2048;
+mod history;
 mod input;
 mod jobs;
 mod keymap;
@@ -26,6 +28,7 @@ mod panel;
 mod pattern;
 mod plugins;
 mod pointer;
+mod query;
 mod remote;
 mod results;
 mod settings;
@@ -52,8 +55,10 @@ pub use docker::{
     ContainerShell, Docker, DockerData, DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, ShellRequest,
     Usage, Working, container_shell_busy, shell_rect,
 };
+pub use exclude::{ARTIFACTS, CACHEDIR_SIGNATURE, CACHEDIR_TAG, Marker, is_artifact};
 pub use find::{Find, Query, summary as find_summary};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
+pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
@@ -65,8 +70,9 @@ pub use panel::{Listing, ListingMode, Panel, RemoteMount, Row, Seek, Sort, SortK
 pub use pattern::{Pattern, PatternError};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
+pub use query::{Problem as QueryProblem, QueryError, SearchQuery};
 pub use settings::{
-    AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, Settings,
+    AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, SearchSettings, Settings,
 };
 pub use state::{
     AppState, Confirm, ConfirmPurpose, Console, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,

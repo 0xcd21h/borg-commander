@@ -191,6 +191,12 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
                     progress.skipped,
                     state = state
                 );
+                let summary = if progress.excluded > 0 {
+                    let folders = format::count(progress.excluded, format::Count::Folder);
+                    format!("{summary} · {}", tr!(folders_left_out, folders = folders))
+                } else {
+                    summary
+                };
                 let room = usize::from(inner.width).saturating_sub(summary.chars().count() + 3);
                 format!("{summary} · {}", format::truncate_start(&request.root.display().to_string(), room))
             }

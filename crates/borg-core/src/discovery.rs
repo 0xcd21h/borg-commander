@@ -1,9 +1,9 @@
-use crate::{AppState, Effect, LineInput, Overlay, ResultSource, SearchRequest};
+use crate::{AppState, Effect, LineInput, Overlay, ResultSource};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 
-pub const SEARCH_FIELDS: usize = 6;
+pub const SEARCH_FIELDS: usize = 7;
 const UNIT: f64 = 1024.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -50,8 +50,12 @@ pub struct SearchForm {
     pub minimum: LineInput,
     pub files: LineInput,
     pub hidden: bool,
+    /// Leave out generated folders, ignored files and the configured globs.
+    pub skip: bool,
     pub selected: usize,
     pub error: Option<String>,
+    /// The recalled query's place in the history, and what was typed before recalling.
+    pub recalled: Option<(usize, String)>,
 }
 
 impl SearchForm {
@@ -75,8 +79,48 @@ impl SearchForm {
                     .map_or_else(String::new, |r| r.options.minimum_files.to_string()),
             ),
             hidden: space || request.map_or(state.settings.preferences.show_hidden, |r| r.hidden),
+            skip: request.is_none_or(|r| r.skip.is_some()),
             selected: 0,
             error: None,
+            recalled: None,
+        }
+    }
+
+    /// Size scans read everything, so they have no field for leaving things out.
+    pub fn fields(&self) -> usize {
+        if matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree) {
+            SEARCH_FIELDS - 1
+        } else {
+            SEARCH_FIELDS
+        }
+    }
+
+    fn root(&self, state: &AppState) -> PathBuf {
+        if self.root.text() == self.original_root.display().to_string() {
+            self.original_root.clone()
+        } else {
+            state.active_panel().dir().join(PathBuf::from(self.root.text()))
+        }
+    }
+
+    /// Ctrl-P recalls an older search, Ctrl-N a newer one and finally what was typed.
+    fn recall(&mut self, state: &AppState, older: bool) {
+        let past = state.search_history.recall(&self.root(state));
+        let current = self.recalled.as_ref().map(|(at, _)| *at);
+        let next = match (current, older) {
+            (None, true) => Some(0),
+            (Some(at), true) => Some((at + 1).min(past.len().saturating_sub(1))),
+            (Some(at), false) => at.checked_sub(1),
+            (None, false) => return,
+        };
+        let draft = self.recalled.take().map_or_else(|| self.pattern.text().to_owned(), |(_, draft)| draft);
+        match next.and_then(|at| past.get(at).map(|query| (at, *query))) {
+            Some((at, query)) => {
+                self.pattern = LineInput::new(query);
+                self.recalled = Some((at, draft));
+            }
+            None if current.is_some() => self.pattern = LineInput::new(draft),
+            None => {}
         }
     }
 }
@@ -138,54 +182,60 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
             state.overlay = None;
             return Vec::new();
         }
-        KeyCode::Tab | KeyCode::Down => form.selected = (form.selected + 1) % SEARCH_FIELDS,
-        KeyCode::BackTab | KeyCode::Up => form.selected = (form.selected + SEARCH_FIELDS - 1) % SEARCH_FIELDS,
+        KeyCode::Tab | KeyCode::Down => form.selected = (form.selected + 1) % form.fields(),
+        KeyCode::BackTab | KeyCode::Up => form.selected = (form.selected + form.fields() - 1) % form.fields(),
+        KeyCode::Char(c @ ('p' | 'n')) if key.modifiers == KeyModifiers::CONTROL && form.selected == 0 => {
+            form.recall(state, c == 'p');
+        }
         KeyCode::Enter => {
             let minimum = parse_size(form.minimum.text());
             let files =
                 if form.files.text().trim().is_empty() { Ok(0) } else { form.files.text().trim().parse::<u64>() };
             match (minimum, files) {
                 (Some(minimum), Ok(minimum_files)) => {
-                    let root = if form.root.text() == form.original_root.display().to_string() {
-                        form.original_root.clone()
-                    } else {
-                        let path = PathBuf::from(form.root.text());
-                        state.active_panel().dir().join(path)
-                    };
-                    state.overlay = None;
-                    return crate::results::start_search(
-                        state,
-                        SearchRequest {
-                            root,
-                            query: if form.pattern.text().trim().is_empty() {
-                                "*".into()
-                            } else {
-                                form.pattern.text().trim().into()
-                            },
-                            hidden: form.hidden,
-                            options: SearchOptions {
-                                refresh: false,
-                                kind: if form.kind != SearchKind::FolderTree
-                                    && (minimum_files > 0 || (form.kind == SearchKind::Folders && minimum > 0))
-                                {
-                                    SearchKind::FolderTotals
-                                } else {
-                                    form.kind
-                                },
-                                minimum,
-                                minimum_files,
-                            },
+                    let root = form.root(state);
+                    let query = form.pattern.text().trim();
+                    let query = if query.is_empty() { "*" } else { query };
+                    let options = SearchOptions {
+                        refresh: false,
+                        kind: if form.kind != SearchKind::FolderTree
+                            && (minimum_files > 0 || (form.kind == SearchKind::Folders && minimum > 0))
+                        {
+                            SearchKind::FolderTotals
+                        } else {
+                            form.kind
                         },
-                    );
+                        minimum,
+                        minimum_files,
+                    };
+                    match crate::results::name_search(state, root, query, form.hidden, form.skip, options) {
+                        Ok(request) => {
+                            state.overlay = None;
+                            let mut effects = Vec::new();
+                            if state.settings.search.history
+                                && state.search_history.record(&request.query, &request.root)
+                            {
+                                effects.push(Effect::SaveSearchHistory);
+                            }
+                            effects.extend(crate::results::start_search(state, request));
+                            return effects;
+                        }
+                        Err(error) => form.error = Some(error.message()),
+                    }
                 }
                 _ => form.error = Some(tr!(use_a_size_such_as_500m_or).into()),
             }
         }
         KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 2 => {
-            form.kind = form.kind.step(key.code == KeyCode::Left)
+            form.kind = form.kind.step(key.code == KeyCode::Left);
+            form.selected = form.selected.min(form.fields() - 1);
         }
         KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == 5 => form.hidden = !form.hidden,
+        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == 6 => form.skip = !form.skip,
         _ => {
+            if form.selected == 0 {
+                form.recalled = None;
+            }
             let input = match form.selected {
                 0 => Some(&mut form.pattern),
                 1 => Some(&mut form.root),
@@ -206,7 +256,7 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
     Vec::new()
 }
 
-fn parse_size(text: &str) -> Option<u64> {
+pub(crate) fn parse_size(text: &str) -> Option<u64> {
     let text = text.trim().to_ascii_lowercase();
     if text.is_empty() {
         return Some(0);
@@ -245,6 +295,43 @@ mod tests {
         let effects = search_key(&mut state, form, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(
             matches!(&effects[..], [crate::Effect::Search { request, .. }] if request.options.kind == SearchKind::FolderTree && request.options.minimum_files == 20)
+        );
+    }
+
+    #[test]
+    fn searches_are_remembered_recalled_with_ctrl_p_and_bad_queries_keep_the_window_open() {
+        let now = std::time::Instant::now();
+        let (mut state, _) = AppState::new(
+            crate::Startup::at("/work".into()),
+            100,
+            30,
+            crate::Settings::default(),
+            crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+            now,
+        );
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let mut form = SearchForm::new(&state, false);
+        form.pattern = LineInput::new("ext:rs -test");
+        let effects = search_key(&mut state, form, &enter);
+        assert!(matches!(&effects[..], [Effect::SaveSearchHistory, Effect::Search { request, .. }]
+            if request.skip.is_some() && request.query == "ext:rs -test"));
+        let mut form = SearchForm::new(&state, false);
+        form.pattern = LineInput::new("size:huge");
+        search_key(&mut state, form, &enter);
+        let Some(Overlay::Search(form)) = state.overlay.clone() else { panic!("the window stays open") };
+        assert!(form.error.as_deref().is_some_and(|error| error.contains("size:huge")));
+        let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+        search_key(&mut state, form, &ctrl('p'));
+        let Some(Overlay::Search(form)) = state.overlay.clone() else { panic!("search window") };
+        assert_eq!(form.pattern.text(), "ext:rs -test");
+        search_key(&mut state, form, &ctrl('n'));
+        let Some(Overlay::Search(form)) = state.overlay.clone() else { panic!("search window") };
+        assert_eq!(form.pattern.text(), "size:huge", "Ctrl-N returns to what was typed");
+        let mut form = SearchForm::new(&state, false);
+        form.pattern = LineInput::new("node_modules excluded:yes");
+        let effects = search_key(&mut state, form, &enter);
+        assert!(
+            effects.iter().any(|effect| matches!(effect, Effect::Search { request, .. } if request.skip.is_none()))
         );
     }
 

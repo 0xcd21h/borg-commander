@@ -995,6 +995,7 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
     stage.state.panels[0].open_results(
         borg_core::ResultSource::Search {
             request: borg_core::SearchRequest {
+                skip: None,
                 root: "/workspace".into(),
                 query: "*.toml".into(),
                 hidden: false,
@@ -1109,6 +1110,7 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                skip: None,
                 root: "/workspace".into(),
                 query: "*".into(),
                 hidden: true,
@@ -1436,6 +1438,7 @@ fn size_tree_stage() -> Result<Stage> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                skip: None,
                 root: "/workspace/project".into(),
                 query: "*".into(),
                 hidden: true,

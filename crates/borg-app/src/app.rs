@@ -197,6 +197,11 @@ impl App {
                     state.notice = Some(tr!(collections_load_error, error = error));
                 }
             }
+            if state.settings.search.history {
+                state.search_history = dir.load_search_history().unwrap_or_default();
+            } else {
+                let _ = dir.save_search_history(&borg_core::SearchHistory::default());
+            }
         }
 
         let mut emulator = Emulator::new(grid, state.settings.scrollback);
@@ -1527,6 +1532,13 @@ impl App {
                     self.search.refresh(side, generation, entries)
                 }
                 Effect::CancelSearch(side) => self.search.cancel(side),
+                Effect::SaveSearchHistory => {
+                    if let Some(dir) = &self.state_dir
+                        && let Err(error) = dir.save_search_history(&self.state.search_history)
+                    {
+                        self.state.notice = Some(tr!(search_history_save_error, error = error));
+                    }
+                }
                 Effect::SaveCollections => {
                     if !self.collections_writable {
                         self.state.notice = Some(tr!(collections_preserved).into());

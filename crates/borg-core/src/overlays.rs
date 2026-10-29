@@ -186,15 +186,16 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
     }
     match purpose {
         PromptPurpose::RemoteName { .. } => Vec::new(),
-        PromptPurpose::Search { root } => crate::results::start_search(
-            state,
-            crate::SearchRequest {
-                root,
-                query: text.to_owned(),
-                hidden: state.settings.preferences.show_hidden,
-                options: Default::default(),
-            },
-        ),
+        PromptPurpose::Search { root } => {
+            let hidden = state.settings.preferences.show_hidden;
+            match crate::results::name_search(state, root, text, hidden, true, Default::default()) {
+                Ok(request) => crate::results::start_search(state, request),
+                Err(error) => {
+                    state.notice = Some(error.message());
+                    Vec::new()
+                }
+            }
+        }
         PromptPurpose::Collection => crate::results::collection(state, text, state.active),
         PromptPurpose::ResultsFilter => {
             let side = state.active;

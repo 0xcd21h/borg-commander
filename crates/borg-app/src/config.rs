@@ -69,6 +69,29 @@ pub struct Config {
     pub update_check: Option<bool>,
     /// The borg cloud relay, as `wss://host`.
     pub relay: Option<String>,
+    pub search: Option<Search>,
+}
+
+/// `[search]`: what recursive search leaves out, and whether it remembers searches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Search {
+    pub exclude: Vec<String>,
+    pub artifacts: bool,
+    pub ignore_files: bool,
+    pub history: bool,
+}
+
+impl Default for Search {
+    fn default() -> Self {
+        let defaults = borg_core::SearchSettings::default();
+        Self {
+            exclude: defaults.exclude,
+            artifacts: defaults.artifacts,
+            ignore_files: defaults.ignore_files,
+            history: defaults.history,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +167,16 @@ impl Config {
         self.icon_style.unwrap_or(if self.nerd_font == Some(true) { IconStyle::Nerd } else { IconStyle::Auto })
     }
 
+    pub fn search(&self) -> borg_core::SearchSettings {
+        let search = self.search.clone().unwrap_or_default();
+        borg_core::SearchSettings {
+            exclude: search.exclude,
+            artifacts: search.artifacts,
+            ignore_files: search.ignore_files,
+            history: search.history,
+        }
+    }
+
     pub fn screensaver_after(&self) -> Option<Duration> {
         self.screensaver_after.map(Duration::from_secs)
     }
@@ -192,6 +225,7 @@ impl Config {
             graphics: self.graphics.clone(),
             update_check: self.update_check,
             relay: self.relay.clone(),
+            search: self.search.clone(),
         }
     }
 }
@@ -255,6 +289,17 @@ mod tests {
         assert_eq!(back.unlocked(), unlocked);
         assert_eq!(back.screensaver_after(), Some(Duration::from_secs(42)));
         assert!(text.contains("return-to-panels = true"));
+    }
+
+    #[test]
+    fn search_settings_default_to_skipping_artifacts_and_survive_saving_preferences() {
+        let config: Config = toml::from_str("[search]\nexclude = [\"*.min.js\"]\nignore-files = false\n").unwrap();
+        let search = config.search();
+        assert_eq!(search.exclude, ["*.min.js"]);
+        assert!(search.artifacts && !search.ignore_files && search.history);
+        assert!(Config::default().search().ignore_files);
+        let saved = config.capture(None, &Preferences::default(), &[]);
+        assert_eq!(saved.search(), search);
     }
 
     #[test]

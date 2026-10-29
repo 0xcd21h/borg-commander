@@ -11,6 +11,9 @@ use ratatui::{
 const MAX_WIDTH: u16 = 82;
 const SEARCH_HEIGHT: u16 = 13;
 const SEARCH_BUTTON_ROW: u16 = 9;
+const HIDDEN_ROW: u16 = 6;
+const SKIP_ROW: u16 = 7;
+const HINT_ROW: u16 = 10;
 const FIELD_GAP: u16 = 2;
 const FIELD_PADDING: u16 = 2;
 const LIST_ROWS: u16 = 10;
@@ -153,7 +156,8 @@ pub(crate) fn search_area(screen: Rect) -> Rect {
 
 pub(crate) fn search_field(screen: Rect, point: Position) -> Option<usize> {
     let area = search_area(screen).inner(ratatui::layout::Margin::new(2, 1));
-    (area.contains(point) && point.y > area.y && point.y <= area.y + 6).then(|| usize::from(point.y - area.y - 1))
+    (area.contains(point) && point.y > area.y && point.y <= area.y + SKIP_ROW)
+        .then(|| usize::from(point.y - area.y - 1))
 }
 
 fn input_text(input: &LineInput, focused: bool, width: usize) -> String {
@@ -243,21 +247,31 @@ pub(crate) fn search(form: &SearchForm, theme: &Theme, screen: Rect, buf: &mut B
             theme,
         );
     }
-    let checked = if form.hidden { "[x]" } else { "[ ]" };
-    write(
-        buf,
-        Rect { width: 3.min(inner.width), ..inner },
-        6,
-        checked.into(),
-        if form.selected == 5 { theme.styles.overlay_selected } else { theme.styles.input },
-    );
-    write(
-        buf,
-        Rect { x: inner.x.saturating_add(4), width: inner.width.saturating_sub(4), ..inner },
-        6,
-        tr!(include_hidden_files_and_folders).into(),
-        theme.styles.overlay,
-    );
+    let sizes = matches!(form.kind, borg_core::SearchKind::FolderTotals | borg_core::SearchKind::FolderTree);
+    let checks = [
+        (HIDDEN_ROW, form.hidden, 5, tr!(include_hidden_files_and_folders)),
+        (SKIP_ROW, form.skip, 6, tr!(skip_generated_files)),
+    ];
+    for (row, checked, index, label) in checks.into_iter().take(if sizes { 1 } else { 2 }) {
+        write(
+            buf,
+            Rect { width: 3.min(inner.width), ..inner },
+            row,
+            if checked { "[x]" } else { "[ ]" }.into(),
+            if form.selected == index { theme.styles.overlay_selected } else { theme.styles.input },
+        );
+        let label_area = Rect { x: inner.x.saturating_add(4), width: inner.width.saturating_sub(4), ..inner };
+        write(buf, label_area, row, label.into(), theme.styles.overlay);
+    }
+    if !sizes {
+        write(
+            buf,
+            inner,
+            HINT_ROW,
+            format::truncate_end(tr!(search_query_hint), usize::from(inner.width)),
+            theme.styles.footer,
+        );
+    }
     if let Some(error) = &form.error {
         write(buf, inner, 8, error.clone(), theme.styles.notice);
     }

@@ -2,6 +2,7 @@ use borg_i18n::tr;
 use std::{
     fs,
     os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -9,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use borg_core::{Msg, Query, RESULT_LIMIT, SearchKind, SearchProgress, SearchRequest, Side};
+use borg_core::{Msg, Query, RESULT_LIMIT, SearchKind, SearchProgress, SearchQuery, SearchRequest, Side};
 use borg_vfs::Entry;
 use tokio::{
     sync::{mpsc, watch},
@@ -21,6 +22,8 @@ const BATCH_SIZE: usize = 128;
 const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 const BACKPRESSURE_WAIT: Duration = Duration::from_millis(5);
 const MAX_DEPTH: usize = 256;
+/// Borg's own ignore file, read like `.gitignore` where a search leaves ignored files out.
+const BORG_IGNORE: &str = ".borgignore";
 
 #[derive(Clone)]
 enum Work {
@@ -101,6 +104,7 @@ impl Search {
         self.background.request(
             id,
             Work::Search(SearchRequest {
+                skip: None,
                 root,
                 query: "*".into(),
                 hidden: true,
@@ -155,105 +159,7 @@ fn run(
             return;
         }
         Work::Search(search) => {
-            let query = Query::parse(&search.query);
-            let mut progress = SearchProgress::default();
-            let root = match fs::metadata(&search.root) {
-                Ok(root) => root,
-                Err(error) => {
-                    stream.send(Msg::Listed { side, generation: request.generation, error: Some(error.to_string()) });
-                    return;
-                }
-            };
-            let device = root.dev();
-            let root_identity = (root.dev(), root.ino());
-            let reader = match fs::read_dir(&search.root) {
-                Ok(reader) => reader,
-                Err(error) => {
-                    stream.send(Msg::Listed { side, generation: request.generation, error: Some(error.to_string()) });
-                    return;
-                }
-            };
-            let mut stack = vec![(reader, root_identity)];
-            let mut found = 0;
-            let mut last = Instant::now();
-            while let Some((reader, _)) = stack.last_mut() {
-                if stream.stopped() {
-                    return;
-                }
-                let Some(item) = reader.next() else {
-                    stack.pop();
-                    continue;
-                };
-                let item = match item {
-                    Ok(item) => item,
-                    Err(_) => {
-                        progress.errors += 1;
-                        continue;
-                    }
-                };
-                if !search.hidden && item.file_name().as_encoded_bytes().starts_with(b".") {
-                    progress.skipped += 1;
-                    continue;
-                }
-                let entry = match borg_vfs::entry(&item.path()) {
-                    Ok(entry) => entry,
-                    Err(_) => {
-                        progress.errors += 1;
-                        continue;
-                    }
-                };
-                progress.visited += 1;
-                let kind = match search.options.kind {
-                    SearchKind::Files => entry.kind == borg_vfs::EntryKind::File,
-                    SearchKind::Folders => entry.kind == borg_vfs::EntryKind::Dir,
-                    _ => true,
-                };
-                if kind
-                    && (search.options.minimum == 0 || (!entry.is_dir() && entry.size >= search.options.minimum))
-                    && query.accepts(&entry)
-                {
-                    if !stream.push(entry.clone()) {
-                        return;
-                    }
-                    found += 1;
-                    if found >= RESULT_LIMIT {
-                        progress.limited = true;
-                        break;
-                    }
-                }
-                if entry.kind == borg_vfs::EntryKind::Dir {
-                    match fs::symlink_metadata(item.path()) {
-                        Ok(meta)
-                            if meta.dev() != device
-                                || stack.len() >= MAX_DEPTH
-                                || revisits(stack.iter().map(|(_, id)| *id), &meta) =>
-                        {
-                            progress.skipped += 1
-                        }
-                        Ok(meta) => match fs::read_dir(item.path()) {
-                            Ok(reader) => stack.push((reader, (meta.dev(), meta.ino()))),
-                            Err(_) => progress.errors += 1,
-                        },
-                        Err(_) => progress.errors += 1,
-                    }
-                }
-                if last.elapsed() >= PROGRESS_EVERY {
-                    if !stream.flush()
-                        || !stream.send(Msg::SearchProgress {
-                            side,
-                            generation: request.generation,
-                            progress: progress.clone(),
-                        })
-                    {
-                        return;
-                    }
-                    last = Instant::now();
-                }
-            }
-            if !stream.flush() {
-                return;
-            }
-            if !stream.send(Msg::SearchProgress { side, generation: request.generation, progress }) {
+            if !search_names(&search, &mut stream) {
                 return;
             }
         }
@@ -261,6 +167,158 @@ fn run(
     if stream.flush() {
         stream.send(Msg::Listed { side, generation: request.generation, error: None });
     }
+}
+
+/// Streams the entries below the search folder whose names match, leaving out what the request
+/// skips. A left-out folder is still a result when it matches; only its contents are not read.
+/// False when the search stopped before finishing.
+fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
+    let (side, generation) = (stream.side, stream.generation);
+    let failed = |stream: &Output<'_>, error: String| {
+        stream.send(Msg::Listed { side, generation, error: Some(error) });
+        false
+    };
+    let query = match SearchQuery::parse(&search.query) {
+        Ok(query) => query,
+        Err(error) => return failed(stream, error.message()),
+    };
+    if let Err(error) = fs::read_dir(&search.root) {
+        return failed(stream, error.to_string());
+    }
+    let skip = search.skip.as_ref();
+    let mut walk = ignore::WalkBuilder::new(&search.root);
+    walk.standard_filters(false).same_file_system(true).max_depth(Some(MAX_DEPTH));
+    if skip.is_some_and(|skip| skip.ignore_files) {
+        walk.git_ignore(true).git_global(true).git_exclude(true).ignore(true).parents(true).require_git(false);
+        walk.add_custom_ignore_filename(".rgignore").add_custom_ignore_filename(BORG_IGNORE);
+    }
+    if let Some(globs) = skip.map(|skip| &skip.exclude).filter(|globs| !globs.is_empty()) {
+        let mut overrides = ignore::overrides::OverrideBuilder::new(&search.root);
+        for glob in globs {
+            if let Err(error) = overrides.add(&format!("!{glob}")) {
+                return failed(stream, error.to_string());
+            }
+        }
+        match overrides.build() {
+            Ok(overrides) => walk.overrides(overrides),
+            Err(error) => return failed(stream, error.to_string()),
+        };
+    }
+    let left_out = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hidden = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    {
+        let (left_out, hidden, show_hidden) = (left_out.clone(), hidden.clone(), search.hidden);
+        let artifacts = skip.is_some_and(|skip| skip.artifacts);
+        walk.filter_entry(move |entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            if !show_hidden && entry.file_name().as_encoded_bytes().starts_with(b".") {
+                hidden.fetch_add(1, Ordering::Relaxed);
+                return false;
+            }
+            let generated = artifacts && entry.file_type().is_some_and(|kind| kind.is_dir()) && generated(entry.path());
+            if generated {
+                left_out.lock().expect("left-out folders").push(entry.path().to_path_buf());
+            }
+            !generated
+        });
+    }
+    let now = std::time::SystemTime::now();
+    let metadata = query.needs_metadata() || search.options.minimum > 0;
+    let wanted = |entry: &Entry, path: &Path| {
+        let kind = match search.options.kind {
+            SearchKind::Files => entry.kind == borg_vfs::EntryKind::File,
+            SearchKind::Folders => entry.kind == borg_vfs::EntryKind::Dir,
+            _ => true,
+        };
+        kind && (search.options.minimum == 0 || (!entry.is_dir() && entry.size >= search.options.minimum))
+            && query.accepts(entry, path, now)
+    };
+    let mut progress = SearchProgress::default();
+    let mut found = 0;
+    let mut last = Instant::now();
+    for item in walk.build() {
+        if stream.stopped() {
+            return false;
+        }
+        let item = match item {
+            Ok(item) if item.depth() == 0 => continue,
+            Ok(item) => item,
+            Err(_) => {
+                progress.errors += 1;
+                continue;
+            }
+        };
+        progress.visited += 1;
+        let path = item.path();
+        let mut candidates = vec![(path.to_path_buf(), item.file_type())];
+        let drained: Vec<PathBuf> = std::mem::take(&mut *left_out.lock().expect("left-out folders"));
+        progress.excluded += drained.len();
+        candidates.extend(drained.into_iter().map(|path| (path, None)));
+        for (path, kind) in candidates {
+            // Name-only queries match on what the listing gives; only matches read metadata.
+            let cheap = (!metadata).then_some(kind).flatten().filter(|kind| !kind.is_symlink()).map(|kind| Entry {
+                source: Some(path.clone()),
+                missing: false,
+                usage: None,
+                name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                kind: if kind.is_dir() { borg_vfs::EntryKind::Dir } else { borg_vfs::EntryKind::File },
+                size: 0,
+                modified: None,
+                executable: false,
+                permissions: 0,
+            });
+            if cheap.as_ref().is_some_and(|entry| !wanted(entry, &path)) {
+                continue;
+            }
+            let entry = match borg_vfs::entry(&path) {
+                Ok(entry) => entry,
+                Err(_) => {
+                    progress.errors += 1;
+                    continue;
+                }
+            };
+            if (cheap.is_none() && !wanted(&entry, &path)) || !stream.push(entry) {
+                if stream.stopped() {
+                    return false;
+                }
+                continue;
+            }
+            found += 1;
+            if found >= RESULT_LIMIT {
+                progress.limited = true;
+                break;
+            }
+        }
+        if progress.limited {
+            break;
+        }
+        if last.elapsed() >= PROGRESS_EVERY {
+            progress.skipped = hidden.load(Ordering::Relaxed);
+            if !stream.flush() || !stream.send(Msg::SearchProgress { side, generation, progress: progress.clone() }) {
+                return false;
+            }
+            last = Instant::now();
+        }
+    }
+    progress.skipped = hidden.load(Ordering::Relaxed);
+    stream.flush() && stream.send(Msg::SearchProgress { side, generation, progress })
+}
+
+/// Whether the folder at `path` is generated: by its name and marker files, or a cache tag.
+fn generated(path: &Path) -> bool {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    borg_core::is_artifact(&name, |file| path.with_file_name(file).exists(), |file| path.join(file).exists())
+        || cache_tagged(path)
+}
+
+fn cache_tagged(path: &Path) -> bool {
+    use std::io::Read;
+    let mut start = [0; borg_core::CACHEDIR_SIGNATURE.len()];
+    fs::File::open(path.join(borg_core::CACHEDIR_TAG))
+        .and_then(|mut file| file.read_exact(&mut start))
+        .is_ok_and(|()| start == borg_core::CACHEDIR_SIGNATURE)
 }
 
 struct Directory {
@@ -595,6 +653,7 @@ mod tests {
             Side::Left,
             9,
             SearchRequest {
+                skip: None,
                 root: root.path().into(),
                 query: "node_modules".into(),
                 hidden: true,
@@ -626,6 +685,7 @@ mod tests {
             Side::Left,
             10,
             SearchRequest {
+                skip: None,
                 root: root.path().into(),
                 query: "node_modules".into(),
                 hidden: false,
@@ -659,6 +719,7 @@ mod tests {
             Side::Left,
             7,
             SearchRequest {
+                skip: None,
                 root: root.path().into(),
                 query: "*.toml".into(),
                 hidden: false,
@@ -679,6 +740,67 @@ mod tests {
         assert_eq!(progress.errors, 0);
         assert_eq!(progress.skipped, 1);
         assert!(!progress.limited);
+    }
+
+    #[tokio::test]
+    async fn name_searches_leave_out_generated_ignored_and_configured_paths_unless_asked() {
+        let root = tempfile::tempdir().unwrap();
+        let files = [
+            "app/main.rs",
+            "app/node_modules/dep/index.rs",
+            "app/Cargo.toml",
+            "app/target/debug/build.rs",
+            "notes/target/plan.rs",
+            "cache/CACHEDIR.TAG",
+            "cache/blob.rs",
+            "gen/out.rs",
+            "app/ignored.rs",
+            "big/huge.rs",
+        ];
+        for file in files {
+            let path = root.path().join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "").unwrap();
+        }
+        fs::write(root.path().join("cache/CACHEDIR.TAG"), borg_core::CACHEDIR_SIGNATURE).unwrap();
+        fs::write(root.path().join("app/.gitignore"), "ignored.rs\n").unwrap();
+        fs::write(root.path().join(".borgignore"), "gen/\n").unwrap();
+        let base = root.path().to_path_buf();
+        let run = |query: &str, skip: Option<borg_core::SearchSettings>| {
+            let base = base.clone();
+            let mut search = Search::with_cache(crate::size_cache::SizeCache::at(None));
+            let request = SearchRequest {
+                root: base.clone(),
+                query: query.into(),
+                hidden: false,
+                options: Default::default(),
+                skip,
+            };
+            async move {
+                search.search(Side::Left, 1, request);
+                let mut found = Vec::new();
+                loop {
+                    match tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap() {
+                        Msg::Batch { entries, .. } => found.extend(entries),
+                        Msg::Listed { .. } => break,
+                        _ => {}
+                    }
+                }
+                let mut paths: Vec<String> = found
+                    .iter()
+                    .map(|entry| entry.identity().strip_prefix(&base).unwrap().display().to_string())
+                    .collect();
+                paths.sort();
+                paths
+            }
+        };
+        let settings = borg_core::SearchSettings { exclude: vec!["big".into()], ..Default::default() };
+        assert_eq!(run("ext:rs", Some(settings.clone())).await, ["app/main.rs", "notes/target/plan.rs"]);
+        assert_eq!(
+            run("node_modules | target", Some(settings.clone())).await,
+            ["app/node_modules", "app/target", "notes/target"]
+        );
+        assert_eq!(run("ext:rs", None).await.len(), 8, "nothing is left out without exclusions");
     }
 
     #[tokio::test]
@@ -720,13 +842,20 @@ mod tests {
         search.search(
             Side::Left,
             1,
-            SearchRequest { root: root.path().into(), query: "*".into(), hidden: false, options: Default::default() },
+            SearchRequest {
+                skip: None,
+                root: root.path().into(),
+                query: "*".into(),
+                hidden: false,
+                options: Default::default(),
+            },
         );
         let _ = tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap();
         search.search(
             Side::Left,
             2,
             SearchRequest {
+                skip: None,
                 root: root.path().into(),
                 query: "file-1499".into(),
                 hidden: false,
@@ -749,6 +878,7 @@ mod tests {
         measured_request(
             search,
             SearchRequest {
+                skip: None,
                 root: root.into(),
                 query: "*".into(),
                 hidden: true,
@@ -822,6 +952,7 @@ mod tests {
         }
         fs::write(root.join("data"), "updated").unwrap();
         let request = SearchRequest {
+            skip: None,
             root: root.clone(),
             query: "*".into(),
             hidden: true,
@@ -858,6 +989,7 @@ mod tests {
         measured_tree(&mut search, &root, false).await;
         fs::write(root.join("cache/nested/data"), "changed outside Borg").unwrap();
         let request = SearchRequest {
+            skip: None,
             root: root.clone(),
             query: "cache".into(),
             hidden: true,
@@ -918,6 +1050,7 @@ mod tests {
         let (fresh, progress) = measured_request(
             &mut search,
             SearchRequest {
+                skip: None,
                 root: root.clone(),
                 query: "*".into(),
                 hidden: true,

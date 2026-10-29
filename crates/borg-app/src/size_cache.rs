@@ -471,6 +471,7 @@ mod tests {
         let count: i64 = connection.query_row("SELECT count(*) FROM folders", [], |r| r.get(0)).unwrap();
         assert_eq!(count, RESULT_LIMIT as i64 + 5);
         let request = SearchRequest {
+            skip: None,
             root: root.clone(),
             query: "apps".into(),
             hidden: true,

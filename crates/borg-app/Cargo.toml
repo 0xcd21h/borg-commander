@@ -20,6 +20,7 @@ rusqlite = { workspace = true }
 unicode-normalization = { workspace = true }
 unicode-segmentation = { workspace = true }
 memchr = { workspace = true }
+ignore = { workspace = true }
 sysinfo = { workspace = true }
 read-process-memory = { workspace = true }
 borg-docker = { workspace = true }

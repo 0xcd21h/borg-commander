@@ -237,8 +237,8 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
             state.overlay = Some(Overlay::Collections(picker));
         }
         (Pointer::SearchField(selected), Some(Overlay::Search(mut form))) => {
-            form.selected = selected.min(crate::discovery::SEARCH_FIELDS - 1);
-            let toggle = matches!(form.selected, 2 | 5);
+            form.selected = selected.min(form.fields() - 1);
+            let toggle = matches!(form.selected, 2 | 5 | 6);
             state.overlay = Some(Overlay::Search(form));
             if toggle {
                 return crate::overlays::on_key(state, &crossterm::event::KeyCode::Right.into(), now);

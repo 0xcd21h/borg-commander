@@ -145,6 +145,7 @@ fn size_tree(output: &Path) -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                skip: None,
                 root: ATLAS.into(),
                 query: "*".into(),
                 hidden: true,
@@ -185,6 +186,7 @@ fn folder_totals(output: &Path) -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                skip: None,
                 root: PROJECTS.into(),
                 query: "*".into(),
                 hidden: true,

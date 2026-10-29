@@ -27,6 +27,8 @@ pub struct SearchProgress {
     pub visited: usize,
     pub errors: usize,
     pub skipped: usize,
+    /// Generated folders, ignored files and configured globs the search left out.
+    pub excluded: usize,
     pub limited: bool,
     pub cancelled: bool,
 }
@@ -37,6 +39,30 @@ pub struct SearchRequest {
     pub query: String,
     pub hidden: bool,
     pub options: crate::SearchOptions,
+    /// What the search leaves out; `None` searches everything.
+    pub skip: Option<crate::SearchSettings>,
+}
+
+/// A name search for `query` below `root`, after the query's own `hidden:` and `excluded:`
+/// switches. Size scans never skip anything, so their totals stay true.
+pub(crate) fn name_search(
+    state: &AppState,
+    root: PathBuf,
+    query: &str,
+    hidden: bool,
+    skip: bool,
+    options: crate::SearchOptions,
+) -> Result<SearchRequest, crate::QueryError> {
+    let parsed = crate::SearchQuery::parse(query)?;
+    let sizes = matches!(options.kind, crate::SearchKind::FolderTotals | crate::SearchKind::FolderTree);
+    let skip = parsed.excluded.map_or(skip, |excluded| !excluded) && !sizes;
+    Ok(SearchRequest {
+        root,
+        query: query.into(),
+        hidden: parsed.hidden.unwrap_or(hidden),
+        options,
+        skip: skip.then(|| state.settings.search.clone()),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -455,6 +481,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
             start_search(
                 state,
                 SearchRequest {
+                    skip: None,
                     root,
                     query: "*".into(),
                     hidden: true,
@@ -670,7 +697,13 @@ mod tests {
         assert!(state.results_expanded());
         start_search(
             &mut state,
-            SearchRequest { root: "/work".into(), query: "*".into(), hidden: false, options: Default::default() },
+            SearchRequest {
+                skip: None,
+                root: "/work".into(),
+                query: "*".into(),
+                hidden: false,
+                options: Default::default(),
+            },
         );
         assert!(!state.results_expanded());
         assert!(state.layout(now).panels.iter().all(|rect| !rect.is_empty()));
@@ -737,7 +770,13 @@ mod tests {
         state.panels[0] = Panel::new("/work".into(), 10, ListingMode::Full, Sort::default());
         let effects = start_search(
             &mut state,
-            SearchRequest { root: "/work".into(), query: "*".into(), hidden: true, options: Default::default() },
+            SearchRequest {
+                skip: None,
+                root: "/work".into(),
+                query: "*".into(),
+                hidden: true,
+                options: Default::default(),
+            },
         );
         let generation = match &effects[0] {
             Effect::Search { generation, .. } => *generation,
@@ -862,7 +901,13 @@ mod tests {
         let (mut state, now) = state();
         let effects = start_search(
             &mut state,
-            SearchRequest { root: "/work".into(), query: "*".into(), hidden: false, options: Default::default() },
+            SearchRequest {
+                skip: None,
+                root: "/work".into(),
+                query: "*".into(),
+                hidden: false,
+                options: Default::default(),
+            },
         );
         let generation = effects
             .iter()
@@ -949,6 +994,7 @@ mod tests {
         state.panels[0].open_results(
             ResultSource::Search {
                 request: SearchRequest {
+                    skip: None,
                     root: "/work".into(),
                     query: "*.toml".into(),
                     hidden: false,
@@ -984,6 +1030,7 @@ mod tests {
         panel.open_results(
             ResultSource::Search {
                 request: SearchRequest {
+                    skip: None,
                     root: "/work".into(),
                     query: "*".into(),
                     hidden: true,

@@ -367,6 +367,7 @@ pub struct AppState {
     pub rain_until: Option<Instant>,
     /// What was copied in Borg, for pasting into its own fields.
     pub clipboard: crate::Clipboard,
+    pub search_history: crate::SearchHistory,
     generation: u64,
 }
 
@@ -436,6 +437,7 @@ impl AppState {
             intro: None,
             rain_until: None,
             clipboard: crate::Clipboard::default(),
+            search_history: crate::SearchHistory::default(),
             generation: 0,
         };
         state.refit();

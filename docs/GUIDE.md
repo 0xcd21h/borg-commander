@@ -61,8 +61,13 @@ Homebrew keeps them in `$(brew --prefix)/share/borg-commander/fonts`.
 The Search menu opens collections and recursive filename search. Both use sortable
 results with source paths and the existing viewer and quick preview.
 
-- **Ctrl-F:** search recursively below the current folder, using a name fragment or
-  glob such as `*.log`. Lowercase queries ignore case; uppercase queries match case.
+- **Ctrl-F:** search recursively below the current folder. All words must match: `main rs`
+  finds `main.rs`, and `a | b` finds either. A word in lowercase ignores case; one with an
+  uppercase letter matches it exactly. Globs such as `*.log`, quoted phrases, paths with a slash
+  such as `src/lib`, and `-word` to leave matches out work too, as do the filters `ext:rs,toml`,
+  `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d` (changed in the
+  last week), `mod:>1y` and `in:src` (a folder anywhere in the path). Ctrl-P and Ctrl-N in the
+  query field recall earlier searches, those made in the same folder first.
 - **Alt-K:** collect marked files, or the current file, in the other panel. Adding a
   reference does not copy the file's contents.
 - **Alt-V:** choose a saved collection from a scrollable list with entry counts and
@@ -114,6 +119,16 @@ parent. Enter opens the real folder. Click a branch arrow to fold or expand, or 
 column heading to sort siblings by name, size, or file count. Esc hides the tree;
 Alt-Shift-R restores its branches, marks, and cursor. File operations use real paths,
 and marking a parent and child sends only the parent to a copy or delete job.
+
+Name searches leave out generated folders while **Leave out build output, caches and ignored
+files** is checked: `node_modules`, `.git`, Python caches and virtual environments, folders such
+as `target` and `dist` when a build file sits beside them (`Cargo.toml`, `package.json`), and any
+folder tagged with a `CACHEDIR.TAG` file. Files that `.gitignore`, `.ignore`, `.rgignore` or
+`.borgignore` exclude are left out too, along with the globs in `[search] exclude`. A left-out
+folder whose own name matches still appears, and the context line counts the folders left out.
+`excluded:yes` searches everything once, and `hidden:yes` includes hidden files. Size scans always
+read everything. The search history stays on this computer, readable only by you;
+`history = false` under `[search]` stops keeping it.
 
 To measure sizes while keeping ordinary file panels open, press **Alt-I** or
 choose **Search → Count sizes in background**. Borg scans every folder beneath the
@@ -595,6 +610,12 @@ docker-console = true       # the command line follows container panels into the
 agent-log = true            # log what Claude does while Borg runs
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
+
+[search]
+exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in .gitignore
+artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
+ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
+history = true              # remember searches for Ctrl-P and Ctrl-N
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;

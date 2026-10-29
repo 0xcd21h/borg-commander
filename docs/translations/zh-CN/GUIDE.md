@@ -42,7 +42,7 @@ brew install 0xcd21h/tap/borg-commander
 
 “搜索”菜单可打开集合和递归文件名搜索。两者都使用带有源路径的可排序结果以及现有查看器和快速预览。
 
-- **Ctrl-F：** 使用名称片段或 glob 在当前文件夹下递归搜索，例如 `*.log`。小写查询忽略大小写；大写查询匹配大小写。
+- **Ctrl-F：** 在当前文件夹下递归搜索。所有词都必须匹配：`main rs` 能找到 `main.rs`，`a | b` 则匹配其中任意一个。全小写的词不区分大小写；含大写字母的词严格区分大小写。也可以使用 `*.log` 这样的 glob、带引号的短语、带斜杠的路径（如 `src/lib`），以及用 `-word` 排除匹配项，还可以使用过滤条件 `ext:rs,toml`、`type:file`、`type:dir`、`type:link`、`size:>10M`、`size:1M..50M`、`mod:<7d`（最近一周内修改）、`mod:>1y` 和 `in:src`（路径中任意位置的文件夹）。在查询框中按 Ctrl-P 和 Ctrl-N 可调出以前的搜索，同一文件夹中的搜索优先。
 - **Alt-K：** 在另一个面板中收集标记的文件或当前文件。添加引用不会复制文件的内容。
 - **Alt-V：** 从可滚动列表中选择已保存的集合，其中包含条目计数和大小估计。按 F7 或 N 创建一个。集合在重新启动后仍然存在Borg。
 - **Esc：** 隐藏结果，保留光标、滚动、标记、过滤和分组。
@@ -57,6 +57,8 @@ brew install 0xcd21h/tap/borg-commander
 F3和Ctrl-Q打开真正的源代码。 F5 复制到真实目的地；如果目标面板是集合，则会添加引用。 F6需要一个真实的目的地。 F8 从集合中删除引用。在搜索结果中，F8要求删除原件。确认后，Shift-F8还会从集合中删除原件。当文件夹及其内容都被标记时，该文件夹将被发送到作业一次。显示原始文件在另一个面板中打开其源文件夹。向左或Esc隐藏结果； Alt-Shift-R 在同一个地方恢复它们。即使 shell 有待处理的命令，Tab 也会切换虚拟面板。 shell 保留一个真实的工作目录。 F10 退出前总是先询问。
 
 搜索读取文件名和元数据，具有可取消的工作进程，每次搜索最多 20,000 个匹配项。上下文行显示完成、错误、跳过的条目以及是否达到该限制。隐藏文件夹遵循显示隐藏文件。搜索保留在起始文件系统上，并且不会通过目录符号链接进行递归。搜索窗口可以将结果限制为文件或文件夹并设置最小大小。选择 **文件夹总数** 在按名称、大小或最小文件数过滤之前测量所有后代文件。它保留最大 20,000 个匹配文件夹并按内容大小排序；单击“文件”可按文件数量排名。使用如下模式 `node_modules` 或 `*cache*`, 或 `*` 检查所选根目录下的所有内容。文件内容总数，不保证可恢复的磁盘空间。嵌套文件夹行重叠。符号链接永远不会被跟踪，扫描保留在启动文件系统上，并且包含自身的文件夹（通过绑定安装或硬链接文件夹）仅输入一次；这种边界和不可读或被排除的子项使总数不完整，用 ≥ 表示。目录扫描使用元数据并且不读取文件内容。测量后结果出现；扫描仍然可以取消。 **文件夹大小树** 显示当前面板中的根总计及其子文件夹。向右扩展分支或进入扩展分支；向左折叠它或选择其父级。 Enter 打开真实文件夹。单击分支箭头可折叠或展开，或单击列标题可按名称、大小或文件计数对同级进行排序。 Esc 隐藏树； Alt-Shift-R 恢复其分支、标记和光标。文件操作使用真实路径，并且标记父级和子级仅将父级发送到复制或删除作业。
+
+勾选 **排除构建输出、缓存和被忽略的文件** 时，按名称搜索会跳过生成的文件夹：`node_modules`、`.git`、Python 缓存和虚拟环境、`target` 和 `dist` 等文件夹（当旁边有构建文件时，如 `Cargo.toml`、`package.json`），以及带有 `CACHEDIR.TAG` 文件的任何文件夹。被 `.gitignore`、`.ignore`、`.rgignore` 或 `.borgignore` 排除的文件以及 `[search] exclude` 中的 glob 也会被跳过。自身名称匹配的被跳过文件夹仍会出现在结果中，上下文行会统计跳过的文件夹数量。`excluded:yes` 可一次性搜索所有内容，`hidden:yes` 会包含隐藏文件。大小扫描总是读取全部内容。搜索历史保存在这台计算机上，只有您能读取；设置 `history = false`（位于 `[search]` 下）可停止保存。
 
 要在保持普通文件面板打开的情况下测量尺寸，请按 **Alt-I** 或选择 **搜索 → 计算背景尺寸**。 Borg 扫描当前目录下的每个文件夹，包括隐藏文件，并在完成后填写文件夹总数。您可以在控制台运行时导航或使用它。仍在测量的文件夹显示标记的运行总数不断增长 `≥`，当您离开文件夹并返回时，总计会保留。面板页脚显示进度； **Alt-I** 再次，或单击页脚，停止扫描并保留迄今为止测量的总数。启动复制、移动或删除作业会停止正在进行的尺寸扫描。完成的扫描与大小树和空间分析共享其缓存。
 
@@ -271,6 +273,12 @@ docker-console = true       # the command line follows container panels into the
 agent-log = true            # log what Claude does while Borg runs
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
+
+[search]
+exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in .gitignore
+artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
+ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
+history = true              # remember searches for Ctrl-P and Ctrl-N
 ```
 
 在本地真彩色终端上，Borg 打开并显示其徽标的简短故障介绍；任何键或单击都会跳过它。通过 SSH 和在没有真彩色的终端上，它直接在面板中启动。

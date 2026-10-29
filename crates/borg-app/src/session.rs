@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use borg_core::{AppState, ListingMode, PanelSetup, Side, Sort, SortKey, Startup};
 use serde::{Deserialize, Serialize};
 
-use crate::store::write_atomically;
+use crate::store::{write_atomically, write_privately};
 
 const ENV_STATE_DIR: &str = "BORG_STATE_DIR";
 const ENV_XDG_STATE: &str = "XDG_STATE_HOME";
@@ -18,6 +18,9 @@ const APP_DIR: &str = "borg-commander";
 const COLLECTIONS_FILE: &str = "collections.json";
 const MAX_COLLECTION_BYTES: u64 = 16 * 1024 * 1024;
 const COLLECTION_FORMAT: u8 = 1;
+const SEARCH_HISTORY_FILE: &str = "search-history.json";
+const SEARCH_HISTORY_FORMAT: u8 = 1;
+const MAX_SEARCH_HISTORY_BYTES: u64 = 1024 * 1024;
 const GAME2048_FILE: &str = "2048.json";
 const MAX_GAME_BYTES: u64 = 4096;
 const SESSION_FILE: &str = "session.toml";
@@ -232,6 +235,55 @@ impl StateDir {
         write_atomically(&self.root.join(COLLECTIONS_FILE), &bytes)
     }
 
+    pub fn load_search_history(&self) -> Result<borg_core::SearchHistory> {
+        use std::{io::Read, os::unix::ffi::OsStringExt};
+        let file = match fs::File::open(self.root.join(SEARCH_HISTORY_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Default::default()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_SEARCH_HISTORY_BYTES + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= MAX_SEARCH_HISTORY_BYTES, "search history exceeds size limit");
+        let saved: SavedSearchHistory = serde_json::from_slice(&bytes)?;
+        anyhow::ensure!(saved.version == SEARCH_HISTORY_FORMAT, "unsupported search history format");
+        Ok(borg_core::SearchHistory::new(
+            saved
+                .searches
+                .into_iter()
+                .map(|search| borg_core::PastSearch {
+                    query: search.query,
+                    root: PathBuf::from(std::ffi::OsString::from_vec(search.root)),
+                })
+                .collect(),
+        ))
+    }
+
+    /// Saves the history only its owner can read; an empty one removes the file.
+    pub fn save_search_history(&self, history: &borg_core::SearchHistory) -> Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+        let path = self.root.join(SEARCH_HISTORY_FILE);
+        if history.entries().is_empty() {
+            return match fs::remove_file(&path) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
+                _ => Ok(()),
+            };
+        }
+        let saved = SavedSearchHistory {
+            version: SEARCH_HISTORY_FORMAT,
+            searches: history
+                .entries()
+                .iter()
+                .map(|search| SavedSearch {
+                    query: search.query.clone(),
+                    root: search.root.as_os_str().as_bytes().to_vec(),
+                })
+                .collect(),
+        };
+        self.ensure()?;
+        write_privately(&path, &serde_json::to_vec(&saved)?)
+    }
+
     pub fn load_terminal(&self) -> Option<Vec<u8>> {
         fs::read(self.session_path(TERMINAL_FILE)).ok().filter(|bytes| !bytes.is_empty())
     }
@@ -407,6 +459,17 @@ mod tests {
         let text = toml::to_string(&session).unwrap_or_default();
         assert_eq!(toml::from_str::<Session>(&text).ok(), Some(session));
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedSearchHistory {
+    version: u8,
+    searches: Vec<SavedSearch>,
+}
+#[derive(Serialize, Deserialize)]
+struct SavedSearch {
+    query: String,
+    root: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
