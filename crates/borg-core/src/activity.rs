@@ -13,6 +13,8 @@ pub const SNAPSHOT_LIMIT: usize = 64 * 1024;
 pub const PROCESS_LIMIT: usize = 8192;
 const REFRESH: Duration = Duration::from_secs(1);
 const PREVIEW_DELAY: Duration = Duration::from_millis(120);
+/// Zero rows in a row that fold into one.
+const ZERO_ROWS: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProcessKey {
@@ -304,6 +306,9 @@ pub enum ActivityRequest {
         process: ProcessKey,
         region: MemoryRegion,
         admin: bool,
+        /// When the window at the start is all zeros, read on to the first bytes of data.
+        #[serde(default)]
+        seek: bool,
     },
 }
 impl ActivityRequest {
@@ -321,8 +326,8 @@ impl ActivityRequest {
             }),
             Self::Regions { process, .. } => Some(Self::Regions { process: *process, admin: true }),
             Self::Files { process, .. } => Some(Self::Files { process: *process, admin: true }),
-            Self::Capture { process, region, .. } => {
-                Some(Self::Capture { process: *process, region: region.clone(), admin: true })
+            Self::Capture { process, region, seek, .. } => {
+                Some(Self::Capture { process: *process, region: region.clone(), admin: true, seek: *seek })
             }
         }
     }
@@ -334,6 +339,21 @@ pub enum ActivityData {
     Regions(Vec<MemoryRegion>),
     Files(ProcessFiles),
     Snapshot(MemorySnapshot),
+}
+/// One row of the hex view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotRow {
+    /// The bytes from this offset of the capture.
+    Bytes(usize),
+    /// Whole rows of zeros from `start`, folded into one row.
+    Zeros { start: usize, len: usize },
+}
+impl SnapshotRow {
+    pub fn start(self) -> usize {
+        match self {
+            Self::Bytes(start) | Self::Zeros { start, .. } => start,
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RowKey {
@@ -800,18 +820,94 @@ impl Activity {
     }
     fn capture_request(&self) -> Option<ActivityRequest> {
         let process = self.selected?;
-        let region = if self.list == ActivityPage::Search {
+        let (region, seek) = if self.list == ActivityPage::Search {
             let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
             let start = hit.address.saturating_sub(32).max(hit.region.start);
-            MemoryRegion {
-                start,
-                end: start.saturating_add(SNAPSHOT_LIMIT as u64).min(hit.region.end),
-                ..hit.region.clone()
-            }
+            let end = start.saturating_add(SNAPSHOT_LIMIT as u64).min(hit.region.end);
+            (MemoryRegion { start, end, ..hit.region.clone() }, false)
         } else {
-            self.selected_region()?.clone()
+            (self.selected_region()?.clone(), true)
         };
-        region.readable().then_some(ActivityRequest::Capture { process, region, admin: false })
+        region.readable().then_some(ActivityRequest::Capture { process, region, admin: false, seek })
+    }
+    /// The region the shown capture comes from: the selected one, or the search match's.
+    pub fn shown_region(&self) -> Option<&MemoryRegion> {
+        if self.list == ActivityPage::Search {
+            self.search_report.as_ref()?.hits.get(self.search_cursor).map(|hit| &hit.region)
+        } else {
+            self.selected_region()
+        }
+    }
+    /// Captures the shown window again, so D compares the same addresses; the selection's start
+    /// before anything was captured.
+    fn recapture_request(&self) -> Option<ActivityRequest> {
+        self.snapshot
+            .as_ref()
+            .and_then(|shown| self.capture_at(shown.address, false))
+            .or_else(|| self.capture_request())
+    }
+    /// Captures the shown region from `start`, for another window of it or the same one again.
+    fn capture_at(&self, start: u64, seek: bool) -> Option<ActivityRequest> {
+        let snapshot = self.snapshot.as_ref()?;
+        let region = self.shown_region()?;
+        (start >= region.start && start < region.end).then(|| ActivityRequest::Capture {
+            process: snapshot.process,
+            region: MemoryRegion { start, ..region.clone() },
+            admin: false,
+            seek,
+        })
+    }
+    /// The capture as rows of the view: runs of zero rows fold into one, except where the
+    /// compared capture differs or the selected search match lies.
+    pub fn snapshot_rows(&self, columns: usize) -> Vec<SnapshotRow> {
+        let Some(snapshot) = &self.snapshot else { return Vec::new() };
+        let bytes = &snapshot.bytes;
+        let columns = columns.max(1);
+        let old = self.previous.as_ref().filter(|_| self.diff).map(|old| old.bytes.as_slice());
+        let hit = self
+            .search_report
+            .as_ref()
+            .filter(|_| self.from_search)
+            .and_then(|report| report.hits.get(self.search_cursor))
+            .and_then(|hit| {
+                let start = usize::try_from(hit.address.checked_sub(snapshot.address)?).ok()?;
+                Some(start..start.saturating_add(hit.length))
+            });
+        let zero = |start: usize| {
+            let end = start + columns;
+            end <= bytes.len()
+                && bytes[start..end].iter().all(|&b| b == 0)
+                && old.is_none_or(|old| old.get(start..end).is_none_or(|o| o.iter().all(|&b| b == 0)))
+                && hit.as_ref().is_none_or(|hit| hit.end <= start || hit.start >= end)
+        };
+        let mut rows = Vec::new();
+        let mut start = 0;
+        while start < bytes.len() {
+            if !zero(start) {
+                rows.push(SnapshotRow::Bytes(start));
+                start += columns;
+                continue;
+            }
+            let mut end = start;
+            while zero(end) {
+                end += columns;
+            }
+            if (end - start) / columns >= ZERO_ROWS {
+                rows.push(SnapshotRow::Zeros { start, len: end - start });
+            } else {
+                rows.extend((start..end).step_by(columns).map(SnapshotRow::Bytes));
+            }
+            start = end;
+        }
+        rows
+    }
+    /// The row where the next block of data after the top row starts, or the previous one's.
+    fn data_block(&self, columns: usize, forward: bool) -> Option<usize> {
+        let rows = self.snapshot_rows(columns);
+        let mut starts = (0..rows.len()).filter(|&i| {
+            matches!(rows[i], SnapshotRow::Bytes(_)) && (i == 0 || matches!(rows[i - 1], SnapshotRow::Zeros { .. }))
+        });
+        if forward { starts.find(|&i| i > self.offset) } else { starts.rfind(|&i| i < self.offset) }
     }
     pub fn snapshot_columns(&self, width: usize) -> usize {
         let room = width.saturating_sub(18).max(1);
@@ -837,11 +933,7 @@ impl Activity {
                 self.file_cursor = self.file_cursor.saturating_add_signed(delta).min(self.files.len().saturating_sub(1))
             }
             ActivityPage::Snapshot => {
-                let columns = self.snapshot_columns(width);
-                let end = self
-                    .snapshot
-                    .as_ref()
-                    .map_or(0, |s| s.bytes.len().div_ceil(columns).saturating_sub(page_rows.max(1)));
+                let end = self.snapshot_rows(self.snapshot_columns(width)).len().saturating_sub(page_rows.max(1));
                 self.offset = self.offset.saturating_add_signed(delta).min(end);
             }
             _ => {}
@@ -907,8 +999,11 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
         {
             if let Some(hit) = activity.search_report.as_ref().and_then(|r| r.hits.get(activity.search_cursor)) {
                 let columns = activity.snapshot_columns(usize::from(rect.width.saturating_sub(2)));
-                activity.offset = (hit.address.saturating_sub(snapshot.address) as usize / columns).saturating_sub(1);
+                let at = hit.address.saturating_sub(snapshot.address) as usize;
                 activity.snapshot = Some(snapshot.clone());
+                let rows = activity.snapshot_rows(columns);
+                let row = rows.iter().rposition(|row| row.start() <= at).unwrap_or(0);
+                activity.offset = row.saturating_sub(1);
             }
         } else if let Some(request) = activity.capture_request() {
             return activity.request(request);
@@ -1155,12 +1250,8 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         }
         KeyCode::Char('r' | 'R') if activity.pending.is_none() => {
             if activity.page == ActivityPage::Snapshot {
-                if let (Some(snapshot), Some(region)) = (&activity.snapshot, activity.selected_region()) {
-                    return activity.request(ActivityRequest::Capture {
-                        process: snapshot.process,
-                        region: region.clone(),
-                        admin: false,
-                    });
+                if let Some(request) = activity.recapture_request() {
+                    return activity.request(request);
                 }
             } else if activity.page == ActivityPage::Regions {
                 if let Some(process) = activity.selected {
@@ -1179,6 +1270,22 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             activity.offset = 0;
         }
         KeyCode::Char('d' | 'D') if activity.page == ActivityPage::Snapshot => activity.diff = !activity.diff,
+        KeyCode::Char(c @ (']' | '[')) if activity.page == ActivityPage::Snapshot => {
+            if let Some(row) = activity.data_block(activity.snapshot_columns(width), c == ']') {
+                activity.offset = 0;
+                activity.move_by(row as isize, rows, width);
+            }
+        }
+        KeyCode::Char(c @ ('>' | '<')) if activity.page == ActivityPage::Snapshot && activity.pending.is_none() => {
+            let start = activity.snapshot.as_ref().zip(activity.shown_region()).and_then(|(shown, region)| match c {
+                '>' => Some(shown.address.saturating_add(shown.bytes.len() as u64)),
+                _ => (shown.address > region.start)
+                    .then(|| shown.address.saturating_sub(SNAPSHOT_LIMIT as u64).max(region.start)),
+            });
+            if let Some(request) = start.and_then(|start| activity.capture_at(start, c == '>')) {
+                return activity.request(request);
+            }
+        }
         KeyCode::Char('e' | 'E') if activity.page == ActivityPage::Snapshot => {
             if let Some(snapshot) = &activity.snapshot {
                 let path = state.panels[state.active.index()]
@@ -1387,7 +1494,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         && state.activity.preview_focused
         && state.activity.page == ActivityPage::Snapshot
     {
-        if let Some(request) = state.activity.capture_request() {
+        if let Some(request) = state.activity.recapture_request() {
             return state.activity.request(request);
         }
         return Vec::new();
@@ -1602,7 +1709,7 @@ mod tests {
             swap: None,
             ..Default::default()
         };
-        let request = ActivityRequest::Capture { process, region, admin: false };
+        let request = ActivityRequest::Capture { process, region, admin: false, seek: false };
         for value in [1, 2] {
             state.activity.request(request.clone());
             let id = state.activity.pending.as_ref().unwrap().0;
@@ -1853,6 +1960,82 @@ mod tests {
         assert_eq!(state.activity.list, ActivityPage::Processes);
         assert_eq!(state.activity.selected, selected);
         assert_eq!(state.activity.region_cursor, 2);
+    }
+    #[test]
+    fn zero_rows_fold_unless_the_compared_capture_or_the_selected_match_differs_there() {
+        use SnapshotRow::{Bytes, Zeros};
+        let (mut state, _) = state();
+        let activity = &mut state.activity;
+        let process = ProcessKey { pid: 2, start: 10 };
+        let mut bytes = vec![0u8; 16 * 6];
+        bytes[0] = 1;
+        bytes[16 * 5] = 2;
+        let snapshot = MemorySnapshot { process, address: 0x1000, bytes: bytes.clone(), captured: 1 };
+        activity.snapshot = Some(snapshot.clone());
+        assert_eq!(activity.snapshot_rows(16), [Bytes(0), Zeros { start: 16, len: 64 }, Bytes(80)]);
+        let mut old = bytes;
+        old[40] = 9;
+        activity.previous = Some(MemorySnapshot { bytes: old, ..snapshot });
+        activity.diff = true;
+        assert_eq!(
+            activity.snapshot_rows(16),
+            [Bytes(0), Bytes(16), Bytes(32), Zeros { start: 48, len: 32 }, Bytes(80)]
+        );
+        activity.diff = false;
+        activity.from_search = true;
+        let region = MemoryRegion { start: 0x1000, end: 0x2000, permissions: "rw-".into(), ..Default::default() };
+        let hit = MemoryHit { address: 0x1000 + 50, length: 2, encoding: "hex".into(), region };
+        activity.search_report = Some(MemorySearchReport {
+            process,
+            hits: vec![hit],
+            scanned: 0,
+            total: 0,
+            skipped: 0,
+            next: None,
+            cancelled: false,
+        });
+        assert_eq!(
+            activity.snapshot_rows(16),
+            [Bytes(0), Zeros { start: 16, len: 32 }, Bytes(48), Bytes(64), Bytes(80)]
+        );
+    }
+    #[test]
+    fn windows_move_through_a_region_and_recapture_reads_the_shown_window_again() {
+        let (mut state, now) = state();
+        open(&mut state);
+        state.activity.set_grouped(false);
+        sample(&mut state, vec![process(2, 10, 200)], now);
+        state.activity.paused = true;
+        key(&mut state, KeyCode::Enter);
+        let id = state.activity.pending.as_ref().unwrap().0;
+        let start = 0x10000;
+        let window = SNAPSHOT_LIMIT as u64;
+        let region = MemoryRegion { start, end: start + 4 * window, permissions: "rw-".into(), ..Default::default() };
+        receive(&mut state, id, Ok(ActivityData::Regions(vec![region])), now);
+        let capture = |effects: &[Effect]| match effects {
+            [Effect::Activity { request: ActivityRequest::Capture { region, seek, .. }, .. }] => {
+                Some((region.start, *seek))
+            }
+            _ => None,
+        };
+        assert_eq!(capture(&sync(&mut state, now + PREVIEW_DELAY)), Some((start, true)));
+        let id = state.activity.pending.as_ref().unwrap().0;
+        let shown = start + window;
+        let process = state.activity.selected.unwrap();
+        let bytes = vec![1; SNAPSHOT_LIMIT];
+        receive(
+            &mut state,
+            id,
+            Ok(ActivityData::Snapshot(MemorySnapshot { process, address: shown, bytes, captured: 1 })),
+            now,
+        );
+        key(&mut state, KeyCode::Tab);
+        assert!(state.activity.preview_focused);
+        assert_eq!(capture(&key(&mut state, KeyCode::Char('>'))), Some((shown + window, true)));
+        state.activity.pending = None;
+        assert_eq!(capture(&key(&mut state, KeyCode::Char('<'))), Some((start, false)));
+        state.activity.pending = None;
+        assert_eq!(capture(&key(&mut state, KeyCode::Char('r'))), Some((shown, false)));
     }
     #[test]
     fn scrolling_up_keeps_the_viewport_until_the_cursor_reaches_its_top() {

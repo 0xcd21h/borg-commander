@@ -87,7 +87,7 @@ pub use activity::{
     MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 
-pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow};
+pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport};
 
 pub use measure::SizeScan;

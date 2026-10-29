@@ -131,6 +131,11 @@ and executes on-demand memory-map and memory-read requests on background workers
 macOS maps come from vmmap; Linux maps come from smaps. Process identity combines
 PID and start time and is checked before and after inspection. Captures read at
 most 64 KiB through the safe read-process-memory API. No target is suspended.
+A region capture whose first window is all zeros reads on, at most 16 MiB, to the first page
+with data. The UI captures windows by address within the selected region and folds zero rows
+(`Activity::snapshot_rows`). Unprivileged captures check their bounds against `/proc/PID/maps`
+on Linux; on macOS they rely on the read failing, since vmmap takes seconds on large processes.
+The administrator helper still validates against the full map.
 
 Administrator retry launches the same binary's internal inspection command through
 macOS authorization or Linux pkexec. It accepts only numeric process identity and

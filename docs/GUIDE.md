@@ -694,14 +694,17 @@ On macOS it also includes entries such as `cwd` (current directory) and `txt`
 Access restrictions offer the existing explicit administrator retry. File contents
 are not read through process descriptors.
 
-Selecting a readable region automatically captures up to its first 64 KiB in the
-opposite pane. Quick movements are coalesced with a short delay; selecting another
-region clears the old preview and cancels its pending read. Unreadable regions show
-a message without attempting a read. Press **Tab** or **Enter** to scroll the preview.
-**Esc** there focuses the list; **Esc** from the map returns to the process list
-with its cursor and filter preserved.
+Selecting a readable region automatically captures up to 64 KiB of it in the opposite
+pane. When the start of the region holds only zeros, the capture reads on to the first page
+with data, and the line above the bytes says where in the region the window lies. Quick
+movements are coalesced with a short delay; selecting another region clears the old preview
+and cancels its pending read. Unreadable regions show a message without attempting a read.
+Press **Tab** or **Enter** to scroll the preview. **Esc** there focuses the list; **Esc** from
+the map returns to the process list with its cursor and filter preserved.
 
-**H** switches hex/text presentation, **R** captures the region again, and **D**
+Runs of zero rows fold into one row, such as “· 60K zero bytes ·”. **]** and **[** jump to the
+next and previous block of data, and **>** and **<** capture the next and previous 64 KiB of the
+region. **H** switches hex/text presentation, **R** captures the shown window again, and **D**
 highlights differences from the previous capture of the same process and address.
 Text presentation shows printable ASCII and substitutes dots for other bytes.
 Snapshots are live observations; the process is not paused, so a capture is not

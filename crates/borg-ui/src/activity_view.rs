@@ -6,7 +6,7 @@ use crate::{
 };
 use borg_core::{
     Activity, ActivityPage, ActivitySort, AppState, HISTORY, MemoryGroup, MemoryRegion, MemoryTotals, Msg, Pointer,
-    RegionRow,
+    RegionRow, SnapshotRow,
 };
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
@@ -1072,60 +1072,60 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
             if old.is_some() { tr!(activity_compare) } else { tr!(activity_no_previous) },
             dim(theme),
         );
+    } else if let Some(region) = activity.shown_region().filter(|r| r.mapped() > snapshot.bytes.len() as u64) {
+        let total = size(Some(region.mapped()));
+        let note = match snapshot.address.saturating_sub(region.start) {
+            0 => tr!(activity_window_start, size = total),
+            offset => tr!(activity_window, offset = format!("0x{offset:x}"), size = total),
+        };
+        text(buf, row(body, 1), note, dim(theme));
     }
-    for (line_index, chunk) in snapshot
-        .bytes
-        .chunks(columns)
-        .enumerate()
-        .skip(activity.offset)
-        .take(usize::from(body.height.saturating_sub(2)))
+    let hit = activity
+        .search_report
+        .as_ref()
+        .filter(|_| activity.from_search)
+        .and_then(|r| r.hits.get(activity.search_cursor))
+        .map(|h| h.address..h.address.saturating_add(h.length as u64));
+    let printable = |b: u8| if b.is_ascii_graphic() || b == b' ' { char::from(b) } else { '.' };
+    let rows = activity.snapshot_rows(columns);
+    for (y, shown) in
+        rows.into_iter().skip(activity.offset).take(usize::from(body.height.saturating_sub(2))).enumerate()
     {
-        let offset = line_index * columns;
-        let mut spans = vec![Span::styled(format!("{:016x}  ", snapshot.address + offset as u64), dim(theme))];
-        for (i, &byte) in chunk.iter().enumerate() {
-            let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset + i) != Some(&byte));
-            let address = snapshot.address.saturating_add((offset + i) as u64);
-            let matched = activity.from_search
-                && activity
-                    .search_report
-                    .as_ref()
-                    .and_then(|r| r.hits.get(activity.search_cursor))
-                    .is_some_and(|h| address >= h.address && address < h.address.saturating_add(h.length as u64));
-            let style = if matched {
-                theme.styles.cursor.add_modifier(Modifier::BOLD)
-            } else if changed {
-                theme.styles.marked.add_modifier(Modifier::BOLD)
-            } else {
-                theme.styles.overlay
-            };
-            spans.push(Span::styled(
-                if activity.text {
-                    if byte.is_ascii_graphic() || byte == b' ' { char::from(byte).to_string() } else { ".".into() }
-                } else {
-                    format!("{byte:02x} ")
-                },
-                style,
-            ));
-        }
-        if !activity.text {
-            spans.push(Span::styled(
-                format!(
-                    " {:width$}",
-                    chunk
-                        .iter()
-                        .map(|&b| if b.is_ascii_graphic() || b == b' ' { char::from(b) } else { '.' })
-                        .collect::<String>(),
-                    width = columns
-                ),
-                theme.styles.overlay,
-            ));
-        }
-        let y = line_index - activity.offset + 2;
-        if y < usize::from(body.height) {
-            Line::from(spans).render(row(body, y as u16), buf);
-        }
+        let address = Span::styled(format!("{:016x}  ", snapshot.address + shown.start() as u64), dim(theme));
+        let line = match shown {
+            SnapshotRow::Zeros { len, .. } => Line::from(vec![
+                address,
+                Span::styled(tr!(activity_zero_run, size = size(Some(len as u64))), dim(theme)),
+            ]),
+            SnapshotRow::Bytes(offset) => {
+                let chunk = &snapshot.bytes[offset..(offset + columns).min(snapshot.bytes.len())];
+                let mut spans = vec![address];
+                for (i, &byte) in chunk.iter().enumerate() {
+                    let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset + i) != Some(&byte));
+                    let at = snapshot.address.saturating_add((offset + i) as u64);
+                    let style = if hit.as_ref().is_some_and(|hit| hit.contains(&at)) {
+                        theme.styles.cursor.add_modifier(Modifier::BOLD)
+                    } else if changed {
+                        theme.styles.marked.add_modifier(Modifier::BOLD)
+                    } else {
+                        theme.styles.overlay
+                    };
+                    spans.push(Span::styled(
+                        if activity.text { printable(byte).to_string() } else { format!("{byte:02x} ") },
+                        style,
+                    ));
+                }
+                if !activity.text {
+                    let ascii: String = chunk.iter().map(|&b| printable(b)).collect();
+                    spans.push(Span::styled(format!(" {ascii:columns$}"), theme.styles.overlay));
+                }
+                Line::from(spans)
+            }
+        };
+        line.render(row(body, (y + 2) as u16), buf);
     }
 }
+
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
     let activity = &state.activity;
     let page = activity.focused_page();

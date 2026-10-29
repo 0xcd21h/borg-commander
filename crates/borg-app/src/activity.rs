@@ -31,6 +31,9 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 const ADMIN_TIMEOUT: Duration = Duration::from_secs(120);
 const KIB: f64 = 1024.0;
 const CANCEL_POLL: Duration = Duration::from_millis(100);
+/// How far a capture reads past zeros at the start of a region to find data.
+const SEEK_LIMIT: u64 = 16 * 1024 * 1024;
+const PAGE: u64 = 4096;
 
 /// A process sample with CPU use: CPU needs two looks a moment apart, as the activity
 /// monitor's first sample does.
@@ -214,32 +217,77 @@ async fn regions(process: ProcessKey) -> Result<Vec<MemoryRegion>> {
     }
     Ok(result)
 }
-async fn capture(process: ProcessKey, region: MemoryRegion) -> Result<MemorySnapshot> {
-    let maps = regions(process).await?;
-    let end = region
-        .start
-        .checked_add((region.end.saturating_sub(region.start)).min(SNAPSHOT_LIMIT as u64))
-        .context(tr!(activity_region_invalid))?;
-    if !region.readable() || !maps.iter().any(|r| r.readable() && r.start <= region.start && r.end >= end) {
+/// The process's mappings from the cheap maps file on Linux; macOS lists them only through
+/// vmmap, which takes seconds on large processes, so there a read outside them simply fails.
+async fn quick_maps(process: ProcessKey) -> Result<Option<Vec<MemoryRegion>>> {
+    #[cfg(target_os = "linux")]
+    return tokio::task::spawn_blocking(move || {
+        let mut bytes = Vec::new();
+        fs::File::open(format!("/proc/{}/maps", process.pid))?.take(OUTPUT_LIMIT as u64).read_to_end(&mut bytes)?;
+        Ok(Some(parse_smaps(&String::from_utf8_lossy(&bytes))))
+    })
+    .await?;
+    #[cfg(target_os = "macos")]
+    {
+        let _ = process;
+        Ok(None)
+    }
+}
+/// Reads at most a snapshot from the start of `region`. With `seek`, a window of zeros there
+/// reads on, up to `SEEK_LIMIT`, to the first page holding data. The administrator helper
+/// checks the bounds against the full memory map (`checked`); otherwise the cheap one is used.
+async fn capture(process: ProcessKey, region: MemoryRegion, seek: bool, checked: bool) -> Result<MemorySnapshot> {
+    let limit = region.end;
+    let window = move |start: u64| {
+        start.checked_add(limit.saturating_sub(start).min(SNAPSHOT_LIMIT as u64)).context(tr!(activity_region_invalid))
+    };
+    let end = window(region.start)?;
+    let needed = if seek { region.end } else { end };
+    let maps = if checked { Some(regions(process).await?) } else { quick_maps(process).await? };
+    if !region.readable()
+        || maps.is_some_and(|maps| !maps.iter().any(|r| r.readable() && r.start <= region.start && r.end >= needed))
+    {
         bail!(tr!(activity_region_invalid));
     }
     tokio::task::spawn_blocking(move || {
         verify(process)?;
         let handle: read_process_memory::ProcessHandle = i32::try_from(process.pid)?.try_into()?;
-        let bytes = read_process_memory::copy_address(
-            usize::try_from(region.start)?,
-            usize::try_from(end - region.start)?,
-            &handle,
-        )?;
+        let read = |start: u64, end: u64| -> Result<Vec<u8>> {
+            Ok(read_process_memory::copy_address(usize::try_from(start)?, usize::try_from(end - start)?, &handle)?)
+        };
+        let mut address = region.start;
+        let mut bytes = read(address, end)?;
+        if seek
+            && bytes.iter().all(|&b| b == 0)
+            && let Some(found) = first_data(read, end, region.end, region.start)
+            && let Ok(data) = read(found, window(found)?)
+        {
+            (address, bytes) = (found, data);
+        }
         verify(process)?;
         Ok(MemorySnapshot {
             process,
-            address: region.start,
+            address,
             bytes,
             captured: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis().try_into()?,
         })
     })
     .await?
+}
+/// The page where data starts after `from`, reading at most `SEEK_LIMIT` bytes of the region
+/// that ends at `end`; `None` when it is all zeros, or a read fails first.
+fn first_data(read: impl Fn(u64, u64) -> Result<Vec<u8>>, from: u64, end: u64, floor: u64) -> Option<u64> {
+    let stop = end.min(from.saturating_add(SEEK_LIMIT));
+    let mut at = from;
+    while at < stop {
+        let next = at.saturating_add(SNAPSHOT_LIMIT as u64).min(stop);
+        let chunk = read(at, next).ok()?;
+        if let Some(i) = chunk.iter().position(|&b| b != 0) {
+            return Some(((at + i as u64) & !(PAGE - 1)).max(floor));
+        }
+        at = next;
+    }
+    None
 }
 async fn wait_cancelled(cancelled: &AtomicBool) {
     while !cancelled.load(Ordering::Relaxed) {
@@ -261,7 +309,9 @@ async fn inspect(
         },
         ActivityRequest::Regions { process, .. } => Ok(ActivityData::Regions(regions(process).await?)),
         ActivityRequest::Files { process, .. } => Ok(ActivityData::Files(process_files::list(process).await?)),
-        ActivityRequest::Capture { process, region, .. } => Ok(ActivityData::Snapshot(capture(process, region).await?)),
+        ActivityRequest::Capture { process, region, seek, .. } => {
+            Ok(ActivityData::Snapshot(capture(process, region, seek, false).await?))
+        }
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
             let query = Query { text: query, mode, match_case };
             search_memory(process, query, snapshot, start, cancelled, messages).await.map(ActivityData::Search)
@@ -281,12 +331,13 @@ fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
         ActivityRequest::Files { process, .. } => {
             args.extend(["files".into(), process.pid.to_string(), process.start.to_string()])
         }
-        ActivityRequest::Capture { process, region, .. } => args.extend([
+        ActivityRequest::Capture { process, region, seek, .. } => args.extend([
             "capture".into(),
             process.pid.to_string(),
             process.start.to_string(),
             region.start.to_string(),
             region.end.to_string(),
+            u8::from(*seek).to_string(),
         ]),
         _ => bail!(tr!(activity_request_invalid)),
     }
@@ -349,14 +400,19 @@ pub async fn helper(args: &[String]) -> Result<()> {
         match (kind.as_str(), args.len()) {
             ("regions", 3) => Ok(ActivityData::Regions(regions(process).await?)),
             ("files", 3) => Ok(ActivityData::Files(process_files::list(process).await?)),
-            ("capture", 5) => {
+            ("capture", 6) => {
                 let start = number(3)?;
                 let end = number(4)?;
+                let seek = match number(5)? {
+                    0 => false,
+                    1 => true,
+                    _ => bail!(tr!(activity_request_invalid)),
+                };
                 if end <= start {
                     bail!(tr!(activity_request_invalid));
                 }
                 let region = MemoryRegion { start, end, permissions: "r--".into(), ..Default::default() };
-                Ok(ActivityData::Snapshot(capture(process, region).await?))
+                Ok(ActivityData::Snapshot(capture(process, region, seek, true).await?))
             }
             _ => bail!(tr!(activity_request_invalid)),
         }
@@ -597,6 +653,17 @@ mod tests {
         assert!(own.cpu.is_none() && own.read.is_none());
         assert!(verify(own.key).is_ok());
         assert!(verify(ProcessKey { start: own.key.start.saturating_add(1), ..own.key }).is_err());
+    }
+    #[test]
+    fn seeking_skips_zero_pages_to_the_page_holding_data_within_the_limit() {
+        let mut memory = vec![0u8; 3 * SNAPSHOT_LIMIT];
+        memory[2 * SNAPSHOT_LIMIT + 5000] = 7;
+        let read = |start: u64, end: u64| Ok(memory[start as usize..end as usize].to_vec());
+        let end = memory.len() as u64;
+        assert_eq!(first_data(read, SNAPSHOT_LIMIT as u64, end, 0), Some(2 * SNAPSHOT_LIMIT as u64 + 4096));
+        assert_eq!(first_data(read, 2 * SNAPSHOT_LIMIT as u64 + 6000, end, 0), None, "zeros to the end");
+        let unreadable = |_: u64, _: u64| -> Result<Vec<u8>> { bail!("unreadable") };
+        assert_eq!(first_data(unreadable, 0, end, 0), None);
     }
     #[test]
     fn memory_reader_can_capture_known_bytes_from_its_own_address_space() {
