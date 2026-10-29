@@ -121,6 +121,12 @@ pub enum Msg {
     Opened(Viewer),
     ShellExited,
     Notice(String),
+    /// An index for instant search was built, with this many entries, or failed.
+    Indexed {
+        root: PathBuf,
+        entries: usize,
+        error: Option<String>,
+    },
     Job {
         id: u64,
         event: Event,
@@ -233,6 +239,8 @@ pub enum Effect {
     SaveCollections,
     /// Writes the search history, or removes it once it is empty.
     SaveSearchHistory,
+    /// Saves the folders indexed for instant search, builds new ones and drops removed ones.
+    SetIndexRoots(Vec<PathBuf>),
     List {
         side: Side,
         generation: u64,

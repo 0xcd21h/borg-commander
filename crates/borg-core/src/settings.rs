@@ -96,6 +96,8 @@ impl Default for SearchSettings {
 pub struct Settings {
     pub preferences: Preferences,
     pub search: SearchSettings,
+    /// Folders indexed for instant search.
+    pub index_roots: Vec<std::path::PathBuf>,
     pub motion: Motion,
     pub truecolor: bool,
     pub screensaver_after: Duration,
@@ -114,6 +116,7 @@ impl Default for Settings {
         Self {
             preferences: Preferences::default(),
             search: SearchSettings::default(),
+            index_roots: Vec::new(),
             motion: Motion::LOCAL,
             truecolor: true,
             screensaver_after: DEFAULT_SCREENSAVER_AFTER,

@@ -368,6 +368,8 @@ pub struct AppState {
     /// What was copied in Borg, for pasting into its own fields.
     pub clipboard: crate::Clipboard,
     pub search_history: crate::SearchHistory,
+    /// A folder just added to the index, whose first build ends with a notice.
+    pub indexing: Option<PathBuf>,
     generation: u64,
 }
 
@@ -438,6 +440,7 @@ impl AppState {
             rain_until: None,
             clipboard: crate::Clipboard::default(),
             search_history: crate::SearchHistory::default(),
+            indexing: None,
             generation: 0,
         };
         state.refit();

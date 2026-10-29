@@ -29,6 +29,8 @@ pub struct SearchProgress {
     pub skipped: usize,
     /// Generated folders, ignored files and configured globs the search left out.
     pub excluded: usize,
+    /// When the index that answered was built; `None` for a live search.
+    pub indexed: Option<std::time::SystemTime>,
     pub limited: bool,
     pub cancelled: bool,
 }

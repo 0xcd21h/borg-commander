@@ -60,6 +60,8 @@ F3和Ctrl-Q打开真正的源代码。 F5 复制到真实目的地；如果目�
 
 勾选 **排除构建输出、缓存和被忽略的文件** 时，按名称搜索会跳过生成的文件夹：`node_modules`、`.git`、Python 缓存和虚拟环境、`target` 和 `dist` 等文件夹（当旁边有构建文件时，如 `Cargo.toml`、`package.json`），以及带有 `CACHEDIR.TAG` 文件的任何文件夹。被 `.gitignore`、`.ignore`、`.rgignore` 或 `.borgignore` 排除的文件以及 `[search] exclude` 中的 glob 也会被跳过。自身名称匹配的被跳过文件夹仍会出现在结果中，上下文行会统计跳过的文件夹数量。`excluded:yes` 可一次性搜索所有内容，`hidden:yes` 会包含隐藏文件。大小扫描总是读取全部内容。搜索历史保存在这台计算机上，只有您能读取；设置 `history = false`（位于 `[search]` 下）可停止保存。
 
+**搜索 → 为即时搜索索引此文件夹** 会为当前文件夹下的所有名称建立索引，因此在该文件夹或其任意子文件夹中按 Ctrl-F 会立即得到结果；上下文行会显示索引的建立时间。Borg 启动后以及索引超过 15 分钟时，索引会在后台重建，新索引完成前由旧索引继续回答。不排除任何内容或使用其他排除规则的搜索会改为遍历文件夹。再次选择该项可停止索引并删除索引。索引与大小扫描一起保存在缓存文件夹中；配置中的 `[index]` 列出被索引的文件夹。
+
 要在保持普通文件面板打开的情况下测量尺寸，请按 **Alt-I** 或选择 **搜索 → 计算背景尺寸**。 Borg 扫描当前目录下的每个文件夹，包括隐藏文件，并在完成后填写文件夹总数。您可以在控制台运行时导航或使用它。仍在测量的文件夹显示标记的运行总数不断增长 `≥`，当您离开文件夹并返回时，总计会保留。面板页脚显示进度； **Alt-I** 再次，或单击页脚，停止扫描并保留迄今为止测量的总数。启动复制、移动或删除作业会停止正在进行的尺寸扫描。完成的扫描与大小树和空间分析共享其缓存。
 
 完成的扫描保存在本地。空间分析和文件夹树都重复使用相同根和隐藏文件策略的已保存扫描。重新打开测量的根会立即使用该快照： `~` 标记缓存的尺寸，并在树上方显示测量日期。 **Ctrl-R** 在任一尺寸视图中重新扫描； **Ctrl-C** 取消。前一棵树在刷新期间保持可见，并且在取消或失败后仍然存在。普通文件夹列表还显示可用的缓存总数。 Borg 之外的更改可能会使它们过时；导航不会触发递归扫描。 Borg 复制、移动和删除作业会使与其更改路径重叠的快照无效。
@@ -279,6 +281,10 @@ exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in
 artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
 ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
 history = true              # remember searches for Ctrl-P and Ctrl-N
+
+[index]
+roots = ["~/Projects"]      # folders indexed for instant search
+refresh-minutes = 15        # rebuild an index once it is this old
 ```
 
 在本地真彩色终端上，Borg 打开并显示其徽标的简短故障介绍；任何键或单击都会跳过它。通过 SSH 和在没有真彩色的终端上，它直接在面板中启动。

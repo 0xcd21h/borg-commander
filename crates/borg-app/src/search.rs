@@ -45,14 +45,14 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(side: Side, messages: mpsc::Sender<Msg>, cache: crate::size_cache::SizeCache, background: bool) -> Self {
+    fn new(side: Side, messages: mpsc::Sender<Msg>, stores: Stores, background: bool) -> Self {
         let (requests, mut incoming) = watch::channel(None::<Request>);
         let task = tokio::spawn(async move {
             while incoming.changed().await.is_ok() {
                 let Some(request) = incoming.borrow_and_update().clone() else { continue };
                 let messages = messages.clone();
-                let cache = cache.clone();
-                let _ = tokio::task::spawn_blocking(move || run(side, request, &messages, &cache, background)).await;
+                let stores = stores.clone();
+                let _ = tokio::task::spawn_blocking(move || run(side, request, &messages, &stores, background)).await;
             }
         });
         Self { requests, cancelled: None, task }
@@ -80,24 +80,39 @@ impl Drop for Worker {
     }
 }
 
+/// What searches read besides the filesystem: saved folder sizes and name indexes.
+#[derive(Clone)]
+struct Stores {
+    cache: crate::size_cache::SizeCache,
+    indexes: crate::index::Indexes,
+}
+
 pub struct Search {
     pub cache: crate::size_cache::SizeCache,
+    pub indexes: crate::index::Indexes,
     workers: [Worker; 2],
     background: Worker,
     pub incoming: mpsc::Receiver<Msg>,
 }
 
 impl Search {
-    pub fn new() -> Self {
-        Self::with_cache(crate::size_cache::SizeCache::locate())
+    pub fn new(refresh: Duration) -> Self {
+        let indexes = crate::index::Indexes::new(crate::size_cache::cache_dir(), refresh);
+        Self::with_stores(crate::size_cache::SizeCache::locate(), indexes)
     }
+    #[cfg(test)]
     pub fn with_cache(cache: crate::size_cache::SizeCache) -> Self {
+        Self::with_stores(cache, crate::index::Indexes::new(None, Duration::from_secs(60)))
+    }
+    fn with_stores(cache: crate::size_cache::SizeCache, indexes: crate::index::Indexes) -> Self {
         let (messages, incoming) = mpsc::channel(CHANNEL_BATCHES);
+        let stores = Stores { cache: cache.clone(), indexes: indexes.clone() };
         Self {
-            workers: Side::ALL.map(|side| Worker::new(side, messages.clone(), cache.clone(), false)),
-            background: Worker::new(Side::Left, messages, cache.clone(), true),
+            workers: Side::ALL.map(|side| Worker::new(side, messages.clone(), stores.clone(), false)),
+            background: Worker::new(Side::Left, messages, stores, true),
             incoming,
             cache,
+            indexes,
         }
     }
     pub fn measure(&mut self, id: u64, root: std::path::PathBuf) {
@@ -126,13 +141,8 @@ impl Search {
     }
 }
 
-fn run(
-    side: Side,
-    request: Request,
-    messages: &mpsc::Sender<Msg>,
-    cache: &crate::size_cache::SizeCache,
-    background: bool,
-) {
+fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stores, background: bool) {
+    let cache = &stores.cache;
     let mut stream = Output {
         side,
         generation: request.generation,
@@ -159,7 +169,9 @@ fn run(
             return;
         }
         Work::Search(search) => {
-            if !search_names(&search, &mut stream) {
+            let answered =
+                stores.indexes.covering(&search).and_then(|index| search_index(&index, &search, &mut stream));
+            if !answered.unwrap_or_else(|| search_names(&search, &mut stream)) {
                 return;
             }
         }
@@ -185,45 +197,10 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     if let Err(error) = fs::read_dir(&search.root) {
         return failed(stream, error.to_string());
     }
-    let skip = search.skip.as_ref();
-    let mut walk = ignore::WalkBuilder::new(&search.root);
-    walk.standard_filters(false).same_file_system(true).max_depth(Some(MAX_DEPTH));
-    if skip.is_some_and(|skip| skip.ignore_files) {
-        walk.git_ignore(true).git_global(true).git_exclude(true).ignore(true).parents(true).require_git(false);
-        walk.add_custom_ignore_filename(".rgignore").add_custom_ignore_filename(BORG_IGNORE);
-    }
-    if let Some(globs) = skip.map(|skip| &skip.exclude).filter(|globs| !globs.is_empty()) {
-        let mut overrides = ignore::overrides::OverrideBuilder::new(&search.root);
-        for glob in globs {
-            if let Err(error) = overrides.add(&format!("!{glob}")) {
-                return failed(stream, error.to_string());
-            }
-        }
-        match overrides.build() {
-            Ok(overrides) => walk.overrides(overrides),
-            Err(error) => return failed(stream, error.to_string()),
-        };
-    }
-    let left_out = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let hidden = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    {
-        let (left_out, hidden, show_hidden) = (left_out.clone(), hidden.clone(), search.hidden);
-        let artifacts = skip.is_some_and(|skip| skip.artifacts);
-        walk.filter_entry(move |entry| {
-            if entry.depth() == 0 {
-                return true;
-            }
-            if !show_hidden && entry.file_name().as_encoded_bytes().starts_with(b".") {
-                hidden.fetch_add(1, Ordering::Relaxed);
-                return false;
-            }
-            let generated = artifacts && entry.file_type().is_some_and(|kind| kind.is_dir()) && generated(entry.path());
-            if generated {
-                left_out.lock().expect("left-out folders").push(entry.path().to_path_buf());
-            }
-            !generated
-        });
-    }
+    let Walker { walk, left_out, hidden } = match Walker::new(&search.root, search.hidden, search.skip.as_ref()) {
+        Ok(walker) => walker,
+        Err(error) => return failed(stream, error),
+    };
     let now = std::time::SystemTime::now();
     let metadata = query.needs_metadata() || search.options.minimum > 0;
     let wanted = |entry: &Entry, path: &Path| {
@@ -233,7 +210,7 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
             _ => true,
         };
         kind && (search.options.minimum == 0 || (!entry.is_dir() && entry.size >= search.options.minimum))
-            && query.accepts(entry, path, now)
+            && query.accepts(&(entry, path), now)
     };
     let mut progress = SearchProgress::default();
     let mut found = 0;
@@ -253,7 +230,7 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
         progress.visited += 1;
         let path = item.path();
         let mut candidates = vec![(path.to_path_buf(), item.file_type())];
-        let drained: Vec<PathBuf> = std::mem::take(&mut *left_out.lock().expect("left-out folders"));
+        let drained = Walker::take_left_out(&left_out);
         progress.excluded += drained.len();
         candidates.extend(drained.into_iter().map(|path| (path, None)));
         for (path, kind) in candidates {
@@ -304,6 +281,84 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     }
     progress.skipped = hidden.load(Ordering::Relaxed);
     stream.flush() && stream.send(Msg::SearchProgress { side, generation, progress })
+}
+
+/// Answers from an index: `None` when its folder is not in it, so a live search must answer;
+/// otherwise whether the search finished. Matches are read again, so deleted files drop out.
+fn search_index(index: &crate::index::Index, search: &SearchRequest, stream: &mut Output<'_>) -> Option<bool> {
+    let query = SearchQuery::parse(&search.query).ok()?;
+    let found = index.search(search, &query, RESULT_LIMIT)?;
+    let mut progress = SearchProgress {
+        visited: index.entries(),
+        limited: found.limited || !index.complete,
+        indexed: Some(index.built),
+        ..Default::default()
+    };
+    for path in found.paths {
+        if stream.stopped() {
+            return Some(false);
+        }
+        match borg_vfs::entry(&path) {
+            Ok(entry) => {
+                if !stream.push(entry) {
+                    return Some(false);
+                }
+            }
+            Err(_) => progress.skipped += 1,
+        }
+    }
+    let (side, generation) = (stream.side, stream.generation);
+    Some(stream.flush() && stream.send(Msg::SearchProgress { side, generation, progress }))
+}
+
+/// A walk below a folder that leaves out what a search skips. Left-out folders are collected
+/// rather than dropped, so a search can still match their names; hidden names are counted.
+pub(crate) struct Walker {
+    pub walk: ignore::WalkBuilder,
+    pub left_out: Arc<std::sync::Mutex<Vec<PathBuf>>>,
+    pub hidden: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Walker {
+    pub fn new(root: &Path, show_hidden: bool, skip: Option<&borg_core::SearchSettings>) -> Result<Self, String> {
+        let mut walk = ignore::WalkBuilder::new(root);
+        walk.standard_filters(false).same_file_system(true).max_depth(Some(MAX_DEPTH));
+        if skip.is_some_and(|skip| skip.ignore_files) {
+            walk.git_ignore(true).git_global(true).git_exclude(true).ignore(true).parents(true).require_git(false);
+            walk.add_custom_ignore_filename(".rgignore").add_custom_ignore_filename(BORG_IGNORE);
+        }
+        if let Some(globs) = skip.map(|skip| &skip.exclude).filter(|globs| !globs.is_empty()) {
+            let mut overrides = ignore::overrides::OverrideBuilder::new(root);
+            for glob in globs {
+                overrides.add(&format!("!{glob}")).map_err(|error| error.to_string())?;
+            }
+            walk.overrides(overrides.build().map_err(|error| error.to_string())?);
+        }
+        let left_out = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let hidden = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (found, counted) = (left_out.clone(), hidden.clone());
+        let artifacts = skip.is_some_and(|skip| skip.artifacts);
+        walk.filter_entry(move |entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            if !show_hidden && entry.file_name().as_encoded_bytes().starts_with(b".") {
+                counted.fetch_add(1, Ordering::Relaxed);
+                return false;
+            }
+            let generated = artifacts && entry.file_type().is_some_and(|kind| kind.is_dir()) && generated(entry.path());
+            if generated {
+                found.lock().expect("left-out folders").push(entry.path().to_path_buf());
+            }
+            !generated
+        });
+        Ok(Self { walk, left_out, hidden })
+    }
+
+    /// The folders left out since the last call.
+    pub fn take_left_out(left_out: &std::sync::Mutex<Vec<PathBuf>>) -> Vec<PathBuf> {
+        std::mem::take(&mut *left_out.lock().expect("left-out folders"))
+    }
 }
 
 /// Whether the folder at `path` is generated: by its name and marker files, or a cache tag.
@@ -801,6 +856,45 @@ mod tests {
             ["app/node_modules", "app/target", "notes/target"]
         );
         assert_eq!(run("ext:rs", None).await.len(), 8, "nothing is left out without exclusions");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn indexed_folders_answer_from_their_index_and_searching_everything_walks() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        for file in ["src/main.rs", "src/lib.rs", "docs/main.md"] {
+            let path = root.path().join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "").unwrap();
+        }
+        let indexes = crate::index::Indexes::new(Some(cache.path().into()), Duration::from_secs(600));
+        let (messages, mut built) = tokio::sync::mpsc::unbounded_channel();
+        indexes.connect(messages);
+        indexes.set_roots(vec![root.path().into()]);
+        indexes.refresh(root.path().into(), borg_core::SearchSettings::default());
+        let indexed = tokio::time::timeout(Duration::from_secs(5), built.recv()).await.unwrap();
+        assert!(matches!(indexed, Some(Msg::Indexed { entries: 5, error: None, .. })), "{indexed:?}");
+        let mut search = Search::with_stores(crate::size_cache::SizeCache::at(None), indexes);
+        for (skip, from_index) in [(Some(borg_core::SearchSettings::default()), true), (None, false)] {
+            let request = SearchRequest {
+                root: root.path().join("src"),
+                query: "main".into(),
+                hidden: false,
+                options: Default::default(),
+                skip,
+            };
+            search.search(Side::Left, 1, request);
+            let mut found = Vec::new();
+            let progress = loop {
+                match tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap() {
+                    Msg::Batch { entries, .. } => found.extend(entries),
+                    Msg::SearchProgress { progress, .. } => break progress,
+                    _ => {}
+                }
+            };
+            assert_eq!(found.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(), ["main.rs"]);
+            assert_eq!(progress.indexed.is_some(), from_index);
+        }
     }
 
     #[tokio::test]

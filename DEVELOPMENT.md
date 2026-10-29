@@ -167,6 +167,16 @@ globs as overrides, and a `filter_entry` that drops hidden names and generated f
 Name-only queries match on what the listing gives and read metadata for matches alone. The
 search history is core state saved owner-only as `search-history.json` in the state directory.
 
+`borg-app::index` keeps a name index per folder chosen in the Search menu, in `index/` under the
+cache directory. A build walks with the same `Walker` as live search, hidden names included and
+flagged, and numbers folders in walking order, so every subfolder's contents are one range of
+folder numbers. Rows hold the folder, name bytes, kind, size and modification time. The binary
+file is written owner-only and atomically, and decoded with bounds checks. `Indexes::covering`
+answers a request when its folder lies in an indexed root built with the same exclusions;
+otherwise, or when the folder is not in the index, the live walk answers. Stale and missing
+indexes are queued for one background build at a time while the previous one keeps answering.
+Matches are read again from disk before they are shown.
+
 Folder totals and expandable size trees share
 one postorder metadata scanner. `borg-app::size_cache` writes all completed folder
 summaries into a staged SQLite index with bounded page memory, then publishes it

@@ -79,6 +79,7 @@ impl Launch {
             ),
             screensaver_after: config.screensaver_after().unwrap_or(defaults.screensaver_after),
             search: config.search(),
+            index_roots: config.index_roots(),
             ..defaults
         };
 

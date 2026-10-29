@@ -1,5 +1,6 @@
 use borg_i18n::tr;
 use std::{
+    borrow::Cow,
     path::{Component, Path},
     time::{Duration, SystemTime},
 };
@@ -23,6 +24,34 @@ pub struct SearchQuery {
     pub hidden: Option<bool>,
     /// `excluded:yes` also searches artifact folders and ignored files; `excluded:no` skips them.
     pub excluded: Option<bool>,
+}
+
+/// What a query looks at: an entry from a listing, or a row of the search index.
+pub trait Candidate {
+    fn name(&self) -> Cow<'_, str>;
+    fn kind(&self) -> EntryKind;
+    fn size(&self) -> u64;
+    fn modified(&self) -> Option<SystemTime>;
+    /// The full path, built only for the terms that read it.
+    fn path(&self) -> Cow<'_, Path>;
+}
+
+impl Candidate for (&Entry, &Path) {
+    fn name(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.0.name)
+    }
+    fn kind(&self) -> EntryKind {
+        self.0.kind
+    }
+    fn size(&self) -> u64 {
+        self.0.size
+    }
+    fn modified(&self) -> Option<SystemTime> {
+        self.0.modified
+    }
+    fn path(&self) -> Cow<'_, Path> {
+        Cow::Borrowed(self.1)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +92,16 @@ impl Text {
     }
 
     fn found_in(&self, haystack: &str) -> bool {
-        if self.fold { haystack.to_lowercase().contains(&self.text) } else { haystack.contains(&self.text) }
+        if !self.fold {
+            return haystack.contains(&self.text);
+        }
+        // Most names are ASCII: compare without lowercasing a copy of each.
+        if haystack.is_ascii() && self.text.is_ascii() {
+            let needle = self.text.as_bytes();
+            return needle.is_empty()
+                || haystack.as_bytes().windows(needle.len()).any(|window| window.eq_ignore_ascii_case(needle));
+        }
+        haystack.to_lowercase().contains(&self.text)
     }
 
     fn is(&self, value: &str) -> bool {
@@ -220,8 +258,16 @@ impl SearchQuery {
         self.alternatives.iter().flatten().any(|c| matches!(c.term, Term::Size { .. } | Term::Age { .. }))
     }
 
-    pub fn accepts(&self, entry: &Entry, path: &Path, now: SystemTime) -> bool {
-        self.alternatives.iter().any(|all| all.iter().all(|c| c.term.matches(entry, path, now) != c.negated))
+    pub fn accepts(&self, candidate: &impl Candidate, now: SystemTime) -> bool {
+        self.alternatives.iter().any(|all| all.iter().all(|c| c.term.matches(candidate, now) != c.negated))
+    }
+
+    /// The first word to look for, for ranking: names that are it, then those starting with it.
+    pub fn primary(&self) -> Option<&str> {
+        self.alternatives.first()?.iter().find_map(|c| match &c.term {
+            Term::Name(text) if !c.negated => Some(text.text.as_str()),
+            _ => None,
+        })
     }
 }
 
@@ -301,27 +347,32 @@ fn age(text: &str) -> Option<u64> {
 }
 
 impl Term {
-    fn matches(&self, entry: &Entry, path: &Path, now: SystemTime) -> bool {
+    fn matches(&self, candidate: &impl Candidate, now: SystemTime) -> bool {
+        let kind = candidate.kind();
         match self {
-            Self::Name(text) => text.found_in(&entry.name),
-            Self::Path(text) => text.found_in(&path.to_string_lossy()),
-            Self::Glob(pattern) => pattern.matches(entry),
+            Self::Name(text) => text.found_in(&candidate.name()),
+            Self::Path(text) => text.found_in(&candidate.path().to_string_lossy()),
+            Self::Glob(pattern) => pattern.matches_name(&candidate.name(), kind.is_dir()),
             Self::Ext(exts) => {
-                let name = entry.name.to_lowercase();
-                !entry.is_dir()
+                let name = candidate.name();
+                !kind.is_dir()
                     && exts.iter().any(|ext| {
-                        name.strip_suffix(ext.as_str()).is_some_and(|stem| stem.len() > 1 && stem.ends_with('.'))
+                        name.len() > ext.len() + 1
+                            && name.is_char_boundary(name.len() - ext.len() - 1)
+                            && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext)
+                            && name.as_bytes()[name.len() - ext.len() - 1] == b'.'
                     })
             }
-            Self::Kind(Kind::File) => entry.kind == EntryKind::File,
-            Self::Kind(Kind::Dir) => entry.is_dir() && !matches!(entry.kind, EntryKind::Symlink { .. }),
-            Self::Kind(Kind::Link) => matches!(entry.kind, EntryKind::Symlink { .. }),
-            Self::Size { min, max } => !entry.is_dir() && (*min..=*max).contains(&entry.size),
-            Self::Age { min, max } => entry
-                .modified
+            Self::Kind(Kind::File) => kind == EntryKind::File,
+            Self::Kind(Kind::Dir) => kind == EntryKind::Dir,
+            Self::Kind(Kind::Link) => matches!(kind, EntryKind::Symlink { .. }),
+            Self::Size { min, max } => !kind.is_dir() && (*min..=*max).contains(&candidate.size()),
+            Self::Age { min, max } => candidate
+                .modified()
                 .and_then(|modified| now.duration_since(modified).ok())
                 .is_some_and(|age| (*min..=*max).contains(&age)),
             Self::In(parts) => {
+                let path = candidate.path();
                 let folders: Vec<String> = path
                     .parent()
                     .into_iter()
@@ -366,7 +417,7 @@ mod tests {
 
     fn matches(query: &str, path: &str, kind: EntryKind, size: u64, age_days: u64) -> bool {
         let (entry, path) = entry(path, kind, size, age_days);
-        SearchQuery::parse(query).unwrap().accepts(&entry, &path, SystemTime::UNIX_EPOCH + NOW)
+        SearchQuery::parse(query).unwrap().accepts(&(&entry, path.as_path()), SystemTime::UNIX_EPOCH + NOW)
     }
 
     fn file(query: &str, path: &str) -> bool {

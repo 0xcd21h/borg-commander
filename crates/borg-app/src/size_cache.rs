@@ -143,13 +143,16 @@ impl ScanStore {
         Some(())
     }
 }
+/// Borg's cache folder: `BORG_CACHE_DIR`, or `borg-commander` in the XDG or home cache.
+pub fn cache_dir() -> Option<PathBuf> {
+    env::var_os("BORG_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("borg-commander")))
+        .or_else(|| env::var_os("HOME").map(|p| PathBuf::from(p).join(".cache/borg-commander")))
+}
 impl SizeCache {
     pub fn locate() -> Self {
-        let dir = env::var_os("BORG_CACHE_DIR")
-            .map(PathBuf::from)
-            .or_else(|| env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("borg-commander")))
-            .or_else(|| env::var_os("HOME").map(|p| PathBuf::from(p).join(".cache/borg-commander")));
-        Self::at(dir)
+        Self::at(cache_dir())
     }
     pub fn at(dir: Option<PathBuf>) -> Self {
         Self(Arc::new(Inner {

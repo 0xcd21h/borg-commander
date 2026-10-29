@@ -183,6 +183,18 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
             state.notice = Some(text);
             Vec::new()
         }
+        Msg::Indexed { root, entries, error } => {
+            let folder = root.display().to_string();
+            if let Some(error) = error.filter(|_| state.settings.index_roots.contains(&root)) {
+                state.notice = Some(tr!(index_failed, folder = folder, error = error));
+            } else if state.indexing.as_ref() == Some(&root) {
+                state.notice = Some(tr!(index_built, folder = folder, entries = entries));
+            }
+            if state.indexing.as_ref() == Some(&root) {
+                state.indexing = None;
+            }
+            Vec::new()
+        }
         Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
         Msg::Peeked(peeked) => {
             crate::aside::receive(state, peeked);

@@ -350,6 +350,15 @@ fn results_menu(state: &AppState) -> Menu {
                 state.sizing.is_some() || !result && state.activity.side.is_none() && !state.docker.is_open(),
             ),
             when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
+            when(
+                check(
+                    tr!(index_this_folder),
+                    "",
+                    Action::ToggleIndex,
+                    state.settings.index_roots.iter().any(|root| root == panel.dir()),
+                ),
+                !result && panel.mount.is_none() && panel.remote_mount.is_none(),
+            ),
             item(tr!(open_create_collection), "M-v", Action::OpenCollection),
             when(item(tr!(collect_in_other_panel), "M-k", Action::Collect), !panel.selection().is_empty()),
             MenuEntry::Separator,

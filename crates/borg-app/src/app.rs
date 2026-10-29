@@ -44,6 +44,8 @@ use crate::{
 };
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// Indexes are checked after startup, once the panels and shell are up.
+const INDEX_DELAY: Duration = Duration::from_secs(5);
 /// Larger copies stay in Borg's clipboard: terminals drop or cut longer OSC 52 writes.
 const TERMINAL_CLIPBOARD_LIMIT: usize = 256 * 1024;
 const REMOTE_CLIENT_REFRESH: Duration = Duration::from_secs(1);
@@ -243,8 +245,16 @@ impl App {
                 let _ = crate::launch::mark_in_use(&runtime_dir);
             }
         });
+        let search = crate::search::Search::new(launch.config.index_refresh());
+        search.indexes.connect(messages.clone());
+        search.indexes.set_roots(state.settings.index_roots.clone());
+        let (indexes, settings) = (search.indexes.clone(), state.settings.search.clone());
+        tokio::spawn(async move {
+            tokio::time::sleep(INDEX_DELAY).await;
+            indexes.refresh_stale(&settings);
+        });
         Ok(Self {
-            search: crate::search::Search::new(),
+            search,
             emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
@@ -1532,6 +1542,16 @@ impl App {
                     self.search.refresh(side, generation, entries)
                 }
                 Effect::CancelSearch(side) => self.search.cancel(side),
+                Effect::SetIndexRoots(roots) => {
+                    let added: Vec<_> =
+                        roots.iter().filter(|root| !self.search.indexes.roots().contains(root)).cloned().collect();
+                    self.search.indexes.set_roots(roots.clone());
+                    for root in added {
+                        self.search.indexes.refresh(root, self.state.settings.search.clone());
+                    }
+                    self.config.set_index_roots(&roots);
+                    self.save_config();
+                }
                 Effect::SaveSearchHistory => {
                     if let Some(dir) = &self.state_dir
                         && let Err(error) = dir.save_search_history(&self.state.search_history)

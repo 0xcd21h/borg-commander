@@ -36,7 +36,11 @@ impl Pattern {
     }
 
     pub fn matches(&self, entry: &Entry) -> bool {
-        self.any.is_match(&entry.name) || (entry.is_dir() && self.dirs.is_match(&entry.name))
+        self.matches_name(&entry.name, entry.is_dir())
+    }
+
+    pub fn matches_name(&self, name: &str, dir: bool) -> bool {
+        self.any.is_match(name) || (dir && self.dirs.is_match(name))
     }
 }
 

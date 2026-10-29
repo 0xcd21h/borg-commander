@@ -164,6 +164,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             }
             vec![Effect::SaveConfig]
         }
+        Action::ToggleIndex => toggle_index(state),
         Action::Search
         | Action::FolderTree
         | Action::CalculateSizes
@@ -578,6 +579,27 @@ fn insert_names(state: &mut AppState, side: Side) -> Vec<Effect> {
         }
     });
     type_words(state, words)
+}
+
+/// Adds the active folder to the folders indexed for instant search, or removes it.
+fn toggle_index(state: &mut AppState) -> Vec<Effect> {
+    let panel = state.active_panel();
+    if panel.is_results() || panel.mount.is_some() || panel.remote_mount.is_some() {
+        return Vec::new();
+    }
+    let dir = panel.dir().to_path_buf();
+    let folder = dir.display().to_string();
+    let roots = &mut state.settings.index_roots;
+    if let Some(at) = roots.iter().position(|root| *root == dir) {
+        roots.remove(at);
+        state.indexing = None;
+        state.notice = Some(tr!(index_removed, folder = folder));
+    } else {
+        roots.push(dir.clone());
+        state.indexing = Some(dir);
+        state.notice = Some(tr!(index_started, folder = folder));
+    }
+    vec![Effect::SetIndexRoots(state.settings.index_roots.clone())]
 }
 
 /// Copies the selected names, one per line, or their full paths. Results come from several

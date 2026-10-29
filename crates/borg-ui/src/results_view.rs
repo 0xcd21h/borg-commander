@@ -184,13 +184,18 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
                 } else {
                     tr!(finished)
                 };
-                let summary = tr!(
-                    scanned_skipped,
-                    progress.visited,
-                    format::count(progress.errors, format::Count::Error),
-                    progress.skipped,
-                    state = state
-                );
+                let summary = match progress.indexed {
+                    Some(built) => {
+                        format!("{state} · {}", tr!(indexed_at, time = format::modified(Some(built), scene.clock)))
+                    }
+                    None => tr!(
+                        scanned_skipped,
+                        progress.visited,
+                        format::count(progress.errors, format::Count::Error),
+                        progress.skipped,
+                        state = state
+                    ),
+                };
                 let summary = if progress.excluded > 0 {
                     let folders = format::count(progress.excluded, format::Count::Folder);
                     format!("{summary} · {}", tr!(folders_left_out, folders = folders))

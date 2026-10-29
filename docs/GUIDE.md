@@ -130,6 +130,14 @@ folder whose own name matches still appears, and the context line counts the fol
 read everything. The search history stays on this computer, readable only by you;
 `history = false` under `[search]` stops keeping it.
 
+**Search → Index this folder for instant search** keeps an index of every name below the active
+folder, so Ctrl-F there, or in any folder below it, answers at once; the context line says when
+the index was built. Indexes are rebuilt in the background after Borg starts and once they are
+older than 15 minutes, and the previous index answers until the new one is complete. A search
+that leaves nothing out, or uses other exclusions, walks the folders instead. Choose the item
+again to stop indexing and delete the index. Indexes are kept in the cache folder with the size
+scans; `[index]` in the configuration lists the indexed folders.
+
 To measure sizes while keeping ordinary file panels open, press **Alt-I** or
 choose **Search → Count sizes in background**. Borg scans every folder beneath the
 current directory, includes hidden files, and fills in folder totals as they finish.
@@ -616,6 +624,10 @@ exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in
 artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
 ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
 history = true              # remember searches for Ctrl-P and Ctrl-N
+
+[index]
+roots = ["~/Projects"]      # folders indexed for instant search
+refresh-minutes = 15        # rebuild an index once it is this old
 ```
 
 On a local terminal with true colour, Borg opens with a short glitch intro of its logo;

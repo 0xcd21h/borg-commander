@@ -30,6 +30,7 @@ pub enum Action {
     ToggleTreeNode,
     Collect,
     OpenCollection,
+    ToggleIndex,
     FilterResults,
     GroupResults(crate::ResultGroup),
     ToggleExpanded,

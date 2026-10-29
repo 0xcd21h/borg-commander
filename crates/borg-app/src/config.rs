@@ -70,6 +70,21 @@ pub struct Config {
     /// The borg cloud relay, as `wss://host`.
     pub relay: Option<String>,
     pub search: Option<Search>,
+    pub index: Option<Index>,
+}
+
+/// `[index]`: folders indexed for instant search, and how old an index may grow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Index {
+    pub roots: Vec<String>,
+    pub refresh_minutes: u64,
+}
+
+impl Default for Index {
+    fn default() -> Self {
+        Self { roots: Vec::new(), refresh_minutes: 15 }
+    }
 }
 
 /// `[search]`: what recursive search leaves out, and whether it remembers searches.
@@ -177,6 +192,38 @@ impl Config {
         }
     }
 
+    /// The indexed folders, with `~/` read as the home folder.
+    pub fn index_roots(&self) -> Vec<PathBuf> {
+        let home = env::var_os(ENV_HOME).map(PathBuf::from);
+        let index = self.index.clone().unwrap_or_default();
+        index
+            .roots
+            .iter()
+            .filter_map(|root| match (root.strip_prefix("~/"), &home) {
+                (Some(rest), Some(home)) => Some(home.join(rest)),
+                (Some(_), None) => None,
+                (None, _) => Some(PathBuf::from(root)),
+            })
+            .filter(|root| root.is_absolute())
+            .collect()
+    }
+
+    pub fn index_refresh(&self) -> Duration {
+        Duration::from_secs(self.index.clone().unwrap_or_default().refresh_minutes.max(1) * 60)
+    }
+
+    pub fn set_index_roots(&mut self, roots: &[PathBuf]) {
+        let home = env::var_os(ENV_HOME).map(PathBuf::from);
+        let roots = roots
+            .iter()
+            .map(|root| match home.as_ref().and_then(|home| root.strip_prefix(home).ok()) {
+                Some(rest) if !rest.as_os_str().is_empty() => format!("~/{}", rest.display()),
+                _ => root.display().to_string(),
+            })
+            .collect();
+        self.index = Some(Index { roots, ..self.index.clone().unwrap_or_default() });
+    }
+
     pub fn screensaver_after(&self) -> Option<Duration> {
         self.screensaver_after.map(Duration::from_secs)
     }
@@ -226,6 +273,7 @@ impl Config {
             update_check: self.update_check,
             relay: self.relay.clone(),
             search: self.search.clone(),
+            index: self.index.clone(),
         }
     }
 }
