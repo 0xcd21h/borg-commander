@@ -3,7 +3,7 @@
 
 use std::{path::Path, time::Instant};
 
-use borg_core::{AppState, BackupItem, BackupList, BackupTab, BackupWindow, Exclusion, Task};
+use borg_core::{AppState, BackupItem, BackupTab, BackupWindow, Exclusion, Task};
 use borg_i18n::{Count, count, tr};
 use ratatui::{
     buffer::Buffer,
@@ -23,8 +23,6 @@ use crate::{
 };
 
 const MAX_WIDTH: u16 = 104;
-const MAX_HEIGHT: u16 = 30;
-const MIN_HEIGHT: u16 = 12;
 /// The tabs, the summary and a blank line.
 const HEADER_ROWS: u16 = 3;
 /// A blank line, the hovered item's two lines of explanation, and the outcome.
@@ -52,7 +50,7 @@ pub(crate) fn draw(
     let theme = look.theme;
     let styles = &theme.styles;
     let width = screen.width.saturating_sub(4).min(MAX_WIDTH);
-    let height = screen.height.saturating_sub(2).clamp(MIN_HEIGHT, MAX_HEIGHT).min(screen.height);
+    let height = borg_core::backup_window_height(screen.height);
     let rect = centered(screen, width, height);
     let keys = match window.tab {
         BackupTab::All => tr!(backup_keys_all),
@@ -80,7 +78,9 @@ pub(crate) fn draw(
     let list = window.list();
     tabs(window, look, row(body, 0), buf);
     summary(window, look, home, spinner, row(body, 1), buf);
-    let rows = Rect { y: body.y + HEADER_ROWS, height: body.height.saturating_sub(HEADER_ROWS + FOOTER_ROWS), ..body };
+    let room = body.height.saturating_sub(HEADER_ROWS + FOOTER_ROWS);
+    let rows = u16::try_from(borg_core::backup_list_rows(screen.height)).unwrap_or(room).min(room);
+    let rows = Rect { y: body.y + HEADER_ROWS, height: rows, ..body };
     items(window, look, home, rows, buf);
     let footer = Rect { y: body.bottom() - FOOTER_ROWS + 1, height: FOOTER_ROWS - 1, ..body };
     if let Some(item) = list.hovered() {
@@ -161,10 +161,9 @@ fn items(window: &BackupWindow, look: &Look<'_>, home: Option<&Path>, area: Rect
     let theme = look.theme;
     let styles = &theme.styles;
     let list = window.list();
-    let rows = layout(window.tab, list);
+    let rows = layout(window);
     let visible = usize::from(area.height);
-    let at = rows.iter().position(|row| matches!(row, Row::Item(index, _) if *index == list.cursor)).unwrap_or(0);
-    let start = at.saturating_sub(visible.saturating_sub(1));
+    let start = window.list_start(visible);
     let widest = list.items.iter().map(|item| status(item).width()).max().unwrap_or_default();
     let status_width = u16::try_from(widest).unwrap_or(u16::MAX).clamp(MIN_STATUS_WIDTH, area.width / 2);
     let path_width = area.width.saturating_sub(MARK_WIDTH + SIZE_WIDTH + status_width + GAP * 2);
@@ -210,21 +209,11 @@ fn items(window: &BackupWindow, look: &Look<'_>, home: Option<&Path>, area: Rect
 }
 
 /// The rows to draw: All exclusions puts each kind under a heading.
-fn layout(tab: BackupTab, list: &BackupList) -> Vec<Row<'_>> {
-    let mut rows = Vec::new();
-    let mut group = None;
-    for (index, item) in list.items.iter().enumerate() {
-        if tab == BackupTab::All && group != Some(&item.group) && heads_group(&item.group) {
-            group = Some(&item.group);
-            rows.push(Row::Group(&item.group));
-        }
-        rows.push(Row::Item(index, item));
-    }
-    rows
-}
-
-fn heads_group(group: &Exclusion) -> bool {
-    matches!(group, Exclusion::Sticky | Exclusion::Path | Exclusion::Volume | Exclusion::System)
+fn layout(window: &BackupWindow) -> Vec<Row<'_>> {
+    let items = window.list().items.iter().enumerate();
+    items
+        .flat_map(|(index, item)| window.heading(index).map(Row::Group).into_iter().chain([Row::Item(index, item)]))
+        .collect()
 }
 
 fn group_label(group: &Exclusion) -> &'static str {

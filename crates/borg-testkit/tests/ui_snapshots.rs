@@ -2908,3 +2908,37 @@ fn time_machine_marks_excluded_entries_and_lists_exclusions_by_kind() -> Result<
     ensure_text(&buffer, "[x] Fixed path")?;
     check("time_machine_add", &stage, buffer)
 }
+
+#[test]
+fn time_machine_list_scrolls_only_when_the_cursor_leaves_it() -> Result<()> {
+    use borg_core::{BackupRequest, Exclusion};
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
+    stage.state.backup.available = true;
+    let opened = backup_requests(&mut stage, Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)));
+    let caches = opened.iter().find(|request| matches!(request, BackupRequest::Caches { .. }));
+    let caches = caches.context("with nothing marked, Alt-T opens on Caches here")?.clone();
+    let found = (0..40)
+        .map(|n| {
+            backup_item(&format!("/home/me/projects/borg/app{n:02}/node_modules"), true, None, Exclusion::Included)
+        })
+        .collect();
+    backup_found(&mut stage, &caches, found);
+    let row_of = |buffer: &Buffer, name: &str| {
+        (0..buffer.area.height).find(|&y| {
+            let line: String = (0..buffer.area.width).map(|x| buffer[(x, y)].symbol()).collect();
+            line.contains(name)
+        })
+    };
+    for _ in 0..20 {
+        stage.send(key(KeyCode::Down));
+    }
+    let bottom = row_of(&stage.render(stage.started)?, "app20/").context("the cursor's row is shown")?;
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    anyhow::ensure!(
+        row_of(&buffer, "app18/") == Some(bottom - 2),
+        "moving up inside the list moves the cursor, not the list"
+    );
+    anyhow::ensure!(row_of(&buffer, "app20/") == Some(bottom), "the rows below the cursor stay where they were");
+    Ok(())
+}

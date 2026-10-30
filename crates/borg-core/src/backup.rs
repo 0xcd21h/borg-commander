@@ -12,7 +12,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{AppState, Effect, LineInput, Overlay, Prompt, PromptPurpose, Side};
 
-const PAGE: usize = 10;
+const MAX_HEIGHT: u16 = 30;
+const MIN_HEIGHT: u16 = 12;
+/// Rows of the window around its list: the borders, the tabs, the summary and a blank line
+/// above it, and a blank line, the explanation and the outcome below it.
+const CHROME_ROWS: u16 = 2 + 3 + 4;
 
 /// Whether Time Machine backs an item up, and if not, why.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -119,6 +123,8 @@ pub struct BackupList {
     /// Folders looked through so far.
     pub folders: u64,
     pub error: Option<String>,
+    /// The first row shown, headings included.
+    pub top: usize,
     id: u64,
 }
 
@@ -170,6 +176,44 @@ impl BackupWindow {
     pub fn busy(&self) -> bool {
         self.working.is_some() || self.lists.iter().any(|list| list.loading)
     }
+
+    /// The kind All exclusions names above the item at `index`, where a new kind starts.
+    pub fn heading(&self, index: usize) -> Option<&Exclusion> {
+        let items = &self.list().items;
+        let group = &items.get(index)?.group;
+        let starts = index == 0 || items[index - 1].group != *group;
+        let named = matches!(group, Exclusion::Sticky | Exclusion::Path | Exclusion::Volume | Exclusion::System);
+        (self.tab == BackupTab::All && starts && named).then_some(group)
+    }
+
+    /// The row of the item at `index`, counting the headings above it.
+    fn row_of(&self, index: usize) -> usize {
+        index + (0..=index).filter(|&above| self.heading(above).is_some()).count()
+    }
+
+    /// The first row to show in `height` rows: where the list was, moved only as far as it takes
+    /// to show the cursor, with the heading of its kind when it is the first.
+    pub fn list_start(&self, height: usize) -> usize {
+        let list = self.list();
+        let at = self.row_of(list.cursor);
+        let first = at - usize::from(self.heading(list.cursor).is_some());
+        list.top.min(first).max(at.saturating_sub(height.max(1) - 1))
+    }
+
+    fn keep_visible(&mut self, height: usize) {
+        let top = self.list_start(height);
+        self.list_mut().top = top;
+    }
+}
+
+/// The height of the Time Machine window on a screen this tall.
+pub fn window_height(screen: u16) -> u16 {
+    screen.saturating_sub(2).clamp(MIN_HEIGHT, MAX_HEIGHT).min(screen)
+}
+
+/// The rows the window's list has on a screen this tall.
+pub fn list_rows(screen: u16) -> usize {
+    usize::from(window_height(screen).saturating_sub(CHROME_ROWS))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -268,6 +312,10 @@ fn shows_marks(panel: &crate::Panel) -> bool {
 }
 
 pub(crate) fn sync(state: &mut AppState) -> Vec<Effect> {
+    if matches!(state.overlay, Some(Overlay::TimeMachine)) {
+        let height = list_rows(state.rows);
+        state.backup.window.keep_visible(height);
+    }
     let available = state.backup.available;
     let mut effects = Vec::new();
     for side in Side::ALL {
@@ -440,6 +488,7 @@ fn start(state: &mut AppState, tab: BackupTab, paths: Vec<PathBuf>) -> Vec<Effec
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: std::time::Instant) -> Vec<Effect> {
     let tab = state.backup.window.tab;
+    let page = isize::try_from(list_rows(state.rows).saturating_sub(1).max(1)).unwrap_or(isize::MAX);
     let turn = |delta: isize| {
         let index = (tab.index() as isize + delta).rem_euclid(BackupTab::ALL.len() as isize);
         BackupTab::ALL[index as usize]
@@ -455,8 +504,8 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: std::time::Insta
         KeyCode::Char(digit @ '1'..='3') => return show(state, BackupTab::ALL[digit as usize - '1' as usize]),
         KeyCode::Up => list.step(-1),
         KeyCode::Down => list.step(1),
-        KeyCode::PageUp => list.step(-(PAGE as isize)),
-        KeyCode::PageDown => list.step(PAGE as isize),
+        KeyCode::PageUp => list.step(-page),
+        KeyCode::PageDown => list.step(page),
         KeyCode::Home => list.cursor = 0,
         KeyCode::End => list.step(isize::MAX),
         KeyCode::Char(' ') | KeyCode::Insert => {
@@ -783,6 +832,50 @@ mod tests {
         );
         let first = &state.backup.window.list().items[0];
         assert_eq!((first.exclusion.clone(), first.group.clone()), (Exclusion::Included, Exclusion::Sticky));
+    }
+
+    #[test]
+    fn the_list_scrolls_only_when_the_cursor_would_leave_it() {
+        let mut state = state();
+        let id = opened_on_caches(&mut state);
+        let found = (0..40).map(|n| item(&format!("/work/{n:02}/target"), Exclusion::Included)).collect();
+        receive(&mut state, BackupEvent::Found { id, items: found });
+        let rows = list_rows(state.rows);
+        let at = |state: &AppState| (state.backup.window.list().cursor, state.backup.window.list().top);
+        for _ in 0..25 {
+            key(&mut state, KeyCode::Down);
+        }
+        assert_eq!(at(&state), (25, 25 - (rows - 1)), "moving down past the end scrolls one row at a time");
+        key(&mut state, KeyCode::Up);
+        assert_eq!(at(&state), (24, 25 - (rows - 1)), "moving back up inside the list keeps it still");
+        for _ in 0..rows {
+            key(&mut state, KeyCode::Up);
+        }
+        assert_eq!(at(&state), (24 - rows, 24 - rows), "moving up past the top scrolls");
+        key(&mut state, KeyCode::PageDown);
+        assert_eq!(at(&state), (24 - rows + rows - 1, 24 - rows), "a page down lands on the last row shown");
+    }
+
+    #[test]
+    fn scrolling_up_to_the_first_item_of_a_kind_shows_its_heading() {
+        let mut state = state();
+        opened_on_caches(&mut state);
+        key(&mut state, KeyCode::Char('3'));
+        let id = state.backup.window.list().id;
+        let mut found = vec![item("/work/kept", Exclusion::Sticky)];
+        found.extend((0..30).map(|n| item(&format!("/fixed/{n:02}"), Exclusion::Path)));
+        receive(&mut state, BackupEvent::Found { id, items: found });
+        let window = |state: &AppState| state.backup.window.clone();
+        assert_eq!(
+            (window(&state).heading(0), window(&state).heading(1)),
+            (Some(&Exclusion::Sticky), Some(&Exclusion::Path))
+        );
+        assert_eq!(window(&state).heading(2), None);
+        key(&mut state, KeyCode::End);
+        let rows = list_rows(state.rows);
+        assert_eq!(window(&state).list().top, 30 + 2 - (rows - 1), "the headings count as rows");
+        key(&mut state, KeyCode::Home);
+        assert_eq!(window(&state).list().top, 0, "the first item shows with its heading");
     }
 
     #[test]

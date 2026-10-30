@@ -51,7 +51,8 @@ pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
 pub use backup::{
     Backup, BackupChange, BackupEvent, BackupItem, BackupList, BackupListing, BackupPanel, BackupRequest, BackupTab,
-    BackupWindow, Exclusion, name_of as backup_name, rank as backup_rank,
+    BackupWindow, Exclusion, list_rows as backup_list_rows, name_of as backup_name, rank as backup_rank,
+    window_height as backup_window_height,
 };
 pub use busy::{Busy, SPINNER_DELAY, Task};
 pub use clipboard::Clipboard;
