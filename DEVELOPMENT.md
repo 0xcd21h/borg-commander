@@ -153,6 +153,17 @@ continuations. Text matches cover UTF-8/16/32; Unicode matches use grapheme-awar
 NFKC with a byte-address mapping back to the captured data. Snapshot searches avoid
 live process access. The renderer shares a reserved branding area across UI modes.
 
+### Editor
+
+F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a
+grapheme-aware cursor, selection, indentation and line-ending detection, and undo grouped by
+typed words. Core handles keys and prompts and asks the app to read (`Effect::OpenEditor`) and
+write (`Effect::SaveFile`) the file. `borg-app::edit_file` refuses text that is not UTF-8 or larger
+than 32 MiB, compares the file with the stamp read before writing, and writes through a temporary
+file that keeps the mode and owner; a hard-linked file is written in place. Core colours the
+visible lines, with context above them, through `borg_view::highlight_lines` and caches them by
+buffer revision, so drawing stays free of parsing.
+
 ### Collections and live search
 
 Directory entries retain their source paths. Virtual panels reuse cursor, marks, sorting,

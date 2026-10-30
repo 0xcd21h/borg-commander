@@ -119,6 +119,10 @@ pub enum Msg {
     Signal(ShellSignal),
     Tick,
     Opened(Viewer),
+    /// A file read for the editor, or why it was not.
+    EditorOpened(Result<crate::EditorFile, crate::OpenError>),
+    /// The editor's save landed, with the file's new stamp, or did not.
+    EditorSaved(Result<crate::FileStamp, crate::SaveError>),
     ShellExited,
     Notice(String),
     /// An index for instant search was built, with this many entries, or failed.
@@ -258,6 +262,15 @@ pub enum Effect {
     },
     ScrollConsole(Scroll),
     View(PathBuf),
+    /// Reads a file for the built-in editor.
+    OpenEditor(PathBuf),
+    /// Writes the editor's text, unless the file is no longer `expected` and not `force`d.
+    SaveFile {
+        path: PathBuf,
+        bytes: Vec<u8>,
+        expected: crate::FileStamp,
+        force: bool,
+    },
     RemoteView {
         machine: String,
         session: String,

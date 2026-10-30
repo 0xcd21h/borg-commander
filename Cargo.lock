@@ -465,6 +465,7 @@ name = "borg-core"
 version = "0.8.3"
 dependencies = [
  "borg-docker",
+ "borg-edit",
  "borg-gfx",
  "borg-git",
  "borg-i18n",
@@ -614,6 +615,7 @@ version = "0.8.3"
 dependencies = [
  "borg-core",
  "borg-docker",
+ "borg-edit",
  "borg-gfx",
  "borg-i18n",
  "borg-jobs",

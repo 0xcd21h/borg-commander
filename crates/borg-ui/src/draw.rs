@@ -107,6 +107,13 @@ fn draw_localized(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, 
 
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
     let state = scene.state;
+    if let Some(editor) = &state.editor {
+        let cursor = crate::editor_view::draw_editor(editor, theme, area, buf);
+        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+            return (console_overlay(buf, scene), Vec::new());
+        }
+        return (cursor, Vec::new());
+    }
     if let Some(viewer) = &state.viewer {
         let placements = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
         // An agent's approval shows over the viewer too; pictures under it would cover it.

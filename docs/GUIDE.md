@@ -205,7 +205,7 @@ rows are clickable. Notices temporarily replace the second row.
 | F1 | About |
 | F2 | File menu |
 | F3 | View (text or picture) |
-| F4 | Edit with `$VISUAL` / `$EDITOR` |
+| F4 / Shift-F4 | Edit in Borg's editor / with `$VISUAL` or `$EDITOR` |
 | F5 / F6 | Copy / move to the other panel |
 | F7 | Make folder |
 | F8 | Delete |
@@ -581,7 +581,16 @@ SQL, HTML/CSS, JSON, YAML, TOML, shell scripts, and Dockerfiles.
 Markdown opens formatted by default. Press `s` or F4 in either viewer to toggle source view.
 Headings, emphasis, lists, tasks, links, tables, and fenced code blocks are supported.
 Markdown files larger than 2 MiB open as source to keep memory bounded.
-F4 opens the selected file with `$VISUAL` or `$EDITOR`.
+
+F4 opens the selected file in Borg's editor, and Shift-F4 in `$VISUAL` or `$EDITOR`. The editor
+keeps the file's line endings and indentation, highlights code as the viewers do, and numbers the
+lines. Shift with the arrows selects; Ctrl-C, Ctrl-X and Ctrl-V copy, cut and paste through Borg's
+clipboard, and a paste from the terminal goes in as it is. Ctrl-Z and Ctrl-Y undo and redo, Tab and
+Shift-Tab indent and outdent, Ctrl-F finds (F3 again, Shift-F3 backwards) and Ctrl-G goes to a
+line. F2 or Ctrl-S saves through a temporary file, so the file is never half written, and a file
+that changed on disk since it was opened asks whether to overwrite or reload it. Esc closes,
+asking first about unsaved changes. Files that are not UTF-8 text, or larger than 32 MiB, open in
+the viewer instead.
 
 ## Configuration
 

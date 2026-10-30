@@ -1452,7 +1452,7 @@ fn mouse_menus_respect_disabled_items_and_modal_dialogs() {
     update(&mut state, Msg::Pointer(Pointer::Menu(1)), now);
     update(&mut state, Msg::Pointer(Pointer::MenuItem(0)), now);
     assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "View is disabled on the parent row");
-    update(&mut state, Msg::Pointer(Pointer::MenuItem(4)), now);
+    update(&mut state, Msg::Pointer(Pointer::MenuItem(5)), now);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "Make directory opens its prompt");
     update(&mut state, Msg::Pointer(Pointer::Action(Action::Quit)), now);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))));

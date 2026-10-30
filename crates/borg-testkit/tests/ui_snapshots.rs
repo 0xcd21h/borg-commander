@@ -366,6 +366,23 @@ fn seven_of_nine_and_assimilation() -> Result<()> {
 }
 
 #[test]
+fn editor_shows_highlighted_code_numbers_selection_and_a_find_prompt() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
+    let text = "fn main() {\n\tlet name = \"Borg\";\n    println!(\"{name}\");\n}\n";
+    let stamp = borg_core::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let file = borg_core::EditorFile { path: "/home/me/projects/borg/src/main.rs".into(), text: text.into(), stamp };
+    borg_core::update(&mut stage.state, Msg::EditorOpened(Ok(file)), stage.started);
+    stage.send(key(KeyCode::Down)).send(Msg::Key(KeyEvent::new(KeyCode::End, KeyModifiers::SHIFT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Ln 2, Col 20")?;
+    check("editor", &stage, buffer)?;
+    stage.send(ctrl('f'));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Find:")?;
+    check("editor_find", &stage, buffer)
+}
+
+#[test]
 fn empty_folders_flash_now_and_then_and_remember_patrick_stewart_on_october_28() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
     let buffer = stage.render(stage.started + Duration::from_secs(2))?;

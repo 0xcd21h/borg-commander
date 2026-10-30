@@ -103,7 +103,7 @@ Git 和归档操作当前可在真实目录面板中进行。使用“显示原�
 | F1 | 关于 |
 | F2 | 文件菜单 |
 | F3 | 查看（文字或图片） |
-| F4 | 编辑与 `$VISUAL` / `$EDITOR` |
+| F4 / Shift-F4 | 在 Borg 编辑器中编辑 / 用 `$VISUAL` 或 `$EDITOR` 编辑 |
 | F5 / F6 | 复制/移动到另一个面板 |
 | F7 | 制作文件夹 |
 | F8 | 删除 |
@@ -244,7 +244,9 @@ F3 打开查看器。在文本文件、箭头和 PgUp/PgDn 滚动中， `w` 改�
 
 Ctrl-Q 在另一个面板中显示快速预览。 Tab 聚焦；箭头、PgUp/PgDn、Home/End 和鼠标滚轮滚动文档。 Tab或Esc返回文件列表。 Ctrl-L 显示文件信息。 F3 将文本预览扩展到查看器中；关闭它会返回到预览，并保留您的位置、换行和源模式。两者都使用相同的有界文件读取器，因此打开一个大文本文件会读取第一页附近的内容，而不是加载整个文件。
 
-两种文本查看器都突出显示常见的编程语言、标记和配置文件，包括 Rust、Python、JavaScript、TypeScript/TSX、Go、C/C++、Java、C#、Ruby、PHP、Lua、SQL、HTML/CSS、JSON、YAML、TOML、shell 脚本和 Dockerfile。 Markdown 默认打开格式。按 `s` 或在任一查看器中按 F4 来切换源视图。支持标题、强调、列表、任务、链接、表格和围栏代码块。大于 2 MiB 的 Markdown 文件作为源打开以保持内存有限。 F4 打开选定的文件 `$VISUAL` 或 `$EDITOR`.
+两种文本查看器都突出显示常见的编程语言、标记和配置文件，包括 Rust、Python、JavaScript、TypeScript/TSX、Go、C/C++、Java、C#、Ruby、PHP、Lua、SQL、HTML/CSS、JSON、YAML、TOML、shell 脚本和 Dockerfile。 Markdown 默认打开格式。按 `s` 或在任一查看器中按 F4 来切换源视图。支持标题、强调、列表、任务、链接、表格和围栏代码块。大于 2 MiB 的 Markdown 文件作为源打开以保持内存有限。
+
+F4 在 Borg 编辑器中打开所选文件，Shift-F4 则用 `$VISUAL` 或 `$EDITOR` 打开。编辑器会保留文件的换行符和缩进，像查看器一样高亮代码并显示行号。按住 Shift 配合方向键可选择；Ctrl-C、Ctrl-X 和 Ctrl-V 通过 Borg 的剪贴板复制、剪切和粘贴，从终端粘贴的内容会原样插入。Ctrl-Z 和 Ctrl-Y 撤销和重做，Tab 和 Shift-Tab 增加和减少缩进，Ctrl-F 查找（F3 再次查找，Shift-F3 向后查找），Ctrl-G 跳到指定行。F2 或 Ctrl-S 通过临时文件保存，因此文件绝不会只写了一半；如果文件在打开后已在磁盘上更改，会询问是覆盖还是重新载入。Esc 关闭编辑器，若有未保存的更改会先询问。不是 UTF-8 文本或大于 32 MiB 的文件会改在查看器中打开。
 
 ## 配置
 

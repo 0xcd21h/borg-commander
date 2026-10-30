@@ -9,6 +9,7 @@ mod discovery_view;
 mod docker_view;
 mod document_view;
 mod draw;
+mod editor_view;
 mod format;
 mod fx;
 mod game2048_view;

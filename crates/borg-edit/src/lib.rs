@@ -126,6 +126,11 @@ impl Buffer {
         self.rope.len_lines()
     }
 
+    /// Where line `n` starts, as a character index.
+    pub fn line_start(&self, n: usize) -> usize {
+        self.rope.line_to_char(n.min(self.rope.len_lines()))
+    }
+
     /// Line `n` without its line break.
     pub fn line(&self, n: usize) -> String {
         if n >= self.rope.len_lines() {
@@ -552,6 +557,25 @@ pub fn width(text: &str) -> usize {
     text.graphemes(true).fold(0, advance)
 }
 
+/// The line as screen cells: each grapheme's first character index in the line, how it shows,
+/// and its width. Tabs become spaces to the next tab stop; control characters show as `·`.
+pub fn cells(text: &str) -> Vec<(usize, String, usize)> {
+    let mut cells = Vec::new();
+    let (mut column, mut index) = (0, 0);
+    for grapheme in text.graphemes(true) {
+        let next = advance(column, grapheme);
+        let shown = match grapheme {
+            "\t" => " ".repeat(next - column),
+            g if g.chars().all(char::is_control) => "·".into(),
+            g => g.into(),
+        };
+        cells.push((index, shown, next - column));
+        index += grapheme.chars().count();
+        column = next;
+    }
+    cells
+}
+
 /// The line as it shows on screen: tabs expanded to spaces and control characters as symbols.
 pub fn expand(text: &str) -> String {
     let mut shown = String::with_capacity(text.len());
@@ -717,6 +741,8 @@ mod tests {
         assert_eq!(expand("a\tb"), "a   b");
         assert_eq!(expand("ab\u{7}c"), "ab·c");
         assert_eq!(width("日本\t"), 8);
+        let shown = cells("e\u{301}\t日");
+        assert_eq!(shown, [(0, "e\u{301}".into(), 1), (2, "   ".into(), 3), (3, "日".into(), 2)]);
     }
 
     proptest! {

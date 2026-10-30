@@ -42,6 +42,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::DeleteOriginals
                 | Action::View
                 | Action::Edit
+                | Action::EditExternal
                 | Action::Mkdir
                 | Action::Compress
                 | Action::ExtractHere
@@ -67,6 +68,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::Delete
                 | Action::DeleteOriginals
                 | Action::Edit
+                | Action::EditExternal
                 | Action::Mkdir
                 | Action::Compress
                 | Action::ExtractHere
@@ -95,6 +97,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         && matches!(
             action,
             Action::Edit
+                | Action::EditExternal
                 | Action::QuickView
                 | Action::Info
                 | Action::Compress
@@ -332,7 +335,14 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::View if remote => remote_view(state, side),
         Action::View => hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default(),
-        Action::Edit => edit(state),
+        Action::Edit => {
+            let panel = state.active_panel();
+            match panel.hovered_entry().filter(|entry| !entry.is_dir()) {
+                Some(entry) => crate::editor::open(entry.path(panel.dir())),
+                None => Vec::new(),
+            }
+        }
+        Action::EditExternal => edit(state),
         Action::Copy if remote || other_remote => {
             if mounted || other_mounted || state.panel(side.other()).is_results() {
                 state.notice = Some(tr!(remote_copy_destination).into());

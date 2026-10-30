@@ -365,6 +365,7 @@ pub struct AppState {
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
     pub viewer: Option<Viewer>,
+    pub editor: Option<crate::Editor>,
     pub epoch: Instant,
     pub motions: [PanelMotion; 2],
     pub overlay_fade: Fade,
@@ -443,6 +444,7 @@ impl AppState {
             measured: Default::default(),
             next_size: 0,
             viewer: None,
+            editor: None,
             epoch: now,
             motions: [PanelMotion::settled(now); 2],
             overlay_fade: Fade::settled(TRANSPARENT, now),
@@ -770,6 +772,7 @@ impl AppState {
         self.split = Fade::settled(clamp_split(self.split.target(), cols), now);
         self.refit();
         crate::viewer::resize(self);
+        crate::editor::resize(self);
     }
 
     pub(crate) fn refit(&mut self) {

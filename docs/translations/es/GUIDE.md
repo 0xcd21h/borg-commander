@@ -103,7 +103,7 @@ La barra de acceso directo de dos filas se encuentra debajo de la línea de coma
 | F1 | Acerca de |
 | F2 | menú archivo |
 | F3 | Ver (texto o imagen) |
-| F4 | Editar con `$VISUAL` / `$EDITOR` |
+| F4 / Shift-F4 | Editar en el editor de Borg / con `$VISUAL` o `$EDITOR` |
 | F5 / F6 | Copiar/mover al otro panel |
 | F7 | hacer carpeta |
 | F8 | Eliminar |
@@ -244,7 +244,9 @@ F3 abre el visor. En archivos de texto, flechas y desplazamiento PgUp/PgDn, `w` 
 
 Ctrl-Q muestra una vista previa rápida en el otro panel. Tab lo enfoca; Las flechas, Re Pág/Av Pág, Inicio/Fin y la rueda del ratón desplazan el documento. Tab o Esc regresa a la lista de archivos. Ctrl-L muestra información del archivo. F3 expande una vista previa de texto en el visor; Al cerrarlo se regresa a la vista previa con su posición, ajuste y modo de fuente conservados. Ambos usan el mismo lector de archivos delimitados, por lo que al abrir un archivo de texto grande se lee cerca de la primera página en lugar de cargar el archivo completo.
 
-Ambos visores de texto destacan lenguajes de programación, marcas y archivos de configuración comunes, incluidos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL, HTML/CSS, JSON, YAML, TOML, scripts de shell y Dockerfiles. Markdown se abre formateado de forma predeterminada. Presione `s` o F4 en cualquiera de los visores para alternar la vista de origen. Se admiten encabezados, énfasis, listas, tareas, enlaces, tablas y bloques de código delimitados. Los archivos Markdown de más de 2 MiB se abren como fuente para mantener la memoria limitada. F4 abre el archivo seleccionado con `$VISUAL` o `$EDITOR`.
+Ambos visores de texto destacan lenguajes de programación, marcas y archivos de configuración comunes, incluidos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL, HTML/CSS, JSON, YAML, TOML, scripts de shell y Dockerfiles. Markdown se abre formateado de forma predeterminada. Presione `s` o F4 en cualquiera de los visores para alternar la vista de origen. Se admiten encabezados, énfasis, listas, tareas, enlaces, tablas y bloques de código delimitados. Los archivos Markdown de más de 2 MiB se abren como fuente para mantener la memoria limitada.
+
+F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 en `$VISUAL` o `$EDITOR`. El editor conserva los finales de línea y la sangría del archivo, resalta el código como los visores y numera las líneas. Shift con las flechas selecciona; Ctrl-C, Ctrl-X y Ctrl-V copian, cortan y pegan a través del portapapeles de Borg, y lo que se pega desde el terminal entra tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, Tab y Shift-Tab aumentan y reducen la sangría, Ctrl-F busca (F3 de nuevo, Shift-F3 hacia atrás) y Ctrl-G va a una línea. F2 o Ctrl-S guarda mediante un archivo temporal, así que el archivo nunca queda a medio escribir, y si el archivo cambió en el disco desde que se abrió, pregunta si sobrescribirlo o recargarlo. Esc cierra y antes pregunta por los cambios sin guardar. Los archivos que no son texto UTF-8, o mayores de 32 MiB, se abren en el visor.
 
 ## Configuración
 

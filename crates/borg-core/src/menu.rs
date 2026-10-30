@@ -178,6 +178,7 @@ fn file_menu(state: &AppState) -> Menu {
         entries: vec![
             when(item(tr!(view), "F3", Action::View), hovered_file),
             when(item(tr!(edit), "F4", Action::Edit), hovered_file),
+            when(item(tr!(edit_external), "S-F4", Action::EditExternal), hovered_file),
             when(item(tr!(copy), "F5", Action::Copy), has_selection),
             when(item(tr!(move), "F6", Action::Move), has_selection),
             item(tr!(make_directory), "F7", Action::Mkdir),

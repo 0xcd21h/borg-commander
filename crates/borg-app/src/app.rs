@@ -1585,6 +1585,19 @@ impl App {
                     });
                 }
                 Effect::Write(bytes) => self.write_console(bytes)?,
+                Effect::OpenEditor(path) => {
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let _ = messages.send(Msg::EditorOpened(crate::edit_file::read(&path)));
+                    });
+                }
+                Effect::SaveFile { path, bytes, expected, force } => {
+                    let messages = self.messages.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let saved = crate::edit_file::write(&path, &bytes, expected, force);
+                        let _ = messages.send(Msg::EditorSaved(saved));
+                    });
+                }
                 Effect::WriteConcealed(bytes) => {
                     self.console_emulator().conceal();
                     self.write_console(bytes)?;

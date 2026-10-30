@@ -10,6 +10,7 @@ mod command;
 mod delight;
 mod discovery;
 mod docker;
+mod editor;
 mod exclude;
 mod find;
 mod game2048;
@@ -54,6 +55,9 @@ pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
 pub use docker::{
     ContainerShell, Docker, DockerData, DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, ShellRequest,
     Usage, Working, container_shell_busy, shell_rect,
+};
+pub use editor::{
+    EDITOR_CHROME, Editor, EditorFile, EditorPrompt, FileStamp, OpenError, SaveError, status as editor_status,
 };
 pub use exclude::{ARTIFACTS, CACHEDIR_SIGNATURE, CACHEDIR_TAG, Marker, is_artifact};
 pub use find::{Find, Query, summary as find_summary};

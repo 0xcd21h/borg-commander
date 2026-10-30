@@ -309,6 +309,24 @@ fn bash_and_fish_follow_panel_folders_without_leaving_cd_commands_on_screen() ->
 }
 
 #[test]
+fn f4_edits_a_file_in_borg_and_saves_it_in_place() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "editor")?;
+    app.send(keys::ctrl('s'))?.send("notes")?;
+    app.wait_until("cursor on notes", |s| highlighted(s, "notes.txt"))?;
+    app.send(keys::enter())?.send(keys::f(4))?;
+    app.wait_text("Ln 1, Col 1")?;
+    app.send("hi ")?;
+    app.wait_text("modified")?;
+    app.send(keys::ctrl('s'))?;
+    app.wait_text("Saved")?;
+    ensure!(fs::read_to_string(fixture.work().join("notes.txt"))? == "hi hello\n");
+    app.send(keys::esc())?;
+    app.wait_until("back in the panels", |s| highlighted(s, "notes.txt"))?;
+    Ok(())
+}
+
+#[test]
 fn tab_switches_panels_on_empty_line_and_completes_otherwise() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "tab")?;

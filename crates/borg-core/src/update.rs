@@ -181,6 +181,8 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
             state.idle_since = now;
             on_signal(state, signal, now)
         }
+        Msg::EditorOpened(result) => crate::editor::opened(state, result),
+        Msg::EditorSaved(result) => crate::editor::saved(state, result),
         Msg::Opened(viewer) => {
             state.viewer = Some(viewer);
             crate::viewer::resize(state);
@@ -293,7 +295,10 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
         return crate::docker::route_key(state, key, now);
     }
     let key = &function_alias(*key);
-    // An agent's approval shows over the viewer, so it takes the keys first.
+    // An agent's approval shows over the editor and viewer, so it takes the keys first.
+    if state.editor.is_some() && !matches!(state.overlay, Some(crate::Overlay::Approval(_))) {
+        return crate::editor::on_key(state, key);
+    }
     if state.viewer.is_some() && !matches!(state.overlay, Some(crate::Overlay::Approval(_))) {
         return crate::viewer::on_key(state, key);
     }
@@ -408,6 +413,9 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     state.intro = None;
+    if state.editor.is_some() && state.overlay.is_none() {
+        return crate::editor::paste(state, text);
+    }
     if state.docker.is_open() && state.view == View::Panels && state.overlay.is_none() {
         return crate::docker::paste(state, text);
     }

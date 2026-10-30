@@ -5,6 +5,7 @@ mod app;
 mod config;
 mod docker;
 mod document;
+mod edit_file;
 mod index;
 mod launch;
 mod link;

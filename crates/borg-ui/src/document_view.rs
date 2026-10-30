@@ -18,7 +18,7 @@ pub(crate) fn draw(pager: &Pager, style: Style, body: Rect, buf: &mut Buffer) {
     }
 }
 
-fn painted(mut base: Style, paint: Paint, light: bool) -> Style {
+pub(crate) fn painted(mut base: Style, paint: Paint, light: bool) -> Style {
     if let Some([r, g, b]) = if light { paint.light } else { paint.dark } {
         base = base.fg(Color::Rgb(r, g, b));
     }
