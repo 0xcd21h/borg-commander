@@ -19,6 +19,16 @@ fn fields(value: &str) -> Vec<String> {
     fields
 }
 
+fn pressed_keys(label: &str) -> Vec<&str> {
+    label
+        .split(" · ")
+        .map(|part| {
+            let start = if part.starts_with("[ ") { 2 } else { 0 };
+            part[start..].find(' ').map_or(part, |end| &part[..start + end])
+        })
+        .collect()
+}
+
 fn variant(key: &str) -> String {
     key.split('_')
         .map(|part| {
@@ -54,6 +64,9 @@ fn main() {
             assert_eq!(fields(value), fields(translated), "{code}: placeholders in {key}");
             assert_eq!(value.starts_with(' '), translated.starts_with(' '), "{code}: leading padding in {key}");
             assert_eq!(value.ends_with(' '), translated.ends_with(' '), "{code}: trailing padding in {key}");
+            if key.ends_with("_button") || key.ends_with("_shortcut") || key.contains("_button_") {
+                assert_eq!(pressed_keys(value), pressed_keys(translated), "{code}: keys to press in {key}");
+            }
         }
         catalogs.push((variant, values));
     }
