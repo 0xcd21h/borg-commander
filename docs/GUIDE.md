@@ -773,6 +773,14 @@ orders). **Unicode** also normalizes compatibility characters and combining
 sequences: for example, `𝐁𝐨𝐫𝐠` matches `Borg`. This does not equate unrelated letters
 that merely look similar. **Hex** accepts byte pairs such as `42 6F 72 67`.
 
+**Strings** lists every run of at least six printable ASCII or UTF-16LE characters; a query,
+when given, keeps those that contain it. **Indicators** keeps the strings that look like a URL,
+an IP address, an email address, a file path, a command line, a secret (a private key, an access
+token or a password assignment) or a long run of base64, and labels each. These results show the
+kind and the start of the string where other matches show their region, and the preview shows
+it in place. They are leads for a closer look, not proof of anything: ordinary programs hold
+plenty of URLs, paths and keys.
+
 Matches occupy the list pane and show their original address, encoding, and region.
 Selecting a match previews its surrounding bytes in the opposite pane, with matched
 bytes highlighted. Enter focuses the preview; Esc returns focus to the matches.

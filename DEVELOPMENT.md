@@ -155,8 +155,11 @@ owner-only files and never overwrites a destination. No memory snapshots are sav
 automatically. `borg-app::memory_search` scans bounded chunks with byte overlap,
 read-error page fallback, cancellation, progress, hit and time limits, and explicit
 continuations. Text matches cover UTF-8/16/32; Unicode matches use grapheme-aware
-NFKC with a byte-address mapping back to the captured data. Snapshot searches avoid
-live process access. The renderer shares a reserved branding area across UI modes.
+NFKC with a byte-address mapping back to the captured data. Strings and indicator searches
+(`borg-app::memory_strings`) list each ASCII or UTF-16LE run once across chunk reads: a run
+reaching the end of a read waits for the next one unless it is longer than the overlap, and
+then the next read lists only its new part. Indicators are pattern heuristics over the first
+KiB of each string. Snapshot searches avoid live process access. The renderer shares a reserved branding area across UI modes.
 
 ### Editor
 

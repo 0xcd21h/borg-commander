@@ -336,13 +336,55 @@ pub enum MemorySearchMode {
     Text,
     Hex,
     Unicode,
+    /// Every string of printable characters, or those containing the query.
+    Strings,
+    /// Strings that look like an indicator, such as a URL, a command line or a credential.
+    Indicators,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl MemorySearchMode {
+    pub const ALL: [Self; 5] = [Self::Text, Self::Hex, Self::Unicode, Self::Strings, Self::Indicators];
+    /// Whether the mode lists strings, which needs no query.
+    pub fn strings(self) -> bool {
+        matches!(self, Self::Strings | Self::Indicators)
+    }
+}
+/// What a string in memory looks like it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Indicator {
+    Url,
+    Ip,
+    Email,
+    Path,
+    Command,
+    /// A private key, an access token, or a password assignment.
+    Secret,
+    /// A long run of base64.
+    Encoded,
+}
+impl Indicator {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Url => tr!(indicator_url),
+            Self::Ip => tr!(indicator_ip),
+            Self::Email => tr!(indicator_email),
+            Self::Path => tr!(indicator_path),
+            Self::Command => tr!(indicator_command),
+            Self::Secret => tr!(indicator_secret),
+            Self::Encoded => tr!(indicator_encoded),
+        }
+    }
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryHit {
     pub address: u64,
     pub length: usize,
     pub encoding: String,
     pub region: MemoryRegion,
+    /// For a string, its first characters.
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub indicator: Option<Indicator>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemorySearchReport {
@@ -1239,11 +1281,10 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             KeyCode::BackTab | KeyCode::Up => form.selected = (form.selected + 3) % 4,
             KeyCode::Enter => submit = true,
             KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 1 => {
-                form.mode = match form.mode {
-                    MemorySearchMode::Text => MemorySearchMode::Hex,
-                    MemorySearchMode::Hex => MemorySearchMode::Unicode,
-                    MemorySearchMode::Unicode => MemorySearchMode::Text,
-                }
+                let modes = MemorySearchMode::ALL;
+                let at = modes.iter().position(|&mode| mode == form.mode).unwrap_or(0);
+                let step = if key.code == KeyCode::Left { modes.len() - 1 } else { 1 };
+                form.mode = modes[(at + step) % modes.len()];
             }
             KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 2 => {
                 form.match_case = !form.match_case
@@ -1257,7 +1298,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             _ => {}
         }
         if submit {
-            let valid = !form.input.text().is_empty()
+            let valid = (form.mode.strings() || !form.input.text().is_empty())
                 && form.input.text().len() <= 512
                 && (form.mode != MemorySearchMode::Hex || {
                     let value = form.input.text().split_whitespace().collect::<String>();
@@ -1855,6 +1896,30 @@ mod tests {
         assert!(!effects.iter().any(|e| matches!(e, Effect::Write(_))));
     }
     #[test]
+    fn strings_modes_search_without_a_query_and_the_mode_cycles_both_ways() {
+        let (mut state, now) = state();
+        open(&mut state);
+        sample(&mut state, vec![process(2, 10, 200)], now);
+        let send = |state: &mut AppState, code| update(state, Msg::Key(KeyEvent::from(code)), now);
+        send(&mut state, KeyCode::Tab);
+        send(&mut state, KeyCode::Char('/'));
+        send(&mut state, KeyCode::Enter);
+        assert!(state.activity.error.is_some(), "a text search needs a query");
+        send(&mut state, KeyCode::Tab);
+        let mode = |state: &AppState| state.activity.search_form.as_ref().unwrap().mode;
+        send(&mut state, KeyCode::Left);
+        assert_eq!(mode(&state), MemorySearchMode::Indicators);
+        send(&mut state, KeyCode::Left);
+        assert_eq!(mode(&state), MemorySearchMode::Strings);
+        send(&mut state, KeyCode::Right);
+        assert_eq!(mode(&state), MemorySearchMode::Indicators);
+        let effects = send(&mut state, KeyCode::Enter);
+        assert!(
+            effects.iter().any(|e| matches!(e, Effect::Activity { request: ActivityRequest::Search { mode: MemorySearchMode::Indicators, query, .. }, .. } if query.is_empty())),
+            "{effects:?}"
+        );
+    }
+    #[test]
     fn snapshots_compare_only_the_same_process_region_and_export_to_the_file_panel() {
         let (mut state, now) = state();
         open(&mut state);
@@ -1953,7 +2018,13 @@ mod tests {
             id,
             Ok(ActivityData::Search(MemorySearchReport {
                 process,
-                hits: vec![MemoryHit { address: 4098, length: 4, encoding: "UTF-8".into(), region }],
+                hits: vec![MemoryHit {
+                    address: 4098,
+                    length: 4,
+                    encoding: "UTF-8".into(),
+                    region,
+                    ..Default::default()
+                }],
                 scanned: 8,
                 total: 8,
                 skipped: 0,
@@ -2146,7 +2217,7 @@ mod tests {
         activity.diff = false;
         activity.from_search = true;
         let region = MemoryRegion { start: 0x1000, end: 0x2000, permissions: "rw-".into(), ..Default::default() };
-        let hit = MemoryHit { address: 0x1000 + 50, length: 2, encoding: "hex".into(), region };
+        let hit = MemoryHit { address: 0x1000 + 50, length: 2, encoding: "hex".into(), region, ..Default::default() };
         activity.search_report = Some(MemorySearchReport {
             process,
             hits: vec![hit],
@@ -2276,7 +2347,10 @@ mod tests {
                 .collect();
             state.activity.search_report = Some(MemorySearchReport {
                 process: state.activity.selected.unwrap(),
-                hits: vec![MemoryHit { address: 0, length: 1, encoding: "UTF-8".into(), region }; 100],
+                hits: vec![
+                    MemoryHit { address: 0, length: 1, encoding: "UTF-8".into(), region, ..Default::default() };
+                    100
+                ],
                 scanned: 100,
                 total: 100,
                 skipped: 0,

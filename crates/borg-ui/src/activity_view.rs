@@ -1348,6 +1348,8 @@ fn search_form(form: &borg_core::MemorySearchForm, theme: &Theme, body: Rect, bu
         MemorySearchMode::Text => tr!(memory_mode_text),
         MemorySearchMode::Hex => tr!(memory_mode_hex),
         MemorySearchMode::Unicode => tr!(memory_mode_unicode),
+        MemorySearchMode::Strings => tr!(memory_mode_strings),
+        MemorySearchMode::Indicators => tr!(memory_mode_indicators),
     };
     let fields = [
         (tr!(memory_search_query), form.input.text().to_owned()),
@@ -1416,6 +1418,10 @@ fn search_results(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buff
         let style = if selected { theme.styles.cursor } else { theme.styles.overlay };
         let line = row(list, i as u16);
         buf.set_style(line, style);
-        text(buf, line, format!("{:016x} {:<9} {}", hit.address, hit.encoding, hit.region.name), style);
+        let shown = match &hit.text {
+            Some(found) => format!("{:<8} {found}", hit.indicator.map_or("", |kind| kind.label())),
+            None => hit.region.name.clone(),
+        };
+        text(buf, line, format!("{:016x} {:<9} {shown}", hit.address, hit.encoding), style);
     }
 }

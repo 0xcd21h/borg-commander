@@ -11,6 +11,7 @@ mod launch;
 mod link;
 mod memory_census;
 mod memory_search;
+mod memory_strings;
 mod mirror;
 mod native_mirror;
 mod peek;

@@ -18,6 +18,8 @@ const HITS: usize = 2000;
 const BUDGET: Duration = Duration::from_secs(60);
 const PAGE: usize = 4096;
 const MAX_QUERY: usize = 512;
+/// Characters of a string the list shows.
+const SHOWN: usize = 160;
 #[derive(Clone, Copy)]
 enum Encoding {
     Utf8,
@@ -50,7 +52,7 @@ impl Encoding {
 const ENCODINGS: [Encoding; 5] =
     [Encoding::Utf8, Encoding::Utf16(false), Encoding::Utf16(true), Encoding::Utf32(false), Encoding::Utf32(true)];
 pub fn validate(query: &str, mode: MemorySearchMode) -> Result<()> {
-    if query.is_empty() || query.len() > MAX_QUERY {
+    if (query.is_empty() && !mode.strings()) || query.len() > MAX_QUERY {
         bail!(tr!(memory_query_length));
     }
     if mode == MemorySearchMode::Hex {
@@ -200,6 +202,37 @@ fn decode(data: &[u8], encoding: Encoding, alignment: usize) -> Vec<(char, usize
     }
     out
 }
+/// The hits in `data`, read from `base`, whose first `fresh` bytes were searched before; `last`
+/// when the region ends with it. Strings modes keep those containing the query, if any.
+fn find(query: &Query, data: &[u8], base: u64, fresh: usize, last: bool) -> Result<Vec<MemoryHit>> {
+    if !query.mode.strings() {
+        let hits = matches(data, base, &query.text, query.mode, query.match_case)?;
+        return Ok(hits
+            .into_iter()
+            .map(|(address, length, encoding)| MemoryHit { address, length, encoding, ..Default::default() })
+            .collect());
+    }
+    let needle = if query.match_case { query.text.clone() } else { query.text.to_lowercase() };
+    let wanted = |text: &str| {
+        needle.is_empty()
+            || if query.match_case { text.contains(&needle) } else { text.to_lowercase().contains(&needle) }
+    };
+    Ok(crate::memory_strings::find(data, fresh, OVERLAP, last)
+        .into_iter()
+        .filter(|found| wanted(&found.text))
+        .filter_map(|found| {
+            let indicator = crate::memory_strings::indicator(&found.text);
+            (query.mode == MemorySearchMode::Strings || indicator.is_some()).then(|| MemoryHit {
+                address: base + found.offset as u64,
+                length: found.length,
+                encoding: found.encoding.into(),
+                text: Some(found.text.chars().take(SHOWN).collect()),
+                indicator,
+                ..Default::default()
+            })
+        })
+        .collect())
+}
 /// What a memory search looks for: the text, how to read it, and whether case matters.
 pub struct Query {
     pub text: String,
@@ -252,16 +285,19 @@ pub fn scan(
             };
             let base = address - carry.len() as u64;
             let read_len = data.len();
+            let fresh = carry.len();
             carry.extend(data);
-            for (at, length, encoding) in matches(&carry, base, &query.text, query.mode, query.match_case)? {
+            let last = address + read_len as u64 >= region.end;
+            for hit in find(query, &carry, base, fresh, last)? {
+                let (at, length) = (hit.address, hit.length);
                 if at + length as u64 > address && seen.insert((at, length)) {
-                    report.hits.push(MemoryHit { address: at, length, encoding, region: region.clone() });
+                    report.hits.push(MemoryHit { region: region.clone(), ..hit });
                 }
                 if report.hits.len() >= HITS {
-                    report.scanned = report
-                        .scanned
-                        .saturating_add((at.saturating_add(1).saturating_sub(address)).min(read_len as u64));
-                    report.next = Some(at + 1);
+                    // A string is listed whole, so the search goes on after it rather than inside it.
+                    let resume = if query.mode.strings() { at + length as u64 } else { at + 1 };
+                    report.scanned = report.scanned.saturating_add(resume.saturating_sub(address).min(read_len as u64));
+                    report.next = Some(resume);
                     return Ok(report);
                 }
             }
@@ -353,6 +389,46 @@ mod tests {
         .unwrap();
         assert_eq!(report.skipped, PAGE as u64);
         assert_eq!(report.hits[0].address, (PAGE * 2 - 2) as u64);
+    }
+    #[test]
+    fn strings_span_reads_once_and_indicators_keep_only_what_looks_like_one() {
+        let mut data = vec![0; 2 * CHUNK + 64];
+        let url = b"https://updates.example.com/check";
+        data[CHUNK - 10..CHUNK - 10 + url.len()].copy_from_slice(url);
+        data[100..112].copy_from_slice(b"plain words!");
+        let long = 2 * CHUNK - 15_000..2 * CHUNK + 30;
+        data[long.clone()].fill(b'x');
+        let strings = |mode, text: &str, start| {
+            let query = Query { text: text.into(), mode, match_case: false };
+            scan(
+                ProcessKey { pid: 1, start: 1 },
+                vec![region(0, data.len() as u64)],
+                &query,
+                start,
+                &Arc::new(AtomicBool::new(false)),
+                |address, count| Ok(data[address as usize..address as usize + count].to_vec()),
+                |_, _, _| {},
+            )
+            .unwrap()
+        };
+        let report = strings(MemorySearchMode::Strings, "", None);
+        let found: Vec<_> = report.hits.iter().map(|hit| (hit.address, hit.length)).collect();
+        // A run too long to carry over is listed up to the end of the read, and the rest after it.
+        assert_eq!(
+            found,
+            [
+                (100, 12),
+                (CHUNK as u64 - 10, url.len()),
+                (long.start as u64, 2 * CHUNK - long.start),
+                (2 * CHUNK as u64, long.end - 2 * CHUNK)
+            ],
+        );
+        assert_eq!(report.hits[1].text.as_deref(), Some("https://updates.example.com/check"));
+        let report = strings(MemorySearchMode::Indicators, "", None);
+        assert_eq!(report.hits.iter().map(|hit| hit.indicator).collect::<Vec<_>>(), [Some(borg_core::Indicator::Url)]);
+        let report = strings(MemorySearchMode::Strings, "PLAIN", None);
+        assert_eq!(report.hits.len(), 1, "the query keeps strings containing it, ignoring case");
+        assert!(strings(MemorySearchMode::Strings, "", Some(200)).hits.iter().all(|hit| hit.address >= 200));
     }
     #[test]
     fn cancellation_preserves_a_continuation_without_reading_more_memory() {
