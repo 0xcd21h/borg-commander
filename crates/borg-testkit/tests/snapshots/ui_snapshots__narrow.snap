@@ -13,7 +13,7 @@ expression: describe(&buffer)
  Up to the parent directory
 $
 F1H…F2F…F3V…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
-Alt-I Count sizes   ◈ Borg Commander v0.8.3
+Alt-I Count sizes   ◈ Borg Commander v0.9.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 2-2 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 3-5 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 6-6 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 7-9 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 10-14 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 15-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-24 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 25-27 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 28-30 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 31-33 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 34-37 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 38-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(0, 95, 135) Rgb(30, 30, 30) NONE | 2-5 Rgb(255, 255, 255) Rgb(0, 95, 135) BOLD | 6-19 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 20-20 Rgb(0, 95, 135) Rgb(30, 30, 30) NONE | 21-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-23 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 24-27 Rgb(56, 114, 178) Rgb(48, 48, 48) BOLD | 28-41 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 42-42 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 43-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE

@@ -13,7 +13,7 @@ expression: describe(&buffer)
  … · 30000 files · 0 folders · 3100000000 co
 $
 F1H…F2F…F3V…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
-←→ Branch           ◈ Borg Commander v0.8.3
+←→ Branch           ◈ Borg Commander v0.9.0
 --- styles ---
   0: 0-13 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 14-16 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 17-17 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 18-20 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE | 23-24 Rgb(55, 50, 85) Rgb(13, 11, 26) NONE | 25-27 Rgb(47, 41, 76) Rgb(13, 11, 26) NONE | 28-30 Rgb(55, 50, 85) Rgb(13, 11, 26) NONE | 31-33 Rgb(47, 41, 76) Rgb(13, 11, 26) NONE | 34-37 Rgb(55, 50, 85) Rgb(13, 11, 26) NONE | 38-43 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE
   1: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-20 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 21-21 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 22-22 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE | 23-23 Rgb(22, 18, 43) Rgb(13, 11, 26) NONE | 24-27 Rgb(80, 146, 165) Rgb(29, 24, 56) BOLD | 28-41 Rgb(131, 125, 165) Rgb(29, 24, 56) NONE | 42-42 Rgb(22, 18, 43) Rgb(13, 11, 26) NONE | 43-43 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE
