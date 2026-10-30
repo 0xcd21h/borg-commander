@@ -162,11 +162,28 @@ fn remote_browser_shows_incoming_clients_without_turning_them_into_hosts() {
 }
 
 #[test]
+fn alt_r_reloads_the_active_panel_and_its_menu_names_the_key() {
+    let (mut state, now) = setup();
+    state.active = Side::Right;
+    let right = state.panel(Side::Right).dir().to_path_buf();
+    let effects = update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    assert!(matches!(&effects[..], [Effect::List { side: Side::Right, dir, .. }] if *dir == right), "{effects:?}");
+    let rescan = |menu: &crate::menu::Menu| {
+        menu.entries.iter().find_map(|entry| match entry {
+            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint),
+            _ => None,
+        })
+    };
+    let menus = menus(&state);
+    assert_eq!((rescan(&menus[0]), rescan(&menus[5])), (Some(""), Some("M-r")));
+}
+
+#[test]
 fn remote_browser_opens_switches_and_mirrors_named_sessions() {
     let (mut state, now) = setup();
     assert_eq!(
         crate::keymap::lookup(
-            &KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT),
+            &KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT),
             crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false },
         ),
         Some(Action::BrowseRemotes)
@@ -192,7 +209,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
     let host = state.panel(Side::Left).dir().to_path_buf();
     state.settings.preferences.docker_console = false;
     assert_eq!(
-        update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now),
+        update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)), now),
         vec![Effect::OpenRemotes]
     );
     assert!(matches!(state.overlay, Some(Overlay::Remotes(_))));
@@ -2340,7 +2357,7 @@ fn remote_picker_mounts_the_panel_that_opened_it() {
     let (mut state, now) = setup();
     state.active = Side::Right;
     let left = state.panel(Side::Left).dir().to_path_buf();
-    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)), now);
     update(
         &mut state,
         Msg::RemoteCatalog {
@@ -2415,7 +2432,7 @@ fn follow_routes_commands_and_ctrl_o_to_the_remote_and_restores_local_shell() {
 }
 
 #[test]
-fn failed_remote_console_keeps_its_error_while_typing_and_can_be_retried_from_alt_r() {
+fn failed_remote_console_keeps_its_error_while_typing_and_can_be_retried_from_alt_h() {
     let (mut state, now) = setup();
     let target =
         || Msg::MountRemote { side: Side::Left, machine: "server".into(), session: "id".into(), name: "Work".into() };
@@ -2480,7 +2497,7 @@ fn remote_mode_updates_do_not_claim_that_pending_input_was_echoed() {
 #[test]
 fn remote_labels_rename_without_changing_connection_targets_and_preserve_the_picker() {
     let (mut state, now) = setup();
-    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)), now);
     let choices = vec![crate::RemoteChoice {
         identity: "public-key".into(),
         machine: "server-id".into(),
@@ -2525,7 +2542,7 @@ fn remote_labels_rename_without_changing_connection_targets_and_preserve_the_pic
     );
     assert_eq!(state.remote_host_name("server-id"), "Production");
     assert_eq!(state.remote_session_name("server-id", "default", "Default"), "Deploy");
-    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)), now);
     update(&mut state, Msg::RemoteCatalog { choices: choices.clone(), complete: false }, now);
     update(&mut state, Msg::Key(KeyEvent::new(KeyCode::F(2), KeyModifiers::SHIFT)), now);
     update(&mut state, Msg::Key(ctrl('u')), now);
@@ -2573,7 +2590,7 @@ fn remote_labels_are_scoped_to_the_paired_key_and_validate_user_input() {
 #[test]
 fn a_catalog_refresh_cannot_redirect_an_open_rename_to_another_remote() {
     let (mut state, now) = setup();
-    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)), now);
+    update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)), now);
     update(
         &mut state,
         Msg::RemoteCatalog {

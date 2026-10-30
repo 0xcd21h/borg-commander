@@ -103,6 +103,8 @@ pub enum Action {
     SetSort(Side, SortKey),
     ToggleReverse(Side),
     Rescan(Side),
+    /// Rescans the active panel.
+    Reload,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +167,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('i'), ALT, Action::MeasureSizes, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('m'), ALT, Action::Activity, Scope::Panels),
     bind(KeyCode::Char('M'), ALT, Action::MirrorRemote, Scope::Panels),
-    bind(KeyCode::Char('r'), ALT, Action::BrowseRemotes, Scope::Panels),
+    bind(KeyCode::Char('h'), ALT, Action::BrowseRemotes, Scope::Panels),
+    bind(KeyCode::Char('r'), ALT, Action::Reload, Scope::Panels),
     bind(KeyCode::Char('a'), CTRL_ALT, Action::ApprovalModeOff, Scope::Anywhere),
     bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),

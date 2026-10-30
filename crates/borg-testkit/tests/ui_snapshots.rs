@@ -1176,7 +1176,7 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
 #[test]
 fn remote_session_removal_confirmation_and_progress() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog {
         choices: vec![borg_core::RemoteChoice {
             machine: "production".into(),
@@ -1197,7 +1197,7 @@ fn remote_session_removal_confirmation_and_progress() -> Result<()> {
 #[test]
 fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog { choices: Vec::new(), complete: true });
     stage.send(Msg::RemoteClients(vec![
         borg_core::RemoteClient {
@@ -1226,7 +1226,7 @@ fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<
 #[test]
 fn remote_mirror_connection_progress_and_failure() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog {
         choices: vec![borg_core::RemoteChoice {
             machine: "production".into(),
@@ -1363,7 +1363,7 @@ fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Res
     assert_eq!(footer.height, 2);
     assert_eq!(footer.bottom(), stage.state.rows);
     assert!(screen.lines()[usize::from(footer.y)].contains("F1Help"));
-    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Alt-R Remote hosts"));
+    assert!(screen.lines()[usize::from(footer.y + 1)].starts_with("Alt-H Remote hosts"));
     assert!(!screen.lines()[0].contains("Ctrl-F Search"));
     let (x, y) = screen.find("Ctrl-F Search").unwrap();
     assert!(matches!(
@@ -2647,7 +2647,7 @@ fn remote_labels_are_visible_in_picker_rename_prompt_panels_and_console() -> Res
     names.set("paired-key", None, "Docker Lab").unwrap();
     names.set("paired-key", Some("default"), "Deploy").unwrap();
     stage.send(Msg::RemoteNames(Ok(names)));
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog { choices, complete: true });
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Host Docker Lab · Deploy · v0.8.0")?;
@@ -2737,7 +2737,7 @@ fn translated_panels_language_picker_and_confirmation() -> Result<()> {
 #[test]
 fn unavailable_hosts_can_be_forgotten_with_a_local_confirmation() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT)));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog {
         choices: vec![borg_core::RemoteChoice {
             machine: "offline-lab".into(),

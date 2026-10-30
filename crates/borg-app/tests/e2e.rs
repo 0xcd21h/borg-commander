@@ -395,6 +395,18 @@ fn hidden_files_toggle() -> Result<()> {
 }
 
 #[test]
+fn alt_r_reloads_a_folder_changed_behind_borgs_back() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "reload")?;
+    fixture.file("arrived.txt", "new\n")?;
+    app.pump(std::time::Duration::from_millis(300))?;
+    ensure!(!app.snapshot().contains("arrived.txt"), "the panel showed the new file before Alt-R");
+    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.wait_text("arrived.txt")?;
+    Ok(())
+}
+
+#[test]
 fn theme_picker_previews_saves_and_restores_on_restart() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "theme-picker")?;
@@ -2718,7 +2730,7 @@ fn remote_panel_console_preserves_its_shell_while_idle_and_parked() -> Result<()
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("idle-console-client").spawn()?;
     local.wait_text(READY)?;
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
     local.send(keys::enter())?;
     local.wait_text(&format!("Host {name}:Default"))?;
@@ -2793,7 +2805,7 @@ printf '\r\nremote-got=%s\r\n' "$code"
     let mut local = Session::builder(BORG, &client).size(150, 34).label("console-client").spawn()?;
     local.wait_text(READY)?;
     local.send(keys::tab())?;
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
     local.send(keys::enter())?;
     local.wait_text(&format!("Host {name}:Default"))?;
@@ -2883,7 +2895,7 @@ fn paired_linux_top_captures_the_remote_console_resizes_and_restores_the_prompt(
     fs::write(client.state().join("link/servers.json"), serde_json::to_vec(&serde_json::json!([server]))?)?;
     let mut local = Session::builder(BORG, &client).size(140, 34).label("live-remote-top").spawn()?;
     local.wait_text(READY)?;
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     let label = format!("Host {machine} · {session} ·");
     local.wait_text(&label)?;
     local.send(keys::key(KeyCode::Home))?;
@@ -2949,7 +2961,7 @@ fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("rename-client").spawn()?;
     local.wait_text(READY)?;
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {machine} · Default"))?;
     local.send(keys::f(2))?;
     local.wait_text("Rename host label")?;
@@ -2968,7 +2980,7 @@ fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<
     drop(local);
     let mut reopened = Session::builder(BORG, &client).size(140, 34).label("renamed-reopened").spawn()?;
     reopened.wait_text(READY)?;
-    reopened.send(keys::alt(KeyCode::Char('r')))?;
+    reopened.send(keys::alt(KeyCode::Char('h')))?;
     reopened.wait_text("Host Production · Deploy")?;
     reopened.wait_text(&format!("Original host: {machine} · Session: Default"))?;
     reopened.send(keys::f(2))?;
@@ -3007,7 +3019,7 @@ fn f5_copies_folders_to_a_paired_host_and_files_back_with_keep_both() -> Result<
     std::os::unix::fs::symlink("large.dat", client.work().join("bundle/link"))?;
     let mut local = Session::builder(BORG, &client).size(150, 34).label("copy-client").spawn()?;
     local.wait_text("5 items")?;
-    local.send(keys::tab())?.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::tab())?.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
     local.send(keys::enter())?;
     local.wait_text(&format!("Host {name}:Default"))?;
@@ -3253,7 +3265,7 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
         .spawn()?;
     mirror.wait_text("REMOTE MIRROR - CONTROL")?;
     mirror.wait_text("notes.txt")?;
-    mirror.send(keys::alt(KeyCode::Char('r')))?;
+    mirror.send(keys::alt(KeyCode::Char('h')))?;
     mirror.wait_text("This Borg is the host for the selected client.")?;
     mirror.wait_text("Connections: 3")?;
     mirror.send(keys::esc())?;
@@ -3341,7 +3353,7 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
                 .open(workspace.join(".lock"))
                 .is_ok_and(|file| file.try_lock().is_err())
         })?;
-        local.send(keys::alt(KeyCode::Char('r')))?;
+        local.send(keys::alt(KeyCode::Char('h')))?;
         local.wait_text(&format!("Host {machine} · Throwaway"))?;
         local.send(keys::down())?.send(keys::enter())?;
         local.wait_text(&format!("Host {machine}:Throwaway"))?;
@@ -3353,7 +3365,7 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
         local.wait_until("remote console prompt ready", |screen| {
             screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
         })?;
-        local.send(keys::ctrl('o'))?.send(keys::alt(KeyCode::Char('r')))?;
+        local.send(keys::ctrl('o'))?.send(keys::alt(KeyCode::Char('h')))?;
         local.wait_text(&format!("Host {machine} · Throwaway"))?;
         local.send(keys::down())?.send(keys::f(8))?;
         local.wait_text("Remove remote session")?;
@@ -3424,7 +3436,7 @@ fn host_colony_shows_paired_clients_and_updates_connection_counts() -> Result<()
         .spawn()?;
     mirror.wait_text("REMOTE MIRROR - CONTROL")?;
     mirror.wait_text("notes.txt")?;
-    remote.send(keys::alt(KeyCode::Char('r')))?;
+    remote.send(keys::alt(KeyCode::Char('h')))?;
     remote.wait_text(&format!("Client {client_name} · Connected"))?;
     let screen = remote.wait_text("Connections: 3")?;
     ensure!(screen.lines().iter().filter(|line| line.contains(&format!("Client {client_name}"))).count() == 1);
@@ -3460,7 +3472,7 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("stalled-mirror-client").spawn()?;
     local.wait_text(READY)?;
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
     paused.paused.store(true, Ordering::SeqCst);
     local.send("m")?;
@@ -3554,7 +3566,7 @@ fn mirror_opens_all_channels_on_a_slow_connection_before_taking_control() -> Res
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("slow-mirror-client").spawn()?;
     local.wait_text(READY)?;
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
     gate.delay_ms.store(2200, Ordering::SeqCst);
     let started = std::time::Instant::now();
@@ -3777,7 +3789,7 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
         Session::builder(BORG, &client).size(150, 36).terminal_replies(false).label("mirror-handoff-client").spawn()?;
     local.wait_text(READY)?;
     for _ in 0..3 {
-        local.send(keys::alt(KeyCode::Char('r')))?;
+        local.send(keys::alt(KeyCode::Char('h')))?;
         local.wait_text(&format!("Host {name} · Default"))?;
         local.send("m")?;
         local.wait_text("REMOTE MIRROR - CONTROL")?;
@@ -3794,7 +3806,7 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
         local.send(keys::esc())?;
         local.wait_gone("Remote access to this borg")?;
     }
-    local.send(keys::alt(KeyCode::Char('r')))?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
     local.wait_text(&format!("Host {name} · Default"))?;
     local.send("m")?;
     local.wait_text("REMOTE MIRROR - CONTROL")?;
@@ -3868,7 +3880,7 @@ fn an_unavailable_host_can_be_forgotten_without_contacting_it_or_changing_the_cl
         }]))?,
     )?;
     let mut app = start(&fixture, "forget-offline-host")?;
-    app.send(keys::alt(KeyCode::Char('r')))?;
+    app.send(keys::alt(KeyCode::Char('h')))?;
     app.wait_text("Host offline-lab")?;
     app.wait_text("Unavailable:")?;
     app.send("m")?;
@@ -3894,7 +3906,7 @@ fn an_unavailable_host_can_be_forgotten_without_contacting_it_or_changing_the_cl
     app.send("y")?;
     ensure!(app.wait_exit()?.success());
     let mut restored = start(&fixture, "forgotten-host-stays-forgotten")?;
-    restored.send(keys::alt(KeyCode::Char('r')))?;
+    restored.send(keys::alt(KeyCode::Char('h')))?;
     restored.wait_text("No paired hosts")?;
     restored.send(keys::esc())?;
     restored.wait_gone("Remote colony")?;

@@ -95,7 +95,7 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
     if !state.agent.auto_approve.is_empty() {
         items.insert(0, (tr!(agent_approve_all_chip).to_owned(), Action::ApprovalModeOff, true));
     }
-    items.insert(0, (tr!(alt_r_remote_hosts).to_owned(), Action::BrowseRemotes, false));
+    items.insert(0, (tr!(alt_h_remote_hosts).to_owned(), Action::BrowseRemotes, false));
     let mut x = area.x;
     items
         .into_iter()

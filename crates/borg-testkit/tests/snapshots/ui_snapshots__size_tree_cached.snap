@@ -29,7 +29,7 @@ expression: describe(&buffer)
  Files in this folder · 1100000000 bytes
 $
 F1Help      F2File      F3View      F4Edit      F5Copy      F6Move      F7Mkdir     F8Delete    F9Menu      F10Quit     ^OShell
-Alt-R Remote hosts  ←→ Branch  Enter Open  Ctrl-R Rescan  Esc Hide  Alt-W Maximize  Ctrl-S Filter           ◈ Borg Commander v0.9.0
+Alt-H Remote hosts  ←→ Branch  Enter Open  Ctrl-R Rescan  Esc Hide  Alt-W Maximize  Ctrl-S Filter           ◈ Borg Commander v0.9.0
 --- styles ---
   0: 0-57 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 58-60 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 61-61 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 62-64 Rgb(215, 208, 255) Rgb(22, 18, 43) NONE | 65-65 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 66-66 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE | 67-68 Rgb(55, 50, 85) Rgb(13, 11, 26) NONE | 69-71 Rgb(47, 41, 76) Rgb(13, 11, 26) NONE | 72-74 Rgb(55, 50, 85) Rgb(13, 11, 26) NONE | 75-77 Rgb(47, 41, 76) Rgb(13, 11, 26) NONE | 78-81 Rgb(55, 50, 85) Rgb(13, 11, 26) NONE | 82-131 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE
   1: 0-0 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 1-64 Rgb(90, 81, 133) Rgb(13, 11, 26) NONE | 65-65 Rgb(255, 79, 216) Rgb(13, 11, 26) NONE | 66-66 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE | 67-67 Rgb(22, 18, 43) Rgb(13, 11, 26) NONE | 68-71 Rgb(80, 146, 165) Rgb(29, 24, 56) BOLD | 72-110 Rgb(131, 125, 165) Rgb(29, 24, 56) NONE | 111-116 Rgb(63, 55, 98) Rgb(29, 24, 56) NONE | 117-129 Rgb(131, 125, 165) Rgb(29, 24, 56) NONE | 130-130 Rgb(22, 18, 43) Rgb(13, 11, 26) NONE | 131-131 Rgb(29, 24, 56) Rgb(13, 11, 26) NONE

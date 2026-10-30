@@ -214,7 +214,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             match mounted {
                 Some(mount) => crate::remote::mirror(state, mount.machine.clone(), mount.session.clone()),
                 None => {
-                    state.notice = Some("Open Remote Borgs with Alt-R, then choose a session to mirror.".into());
+                    state.notice = Some("Open Remote Borgs with Alt-H, then choose a session to mirror.".into());
                     Vec::new()
                 }
             }
@@ -447,6 +447,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             Vec::new()
         }
         Action::Rescan(target) => vec![state.reload(target)],
+        Action::Reload => vec![state.reload(state.active)],
     }
 }
 

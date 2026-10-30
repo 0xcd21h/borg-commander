@@ -197,6 +197,8 @@ rows are clickable. Notices temporarily replace the second row.
 | Shift-Home / Shift-End | Oldest console output / back to the live prompt |
 | Ctrl-P / Ctrl-N, Ctrl-R | Shell history: previous / next command, search (handled by your shell) |
 | Alt-. | Show hidden files |
+| Alt-R | Reload the active panel: its folder, search results or collection |
+| Alt-H | Remote hosts: paired machines and their sessions |
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
@@ -358,7 +360,7 @@ app using its own keys (`q` in `top`); Borg returns to the panels if you launche
 the panel command line, or leaves the remote console open if you launched it there.
 The remote Borg’s own panels and shell are independent of this console. Use
 `borg get MACHINE/SESSION:PATH [TO]` and `borg put FROM MACHINE/SESSION:PATH` for file transfers.
-In local Borg, press **Alt-R**, use the bottom **Remote hosts** shortcut, or choose
+In local Borg, press **Alt-H**, use the bottom **Remote hosts** shortcut, or choose
 **F9 → Remote → Browse hosts and sessions…** to see paired machines
 and their named sessions. Enter opens the selected session’s files in the panel that opened
 the picker, replacing that panel’s previous location. Press **M** in the picker to mirror its screen; **R** refreshes the list.
@@ -418,7 +420,7 @@ A viewer that falls behind receives the current screen instead of old animation 
 Typing `exit` in Borg's main Bash, Zsh or Fish shell asks for confirmation. **No** is selected
 by default and keeps the same shell, variables, directory and mirrors running. In a remote
 console, `exit` asks whether to close the shell on the host; after Yes, choose the session again
-with Alt-R for a new one.
+with Alt-H for a new one.
 
 To connect, press F1 and then C (or F9 → Remote → Share this Borg as host…). Borg shows two
 commands to paste into a terminal on your computer: one starts Claude Code already connected

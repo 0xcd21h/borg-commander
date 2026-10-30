@@ -163,7 +163,7 @@ fn panel_menu(title: &'static str, state: &AppState, side: Side) -> Menu {
             check(tr!(reverse_order), "", Action::ToggleReverse(side), sort.reverse),
             MenuEntry::Separator,
             check(tr!(show_hidden_files), "M-.", Action::ToggleHidden, state.settings.preferences.show_hidden),
-            item(tr!(rescan), "", Action::Rescan(side)),
+            item(tr!(rescan), if side == state.active { "M-r" } else { "" }, Action::Rescan(side)),
         ],
     }
 }
@@ -230,7 +230,7 @@ fn remote_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(remote_menu_title),
         entries: vec![
-            item(tr!(remote_borgs), "M-r", Action::BrowseRemotes),
+            item(tr!(remote_borgs), "M-h", Action::BrowseRemotes),
             when(
                 item(tr!(remote_mirror_mounted), "M-S-M", Action::MirrorRemote),
                 state.panels.iter().any(|panel| panel.remote_mount.is_some()),
