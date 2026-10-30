@@ -65,6 +65,8 @@ pub enum AskKind {
     Upload,
     /// A paired computer asks to run commands and change files without individual prompts.
     ApprovalMode,
+    /// An agent asks to search a process's memory.
+    Memory,
 }
 
 /// What an agent asks to do, as the approval dialog shows it.

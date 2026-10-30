@@ -1,8 +1,12 @@
+use crate::memory_strings::{Found, Known};
 use anyhow::{Result, bail};
-use borg_core::{MemoryHit, MemoryRegion, MemorySearchMode, MemorySearchReport, ProcessKey};
+use borg_core::{
+    Indicator, MemoryHit, MemoryRegion, MemorySearchMode, MemorySearchReport, ProcessKey, STRING_PLACES, StringsTally,
+    rank_strings,
+};
 use borg_i18n::tr;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -15,6 +19,12 @@ use unicode_segmentation::UnicodeSegmentation;
 const CHUNK: usize = 1024 * 1024;
 const OVERLAP: usize = 8192;
 const HITS: usize = 2000;
+/// Different strings a search lists, and how many more that look like indicators; beyond
+/// them it only counts.
+const DISTINCT: usize = 100_000;
+const INDICATORS: usize = 50_000;
+/// Different strings a search remembers having looked at, listed or not.
+const SEEN: usize = 2_000_000;
 const BUDGET: Duration = Duration::from_secs(60);
 const PAGE: usize = 4096;
 const MAX_QUERY: usize = 512;
@@ -202,36 +212,134 @@ fn decode(data: &[u8], encoding: Encoding, alignment: usize) -> Vec<(char, usize
     }
     out
 }
-/// The hits in `data`, read from `base`, whose first `fresh` bytes were searched before; `last`
-/// when the region ends with it. Strings modes keep those containing the query, if any.
-fn find(query: &Query, data: &[u8], base: u64, fresh: usize, last: bool) -> Result<Vec<MemoryHit>> {
-    if !query.mode.strings() {
-        let hits = matches(data, base, &query.text, query.mode, query.match_case)?;
-        return Ok(hits
-            .into_iter()
-            .map(|(address, length, encoding)| MemoryHit { address, length, encoding, ..Default::default() })
-            .collect());
-    }
-    let needle = if query.match_case { query.text.clone() } else { query.text.to_lowercase() };
-    let wanted = |text: &str| {
-        needle.is_empty()
-            || if query.match_case { text.contains(&needle) } else { text.to_lowercase().contains(&needle) }
-    };
-    Ok(crate::memory_strings::find(data, fresh, OVERLAP, last)
+/// The matches in `data`, read from `base`.
+fn find(query: &Query, data: &[u8], base: u64) -> Result<Vec<MemoryHit>> {
+    let hits = matches(data, base, &query.text, query.mode, query.match_case)?;
+    Ok(hits
         .into_iter()
-        .filter(|found| wanted(&found.text))
-        .filter_map(|found| {
-            let indicator = crate::memory_strings::indicator(&found.text);
-            (query.mode == MemorySearchMode::Strings || indicator.is_some()).then(|| MemoryHit {
-                address: base + found.offset as u64,
+        .map(|(address, length, encoding)| MemoryHit { address, length, encoding, ..Default::default() })
+        .collect())
+}
+
+/// What a search knows of a string it has seen: listed as a result, left out by the mode or the
+/// query, or wanted but beyond the results it keeps track of.
+#[derive(Clone, Copy)]
+enum Seen {
+    Listed(u32),
+    Unwanted,
+    Uncounted,
+}
+
+/// The strings a search found so far, each listed once with its copies counted. A string is
+/// looked at once, when first seen; its copies only add up.
+struct Strings<'a> {
+    query: &'a Query,
+    needle: String,
+    known: &'a Known,
+    hits: Vec<MemoryHit>,
+    seen: HashMap<u64, Seen>,
+    found: u64,
+    /// Different wanted strings beyond those listed.
+    unlisted: u64,
+}
+
+impl<'a> Strings<'a> {
+    fn new(query: &'a Query, known: &'a Known) -> Self {
+        let needle = if query.match_case { query.text.clone() } else { query.text.to_lowercase() };
+        Self { query, needle, known, hits: Vec::new(), seen: HashMap::new(), found: 0, unlisted: 0 }
+    }
+
+    fn add(&mut self, found: Found, address: u64, region: &MemoryRegion, index: u32) {
+        let key = crate::memory_strings::hash(&found.text);
+        match self.seen.get(&key).copied() {
+            Some(Seen::Listed(i)) => {
+                self.found += 1;
+                let kept = &mut self.hits[i as usize];
+                kept.copies += 1;
+                if kept.places.len() < STRING_PLACES {
+                    kept.places.push((address, index));
+                }
+                return;
+            }
+            Some(Seen::Unwanted) => return,
+            Some(Seen::Uncounted) => {
+                self.found += 1;
+                return;
+            }
+            None => {}
+        }
+        let text = &found.text;
+        let contains = self.needle.is_empty()
+            || if self.query.match_case {
+                text.contains(&self.needle)
+            } else {
+                text.to_lowercase().contains(&self.needle)
+            };
+        let indicator = contains.then(|| crate::memory_strings::indicator(text)).flatten();
+        let wanted = contains
+            && match self.query.mode {
+                MemorySearchMode::Strings => indicator.is_some() || !borg_core::junk_string(text),
+                _ => indicator.is_some(),
+            };
+        let room = self.hits.len() < DISTINCT || (indicator.is_some() && self.hits.len() < DISTINCT + INDICATORS);
+        let seen = match (wanted, room) {
+            (false, _) => Seen::Unwanted,
+            (true, false) => Seen::Uncounted,
+            (true, true) => Seen::Listed(self.hits.len() as u32),
+        };
+        if self.seen.len() < SEEN || matches!(seen, Seen::Listed(_)) {
+            self.seen.insert(key, seen);
+        }
+        if wanted {
+            self.found += 1;
+        }
+        match seen {
+            Seen::Listed(_) => self.hits.push(MemoryHit {
+                address,
                 length: found.length,
                 encoding: found.encoding.into(),
-                text: Some(found.text.chars().take(SHOWN).collect()),
+                region: region.clone(),
+                text: Some(text.chars().take(SHOWN).collect()),
                 indicator,
-                ..Default::default()
-            })
-        })
-        .collect())
+                copies: 1,
+                places: vec![(address, index)],
+                in_file: self.known.holds(key),
+            }),
+            Seen::Uncounted => self.unlisted += 1,
+            Seen::Unwanted => {}
+        }
+    }
+
+    /// The results, best first, with the tally and only the regions their places name.
+    fn finish(mut self, report: &mut MemorySearchReport, regions: &[MemoryRegion]) {
+        let mut tally = StringsTally {
+            found: self.found,
+            distinct: self.hits.len() as u64 + self.unlisted,
+            memory_only: self.hits.iter().filter(|hit| hit.in_file == Some(false)).count() as u64,
+            files: self.known.files,
+            ..Default::default()
+        };
+        for kind in Indicator::RANKED {
+            let count = self.hits.iter().filter(|hit| hit.indicator == Some(kind)).count() as u64;
+            if count > 0 {
+                tally.kinds.push((kind, count));
+            }
+        }
+        rank_strings(&mut self.hits);
+        self.hits.truncate(HITS);
+        let mut renumbered = HashMap::new();
+        for hit in &mut self.hits {
+            for (_, region) in &mut hit.places {
+                let next = renumbered.len() as u32;
+                *region = *renumbered.entry(*region).or_insert_with(|| {
+                    tally.regions.push(regions[*region as usize].clone());
+                    next
+                });
+            }
+        }
+        report.hits = self.hits;
+        report.strings = Some(tally);
+    }
 }
 /// What a memory search looks for: the text, how to read it, and whether case matters.
 pub struct Query {
@@ -239,9 +347,15 @@ pub struct Query {
     pub mode: MemorySearchMode,
     pub match_case: bool,
 }
+/// The memory a search reads: a process's regions and, for strings, what its files hold, which
+/// tells the strings only memory holds.
+pub struct Target<'a> {
+    pub process: ProcessKey,
+    pub regions: Vec<MemoryRegion>,
+    pub known: &'a Known,
+}
 pub fn scan(
-    process: ProcessKey,
-    regions: Vec<MemoryRegion>,
+    Target { process, regions, known }: Target,
     query: &Query,
     start: Option<u64>,
     cancelled: &Arc<AtomicBool>,
@@ -249,13 +363,24 @@ pub fn scan(
     mut progress: impl FnMut(u64, u64, usize),
 ) -> Result<MemorySearchReport> {
     validate(&query.text, query.mode)?;
-    let total = regions.iter().filter(|r| r.readable()).fold(0u64, |n, r| n.saturating_add(r.end - r.start));
-    let mut report =
-        MemorySearchReport { process, hits: Vec::new(), scanned: 0, total, skipped: 0, next: None, cancelled: false };
+    let regions: Vec<_> = regions.into_iter().filter(MemoryRegion::readable).collect();
+    let total = regions.iter().fold(0u64, |n, r| n.saturating_add(r.end - r.start));
+    let mut report = MemorySearchReport {
+        process,
+        hits: Vec::new(),
+        scanned: 0,
+        total,
+        skipped: 0,
+        next: None,
+        cancelled: false,
+        strings: None,
+    };
+    // Strings are listed once each, ranked when the search ends; matches are listed as found.
+    let mut strings = query.mode.strings().then(|| Strings::new(query, known));
     let mut seen = HashSet::new();
     let began = Instant::now();
     let mut last = Instant::now();
-    for region in regions.into_iter().filter(|r| r.readable()) {
+    'regions: for (index, region) in regions.iter().enumerate() {
         let mut address = region.start.max(start.unwrap_or(region.start));
         if address >= region.end {
             continue;
@@ -263,13 +388,13 @@ pub fn scan(
         let mut carry = Vec::new();
         while address < region.end {
             if last.elapsed() >= Duration::from_millis(150) {
-                progress(report.scanned, total, report.hits.len());
+                progress(report.scanned, total, strings.as_ref().map_or(report.hits.len(), |s| s.hits.len()));
                 last = Instant::now();
             }
             if cancelled.load(Ordering::Relaxed) || began.elapsed() >= BUDGET {
                 report.next = Some(address.saturating_sub(carry.len() as u64).max(region.start));
                 report.cancelled = cancelled.load(Ordering::Relaxed);
-                return Ok(report);
+                break 'regions;
             }
             let count = (region.end - address).min(CHUNK as u64) as usize;
             let data = read(address, count).or_else(|_| read(address, count.min(PAGE)));
@@ -288,17 +413,25 @@ pub fn scan(
             let fresh = carry.len();
             carry.extend(data);
             let last = address + read_len as u64 >= region.end;
-            for hit in find(query, &carry, base, fresh, last)? {
-                let (at, length) = (hit.address, hit.length);
-                if at + length as u64 > address && seen.insert((at, length)) {
-                    report.hits.push(MemoryHit { region: region.clone(), ..hit });
+            if let Some(listed) = &mut strings {
+                for found in crate::memory_strings::find(&carry, fresh, OVERLAP, last) {
+                    let at = base + found.offset as u64;
+                    if at + found.length as u64 > address {
+                        listed.add(found, at, region, index as u32);
+                    }
                 }
-                if report.hits.len() >= HITS {
-                    // A string is listed whole, so the search goes on after it rather than inside it.
-                    let resume = if query.mode.strings() { at + length as u64 } else { at + 1 };
-                    report.scanned = report.scanned.saturating_add(resume.saturating_sub(address).min(read_len as u64));
-                    report.next = Some(resume);
-                    return Ok(report);
+            } else {
+                for hit in find(query, &carry, base)? {
+                    let (at, length) = (hit.address, hit.length);
+                    if at + length as u64 > address && seen.insert((at, length)) {
+                        report.hits.push(MemoryHit { region: region.clone(), ..hit });
+                    }
+                    if report.hits.len() >= HITS {
+                        report.scanned =
+                            report.scanned.saturating_add((at + 1).saturating_sub(address).min(read_len as u64));
+                        report.next = Some(at + 1);
+                        return Ok(report);
+                    }
                 }
             }
             address += read_len as u64;
@@ -307,6 +440,9 @@ pub fn scan(
                 carry.drain(..carry.len() - OVERLAP);
             }
         }
+    }
+    if let Some(strings) = strings {
+        strings.finish(&mut report, &regions);
     }
     Ok(report)
 }
@@ -357,8 +493,11 @@ mod tests {
         data[CHUNK - 2..CHUNK + 2].copy_from_slice(b"Borg");
         let cancelled = Arc::new(AtomicBool::new(false));
         let report = scan(
-            ProcessKey { pid: 1, start: 1 },
-            vec![region(0x1000, 0x1000 + data.len() as u64)],
+            Target {
+                process: ProcessKey { pid: 1, start: 1 },
+                regions: vec![region(0x1000, 0x1000 + data.len() as u64)],
+                known: &Known::default(),
+            },
             &borg(),
             None,
             &cancelled,
@@ -373,8 +512,11 @@ mod tests {
         let mut data = vec![0; PAGE * 4];
         data[PAGE * 2 - 2..PAGE * 2 + 2].copy_from_slice(b"Borg");
         let report = scan(
-            ProcessKey { pid: 1, start: 1 },
-            vec![region(0, data.len() as u64)],
+            Target {
+                process: ProcessKey { pid: 1, start: 1 },
+                regions: vec![region(0, data.len() as u64)],
+                known: &Known::default(),
+            },
             &borg(),
             None,
             &cancelled,
@@ -390,6 +532,24 @@ mod tests {
         assert_eq!(report.skipped, PAGE as u64);
         assert_eq!(report.hits[0].address, (PAGE * 2 - 2) as u64);
     }
+    fn strings(
+        data: &[u8],
+        mode: MemorySearchMode,
+        text: &str,
+        known: &Known,
+        start: Option<u64>,
+    ) -> MemorySearchReport {
+        let query = Query { text: text.into(), mode, match_case: false };
+        scan(
+            Target { process: ProcessKey { pid: 1, start: 1 }, regions: vec![region(0, data.len() as u64)], known },
+            &query,
+            start,
+            &Arc::new(AtomicBool::new(false)),
+            |address, count| Ok(data[address as usize..address as usize + count].to_vec()),
+            |_, _, _| {},
+        )
+        .unwrap()
+    }
     #[test]
     fn strings_span_reads_once_and_indicators_keep_only_what_looks_like_one() {
         let mut data = vec![0; 2 * CHUNK + 64];
@@ -397,22 +557,13 @@ mod tests {
         data[CHUNK - 10..CHUNK - 10 + url.len()].copy_from_slice(url);
         data[100..112].copy_from_slice(b"plain words!");
         let long = 2 * CHUNK - 15_000..2 * CHUNK + 30;
-        data[long.clone()].fill(b'x');
-        let strings = |mode, text: &str, start| {
-            let query = Query { text: text.into(), mode, match_case: false };
-            scan(
-                ProcessKey { pid: 1, start: 1 },
-                vec![region(0, data.len() as u64)],
-                &query,
-                start,
-                &Arc::new(AtomicBool::new(false)),
-                |address, count| Ok(data[address as usize..address as usize + count].to_vec()),
-                |_, _, _| {},
-            )
-            .unwrap()
-        };
-        let report = strings(MemorySearchMode::Strings, "", None);
-        let found: Vec<_> = report.hits.iter().map(|hit| (hit.address, hit.length)).collect();
+        for (i, byte) in data[long.clone()].iter_mut().enumerate() {
+            *byte = b"abcdefg"[i % 7];
+        }
+        let none = Known::default();
+        let report = strings(&data, MemorySearchMode::Strings, "", &none, None);
+        let mut found: Vec<_> = report.hits.iter().map(|hit| (hit.address, hit.length)).collect();
+        found.sort();
         // A run too long to carry over is listed up to the end of the read, and the rest after it.
         assert_eq!(
             found,
@@ -423,20 +574,48 @@ mod tests {
                 (2 * CHUNK as u64, long.end - 2 * CHUNK)
             ],
         );
-        assert_eq!(report.hits[1].text.as_deref(), Some("https://updates.example.com/check"));
-        let report = strings(MemorySearchMode::Indicators, "", None);
-        assert_eq!(report.hits.iter().map(|hit| hit.indicator).collect::<Vec<_>>(), [Some(borg_core::Indicator::Url)]);
-        let report = strings(MemorySearchMode::Strings, "PLAIN", None);
+        assert_eq!(report.hits[0].text.as_deref(), Some("https://updates.example.com/check"), "indicators lead");
+        assert_eq!(report.strings.as_ref().map(|t| t.kinds.clone()), Some(vec![(Indicator::Url, 1)]));
+        let report = strings(&data, MemorySearchMode::Indicators, "", &none, None);
+        assert_eq!(report.hits.iter().map(|hit| hit.indicator).collect::<Vec<_>>(), [Some(Indicator::Url)]);
+        let report = strings(&data, MemorySearchMode::Strings, "PLAIN", &none, None);
         assert_eq!(report.hits.len(), 1, "the query keeps strings containing it, ignoring case");
-        assert!(strings(MemorySearchMode::Strings, "", Some(200)).hits.iter().all(|hit| hit.address >= 200));
+        assert!(
+            strings(&data, MemorySearchMode::Strings, "", &none, Some(200)).hits.iter().all(|hit| hit.address >= 200)
+        );
+    }
+    #[test]
+    fn strings_are_listed_once_with_their_copies_and_whether_a_file_holds_them() {
+        let mut data = vec![0; 4096];
+        for (at, text) in
+            [(16, "token=hunter22"), (64, "reading the config"), (512, "token=hunter22"), (900, "@@@@@@@@@@")]
+        {
+            data[at..at + text.len()].copy_from_slice(text.as_bytes());
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("program");
+        std::fs::write(&file, b"\0\0reading the config\0\0").unwrap();
+        let known = Known::read([file], Instant::now() + Duration::from_secs(5));
+        let report = strings(&data, MemorySearchMode::Strings, "", &known, None);
+        let rows: Vec<_> =
+            report.hits.iter().map(|hit| (hit.text.as_deref().unwrap(), hit.copies, hit.in_file)).collect();
+        // Filler such as a run of one character is left out.
+        assert_eq!(rows, [("token=hunter22", 2, Some(false)), ("reading the config", 1, Some(true))]);
+        assert_eq!(report.hits[0].places, [(16, 0), (512, 0)]);
+        let tally = report.strings.unwrap();
+        assert_eq!((tally.found, tally.distinct, tally.memory_only, tally.files), (3, 2, 1, 1));
+        assert_eq!(tally.regions.len(), 1, "only the regions the results name");
     }
     #[test]
     fn cancellation_preserves_a_continuation_without_reading_more_memory() {
         let cancelled = Arc::new(AtomicBool::new(true));
         let mut reads = 0;
         let report = scan(
-            ProcessKey { pid: 1, start: 1 },
-            vec![region(100, 1000)],
+            Target {
+                process: ProcessKey { pid: 1, start: 1 },
+                regions: vec![region(100, 1000)],
+                known: &Known::default(),
+            },
             &borg(),
             None,
             &cancelled,

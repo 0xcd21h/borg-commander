@@ -69,6 +69,13 @@ impl MemoryRegion {
     pub fn mapped(&self) -> u64 {
         self.end.saturating_sub(self.start)
     }
+    /// Memory the process fills itself: no file backs it, or the process may write to it. Pages
+    /// it never wrote, which macOS reports, hold only zeros or what the system put there, such
+    /// as the shared libraries' symbol tables, so a region without any is not its own.
+    pub fn own(&self) -> bool {
+        let written = self.dirty != Some(0) || self.swap.is_some_and(|swap| swap > 0);
+        written && (self.path.is_none() || self.permissions.as_bytes().get(1) == Some(&b'w'))
+    }
     /// Memory charged to this process alone: written (or private) pages plus swapped pages.
     /// Shared library pages that other processes also use are not part of it.
     pub fn footprint(&self) -> Option<u64> {
@@ -449,7 +456,7 @@ pub const FINDING_NOTE: u16 = 6;
 pub fn chrome_rows(page: ActivityPage) -> u16 {
     match page {
         ActivityPage::Snapshot => 8,
-        ActivityPage::Search => 7,
+        ActivityPage::Search => 8,
         ActivityPage::Integrity => 7 + FINDING_NOTE,
         _ => 6,
     }
@@ -496,7 +503,15 @@ impl Indicator {
             Self::Encoded => tr!(indicator_encoded),
         }
     }
+    /// Kinds in the order strings list them: what most often means trouble first.
+    pub const RANKED: [Self; 7] =
+        [Self::Secret, Self::Command, Self::Url, Self::Ip, Self::Email, Self::Path, Self::Encoded];
+    fn rank(self) -> usize {
+        Self::RANKED.iter().position(|&kind| kind == self).unwrap_or(Self::RANKED.len())
+    }
 }
+/// How many places of a string a result keeps, so its copies can be visited in turn.
+pub const STRING_PLACES: usize = 16;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryHit {
     pub address: u64,
@@ -508,6 +523,17 @@ pub struct MemoryHit {
     pub text: Option<String>,
     #[serde(default)]
     pub indicator: Option<Indicator>,
+    /// For a string, how many times memory holds it.
+    #[serde(default)]
+    pub copies: u64,
+    /// For a string, where its first copies are: an address and the index of its region in
+    /// the report's strings tally.
+    #[serde(default)]
+    pub places: Vec<(u64, u32)>,
+    /// For a string, whether a file mapped into the process holds it too; `None` when no file
+    /// could be compared.
+    #[serde(default)]
+    pub in_file: Option<bool>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemorySearchReport {
@@ -518,6 +544,129 @@ pub struct MemorySearchReport {
     pub skipped: u64,
     pub next: Option<u64>,
     pub cancelled: bool,
+    /// What a search for strings found in all, beyond the results it lists.
+    #[serde(default)]
+    pub strings: Option<StringsTally>,
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StringsTally {
+    /// Strings found, every copy counted.
+    pub found: u64,
+    /// Different strings found.
+    pub distinct: u64,
+    /// Different strings of each kind that looks like an indicator.
+    pub kinds: Vec<(Indicator, u64)>,
+    /// Different strings no compared file holds.
+    pub memory_only: u64,
+    /// Files mapped into the process whose strings were compared.
+    pub files: u64,
+    /// The regions the results' places name.
+    pub regions: Vec<MemoryRegion>,
+}
+
+/// How much a string reads like words, from 0 to 100: the share of its characters in words of
+/// three or more letters with a vowel, where a word is lower case, Capitalized or in capitals,
+/// and a capital starts a new word inside camelCase.
+pub fn string_score(text: &str) -> u8 {
+    let total = text.chars().count().max(1);
+    let mut wordy = text.chars().filter(|&c| c == ' ').count();
+    let mut word = String::new();
+    let mut close = |word: &mut String| {
+        let rest = word.chars().skip(1);
+        let cased = word.chars().all(|c| c.is_ascii_uppercase()) || rest.clone().all(|c| c.is_ascii_lowercase());
+        if word.len() >= 3 && cased && word.chars().any(|c| "aeiouyAEIOUY".contains(c)) {
+            wordy += word.len();
+        }
+        word.clear();
+    };
+    let mut previous = ' ';
+    for c in text.chars() {
+        if !c.is_ascii_alphabetic() || (c.is_ascii_uppercase() && previous.is_ascii_lowercase()) {
+            close(&mut word);
+        }
+        if c.is_ascii_alphabetic() {
+            word.push(c);
+        }
+        previous = c;
+    }
+    close(&mut word);
+    (wordy * 100 / total).min(100) as u8
+}
+
+/// Whether a string is filler that happens to be printable: one character most of the way,
+/// hardly any different characters, or mostly punctuation.
+pub fn junk_string(text: &str) -> bool {
+    // Counted by character; anything beyond ASCII shares the last count.
+    let mut counts = [0usize; 129];
+    let (mut total, mut letters) = (0, 0);
+    for c in text.chars() {
+        counts[(c as usize).min(128)] += 1;
+        total += 1;
+        letters += usize::from(c.is_ascii_alphanumeric());
+    }
+    let distinct = counts.iter().filter(|&&count| count > 0).count();
+    let most = counts.iter().copied().max().unwrap_or(0);
+    distinct < 4 || most * 2 > total || letters * 2 < total
+}
+
+/// Orders strings for reading: those that look like an indicator first, the ones only memory
+/// holds ahead of those a file holds too, then strings that read like words, longer first.
+pub fn rank_strings(hits: &mut [MemoryHit]) {
+    hits.sort_by_cached_key(|hit| {
+        let text = hit.text.as_deref().unwrap_or_default();
+        (
+            hit.indicator.is_none(),
+            hit.in_file == Some(true),
+            hit.indicator.map_or(0, Indicator::rank),
+            std::cmp::Reverse(string_score(text) / 10),
+            std::cmp::Reverse(text.chars().count().min(80)),
+            hit.address,
+        )
+    });
+}
+
+/// Adds the strings a continued search found to those listed before: the same string counts
+/// its copies together, and the tally adds up.
+fn merge_strings(previous: &MemorySearchReport, report: &mut MemorySearchReport) {
+    let (Some(old), Some(new)) = (&previous.strings, report.strings.as_mut()) else { return };
+    let shift = old.regions.len() as u32;
+    let mut hits = previous.hits.clone();
+    let mut index: HashMap<String, usize> =
+        hits.iter().enumerate().filter_map(|(i, hit)| Some((hit.text.clone()?, i))).collect();
+    let mut repeated = 0;
+    for mut hit in std::mem::take(&mut report.hits) {
+        hit.places.iter_mut().for_each(|(_, region)| *region += shift);
+        match hit.text.as_ref().and_then(|text| index.get(text)) {
+            Some(&i) => {
+                repeated += 1;
+                let kept = &mut hits[i];
+                kept.copies += hit.copies;
+                let room = STRING_PLACES.saturating_sub(kept.places.len());
+                kept.places.extend(hit.places.into_iter().take(room));
+                kept.in_file = kept.in_file.max(hit.in_file);
+            }
+            None => {
+                if let Some(text) = hit.text.clone() {
+                    index.insert(text, hits.len());
+                }
+                hits.push(hit);
+            }
+        }
+    }
+    rank_strings(&mut hits);
+    report.hits = hits;
+    new.found += old.found;
+    new.distinct = (new.distinct + old.distinct).saturating_sub(repeated);
+    new.memory_only += old.memory_only;
+    new.files = new.files.max(old.files);
+    for &(kind, count) in &old.kinds {
+        match new.kinds.iter_mut().find(|(k, _)| *k == kind) {
+            Some((_, total)) => *total += count,
+            None => new.kinds.push((kind, count)),
+        }
+    }
+    new.kinds.sort_by_key(|(kind, _)| kind.rank());
+    new.regions = old.regions.iter().cloned().chain(std::mem::take(&mut new.regions)).collect();
 }
 #[derive(Debug, Clone)]
 pub struct MemorySearchForm {
@@ -1109,6 +1258,19 @@ impl Activity {
         self.from_search = self.list == ActivityPage::Search;
         self.preview_due = self.capture_request().is_some().then_some(now + PREVIEW_DELAY);
     }
+    /// Moves the selected string to its next copy in memory; false when it has no other.
+    fn next_copy(&mut self) -> bool {
+        let Some(MemorySearchReport { hits, strings: Some(tally), .. }) = self.search_report.as_mut() else {
+            return false;
+        };
+        let Some(hit) = hits.get_mut(self.search_cursor).filter(|hit| hit.places.len() > 1) else { return false };
+        hit.places.rotate_left(1);
+        let (address, region) = hit.places[0];
+        let Some(region) = tally.regions.get(region as usize) else { return false };
+        hit.address = address;
+        hit.region = region.clone();
+        true
+    }
     pub fn preview_waiting(&self) -> bool {
         self.preview_due.is_some()
             || self.pending.as_ref().is_some_and(|(_, request)| {
@@ -1365,6 +1527,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             {
                 report.scanned = report.scanned.saturating_add(previous.scanned).min(report.total);
                 report.skipped = report.skipped.saturating_add(previous.skipped);
+                merge_strings(previous, &mut report);
             }
             activity.retry = (report.skipped > 0).then(|| request.clone());
             activity.search_report = Some(report);
@@ -1870,6 +2033,14 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     {
         return check_integrity(&mut state.activity, process);
     }
+    if key.code == KeyCode::Char('c')
+        && key.modifiers.is_empty()
+        && state.activity.list == ActivityPage::Search
+        && state.activity.next_copy()
+    {
+        state.activity.schedule_preview(now);
+        return Vec::new();
+    }
     if state.activity.list == ActivityPage::Regions && key.code == KeyCode::Char('m') && key.modifiers.is_empty() {
         state.activity.map = !state.activity.map;
         state.activity.schedule_preview(now);
@@ -2239,6 +2410,7 @@ mod tests {
                 skipped: 0,
                 next: None,
                 cancelled: false,
+                strings: None,
             })),
             now,
         );
@@ -2339,6 +2511,7 @@ mod tests {
                 skipped: 4096,
                 next: Some(8192),
                 cancelled: true,
+                strings: None,
             })),
             now,
         );
@@ -2351,6 +2524,130 @@ mod tests {
         let effects = on_key(&mut state, &KeyEvent::new(KeyCode::Char('c'), crossterm::event::KeyModifiers::CONTROL));
         assert!(matches!(&effects[..], [Effect::CancelMemorySearch]));
         assert!(state.activity.search_report.is_some());
+    }
+    #[test]
+    fn a_process_fills_memory_no_file_backs_or_it_may_write_unless_it_never_wrote_any() {
+        let region = |permissions: &str, path: Option<&str>, dirty: Option<u64>, swap: Option<u64>| MemoryRegion {
+            start: 0x1000,
+            end: 0x5000,
+            permissions: permissions.into(),
+            path: path.map(Into::into),
+            dirty,
+            swap,
+            ..Default::default()
+        };
+        assert!(region("rw-", None, Some(0x1000), Some(0)).own());
+        assert!(region("rw-", Some("/app/borg"), Some(0x1000), Some(0)).own());
+        assert!(!region("r-x", Some("/app/borg"), Some(0x1000), Some(0)).own());
+        // The shared libraries' symbol tables: read-only, unnamed, never written.
+        assert!(!region("r--", None, Some(0), Some(0)).own());
+        assert!(region("rw-", None, Some(0), Some(0x1000)).own());
+        // Linux says nothing about written pages.
+        assert!(region("r--", None, None, None).own());
+    }
+    #[test]
+    fn strings_read_like_words_or_filler_and_rank_indicators_and_memory_only_first() {
+        assert_eq!(string_score("plain words"), 100);
+        assert_eq!(string_score("getUserName"), 100, "camelCase reads as words");
+        assert_eq!(string_score("x8Kq2!zP"), 0);
+        assert!(string_score("UH-AWAVAT") < string_score("Hello, world"));
+        for filler in ["AAAAAAAA", "@@@@@@@@", "ababababab", "%s %s %s"] {
+            assert!(junk_string(filler), "{filler}");
+        }
+        assert!(!junk_string("0123456789abcdef"));
+        let hit = |text: &str, indicator, in_file| MemoryHit {
+            text: Some(text.into()),
+            indicator,
+            in_file: Some(in_file),
+            ..Default::default()
+        };
+        let mut hits = vec![
+            hit("x8Kq2!zP", None, false),
+            hit("reading the config", None, true),
+            hit("session started", None, false),
+            hit("/usr/lib/libssl.so.3", Some(Indicator::Path), true),
+            hit("https://shop.example.com/api", Some(Indicator::Url), false),
+            hit("token=abc123", Some(Indicator::Secret), false),
+        ];
+        rank_strings(&mut hits);
+        let order: Vec<_> = hits.iter().map(|hit| hit.text.as_deref().unwrap()).collect();
+        assert_eq!(
+            order,
+            [
+                "token=abc123",
+                "https://shop.example.com/api",
+                "/usr/lib/libssl.so.3",
+                "session started",
+                "x8Kq2!zP",
+                "reading the config"
+            ]
+        );
+    }
+    #[test]
+    fn continued_strings_add_up_and_c_visits_each_copy() {
+        let (mut state, now) = state();
+        open(&mut state);
+        sample(&mut state, vec![process(2, 10, 200)], now);
+        state.activity.preview_focused = true;
+        state.activity.page = ActivityPage::Memory;
+        key(&mut state, KeyCode::Char('/'));
+        state.activity.search_form.as_mut().unwrap().mode = MemorySearchMode::Strings;
+        key(&mut state, KeyCode::Enter);
+        let process = state.activity.selected.unwrap();
+        let region = |start: u64| MemoryRegion {
+            start,
+            end: start + 0x1000,
+            permissions: "rw-".into(),
+            name: format!("heap {start:x}"),
+            ..Default::default()
+        };
+        let report = |address: u64, next| {
+            let hit = MemoryHit {
+                address,
+                length: 15,
+                encoding: "ASCII".into(),
+                region: region(address & !0xfff),
+                text: Some("session started".into()),
+                copies: 1,
+                places: vec![(address, 0)],
+                in_file: Some(false),
+                ..Default::default()
+            };
+            let strings = StringsTally {
+                found: 1,
+                distinct: 1,
+                memory_only: 1,
+                regions: vec![region(address & !0xfff)],
+                ..Default::default()
+            };
+            MemorySearchReport {
+                process,
+                hits: vec![hit],
+                scanned: 0x1000,
+                total: 0x2000,
+                skipped: 0,
+                next,
+                cancelled: false,
+                strings: Some(strings),
+            }
+        };
+        let id = state.activity.pending.as_ref().unwrap().0;
+        receive(&mut state, id, Ok(ActivityData::Search(report(0x10010, Some(0x20000)))), now);
+        key(&mut state, KeyCode::Char('n'));
+        let id = state.activity.pending.as_ref().unwrap().0;
+        receive(&mut state, id, Ok(ActivityData::Search(report(0x20020, None))), now);
+        let shown = state.activity.search_report.as_ref().unwrap();
+        assert_eq!(shown.hits.len(), 1, "the same string from both parts is one result");
+        assert_eq!((shown.hits[0].copies, shown.hits[0].places.clone()), (2, vec![(0x10010, 0), (0x20020, 1)]));
+        let tally = shown.strings.as_ref().unwrap();
+        assert_eq!((tally.found, tally.distinct, tally.regions.len()), (2, 1, 2));
+        state.activity.preview_focused = false;
+        route_key(&mut state, &KeyCode::Char('c').into(), now);
+        let hit = &state.activity.search_report.as_ref().unwrap().hits[0];
+        assert_eq!((hit.address, hit.region.start), (0x20020, 0x20000));
+        assert_eq!(state.activity.marked(), Some(0x20020..0x2002f));
+        route_key(&mut state, &KeyCode::Char('c').into(), now);
+        assert_eq!(state.activity.search_report.as_ref().unwrap().hits[0].address, 0x10010);
     }
     #[test]
     fn finishing_filter_during_initial_sample_keeps_focus_and_selects_when_data_arrives() {
@@ -2492,6 +2789,7 @@ mod tests {
             skipped: 0,
             next: None,
             cancelled: false,
+            strings: None,
         });
         assert_eq!(
             activity.snapshot_rows(16),
@@ -2622,6 +2920,7 @@ mod tests {
                 skipped: 0,
                 next: None,
                 cancelled: false,
+                strings: None,
             });
             state.activity.move_by(isize::MAX, 10, 60);
             assert_eq!(state.activity.list_start(page, 10), 90);

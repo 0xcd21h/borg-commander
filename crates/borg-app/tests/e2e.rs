@@ -1969,6 +1969,49 @@ impl Drop for Mcp {
 }
 
 #[test]
+fn an_agent_searches_process_memory_only_after_the_user_approves() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "agent-memory")?;
+    // Borg can always read its own memory, where the listing of the panels lives.
+    let pid = app.process_id().context("borg's process")?;
+    let mut mcp = Mcp::start(&fixture)?;
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "1" } }))?;
+    let tools = mcp.request("tools/list", serde_json::json!({}))?;
+    ensure!(tools.to_string().contains("\"search_memory\""), "{tools}");
+    let (error, text) = mcp.call("search_memory", serde_json::json!({ "pid": pid, "mode": "words" }))?;
+    ensure!(error && text.contains("no mode words"), "{text}");
+
+    let search = serde_json::json!({ "pid": pid, "mode": "strings", "query": "notes.txt" });
+    let asking = std::thread::spawn({
+        let search = search.clone();
+        move || {
+            let declined = mcp.call("search_memory", search);
+            (mcp, declined)
+        }
+    });
+    app.wait_text("Remote wants to search process memory")?;
+    app.wait_text(&format!("PID {pid}"))?;
+    app.send("n")?;
+    let (mut mcp, declined) = asking.join().unwrap();
+    let (error, text) = declined?;
+    ensure!(error && text.contains("declined"), "{text}");
+
+    let asking = std::thread::spawn(move || {
+        let found = mcp.call("search_memory", search);
+        (mcp, found)
+    });
+    app.wait_text("Remote wants to search process memory")?;
+    approve(&mut app)?;
+    let (mut mcp, found) = asking.join().unwrap();
+    let (error, text) = found?;
+    ensure!(!error && text.contains("different strings") && text.contains("notes.txt"), "{text}");
+    // The process stays approved: the next search does not ask.
+    let (error, text) = mcp.call("search_memory", serde_json::json!({ "pid": pid, "query": "notes", "limit": 3 }))?;
+    ensure!(!error && text.contains(&format!("(PID {pid})")), "{text}");
+    Ok(())
+}
+
+#[test]
 fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "agent")?;

@@ -139,6 +139,9 @@ pub struct App {
     /// and path, once the user approved the first piece.
     downloads: std::collections::HashSet<(String, String)>,
     approve_all: std::collections::HashSet<String>,
+    /// Processes an agent may search the memory of without asking again, by the computer it
+    /// asks from (`None` for this one), once the user approved the first search.
+    memory_readers: std::collections::HashSet<(Option<String>, borg_core::ProcessKey)>,
     runtime_dir: PathBuf,
     mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
     mirror_ready: Option<crate::mirror::Connection>,
@@ -296,6 +299,7 @@ impl App {
             uploads: HashMap::new(),
             downloads: std::collections::HashSet::new(),
             approve_all: std::collections::HashSet::new(),
+            memory_readers: std::collections::HashSet::new(),
             runtime_dir: launch.runtime_dir.clone(),
             mirror_connect: None,
             mirror_ready: None,
@@ -969,6 +973,7 @@ impl App {
                     agent::ConsoleText { lines: emulator.screen().live_text(), typed: emulator.command_line() };
                 drop(reply.send(Reply::ok(agent::screen(&self.state, &self.screen_text(), &console))));
             }
+            "search_memory" => return self.search_memory(call, reply),
             "read" => match text("source").as_deref() {
                 Some("processes") => {
                     const SHOWN: u64 = 40;
@@ -1290,6 +1295,88 @@ impl App {
             }
         });
         None
+    }
+
+    /// Searches a process's memory for an agent, once the user approved searching that process.
+    /// The approval names the process by its start too, so a new process that reuses the PID
+    /// before the user answers is not searched.
+    fn search_memory(
+        &mut self,
+        mut call: crate::agent::Call,
+        reply: tokio::sync::oneshot::Sender<crate::agent::Reply>,
+    ) -> Result<Flow> {
+        use crate::agent::{Reply, Work};
+        use borg_core::{AgentEvent, Ask, AskKind, DiffLine, MemorySearchMode};
+        let fail = |reply: tokio::sync::oneshot::Sender<Reply>, text: String| {
+            drop(reply.send(Reply::error(text)));
+            Ok(Flow::Continue)
+        };
+        let Some(pid) = call.args["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()).filter(|&pid| pid > 0) else {
+            return fail(reply, "search_memory needs the PID of a running process".into());
+        };
+        let (mode, label) = match call.args["mode"].as_str().unwrap_or("indicators") {
+            "indicators" => (MemorySearchMode::Indicators, tr!(memory_mode_indicators)),
+            "strings" => (MemorySearchMode::Strings, tr!(memory_mode_strings)),
+            "text" => (MemorySearchMode::Text, tr!(memory_mode_text)),
+            "unicode" => (MemorySearchMode::Unicode, tr!(memory_mode_unicode)),
+            "hex" => (MemorySearchMode::Hex, tr!(memory_mode_hex)),
+            other => {
+                return fail(
+                    reply,
+                    format!("search_memory has no mode {other}: use indicators, strings, text, unicode or hex"),
+                );
+            }
+        };
+        let query = crate::memory_search::Query {
+            text: call.args["query"].as_str().unwrap_or_default().to_owned(),
+            mode,
+            match_case: call.args["match_case"].as_bool().unwrap_or(false),
+        };
+        if let Err(error) = crate::memory_search::validate(&query.text, mode) {
+            return fail(reply, format!("{error:#}"));
+        }
+        let Some((process, name, program)) = crate::activity::identify(pid) else {
+            return fail(reply, format!("No process with PID {pid} is running"));
+        };
+        if call.approved && call.args["_start"].as_u64() != Some(process.start) {
+            return fail(reply, format!("The process with PID {pid} ended before the search could start"));
+        }
+        let allowed = call.approved
+            || self.memory_readers.contains(&(call.origin.clone(), process))
+            || call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin));
+        if !allowed {
+            let mut body = vec![DiffLine::plain(tr!(agent_memory_process, name = name, pid = pid))];
+            if let Some(program) = &program {
+                body.push(DiffLine::plain(tr!(agent_memory_program, path = program.display())));
+            }
+            let searched = if query.text.is_empty() { label.to_owned() } else { format!("{label} · {}", query.text) };
+            body.extend([
+                DiffLine::plain(tr!(agent_memory_search, mode = searched)),
+                DiffLine::plain(""),
+                DiffLine::plain(tr!(agent_memory_warning)),
+            ]);
+            let place = call
+                .origin
+                .as_ref()
+                .map_or_else(String::new, |origin| tr!(agent_asked_from).replace("{origin}", origin));
+            let ask = Ask { kind: AskKind::Memory, summary: format!("{name} (PID {pid})"), place, body };
+            call.args["_start"] = serde_json::json!(process.start);
+            let id = self.agent.ask(reply, Work::Forward(call));
+            return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
+        }
+        self.memory_readers.insert((call.origin.clone(), process));
+        let limit = call.args["limit"].as_u64().unwrap_or(100).clamp(1, 2000) as usize;
+        let admin = call.args["admin"] == true;
+        self.agent.note(&format!("searched the memory of {name} (PID {pid})"));
+        tokio::spawn(async move {
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let answer = match crate::activity::search_for_agent(process, query, admin, cancelled).await {
+                Ok(report) => crate::agent::memory_report(&report, &name, limit),
+                Err(error) => Reply::error(format!("{error:#}")),
+            };
+            drop(reply.send(answer));
+        });
+        Ok(Flow::Continue)
     }
 
     /// Answers reveals once their panel shows the folder, or is going somewhere else.

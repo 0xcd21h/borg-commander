@@ -66,6 +66,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
         AskKind::Read => tr!(agent_wants_read),
         AskKind::Upload => tr!(agent_wants_upload),
         AskKind::ApprovalMode => tr!(agent_wants_approve_all),
+        AskKind::Memory => tr!(agent_wants_memory),
     };
     Line::styled(heading, styles.overlay).centered().render(row(rect, rect.y + 1), buf);
 
@@ -84,7 +85,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
     let (ask, place) = (&approval.ask, &approval.ask.place);
     let place = match ask.kind {
         AskKind::Run => tr!(agent_in_place).replace("{place}", place),
-        AskKind::Pair | AskKind::Read | AskKind::Upload | AskKind::ApprovalMode => place.clone(),
+        AskKind::Pair | AskKind::Read | AskKind::Upload | AskKind::ApprovalMode | AskKind::Memory => place.clone(),
         _ if place.is_empty() => ask.summary.clone(),
         _ => tr!(agent_file_place).replace("{path}", &ask.summary).replace("{place}", place),
     };

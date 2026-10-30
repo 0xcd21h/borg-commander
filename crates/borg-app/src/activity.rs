@@ -1,4 +1,4 @@
-use crate::memory_search::Query;
+use crate::{memory_search::Query, memory_strings::Known};
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{
     ActivityData, ActivityRequest, IntegrityReport, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT,
@@ -31,6 +31,8 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 const ADMIN_TIMEOUT: Duration = Duration::from_secs(120);
 const KIB: f64 = 1024.0;
 const CANCEL_POLL: Duration = Duration::from_millis(100);
+/// How long a search for strings reads the strings of the process's files before it starts.
+const FILE_STRINGS_TIME: Duration = Duration::from_secs(20);
 /// How far a capture reads past zeros at the start of a region to find data.
 const SEEK_LIMIT: u64 = 16 * 1024 * 1024;
 const PAGE: u64 = 4096;
@@ -146,6 +148,40 @@ impl Drop for Monitor {
     }
 }
 
+/// The running process with `pid` as Borg tells processes apart, with its name and program.
+pub(crate) fn identify(pid: u32) -> Option<(ProcessKey, String, Option<PathBuf>)> {
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
+        true,
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet),
+    );
+    let process = system.process(Pid::from_u32(pid))?;
+    let key = ProcessKey { pid, start: process.start_time() };
+    Some((key, process.name().to_string_lossy().into_owned(), process.exe().map(PathBuf::from)))
+}
+/// Searches a process's memory for an agent: as this user, or as administrator through the
+/// system's own password prompt.
+pub(crate) async fn search_for_agent(
+    process: ProcessKey,
+    query: Query,
+    admin: bool,
+    cancelled: Arc<AtomicBool>,
+) -> Result<borg_core::MemorySearchReport> {
+    let request = ActivityRequest::Search {
+        process,
+        query: query.text,
+        mode: query.mode,
+        match_case: query.match_case,
+        snapshot: None,
+        start: None,
+        admin,
+    };
+    match inspect(request, cancelled, None).await? {
+        ActivityData::Search(report) => Ok(report),
+        _ => bail!(tr!(activity_request_invalid)),
+    }
+}
 fn verify(process: ProcessKey) -> Result<()> {
     let mut system = System::new();
     system.refresh_processes_specifics(
@@ -679,8 +715,7 @@ async fn search_memory(
         };
         if let Some(snapshot) = snapshot {
             crate::memory_search::scan(
-                process,
-                maps,
+                crate::memory_search::Target { process, regions: maps, known: &Known::default() },
                 &query,
                 start,
                 &cancelled,
@@ -693,9 +728,24 @@ async fn search_memory(
         } else {
             verify(process)?;
             let memory = Memory::open(process)?;
+            // Strings come from memory the process filled itself; the rest is in its files,
+            // whose strings tell which of those only memory holds.
+            let (maps, known) = if query.mode.strings() {
+                let root = PathBuf::from(if cfg!(target_os = "linux") {
+                    format!("/proc/{}/root", process.pid)
+                } else {
+                    "/".into()
+                });
+                let files: std::collections::BTreeSet<_> =
+                    maps.iter().filter_map(|region| region.path.as_deref()).collect();
+                let files = files.into_iter().map(|path| root.join(path.trim_start_matches('/')));
+                let known = Known::read(files, Instant::now() + FILE_STRINGS_TIME);
+                (maps.into_iter().filter(MemoryRegion::own).collect(), known)
+            } else {
+                (maps, Known::default())
+            };
             let report = crate::memory_search::scan(
-                process,
-                maps,
+                crate::memory_search::Target { process, regions: maps, known: &known },
                 &query,
                 start,
                 &cancelled,

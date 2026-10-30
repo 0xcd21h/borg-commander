@@ -456,6 +456,13 @@ The agent can also type text for you to review: a command at the prompt, or a sc
 vim or nano open in the console. Nothing runs: no Enter is pressed, and text with several
 lines goes in as a paste, which shells and editors insert without running.
 
+The agent can also search a process's memory the way the memory search does, for strings,
+indicators, text or bytes. Memory can hold passwords, keys and private messages, and what the
+search finds goes to the agent, so the first search of each process waits for you in a dialog
+that names the process, its program and the search. Approving lets the agent search that
+process again until borg quits. It can ask to read as administrator, which opens the system's
+own password prompt.
+
 ### Borg cloud
 
 Borg cloud lets Claude reach a borg it has no SSH route to: a server you open in a browser
@@ -773,13 +780,21 @@ orders). **Unicode** also normalizes compatibility characters and combining
 sequences: for example, `𝐁𝐨𝐫𝐠` matches `Borg`. This does not equate unrelated letters
 that merely look similar. **Hex** accepts byte pairs such as `42 6F 72 67`.
 
-**Strings** lists every run of at least six printable ASCII or UTF-16LE characters; a query,
+**Strings** and **Indicators** read only memory the process filled itself: memory no file
+backs and memory it may write; on macOS, regions it never wrote are left out too. **Strings**
+lists each run of at least six printable ASCII or UTF-16LE characters once, with the number of
+copies in memory, and leaves out filler such as repeated characters or punctuation; a query,
 when given, keeps those that contain it. **Indicators** keeps the strings that look like a URL,
 an IP address, an email address, a file path, a command line, a secret (a private key, an access
-token or a password assignment) or a long run of base64, and labels each. These results show the
-kind and the start of the string where other matches show their region, and the preview shows
-it in place. They are leads for a closer look, not proof of anything: ordinary programs hold
-plenty of URLs, paths and keys.
+token or a password assignment) or a long run of base64, and labels each.
+
+Borg also reads the strings in the files the process has mapped, up to 1 GiB, and marks with •
+the ones only memory holds: text the process built, received or decoded rather than loaded
+from its files. Indicators come first, strings only memory holds come before those its files
+hold, and strings that read like words come before the rest. The list keeps the best 2,000.
+Each row shows the kind and the number of copies where other matches show their region, and
+the preview shows the string in place; **C** steps through its copies. These results are leads
+for a closer look, not proof of anything: ordinary programs hold plenty of URLs, paths and keys.
 
 **I**, in the memory map or among search matches, checks whether the process runs the code
 its files hold. It compares code in memory with the files it was mapped from and reports the

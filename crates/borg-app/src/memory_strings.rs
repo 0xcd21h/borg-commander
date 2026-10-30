@@ -2,12 +2,96 @@
 //! to, runs, or holds as a secret.
 
 use borg_core::Indicator;
+use std::{
+    collections::HashSet,
+    hash::{DefaultHasher, Hash, Hasher},
+    io::Read,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 /// Shortest run of characters that counts as a string.
 const MIN_CHARS: usize = 6;
 /// Characters of a string kept to classify and filter it; the hit still spans all of it.
 const KEPT: usize = 1024;
 const ENCODED_CHARS: usize = 40;
+/// How much of a file is read at a time for its strings, and how much of it carries over.
+const FILE_CHUNK: usize = 8 * 1024 * 1024;
+const FILE_CARRY: usize = 8192;
+/// The most a single file and all files together are read for their strings.
+const FILE_LIMIT: u64 = 512 * 1024 * 1024;
+const FILES_LIMIT: u64 = 1024 * 1024 * 1024;
+
+/// The strings of the files mapped into a process, kept as hashes, to tell the strings only
+/// memory holds from those its files hold too.
+#[derive(Default)]
+pub struct Known {
+    hashes: HashSet<u64>,
+    /// Files whose strings were read.
+    pub files: u64,
+}
+
+impl Known {
+    /// Reads the strings of each regular file in turn, as long as the limits and `deadline`
+    /// allow; a file that cannot be opened is left out.
+    pub fn read(paths: impl IntoIterator<Item = PathBuf>, deadline: Instant) -> Self {
+        let mut known = Self::default();
+        let mut budget = FILES_LIMIT;
+        for path in paths {
+            let size = std::fs::metadata(&path).ok().filter(|m| m.is_file()).map(|m| m.len());
+            let Some(size) = size.filter(|&size| size <= FILE_LIMIT.min(budget)) else { continue };
+            if Instant::now() >= deadline {
+                break;
+            }
+            if known.add_file(&path).is_ok() {
+                budget -= size;
+            }
+        }
+        known
+    }
+
+    fn add_file(&mut self, path: &Path) -> std::io::Result<()> {
+        let mut file = std::fs::File::open(path)?;
+        let mut carry = Vec::new();
+        let mut chunk = vec![0; FILE_CHUNK];
+        loop {
+            let mut filled = 0;
+            while filled < chunk.len() {
+                match file.read(&mut chunk[filled..])? {
+                    0 => break,
+                    n => filled += n,
+                }
+            }
+            let last = filled < chunk.len();
+            let fresh = carry.len();
+            carry.extend_from_slice(&chunk[..filled]);
+            self.add(&carry, fresh, last);
+            if last {
+                break;
+            }
+            carry.drain(..carry.len().saturating_sub(FILE_CARRY));
+        }
+        self.files += 1;
+        Ok(())
+    }
+
+    fn add(&mut self, data: &[u8], fresh: usize, last: bool) {
+        self.hashes.extend(find(data, fresh, FILE_CARRY, last).iter().map(|found| hash(&found.text)));
+    }
+
+    /// Whether a compared file holds the string with this `hash`; `None` when no file was
+    /// compared.
+    pub fn holds(&self, hash: u64) -> Option<bool> {
+        (self.files > 0).then(|| self.hashes.contains(&hash))
+    }
+}
+
+/// What tells strings apart without keeping them.
+pub fn hash(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// A string found in a read: where it starts in the bytes, how many bytes it spans, how it is
 /// encoded, and its first characters.
@@ -30,6 +114,10 @@ fn printable(byte: u8) -> bool {
 /// bytes began earlier and was reported then: only its new part counts.
 pub fn find(data: &[u8], fresh: usize, keep: usize, last: bool) -> Vec<Found> {
     let mut found = Vec::new();
+    // Memory a process reserved but has not filled yet reads as zeros.
+    if data.iter().all(|&byte| byte == 0) {
+        return found;
+    }
     for (unit, encoding) in [(1, "ASCII"), (2, "UTF-16LE")] {
         for phase in 0..unit {
             let is_char = |i: usize| {
@@ -69,6 +157,9 @@ pub fn find(data: &[u8], fresh: usize, keep: usize, last: bool) -> Vec<Found> {
 
 /// What a string looks like it is, if it looks like anything worth a second look.
 pub fn indicator(text: &str) -> Option<Indicator> {
+    if !possible(text) {
+        return None;
+    }
     let lower = text.to_ascii_lowercase();
     if secret(text, &lower) {
         Some(Indicator::Secret)
@@ -87,6 +178,22 @@ pub fn indicator(text: &str) -> Option<Indicator> {
     } else {
         None
     }
+}
+
+/// Characters every kind of indicator shorter than a credential has, but for a few commands
+/// named alone.
+const MARKS: &[u8] = b" /:@.=|-+_\\";
+const BARE_COMMANDS: [&str; 3] = ["powershell", "mkfifo", "crontab"];
+const CREDENTIAL_CHARS: usize = 20;
+
+/// Whether a string could be an indicator at all: most are short words with none of the marks,
+/// and are passed over without a closer look.
+fn possible(text: &str) -> bool {
+    text.len() >= CREDENTIAL_CHARS
+        || text.bytes().any(|b| MARKS.contains(&b))
+        || BARE_COMMANDS.iter().any(|command| {
+            text.as_bytes().windows(command.len()).any(|window| window.eq_ignore_ascii_case(command.as_bytes()))
+        })
 }
 
 const COMMANDS: [&str; 22] = [
@@ -114,8 +221,8 @@ const COMMANDS: [&str; 22] = [
     "crontab",
 ];
 
-/// How well-known credentials start, how long they are at least, and whether they are all
-/// capitals and digits.
+/// How well-known credentials start, how long they are at least (never under
+/// `CREDENTIAL_CHARS`), and whether they are all capitals and digits.
 const CREDENTIALS: [(&str, usize, bool); 9] = [
     ("AKIA", 20, true),
     ("ASIA", 20, true),
@@ -139,18 +246,24 @@ fn secret(text: &str, lower: &str) -> bool {
     if lower.contains("private key-----") || SECRET_NAMES.iter().any(|name| lower.contains(name)) {
         return true;
     }
-    let jwt = text.split(|c: char| !(token_char(c) || c == '.')).any(|word| {
-        let parts: Vec<_> = word.split('.').collect();
-        parts.len() == 3 && parts[0].starts_with("eyJ") && parts[1].starts_with("eyJ") && parts[2].len() >= 16
-    });
+    let jwt = text.contains("eyJ")
+        && text.split(|c: char| !(token_char(c) || c == '.')).any(|word| {
+            let mut parts = word.split('.');
+            matches!(
+                (parts.next(), parts.next(), parts.next(), parts.next()),
+                (Some(header), Some(claims), Some(signature), None)
+                    if header.starts_with("eyJ") && claims.starts_with("eyJ") && signature.len() >= 16
+            )
+        });
     jwt || text.split(|c: char| !token_char(c)).any(|word| {
-        CREDENTIALS.iter().any(|&(prefix, len, capitals)| {
-            word.starts_with(prefix)
-                && word.len() >= len
-                // A credential mixes digits in; a word that merely starts like one does not.
-                && word.chars().any(|c| c.is_ascii_digit())
-                && (!capitals || word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
-        })
+        word.len() >= CREDENTIAL_CHARS
+            && CREDENTIALS.iter().any(|&(prefix, len, capitals)| {
+                word.starts_with(prefix)
+                    && word.len() >= len
+                    // A credential mixes digits in; a word that merely starts like one does not.
+                    && word.chars().any(|c| c.is_ascii_digit())
+                    && (!capitals || word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
+            })
     })
 }
 
@@ -179,11 +292,11 @@ fn email(text: &str) -> bool {
 
 fn ip(text: &str) -> bool {
     text.split(|c: char| !(c.is_ascii_digit() || c == '.')).any(|word| {
-        let parts: Vec<_> = word.split('.').collect();
-        parts.len() == 4
-            && parts
-                .iter()
-                .all(|p| (1..=3).contains(&p.len()) && p.parse::<u8>().is_ok() && (p.len() == 1 || !p.starts_with('0')))
+        let mut parts = 0;
+        word.split('.').all(|p| {
+            parts += 1;
+            (1..=3).contains(&p.len()) && p.parse::<u8>().is_ok() && (p.len() == 1 || !p.starts_with('0'))
+        }) && parts == 4
     })
 }
 

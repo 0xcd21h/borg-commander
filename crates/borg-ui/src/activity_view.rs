@@ -30,6 +30,10 @@ const CHART_ROWS: u16 = 20;
 const BLOCKS: [char; 7] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇'];
 const LEFT_BLOCKS: [char; 7] = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
 const BYTE_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
+/// Summary rows above search results: what was found, then what was searched or the strings' tally.
+const SEARCH_HEADER: u16 = 2;
+/// Marks a string no compared file holds.
+const MEMORY_ONLY: &str = "•";
 
 fn tabs(area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let mut x = area.x;
@@ -465,12 +469,23 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
             ActivityPage::Files | ActivityPage::FileDetails => {
                 vec![(tr!(activity_refresh_button), KeyCode::Char('r')), (tr!(activity_back_button), KeyCode::Esc)]
             }
-            ActivityPage::Search => vec![
-                (tr!(memory_preview_button), KeyCode::Enter),
-                (tr!(memory_search_shortcut), KeyCode::Char('/')),
-                (tr!(memory_continue_button), KeyCode::Char('n')),
-                (tr!(activity_back_button), KeyCode::Esc),
-            ],
+            ActivityPage::Search => {
+                let copies = activity
+                    .search_report
+                    .as_ref()
+                    .and_then(|report| report.hits.get(activity.search_cursor))
+                    .is_some_and(|hit| hit.places.len() > 1);
+                let mut specs = vec![(tr!(memory_preview_button), KeyCode::Enter)];
+                if copies {
+                    specs.push((tr!(memory_next_copy_button), KeyCode::Char('c')));
+                }
+                specs.extend([
+                    (tr!(memory_search_shortcut), KeyCode::Char('/')),
+                    (tr!(memory_continue_button), KeyCode::Char('n')),
+                    (tr!(activity_back_button), KeyCode::Esc),
+                ]);
+                specs
+            }
             ActivityPage::Integrity => vec![
                 (tr!(memory_preview_button), KeyCode::Enter),
                 (tr!(integrity_again_button), KeyCode::Char('r')),
@@ -1259,6 +1274,9 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
             ActivityPage::Regions => tr!(activity_map_hint),
             ActivityPage::Snapshot if activity.map => tr!(census_hint),
             ActivityPage::Snapshot => tr!(activity_snapshot_hint),
+            ActivityPage::Search if activity.search_report.as_ref().is_some_and(|r| r.strings.is_some()) => {
+                tr!(memory_strings_hint)
+            }
             ActivityPage::Search => tr!(memory_results_hint),
             ActivityPage::Integrity => tr!(integrity_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),
@@ -1339,8 +1357,8 @@ pub(crate) fn panel_mouse(
         }
         let body = match activity.list {
             _ if preview => body,
-            ActivityPage::Search => results_list(body, 0),
-            ActivityPage::Integrity => results_list(body, FINDING_NOTE),
+            ActivityPage::Search => results_list(body, SEARCH_HEADER, 0),
+            ActivityPage::Integrity => results_list(body, 1, FINDING_NOTE),
             _ => body,
         };
         if body.contains(point) && !preview {
@@ -1359,15 +1377,18 @@ fn form_field(body: Rect, index: usize) -> Rect {
         ..body
     }
 }
-fn search_form(form: &borg_core::MemorySearchForm, theme: &Theme, body: Rect, buf: &mut Buffer) {
+fn mode_label(mode: borg_core::MemorySearchMode) -> &'static str {
     use borg_core::MemorySearchMode;
-    let mode = match form.mode {
+    match mode {
         MemorySearchMode::Text => tr!(memory_mode_text),
         MemorySearchMode::Hex => tr!(memory_mode_hex),
         MemorySearchMode::Unicode => tr!(memory_mode_unicode),
         MemorySearchMode::Strings => tr!(memory_mode_strings),
         MemorySearchMode::Indicators => tr!(memory_mode_indicators),
-    };
+    }
+}
+fn search_form(form: &borg_core::MemorySearchForm, theme: &Theme, body: Rect, buf: &mut Buffer) {
+    let mode = mode_label(form.mode);
     let fields = [
         (tr!(memory_search_query), form.input.text().to_owned()),
         (tr!(memory_search_mode), format!("‹ {mode} ›")),
@@ -1409,44 +1430,72 @@ fn search_results(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buff
     } else {
         tr!(memory_search_complete)
     };
-    text(
-        buf,
-        row(body, 0),
-        tr!(
-            memory_search_summary,
-            hits = report.hits.len(),
-            scanned = format::size(report.scanned),
-            total = format::size(report.total),
-            skipped = format::size(report.skipped),
-            more = more
-        ),
-        dim(theme),
-    );
-    let list = results_list(body, 0);
-    for (i, hit) in report
-        .hits
-        .iter()
-        .skip(activity.list_start(ActivityPage::Search, usize::from(list.height)))
-        .take(usize::from(list.height))
-        .enumerate()
-    {
-        let selected =
-            i + activity.list_start(ActivityPage::Search, usize::from(list.height)) == activity.search_cursor;
-        let style = if selected { theme.styles.cursor } else { theme.styles.overlay };
-        let line = row(list, i as u16);
+    let (scanned, total, skipped) =
+        (format::size(report.scanned), format::size(report.total), format::size(report.skipped));
+    let (summary, details) = match &report.strings {
+        Some(tally) => {
+            let summary = tr!(
+                memory_strings_summary,
+                distinct = tally.distinct,
+                found = tally.found,
+                scanned = scanned,
+                total = total,
+                skipped = skipped,
+                more = more
+            );
+            let compared = if tally.files > 0 {
+                tr!(memory_strings_compared, only = tally.memory_only, files = tally.files)
+            } else {
+                tr!(memory_strings_uncompared).to_owned()
+            };
+            let kinds = tally.kinds.iter().map(|(kind, count)| format!("{} {count}", kind.label()));
+            (summary, std::iter::once(compared).chain(kinds).collect::<Vec<_>>().join(" · "))
+        }
+        None => {
+            let summary = tr!(
+                memory_search_summary,
+                hits = report.hits.len(),
+                scanned = scanned,
+                total = total,
+                skipped = skipped,
+                more = more
+            );
+            let searched = match &activity.last_search {
+                Some(ActivityRequest::Search { mode, query, .. }) => format!("{} · {query}", mode_label(*mode)),
+                _ => String::new(),
+            };
+            (summary, searched)
+        }
+    };
+    text(buf, row(body, 0), summary, dim(theme));
+    text(buf, row(body, 1), details, dim(theme));
+    let list = results_list(body, SEARCH_HEADER, 0);
+    let start = activity.list_start(ActivityPage::Search, usize::from(list.height));
+    for (i, hit) in report.hits.iter().enumerate().skip(start).take(usize::from(list.height)) {
+        let style = if i == activity.search_cursor { theme.styles.cursor } else { theme.styles.overlay };
+        let line = row(list, (i - start) as u16);
         buf.set_style(line, style);
         let shown = match &hit.text {
-            Some(found) => format!("{:<8} {found}", hit.indicator.map_or("", |kind| kind.label())),
-            None => hit.region.name.clone(),
+            Some(found) if report.strings.is_some() => {
+                let copies = if hit.copies > 1 { format!("×{}", hit.copies) } else { String::new() };
+                let only = if hit.in_file == Some(false) { MEMORY_ONLY } else { " " };
+                format!("{:<8} {copies:>6} {only} {found}", hit.indicator.map_or("", |kind| kind.label()))
+            }
+            Some(found) => format!("{:<9} {:<8} {found}", hit.encoding, hit.indicator.map_or("", |kind| kind.label())),
+            None => format!("{:<9} {}", hit.encoding, hit.region.name),
         };
-        text(buf, line, format!("{:016x} {:<9} {shown}", hit.address, hit.encoding), style);
+        text(buf, line, displayable(&format!("{:016x} {shown}", hit.address)), style);
     }
 }
 
-/// The rows of a results list: below its summary, and above `note` rows that explain the
-/// selected result.
-fn results_list(body: Rect, note: u16) -> Rect {
-    Rect { y: body.y.saturating_add(1).min(body.bottom()), height: body.height.saturating_sub(1 + note), ..body }
+/// The rows of a results list: below `header` summary rows, and above `note` rows that
+/// explain the selected result.
+fn results_list(body: Rect, header: u16, note: u16) -> Rect {
+    Rect {
+        y: body.y.saturating_add(header).min(body.bottom()),
+        height: body.height.saturating_sub(header + note),
+        ..body
+    }
 }
 
 /// Integrity findings, worst first, with what the selected one means below them.
@@ -1461,7 +1510,7 @@ fn findings(activity: &Activity, report: &IntegrityReport, theme: &Theme, body: 
         incomplete = if report.complete { "" } else { tr!(integrity_incomplete) }
     );
     text(buf, row(body, 0), summary, dim(theme));
-    let list = results_list(body, FINDING_NOTE);
+    let list = results_list(body, 1, FINDING_NOTE);
     if report.findings.is_empty() {
         text(buf, row(list, 0), tr!(integrity_none), theme.styles.overlay);
         return;

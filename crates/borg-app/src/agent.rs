@@ -733,8 +733,9 @@ pub fn host_dir(state: &AppState) -> PathBuf {
 }
 
 /// The tools `borg mcp` offers, as MCP describes them: few and general. The agent looks with
-/// `screen` and `read` without asking, puts things in front of the user with `show`, and
-/// changes anything only through `write`, `edit` and `run`, which wait for the user's approval.
+/// `screen` and `read` without asking, searches a process's memory once the user lets it, puts
+/// things in front of the user with `show`, and changes anything only through `write`, `edit`
+/// and `run`, which wait for the user's approval.
 fn tools() -> Value {
     const LOCATIONS: &str = "A location is an absolute path on the machine Borg runs on, ~/… for its home folder, docker://CONTAINER/path inside a container (by name, Compose service or id), or a path relative to the active panel's folder, wherever that panel is. `screen` names the panels this way.";
     let read_only = json!({ "readOnlyHint": true });
@@ -758,6 +759,23 @@ fn tools() -> Value {
                     "limit": { "type": "integer", "minimum": 1 },
                     "sort": { "type": "string", "enum": ["memory", "cpu"] }
                 }
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "search_memory",
+            "description": "Searches the memory of a running process on the machine Borg runs on, after the user approves it in Borg, once per process. Get PIDs from read with source \"processes\". `mode` \"indicators\" (the default) lists strings that look like URLs, IP addresses, email addresses, file paths, command lines, secrets or base64; \"strings\" lists every string that reads like text. Both look only at memory the process fills itself (heap, stacks, writable data), list each string once with how many copies memory holds, and compare it with the files mapped into the process: strings only memory holds come first, since the program built or received them while running (a decrypted configuration, a server it talks to, a command it was given). `query` keeps the strings that contain it. \"text\" finds where `query` lies in all readable memory, as UTF-8, UTF-16 or UTF-32, and answers with addresses only (to read the strings around it, search \"strings\" with that `query`), \"unicode\" also matches styled and combined letters, and \"hex\" finds bytes such as \"4D 5A 90 00\". `limit` caps the rows (default 100). A search reads for at most a minute. Memory can hold passwords and keys: quote them only as far as the task needs. Where the system refuses to read the process, `admin` true asks the user for their password to read it as administrator.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pid": { "type": "integer", "minimum": 1 },
+                    "mode": { "type": "string", "enum": ["indicators", "strings", "text", "unicode", "hex"] },
+                    "query": { "type": "string" },
+                    "match_case": { "type": "boolean" },
+                    "limit": { "type": "integer", "minimum": 1 },
+                    "admin": { "type": "boolean" }
+                },
+                "required": ["pid"]
             },
             "annotations": read_only,
         },
@@ -844,6 +862,75 @@ pub fn processes(sample: &borg_core::SystemSample, by_cpu: bool, shown: usize) -
         let _ = writeln!(text, "{:<8} {cpu:>5} {ram:>6}  {}{path}", p.key.pid, p.name);
     }
     Reply::ok(text)
+}
+
+/// A memory search as the agent reads it: what was searched and found, then a row per result.
+pub fn memory_report(report: &borg_core::MemorySearchReport, name: &str, limit: usize) -> Reply {
+    use borg_ui::size_text;
+    let mut text = format!(
+        "{name} (PID {}) · {} of {} searched · {} inaccessible{}\n",
+        report.process.pid,
+        size_text(report.scanned),
+        size_text(report.total),
+        size_text(report.skipped),
+        if report.cancelled || report.next.is_some() { " · stopped before the end" } else { "" }
+    );
+    let shown = report.hits.len().min(limit);
+    match &report.strings {
+        Some(tally) => {
+            let _ = write!(text, "{} different strings, {} copies", tally.distinct, tally.found);
+            for (kind, count) in &tally.kinds {
+                let _ = write!(text, " · {} {count}", indicator_name(*kind));
+            }
+            if tally.files > 0 {
+                let _ = write!(text, "\nOnly in memory: {} · files compared: {}", tally.memory_only, tally.files);
+            }
+            let _ = writeln!(
+                text,
+                "\nShowing {shown}, best first. Columns: address, kind, copies, memory (no compared file holds it) or file, region, text"
+            );
+            for hit in &report.hits[..shown] {
+                let found = hit.text.as_deref().unwrap_or_default().replace('\t', " ");
+                let unit = if hit.encoding.starts_with("UTF-16") { 2 } else { 1 };
+                let cut = if found.chars().count() < hit.length / unit { "…" } else { "" };
+                let held = match hit.in_file {
+                    Some(true) => "file",
+                    Some(false) => "memory",
+                    None => "-",
+                };
+                let kind = hit.indicator.map_or("-", indicator_name);
+                let _ = writeln!(
+                    text,
+                    "{:#x}  {kind}  ×{}  {held}  {}  {found}{cut}",
+                    hit.address,
+                    hit.copies.max(1),
+                    hit.region.kind()
+                );
+            }
+        }
+        None => {
+            let _ =
+                writeln!(text, "{} matches; showing {shown}. Columns: address, encoding, region", report.hits.len());
+            for hit in &report.hits[..shown] {
+                let _ = writeln!(text, "{:#x}  {}  {}", hit.address, hit.encoding, hit.region.name);
+            }
+        }
+    }
+    Reply::ok(text)
+}
+
+/// An indicator's kind as the agent reads it, the same in every language.
+fn indicator_name(kind: borg_core::Indicator) -> &'static str {
+    use borg_core::Indicator;
+    match kind {
+        Indicator::Url => "url",
+        Indicator::Ip => "ip",
+        Indicator::Email => "email",
+        Indicator::Path => "path",
+        Indicator::Command => "command",
+        Indicator::Secret => "secret",
+        Indicator::Encoded => "base64",
+    }
 }
 
 /// The newest session that answers, among the sockets in the agent folder.
