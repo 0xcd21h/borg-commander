@@ -433,7 +433,7 @@ mod tests {
         assert!(file("\"my notes\"", "/home/my notes.txt") && !file("my notes", "/home/notes.txt"));
         assert!(file("\"-v\"", "/bin/x-v") && !file("-\"v\"", "/bin/v1"), "a leading quote keeps the dash");
         assert!(file("\"ext:rs\"", "/a ext:rs b") && file("\"*.rs\"", "/odd *.rs name"));
-        assert!(file("in:\"My Folder\"", "/Users/me/My Folder/a.txt"));
+        assert!(file("in:\"My Folder\"", "/home/me/My Folder/a.txt"));
     }
 
     #[test]

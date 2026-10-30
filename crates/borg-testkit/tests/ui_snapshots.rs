@@ -380,7 +380,17 @@ fn empty_folders_flash_now_and_then_and_remember_patrick_stewart_on_october_28()
     let mut stage = staged(Motion::STILL, QUIET, Vec::new(), "2026-10-28T12:00:00+00:00[UTC]")?;
     let buffer = stage.render(stage.started + Duration::from_secs_f32(flash))?;
     ensure_text(&buffer, "In memory of Sir Patrick Stewart")?;
-    check("empty_folder_remembrance", &stage, buffer)
+    check("empty_folder_remembrance", &stage, buffer)?;
+    let large = GridSize { cols: 150, rows: 52 };
+    let settings = Settings { motion: Motion::STILL, preferences: QUIET, ..Settings::default() };
+    let dirs = [PathBuf::from("/home/me/projects/borg"), PathBuf::from("/var/log")];
+    let mut stage = Stage::new(dirs, [Vec::new(), logs()], large, settings, "2026-10-28T12:00:00+00:00[UTC]".parse()?)?;
+    let buffer = stage.render(stage.started)?;
+    check("empty_folder_remembrance_portrait", &stage, buffer)?;
+    let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap_or_default();
+    stage.state.appearance.select(classic, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("empty_folder_remembrance_classic", &stage, buffer)
 }
 
 #[test]

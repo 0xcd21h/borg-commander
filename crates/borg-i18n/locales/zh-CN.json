@@ -497,6 +497,7 @@
   "panel_empty": "空的",
   "tribute_memory": "纪念帕特里克·斯图尔特爵士，1940–2026",
   "tribute_line": "他曾指挥企业号，也曾一度引领集合体",
+  "tribute_credit": "肖像取自 Gage Skidmore 的照片，CC BY-SA 3.0",
   "missing_suffix": " [不存在]",
   "collections_load_error": "收藏：{error:#}",
   "collections_preserved": "无法读取保存的收藏；他们的文件已被保留",

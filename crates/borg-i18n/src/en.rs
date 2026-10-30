@@ -508,6 +508,7 @@ catalog! {
     panel_empty => "empty",
     tribute_memory => "In memory of Sir Patrick Stewart, 1940–2026",
     tribute_line => "who led the Enterprise and, for a while, the Collective",
+    tribute_credit => "Portrait from a photo by Gage Skidmore, CC BY-SA 3.0",
     missing_suffix => " [missing]",
     collections_load_error => "Collections: {error:#}",
     collections_preserved => "Saved collections could not be read; their file has been preserved",

@@ -321,29 +321,52 @@ fn draw_empty(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, buf: &mut Buf
     if art.is_empty() {
         return;
     }
-    let caption = Rect { y: art.y + art.height / 2, height: 1, ..art };
     if remembrance(scene.clock) {
-        // On the day Sir Patrick Stewart died, empty folders keep still and remember him.
-        let width = usize::from(art.width.saturating_sub(2)).max(1);
-        let lines = [(tr!(tribute_memory), look.styles().meta), (tr!(tribute_line), look.styles().footer)]
-            .into_iter()
-            .flat_map(|(text, style)| {
-                crate::activity_view::wrap(text, width).into_iter().map(move |line| (line, style))
-            });
-        for (offset, (text, style)) in (2..).zip(lines) {
-            let row = Rect { y: caption.y.saturating_add(offset), ..caption };
-            if row.y < art.bottom() {
-                Line::styled(format::truncate_end(&text, width), style).centered().render(row, buf);
-            }
-        }
-    } else {
-        let t = scene.now.saturating_duration_since(scene.state.epoch).as_secs_f32();
-        if let Some(progress) = borg_core::empty_glitch(t) {
-            fx::draw_interference(buf, art, t, progress, look.background());
-        }
+        return draw_remembrance(scene, look, art, buf);
     }
+    let t = scene.now.saturating_duration_since(scene.state.epoch).as_secs_f32();
+    if let Some(progress) = borg_core::empty_glitch(t) {
+        fx::draw_interference(buf, art, t, progress, look.background());
+    }
+    let caption = Rect { y: art.y + art.height / 2, height: 1, ..art };
     Line::styled(tr!(panel_empty), look.styles().meta).centered().render(caption, buf);
 }
+
+/// On the day Sir Patrick Stewart died, empty folders keep still and remember him: his
+/// portrait where there is room for it, the dedication, and the photo's credit.
+fn draw_remembrance(scene: &PanelScene<'_>, look: &Look<'_>, art: Rect, buf: &mut Buffer) {
+    let width = usize::from(art.width.saturating_sub(2)).max(1);
+    let styles = look.styles();
+    let words =
+        [(tr!(tribute_memory), styles.meta), (tr!(tribute_line), styles.footer), (tr!(tribute_credit), styles.footer)];
+    let lines: Vec<(String, Style)> = words
+        .into_iter()
+        .flat_map(|(text, style)| crate::activity_view::wrap(text, width).into_iter().map(move |line| (line, style)))
+        .collect();
+    let text_rows = lines.len() as u16;
+    let room = (art.width.saturating_sub(2), art.height.saturating_sub(text_rows + 1));
+    let picture = Some(crate::portrait::size(room)).filter(|(_, rows)| *rows >= PORTRAIT_ROWS);
+    let block = picture.map_or(0, |(_, rows)| rows + 1) + text_rows;
+    let mut y = art.y + art.height.saturating_sub(block) / 2;
+    if let Some((columns, rows)) = picture {
+        let area = Rect { x: art.x + (art.width - columns) / 2, y, width: columns, height: rows };
+        let plain = scene.state.appearance.current_id() == Some(PLAIN_THEME);
+        crate::portrait::draw(buf, area, styles.meta, plain);
+        y += rows + 1;
+    }
+    for (text, style) in lines {
+        if y < art.bottom() {
+            let row = Rect { y, height: 1, ..art };
+            Line::styled(format::truncate_end(&text, width), style).centered().render(row, buf);
+        }
+        y += 1;
+    }
+}
+
+/// Below this the portrait would not read as a face, so only the words show.
+const PORTRAIT_ROWS: u16 = 12;
+/// The retro theme draws the portrait with plain characters instead of braille.
+const PLAIN_THEME: &str = "classic";
 
 /// October 28, the day Sir Patrick Stewart died in 2026.
 fn remembrance(clock: &Zoned) -> bool {
