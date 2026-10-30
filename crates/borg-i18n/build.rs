@@ -23,10 +23,26 @@ fn pressed_keys(label: &str) -> Vec<&str> {
     label
         .split(" · ")
         .map(|part| {
+            let part = part.trim_start();
             let start = if part.starts_with("[ ") { 2 } else { 0 };
             part[start..].find(' ').map_or(part, |end| &part[..start + end])
         })
         .collect()
+}
+
+/// Whether a word of a hint names a key: `Enter`, `F7`, `Ctrl-O`, `↑↓`, `/`, a letter or a digit, or
+/// several of them joined by `/`.
+fn is_key(word: &str) -> bool {
+    const NAMED: &[&str] = &["Enter", "Tab", "Space", "Esc", "Ins", "Backspace", "PgUp", "PgDn"];
+    word == "/"
+        || !word.is_empty()
+            && word.split('/').all(|key| {
+                NAMED.contains(&key)
+                    || ["Alt-", "Ctrl-", "Shift-"].iter().any(|held| key.len() > held.len() && key.starts_with(held))
+                    || key.strip_prefix('F').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                    || key.len() == 1 && key.bytes().all(|b| b.is_ascii_alphanumeric())
+                    || !key.is_empty() && key.chars().all(|c| matches!(c, '↑' | '↓' | '←' | '→'))
+            })
 }
 
 fn variant(key: &str) -> String {
@@ -66,6 +82,12 @@ fn main() {
             assert_eq!(value.ends_with(' '), translated.ends_with(' '), "{code}: trailing padding in {key}");
             if key.ends_with("_button") || key.ends_with("_shortcut") || key.contains("_button_") {
                 assert_eq!(pressed_keys(value), pressed_keys(translated), "{code}: keys to press in {key}");
+            } else if value.contains(" · ") && pressed_keys(value).into_iter().any(is_key) {
+                let (keys, translated_keys) = (pressed_keys(value), pressed_keys(translated));
+                assert_eq!(keys.len(), translated_keys.len(), "{code}: hint segments in {key}");
+                for (pressed, translated) in keys.into_iter().zip(translated_keys) {
+                    assert!(!is_key(pressed) || pressed == translated, "{code}: {pressed} to press in {key}");
+                }
             }
         }
         catalogs.push((variant, values));
