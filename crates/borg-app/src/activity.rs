@@ -1,8 +1,8 @@
 use crate::memory_search::Query;
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{
-    ActivityData, ActivityRequest, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT, ProcessInfo, ProcessKey,
-    SNAPSHOT_LIMIT, SystemSample,
+    ActivityData, ActivityRequest, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT, ProcessInfo,
+    ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 use borg_i18n::tr;
 #[cfg(target_os = "linux")]
@@ -289,6 +289,42 @@ fn first_data(read: impl Fn(u64, u64) -> Result<Vec<u8>>, from: u64, end: u64, f
     }
     None
 }
+/// Classifies the pages of `region`; see `memory_census`. `mapped` are the process's readable
+/// mappings.
+async fn census(
+    process: ProcessKey,
+    region: MemoryRegion,
+    mut mapped: Vec<(u64, u64)>,
+    cancelled: Arc<AtomicBool>,
+) -> Result<MemoryCensus> {
+    mapped.sort_unstable();
+    if !region.readable() || region.end <= region.start {
+        bail!(tr!(activity_region_invalid));
+    }
+    tokio::task::spawn_blocking(move || {
+        verify(process)?;
+        let handle: read_process_memory::ProcessHandle = i32::try_from(process.pid)?.try_into()?;
+        let read = |address: u64, len: usize| -> Result<Vec<u8>> {
+            if cancelled.load(Ordering::Relaxed) {
+                bail!(tr!(memory_search_stopped));
+            }
+            Ok(read_process_memory::copy_address(usize::try_from(address)?, len, &handle)?)
+        };
+        #[cfg(target_os = "linux")]
+        let residency = crate::memory_census::Residency::open(process.pid);
+        #[cfg(target_os = "linux")]
+        let resident = |address| residency.resident(address);
+        #[cfg(not(target_os = "linux"))]
+        let resident = |_| None;
+        let census = crate::memory_census::census(process, &region, &mapped, read, resident);
+        if cancelled.load(Ordering::Relaxed) {
+            bail!(tr!(memory_search_stopped));
+        }
+        verify(process)?;
+        Ok(census)
+    })
+    .await?
+}
 async fn wait_cancelled(cancelled: &AtomicBool) {
     while !cancelled.load(Ordering::Relaxed) {
         tokio::time::sleep(CANCEL_POLL).await;
@@ -303,6 +339,7 @@ async fn inspect(
         request @ (ActivityRequest::Regions { admin: true, .. }
         | ActivityRequest::Files { admin: true, .. }
         | ActivityRequest::Capture { admin: true, .. }
+        | ActivityRequest::Census { admin: true, .. }
         | ActivityRequest::Search { admin: true, snapshot: None, .. }) => tokio::select! {
             result = elevate(request) => result,
             () = wait_cancelled(&cancelled) => bail!(tr!(memory_search_stopped)),
@@ -311,6 +348,9 @@ async fn inspect(
         ActivityRequest::Files { process, .. } => Ok(ActivityData::Files(process_files::list(process).await?)),
         ActivityRequest::Capture { process, region, seek, .. } => {
             Ok(ActivityData::Snapshot(capture(process, region, seek, false).await?))
+        }
+        ActivityRequest::Census { process, region, mapped, .. } => {
+            Ok(ActivityData::Census(census(process, region, mapped, cancelled).await?))
         }
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
             let query = Query { text: query, mode, match_case };
@@ -338,6 +378,13 @@ fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
             region.start.to_string(),
             region.end.to_string(),
             u8::from(*seek).to_string(),
+        ]),
+        ActivityRequest::Census { process, region, .. } => args.extend([
+            "census".into(),
+            process.pid.to_string(),
+            process.start.to_string(),
+            region.start.to_string(),
+            region.end.to_string(),
         ]),
         _ => bail!(tr!(activity_request_invalid)),
     }
@@ -413,6 +460,15 @@ pub async fn helper(args: &[String]) -> Result<()> {
                 }
                 let region = MemoryRegion { start, end, permissions: "r--".into(), ..Default::default() };
                 Ok(ActivityData::Snapshot(capture(process, region, seek, true).await?))
+            }
+            ("census", 5) => {
+                let (start, end) = (number(3)?, number(4)?);
+                let maps = regions(process).await?;
+                let region =
+                    maps.iter().find(|r| r.start == start && r.end == end).context(tr!(activity_region_invalid))?;
+                let mapped = maps.iter().filter(|r| r.readable()).map(|r| (r.start, r.end)).collect();
+                let cancelled = Arc::new(AtomicBool::new(false));
+                Ok(ActivityData::Census(census(process, region.clone(), mapped, cancelled).await?))
             }
             _ => bail!(tr!(activity_request_invalid)),
         }

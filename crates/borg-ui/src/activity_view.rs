@@ -5,8 +5,8 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    Activity, ActivityPage, ActivitySort, AppState, HISTORY, MemoryGroup, MemoryRegion, MemoryTotals, Msg, Pointer,
-    RegionRow, SnapshotRow,
+    Activity, ActivityPage, ActivitySort, AppState, CENSUS_LEGEND, HISTORY, MemoryCensus, MemoryGroup, MemoryRegion,
+    MemoryTotals, Msg, PageClass, Pointer, RegionRow, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
@@ -450,6 +450,10 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
             ActivityPage::Regions => vec![
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_capture_button), KeyCode::Enter),
+                (
+                    if activity.map { tr!(activity_bytes_button) } else { tr!(activity_page_map_button) },
+                    KeyCode::Char('m'),
+                ),
                 (tr!(activity_refresh_button), KeyCode::Char('r')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
@@ -460,6 +464,12 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
                 (tr!(memory_preview_button), KeyCode::Enter),
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(memory_continue_button), KeyCode::Char('n')),
+                (tr!(activity_back_button), KeyCode::Esc),
+            ],
+            ActivityPage::Snapshot if activity.map => vec![
+                (tr!(activity_open_page_button), KeyCode::Enter),
+                (tr!(activity_bytes_button), KeyCode::Char('m')),
+                (tr!(activity_refresh_button), KeyCode::Char('r')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
             ActivityPage::Snapshot => vec![
@@ -1035,6 +1045,9 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
         if let Some(first) = activity.selected_file() {
             return file_preview(activity, first, look, body, buf);
         }
+        if let Some(census) = activity.census.as_ref().filter(|_| activity.map) {
+            return page_map(census, activity.census_cursor, activity.page == ActivityPage::Snapshot, look, body, buf);
+        }
     }
     let Some(snapshot) = &activity.snapshot else {
         if activity.error.is_none() && activity.preview_waiting() {
@@ -1126,6 +1139,89 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
     }
 }
 
+/// How the page map draws a class: a glyph that tells it apart without colour, and a colour.
+fn page_look(class: PageClass, theme: &Theme) -> (char, Style) {
+    let (glyph, color) = match class {
+        PageClass::Pointers => ('▓', Some(Color::Cyan)),
+        PageClass::Text => ('▒', Some(Color::Green)),
+        PageClass::Wide => ('≈', Some(Color::Green)),
+        PageClass::Code => ('█', Some(Color::Magenta)),
+        PageClass::Dense => ('#', Some(Color::Red)),
+        PageClass::Data => ('░', Some(Color::Blue)),
+        PageClass::Filler => ('+', None),
+        PageClass::Zero => ('·', None),
+        PageClass::Absent => ('_', None),
+        PageClass::Unread => ('×', None),
+    };
+    (glyph, readable(theme, color).map_or_else(|| dim(theme), |color| theme.styles.overlay.fg(color)))
+}
+/// The class most of `pages` have, earlier classes winning ties.
+fn majority(pages: &[PageClass]) -> PageClass {
+    let count = |class: &PageClass| pages.iter().filter(|page| *page == class).count();
+    PageClass::ALL.into_iter().rev().max_by_key(count).unwrap_or(PageClass::Unread)
+}
+/// The selected region's pages as a grid, a cell per page or per run of them, with a legend of
+/// what share of the region each class takes and, when focused, a cursor to open a page with.
+fn page_map(census: &MemoryCensus, cursor: usize, focused: bool, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
+    let total = census.end.saturating_sub(census.start);
+    let title = if census.stride > 1 {
+        tr!(
+            census_sampled,
+            pages = census.pages.len(),
+            total = total.div_ceil(census.page.max(1)),
+            size = size(Some(total))
+        )
+    } else {
+        tr!(census_title, pages = census.pages.len(), size = size(Some(total)))
+    };
+    text(buf, row(body, 0), title, emphasis(theme));
+    let height = usize::from(body.height.saturating_sub(2)).saturating_sub(CENSUS_LEGEND);
+    let (columns, rows, span) = census_grid(census.pages.len(), usize::from(body.width), height);
+    let cell = |index: usize| majority(&census.pages[index * span..((index + 1) * span).min(census.pages.len())]);
+    let at = (cursor / span).min(census.pages.len().saturating_sub(1) / span);
+    if focused && !census.pages.is_empty() {
+        let line = tr!(census_cursor, address = census.address(at * span), class = cell(at).label());
+        text(buf, row(body, 1), line, theme.styles.overlay);
+    }
+    let mut legend = vec![Vec::new()];
+    let mut x = 0;
+    for class in PageClass::ALL {
+        let share = census.share(class);
+        if share == 0.0 {
+            continue;
+        }
+        let (glyph, style) = page_look(class, theme);
+        let label = format!(" {} {:.0}%  ", class.label(), (share * 100.0).max(1.0));
+        let width = 1 + label.width();
+        if x + width > usize::from(body.width) && x > 0 && legend.len() < CENSUS_LEGEND {
+            legend.push(Vec::new());
+            x = 0;
+        }
+        x += width;
+        if let Some(line) = legend.last_mut() {
+            line.extend([Span::styled(glyph.to_string(), style), Span::styled(label, dim(theme))]);
+        }
+    }
+    for (y, spans) in legend.into_iter().enumerate() {
+        Line::from(spans).render(row(body, 2 + y as u16), buf);
+    }
+    for y in 0..rows.min(height) {
+        let line = row(body, (2 + CENSUS_LEGEND + y) as u16);
+        for x in 0..columns {
+            let index = y * columns + x;
+            if index * span >= census.pages.len() {
+                break;
+            }
+            let (glyph, style) = page_look(cell(index), theme);
+            let style = if focused && index == at { theme.styles.cursor } else { style };
+            if let Some(target) = buf.cell_mut(Position { x: line.x + x as u16, y: line.y }) {
+                target.set_char(glyph).set_style(style);
+            }
+        }
+    }
+}
+
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
     let activity = &state.activity;
     let page = activity.focused_page();
@@ -1146,6 +1242,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
             ActivityPage::Processes => tr!(activity_list_hint),
             ActivityPage::Memory => tr!(activity_memory_hint),
             ActivityPage::Regions => tr!(activity_map_hint),
+            ActivityPage::Snapshot if activity.map => tr!(census_hint),
             ActivityPage::Snapshot => tr!(activity_snapshot_hint),
             ActivityPage::Search => tr!(memory_results_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),

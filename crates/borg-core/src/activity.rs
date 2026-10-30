@@ -251,6 +251,86 @@ pub struct MemorySnapshot {
     pub bytes: Vec<u8>,
     pub captured: u64,
 }
+/// What a page of memory holds, as a census of a region finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PageClass {
+    /// The read failed.
+    Unread,
+    /// Never touched, or swapped out: not read, so the census changes nothing.
+    Absent,
+    Zero,
+    /// One byte repeated, as padding or a fill pattern.
+    Filler,
+    Text,
+    /// UTF-16 text: printable bytes with zeros between them.
+    Wide,
+    /// Many 8-byte words that point into the process's own memory.
+    Pointers,
+    /// In an executable mapping.
+    Code,
+    /// Bytes as varied as compressed or encrypted data.
+    Dense,
+    Data,
+}
+impl PageClass {
+    pub const ALL: [Self; 10] = [
+        Self::Pointers,
+        Self::Text,
+        Self::Wide,
+        Self::Code,
+        Self::Dense,
+        Self::Data,
+        Self::Filler,
+        Self::Zero,
+        Self::Absent,
+        Self::Unread,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unread => tr!(page_unread),
+            Self::Absent => tr!(page_absent),
+            Self::Zero => tr!(page_zero),
+            Self::Filler => tr!(page_filler),
+            Self::Text => tr!(page_text),
+            Self::Wide => tr!(page_wide),
+            Self::Pointers => tr!(page_pointers),
+            Self::Code => tr!(page_code),
+            Self::Dense => tr!(page_dense),
+            Self::Data => tr!(page_data),
+        }
+    }
+}
+/// A region's pages by class. A large region is sampled: each entry stands for `stride` pages
+/// and was judged by the first of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryCensus {
+    pub process: ProcessKey,
+    pub start: u64,
+    pub end: u64,
+    pub page: u64,
+    pub stride: u64,
+    pub pages: Vec<PageClass>,
+    /// Whether pages never touched or swapped out were told apart, rather than read as zeros.
+    pub residency: bool,
+}
+impl MemoryCensus {
+    pub fn address(&self, entry: usize) -> u64 {
+        self.start.saturating_add(entry as u64 * self.stride * self.page).min(self.end.saturating_sub(1))
+    }
+    pub fn share(&self, class: PageClass) -> f32 {
+        self.pages.iter().filter(|page| **page == class).count() as f32 / self.pages.len().max(1) as f32
+    }
+}
+/// How the page map lays `entries` out in a pane of `width` × `height` cells: columns, rows,
+/// and how many entries each cell stands for.
+pub fn census_grid(entries: usize, width: usize, height: usize) -> (usize, usize, usize) {
+    let columns = width.max(1);
+    let cells = columns * height.max(1);
+    let span = entries.div_ceil(cells).max(1);
+    (columns, entries.div_ceil(span).div_ceil(columns), span)
+}
+/// Rows the page map's legend takes above the grid.
+pub const CENSUS_LEGEND: usize = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemorySearchMode {
     Text,
@@ -302,6 +382,14 @@ pub enum ActivityRequest {
         process: ProcessKey,
         admin: bool,
     },
+    Census {
+        process: ProcessKey,
+        region: MemoryRegion,
+        /// The readable mappings, for telling pointers from other numbers.
+        #[serde(default)]
+        mapped: Vec<(u64, u64)>,
+        admin: bool,
+    },
     Capture {
         process: ProcessKey,
         region: MemoryRegion,
@@ -326,6 +414,9 @@ impl ActivityRequest {
             }),
             Self::Regions { process, .. } => Some(Self::Regions { process: *process, admin: true }),
             Self::Files { process, .. } => Some(Self::Files { process: *process, admin: true }),
+            Self::Census { process, region, .. } => {
+                Some(Self::Census { process: *process, region: region.clone(), mapped: Vec::new(), admin: true })
+            }
             Self::Capture { process, region, seek, .. } => {
                 Some(Self::Capture { process: *process, region: region.clone(), admin: true, seek: *seek })
             }
@@ -339,6 +430,7 @@ pub enum ActivityData {
     Regions(Vec<MemoryRegion>),
     Files(ProcessFiles),
     Snapshot(MemorySnapshot),
+    Census(MemoryCensus),
 }
 /// One row of the hex view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,6 +527,10 @@ pub struct Activity {
     pub text: bool,
     pub diff: bool,
     pub offset: usize,
+    /// The preview shows the selected region's page map instead of bytes.
+    pub map: bool,
+    pub census: Option<MemoryCensus>,
+    pub census_cursor: usize,
     pub error: Option<String>,
     pub retry: Option<ActivityRequest>,
     pub pending: Option<(u64, ActivityRequest)>,
@@ -487,6 +583,9 @@ impl Default for Activity {
             text: false,
             diff: false,
             offset: 0,
+            map: false,
+            census: None,
+            census_cursor: 0,
             error: None,
             retry: None,
             pending: None,
@@ -800,12 +899,18 @@ impl Activity {
         if self.preview_focused { self.page } else { self.list }
     }
     pub(crate) fn schedule_preview(&mut self, now: Instant) {
-        if self.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Capture { .. })) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|(_, r)| matches!(r, ActivityRequest::Capture { .. } | ActivityRequest::Census { .. }))
+        {
             self.pending = None;
             self.next = None;
         }
         self.snapshot = None;
         self.previous = None;
+        self.census = None;
+        self.census_cursor = 0;
         self.offset = 0;
         self.error = None;
         self.retry = None;
@@ -815,7 +920,10 @@ impl Activity {
     pub fn preview_waiting(&self) -> bool {
         self.preview_due.is_some()
             || self.pending.as_ref().is_some_and(|(_, request)| {
-                matches!(request, ActivityRequest::Regions { .. } | ActivityRequest::Capture { .. })
+                matches!(
+                    request,
+                    ActivityRequest::Regions { .. } | ActivityRequest::Capture { .. } | ActivityRequest::Census { .. }
+                )
             })
     }
     fn capture_request(&self) -> Option<ActivityRequest> {
@@ -828,6 +936,10 @@ impl Activity {
         } else {
             (self.selected_region()?.clone(), true)
         };
+        if self.map && self.list == ActivityPage::Regions {
+            let mapped = self.regions.iter().filter(|r| r.readable()).map(|r| (r.start, r.end)).collect();
+            return region.readable().then_some(ActivityRequest::Census { process, region, mapped, admin: false });
+        }
         region.readable().then_some(ActivityRequest::Capture { process, region, admin: false, seek })
     }
     /// The region the shown capture comes from: the selected one, or the search match's.
@@ -841,6 +953,9 @@ impl Activity {
     /// Captures the shown window again, so D compares the same addresses; the selection's start
     /// before anything was captured.
     fn recapture_request(&self) -> Option<ActivityRequest> {
+        if self.map {
+            return self.capture_request();
+        }
         self.snapshot
             .as_ref()
             .and_then(|shown| self.capture_at(shown.address, false))
@@ -848,10 +963,10 @@ impl Activity {
     }
     /// Captures the shown region from `start`, for another window of it or the same one again.
     fn capture_at(&self, start: u64, seek: bool) -> Option<ActivityRequest> {
-        let snapshot = self.snapshot.as_ref()?;
+        let process = self.snapshot.as_ref().map(|shown| shown.process).or(self.census.as_ref().map(|c| c.process))?;
         let region = self.shown_region()?;
         (start >= region.start && start < region.end).then(|| ActivityRequest::Capture {
-            process: snapshot.process,
+            process,
             region: MemoryRegion { start, ..region.clone() },
             admin: false,
             seek,
@@ -1084,6 +1199,11 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.files_loaded = true;
             activity.retry = None;
         }
+        Ok(ActivityData::Census(census)) => {
+            activity.census_cursor = activity.census_cursor.min(census.pages.len().saturating_sub(1));
+            activity.census = Some(census);
+            activity.retry = None;
+        }
         Ok(ActivityData::Snapshot(snapshot)) => {
             activity.previous = activity
                 .snapshot
@@ -1196,6 +1316,12 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     }))
     .max(1);
     let width = usize::from(rect.width.saturating_sub(2));
+    if activity.page == ActivityPage::Snapshot
+        && activity.map
+        && let Some(effects) = map_key(activity, key.code, rows, width)
+    {
+        return effects;
+    }
     match key.code {
         KeyCode::Down => activity.move_by(1, rows, width),
         KeyCode::Up => activity.move_by(-1, rows, width),
@@ -1322,6 +1448,34 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         _ => {}
     }
     Vec::new()
+}
+
+/// Moves over the page map, or opens the page under the cursor in bytes with Enter.
+fn map_key(activity: &mut Activity, code: KeyCode, rows: usize, width: usize) -> Option<Vec<Effect>> {
+    let census = activity.census.as_ref()?;
+    if code == KeyCode::Enter {
+        let address = census.address(activity.census_cursor);
+        let start = address - address % census.page.max(1);
+        activity.map = false;
+        return Some(activity.capture_at(start, false).map(|request| activity.request(request)).unwrap_or_default());
+    }
+    let height = rows.saturating_sub(CENSUS_LEGEND);
+    let (columns, _, span) = census_grid(census.pages.len(), width, height);
+    let cell = (activity.census_cursor / span) as isize;
+    let last = (census.pages.len().saturating_sub(1) / span) as isize;
+    let step = match code {
+        KeyCode::Left => -1,
+        KeyCode::Right => 1,
+        KeyCode::Up => -(columns as isize),
+        KeyCode::Down => columns as isize,
+        KeyCode::PageUp => -((columns * height) as isize),
+        KeyCode::PageDown => (columns * height) as isize,
+        KeyCode::Home => -cell,
+        KeyCode::End => last - cell,
+        _ => return None,
+    };
+    activity.census_cursor = ((cell + step).clamp(0, last) as usize) * span;
+    Some(Vec::new())
 }
 
 pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
@@ -1466,10 +1620,18 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             toggle(&mut state.activity, true, now);
             return Vec::new();
         }
+        if state.activity.preview_focused && state.activity.map && state.activity.census.is_some() {
+            return on_key(state, key);
+        }
         state.activity.preview_focused = true;
         if state.activity.preview_due.is_some() {
             state.activity.preview_due = Some(now);
         }
+        return Vec::new();
+    }
+    if state.activity.list == ActivityPage::Regions && key.code == KeyCode::Char('m') && key.modifiers.is_empty() {
+        state.activity.map = !state.activity.map;
+        state.activity.schedule_preview(now);
         return Vec::new();
     }
     if !state.activity.preview_focused && state.activity.list == ActivityPage::Regions {
@@ -2036,6 +2198,51 @@ mod tests {
         assert_eq!(capture(&key(&mut state, KeyCode::Char('<'))), Some((start, false)));
         state.activity.pending = None;
         assert_eq!(capture(&key(&mut state, KeyCode::Char('r'))), Some((shown, false)));
+    }
+    #[test]
+    fn the_page_map_takes_a_census_of_the_region_and_opens_the_page_under_its_cursor() {
+        const PAGE: u64 = 4096;
+        let (mut state, now) = state();
+        open(&mut state);
+        state.activity.set_grouped(false);
+        sample(&mut state, vec![process(2, 10, 200)], now);
+        state.activity.paused = true;
+        key(&mut state, KeyCode::Enter);
+        let id = state.activity.pending.as_ref().unwrap().0;
+        let start = 0x10000;
+        let heap = MemoryRegion { start, end: start + 64 * PAGE, permissions: "rw-".into(), ..Default::default() };
+        let guard =
+            MemoryRegion { start: heap.end, end: heap.end + PAGE, permissions: "---".into(), ..Default::default() };
+        let code = MemoryRegion { start: 0x400000, end: 0x401000, permissions: "r-x".into(), ..Default::default() };
+        receive(&mut state, id, Ok(ActivityData::Regions(vec![heap.clone(), guard, code.clone()])), now);
+        key(&mut state, KeyCode::Char('m'));
+        let effects = sync(&mut state, now + PREVIEW_DELAY);
+        let [Effect::Activity { id, request: ActivityRequest::Census { region, mapped, admin: false, .. } }] =
+            &effects[..]
+        else {
+            panic!("expected a census, got {effects:?}");
+        };
+        assert_eq!(region.start, start);
+        assert_eq!(*mapped, [(heap.start, heap.end), (code.start, code.end)], "only readable mappings count");
+        let process = state.activity.selected.unwrap();
+        let pages = [vec![PageClass::Zero; 32], vec![PageClass::Text; 32]].concat();
+        let census = MemoryCensus { process, start, end: heap.end, page: PAGE, stride: 1, pages, residency: true };
+        receive(&mut state, *id, Ok(ActivityData::Census(census)), now);
+        assert!(state.activity.census.is_some() && !state.activity.preview_waiting());
+        key(&mut state, KeyCode::Tab);
+        assert!(state.activity.preview_focused);
+        key(&mut state, KeyCode::Right);
+        assert_eq!(state.activity.census_cursor, 1);
+        key(&mut state, KeyCode::End);
+        assert_eq!(state.activity.census_cursor, 63);
+        let effects = key(&mut state, KeyCode::Enter);
+        assert!(
+            matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Capture { region, seek: false, .. }, .. }] if region.start == start + 63 * PAGE),
+            "{effects:?}"
+        );
+        assert!(!state.activity.map, "the page opens in bytes");
+        key(&mut state, KeyCode::Char('m'));
+        assert!(state.activity.map && state.activity.census.is_none(), "M brings the map back for a fresh census");
     }
     #[test]
     fn scrolling_up_keeps_the_viewport_until_the_cursor_reaches_its_top() {

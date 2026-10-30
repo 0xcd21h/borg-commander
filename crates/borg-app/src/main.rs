@@ -9,6 +9,7 @@ mod edit_file;
 mod index;
 mod launch;
 mod link;
+mod memory_census;
 mod memory_search;
 mod mirror;
 mod native_mirror;

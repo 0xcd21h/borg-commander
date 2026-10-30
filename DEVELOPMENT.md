@@ -139,6 +139,11 @@ with data. The UI captures windows by address within the selected region and fol
 (`Activity::snapshot_rows`). Unprivileged captures check their bounds against `/proc/PID/maps`
 on Linux; on macOS they rely on the read failing, since vmmap takes seconds on large processes.
 The administrator helper still validates against the full map.
+The page map (`borg-app::memory_census`) reads one page per entry, at most 16,384 entries
+spread evenly over the region, and classifies each from its bytes alone (`PageClass`).
+Executable mappings count as code; pointers are 8-byte words inside the readable mappings,
+which the UI sends with the request and the administrator helper looks up itself. On Linux
+`/proc/PID/pagemap` says which pages are present, and absent ones are not read.
 
 Administrator retry launches the same binary's internal inspection command through
 macOS authorization or Linux pkexec. It accepts only numeric process identity and

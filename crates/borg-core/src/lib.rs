@@ -97,6 +97,7 @@ pub use activity::{
     MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 
+pub use activity::{CENSUS_LEGEND, MemoryCensus, PageClass, census_grid};
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport};
 

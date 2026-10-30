@@ -756,6 +756,16 @@ an atomic image of its entire state. They stay in memory unless explicitly expor
 **E** exports raw bytes into the active file panel's directory, using a new filename
 and owner-only file permissions. Existing files are never overwritten.
 
+**M** switches the preview between bytes and a page map of the region: a cell for each
+4 KiB page, or for each run of pages in a large region, marked by what it holds — pointers
+into the process's own memory, text, UTF-16 text, code, compressed or encrypted data, other
+data, filler, zeros, and pages not in memory. A legend gives each kind's share of the region.
+In the focused map the arrows, **PgUp**, **PgDn**, **Home** and **End** move a cursor, and
+**Enter** opens the page under it in bytes. Regions over 16,384 pages are sampled evenly.
+On Linux the map asks the system which pages are in memory and leaves the rest unread, so it
+neither brings back swapped pages nor touches new ones; on macOS untouched pages read as
+zeros. Kinds are inferred from the bytes alone, so treat them as a guide, not a verdict.
+
 Press **/** in the memory pane, or **Ctrl-F** from either pane, to search memory.
 Choose a mode, case matching, and either readable process memory or the current
 snapshot. **Text** searches UTF-8, UTF-16 (both byte orders), and UTF-32 (both byte

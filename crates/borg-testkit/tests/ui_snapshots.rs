@@ -1772,6 +1772,56 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
 }
 
 #[test]
+fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, MemoryCensus, MemoryRegion, PageClass};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100000000 + 64 * 4096,
+        permissions: "rw-".into(),
+        name: "Heap · application buffers".into(),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![region.clone()])) });
+    stage.send(key(KeyCode::Char('m'))).send(key(KeyCode::Enter)).send(key(KeyCode::Enter));
+    let Some((id, ActivityRequest::Census { .. })) = stage.state.activity.pending.clone() else {
+        panic!("the map should ask for a census")
+    };
+    let runs = [
+        (PageClass::Pointers, 8),
+        (PageClass::Text, 12),
+        (PageClass::Wide, 4),
+        (PageClass::Zero, 16),
+        (PageClass::Dense, 4),
+        (PageClass::Data, 12),
+        (PageClass::Filler, 4),
+        (PageClass::Absent, 4),
+    ];
+    let pages = runs.iter().flat_map(|&(class, count)| std::iter::repeat_n(class, count)).collect();
+    let census =
+        MemoryCensus { process, start: region.start, end: region.end, page: 4096, stride: 1, pages, residency: true };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Census(census)) });
+    for _ in 0..10 {
+        stage.send(key(KeyCode::Right));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0x10000a000 · text")?;
+    check("activity_page_map", &stage, buffer)?;
+    let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap();
+    stage.state.appearance.select(classic, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("activity_page_map_classic", &stage, buffer)?;
+    for (cols, rows) in [(0, 0), (1, 1), (12, 6), (44, 14), (193, 40)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
+#[test]
 fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<()> {
     use borg_core::{ActivityData, MemoryRegion, Pointer, ProcessFile, ProcessFiles};
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
