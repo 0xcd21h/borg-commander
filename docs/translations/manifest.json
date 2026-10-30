@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "e566b64403fcfb5d090b4e4542f28515e2f910308b1b36842a39437a3ddc727e",
+      "source": "9c4e6f7e19e10ea8d0c31d214b8772d5c91e4eb4b0793b52988adc154fa7d6ee",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "e7cfbbe5bf541b8c19919f6e2d0487fdca4c4a2d10851d96c3937b7d450ca447",
+        "inline code": "5b8fd7975cdee6884623fb888efa4885af602a66593749f2bdeaa8b4add42f43",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
       },
       "headings": [
         {
@@ -36,6 +36,10 @@
         {
           "level": 2,
           "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Time Machine exclusions"
         },
         {
           "level": 2,
@@ -68,12 +72,12 @@
       ]
     },
     "pt": {
-      "source": "e566b64403fcfb5d090b4e4542f28515e2f910308b1b36842a39437a3ddc727e",
+      "source": "9c4e6f7e19e10ea8d0c31d214b8772d5c91e4eb4b0793b52988adc154fa7d6ee",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "e7cfbbe5bf541b8c19919f6e2d0487fdca4c4a2d10851d96c3937b7d450ca447",
+        "inline code": "5b8fd7975cdee6884623fb888efa4885af602a66593749f2bdeaa8b4add42f43",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
       },
       "headings": [
         {
@@ -103,6 +107,10 @@
         {
           "level": 2,
           "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Time Machine exclusions"
         },
         {
           "level": 2,
@@ -135,12 +143,12 @@
       ]
     },
     "es": {
-      "source": "e566b64403fcfb5d090b4e4542f28515e2f910308b1b36842a39437a3ddc727e",
+      "source": "9c4e6f7e19e10ea8d0c31d214b8772d5c91e4eb4b0793b52988adc154fa7d6ee",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "e7cfbbe5bf541b8c19919f6e2d0487fdca4c4a2d10851d96c3937b7d450ca447",
+        "inline code": "5b8fd7975cdee6884623fb888efa4885af602a66593749f2bdeaa8b4add42f43",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
       },
       "headings": [
         {
@@ -170,6 +178,10 @@
         {
           "level": 2,
           "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Time Machine exclusions"
         },
         {
           "level": 2,
@@ -202,12 +214,12 @@
       ]
     },
     "ru": {
-      "source": "e566b64403fcfb5d090b4e4542f28515e2f910308b1b36842a39437a3ddc727e",
+      "source": "9c4e6f7e19e10ea8d0c31d214b8772d5c91e4eb4b0793b52988adc154fa7d6ee",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "e7cfbbe5bf541b8c19919f6e2d0487fdca4c4a2d10851d96c3937b7d450ca447",
+        "inline code": "5b8fd7975cdee6884623fb888efa4885af602a66593749f2bdeaa8b4add42f43",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "f290f51af518bfd9b221377ff5be5dd7b52630f3d000806439e1923151f5cc51"
+        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
       },
       "headings": [
         {
@@ -237,6 +249,10 @@
         {
           "level": 2,
           "title": "Docker plugin"
+        },
+        {
+          "level": 2,
+          "title": "Time Machine exclusions"
         },
         {
           "level": 2,

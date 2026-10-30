@@ -475,21 +475,14 @@ fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
     }
     Ok(args)
 }
-#[cfg(target_os = "macos")]
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
 async fn elevate(request: ActivityRequest) -> Result<ActivityData> {
     let exe = std::env::current_exe()?;
     let args = helper_args(&request)?;
     #[cfg(target_os = "macos")]
     let command = {
-        let line = std::iter::once(exe.to_str().context(tr!(activity_unavailable))?)
-            .chain(args.iter().map(String::as_str))
-            .map(shell_quote)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let script = format!("do shell script {} with administrator privileges", serde_json::to_string(&line)?);
+        let words =
+            std::iter::once(exe.to_str().context(tr!(activity_unavailable))?).chain(args.iter().map(String::as_str));
+        let script = crate::admin::apple_script(words)?;
         let mut command = Command::new("/usr/bin/osascript");
         command.arg("-e").arg(script);
         command

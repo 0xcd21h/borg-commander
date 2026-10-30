@@ -220,10 +220,12 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
             Vec::new()
         }
         Msg::GitFinished { id, result } => crate::plugins::finish(state, id, result),
+        Msg::Backup(event) => crate::backup::receive(state, event),
     };
     let mut effects = effects;
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
+    effects.extend(crate::backup::sync(state));
     effects.extend(crate::activity::sync(state, now));
     effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::docker::sync_console(state, now));

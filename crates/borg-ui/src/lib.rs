@@ -2,6 +2,7 @@ mod activity_view;
 mod agent_view;
 mod art_view;
 mod aside_view;
+mod backup_view;
 mod blend;
 mod branding;
 mod dialog_view;

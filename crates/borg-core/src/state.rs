@@ -182,6 +182,10 @@ pub enum PromptPurpose {
         original: String,
     },
     ResultsFilter,
+    /// A path to exclude from Time Machine, as a fixed path or marked on the item.
+    BackupAdd {
+        fixed: bool,
+    },
     Select,
     Unselect,
     Mkdir,
@@ -204,6 +208,24 @@ pub enum PromptPurpose {
     DockerCopy {
         sources: Vec<PathBuf>,
     },
+}
+
+impl PromptPurpose {
+    /// The checkbox below the field, as its label and whether it is checked.
+    pub fn option(&self) -> Option<(&'static str, bool)> {
+        match self {
+            Self::Copy { optimize_hdd, .. } => Some((borg_i18n::tr!(optimize_copying_for_hard_drives), *optimize_hdd)),
+            Self::BackupAdd { fixed } => Some((borg_i18n::tr!(backup_add_fixed), *fixed)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn toggle_option(&mut self) {
+        match self {
+            Self::Copy { optimize_hdd: checked, .. } | Self::BackupAdd { fixed: checked } => *checked = !*checked,
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,6 +303,8 @@ pub enum Overlay {
     Connect(crate::agent::Connect),
     /// Paired Borg machines and their named sessions.
     Remotes(crate::RemoteBrowser),
+    /// Time Machine exclusions; the window's lists live in `AppState::backup`.
+    TimeMachine,
 }
 
 #[derive(Debug, Clone)]
@@ -330,6 +354,7 @@ pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
     pub agent: crate::Agent,
+    pub backup: crate::Backup,
     /// When background work started, for spinners that wait before appearing.
     pub busy: crate::Busy,
     pub game2048: Option<crate::Game2048>,
@@ -413,6 +438,7 @@ impl AppState {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
             agent: crate::Agent::default(),
+            backup: crate::Backup::default(),
             console: Console::Host,
             remote_names: Default::default(),
             remote_identities: Default::default(),

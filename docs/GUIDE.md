@@ -204,6 +204,7 @@ rows are clickable. Notices temporarily replace the second row.
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
+| Alt-T | Time Machine: what backups leave out, on macOS |
 | F1 | About |
 | F2 | File menu |
 | F3 | View (text or picture) |
@@ -320,6 +321,33 @@ and counted on the Alt-C shortcut. It closes when you exit it, when its containe
 when Borg quits, which asks first while shells are open. The plugin uses the `docker` CLI and its current
 context, so it works with Docker Desktop, OrbStack, Colima and remote engines alike. It can
 be turned off in Options → Plugins.
+
+## Time Machine exclusions
+
+On macOS, **Alt-T** or **Command → Time Machine** shows what Time Machine leaves out of backups
+and changes it. Panels mark entries excluded on their own with ⊘, and the footer counts them or
+says that the whole folder is not backed up. **Ctrl-L** Info shows how Time Machine treats the
+item under the cursor.
+
+The window has three tabs; **1**, **2**, **3** or **Tab** switch between them. **Selection** lists the
+marked items, or the one under the cursor. **Caches here** searches the panel's folder for cache
+and build folders such as `node_modules`, `target`, `.venv` and folders with a `CACHEDIR.TAG`,
+largest first, and adds up what is still backed up. **All exclusions** lists every exclusion Borg
+can find, by kind: marked items Spotlight knows of and those in the panel's folder, fixed paths,
+excluded volumes, and the places macOS leaves out by itself.
+
+**Space** or **Insert** marks rows and `*` inverts the marks. **E** excludes the marked rows, or the
+one under the cursor, with a mark on the item itself: it needs no password and moves with the
+item, but a tool that deletes and recreates the folder drops it. **P** excludes the path instead,
+which stays excluded whatever is there, and asks for your password in the system dialog.
+**I**, **Delete** or **F8** includes items again. An item inside an excluded folder is backed up
+again by including that folder, and what macOS leaves out cannot be changed.
+
+On All exclusions, **A** excludes a path you type, even one where nothing is yet. **R** searches
+again, **Enter** shows the item in the active panel, and **Esc** closes the window. Excluding or
+including a volume also asks for your password. Time Machine may need Full Disk Access for your
+terminal, in System Settings › Privacy & Security, to say how it treats some folders; until then
+they show as Unknown. On other systems the menu item is hidden.
 
 ## Claude and other agents (MCP)
 

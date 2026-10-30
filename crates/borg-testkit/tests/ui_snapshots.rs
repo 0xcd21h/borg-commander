@@ -713,6 +713,7 @@ fn info_panel_lists_file_facts() -> Result<()> {
         links: 1,
         items: None,
         disk: Some((128_849_018_880, 499_963_174_912)),
+        backup: None,
     };
     peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
     let buffer = stage.render(stage.started)?;
@@ -2763,4 +2764,147 @@ fn unavailable_hosts_can_be_forgotten_with_a_local_confirmation() -> Result<()> 
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Forgetting the paired host")?;
     check("remote_host_forgetting", &stage, buffer)
+}
+
+/// Sends a message and returns the Time Machine requests it led to.
+fn backup_requests(stage: &mut Stage, msg: Msg) -> Vec<borg_core::BackupRequest> {
+    borg_core::update(&mut stage.state, msg, stage.started)
+        .into_iter()
+        .filter_map(|effect| match effect {
+            borg_core::Effect::Backup(request) => Some(request),
+            _ => None,
+        })
+        .collect()
+}
+
+fn backup_item(path: &str, dir: bool, size: Option<u64>, exclusion: borg_core::Exclusion) -> borg_core::BackupItem {
+    borg_core::BackupItem { path: path.into(), dir, size, exclusion, ..borg_core::BackupItem::default() }
+}
+
+fn backup_found(stage: &mut Stage, request: &borg_core::BackupRequest, items: Vec<borg_core::BackupItem>) {
+    use borg_core::{BackupEvent, BackupRequest};
+    let (BackupRequest::Inspect { id, .. } | BackupRequest::Caches { id, .. } | BackupRequest::All { id, .. }) =
+        *request
+    else {
+        panic!("not a search: {request:?}");
+    };
+    let sizes: Vec<_> = items.iter().filter_map(|item| Some((item.path.clone(), item.size?))).collect();
+    stage.send(Msg::Backup(BackupEvent::Found { id, items }));
+    for (path, bytes) in sizes {
+        stage.send(Msg::Backup(BackupEvent::Sized { id, path, bytes }));
+    }
+    stage.send(Msg::Backup(BackupEvent::Progress { id, folders: 214 }));
+    stage.send(Msg::Backup(BackupEvent::Finished { id, error: None }));
+}
+
+#[test]
+fn time_machine_marks_excluded_entries_and_lists_exclusions_by_kind() -> Result<()> {
+    use borg_core::{BackupEvent, BackupListing, BackupRequest, Exclusion};
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
+    stage.state.backup.available = true;
+    let listings = backup_requests(&mut stage, key(KeyCode::Home));
+    let Some(BackupRequest::Listing { side, generation, dir }) = listings.into_iter().next() else {
+        anyhow::bail!("the panels ask which entries are excluded");
+    };
+    let listing = BackupListing { folder: Exclusion::Included, entries: vec![("target".into(), Exclusion::Sticky)] };
+    stage.send(Msg::Backup(BackupEvent::Listing { side, generation, dir, result: Ok(listing) }));
+    hover(&mut stage, "target");
+    stage.send(ctrl('l'));
+    let facts = borg_core::Facts {
+        nature: borg_core::Nature::Folder,
+        size: 4096,
+        permissions: 0o755,
+        owner: "me".into(),
+        group: "staff".into(),
+        modified: at(RECENT),
+        accessed: at(RECENT),
+        created: at(OLD),
+        inode: 1_234_568,
+        links: 4,
+        items: Some(3),
+        disk: None,
+        backup: Some(Exclusion::Sticky),
+    };
+    peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "⊘")?;
+    ensure_text(&buffer, "1 item not backed up")?;
+    ensure_text(&buffer, "Excluded · follows the item")?;
+    check("time_machine_panel_marks", &stage, buffer)?;
+    stage.send(ctrl('l'));
+
+    let root = "/home/me/projects/borg";
+    hover(&mut stage, "src");
+    stage.send(key(KeyCode::Insert));
+    hover(&mut stage, "target");
+    stage.send(key(KeyCode::Insert));
+    let opened = backup_requests(&mut stage, Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)));
+    let [inspect @ BackupRequest::Inspect { .. }] = &opened[..] else {
+        anyhow::bail!("Alt-T inspects the selection: {opened:?}")
+    };
+    backup_found(
+        &mut stage,
+        inspect,
+        vec![
+            backup_item(&format!("{root}/src"), true, None, Exclusion::Included),
+            backup_item(&format!("{root}/target"), true, None, Exclusion::Sticky),
+        ],
+    );
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 items in ~/projects/borg")?;
+    check("time_machine_selection", &stage, buffer)?;
+
+    let caches = backup_requests(&mut stage, key(KeyCode::Char('2')));
+    let [caches @ BackupRequest::Caches { .. }] = &caches[..] else { anyhow::bail!("Caches looks for build folders") };
+    backup_found(
+        &mut stage,
+        caches,
+        vec![
+            backup_item(&format!("{root}/target"), true, Some(7_516_192_768), Exclusion::Sticky),
+            backup_item(&format!("{root}/website/node_modules"), true, Some(431_013_478), Exclusion::Included),
+            backup_item(&format!("{root}/website/dist"), true, Some(12_582_912), Exclusion::Included),
+            backup_item(&format!("{root}/scripts/__pycache__"), true, Some(86_016), Exclusion::Included),
+            backup_item(
+                &format!("{root}/target/doc"),
+                true,
+                Some(52_428_800),
+                Exclusion::Inside(format!("{root}/target").into()),
+            ),
+        ],
+    );
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Char(' '))).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "423M still backed up")?;
+    check("time_machine_caches", &stage, buffer)?;
+
+    let all = backup_requests(&mut stage, key(KeyCode::Char('3')));
+    let [all @ BackupRequest::All { .. }] = &all[..] else { anyhow::bail!("All exclusions searches everywhere") };
+    let missing =
+        borg_core::BackupItem { missing: true, ..backup_item("/home/me/.cache/pip", true, None, Exclusion::Path) };
+    backup_found(
+        &mut stage,
+        all,
+        vec![
+            backup_item(&format!("{root}/target"), true, None, Exclusion::Sticky),
+            backup_item("/home/me/.npm", true, None, Exclusion::Path),
+            missing,
+            borg_core::BackupItem { volume: true, ..backup_item("/Volumes/Spare", true, None, Exclusion::Volume) },
+            backup_item("/System", true, None, Exclusion::System),
+            backup_item("/home/me/Library/Caches", true, None, Exclusion::System),
+        ],
+    );
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Char('i')));
+    anyhow::ensure!(
+        stage.state.backup.window.working.is_some_and(|(_, password)| password),
+        "a fixed path needs the password"
+    );
+    let buffer = stage.render(stage.started + Duration::from_secs(1))?;
+    ensure_text(&buffer, "Fixed path · changing one asks for your password")?;
+    ensure_text(&buffer, "Waiting for your password")?;
+    check("time_machine_all", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('a'))).send(key(KeyCode::Tab)).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "[x] Fixed path")?;
+    check("time_machine_add", &stage, buffer)
 }

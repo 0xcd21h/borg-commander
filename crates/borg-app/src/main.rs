@@ -1,7 +1,9 @@
 use borg_i18n::tr;
 mod activity;
+mod admin;
 mod agent;
 mod app;
+mod backup;
 mod config;
 mod docker;
 mod document;

@@ -102,6 +102,7 @@ A barra de atalho de duas linhas encontra-se abaixo da linha de comandos. As tec
 | Alt-J | Trabalhos: pausar ou cancelar cópias, movimentações e eliminações em execução |
 | Alt-M | Monitor de atividades: processos e memória |
 | Alt-C | Docker: Compor projetos e contentores |
+| Alt-T | Time Machine: o que as cópias de segurança deixam de fora, no macOS |
 | F1 | Sobre |
 | F2 | Menu Ficheiro |
 | F3 | Ver (texto ou imagem) |
@@ -160,6 +161,16 @@ Nos ficheiros de um contentor, a linha de comando segue o painel: torna-se a she
 Desligue **Docker — linha de comando segue os painéis do contentor** em Opções → Plugins para manter a linha de comandos no host. Nos ficheiros de um contentor, fica esmaecido e marcado **⌂ anfitrião**, e Enter não executa nada até que um painel host esteja ativo, pelo que um comando nunca é executado na máquina errada.
 
 **E** abre um shell no contentor (bash quando a imagem o possui, caso contrário `sh`) no separador Shell do painel de detalhes e envia-lhe as suas chaves, incluindo as teclas de função. **Alt-1** mostra a visão geral e **Alt-C** regressa à lista; a roda do rato faz rolar o seu histórico. Um shell continua a ser executado enquanto olha para outros contentores, fecha a vista Docker ou utiliza a consola do host, e o seu contentor é marcado `›_` na lista e contou com o atalho Alt-C. Fecha quando sai, quando o seu contentor pára ou quando sai Borg, que pergunta primeiro enquanto os shells estão abertos. O plug-in utiliza o `docker` CLI e o seu contexto atual, pelo que funciona com Docker Desktop, OrbStack, Colima e motores remotos. Pode ser desativado em Opções → Plug-ins.
+
+## Exclusões do Time Machine
+
+No macOS, **Alt-T** ou **Comando → Time Machine** mostra o que o Time Machine deixa de fora das cópias de segurança e permite alterá-lo. Os painéis marcam com ⊘ as entradas excluídas por si mesmas, e o rodapé conta-as ou indica que a pasta inteira fica fora da cópia. **Ctrl-L** Informação mostra como o Time Machine trata o item sob o cursor.
+
+A janela tem três separadores; **1**, **2**, **3** ou **Tab** alternam entre eles. **Seleção** lista os itens marcados, ou o que está sob o cursor. **Caches aqui** procura na pasta do painel pastas de cache e de compilação como `node_modules`, `target`, `.venv` e pastas com um `CACHEDIR.TAG`, da maior para a menor, e soma o que ainda é copiado. **Todas as exclusões** lista, por tipo, todas as exclusões que o Borg encontra: os itens marcados que o Spotlight conhece e os da pasta do painel, os caminhos fixos, os volumes excluídos e os locais que o macOS deixa de fora por si mesmo.
+
+**Space** ou **Insert** marcam linhas e `*` inverte as marcas. **E** exclui as linhas marcadas, ou a que está sob o cursor, com uma marca no próprio item: não precisa de palavra-passe e acompanha o item, mas uma ferramenta que apaga e volta a criar a pasta perde-a. **P** exclui antes o caminho, que fica excluído seja o que for que lá esteja, e pede a sua palavra-passe na caixa de diálogo do sistema. **I**, **Delete** ou **F8** voltam a incluir itens. Um item dentro de uma pasta excluída volta a ser copiado quando se inclui essa pasta, e o que o macOS deixa de fora não pode ser alterado.
+
+Em Todas as exclusões, **A** exclui um caminho que escreva, mesmo que ainda lá não exista nada. **R** procura de novo, **Enter** mostra o item no painel ativo e **Esc** fecha a janela. Excluir ou incluir um volume também pede a sua palavra-passe. O Time Machine pode precisar de acesso total ao disco para o seu terminal, em Definições do Sistema › Privacidade e segurança, para indicar como trata algumas pastas; até lá aparecem como Desconhecido. Noutros sistemas o item do menu fica oculto.
 
 ## Claude e outros agentes (MCP)
 

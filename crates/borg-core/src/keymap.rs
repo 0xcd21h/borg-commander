@@ -105,6 +105,8 @@ pub enum Action {
     Rescan(Side),
     /// Rescans the active panel.
     Reload,
+    /// Opens the Time Machine window for the selection (macOS).
+    TimeMachine,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,6 +171,7 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('M'), ALT, Action::MirrorRemote, Scope::Panels),
     bind(KeyCode::Char('h'), ALT, Action::BrowseRemotes, Scope::Panels),
     bind(KeyCode::Char('r'), ALT, Action::Reload, Scope::Panels),
+    bind(KeyCode::Char('t'), ALT, Action::TimeMachine, Scope::Panels),
     bind(KeyCode::Char('a'), CTRL_ALT, Action::ApprovalModeOff, Scope::Anywhere),
     bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
