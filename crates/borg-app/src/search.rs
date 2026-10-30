@@ -22,6 +22,8 @@ const BATCH_SIZE: usize = 128;
 const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 const BACKPRESSURE_WAIT: Duration = Duration::from_millis(5);
 const MAX_DEPTH: usize = 256;
+/// How deep a search looks first, so matches near its folder show before the whole tree is read.
+const NEAR_DEPTH: usize = 3;
 /// Borg's own ignore file, read like `.gitignore` where a search leaves ignored files out.
 const BORG_IGNORE: &str = ".borgignore";
 
@@ -197,10 +199,6 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     if let Err(error) = fs::read_dir(&search.root) {
         return failed(stream, error.to_string());
     }
-    let Walker { walk, left_out, hidden } = match Walker::new(&search.root, search.hidden, search.skip.as_ref()) {
-        Ok(walker) => walker,
-        Err(error) => return failed(stream, error),
-    };
     let now = std::time::SystemTime::now();
     let metadata = query.needs_metadata() || search.options.minimum > 0;
     let wanted = |entry: &Entry, path: &Path| {
@@ -212,74 +210,93 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
         kind && (search.options.minimum == 0 || (!entry.is_dir() && entry.size >= search.options.minimum))
             && query.accepts(&(entry, path), now)
     };
+    let depth = |path: &Path| path.strip_prefix(&search.root).map_or(0, |rest| rest.components().count());
     let mut progress = SearchProgress::default();
     let mut found = 0;
     let mut last = Instant::now();
-    for item in walk.build() {
-        if stream.stopped() {
-            return false;
-        }
-        let item = match item {
-            Ok(item) if item.depth() == 0 => continue,
-            Ok(item) => item,
-            Err(_) => {
-                progress.errors += 1;
-                continue;
-            }
+    // A first pass reads only the folders near the search folder, so what lies close by shows at
+    // once; the whole walk after it passes over what the first one looked at.
+    'passes: for near in [true, false] {
+        let Walker { mut walk, left_out, hidden } = match Walker::new(&search.root, search.hidden, search.skip.as_ref())
+        {
+            Ok(walker) => walker,
+            Err(error) => return failed(stream, error),
         };
-        progress.visited += 1;
-        let path = item.path();
-        let mut candidates = vec![(path.to_path_buf(), item.file_type())];
-        let drained = Walker::take_left_out(&left_out);
-        progress.excluded += drained.len();
-        candidates.extend(drained.into_iter().map(|path| (path, None)));
-        for (path, kind) in candidates {
-            // Name-only queries match on what the listing gives; only matches read metadata.
-            let cheap = (!metadata).then_some(kind).flatten().filter(|kind| !kind.is_symlink()).map(|kind| Entry {
-                source: Some(path.clone()),
-                missing: false,
-                usage: None,
-                name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-                kind: if kind.is_dir() { borg_vfs::EntryKind::Dir } else { borg_vfs::EntryKind::File },
-                size: 0,
-                modified: None,
-                executable: false,
-                permissions: 0,
-            });
-            if cheap.as_ref().is_some_and(|entry| !wanted(entry, &path)) {
-                continue;
-            }
-            let entry = match borg_vfs::entry(&path) {
-                Ok(entry) => entry,
-                Err(_) => {
-                    progress.errors += 1;
-                    continue;
-                }
-            };
-            if (cheap.is_none() && !wanted(&entry, &path)) || !stream.push(entry) {
-                if stream.stopped() {
-                    return false;
-                }
-                continue;
-            }
-            found += 1;
-            if found >= RESULT_LIMIT {
-                progress.limited = true;
-                break;
-            }
+        if near {
+            walk.max_depth(Some(NEAR_DEPTH));
         }
-        if progress.limited {
-            break;
-        }
-        if last.elapsed() >= PROGRESS_EVERY {
-            progress.skipped = hidden.load(Ordering::Relaxed);
-            if !stream.flush() || !stream.send(Msg::SearchProgress { side, generation, progress: progress.clone() }) {
+        let seen = |depth: usize| !near && depth <= NEAR_DEPTH;
+        let hidden_before = progress.skipped;
+        // Folders left out of the last folder read come after its last entry, so a last turn
+        // takes them.
+        for item in walk.build().map(Some).chain([None]) {
+            if stream.stopped() {
                 return false;
             }
-            last = Instant::now();
+            let mut candidates = Vec::new();
+            match item {
+                Some(Ok(item)) if item.depth() == 0 => continue,
+                Some(Ok(item)) if !seen(item.depth()) => {
+                    progress.visited += 1;
+                    candidates.push((item.path().to_path_buf(), item.file_type()));
+                }
+                Some(Ok(_)) | None => {}
+                Some(Err(error)) => {
+                    progress.errors += usize::from(!error.depth().is_some_and(seen));
+                    continue;
+                }
+            }
+            let drained: Vec<_> =
+                Walker::take_left_out(&left_out).into_iter().filter(|path| !seen(depth(path))).collect();
+            progress.excluded += drained.len();
+            candidates.extend(drained.into_iter().map(|path| (path, None)));
+            for (path, kind) in candidates {
+                // Name-only queries match on what the listing gives; only matches read metadata.
+                let cheap = (!metadata).then_some(kind).flatten().filter(|kind| !kind.is_symlink()).map(|kind| Entry {
+                    source: Some(path.clone()),
+                    missing: false,
+                    usage: None,
+                    name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                    kind: if kind.is_dir() { borg_vfs::EntryKind::Dir } else { borg_vfs::EntryKind::File },
+                    size: 0,
+                    modified: None,
+                    executable: false,
+                    permissions: 0,
+                });
+                if cheap.as_ref().is_some_and(|entry| !wanted(entry, &path)) {
+                    continue;
+                }
+                let entry = match borg_vfs::entry(&path) {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        progress.errors += 1;
+                        continue;
+                    }
+                };
+                if (cheap.is_none() && !wanted(&entry, &path)) || !stream.push(entry) {
+                    if stream.stopped() {
+                        return false;
+                    }
+                    continue;
+                }
+                found += 1;
+                if found >= RESULT_LIMIT {
+                    progress.limited = true;
+                    break 'passes;
+                }
+            }
+            if last.elapsed() >= PROGRESS_EVERY {
+                progress.skipped = hidden_before.max(hidden.load(Ordering::Relaxed));
+                if !stream.flush() || !stream.send(Msg::SearchProgress { side, generation, progress: progress.clone() })
+                {
+                    return false;
+                }
+                last = Instant::now();
+            }
         }
+        // The whole walk counts every hidden name again, the near ones included.
+        progress.skipped = hidden_before.max(hidden.load(Ordering::Relaxed));
     }
-    progress.skipped = hidden.load(Ordering::Relaxed);
     stream.flush() && stream.send(Msg::SearchProgress { side, generation, progress })
 }
 
@@ -346,11 +363,12 @@ impl Walker {
                 counted.fetch_add(1, Ordering::Relaxed);
                 return false;
             }
-            let generated = artifacts && entry.file_type().is_some_and(|kind| kind.is_dir()) && generated(entry.path());
-            if generated {
+            let left_out = entry.file_type().is_some_and(|kind| kind.is_dir())
+                && (guarded(entry.path()) || (artifacts && generated(entry.path())));
+            if left_out {
                 found.lock().expect("left-out folders").push(entry.path().to_path_buf());
             }
-            !generated
+            !left_out
         });
         Ok(Self { walk, left_out, hidden })
     }
@@ -359,6 +377,16 @@ impl Walker {
     pub fn take_left_out(left_out: &std::sync::Mutex<Vec<PathBuf>>) -> Vec<PathBuf> {
         std::mem::take(&mut *left_out.lock().expect("left-out folders"))
     }
+}
+
+/// Whether `path` is where macOS keeps other apps' data, `~/Library/Containers` or `Group
+/// Containers`. macOS asks whether to allow reading each app's folder there, and a read waits for
+/// the answer, so walks leave the whole folder out, before anything in it is opened, whatever a
+/// search skips. A search started there reads it.
+fn guarded(path: &Path) -> bool {
+    cfg!(target_os = "macos")
+        && matches!(path.file_name().and_then(|name| name.to_str()), Some("Containers" | "Group Containers"))
+        && path.parent().and_then(Path::file_name).is_some_and(|name| name == "Library")
 }
 
 /// Whether the folder at `path` is generated: by its name and marker files, or a cache tag.
@@ -557,6 +585,7 @@ fn scan_sizes(search: &SearchRequest, stream: &mut Output<'_>, cache: &crate::si
             if meta.dev() != device
                 || stack.len() >= MAX_DEPTH
                 || revisits(stack.iter().map(|directory| directory.identity), &meta)
+                || guarded(&item.path())
             {
                 progress.skipped += 1;
                 stack.last_mut().unwrap().usage.partial = true;
@@ -795,6 +824,73 @@ mod tests {
         assert_eq!(progress.errors, 0);
         assert_eq!(progress.skipped, 1);
         assert!(!progress.limited);
+    }
+
+    #[tokio::test]
+    async fn matches_near_the_search_folder_come_first_and_nothing_is_counted_twice() {
+        let root = tempfile::tempdir().unwrap();
+        let deep = root.path().join("a/b/c/d/e");
+        fs::create_dir_all(&deep).unwrap();
+        fs::create_dir(root.path().join("Downloads")).unwrap();
+        fs::write(deep.join("регламент 2019.txt"), "old").unwrap();
+        fs::write(root.path().join("Downloads/Регламент передачи ключей.pdf"), "new").unwrap();
+        let mut search = Search::with_cache(crate::size_cache::SizeCache::at(None));
+        search.search(
+            Side::Left,
+            7,
+            SearchRequest {
+                skip: None,
+                root: root.path().into(),
+                query: "*регламент*".into(),
+                hidden: false,
+                options: Default::default(),
+            },
+        );
+        let mut found = Vec::new();
+        let progress = loop {
+            match tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap() {
+                Msg::Batch { entries, .. } => found.extend(entries.into_iter().map(|entry| entry.name)),
+                Msg::SearchProgress { progress, .. } => break progress,
+                _ => {}
+            }
+        };
+        assert_eq!(found, ["Регламент передачи ключей.pdf", "регламент 2019.txt"]);
+        assert_eq!(progress.visited, 8, "five folders, Downloads and two files, each once");
+        assert_eq!(progress.errors, 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn other_apps_data_is_left_out_from_above_and_read_when_searched_in_its_own_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let groups = root.path().join("Library/Group Containers");
+        for folder in
+            ["Library/Group Containers/TEAM.group.chat/Downloads", "Library/Containers/org.example.notes/Data"]
+        {
+            fs::create_dir_all(root.path().join(folder)).unwrap();
+            fs::write(root.path().join(folder).join("report.txt"), "kept by an app").unwrap();
+        }
+        fs::write(root.path().join("Library/report.txt"), "mine").unwrap();
+        async fn found(search: &mut Search, root: &Path, id: u64) -> (Vec<PathBuf>, usize) {
+            let (skip, query, hidden, options) = (None, "report".into(), false, Default::default());
+            search.search(Side::Left, id, SearchRequest { skip, root: root.into(), query, hidden, options });
+            let mut found = Vec::new();
+            loop {
+                match tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap() {
+                    Msg::Batch { entries, .. } => {
+                        found.extend(entries.iter().map(|entry| entry.identity().to_path_buf()))
+                    }
+                    Msg::SearchProgress { progress, .. } => return (found, progress.excluded),
+                    _ => {}
+                }
+            }
+        }
+        let mut search = Search::with_cache(crate::size_cache::SizeCache::at(None));
+        let (found_above, excluded) = found(&mut search, root.path(), 1).await;
+        assert_eq!(found_above, [root.path().join("Library/report.txt")]);
+        assert_eq!(excluded, 2, "both folders of apps' data are left out, once each");
+        let (found_inside, _) = found(&mut search, &groups, 2).await;
+        assert_eq!(found_inside, [groups.join("TEAM.group.chat/Downloads/report.txt")]);
     }
 
     #[tokio::test]

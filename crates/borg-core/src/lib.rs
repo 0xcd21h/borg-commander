@@ -71,7 +71,7 @@ pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items}
 pub use motion::{Pace, PanelMotion, empty_glitch};
 pub use msg::{Effect, Msg};
 pub use panel::{Listing, ListingMode, Panel, RemoteMount, Row, Seek, Sort, SortKey, order};
-pub use pattern::{Pattern, PatternError};
+pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
 pub use query::{Candidate, Problem as QueryProblem, QueryError, SearchQuery};

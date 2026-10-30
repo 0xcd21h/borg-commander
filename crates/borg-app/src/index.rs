@@ -263,7 +263,7 @@ impl Index {
             {
                 continue;
             }
-            let name = candidate.name().to_lowercase();
+            let name = borg_core::composed(&candidate.name()).to_lowercase();
             let rank = match &primary {
                 Some(word) if name == *word => 0u8,
                 Some(word) if name.starts_with(word.as_str()) => 1,

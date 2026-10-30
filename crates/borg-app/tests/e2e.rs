@@ -436,6 +436,37 @@ fn theme_picker_previews_saves_and_restores_on_restart() -> Result<()> {
 }
 
 #[test]
+fn searches_match_any_case_and_composition_and_are_listed_again_after_a_restart() -> Result<()> {
+    let fixture = fixture()?;
+    // Spelled with a combining breve, as macOS often keeps such names.
+    fixture.file("alpha/inner/Регламент передачи ключеи\u{306}.pdf", "%PDF\n")?;
+    let mut app = start(&fixture, "search-history")?;
+    app.send(keys::ctrl('f'))?;
+    app.wait_text("Name or glob")?;
+    app.send(keys::ctrl('u'))?;
+    app.send("*регламент*")?;
+    app.send(keys::enter())?;
+    app.wait_until("the decomposed name found by a lower-case glob", |s| {
+        s.contains("1/1 items") && s.contains("finished") && s.contains("Регламент")
+    })?;
+    app.send(keys::f(10))?;
+    app.wait_text("Quit Borg Commander?")?;
+    app.send("y")?;
+    app.wait_exit()?;
+    drop(app);
+
+    let mut again = start(&fixture, "search-history-restored")?;
+    again.send(keys::ctrl('f'))?;
+    again.wait_text("Recent searches")?;
+    again.send(keys::ctrl('u'))?;
+    let form = again.wait_until("the search listed once", |s| s.text().matches("*регламент*").count() == 1)?;
+    let (x, y) = form.find("*регламент*").unwrap();
+    again.send(mouse(0, x, y))?;
+    again.wait_until("the listed search taken", |s| s.text().matches("*регламент*").count() == 2)?;
+    Ok(())
+}
+
+#[test]
 fn theme_picker_escape_reverts_preview() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "theme-escape")?;

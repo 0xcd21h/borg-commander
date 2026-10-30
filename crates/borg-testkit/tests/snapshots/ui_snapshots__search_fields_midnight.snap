@@ -20,7 +20,7 @@ expression: describe(&buffer)
 │             │ [x] Leave out build output, caches and ignored files                           │             │
 │             │                                                                                │             │
 │             │ [ Enter: Search ]                                                              │             │
-│             │ Ctrl-P/N History · a | b either · -a not · ext: type: size: mod: in:           │             │
+│             │ a | b either · -a not · ext: type: size: mod: in:                              │             │
 │             └ Tab fields · ←→ mode · Space toggle · Esc cancel ──────────────────────────────┘             │
 │                                                     ││                                                     │
 ╰ 9 items ────────────────────────────────────────────╯╰ 5 items ────────────────────────────────────────────╯

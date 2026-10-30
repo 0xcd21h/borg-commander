@@ -1,5 +1,8 @@
+use std::borrow::Cow;
+
 use borg_vfs::Entry;
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
+use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick};
 
 const DIR_SUFFIX: char = '/';
 
@@ -17,8 +20,20 @@ pub struct Pattern {
     dirs: GlobSet,
 }
 
+/// `text` composed as keyboards type it, so a name the file system keeps decomposed (`й` as `и`
+/// and a combining breve, as macOS often does) compares equal to what was typed.
+pub fn composed(text: &str) -> Cow<'_, str> {
+    if text.is_ascii() || is_nfc_quick(text.chars()) == IsNormalized::Yes {
+        Cow::Borrowed(text)
+    } else {
+        Cow::Owned(text.nfc().collect())
+    }
+}
+
 impl Pattern {
     pub fn parse(text: &str) -> Result<Self, PatternError> {
+        // Globs fold only ASCII case, so patterns and names other than ASCII compare in lower case.
+        let text = composed(text).to_lowercase();
         let tokens: Vec<&str> = text.split_whitespace().collect();
         if tokens.is_empty() {
             return Err(PatternError::Empty);
@@ -40,7 +55,8 @@ impl Pattern {
     }
 
     pub fn matches_name(&self, name: &str, dir: bool) -> bool {
-        self.any.is_match(name) || (dir && self.dirs.is_match(name))
+        let name = if name.is_ascii() { Cow::Borrowed(name) } else { Cow::Owned(composed(name).to_lowercase()) };
+        self.any.is_match(name.as_ref()) || (dir && self.dirs.is_match(name.as_ref()))
     }
 }
 
@@ -75,6 +91,17 @@ mod tests {
         assert!(pattern.matches(&entry("Cargo.toml", EntryKind::File)));
         assert!(pattern.matches(&entry("README.MD", EntryKind::File)));
         assert!(!pattern.matches(&entry("build.sh", EntryKind::File)));
+    }
+
+    #[test]
+    fn matches_names_beyond_ascii_whatever_their_case_or_composition() {
+        let pattern = Pattern::parse("*регламент*").unwrap_or_else(|e| panic!("{e}"));
+        assert!(pattern.matches(&entry("Регламент передачи ключей.pdf", EntryKind::File)));
+        assert!(pattern.matches(&entry("РЕГЛАМЕНТ.txt", EntryKind::File)));
+        let decomposed = "Регламент передачи ключеи\u{306}.pdf";
+        assert!(Pattern::parse("*КЛЮЧЕЙ*").unwrap().matches(&entry(decomposed, EntryKind::File)));
+        assert!(Pattern::parse("Café*").unwrap().matches(&entry("cafe\u{301} notes.md", EntryKind::File)));
+        assert!(!pattern.matches(&entry("regulations.pdf", EntryKind::File)));
     }
 
     #[test]

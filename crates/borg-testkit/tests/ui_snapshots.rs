@@ -1347,6 +1347,40 @@ fn search_controls_have_distinct_boundaries_and_labels_in_each_theme() -> Result
 }
 
 #[test]
+fn recent_searches_are_listed_under_the_form_marked_while_recalled_and_taken_with_a_click() -> Result<()> {
+    use borg_core::{Action, Overlay, PastSearch, Pointer, SearchHistory};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    let past = |query: &str, root: &str| PastSearch { query: query.into(), root: root.into() };
+    stage.state.search_history = SearchHistory::new(vec![
+        past("*регламент*", "/home/me/projects/borg"),
+        past("ext:rs -test", "/home/me/projects/borg"),
+        past("invoice size:>1m", "/home/me/Documents"),
+        past("type:image mod:<7d", "/"),
+    ]);
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    stage.send(ctrl('p'));
+    stage.send(ctrl('p'));
+    let buffer = stage.render(stage.started)?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    assert!(screen.contains("Recent searches"));
+    assert!(screen.contains("invoice size:>1m  in ~/Documents"));
+    assert!(screen.contains("type:image mod:<7d  in /"));
+    let (x, y) = screen.find("invoice size").unwrap();
+    assert_ne!(screen.style_at(x, y - 1).bg, screen.style_at(x, y).bg, "the recalled search is marked");
+    check("search_recent", &stage, buffer)?;
+    let (x, y) = screen.find("invoice size").unwrap();
+    let click =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: y, modifiers: KeyModifiers::NONE };
+    let hit = borg_ui::mouse_input(&stage.state, click, false, stage.started).unwrap();
+    assert!(matches!(hit, Msg::Pointer(Pointer::SearchRecent(2))));
+    stage.send(hit);
+    let Some(Overlay::Search(form)) = &stage.state.overlay else { panic!("the search window stays open") };
+    assert_eq!(form.pattern.text(), "invoice size:>1m");
+    Ok(())
+}
+
+#[test]
 fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Result<()> {
     use borg_core::{Action, Pointer};
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};

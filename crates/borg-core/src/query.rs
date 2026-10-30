@@ -7,7 +7,7 @@ use std::{
 
 use borg_vfs::{Entry, EntryKind};
 
-use crate::Pattern;
+use crate::{Pattern, pattern::composed};
 
 const GLOB_CHARS: [char; 3] = ['*', '?', '['];
 const OR: &str = "|";
@@ -87,13 +87,14 @@ struct Text {
 
 impl Text {
     fn new(text: &str) -> Self {
+        let text = composed(text);
         let fold = !text.chars().any(char::is_uppercase);
-        Self { text: if fold { text.to_lowercase() } else { text.into() }, fold }
+        Self { text: if fold { text.to_lowercase() } else { text.into_owned() }, fold }
     }
 
     fn found_in(&self, haystack: &str) -> bool {
         if !self.fold {
-            return haystack.contains(&self.text);
+            return composed(haystack).contains(&self.text);
         }
         // Most names are ASCII: compare without lowercasing a copy of each.
         if haystack.is_ascii() && self.text.is_ascii() {
@@ -101,10 +102,11 @@ impl Text {
             return needle.is_empty()
                 || haystack.as_bytes().windows(needle.len()).any(|window| window.eq_ignore_ascii_case(needle));
         }
-        haystack.to_lowercase().contains(&self.text)
+        composed(haystack).to_lowercase().contains(&self.text)
     }
 
     fn is(&self, value: &str) -> bool {
+        let value = composed(value);
         if self.fold { value.to_lowercase() == self.text } else { value == self.text }
     }
 }
@@ -440,6 +442,14 @@ mod tests {
     fn lowercase_ignores_case_and_uppercase_matches_it() {
         assert!(file("readme", "/README.md"));
         assert!(file("README", "/README.md") && !file("README", "/readme.md"));
+    }
+
+    #[test]
+    fn words_and_globs_beyond_ascii_ignore_case_and_how_names_are_composed() {
+        let name = "/Downloads/Регламент передачи ключеи\u{306}.pdf";
+        assert!(file("регламент", name) && file("*регламент*", name) && file("ключей", name));
+        assert!(file("Регламент", name) && !file("РЕГЛАМЕНТ", name), "capitals still match case");
+        assert!(file("downloads/регламент", name));
     }
 
     #[test]

@@ -82,14 +82,18 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
         }
         return None;
     }
-    if let Some(Overlay::Search(_)) = &state.overlay {
+    if let Some(Overlay::Search(form)) = &state.overlay {
         if !click {
             return None;
         }
-        if let Some(field) = crate::discovery_view::search_field(layout.screen, point) {
+        let recent = form.recent(state);
+        if let Some(field) = crate::discovery_view::search_field(layout.screen, recent.len(), point) {
             return Some(Msg::Pointer(Pointer::SearchField(field)));
         }
-        return crate::discovery_view::search_button(layout.screen)
+        if let Some(at) = crate::discovery_view::search_recent(layout.screen, &recent, point) {
+            return Some(Msg::Pointer(Pointer::SearchRecent(at)));
+        }
+        return crate::discovery_view::search_button(layout.screen, recent.len())
             .contains(point)
             .then_some(Msg::Pointer(Pointer::SearchStart));
     }

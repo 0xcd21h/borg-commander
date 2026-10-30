@@ -1,10 +1,12 @@
+use std::path::Path;
+
 use crate::{Theme, dialog_view::centered, format};
-use borg_core::{AppState, CollectionPicker, LineInput, SearchForm};
+use borg_core::{AppState, CollectionPicker, LineInput, PastSearch, SearchForm};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Clear, Widget},
 };
 
@@ -14,6 +16,8 @@ const SEARCH_BUTTON_ROW: u16 = 9;
 const HIDDEN_ROW: u16 = 6;
 const SKIP_ROW: u16 = 7;
 const HINT_ROW: u16 = 10;
+/// The heading over recent searches, a row below the hint.
+const RECENT_ROW: u16 = 12;
 const FIELD_GAP: u16 = 2;
 const FIELD_PADDING: u16 = 2;
 const LIST_ROWS: u16 = 10;
@@ -150,14 +154,32 @@ pub(crate) fn collections(
     area
 }
 
-pub(crate) fn search_area(screen: Rect) -> Rect {
-    centered(screen, screen.width.saturating_sub(4).min(MAX_WIDTH), SEARCH_HEIGHT.min(screen.height))
+/// The search dialog, taller by a heading, a gap and a row for each of `recent` searches.
+pub(crate) fn search_area(screen: Rect, recent: usize) -> Rect {
+    let rows = if recent == 0 { 0 } else { recent as u16 + 2 };
+    centered(screen, screen.width.saturating_sub(4).min(MAX_WIDTH), (SEARCH_HEIGHT + rows).min(screen.height))
 }
 
-pub(crate) fn search_field(screen: Rect, point: Position) -> Option<usize> {
-    let area = search_area(screen).inner(ratatui::layout::Margin::new(2, 1));
+pub(crate) fn search_field(screen: Rect, recent: usize, point: Position) -> Option<usize> {
+    let area = search_area(screen, recent).inner(ratatui::layout::Margin::new(2, 1));
     (area.contains(point) && point.y > area.y && point.y <= area.y + SKIP_ROW)
         .then(|| usize::from(point.y - area.y - 1))
+}
+
+/// The place in the history of the recent search at `point`.
+pub(crate) fn search_recent(screen: Rect, recent: &[(usize, &PastSearch)], point: Position) -> Option<usize> {
+    let area = search_area(screen, recent.len()).inner(ratatui::layout::Margin::new(2, 1));
+    let row = point.y.checked_sub(area.y + RECENT_ROW + 1).filter(|_| area.contains(point))?;
+    recent.get(usize::from(row)).map(|(at, _)| *at)
+}
+
+/// `path` as the panels title it, below `~` when it is in the home folder.
+fn place(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
 }
 
 fn input_text(input: &LineInput, focused: bool, width: usize) -> String {
@@ -171,9 +193,9 @@ fn input_text(input: &LineInput, focused: bool, width: usize) -> String {
     crate::dialog_view::skip_columns(&format!("{before}▏{after}"), shift)
 }
 
-pub(crate) fn search_button(screen: Rect) -> Rect {
+pub(crate) fn search_button(screen: Rect, recent: usize) -> Rect {
     use unicode_width::UnicodeWidthStr;
-    let inner = search_area(screen).inner(ratatui::layout::Margin::new(2, 1));
+    let inner = search_area(screen, recent).inner(ratatui::layout::Margin::new(2, 1));
     Rect {
         y: inner.y.saturating_add(SEARCH_BUTTON_ROW),
         width: inner.width.min(tr!(search_start_button).width() as u16),
@@ -197,9 +219,17 @@ fn field(buf: &mut Buffer, area: Rect, input: &str, focused: bool, theme: &Theme
     write(buf, contents, 0, input.into(), style);
 }
 
-pub(crate) fn search(form: &SearchForm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
+pub(crate) fn search(
+    form: &SearchForm,
+    state: &AppState,
+    home: Option<&Path>,
+    theme: &Theme,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Rect {
     use unicode_width::UnicodeWidthStr;
-    let area = search_area(screen);
+    let recent = form.recent(state);
+    let area = search_area(screen, recent.len());
     Clear.render(area, buf);
     Block::bordered()
         .style(theme.styles.overlay)
@@ -275,6 +305,25 @@ pub(crate) fn search(form: &SearchForm, theme: &Theme, screen: Rect, buf: &mut B
     if let Some(error) = &form.error {
         write(buf, inner, 8, error.clone(), theme.styles.notice);
     }
-    write(buf, search_button(screen), 0, tr!(search_start_button).into(), theme.styles.menu);
+    write(buf, search_button(screen, recent.len()), 0, tr!(search_start_button).into(), theme.styles.menu);
+    if !recent.is_empty() {
+        write(buf, inner, RECENT_ROW, tr!(recent_searches).into(), theme.styles.footer);
+    }
+    let root = form.root(state);
+    let recalled = form.recalled.as_ref().map(|(at, _)| *at);
+    for (row, (at, past)) in (RECENT_ROW + 1..inner.height).zip(&recent) {
+        let style = if recalled == Some(*at) { theme.styles.overlay_selected } else { theme.styles.overlay };
+        let line = Rect { y: inner.y + row, height: 1, ..inner };
+        buf.set_style(line, style);
+        let width = usize::from(inner.width);
+        // Searches made elsewhere say where, so a query that only makes sense there is not taken for this one.
+        let place = (past.root != root)
+            .then(|| format!("  {}", tr!(recent_search_in, place(&past.root, home))))
+            .map(|place| format::truncate_start(&place, width / 2))
+            .unwrap_or_default();
+        let query = format::truncate_end(&past.query, width.saturating_sub(place.width()));
+        Line::from(vec![Span::styled(query, style), Span::styled(place, style.patch(theme.styles.footer))])
+            .render(line, buf);
+    }
     area
 }

@@ -43,10 +43,15 @@ impl SearchHistory {
         true
     }
 
-    /// The queries to recall in a search below `root`: those used there first, newest first.
-    pub(crate) fn recall(&self, root: &Path) -> Vec<&str> {
+    /// The searches to recall in a search below `root`: those made there first, newest first.
+    pub fn recent(&self, root: &Path) -> Vec<&PastSearch> {
         let (here, elsewhere): (Vec<_>, Vec<_>) = self.entries.iter().partition(|entry| entry.root == root);
-        here.into_iter().chain(elsewhere).map(|entry| entry.query.as_str()).collect()
+        here.into_iter().chain(elsewhere).collect()
+    }
+
+    #[cfg(test)]
+    fn recall(&self, root: &Path) -> Vec<&str> {
+        self.recent(root).into_iter().map(|entry| entry.query.as_str()).collect()
     }
 }
 
