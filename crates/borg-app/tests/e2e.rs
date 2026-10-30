@@ -1533,6 +1533,44 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     Ok(())
 }
 
+#[test]
+fn open_files_preview_a_regular_file_the_process_holds_and_f3_views_it() -> Result<()> {
+    struct Worker(std::process::Child);
+    impl Drop for Worker {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "open-file-preview")?;
+    let held = fixture.file("held.txt", "kept open by a worker\n")?;
+    let worker =
+        Worker(std::process::Command::new("/bin/sh").args(["-c", "exec 3<\"$0\"; exec sleep 120"]).arg(&held).spawn()?);
+    let pid = worker.0.id();
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_text("Activity monitor")?;
+    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
+    app.wait_until("worker in the activity list", |s| s.contains(&format!(" {pid} ")) && s.contains("/ edit"))?;
+    app.send("2")?;
+    app.wait_text("open entries")?;
+    for _ in 0..20 {
+        if app.snapshot().contains("kept open by a worker") {
+            break;
+        }
+        app.send(keys::down())?;
+        app.pump(std::time::Duration::from_millis(300))?;
+    }
+    let shown = app.wait_text("kept open by a worker")?;
+    ensure!(shown.contains("Preview") && shown.contains("F3 View"), "{}", shown.text());
+    app.send(keys::f(3))?;
+    app.wait_until("the viewer shows the file", |s| s.contains("kept open by a worker") && !s.contains("Open files"))?;
+    app.send(keys::esc())?;
+    app.wait_text("Open files")?;
+    drop(worker);
+    Ok(())
+}
+
 const BOTTOM_LEFT_CORNERS: [char; 4] = ['└', '╰', '┗', '╚'];
 const ACTIVITY_FIRST_ROW: u16 = 4;
 
@@ -3488,6 +3526,8 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     local.wait_text(&format!("Host {name} · Default"))?;
     local.send("m")?;
     local.wait_text("Connecting mirror to")?;
+    // The connection gives up after 10 seconds, as long as a wait lasts, so the wait starts later.
+    local.pump(std::time::Duration::from_secs(5))?;
     local.wait_text("Connection timed out after 10 seconds")?;
     local.wait_text("while opening remote connections")?;
     local.wait_text("M: retry mirror")?;

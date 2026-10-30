@@ -744,8 +744,10 @@ The open-files list includes descriptor, access mode, type, and path or endpoint
 the other pane shows full details, file size, and current offset when available.
 On macOS it also includes entries such as `cwd` (current directory) and `txt`
 (mapped executable). R refreshes the list. Switching tabs retains list positions.
-Access restrictions offer the existing explicit administrator retry. File contents
-are not read through process descriptors.
+Access restrictions offer the existing explicit administrator retry. A regular file
+also shows what it holds under its details, as the quick view does: **Tab** focuses the
+preview to scroll it, and **F3** opens the file in the viewer. Borg reads the file by its
+path with your own rights, not through the process's descriptor.
 
 Selecting a readable region automatically captures up to 64 KiB of it in the opposite
 pane. When the start of the region holds only zeros, the capture reads on to the first page

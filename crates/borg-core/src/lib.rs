@@ -98,7 +98,7 @@ pub use activity::{
 };
 
 pub use activity::{CENSUS_LEGEND, Indicator, MemoryCensus, PageClass, census_grid};
-pub use activity::{FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity, chrome_rows};
+pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity, chrome_rows};
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport, StringsTally};
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};

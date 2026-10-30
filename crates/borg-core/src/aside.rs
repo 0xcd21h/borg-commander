@@ -15,6 +15,9 @@ const PADDING_CELLS: u16 = 2;
 pub enum Aside {
     QuickView,
     Info,
+    /// A regular file the inspected process has open, previewed under its details in the
+    /// activity monitor.
+    OpenFile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +83,12 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         state.aside = None;
     }
     let aside = state.aside?;
+    // The activity monitor covers the panels and previews with the same loader; the quick view
+    // asks again once the panels show.
+    if state.activity.side.is_some() {
+        state.peeking = None;
+        return None;
+    }
     let Some(path) = hovered_path(state) else {
         state.peeked = None;
         state.peeking = None;
@@ -110,6 +119,9 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
 }
 
 pub(crate) fn receive(state: &mut AppState, peeked: Peeked) {
+    if peeked.aside == Aside::OpenFile {
+        return crate::activity::receive_file_preview(&mut state.activity, peeked);
+    }
     if state.peeking.as_ref().is_some_and(|(aside, path)| *aside == peeked.aside && *path == peeked.path) {
         state.peeking = None;
         state.peeked = Some(peeked);

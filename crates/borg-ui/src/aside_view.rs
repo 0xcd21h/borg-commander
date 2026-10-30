@@ -48,6 +48,7 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
     let heading = match scene.aside {
         Aside::QuickView => tr!(quick_view),
         Aside::Info => tr!(info),
+        Aside::OpenFile => tr!(process_file_details),
     };
     let name = shown.map(|peeked| name(&peeked.path)).unwrap_or_default();
     let room = usize::from(scene.area.width).saturating_sub(heading.width() + TITLE_SEPARATOR.width() + LABEL_GAP * 2);
@@ -83,19 +84,28 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
 }
 
 fn content(peeked: &Peeked, scene: &AsideScene<'_>, look: &Look<'_>, body: Rect, buf: &mut Buffer) -> Vec<Placement> {
-    let styles = look.styles();
     match &peeked.peek {
         Peek::Picture(image) => return picture(image, scene, body, buf),
-        Peek::Text(pager) if pager.is_empty() => centered(tr!(empty_file), styles.meta, body, buf),
-        Peek::Text(pager) => crate::document_view::draw(pager, styles.panel, body, buf),
         Peek::Folder { entries, .. } => lines(entries.iter().map(|entry| listed(entry, scene, look)), body, buf),
         Peek::Info(facts) => info(facts, &peeked.path, scene.clock, look, body, buf),
+        peek => draw_file(peek, look, look.styles().panel, body, buf),
+    }
+    Vec::new()
+}
+
+/// What a file holds, for a pane that places no graphics: a picture draws in half blocks.
+pub(crate) fn draw_file(peek: &Peek, look: &Look<'_>, base: Style, body: Rect, buf: &mut Buffer) {
+    let styles = look.styles();
+    match peek {
+        Peek::Picture(image) => draw_halfblocks(&image.picture, body, buf),
+        Peek::Text(pager) if pager.is_empty() => centered(tr!(empty_file), styles.meta, body, buf),
+        Peek::Text(pager) => crate::document_view::draw(pager, base, body, buf),
         Peek::Binary => centered(tr!(binary_file), styles.meta, body, buf),
         Peek::Unavailable(reason) => {
             centered(&format::truncate_end(reason, usize::from(body.width)), styles.notice, body, buf);
         }
+        Peek::Folder { .. } | Peek::Info(_) => {}
     }
-    Vec::new()
 }
 
 fn name(path: &Path) -> String {

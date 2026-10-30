@@ -16,7 +16,7 @@ const PERMISSION_BITS: u32 = 0o7777;
 
 pub fn peek(aside: Aside, path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Peek {
     let peeked = match aside {
-        Aside::QuickView => quick_view(path, size, cell, cancelled),
+        Aside::QuickView | Aside::OpenFile => quick_view(path, size, cell, cancelled),
         Aside::Info => info(path, &cancelled).map(Peek::Info),
     };
     peeked.unwrap_or_else(|e| Peek::Unavailable(format!("{e:#}")))

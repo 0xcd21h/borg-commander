@@ -5,9 +5,9 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    Activity, ActivityPage, ActivityRequest, ActivitySort, AppState, CENSUS_LEGEND, FINDING_NOTE, HISTORY,
-    IntegrityReport, MemoryCensus, MemoryGroup, MemoryRegion, MemoryTotals, Msg, PageClass, Pointer, RegionRow,
-    Severity, SnapshotRow, census_grid,
+    Activity, ActivityPage, ActivityRequest, ActivitySort, AppState, CENSUS_LEGEND, FILE_PREVIEW_TOP, FINDING_NOTE,
+    HISTORY, IntegrityReport, MemoryCensus, MemoryGroup, MemoryRegion, MemoryTotals, Msg, PageClass, Pointer,
+    ProcessFile, RegionRow, Severity, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
@@ -329,10 +329,14 @@ fn files(activity: &Activity, look: &Look<'_>, inner: Rect, body: Rect, spinner:
     }
 }
 
-fn file_details(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buffer) {
+fn file_details(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
     let Some(file) = activity.files.get(activity.file_cursor) else {
         return;
     };
+    if activity.previewable_file().is_some() {
+        return open_file(activity, file, look, body, buf);
+    }
     let mut y = 0;
     for (label, value) in [
         (tr!(process_file_path), file.name.clone()),
@@ -353,6 +357,35 @@ fn file_details(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buffer
             text(buf, row(body, y), chunk.iter().collect::<String>(), theme.styles.overlay);
         }
         y = y.saturating_add(2);
+    }
+}
+
+/// A regular file: its details in a few rows, then what it holds.
+fn open_file(activity: &Activity, file: &ProcessFile, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
+    let width = usize::from(body.width).max(1);
+    // Two rows of path; a longer one keeps its end, which names the file.
+    let path: Vec<char> = format::truncate_start(&file.name, width * 2).chars().collect();
+    for (y, chunk) in path.chunks(width).enumerate() {
+        text(buf, row(body, y as u16), chunk.iter().collect::<String>(), emphasis(theme));
+    }
+    let facts = tr!(
+        process_file_facts,
+        descriptor = file.descriptor,
+        access = file.access,
+        kind = file.kind,
+        size = size(file.size),
+        offset = file.offset.map_or_else(|| "—".into(), |v| v.to_string())
+    );
+    text(buf, row(body, 2), facts, theme.styles.overlay);
+    text(buf, row(body, FILE_PREVIEW_TOP - 1), tr!(process_file_preview), heading(theme));
+    let preview = Rect {
+        y: body.y.saturating_add(FILE_PREVIEW_TOP).min(body.bottom()),
+        height: body.height.saturating_sub(FILE_PREVIEW_TOP),
+        ..body
+    };
+    if let Some(peeked) = &activity.file_preview {
+        crate::aside_view::draw_file(&peeked.peek, look, theme.styles.overlay, preview, buf);
     }
 }
 
@@ -467,7 +500,12 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
             ActivityPage::Files | ActivityPage::FileDetails => {
-                vec![(tr!(activity_refresh_button), KeyCode::Char('r')), (tr!(activity_back_button), KeyCode::Esc)]
+                let mut specs =
+                    vec![(tr!(activity_refresh_button), KeyCode::Char('r')), (tr!(activity_back_button), KeyCode::Esc)];
+                if activity.previewable_file().is_some() {
+                    specs.insert(0, (tr!(process_file_view_button), KeyCode::F(3)));
+                }
+                specs
             }
             ActivityPage::Search => {
                 let copies = activity
@@ -785,7 +823,7 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
             ActivityPage::Memory => memory(activity, look, body, buf),
             ActivityPage::Regions => regions(activity, theme, inner, body, buf),
             ActivityPage::Files => files(activity, look, inner, body, spinner, buf),
-            ActivityPage::FileDetails => file_details(activity, theme, body, buf),
+            ActivityPage::FileDetails => file_details(activity, look, body, buf),
             ActivityPage::Snapshot => {
                 // Group and file previews have no region header, so they start at the top.
                 let whole = Rect { height: inner.height.saturating_sub(FOOTER_ROWS), ..inner };
@@ -1279,6 +1317,8 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
             }
             ActivityPage::Search => tr!(memory_results_hint),
             ActivityPage::Integrity => tr!(integrity_hint),
+            ActivityPage::FileDetails if activity.previewable_file().is_some() => tr!(process_file_scroll_hint),
+            ActivityPage::Files if activity.previewable_file().is_some() => tr!(process_file_preview_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),
         }
     };

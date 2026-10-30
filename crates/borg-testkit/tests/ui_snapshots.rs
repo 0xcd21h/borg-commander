@@ -1862,6 +1862,18 @@ fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<(
     });
     let buffer = stage.render(stage.started)?;
     check("activity_files", &stage, buffer)?;
+    let path = std::path::PathBuf::from("/workspace/demo/session.log");
+    let log = "09:00:01 session started\n09:00:02 listening on 127.0.0.1:8080\n09:00:07 GET /status 200\n";
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(log.as_bytes().to_vec()), &path, 60, 20)?;
+    stage.send(Msg::Peeked(borg_core::Peeked {
+        aside: borg_core::Aside::OpenFile,
+        path,
+        peek: borg_core::Peek::Text(pager),
+    }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "09:00:01 session started")?;
+    ensure_text(&buffer, "F3 View")?;
+    check("activity_file_preview", &stage, buffer)?;
     let shot = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
     let (column, row) = shot.find("1 Memory").unwrap();
     let event =

@@ -225,6 +225,7 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::activity::sync(state, now));
+    effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));

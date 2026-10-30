@@ -453,6 +453,8 @@ pub struct IntegrityReport {
 /// Rows below the findings list that explain the selected finding.
 pub const FINDING_NOTE: u16 = 6;
 /// Rows a pane's frame, header and footer take from a list or preview of each page.
+/// Rows the selected open file's details take above its preview.
+pub const FILE_PREVIEW_TOP: u16 = 5;
 pub fn chrome_rows(page: ActivityPage) -> u16 {
     match page {
         ActivityPage::Snapshot => 8,
@@ -846,6 +848,9 @@ pub struct Activity {
     pub files_skipped: usize,
     pub files_loaded: bool,
     pub file_cursor: usize,
+    /// The selected open file's preview, when it is a regular file, and the one being read.
+    pub file_preview: Option<crate::Peeked>,
+    file_previewing: Option<PathBuf>,
     pub tops: [usize; 5],
     pub snapshot: Option<MemorySnapshot>,
     pub previous: Option<MemorySnapshot>,
@@ -904,6 +909,8 @@ impl Default for Activity {
             files_skipped: 0,
             files_loaded: false,
             file_cursor: 0,
+            file_preview: None,
+            file_previewing: None,
             tops: [0; 5],
             snapshot: None,
             previous: None,
@@ -1190,6 +1197,8 @@ impl Activity {
             self.files_skipped = 0;
             self.files_loaded = false;
             self.file_cursor = 0;
+            self.file_preview = None;
+            self.file_previewing = None;
             self.tops[1..].fill(0);
             self.snapshot = None;
             self.previous = None;
@@ -1221,6 +1230,12 @@ impl Activity {
             self.error = None;
         }
         vec![Effect::Activity { id: self.next_id, request }]
+    }
+    /// The selected open file, when it is a regular file whose contents can be previewed.
+    pub fn previewable_file(&self) -> Option<PathBuf> {
+        let file = self.files.get(self.file_cursor).filter(|_| self.list == ActivityPage::Files)?;
+        let path = PathBuf::from(&file.name);
+        (file.kind == "REG" && path.is_absolute()).then_some(path)
     }
     /// Whether a process is open for inspection: its memory map, open files, or matches.
     pub fn inspecting(&self) -> bool {
@@ -1463,6 +1478,48 @@ pub(crate) fn wake_at(state: &AppState) -> Option<Instant> {
         .into_iter()
         .chain((!state.activity.paused).then_some(state.activity.next).flatten())
         .min()
+}
+/// Asks for a preview of the selected open file, when it is a regular file, sized to the pane
+/// under its details.
+pub(crate) fn sync_file_preview(state: &mut AppState) -> Option<Effect> {
+    let Some(side) = state.activity.side.filter(|_| state.view == crate::View::Panels) else {
+        state.activity.file_previewing = None;
+        return None;
+    };
+    let Some(path) = state.activity.previewable_file() else {
+        state.activity.file_preview = None;
+        state.activity.file_previewing = None;
+        return None;
+    };
+    if state.overlay.is_some() {
+        return None;
+    }
+    let area = state.layout(state.epoch).panels[side.other().index()];
+    let size = (
+        usize::from(area.width.saturating_sub(2)),
+        usize::from(area.height.saturating_sub(chrome_rows(ActivityPage::FileDetails) + FILE_PREVIEW_TOP)),
+    );
+    let activity = &mut state.activity;
+    if let Some(preview) = activity.file_preview.as_mut().filter(|preview| preview.path == path) {
+        if let crate::Peek::Text(pager) = &mut preview.peek
+            && let Err(error) = pager.resize(size.0, size.1)
+        {
+            activity.error = Some(tr!(preview_error, error = error));
+        }
+        return None;
+    }
+    activity.file_preview = None;
+    if activity.file_previewing.as_ref() == Some(&path) {
+        return None;
+    }
+    activity.file_previewing = Some(path.clone());
+    Some(Effect::Peek { aside: crate::Aside::OpenFile, path, size })
+}
+pub(crate) fn receive_file_preview(activity: &mut Activity, preview: crate::Peeked) {
+    if activity.file_previewing.as_ref() == Some(&preview.path) {
+        activity.file_previewing = None;
+        activity.file_preview = Some(preview);
+    }
 }
 pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     if state.activity.side.is_none() || state.view != crate::View::Panels {
@@ -1968,6 +2025,32 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         state.activity.filtering = false;
         state.activity.preview_focused = !state.activity.preview_focused;
         return Vec::new();
+    }
+    if let Some(path) = state.activity.previewable_file() {
+        if key.code == KeyCode::F(3) {
+            return crate::viewer::open(state, path);
+        }
+        // The focused preview scrolls; the keys that act on the process keep working.
+        if state.activity.preview_focused
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+                    | KeyCode::Left
+                    | KeyCode::Right
+            )
+        {
+            if let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = state.activity.file_preview.as_mut()
+                && let Err(error) = crate::viewer::scroll(pager, key.code)
+            {
+                state.activity.error = Some(tr!(preview_error, error = error));
+            }
+            return Vec::new();
+        }
     }
     if key.code == KeyCode::Esc {
         let activity = &mut state.activity;
@@ -2991,6 +3074,62 @@ mod tests {
         assert_eq!(state.activity.selected, Some(process));
         assert!(key(&mut state, KeyCode::Char('2')).is_empty());
         assert_eq!(state.activity.files_skipped, 1);
+    }
+    #[test]
+    fn a_regular_open_file_previews_under_its_details_scrolls_and_opens_in_the_viewer() {
+        let (mut state, now) = state();
+        open(&mut state);
+        sample(&mut state, vec![process(2, 10, 200)], now);
+        let send = |state: &mut AppState, code| update(state, Msg::Key(KeyEvent::from(code)), now);
+        send(&mut state, KeyCode::Char('2'));
+        let id = state.activity.pending.as_ref().unwrap().0;
+        let file = |descriptor: &str, kind: &str, name: &str| ProcessFile {
+            descriptor: descriptor.into(),
+            access: "r".into(),
+            kind: kind.into(),
+            name: name.into(),
+            size: Some(2400),
+            offset: Some(0),
+        };
+        let entries = vec![file("0", "CHR", "/dev/ttys001"), file("3", "REG", "/home/me/notes.txt")];
+        receive(&mut state, id, Ok(ActivityData::Files(ProcessFiles { entries, skipped: 0 })), now);
+        let peeks = |effects: &[Effect]| {
+            effects
+                .iter()
+                .filter_map(|effect| match effect {
+                    Effect::Peek { aside: crate::Aside::OpenFile, path, .. } => Some(path.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(peeks(&send(&mut state, KeyCode::Char('x'))).is_empty(), "a terminal has nothing to preview");
+        let path = PathBuf::from("/home/me/notes.txt");
+        assert_eq!(peeks(&send(&mut state, KeyCode::Down)), vec![path.clone()]);
+        assert!(peeks(&send(&mut state, KeyCode::Down)).is_empty(), "asked once while it loads");
+        let text = (0..100).map(|n| format!("line {n}\n")).collect::<String>();
+        let pager = borg_view::Pager::for_path(std::sync::Arc::new(text.into_bytes()), &path, 40, 10).unwrap();
+        update(
+            &mut state,
+            Msg::Peeked(crate::Peeked {
+                aside: crate::Aside::OpenFile,
+                path: path.clone(),
+                peek: crate::Peek::Text(pager),
+            }),
+            now,
+        );
+        let offset = |state: &AppState| match &state.activity.file_preview {
+            Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) => pager.offset(),
+            _ => panic!("no text preview"),
+        };
+        assert_eq!(offset(&state), 0);
+        send(&mut state, KeyCode::Tab);
+        send(&mut state, KeyCode::Down);
+        assert!(offset(&state) > 0, "the focused preview scrolls");
+        assert_eq!(state.activity.file_cursor, 1, "the selection stays");
+        assert!(matches!(&send(&mut state, KeyCode::F(3))[..], [Effect::View(shown)] if *shown == path));
+        send(&mut state, KeyCode::Tab);
+        send(&mut state, KeyCode::Up);
+        assert!(state.activity.file_preview.is_none());
     }
     #[test]
     fn regions_group_by_purpose_rank_by_footprint_and_collapse_library_segments_per_file() {
