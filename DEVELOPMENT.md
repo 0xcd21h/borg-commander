@@ -81,7 +81,9 @@ whose integration announces `OSC 6633;silent-cd` at each prompt (zsh) get
 `Effect::ChangeShellDir`: the app writes the folder to a private per-process request file
 (`BORG_CD_FILE`) and sends `SILENT_CD_KEY`, which a ZLE widget binds to `builtin cd`, the
 prompt hooks and `zle reset-prompt`. Nothing is echoed and no command markers are emitted.
-Other shells receive a typed ` cd '…'` that skips history.
+Other shells receive a typed ` cd '…'` that skips history. Once a shell announces its prompts,
+the emulator conceals that command and its output (`Effect::WriteConcealed`) until the next prompt
+marker, which is drawn where the previous prompt began, so nothing flashes or stays in the console.
 
 Mkdir and archive actions are built by `borg_core::command::CommandLine` (with shell quoting)
 and run in the embedded shell, hidden at first. If a command takes longer than 600 ms the shell

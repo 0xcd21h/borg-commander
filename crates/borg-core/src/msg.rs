@@ -247,6 +247,9 @@ pub enum Effect {
         dir: PathBuf,
     },
     Write(Vec<u8>),
+    /// Types into the console and keeps the screen as it was until the shell's next prompt,
+    /// so a `cd` Borg types neither flashes nor stays in the console's history.
+    WriteConcealed(Vec<u8>),
     /// Move the idle shell into a folder without typing a command (see `ShellStatus::silent_cd`).
     /// `typed` is the hidden `cd` command line to send if that is not possible.
     ChangeShellDir {

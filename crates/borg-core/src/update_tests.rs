@@ -472,7 +472,7 @@ fn writes(effects: &[Effect]) -> String {
     let bytes: Vec<u8> = effects
         .iter()
         .filter_map(|e| match e {
-            Effect::Write(bytes) => Some(bytes.clone()),
+            Effect::Write(bytes) | Effect::WriteConcealed(bytes) => Some(bytes.clone()),
             _ => None,
         })
         .flatten()
@@ -500,6 +500,7 @@ fn typing_goes_to_shell_after_syncing_directory() {
 
     let effects = press(&mut state, now, key(KeyCode::Char('l')));
     assert_eq!(writes(&effects), " cd '/home/me'\rl");
+    assert!(effects.contains(&Effect::WriteConcealed(b" cd '/home/me'\r".to_vec())), "the cd stays out of sight");
     assert_eq!(state.view, View::Panels);
 }
 

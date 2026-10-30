@@ -1585,6 +1585,10 @@ impl App {
                     });
                 }
                 Effect::Write(bytes) => self.write_console(bytes)?,
+                Effect::WriteConcealed(bytes) => {
+                    self.console_emulator().conceal();
+                    self.write_console(bytes)?;
+                }
                 Effect::ChangeShellDir { dir, typed } => {
                     self.emulator.scroll(Scroll::Bottom);
                     match borg_term::request_cd(&self.cd_request, &dir) {

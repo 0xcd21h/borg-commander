@@ -287,6 +287,28 @@ fn zsh_follows_panel_folders_without_echoing_cd_commands() -> Result<()> {
 }
 
 #[test]
+fn bash_and_fish_follow_panel_folders_without_leaving_cd_commands_on_screen() -> Result<()> {
+    for (shell, _) in Shell::available().into_iter().filter(|(shell, _)| *shell != Shell::Zsh) {
+        let fixture = fixture()?;
+        fs::write(fixture.home().join(".bashrc"), "PS1='$ \\W '\n")?;
+        fs::create_dir_all(fixture.home().join(".config/fish"))?;
+        let prompt = "function fish_prompt; printf '$ %s ' (basename $PWD); end\n";
+        fs::write(fixture.home().join(".config/fish/config.fish"), prompt)?;
+        let mut app = start_with(&fixture, &format!("concealed-cd-{}", shell.program()), shell)?;
+        app.send(keys::down())?.send(keys::enter())?;
+        app.wait_text("one.txt")?;
+        app.send(keys::ctrl('o'))?;
+        let console = app.wait_until("prompt redrawn in the panel folder", |s| s.contains("$ alpha"))?;
+        ensure!(!console.contains("cd '"), "the folder change was shown:\n{}", console.text());
+        app.send("pwd")?.send(keys::enter())?;
+        let expected = fixture.work().join("alpha").display().to_string();
+        let output = app.wait_until("pwd output", |s| s.lines().iter().any(|line| line == &expected))?;
+        ensure!(!output.contains("cd '"), "the folder change stayed in the console:\n{}", output.text());
+    }
+    Ok(())
+}
+
+#[test]
 fn tab_switches_panels_on_empty_line_and_completes_otherwise() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "tab")?;

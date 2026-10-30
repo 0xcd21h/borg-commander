@@ -52,12 +52,24 @@ impl From<Scroll> for alacritty_terminal::grid::Scroll {
     }
 }
 
+/// Output concealed after Borg types a command, beyond which it is shown after all.
+const CONCEAL_LIMIT: usize = 16 * 1024;
+
 pub struct Emulator {
     term: Term<Replies>,
     parser: Processor,
     scanner: OscScanner,
     replies: Receiver<String>,
     input_start: Option<Point>,
+    /// Where the shell's current prompt began.
+    prompt_start: Option<Point>,
+    /// Output held back while a command Borg typed runs, until the shell's next prompt.
+    concealed: Option<Concealed>,
+}
+
+struct Concealed {
+    prompt: Point,
+    bytes: Vec<u8>,
 }
 
 impl Emulator {
@@ -70,13 +82,33 @@ impl Emulator {
             scanner: OscScanner::default(),
             replies,
             input_start: None,
+            prompt_start: None,
+            concealed: None,
         }
+    }
+
+    /// Keeps the shell's output out of sight until its next prompt, which then replaces the
+    /// current one, so a command Borg types, such as a `cd`, leaves no trace on screen.
+    /// Without a prompt to return to, or after `CONCEAL_LIMIT` bytes, output shows as usual.
+    pub fn conceal(&mut self) {
+        self.concealed = self.prompt_start.map(|prompt| Concealed { prompt, bytes: Vec::new() });
     }
 
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<ShellSignal> {
         let marks = self.scanner.scan(bytes);
         let mut consumed = 0;
         for (end, signal) in &marks {
+            if signal == &ShellSignal::PromptStart
+                && let Some(concealed) = self.concealed.take()
+            {
+                // The new prompt takes the old one's place; what ran in between stays hidden.
+                let row = concealed.prompt.line.0.max(0) + 1;
+                let column = concealed.prompt.column.0 + 1;
+                self.advance(format!("\x1b[{row};{column}H\x1b[J").as_bytes());
+                self.track(signal);
+                consumed = *end;
+                continue;
+            }
             self.advance(&bytes[consumed..*end]);
             consumed = *end;
             self.track(signal);
@@ -92,6 +124,10 @@ impl Emulator {
     pub fn resize(&mut self, size: GridSize) {
         self.term.resize(size);
         self.input_start = None;
+        self.prompt_start = None;
+        if let Some(concealed) = self.concealed.take() {
+            self.advance(&concealed.bytes);
+        }
     }
 
     pub fn scroll(&mut self, scroll: Scroll) {
@@ -170,6 +206,14 @@ impl Emulator {
     }
 
     fn advance(&mut self, bytes: &[u8]) {
+        if let Some(concealed) = self.concealed.as_mut() {
+            concealed.bytes.extend_from_slice(bytes);
+            if concealed.bytes.len() <= CONCEAL_LIMIT {
+                return;
+            }
+            let held = self.concealed.take().map(|concealed| concealed.bytes).unwrap_or_default();
+            return self.advance(&held);
+        }
         if self.input_start.is_none() {
             self.parser.advance(&mut self.term, bytes);
             return;
@@ -191,6 +235,9 @@ impl Emulator {
     }
 
     fn track(&mut self, signal: &ShellSignal) {
+        if signal == &ShellSignal::PromptStart {
+            self.prompt_start = Some(self.term.grid().cursor.point);
+        }
         self.input_start = match signal {
             ShellSignal::InputStart => Some(self.term.grid().cursor.point),
             ShellSignal::PromptStart | ShellSignal::CommandStart | ShellSignal::CommandEnd { .. } => None,
@@ -394,6 +441,32 @@ mod tests {
         let exported = String::from_utf8(emulator.export_ansi(3)).unwrap_or_default();
         assert_eq!(exported.matches("line").count(), 3);
         assert!(exported.starts_with("line 8"));
+    }
+
+    #[test]
+    fn a_concealed_command_leaves_no_trace_and_the_next_prompt_takes_the_old_ones_place() {
+        let mut emulator = Emulator::new(SIZE, 100);
+        emulator.feed(b"done\r\n\x1b]133;A\x07~/a $ \x1b]133;B\x07");
+        emulator.conceal();
+        let signals = emulator.feed(b" cd '/b'\r\n\x1b]133;D;0\x07\x1b]7;file://host/b\x07");
+        assert!(signals.contains(&ShellSignal::CommandEnd { exit: Some(0) }), "markers still arrive: {signals:?}");
+        assert!(!emulator.screen().live_text().iter().any(|line| line.contains("cd")));
+        emulator.feed(b"\x1b]133;A\x07/b $ \x1b]133;B\x07");
+        let text = emulator.screen().live_text();
+        assert_eq!(text.iter().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>(), ["done", "/b $"]);
+        assert_eq!(emulator.prompt_state(), PromptState::Empty);
+    }
+
+    #[test]
+    fn concealing_gives_up_without_a_prompt_and_shows_what_it_held() {
+        let mut emulator = Emulator::new(SIZE, 100);
+        emulator.conceal();
+        emulator.feed(b"no prompt yet");
+        assert!(emulator.screen().live_text().iter().any(|line| line.contains("no prompt yet")));
+        emulator.feed(b"\r\n\x1b]133;A\x07$ ");
+        emulator.conceal();
+        emulator.feed(&vec![b'x'; CONCEAL_LIMIT + 1]);
+        assert!(emulator.screen().live_text().iter().any(|line| line.contains("xxx")), "long output is not lost");
     }
 
     #[test]

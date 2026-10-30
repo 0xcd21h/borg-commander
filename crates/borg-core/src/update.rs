@@ -498,6 +498,8 @@ fn sync_cwd(state: &mut AppState) -> Option<Effect> {
     let typed = CommandLine::program("cd").path(dir).submit_hidden();
     let effect = if state.shell.silent_cd && !matches!(state.console, crate::Console::Remote { .. }) {
         Effect::ChangeShellDir { dir: dir.to_path_buf(), typed }
+    } else if state.shell.integrated {
+        Effect::WriteConcealed(typed)
     } else {
         Effect::Write(typed)
     };
