@@ -211,6 +211,8 @@
   "activity_unavailable": "不可用",
   "activity_cannot_inspect": "Cannot inspect this process: {error}",
   "activity_identity_changed": "Process exited or its identity changed",
+  "activity_memory_refused": "系统拒绝访问其内存",
+  "activity_memory_unread": "无法读取 0x{address:x} 处的内存",
   "activity_region_invalid": "The selected region is no longer readable",
   "activity_capture_label": "PID {pid} · 0x{address:x} · {bytes} 字节 · {mode} · 快照",
   "activity_compare": "compare with previous capture",

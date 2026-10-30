@@ -624,15 +624,16 @@ fn scan<P: FnMut(u64, u64, usize)>(
 
 /// The process's memory and files.
 pub struct Live {
-    handle: Option<read_process_memory::ProcessHandle>,
+    memory: Option<crate::activity::Memory>,
     root: PathBuf,
     #[cfg(target_os = "linux")]
     residency: crate::memory_census::Residency,
 }
 impl Live {
-    pub fn open(pid: u32) -> Self {
+    pub fn open(process: ProcessKey) -> Self {
+        let pid = process.pid;
         Self {
-            handle: i32::try_from(pid).ok().and_then(|pid| pid.try_into().ok()),
+            memory: crate::activity::Memory::open(process).ok(),
             // A process in a container sees its own files.
             root: if cfg!(target_os = "linux") { format!("/proc/{pid}/root").into() } else { "/".into() },
             #[cfg(target_os = "linux")]
@@ -645,8 +646,7 @@ impl Live {
 }
 impl Access for Live {
     fn read(&self, address: u64, len: usize) -> Result<Vec<u8>> {
-        let handle = self.handle.as_ref().ok_or_else(|| anyhow!(tr!(activity_unavailable)))?;
-        Ok(read_process_memory::copy_address(usize::try_from(address)?, len, handle)?)
+        self.memory.as_ref().ok_or_else(|| anyhow!(tr!(activity_unavailable)))?.read(address, len)
     }
     fn pages(&self, address: u64, count: usize) -> Option<Vec<PageUse>> {
         #[cfg(target_os = "linux")]

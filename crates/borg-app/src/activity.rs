@@ -158,6 +158,28 @@ fn verify(process: ProcessKey) -> Result<()> {
     }
     Ok(())
 }
+/// A process opened for reading its memory. On macOS a failed open or read carries no reason
+/// (the errno left beside it belongs to something else), so the error says what failed instead.
+pub struct Memory(read_process_memory::ProcessHandle);
+impl Memory {
+    pub fn open(process: ProcessKey) -> Result<Self> {
+        match i32::try_from(process.pid)?.try_into() {
+            Ok(handle) => Ok(Self(handle)),
+            Err(_) if cfg!(target_os = "macos") => {
+                verify(process)?;
+                bail!(tr!(activity_memory_refused))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub fn read(&self, address: u64, len: usize) -> Result<Vec<u8>> {
+        match read_process_memory::copy_address(usize::try_from(address)?, len, &self.0) {
+            Ok(bytes) => Ok(bytes),
+            Err(_) if cfg!(target_os = "macos") => bail!(tr!(activity_memory_unread, address = address)),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
 async fn bounded_output(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
     command
         .env("LC_ALL", "C")
@@ -251,10 +273,8 @@ async fn capture(process: ProcessKey, region: MemoryRegion, seek: bool, checked:
     }
     tokio::task::spawn_blocking(move || {
         verify(process)?;
-        let handle: read_process_memory::ProcessHandle = i32::try_from(process.pid)?.try_into()?;
-        let read = |start: u64, end: u64| -> Result<Vec<u8>> {
-            Ok(read_process_memory::copy_address(usize::try_from(start)?, usize::try_from(end - start)?, &handle)?)
-        };
+        let memory = Memory::open(process)?;
+        let read = |start: u64, end: u64| memory.read(start, usize::try_from(end - start)?);
         let mut address = region.start;
         let mut bytes = read(address, end)?;
         if seek
@@ -303,12 +323,12 @@ async fn census(
     }
     tokio::task::spawn_blocking(move || {
         verify(process)?;
-        let handle: read_process_memory::ProcessHandle = i32::try_from(process.pid)?.try_into()?;
+        let memory = Memory::open(process)?;
         let read = |address: u64, len: usize| -> Result<Vec<u8>> {
             if cancelled.load(Ordering::Relaxed) {
                 bail!(tr!(memory_search_stopped));
             }
-            Ok(read_process_memory::copy_address(usize::try_from(address)?, len, &handle)?)
+            memory.read(address, len)
         };
         #[cfg(target_os = "linux")]
         let residency = crate::memory_census::Residency::open(process.pid);
@@ -335,7 +355,7 @@ async fn integrity(
     tokio::task::spawn_blocking(move || {
         verify(process)?;
         let facts = crate::integrity::facts(process.pid);
-        let access = crate::integrity::Live::open(process.pid);
+        let access = crate::integrity::Live::open(process);
         let progress = |checked, total, findings| {
             if let Some((id, messages)) = &messages {
                 let _ = messages.send(Msg::MemorySearchProgress { id: *id, scanned: checked, total, hits: findings });
@@ -672,14 +692,14 @@ async fn search_memory(
             )
         } else {
             verify(process)?;
-            let handle: read_process_memory::ProcessHandle = i32::try_from(process.pid)?.try_into()?;
+            let memory = Memory::open(process)?;
             let report = crate::memory_search::scan(
                 process,
                 maps,
                 &query,
                 start,
                 &cancelled,
-                |address, count| Ok(read_process_memory::copy_address(usize::try_from(address)?, count, &handle)?),
+                |address, count| memory.read(address, count),
                 &mut progress,
             )?;
             verify(process)?;
@@ -760,9 +780,8 @@ mod tests {
     #[test]
     fn memory_reader_can_capture_known_bytes_from_its_own_address_space() {
         let bytes = b"Borg memory capture test\0";
-        let handle: read_process_memory::ProcessHandle = (std::process::id() as i32).try_into().unwrap();
-        let read = read_process_memory::copy_address(bytes.as_ptr() as usize, bytes.len(), &handle).unwrap();
-        assert_eq!(read, bytes);
+        let memory = Memory::open(ProcessKey { pid: std::process::id(), start: 0 }).unwrap();
+        assert_eq!(memory.read(bytes.as_ptr() as u64, bytes.len()).unwrap(), bytes);
     }
     #[tokio::test]
     async fn integrity_finds_an_image_hidden_in_its_own_memory_and_runs_its_files_unchanged() {

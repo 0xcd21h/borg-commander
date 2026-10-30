@@ -211,6 +211,8 @@
   "activity_unavailable": "Indisponível",
   "activity_cannot_inspect": "Não é possível inspecionar este processo: {error}",
   "activity_identity_changed": "Processo encerrado ou a sua identidade alterada",
+  "activity_memory_refused": "O sistema recusou o acesso à sua memória",
+  "activity_memory_unread": "Não foi possível ler a memória em 0x{address:x}",
   "activity_region_invalid": "A região selecionada já não é legível",
   "activity_capture_label": "PID {pid} · 0x{address:x} · {bytes} bytes · {mode} · instantâneo",
   "activity_compare": "comparar com a captura anterior",

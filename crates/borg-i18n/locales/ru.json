@@ -211,6 +211,8 @@
   "activity_unavailable": "Недоступно",
   "activity_cannot_inspect": "Невозможно проверить этот процесс: {error}",
   "activity_identity_changed": "Процесс завершен или его идентификатор изменен",
+  "activity_memory_refused": "Система отказала в доступе к его памяти",
+  "activity_memory_unread": "Не удалось прочитать память по адресу 0x{address:x}",
   "activity_region_invalid": "Выбранный регион больше не читается",
   "activity_capture_label": "PID {pid} · 0x{address:x} · {bytes} байты · {mode} · снимок",
   "activity_compare": "сравнить с предыдущим захватом",

@@ -221,6 +221,8 @@ catalog! {
     activity_unavailable => "Unavailable",
     activity_cannot_inspect => "Cannot inspect this process: {error}",
     activity_identity_changed => "Process exited or its identity changed",
+    activity_memory_refused => "The system refused access to its memory",
+    activity_memory_unread => "Memory at 0x{address:x} could not be read",
     activity_region_invalid => "The selected region is no longer readable",
     activity_capture_label => "PID {pid} · 0x{address:x} · {bytes} bytes · {mode} · snapshot",
     activity_compare => "compare with previous capture",
