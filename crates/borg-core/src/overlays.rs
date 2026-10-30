@@ -24,6 +24,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Game2048) => crate::game2048::on_key(state, key),
         Some(Overlay::Collections(picker)) => crate::discovery::collections_key(state, picker, key),
         Some(Overlay::Search(form)) => crate::discovery::search_key(state, form, key),
+        Some(Overlay::Exclusions(editor)) => crate::exclusions::on_key(state, editor, key),
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),

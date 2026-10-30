@@ -467,6 +467,31 @@ fn searches_match_any_case_and_composition_and_are_listed_again_after_a_restart(
 }
 
 #[test]
+fn patterns_left_out_of_searches_are_edited_from_the_search_dialog_and_saved() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.file("alpha/one.bak", "old\n")?;
+    let mut app = start(&fixture, "search-exclusions")?;
+    app.send(keys::ctrl('f'))?;
+    app.wait_text("F4 Edit")?;
+    app.send(keys::f(4))?;
+    app.wait_text("+ Add a pattern")?;
+    app.send(keys::key(KeyCode::Insert))?;
+    app.send("*.bak")?;
+    app.send(keys::enter())?;
+    app.wait_until("the pattern saved", |_| {
+        fs::read_to_string(fixture.config_file()).is_ok_and(|saved| saved.contains("exclude = [\"*.bak\"]"))
+    })?;
+    app.send(keys::esc())?;
+    app.wait_text("Name or glob")?;
+    app.send(keys::ctrl('u'))?;
+    app.send("one*")?;
+    app.send(keys::enter())?;
+    let found = app.wait_until("the search done", |s| s.contains("Search: one*") && s.contains("finished"))?;
+    ensure!(found.contains("one.txt") && !found.contains("one.bak"), "the pattern applies\n{}", found.text());
+    Ok(())
+}
+
+#[test]
 fn theme_picker_escape_reverts_preview() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "theme-escape")?;

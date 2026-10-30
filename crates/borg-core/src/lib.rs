@@ -12,6 +12,7 @@ mod discovery;
 mod docker;
 mod editor;
 mod exclude;
+mod exclusions;
 mod find;
 mod game2048;
 mod history;
@@ -60,6 +61,7 @@ pub use editor::{
     EDITOR_CHROME, Editor, EditorFile, EditorPrompt, FileStamp, OpenError, SaveError, status as editor_status,
 };
 pub use exclude::{ARTIFACTS, CACHEDIR_SIGNATURE, CACHEDIR_TAG, Marker, is_artifact};
+pub use exclusions::{EXCLUSION_SWITCHES, ExclusionEditor};
 pub use find::{Find, Query, summary as find_summary};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};

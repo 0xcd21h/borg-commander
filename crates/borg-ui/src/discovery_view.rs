@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{Theme, dialog_view::centered, format};
-use borg_core::{AppState, CollectionPicker, LineInput, PastSearch, SearchForm};
+use borg_core::{AppState, CollectionPicker, EXCLUSION_SWITCHES, ExclusionEditor, LineInput, PastSearch, SearchForm};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -18,6 +18,11 @@ const SKIP_ROW: u16 = 7;
 const HINT_ROW: u16 = 10;
 /// The heading over recent searches, a row below the hint.
 const RECENT_ROW: u16 = 12;
+/// The first pattern's row in the exclusion list, below the switches and a heading.
+const PATTERNS_ROW: u16 = 5;
+/// The exclusion list's rows besides its patterns: borders, switches, headings, the row for
+/// adding a pattern, the hint, the note and the error.
+const EXCLUSIONS_CHROME: u16 = 12;
 const FIELD_GAP: u16 = 2;
 const FIELD_PADDING: u16 = 2;
 const LIST_ROWS: u16 = 10;
@@ -166,6 +171,120 @@ pub(crate) fn search_field(screen: Rect, recent: usize, point: Position) -> Opti
         .then(|| usize::from(point.y - area.y - 1))
 }
 
+/// The label on the leave-out row that opens what is left out.
+pub(crate) fn edit_exclusions(screen: Rect, recent: usize) -> Rect {
+    use unicode_width::UnicodeWidthStr;
+    let inner = search_area(screen, recent).inner(ratatui::layout::Margin::new(2, 1));
+    let width = (tr!(edit_exclusions).width() as u16).min(inner.width);
+    Rect { x: inner.right() - width, y: inner.y + SKIP_ROW, width, height: u16::from(inner.height > SKIP_ROW) }
+}
+
+/// The exclusion list, the first pattern it shows and how many fit.
+fn exclusions_window(editor: &ExclusionEditor, state: &AppState, screen: Rect) -> (Rect, usize, usize) {
+    let patterns = state.settings.search.exclude.len();
+    let height = (EXCLUSIONS_CHROME + patterns as u16).min(screen.height.saturating_sub(2));
+    let area = centered(screen, screen.width.saturating_sub(4).min(MAX_WIDTH), height);
+    let shown = usize::from(height.saturating_sub(EXCLUSIONS_CHROME)).min(patterns);
+    let chosen = editor.selected.saturating_sub(EXCLUSION_SWITCHES).min(patterns.saturating_sub(1));
+    (area, (chosen + 1).saturating_sub(shown.max(1)).min(patterns - shown), shown)
+}
+
+/// The row of the exclusion list at `point`: a switch, a pattern or the row for adding one.
+pub(crate) fn exclusion_row(
+    editor: &ExclusionEditor,
+    state: &AppState,
+    screen: Rect,
+    point: Position,
+) -> Option<usize> {
+    let (area, first, shown) = exclusions_window(editor, state, screen);
+    let inner = area.inner(ratatui::layout::Margin::new(2, 1));
+    let row = point.y.checked_sub(inner.y).filter(|_| inner.contains(point))?;
+    match row {
+        1 | 2 => Some(usize::from(row - 1)),
+        row if row >= PATTERNS_ROW && usize::from(row - PATTERNS_ROW) < shown => {
+            Some(EXCLUSION_SWITCHES + first + usize::from(row - PATTERNS_ROW))
+        }
+        row if usize::from(row) == usize::from(PATTERNS_ROW) + shown => Some(ExclusionEditor::rows(state) - 1),
+        _ => None,
+    }
+}
+
+pub(crate) fn exclusions(
+    editor: &ExclusionEditor,
+    state: &AppState,
+    theme: &Theme,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Rect {
+    let (area, first, shown) = exclusions_window(editor, state, screen);
+    Clear.render(area, buf);
+    Block::bordered()
+        .style(theme.styles.overlay)
+        .border_style(theme.styles.overlay_border)
+        .title(tr!(exclusions_title))
+        .title_bottom(tr!(exclusions_keys))
+        .render(area, buf);
+    let inner = area.inner(ratatui::layout::Margin::new(2, 1));
+    let search = &state.settings.search;
+    let switches =
+        [(search.artifacts, tr!(exclude_generated_folders)), (search.ignore_files, tr!(exclude_ignored_files))];
+    for (row, (on, label)) in switches.into_iter().enumerate() {
+        let style = if editor.selected == row { theme.styles.overlay_selected } else { theme.styles.input };
+        write(
+            buf,
+            Rect { width: 3.min(inner.width), ..inner },
+            row as u16 + 1,
+            if on { "[x]" } else { "[ ]" }.into(),
+            style,
+        );
+        let label_area = Rect { x: inner.x.saturating_add(4), width: inner.width.saturating_sub(4), ..inner };
+        write(buf, label_area, row as u16 + 1, label.into(), theme.styles.overlay);
+    }
+    write(buf, inner, PATTERNS_ROW - 1, tr!(exclusion_patterns).into(), theme.styles.footer);
+    let width = usize::from(inner.width.saturating_sub(FIELD_PADDING * 2));
+    let editing = editor.editing.as_ref();
+    let add = ExclusionEditor::rows(state) - 1;
+    let rows = (first..first + shown)
+        .map(|at| (EXCLUSION_SWITCHES + at, search.exclude[at].clone()))
+        .chain([(add, tr!(add_exclusion).into())]);
+    for (y, (row, text)) in (PATTERNS_ROW..).zip(rows) {
+        let line = Rect { y: inner.y + y, height: 1, ..inner };
+        if y >= inner.height {
+            break;
+        }
+        let at = (row != add).then(|| row - EXCLUSION_SWITCHES);
+        match editing.filter(|(editing, _)| *editing == at) {
+            Some((_, input)) => field(buf, line, &input_text(input, true, width), true, theme),
+            None => {
+                let style = if editor.selected == row { theme.styles.overlay_selected } else { theme.styles.overlay };
+                buf.set_style(line, style);
+                write(buf, line, 0, format::truncate_end(&text, usize::from(inner.width)), style);
+            }
+        }
+    }
+    let below = PATTERNS_ROW + shown as u16 + 2;
+    write(
+        buf,
+        inner,
+        below,
+        format::truncate_end(tr!(exclusion_pattern_hint), usize::from(inner.width)),
+        theme.styles.footer,
+    );
+    if cfg!(target_os = "macos") {
+        write(
+            buf,
+            inner,
+            below + 1,
+            format::truncate_end(tr!(exclusion_other_apps), usize::from(inner.width)),
+            theme.styles.footer,
+        );
+    }
+    if let Some(error) = &editor.error {
+        write(buf, inner, below + 2, error.clone(), theme.styles.notice);
+    }
+    area
+}
+
 /// The place in the history of the recent search at `point`.
 pub(crate) fn search_recent(screen: Rect, recent: &[(usize, &PastSearch)], point: Position) -> Option<usize> {
     let area = search_area(screen, recent.len()).inner(ratatui::layout::Margin::new(2, 1));
@@ -294,6 +413,7 @@ pub(crate) fn search(
         write(buf, label_area, row, label.into(), theme.styles.overlay);
     }
     if !sizes {
+        write(buf, edit_exclusions(screen, recent.len()), 0, tr!(edit_exclusions).into(), theme.styles.footer);
         write(
             buf,
             inner,

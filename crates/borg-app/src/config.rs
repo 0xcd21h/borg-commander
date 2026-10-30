@@ -192,6 +192,19 @@ impl Config {
         }
     }
 
+    /// The configuration with what searches leave out and remember as `search` has it. A file
+    /// without a `[search]` table gains one only once something differs from the defaults.
+    pub fn with_search(mut self, search: &borg_core::SearchSettings) -> Self {
+        let search = Search {
+            exclude: search.exclude.clone(),
+            artifacts: search.artifacts,
+            ignore_files: search.ignore_files,
+            history: search.history,
+        };
+        self.search = (self.search.is_some() || search != Search::default()).then_some(search);
+        self
+    }
+
     /// The indexed folders, with `~/` read as the home folder.
     pub fn index_roots(&self) -> Vec<PathBuf> {
         let home = env::var_os(ENV_HOME).map(PathBuf::from);
@@ -348,6 +361,11 @@ mod tests {
         assert!(Config::default().search().ignore_files);
         let saved = config.capture(None, &Preferences::default(), &[]);
         assert_eq!(saved.search(), search);
+        let edited = borg_core::SearchSettings { exclude: vec!["Library/Caches/".into()], artifacts: false, ..search };
+        let text = toml::to_string(&saved.with_search(&edited)).unwrap();
+        assert_eq!(toml::from_str::<Config>(&text).unwrap().search(), edited);
+        let untouched = Config::default().with_search(&borg_core::SearchSettings::default());
+        assert!(!toml::to_string(&untouched).unwrap().contains("[search]"));
     }
 
     #[test]

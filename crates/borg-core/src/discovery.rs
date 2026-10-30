@@ -207,6 +207,7 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
         KeyCode::Char(c @ ('p' | 'n')) if key.modifiers == KeyModifiers::CONTROL && form.selected == 0 => {
             form.recall(state, c == 'p');
         }
+        KeyCode::F(4) => return crate::exclusions::open(state, form),
         KeyCode::Enter => {
             let minimum = parse_size(form.minimum.text());
             let files =

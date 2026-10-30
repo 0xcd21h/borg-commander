@@ -485,6 +485,9 @@ fn paint_overlay(
         Overlay::Search(form) => {
             (crate::discovery_view::search(form, state, scene.home, theme, screen, buf), None, Unfold::FromCenter)
         }
+        Overlay::Exclusions(editor) => {
+            (crate::discovery_view::exclusions(editor, state, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Menu(cursor) => {
             let x = menu_view::title_positions(&all).get(cursor.menu).copied().unwrap_or_default();
             let top = bar.map_or(screen.y, |b| b.bottom());

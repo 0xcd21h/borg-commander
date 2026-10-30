@@ -87,6 +87,10 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
             return None;
         }
         let recent = form.recent(state);
+        let sizes = matches!(form.kind, borg_core::SearchKind::FolderTotals | borg_core::SearchKind::FolderTree);
+        if !sizes && crate::discovery_view::edit_exclusions(layout.screen, recent.len()).contains(point) {
+            return Some(Msg::Pointer(Pointer::EditExclusions));
+        }
         if let Some(field) = crate::discovery_view::search_field(layout.screen, recent.len(), point) {
             return Some(Msg::Pointer(Pointer::SearchField(field)));
         }
@@ -96,6 +100,12 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
         return crate::discovery_view::search_button(layout.screen, recent.len())
             .contains(point)
             .then_some(Msg::Pointer(Pointer::SearchStart));
+    }
+    if let Some(Overlay::Exclusions(editor)) = &state.overlay {
+        return click
+            .then(|| crate::discovery_view::exclusion_row(editor, state, layout.screen, point))
+            .flatten()
+            .map(|row| Msg::Pointer(Pointer::Exclusion(row)));
     }
     if let Some(Overlay::Confirm(confirm)) = &state.overlay {
         return click

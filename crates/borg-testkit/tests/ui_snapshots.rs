@@ -1381,6 +1381,44 @@ fn recent_searches_are_listed_under_the_form_marked_while_recalled_and_taken_wit
 }
 
 #[test]
+fn what_searches_leave_out_opens_from_the_search_dialog_and_is_edited_with_keys_and_clicks() -> Result<()> {
+    use borg_core::{Action, Overlay, Pointer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.state.settings.search.exclude = vec!["*.min.js".into()];
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    let click = |screen: &Snapshot, text: &str| {
+        let (column, row) =
+            screen.find(text).unwrap_or_else(|| panic!("{text} on screen\n{}", screen.lines().join("\n")));
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
+    };
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let hit = borg_ui::mouse_input(&stage.state, click(&screen, "F4 Edit"), false, stage.started).unwrap();
+    assert!(matches!(hit, Msg::Pointer(Pointer::EditExclusions)));
+    stage.send(hit);
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    for text in ["Leave out of searches", "[x] Generated folders", "[x] What .gitignore", "*.min.js", "+ Add a pattern"]
+    {
+        assert!(screen.contains(text), "{text} missing\n{}", screen.lines().join("\n"));
+    }
+    let hit = borg_ui::mouse_input(&stage.state, click(&screen, "+ Add a pattern"), false, stage.started).unwrap();
+    assert!(matches!(hit, Msg::Pointer(Pointer::Exclusion(3))));
+    stage.send(hit);
+    for c in "Library/Caches/".chars() {
+        stage.send(key(KeyCode::Char(c)));
+    }
+    stage.send(key(KeyCode::Enter));
+    assert_eq!(stage.state.settings.search.exclude, ["*.min.js", "Library/Caches/"]);
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let hit = borg_ui::mouse_input(&stage.state, click(&screen, "[x] What"), false, stage.started).unwrap();
+    stage.send(hit);
+    assert!(!stage.state.settings.search.ignore_files);
+    stage.send(key(KeyCode::Esc));
+    assert!(matches!(stage.state.overlay, Some(Overlay::Search(_))));
+    Ok(())
+}
+
+#[test]
 fn two_row_footer_keeps_actions_visible_and_mouse_targets_on_their_rows() -> Result<()> {
     use borg_core::{Action, Pointer};
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};

@@ -66,8 +66,11 @@ results with source paths and the existing viewer and quick preview.
   uppercase letter matches it exactly. Globs such as `*.log`, quoted phrases, paths with a slash
   such as `src/lib`, and `-word` to leave matches out work too, as do the filters `ext:rs,toml`,
   `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d` (changed in the
-  last week), `mod:>1y` and `in:src` (a folder anywhere in the path). Ctrl-P and Ctrl-N in the
-  query field recall earlier searches, those made in the same folder first.
+  last week), `mod:>1y` and `in:src` (a folder anywhere in the path). The latest searches are
+  listed under the form, those made in the same folder first; click one, or press Ctrl-P and
+  Ctrl-N in the query field, to take it. Names match in any alphabet whatever the case of a glob,
+  and accented letters match however the file system stores them. Matches near the search folder
+  show first, while the rest of the tree is still being read.
 - **Alt-K:** collect marked files, or the current file, in the other panel. Adding a
   reference does not copy the file's contents.
 - **Alt-V:** choose a saved collection from a scrollable list with entry counts and
@@ -124,10 +127,16 @@ Name searches leave out generated folders while **Leave out build output, caches
 files** is checked: `node_modules`, `.git`, Python caches and virtual environments, folders such
 as `target` and `dist` when a build file sits beside them (`Cargo.toml`, `package.json`), and any
 folder tagged with a `CACHEDIR.TAG` file. Files that `.gitignore`, `.ignore`, `.rgignore` or
-`.borgignore` exclude are left out too, along with the globs in `[search] exclude`. A left-out
-folder whose own name matches still appears, and the context line counts the folders left out.
-`excluded:yes` searches everything once, and `hidden:yes` includes hidden files. Size scans always
-read everything. The search history stays on this computer, readable only by you;
+`.borgignore` exclude are left out too, along with the globs in `[search] exclude`. Press F4 in
+the search dialog, or click **F4 Edit**, to change what is left out: switch generated folders and
+ignored files on or off, and add (Ins), edit (Enter) or remove (Del) patterns. Changes are saved
+in the configuration file. A left-out folder whose own name matches still appears, and the
+context line counts the folders left out. `excluded:yes` searches everything once, and
+`hidden:yes` includes hidden files. Size scans always read everything. On macOS, searches and
+size scans started above them leave out `~/Library/Containers` and `~/Library/Group Containers`,
+where macOS holds each read until someone answers whether to allow access to another app's data;
+a search started in one of them reads it. The search history stays on this computer, readable
+only by you;
 `history = false` under `[search]` stops keeping it.
 
 **Search → Index this folder for instant search** keeps an index of every name below the active

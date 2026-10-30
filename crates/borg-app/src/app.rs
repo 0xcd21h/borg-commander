@@ -1946,8 +1946,10 @@ impl App {
 
     fn save_config(&self) {
         let appearance = &self.state.appearance;
-        let config =
-            self.config.capture(appearance.current_id(), &self.state.settings.preferences, appearance.unlocked());
+        let config = self
+            .config
+            .capture(appearance.current_id(), &self.state.settings.preferences, appearance.unlocked())
+            .with_search(&self.state.settings.search);
         let saved = self.config_dir.as_ref().map(|dir| dir.save(&config));
         if let Some(Err(e)) = saved {
             let _ = self.messages.send(Msg::Notice(format!("{e:#}")));

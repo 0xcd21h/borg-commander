@@ -54,6 +54,10 @@ pub enum Pointer {
     SearchField(usize),
     /// A recent search in the search dialog, by its place in the history.
     SearchRecent(usize),
+    /// Opens the list of what searches leave out.
+    EditExclusions,
+    /// A row of that list: a switch, a pattern or the row for adding one.
+    Exclusion(usize),
     SearchStart,
     Confirm(bool),
     /// The mouse wheel over the approval dialog or the agent log.
@@ -247,6 +251,12 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         (Pointer::SearchRecent(at), Some(Overlay::Search(mut form))) => {
             form.take_recent(state, at);
             state.overlay = Some(Overlay::Search(form));
+        }
+        (Pointer::EditExclusions, Some(Overlay::Search(form))) => return crate::exclusions::open(state, form),
+        (Pointer::Exclusion(row), Some(Overlay::Exclusions(mut editor))) if editor.editing.is_none() => {
+            let effects = editor.activate(state, row);
+            state.overlay = Some(Overlay::Exclusions(editor));
+            return effects;
         }
         (Pointer::SearchStart, Some(Overlay::Search(_) | Overlay::Collections(_))) => {
             return crate::overlays::on_key(state, &crossterm::event::KeyCode::Enter.into(), now);

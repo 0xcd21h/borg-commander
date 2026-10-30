@@ -256,6 +256,8 @@ pub enum Overlay {
     Game2048,
     Collections(crate::CollectionPicker),
     Search(crate::SearchForm),
+    /// What searches leave out, opened from the search dialog.
+    Exclusions(crate::ExclusionEditor),
     About(About),
     Find(Find),
     Question(Question),
