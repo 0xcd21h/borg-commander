@@ -340,6 +340,7 @@ fn sample(tick: usize) -> SystemSample {
                 virtual_bytes: Some(if p.pid == SELECTED { 412 * GIB } else { p.resident * 6 + 4 * GIB }),
                 read: Some(if p.pid == 5133 { 48 * MIB } else { 120 * KIB * (i as u64 % 4) }),
                 written: Some(if p.pid == 5133 { 22 * MIB } else { 16 * KIB * (i as u64 % 3) }),
+                protection: None,
             }
         })
         .collect();
@@ -350,6 +351,7 @@ fn sample(tick: usize) -> SystemSample {
         swap_total: 2 * GIB,
         swap_used: 412 * MIB,
         cpu: vec![9_100, 7_800, 6_400, 5_200, 2_900, 2_100, 1_400, 800],
+        administrator: false,
     }
 }
 

@@ -6,8 +6,8 @@ use crate::{
 };
 use borg_core::{
     Activity, ActivityPage, ActivityRequest, ActivitySort, AppState, CENSUS_LEGEND, FILE_PREVIEW_TOP, FINDING_NOTE,
-    HISTORY, IntegrityReport, MemoryCensus, MemoryGroup, MemoryRegion, MemoryTotals, Msg, PageClass, Pointer,
-    ProcessFile, RegionRow, Severity, SnapshotRow, census_grid,
+    HISTORY, IntegrityReport, MemoryCensus, MemoryGroup, MemoryProtection, MemoryRegion, MemoryTotals, Msg, PageClass,
+    Pointer, ProcessFile, RegionRow, Severity, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
@@ -949,6 +949,14 @@ fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
         }
         y += 3;
     }
+    if let Some(protection) = p.protection {
+        let note = match protection {
+            MemoryProtection::System => tr!(process_memory_protected_system),
+            MemoryProtection::HardenedRuntime => tr!(process_memory_protected_runtime),
+        };
+        text(buf, row(body, y), note, emphasis(theme));
+        y += 2;
+    }
     let chart_area =
         Rect { y: body.y.saturating_add(y).min(body.bottom()), height: body.height.saturating_sub(y), ..body };
     chart(tr!(memory_chart_title), history.map_or(&[][..], |h| &h.values[..]), Unit::Bytes, look, chart_area, buf);
@@ -1097,6 +1105,20 @@ pub(crate) fn chart(title: &str, values: &[u64], unit: Unit, look: &Look<'_>, ar
     let x = axis_row.right().saturating_sub(now.width() as u16);
     text(buf, Rect { x, width: axis_row.right() - x, ..axis_row }, now, dim(theme));
 }
+/// Why a preview of the process's memory shows nothing: macOS keeps it from every program.
+fn protected(name: &str, protection: MemoryProtection, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
+    let why = match protection {
+        MemoryProtection::System => tr!(memory_protected_system, name = name),
+        MemoryProtection::HardenedRuntime => tr!(memory_protected_runtime, name = name),
+    };
+    let mut page = Page { buf, area: body, y: 0 };
+    page.wrapped(tr!(memory_protected_title), emphasis(theme));
+    page.gap();
+    page.wrapped(&why, theme.styles.overlay);
+    page.gap();
+    page.wrapped(tr!(memory_protected_still), dim(theme));
+}
 fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Spinner>, buf: &mut Buffer) {
     let theme = look.theme;
     if activity.list == ActivityPage::Regions {
@@ -1126,6 +1148,11 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
                 spinner.line(tr!(activity_loading), look, dim(theme)).render(row(body, 0), buf);
             }
             return;
+        }
+        if activity.error.is_some()
+            && let Some((p, protection)) = activity.process().zip(activity.protection())
+        {
+            return protected(&p.name, protection, look, body, buf);
         }
         let note = if activity.error.is_some() {
             tr!(activity_preview_failed)

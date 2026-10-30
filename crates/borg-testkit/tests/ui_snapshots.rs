@@ -1608,6 +1608,7 @@ fn activity_stage() -> Result<Stage> {
                 cpu: Some(cpu),
                 read: Some(1_200_000),
                 written: Some(64_000),
+                protection: None,
             })
             .collect();
         stage.send(Msg::Activity {
@@ -1619,6 +1620,7 @@ fn activity_stage() -> Result<Stage> {
                 swap_total: 4_000_000_000,
                 swap_used: 256_000_000,
                 cpu: vec![7500, 4400, 2100, 1200],
+                administrator: false,
             })),
         });
         if tick < 9 {
@@ -1768,6 +1770,41 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
             stage.render(stage.started)?;
         }
     }
+    Ok(())
+}
+
+#[test]
+fn memory_macos_protects_is_marked_explained_and_offers_no_administrator() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, MemoryProtection, MemoryRegion};
+    let mut stage = activity_stage()?;
+    let process = stage.state.activity.selected.unwrap();
+    for p in stage.state.activity.sample.processes.iter_mut().filter(|p| p.key == process) {
+        p.protection = Some(MemoryProtection::HardenedRuntime);
+    }
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Memory protected · Hardened Runtime")?;
+    check("activity_memory_protected", &stage, buffer)?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100040000,
+        permissions: "rw-".into(),
+        name: "Heap · application buffers".into(),
+        resident: Some(163840),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![region])) });
+    stage.send(key(KeyCode::Enter)).send(key(KeyCode::Enter));
+    let (id, request) = stage.state.activity.pending.clone().unwrap();
+    anyhow::ensure!(matches!(request, ActivityRequest::Capture { .. }), "{request:?}");
+    stage.send(Msg::Activity { id, result: Err("Cannot inspect this process: macOS protects its memory".into()) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "macOS protects this process's memory")?;
+    ensure_text(&buffer, "Hardened Runtime")?;
+    anyhow::ensure!(!describe(&buffer).contains("A Administrator"), "{}", describe(&buffer));
+    check("activity_memory_protected_preview", &stage, buffer)?;
     Ok(())
 }
 

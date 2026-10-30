@@ -2,6 +2,7 @@ use borg_i18n::tr;
 mod activity;
 mod agent;
 mod app;
+mod code_signature;
 mod config;
 mod docker;
 mod document;

@@ -1456,9 +1456,8 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
     app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    let list = app.wait_until("own process in activity list", |s| {
-        s.contains("borg") && s.contains(&format!(" {pid} ")) && s.contains("/ edit")
-    })?;
+    let list =
+        app.wait_until("own process in activity list", |s| s.contains("borg") && s.contains(&format!(" {pid} 1 of ")))?;
     ensure!(list.contains("RAM") && list.contains("Borg Commander"));
     app.send(keys::tab())?;
     app.wait_text("Process memory")?;
@@ -1551,7 +1550,7 @@ fn open_files_preview_a_regular_file_the_process_holds_and_f3_views_it() -> Resu
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
     app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    app.wait_until("worker in the activity list", |s| s.contains(&format!(" {pid} ")) && s.contains("/ edit"))?;
+    app.wait_until("worker in the activity list", |s| s.contains(&format!(" {pid} 1 of ")))?;
     app.send("2")?;
     app.wait_text("open entries")?;
     for _ in 0..20 {
@@ -1567,6 +1566,42 @@ fn open_files_preview_a_regular_file_the_process_holds_and_f3_views_it() -> Resu
     app.wait_until("the viewer shows the file", |s| s.contains("kept open by a worker") && !s.contains("Open files"))?;
     app.send(keys::esc())?;
     app.wait_text("Open files")?;
+    drop(worker);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn memory_of_a_macos_program_is_marked_protected_and_explained_without_offering_administrator() -> Result<()> {
+    struct Worker(std::process::Child);
+    impl Drop for Worker {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let status = std::process::Command::new("/usr/bin/csrutil").arg("status").output()?;
+    if String::from_utf8_lossy(&status.stdout).contains("disabled") {
+        return Ok(());
+    }
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "protected-memory")?;
+    let worker = Worker(std::process::Command::new("/bin/sleep").arg("120").spawn()?);
+    let pid = worker.0.id();
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_text("Activity monitor")?;
+    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
+    app.wait_until("sleep in the activity list", |s| s.contains(&format!(" {pid} 1 of ")))?;
+    app.wait_text("Memory protected · part of macOS")?;
+    app.send(keys::enter())?;
+    app.wait_text("▸ Heap & allocations")?;
+    app.send(keys::right())?;
+    app.wait_text("▾ Heap & allocations")?;
+    app.send(keys::down())?;
+    let shown = app.wait_text("macOS protects this process's memory")?;
+    ensure!(shown.contains("sleep is part of macOS"), "{}", shown.text());
+    app.pump(std::time::Duration::from_millis(500))?;
+    ensure!(!app.snapshot().contains("A Administrator"), "{}", app.snapshot().text());
     drop(worker);
     Ok(())
 }

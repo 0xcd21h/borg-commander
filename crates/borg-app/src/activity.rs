@@ -1,18 +1,18 @@
 use crate::{memory_search::Query, memory_strings::Known};
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{
-    ActivityData, ActivityRequest, IntegrityReport, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT,
-    ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
+    ActivityData, ActivityRequest, IntegrityReport, MemoryCensus, MemoryProtection, MemoryRegion, MemorySnapshot, Msg,
+    PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 use borg_i18n::tr;
 #[cfg(target_os = "linux")]
 use std::io::Read;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::Write,
     os::unix::fs::OpenOptionsExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -36,6 +36,9 @@ const FILE_STRINGS_TIME: Duration = Duration::from_secs(20);
 /// How far a capture reads past zeros at the start of a region to find data.
 const SEEK_LIMIT: u64 = 16 * 1024 * 1024;
 const PAGE: u64 = 4096;
+/// How long one sample spends reading programs' signatures; the rest wait for the next sample,
+/// so a slow disk never holds the monitor up.
+const SIGNATURE_TIME: Duration = Duration::from_millis(100);
 
 /// A process sample with CPU use: CPU needs two looks a moment apart, as the activity
 /// monitor's first sample does.
@@ -52,6 +55,8 @@ struct Sampler {
     system: System,
     last: Option<Instant>,
     seen: HashSet<ProcessKey>,
+    /// What each running program's signature says about reading its memory, read once.
+    protections: HashMap<PathBuf, Option<MemoryProtection>>,
 }
 impl Sampler {
     fn sample(&mut self) -> SystemSample {
@@ -64,6 +69,8 @@ impl Sampler {
         );
         let now = Instant::now();
         let elapsed = self.last.map(|last| now.duration_since(last).as_secs_f64()).filter(|seconds| *seconds > 0.0);
+        let own = std::process::id();
+        let signatures = now + SIGNATURE_TIME;
         let mut processes: Vec<_> = self
             .system
             .processes()
@@ -75,6 +82,14 @@ impl Sampler {
                 let sampled = elapsed.filter(|_| self.seen.contains(&key));
                 let io = p.disk_usage();
                 let available = p.memory() > 0 || p.virtual_memory() > 0;
+                // Borg reads its own memory whatever its signature says.
+                let protection = p.exe().filter(|_| key.pid != own).and_then(|exe| match self.protections.get(exe) {
+                    Some(known) => *known,
+                    None if Instant::now() < signatures => {
+                        *self.protections.entry(exe.to_path_buf()).or_insert(crate::code_signature::protection(exe))
+                    }
+                    None => None,
+                });
                 ProcessInfo {
                     key,
                     parent: p.parent().map(Pid::as_u32),
@@ -85,12 +100,15 @@ impl Sampler {
                     virtual_bytes: available.then(|| p.virtual_memory()),
                     read: sampled.map(|s| (io.read_bytes as f64 / s) as u64),
                     written: sampled.map(|s| (io.written_bytes as f64 / s) as u64),
+                    protection,
                 }
             })
             .collect();
         processes.sort_by_key(|p| p.key.pid);
         processes.truncate(PROCESS_LIMIT);
         self.seen = processes.iter().map(|p| p.key).collect();
+        let running: HashSet<&Path> = processes.iter().filter_map(|p| p.executable.as_deref()).collect();
+        self.protections.retain(|exe, _| running.contains(exe.as_path()));
         self.last = Some(now);
         SystemSample {
             processes,
@@ -99,6 +117,7 @@ impl Sampler {
             swap_total: self.system.total_swap(),
             swap_used: self.system.used_swap(),
             cpu: self.system.cpus().iter().map(|c| (c.cpu_usage().max(0.0) * 100.0) as u32).collect(),
+            administrator: rustix::process::geteuid().is_root(),
         }
     }
 }
@@ -203,6 +222,10 @@ impl Memory {
             Ok(handle) => Ok(Self(handle)),
             Err(_) if cfg!(target_os = "macos") => {
                 verify(process)?;
+                let program = identify(process.pid).and_then(|(_, _, program)| program);
+                if program.is_some_and(|program| crate::code_signature::protection(&program).is_some()) {
+                    bail!(tr!(activity_memory_protected))
+                }
                 bail!(tr!(activity_memory_refused))
             }
             Err(error) => Err(error.into()),

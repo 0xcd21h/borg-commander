@@ -32,6 +32,17 @@ pub struct ProcessInfo {
     pub virtual_bytes: Option<u64>,
     pub read: Option<u64>,
     pub written: Option<u64>,
+    /// Why the system keeps every other program, administrators included, out of its memory.
+    #[serde(default)]
+    pub protection: Option<MemoryProtection>,
+}
+/// Why macOS lets no other program, administrators included, read a process's memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MemoryProtection {
+    /// Part of macOS, which System Integrity Protection guards.
+    System,
+    /// Built with the Hardened Runtime, without allowing debugging.
+    HardenedRuntime,
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemSample {
@@ -41,6 +52,9 @@ pub struct SystemSample {
     pub swap_total: u64,
     pub swap_used: u64,
     pub cpu: Vec<u32>,
+    /// Borg itself runs as administrator, so asking to be one again reads nothing more.
+    #[serde(default)]
+    pub administrator: bool,
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryRegion {
@@ -720,6 +734,14 @@ pub enum ActivityRequest {
     },
 }
 impl ActivityRequest {
+    /// Whether this reads what the process holds in memory, which macOS may keep from every
+    /// program, rather than listing its mappings or files.
+    pub fn reads_memory(&self) -> bool {
+        matches!(
+            self,
+            Self::Search { snapshot: None, .. } | Self::Census { .. } | Self::Capture { .. } | Self::Integrity { .. }
+        )
+    }
     pub fn elevated(&self) -> Option<Self> {
         match self {
             Self::Sample => None,
@@ -1120,6 +1142,10 @@ impl Activity {
     }
     pub fn process(&self) -> Option<&ProcessInfo> {
         self.sample.processes.iter().find(|p| Some(p.key) == self.selected)
+    }
+    /// Why macOS keeps the inspected process's memory from every program, when it does.
+    pub fn protection(&self) -> Option<MemoryProtection> {
+        self.process().and_then(|p| p.protection)
     }
     pub fn growth(&self, key: ProcessKey) -> i128 {
         self.histories.get(&key).map_or(0, |h| i128::from(*h.values.last().unwrap_or(&h.first)) - i128::from(h.first))
@@ -1577,6 +1603,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     }
     activity.pending = None;
     activity.next = Some(now + REFRESH);
+    let reads_memory = request.reads_memory();
     match result {
         Ok(ActivityData::Search(mut report)) => {
             if matches!(&request, ActivityRequest::Search { start: Some(_), .. })
@@ -1672,6 +1699,11 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
                 activity.retry = Some(request);
             }
         }
+    }
+    // Asking for administrator reads nothing more when Borg already is one, or from memory macOS
+    // keeps from every program.
+    if activity.sample.administrator || (reads_memory && activity.protection().is_some()) {
+        activity.retry = None;
     }
 }
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
@@ -2264,6 +2296,7 @@ mod tests {
             virtual_bytes: Some(ram * 2),
             read: Some(0),
             written: Some(0),
+            protection: None,
         }
     }
     fn sample(state: &mut AppState, processes: Vec<ProcessInfo>, now: Instant) {
@@ -2317,6 +2350,27 @@ mod tests {
         key(&mut state, KeyCode::Esc);
         assert_eq!(state.activity.page, ActivityPage::Memory);
         assert!(state.activity.retry.is_none());
+    }
+    #[test]
+    fn memory_macos_protects_offers_no_administrator_and_neither_does_borg_running_as_one() {
+        let (mut state, now) = state();
+        open(&mut state);
+        let mut protected = process(2, 10, 200);
+        protected.protection = Some(MemoryProtection::System);
+        sample(&mut state, vec![protected], now);
+        key(&mut state, KeyCode::Enter);
+        let fail = |state: &mut AppState, request: ActivityRequest| {
+            state.activity.request(request);
+            let id = state.activity.pending.as_ref().unwrap().0;
+            receive(state, id, Err("refused".into()), now);
+            state.activity.retry.is_some()
+        };
+        let process = ProcessKey { pid: 2, start: 10 };
+        assert_eq!(state.activity.protection(), Some(MemoryProtection::System));
+        assert!(!fail(&mut state, ActivityRequest::Integrity { process, admin: false }), "memory stays protected");
+        assert!(fail(&mut state, ActivityRequest::Files { process, admin: false }), "files list as administrator");
+        state.activity.sample.administrator = true;
+        assert!(!fail(&mut state, ActivityRequest::Files { process, admin: false }), "Borg already is one");
     }
     #[test]
     fn closing_pausing_and_disabling_leave_no_monitor_timer_or_stale_data_updates() {

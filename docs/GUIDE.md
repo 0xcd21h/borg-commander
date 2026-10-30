@@ -838,8 +838,13 @@ offer **A: Administrator**. On macOS this
 opens the system authorization prompt; on Linux it uses `pkexec` and needs an
 available authorization agent. Only a short-lived inspection helper is elevated.
 Borg keeps running normally, and the helper only returns map data or bounded bytes.
-macOS process protections and Linux security policy can still deny access; Borg
-shows the failure and leaves the ordinary process monitor usable.
+macOS keeps the memory of its own programs (System Integrity Protection) and of programs
+built with the Hardened Runtime from every other program, administrators included. Borg
+reads this from the program's signature: the process details say **Memory protected**, a
+refused read explains why, and **A: Administrator** is not offered, since it cannot help.
+Their memory maps and open files still show. Nor is it offered while Borg already runs as
+administrator. Linux security policy can still deny access; Borg shows the failure and
+leaves the ordinary process monitor usable.
 
 Process identity includes its start time, so a reused PID does not inherit another
 process's history. Memory maps, inspection output, snapshots, and history are bounded.
