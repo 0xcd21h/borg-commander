@@ -58,6 +58,9 @@ pub struct MemoryRegion {
     /// The file mapped into the region, when there is one.
     #[serde(default)]
     pub path: Option<String>,
+    /// Where in the file the region starts, when the system says (Linux).
+    #[serde(default)]
+    pub offset: Option<u64>,
 }
 impl MemoryRegion {
     pub fn readable(&self) -> bool {
@@ -331,6 +334,126 @@ pub fn census_grid(entries: usize, width: usize, height: usize) -> (usize, usize
 }
 /// Rows the page map's legend takes above the grid.
 pub const CENSUS_LEGEND: usize = 3;
+/// How much a finding matters, worst first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Severity {
+    /// Seldom innocent: look at it.
+    Alert,
+    /// Often has an ordinary reason, worth knowing which.
+    Warning,
+    /// Usually fine; listed so the picture is complete.
+    Notice,
+}
+impl Severity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Alert => tr!(severity_alert),
+            Self::Warning => tr!(severity_warning),
+            Self::Notice => tr!(severity_notice),
+        }
+    }
+}
+/// What an integrity check found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FindingKind {
+    /// An executable image's header in memory that no file backs.
+    HiddenImage,
+    /// Code that differs from the file it was mapped from.
+    CodeChanged,
+    /// Executable memory that no file backs.
+    UnbackedCode,
+    /// Memory that is writable and executable at once.
+    WritableCode,
+    /// Code mapped from a deleted file, or from memory that never had a file.
+    DeletedCode,
+    /// Code loaded from a temporary folder.
+    TemporaryCode,
+    /// A mapped file replaced on disk since it was loaded.
+    ReplacedFile,
+    /// Libraries added through the environment, such as `LD_PRELOAD` or `DYLD_INSERT_LIBRARIES`.
+    Preload,
+    /// A library search path set in the environment.
+    LibraryPath,
+    /// Another process is tracing this one.
+    Traced,
+    /// The program's own file is gone.
+    ProgramGone,
+    /// The process goes by a name other than its program's.
+    NameMismatch,
+}
+impl FindingKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::HiddenImage => tr!(finding_hidden_image),
+            Self::CodeChanged => tr!(finding_code_changed),
+            Self::UnbackedCode => tr!(finding_unbacked_code),
+            Self::WritableCode => tr!(finding_writable_code),
+            Self::DeletedCode => tr!(finding_deleted_code),
+            Self::TemporaryCode => tr!(finding_temporary_code),
+            Self::ReplacedFile => tr!(finding_replaced_file),
+            Self::Preload => tr!(finding_preload),
+            Self::LibraryPath => tr!(finding_library_path),
+            Self::Traced => tr!(finding_traced),
+            Self::ProgramGone => tr!(finding_program_gone),
+            Self::NameMismatch => tr!(finding_name_mismatch),
+        }
+    }
+    /// The ordinary reasons for the finding, so it is read as a lead rather than a verdict.
+    pub fn caveat(self) -> &'static str {
+        match self {
+            Self::HiddenImage => tr!(caveat_hidden_image),
+            Self::CodeChanged => tr!(caveat_code_changed),
+            Self::UnbackedCode => tr!(caveat_unbacked_code),
+            Self::WritableCode => tr!(caveat_writable_code),
+            Self::DeletedCode => tr!(caveat_deleted_code),
+            Self::TemporaryCode => tr!(caveat_temporary_code),
+            Self::ReplacedFile => tr!(caveat_replaced_file),
+            Self::Preload => tr!(caveat_preload),
+            Self::LibraryPath => tr!(caveat_library_path),
+            Self::Traced => tr!(caveat_traced),
+            Self::ProgramGone => tr!(caveat_program_gone),
+            Self::NameMismatch => tr!(caveat_name_mismatch),
+        }
+    }
+}
+/// One finding, with the evidence: where in memory, when it is about a place there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Finding {
+    pub kind: FindingKind,
+    pub severity: Severity,
+    pub detail: String,
+    pub region: Option<MemoryRegion>,
+    pub address: Option<u64>,
+    pub length: usize,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IntegrityReport {
+    pub process: ProcessKey,
+    /// Worst first, then by address.
+    pub findings: Vec<Finding>,
+    /// Bytes of code compared with the files they were mapped from.
+    pub compared: u64,
+    /// Bytes of code that could not be compared: unreadable, or with no file to compare with.
+    pub uncompared: u64,
+    /// Bytes of memory no file backs that were searched for executable images, of `unbacked`.
+    pub scanned: u64,
+    pub unbacked: u64,
+    /// Bytes that could not be read.
+    pub unreadable: u64,
+    /// Whether every check ran to the end, rather than stopping at a limit or on Ctrl-C.
+    pub complete: bool,
+}
+/// Rows below the findings list that explain the selected finding.
+pub const FINDING_NOTE: u16 = 6;
+/// Rows a pane's frame, header and footer take from a list or preview of each page.
+pub fn chrome_rows(page: ActivityPage) -> u16 {
+    match page {
+        ActivityPage::Snapshot => 8,
+        ActivityPage::Search => 7,
+        ActivityPage::Integrity => 7 + FINDING_NOTE,
+        _ => 6,
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemorySearchMode {
     Text,
@@ -440,6 +563,10 @@ pub enum ActivityRequest {
         #[serde(default)]
         seek: bool,
     },
+    Integrity {
+        process: ProcessKey,
+        admin: bool,
+    },
 }
 impl ActivityRequest {
     pub fn elevated(&self) -> Option<Self> {
@@ -462,6 +589,7 @@ impl ActivityRequest {
             Self::Capture { process, region, seek, .. } => {
                 Some(Self::Capture { process: *process, region: region.clone(), admin: true, seek: *seek })
             }
+            Self::Integrity { process, .. } => Some(Self::Integrity { process: *process, admin: true }),
         }
     }
 }
@@ -473,6 +601,7 @@ pub enum ActivityData {
     Files(ProcessFiles),
     Snapshot(MemorySnapshot),
     Census(MemoryCensus),
+    Integrity(IntegrityReport),
 }
 /// One row of the hex view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -502,6 +631,8 @@ pub enum ActivityPage {
     Regions,
     Snapshot,
     Search,
+    /// Integrity findings, in the list pane.
+    Integrity,
     Files,
     FileDetails,
 }
@@ -527,7 +658,8 @@ pub struct Activity {
     pub side: Option<crate::Side>,
     pub preview_focused: bool,
     pub list: ActivityPage,
-    pub search_origin: ActivityPage,
+    /// The list that search matches and integrity findings go back to with Esc.
+    pub results_origin: ActivityPage,
     preview_due: Option<Instant>,
     pub search_form: Option<MemorySearchForm>,
     pub search_report: Option<MemorySearchReport>,
@@ -535,6 +667,8 @@ pub struct Activity {
     pub search_progress: Option<(u64, u64, usize)>,
     pub last_search: Option<ActivityRequest>,
     pub from_search: bool,
+    pub integrity: Option<IntegrityReport>,
+    pub finding_cursor: usize,
     pub sample: SystemSample,
     pub histories: HashMap<ProcessKey, MemoryHistory>,
     pub selected: Option<ProcessKey>,
@@ -563,7 +697,7 @@ pub struct Activity {
     pub files_skipped: usize,
     pub files_loaded: bool,
     pub file_cursor: usize,
-    pub tops: [usize; 4],
+    pub tops: [usize; 5],
     pub snapshot: Option<MemorySnapshot>,
     pub previous: Option<MemorySnapshot>,
     pub text: bool,
@@ -586,7 +720,7 @@ impl Default for Activity {
             side: None,
             preview_focused: false,
             list: ActivityPage::Processes,
-            search_origin: ActivityPage::Processes,
+            results_origin: ActivityPage::Processes,
             preview_due: None,
             search_form: None,
             search_report: None,
@@ -594,6 +728,8 @@ impl Default for Activity {
             search_progress: None,
             last_search: None,
             from_search: false,
+            integrity: None,
+            finding_cursor: 0,
             sample: Default::default(),
             histories: Default::default(),
             selected: None,
@@ -619,7 +755,7 @@ impl Default for Activity {
             files_skipped: 0,
             files_loaded: false,
             file_cursor: 0,
-            tops: [0; 4],
+            tops: [0; 5],
             snapshot: None,
             previous: None,
             text: false,
@@ -809,6 +945,7 @@ impl Activity {
             ActivityPage::Regions => (self.region_cursor, self.tops[1]),
             ActivityPage::Search => (self.search_cursor, self.tops[2]),
             ActivityPage::Files => (self.file_cursor, self.tops[3]),
+            ActivityPage::Integrity => (self.finding_cursor, self.tops[4]),
             _ => return 0,
         };
         top.min(cursor).max(cursor.saturating_sub(height.max(1) - 1))
@@ -820,6 +957,7 @@ impl Activity {
             ActivityPage::Regions => 1,
             ActivityPage::Search => 2,
             ActivityPage::Files => 3,
+            ActivityPage::Integrity => 4,
             _ => return,
         };
         self.tops[index] = top;
@@ -910,6 +1048,8 @@ impl Activity {
             self.search_report = None;
             self.last_search = None;
             self.search_progress = None;
+            self.integrity = None;
+            self.finding_cursor = 0;
             self.preview_due = None;
             self.from_search = false;
             self.error = None;
@@ -939,6 +1079,16 @@ impl Activity {
     }
     pub fn focused_page(&self) -> ActivityPage {
         if self.preview_focused { self.page } else { self.list }
+    }
+    /// The cursor of a list page.
+    pub fn list_cursor(&self, page: ActivityPage) -> usize {
+        match page {
+            ActivityPage::Processes => self.cursor,
+            ActivityPage::Search => self.search_cursor,
+            ActivityPage::Integrity => self.finding_cursor,
+            ActivityPage::Files => self.file_cursor,
+            _ => self.region_cursor,
+        }
     }
     pub(crate) fn schedule_preview(&mut self, now: Instant) {
         if self
@@ -970,11 +1120,17 @@ impl Activity {
     }
     fn capture_request(&self) -> Option<ActivityRequest> {
         let process = self.selected?;
+        let around = |address: u64, region: &MemoryRegion| {
+            let start = address.saturating_sub(32).max(region.start);
+            let end = start.saturating_add(SNAPSHOT_LIMIT as u64).min(region.end);
+            (MemoryRegion { start, end, ..region.clone() }, false)
+        };
         let (region, seek) = if self.list == ActivityPage::Search {
             let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
-            let start = hit.address.saturating_sub(32).max(hit.region.start);
-            let end = start.saturating_add(SNAPSHOT_LIMIT as u64).min(hit.region.end);
-            (MemoryRegion { start, end, ..hit.region.clone() }, false)
+            around(hit.address, &hit.region)
+        } else if self.list == ActivityPage::Integrity {
+            let finding = self.selected_finding()?;
+            around(finding.address?, finding.region.as_ref()?)
         } else {
             (self.selected_region()?.clone(), true)
         };
@@ -986,11 +1142,29 @@ impl Activity {
     }
     /// The region the shown capture comes from: the selected one, or the search match's.
     pub fn shown_region(&self) -> Option<&MemoryRegion> {
-        if self.list == ActivityPage::Search {
-            self.search_report.as_ref()?.hits.get(self.search_cursor).map(|hit| &hit.region)
-        } else {
-            self.selected_region()
+        match self.list {
+            ActivityPage::Search => self.search_report.as_ref()?.hits.get(self.search_cursor).map(|hit| &hit.region),
+            ActivityPage::Integrity => self.selected_finding()?.region.as_ref(),
+            _ => self.selected_region(),
         }
+    }
+    pub fn selected_finding(&self) -> Option<&Finding> {
+        self.integrity.as_ref()?.findings.get(self.finding_cursor)
+    }
+    /// The bytes the preview marks: the selected match, or the selected finding's evidence.
+    pub fn marked(&self) -> Option<std::ops::Range<u64>> {
+        let (address, length) = match self.list {
+            ActivityPage::Search if self.from_search => {
+                let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
+                (hit.address, hit.length)
+            }
+            ActivityPage::Integrity => {
+                let finding = self.selected_finding()?;
+                (finding.address?, finding.length)
+            }
+            _ => return None,
+        };
+        Some(address..address.saturating_add(length as u64))
     }
     /// Captures the shown window again, so D compares the same addresses; the selection's start
     /// before anything was captured.
@@ -1089,6 +1263,10 @@ impl Activity {
             ActivityPage::Files => {
                 self.file_cursor = self.file_cursor.saturating_add_signed(delta).min(self.files.len().saturating_sub(1))
             }
+            ActivityPage::Integrity => {
+                let findings = self.integrity.as_ref().map_or(0, |report| report.findings.len());
+                self.finding_cursor = self.finding_cursor.saturating_add_signed(delta).min(findings.saturating_sub(1))
+            }
             ActivityPage::Snapshot => {
                 let end = self.snapshot_rows(self.snapshot_columns(width)).len().saturating_sub(page_rows.max(1));
                 self.offset = self.offset.saturating_add_signed(delta).min(end);
@@ -1144,10 +1322,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let list_rect = layout.panels[side.index()];
     let activity = &mut state.activity;
     if !list_rect.is_empty() {
-        activity.keep_visible(
-            activity.list,
-            usize::from(list_rect.height.saturating_sub(if activity.list == ActivityPage::Search { 7 } else { 6 })),
-        );
+        activity.keep_visible(activity.list, usize::from(list_rect.height.saturating_sub(chrome_rows(activity.list))));
     }
     if activity.preview_due.is_some_and(|due| due <= now) {
         activity.preview_due = None;
@@ -1199,6 +1374,20 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.preview_focused = false;
             activity.search_progress = None;
             activity.last_search = Some(request);
+            let retry = activity.retry.clone();
+            activity.schedule_preview(now);
+            activity.retry = retry;
+        }
+        Ok(ActivityData::Integrity(report)) => {
+            // Unread memory leaves checks undone, which the administrator retry can finish.
+            activity.retry = (report.unreadable > 0).then(|| request.clone());
+            activity.integrity = Some(report);
+            activity.finding_cursor = 0;
+            activity.tops[4] = 0;
+            activity.page = ActivityPage::Snapshot;
+            activity.list = ActivityPage::Integrity;
+            activity.preview_focused = false;
+            activity.search_progress = None;
             let retry = activity.retry.clone();
             activity.schedule_preview(now);
             activity.retry = retry;
@@ -1350,12 +1539,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         return Vec::new();
     }
 
-    let rows = usize::from(rect.height.saturating_sub(match activity.page {
-        ActivityPage::Snapshot => 8,
-        ActivityPage::Search => 7,
-        _ => 6,
-    }))
-    .max(1);
+    let rows = usize::from(rect.height.saturating_sub(chrome_rows(activity.page))).max(1);
     let width = usize::from(rect.width.saturating_sub(2));
     if activity.page == ActivityPage::Snapshot
         && activity.map
@@ -1384,7 +1568,9 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         }
         KeyCode::Char('c')
             if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                && activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Search { .. })) =>
+                && activity.pending.as_ref().is_some_and(|(_, r)| {
+                    matches!(r, ActivityRequest::Search { .. } | ActivityRequest::Integrity { .. })
+                }) =>
         {
             return vec![Effect::CancelMemorySearch];
         }
@@ -1416,7 +1602,11 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             }
         }
         KeyCode::Char('r' | 'R') if activity.pending.is_none() => {
-            if activity.page == ActivityPage::Snapshot {
+            if activity.page == ActivityPage::Integrity {
+                if let Some(process) = activity.selected {
+                    return activity.request(ActivityRequest::Integrity { process, admin: false });
+                }
+            } else if activity.page == ActivityPage::Snapshot {
                 if let Some(request) = activity.recapture_request() {
                     return activity.request(request);
                 }
@@ -1586,8 +1776,8 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             return Vec::new();
         }
         state.activity.preview_focused = true;
-        if state.activity.list != ActivityPage::Search {
-            state.activity.search_origin = state.activity.list;
+        if !matches!(state.activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+            state.activity.results_origin = state.activity.list;
         }
         if state.activity.page == ActivityPage::Processes {
             state.activity.page = ActivityPage::Memory;
@@ -1640,8 +1830,11 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             }
             activity.preview_due = None;
             activity.search_progress = None;
-            activity.list =
-                if activity.list == ActivityPage::Search { activity.search_origin } else { ActivityPage::Processes };
+            activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+                activity.results_origin
+            } else {
+                ActivityPage::Processes
+            };
             activity.page =
                 if activity.list == ActivityPage::Processes { ActivityPage::Memory } else { ActivityPage::Snapshot };
             if activity.list == ActivityPage::Regions {
@@ -1669,6 +1862,13 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             state.activity.preview_due = Some(now);
         }
         return Vec::new();
+    }
+    if key.code == KeyCode::Char('i')
+        && key.modifiers.is_empty()
+        && matches!(state.activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
+        && let Some(process) = state.activity.selected
+    {
+        return check_integrity(&mut state.activity, process);
     }
     if state.activity.list == ActivityPage::Regions && key.code == KeyCode::Char('m') && key.modifiers.is_empty() {
         state.activity.map = !state.activity.map;
@@ -1704,23 +1904,32 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     }
     let page = state.activity.page;
     let context = state.activity.focused_page();
-    let cursor =
-        if context == ActivityPage::Regions { state.activity.region_cursor } else { state.activity.search_cursor };
+    let cursor = state.activity.list_cursor(context);
     state.activity.page = context;
     let effects = on_key(state, key);
     state.activity.page = page;
     if state.activity.search_form.is_some() {
         if state.activity.list != ActivityPage::Search {
-            state.activity.search_origin = state.activity.list;
+            state.activity.results_origin = state.activity.list;
         }
         state.activity.preview_focused = true;
     }
-    if (context == ActivityPage::Regions && cursor != state.activity.region_cursor)
-        || (context == ActivityPage::Search && cursor != state.activity.search_cursor)
+    if matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
+        && cursor != state.activity.list_cursor(context)
     {
         state.activity.schedule_preview(now);
     }
     effects
+}
+
+/// Checks the process against its files and for signs of injected code; the findings replace
+/// the list until Esc goes back to where the check started.
+fn check_integrity(activity: &mut Activity, process: ProcessKey) -> Vec<Effect> {
+    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+        activity.results_origin = activity.list;
+    }
+    activity.search_progress = Some((0, 0, 0));
+    activity.request(ActivityRequest::Integrity { process, admin: false })
 }
 
 /// Right opens the selected group or file and steps into it; Left closes the selected
@@ -1764,7 +1973,7 @@ fn enter_map(state: &mut AppState) -> Vec<Effect> {
     activity.list = ActivityPage::Regions;
     activity.page = ActivityPage::Snapshot;
     activity.preview_focused = false;
-    activity.search_origin = ActivityPage::Regions;
+    activity.results_origin = ActivityPage::Regions;
     activity.snapshot = None;
     activity.previous = None;
     activity.offset = 0;
@@ -2050,6 +2259,63 @@ mod tests {
         assert!(state.activity.side.is_none());
     }
 
+    #[test]
+    fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_esc() {
+        let (mut state, now) = state();
+        open(&mut state);
+        sample(&mut state, vec![process(2, 10, 200)], now);
+        state.activity.paused = true;
+        key(&mut state, KeyCode::Enter);
+        let id = state.activity.pending.as_ref().unwrap().0;
+        let region = MemoryRegion { start: 0x10000, end: 0x20000, permissions: "r-x".into(), ..Default::default() };
+        receive(&mut state, id, Ok(ActivityData::Regions(vec![region.clone()])), now);
+        let effects = key(&mut state, KeyCode::Char('i'));
+        assert!(matches!(
+            &effects[..],
+            [Effect::Activity { request: ActivityRequest::Integrity { admin: false, .. }, .. }]
+        ));
+        assert_eq!(state.activity.search_progress, Some((0, 0, 0)));
+        let effects = on_key(&mut state, &KeyEvent::new(KeyCode::Char('c'), crossterm::event::KeyModifiers::CONTROL));
+        assert!(matches!(&effects[..], [Effect::CancelMemorySearch]));
+
+        let finding = |kind, address: Option<u64>| Finding {
+            kind,
+            severity: Severity::Alert,
+            detail: "detail".into(),
+            region: address.map(|_| region.clone()),
+            address,
+            length: 8,
+        };
+        let report = IntegrityReport {
+            process: state.activity.selected.unwrap(),
+            findings: vec![finding(FindingKind::CodeChanged, Some(0x11010)), finding(FindingKind::ProgramGone, None)],
+            compared: 0x10000,
+            uncompared: 0,
+            scanned: 0,
+            unbacked: 0,
+            unreadable: 4096,
+            complete: true,
+        };
+        let id = state.activity.pending.as_ref().unwrap().0;
+        receive(&mut state, id, Ok(ActivityData::Integrity(report)), now);
+        assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Integrity, ActivityPage::Snapshot));
+        assert!(state.activity.search_progress.is_none());
+        assert!(state.activity.retry.is_some(), "unread memory can be checked again as administrator");
+        assert_eq!(state.activity.marked(), Some(0x11010..0x11018));
+        let effects = sync(&mut state, now + PREVIEW_DELAY);
+        assert!(
+            matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Capture { region, seek: false, .. }, .. }] if region.start == 0x10ff0)
+        );
+        let later = now + PREVIEW_DELAY * 2;
+        route_key(&mut state, &KeyCode::Down.into(), later);
+        assert_eq!((state.activity.finding_cursor, state.activity.marked()), (1, None));
+        assert!(sync(&mut state, later + PREVIEW_DELAY).is_empty(), "the whole process has nothing to capture");
+        let effects = key(&mut state, KeyCode::Char('r'));
+        assert!(matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Integrity { .. }, .. }]));
+        state.activity.pending = None;
+        route_key(&mut state, &KeyCode::Esc.into(), later);
+        assert_eq!(state.activity.list, ActivityPage::Regions);
+    }
     #[test]
     fn partial_search_offers_admin_retry_and_cancellation_keeps_results() {
         let (mut state, now) = state();

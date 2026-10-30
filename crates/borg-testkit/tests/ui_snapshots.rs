@@ -2130,6 +2130,121 @@ fn memory_indicators_list_strings_by_what_they_look_like() -> Result<()> {
 }
 
 #[test]
+fn integrity_findings_lead_with_alerts_and_mark_their_evidence() -> Result<()> {
+    use borg_core::{
+        ActivityData, ActivityRequest, Finding, FindingKind, IntegrityReport, MemoryRegion, MemorySnapshot, Severity,
+    };
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let code = MemoryRegion {
+        start: 0x100440000,
+        end: 0x100480000,
+        permissions: "r-x".into(),
+        name: "__TEXT · /usr/local/bin/compiler".into(),
+        path: Some("/usr/local/bin/compiler".into()),
+        ..Default::default()
+    };
+    let anonymous = MemoryRegion {
+        start: 0x300000000,
+        end: 0x300010000,
+        permissions: "rwx".into(),
+        name: "VM_ALLOCATE".into(),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![code.clone(), anonymous.clone()])) });
+    stage.send(key(KeyCode::Char('i')));
+    let Some((id, ActivityRequest::Integrity { .. })) = stage.state.activity.pending.clone() else {
+        panic!("I should check integrity")
+    };
+    stage.send(Msg::MemorySearchProgress { id, scanned: 48_000_000, total: 96_000_000, hits: 2 });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Checking integrity · 46M/92M · 2 findings")?;
+    let finding = |kind, severity, detail: &str, region: Option<&MemoryRegion>, address, length| Finding {
+        kind,
+        severity,
+        detail: detail.into(),
+        region: region.cloned(),
+        address,
+        length,
+    };
+    let findings = vec![
+        finding(
+            FindingKind::CodeChanged,
+            Severity::Alert,
+            "1 of 64 pages differ from /usr/local/bin/compiler · first at +0x1a40: e9 7b 3c 00 00 90 90 90 in memory, 55 48 89 e5 41 57 41 56 on disk",
+            Some(&code),
+            Some(0x100441a40),
+            8,
+        ),
+        finding(
+            FindingKind::HiddenImage,
+            Severity::Alert,
+            "Mach-O header in VM_ALLOCATE",
+            Some(&anonymous),
+            Some(0x300000000),
+            4,
+        ),
+        finding(
+            FindingKind::UnbackedCode,
+            Severity::Alert,
+            "64K rwx in VM_ALLOCATE",
+            Some(&anonymous),
+            Some(0x300000000),
+            0,
+        ),
+        finding(
+            FindingKind::Preload,
+            Severity::Warning,
+            "DYLD_INSERT_LIBRARIES=/home/me/.cache/libhook.dylib",
+            None,
+            None,
+            0,
+        ),
+        finding(
+            FindingKind::NameMismatch,
+            Severity::Notice,
+            "Named compiler, runs /usr/local/bin/compiler-driver",
+            None,
+            None,
+            0,
+        ),
+    ];
+    let report = IntegrityReport {
+        process,
+        findings,
+        compared: 48_000_000,
+        uncompared: 0,
+        scanned: 512_000_000,
+        unbacked: 640_000_000,
+        unreadable: 0,
+        complete: false,
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Integrity(report)) });
+    stage.send(key(KeyCode::Enter));
+    let Some((id, ActivityRequest::Capture { region, .. })) = stage.state.activity.pending.clone() else {
+        panic!("Enter should preview the finding's evidence")
+    };
+    let mut bytes = vec![0x90; 256];
+    bytes[32..37].copy_from_slice(&[0xe9, 0x7b, 0x3c, 0x00, 0x00]);
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Snapshot(MemorySnapshot { process, address: region.start, bytes, captured: 1 })),
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Code differs from its file")?;
+    check("activity_integrity", &stage, buffer)?;
+    stage.send(key(KeyCode::Tab));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "This finding is about the process as a whole")?;
+    check("activity_integrity_process", &stage, buffer)
+}
+
+#[test]
 fn expanded_size_tree_accounts_for_files_outside_child_directories() -> Result<()> {
     let mut stage = size_tree_stage()?;
     stage.send(key(KeyCode::Right)).send(key(KeyCode::Right));

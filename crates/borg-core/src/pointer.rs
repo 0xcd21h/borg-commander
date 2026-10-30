@@ -151,23 +151,21 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
             state.activity.preview_focused = preview;
             let page = state.activity.page;
             let context = state.activity.focused_page();
-            let cursor = match context {
-                crate::ActivityPage::Processes => state.activity.cursor,
-                crate::ActivityPage::Search => state.activity.search_cursor,
-                crate::ActivityPage::Files => state.activity.file_cursor,
-                _ => state.activity.region_cursor,
-            };
+            let cursor = state.activity.list_cursor(context);
             state.activity.page = context;
             let side = state.activity.side.unwrap();
             let rect = state.layout(now).panels[if preview { side.other() } else { side }.index()];
             state.activity.move_by(
                 index as isize - cursor as isize,
-                usize::from(rect.height.saturating_sub(if context == crate::ActivityPage::Search { 7 } else { 6 })),
+                usize::from(rect.height.saturating_sub(crate::activity::chrome_rows(context))),
                 usize::from(rect.width.saturating_sub(2)),
             );
             state.activity.page = page;
             if !preview
-                && matches!(context, crate::ActivityPage::Regions | crate::ActivityPage::Search)
+                && matches!(
+                    context,
+                    crate::ActivityPage::Regions | crate::ActivityPage::Search | crate::ActivityPage::Integrity
+                )
                 && cursor != index
             {
                 state.activity.schedule_preview(now);

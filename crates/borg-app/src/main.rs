@@ -7,6 +7,7 @@ mod docker;
 mod document;
 mod edit_file;
 mod index;
+mod integrity;
 mod launch;
 mod link;
 mod memory_census;

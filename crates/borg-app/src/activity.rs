@@ -1,8 +1,8 @@
 use crate::memory_search::Query;
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{
-    ActivityData, ActivityRequest, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT, ProcessInfo,
-    ProcessKey, SNAPSHOT_LIMIT, SystemSample,
+    ActivityData, ActivityRequest, IntegrityReport, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, PROCESS_LIMIT,
+    ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 use borg_i18n::tr;
 #[cfg(target_os = "linux")]
@@ -325,6 +325,28 @@ async fn census(
     })
     .await?
 }
+/// Checks the process against its files and for signs of injected code; see `integrity`.
+async fn integrity(
+    process: ProcessKey,
+    cancelled: Arc<AtomicBool>,
+    messages: Option<(u64, UnboundedSender<Msg>)>,
+) -> Result<IntegrityReport> {
+    let maps = regions(process).await?;
+    tokio::task::spawn_blocking(move || {
+        verify(process)?;
+        let facts = crate::integrity::facts(process.pid);
+        let access = crate::integrity::Live::open(process.pid);
+        let progress = |checked, total, findings| {
+            if let Some((id, messages)) = &messages {
+                let _ = messages.send(Msg::MemorySearchProgress { id: *id, scanned: checked, total, hits: findings });
+            }
+        };
+        let report = crate::integrity::check(process, &facts, &maps, &access, &cancelled, progress);
+        verify(process)?;
+        Ok(report)
+    })
+    .await?
+}
 async fn wait_cancelled(cancelled: &AtomicBool) {
     while !cancelled.load(Ordering::Relaxed) {
         tokio::time::sleep(CANCEL_POLL).await;
@@ -340,6 +362,7 @@ async fn inspect(
         | ActivityRequest::Files { admin: true, .. }
         | ActivityRequest::Capture { admin: true, .. }
         | ActivityRequest::Census { admin: true, .. }
+        | ActivityRequest::Integrity { admin: true, .. }
         | ActivityRequest::Search { admin: true, snapshot: None, .. }) => tokio::select! {
             result = elevate(request) => result,
             () = wait_cancelled(&cancelled) => bail!(tr!(memory_search_stopped)),
@@ -351,6 +374,9 @@ async fn inspect(
         }
         ActivityRequest::Census { process, region, mapped, .. } => {
             Ok(ActivityData::Census(census(process, region, mapped, cancelled).await?))
+        }
+        ActivityRequest::Integrity { process, .. } => {
+            Ok(ActivityData::Integrity(integrity(process, cancelled, messages).await?))
         }
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
             let query = Query { text: query, mode, match_case };
@@ -370,6 +396,9 @@ fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
         }
         ActivityRequest::Files { process, .. } => {
             args.extend(["files".into(), process.pid.to_string(), process.start.to_string()])
+        }
+        ActivityRequest::Integrity { process, .. } => {
+            args.extend(["integrity".into(), process.pid.to_string(), process.start.to_string()])
         }
         ActivityRequest::Capture { process, region, seek, .. } => args.extend([
             "capture".into(),
@@ -447,6 +476,9 @@ pub async fn helper(args: &[String]) -> Result<()> {
         match (kind.as_str(), args.len()) {
             ("regions", 3) => Ok(ActivityData::Regions(regions(process).await?)),
             ("files", 3) => Ok(ActivityData::Files(process_files::list(process).await?)),
+            ("integrity", 3) => {
+                Ok(ActivityData::Integrity(integrity(process, Arc::new(AtomicBool::new(false)), None).await?))
+            }
             ("capture", 6) => {
                 let start = number(3)?;
                 let end = number(4)?;
@@ -551,6 +583,7 @@ fn parse_vmmap(text: &str) -> Vec<MemoryRegion> {
             swap: size(3),
             dirty: size(2),
             path,
+            offset: None,
         });
     }
     regions.sort_by_key(|r| r.start);
@@ -565,11 +598,13 @@ fn parse_smaps(text: &str) -> Vec<MemoryRegion> {
         if let Some((start, end)) = words.first().and_then(|w| range(w)) {
             if let Some(perms) = words.get(1) {
                 let name = words.iter().skip(5).copied().collect::<Vec<_>>().join(" ");
+                let path = name.starts_with('/').then(|| name.clone());
                 regions.push(MemoryRegion {
                     start,
                     end,
                     permissions: (*perms).into(),
-                    path: name.starts_with('/').then(|| name.clone()),
+                    offset: path.as_ref().and(words.get(2)).and_then(|w| u64::from_str_radix(w, 16).ok()),
+                    path,
                     name,
                     ..Default::default()
                 });
@@ -659,11 +694,12 @@ mod tests {
     use super::*;
     #[test]
     fn linux_regions_keep_private_shared_swap_and_file_names_with_spaces() {
-        let text = "1000-3000 rw-p 00000000 00:00 0 /tmp/file with spaces\nRss: 8 kB\nPrivate_Clean: 2 kB\nPrivate_Dirty: 3 kB\nShared_Clean: 1 kB\nShared_Dirty: 2 kB\nSwap: 4 kB\nVmFlags: rd wr\n3000-4000 ---p 00000000 00:00 0\n";
+        let text = "1000-3000 rw-p 0002a000 08:01 1234 /tmp/file with spaces\nRss: 8 kB\nPrivate_Clean: 2 kB\nPrivate_Dirty: 3 kB\nShared_Clean: 1 kB\nShared_Dirty: 2 kB\nSwap: 4 kB\nVmFlags: rd wr\n3000-4000 ---p 00000000 00:00 0\n";
         let regions = parse_smaps(text);
         assert_eq!(regions.len(), 2);
         assert_eq!(regions[0].name, "/tmp/file with spaces");
         assert_eq!(regions[0].path.as_deref(), Some("/tmp/file with spaces"));
+        assert_eq!((regions[0].offset, regions[1].offset), (Some(0x2a000), None));
         assert_eq!(regions[0].footprint(), Some(5120 + 4096));
         assert_eq!(regions[0].resident, Some(8192));
         assert_eq!(regions[0].private, Some(5120));
@@ -727,6 +763,27 @@ mod tests {
         let handle: read_process_memory::ProcessHandle = (std::process::id() as i32).try_into().unwrap();
         let read = read_process_memory::copy_address(bytes.as_ptr() as usize, bytes.len(), &handle).unwrap();
         assert_eq!(read, bytes);
+    }
+    #[tokio::test]
+    async fn integrity_finds_an_image_hidden_in_its_own_memory_and_runs_its_files_unchanged() {
+        use borg_core::FindingKind;
+        let own = Sampler::default().sample().processes.into_iter().find(|p| p.key.pid == std::process::id());
+        // An executable header at the start of a page of memory no file backs.
+        let mut buffer = vec![0u8; 64 * PAGE as usize];
+        let at = (buffer.as_ptr() as usize).next_multiple_of(PAGE as usize) - buffer.as_ptr() as usize;
+        buffer[at..at + 6].copy_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1]);
+        buffer[at + 16] = 3;
+        let address = buffer.as_ptr() as u64 + at as u64;
+        let report = integrity(own.unwrap().key, Arc::new(AtomicBool::new(false)), None).await.unwrap();
+        std::hint::black_box(&buffer);
+        let kinds: Vec<_> = report.findings.iter().map(|f| (f.kind, f.address, f.detail.as_str())).collect();
+        assert!(
+            kinds.iter().any(|&(kind, at, _)| kind == FindingKind::HiddenImage && at == Some(address)),
+            "{kinds:?}"
+        );
+        assert!(!kinds.iter().any(|&(kind, ..)| kind == FindingKind::CodeChanged), "{kinds:?}");
+        // Tests running beside this one free memory as it reads, so some may be gone.
+        assert!(report.compared > 0 && report.scanned > 0, "{report:?}");
     }
     #[tokio::test]
     async fn command_output_is_bounded_and_inspection_has_a_deadline() {

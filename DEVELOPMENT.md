@@ -159,7 +159,17 @@ NFKC with a byte-address mapping back to the captured data. Strings and indicato
 (`borg-app::memory_strings`) list each ASCII or UTF-16LE run once across chunk reads: a run
 reaching the end of a read waits for the next one unless it is longer than the overlap, and
 then the next read lists only its new part. Indicators are pattern heuristics over the first
-KiB of each string. Snapshot searches avoid live process access. The renderer shares a reserved branding area across UI modes.
+KiB of each string. Snapshot searches avoid live process access.
+Integrity checks (`borg-app::integrity`) look at the memory map and what the system says of the
+process (`integrity::Facts`: program, environment, `/etc/ld.so.preload`, tracer), and reach memory
+and files through `integrity::Access`, so tests run them against a model process. Code is
+compared with its file at the offset Linux gives, or on macOS from the Mach-O header that starts
+a `__TEXT` segment, matched to a slice of a universal file; shared-cache images are skipped by
+their header flag. Only pages that can differ are read: on Linux those pagemap marks as private
+copies or swapped, on macOS regions with dirty pages. Unbacked memory is searched for image
+headers at page starts, executable regions first. The report counts compared, uncompared,
+scanned and unreadable bytes and says whether a byte, time or finding limit stopped it; findings
+carry a severity, the evidence's address and length, and a caveat. The renderer shares a reserved branding area across UI modes.
 
 ### Editor
 

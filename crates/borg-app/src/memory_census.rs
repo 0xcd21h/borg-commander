@@ -97,17 +97,25 @@ pub struct Residency(Option<std::fs::File>);
 
 #[cfg(target_os = "linux")]
 impl Residency {
-    const PRESENT: u64 = 1 << 63;
+    pub const PRESENT: u64 = 1 << 63;
+    pub const SWAPPED: u64 = 1 << 62;
+    /// The page is the file's own, not a private copy of it.
+    pub const FILE: u64 = 1 << 61;
 
     pub fn open(pid: u32) -> Self {
         Self(std::fs::File::open(format!("/proc/{pid}/pagemap")).ok())
     }
 
     pub fn resident(&self, address: u64) -> Option<bool> {
+        Some(self.entries(address, 1)?[0] & Self::PRESENT != 0)
+    }
+
+    /// The page map entries of `count` pages from `address`.
+    pub fn entries(&self, address: u64, count: usize) -> Option<Vec<u64>> {
         use std::os::unix::fs::FileExt;
-        let mut entry = [0u8; 8];
-        self.0.as_ref()?.read_exact_at(&mut entry, address / PAGE * 8).ok()?;
-        Some(u64::from_le_bytes(entry) & Self::PRESENT != 0)
+        let mut bytes = vec![0u8; count * 8];
+        self.0.as_ref()?.read_exact_at(&mut bytes, address / PAGE * 8).ok()?;
+        Some(bytes.as_chunks::<8>().0.iter().map(|entry| u64::from_le_bytes(*entry)).collect())
     }
 }
 

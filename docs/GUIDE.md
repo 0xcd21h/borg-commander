@@ -781,6 +781,29 @@ kind and the start of the string where other matches show their region, and the 
 it in place. They are leads for a closer look, not proof of anything: ordinary programs hold
 plenty of URLs, paths and keys.
 
+**I**, in the memory map or among search matches, checks whether the process runs the code
+its files hold. It compares code in memory with the files it was mapped from and reports the
+pages that differ, searches memory no file backs for the headers of executable images (ELF,
+Mach-O and PE), and lists executable memory no file backs, memory both writable and executable,
+and code from deleted, nameless or temporary files. It also checks the process as a whole:
+libraries injected through `LD_PRELOAD`, `LD_AUDIT`, `DYLD_INSERT_LIBRARIES` or
+`/etc/ld.so.preload`, library search paths, a tracer on Linux, a program whose file is gone or
+replaced, and a name that differs from its program's.
+
+Findings take the list pane, alerts first, then warnings and notices. Selecting one previews the
+bytes it concerns, with the evidence highlighted, and the rows below the list say what else
+could explain it. Programs that compile code as they run, such as browsers, Java and JavaScript
+engines, hold code no file backs all the time, so for them those findings are notices. **R**
+checks again, **Ctrl-C** stops a check and keeps what it found, and **Esc** goes back. A check
+reads at most 512 MiB of code and 1 GiB of other memory, for at most 45 seconds, and says when
+it stopped early.
+
+On Linux the page tables say which pages of code a process has changed, so only those are read;
+on macOS a region without dirty pages is not read either. Code in macOS's shared cache has no
+file of its own and is not compared. Memory a check cannot read is counted, and offers
+**A: Administrator**. Findings are leads, not verdicts: debuggers, profilers, updaters and
+security tools leave the same traces.
+
 Matches occupy the list pane and show their original address, encoding, and region.
 Selecting a match previews its surrounding bytes in the opposite pane, with matched
 bytes highlighted. Enter focuses the preview; Esc returns focus to the matches.

@@ -5,8 +5,9 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    Activity, ActivityPage, ActivitySort, AppState, CENSUS_LEGEND, HISTORY, MemoryCensus, MemoryGroup, MemoryRegion,
-    MemoryTotals, Msg, PageClass, Pointer, RegionRow, SnapshotRow, census_grid,
+    Activity, ActivityPage, ActivityRequest, ActivitySort, AppState, CENSUS_LEGEND, FINDING_NOTE, HISTORY,
+    IntegrityReport, MemoryCensus, MemoryGroup, MemoryRegion, MemoryTotals, Msg, PageClass, Pointer, RegionRow,
+    Severity, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
@@ -364,9 +365,12 @@ pub(crate) fn body(screen: Rect) -> Rect {
 }
 pub(crate) fn text(buf: &mut Buffer, area: Rect, value: impl Into<String>, style: Style) {
     if !area.is_empty() {
-        Line::styled(value.into().chars().map(|c| if c.is_control() { '�' } else { c }).collect::<String>(), style)
-            .render(area, buf);
+        Line::styled(displayable(&value.into()), style).render(area, buf);
     }
+}
+/// Text with control characters, which would garble the terminal, shown as replacements.
+fn displayable(value: &str) -> String {
+    value.chars().map(|c| if c.is_control() { '�' } else { c }).collect()
 }
 pub(crate) fn row(area: Rect, offset: u16) -> Rect {
     Rect { y: area.y.saturating_add(offset).min(area.bottom()), height: u16::from(offset < area.height), ..area }
@@ -454,6 +458,7 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
                     if activity.map { tr!(activity_bytes_button) } else { tr!(activity_page_map_button) },
                     KeyCode::Char('m'),
                 ),
+                (tr!(integrity_button), KeyCode::Char('i')),
                 (tr!(activity_refresh_button), KeyCode::Char('r')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
@@ -464,6 +469,12 @@ fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'
                 (tr!(memory_preview_button), KeyCode::Enter),
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(memory_continue_button), KeyCode::Char('n')),
+                (tr!(activity_back_button), KeyCode::Esc),
+            ],
+            ActivityPage::Integrity => vec![
+                (tr!(memory_preview_button), KeyCode::Enter),
+                (tr!(integrity_again_button), KeyCode::Char('r')),
+                (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
             ActivityPage::Snapshot if activity.map => vec![
@@ -571,18 +582,18 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
             ActivityPage::Regions => tr!(activity_map),
             ActivityPage::Snapshot => tr!(activity_snapshot),
             ActivityPage::Search => tr!(memory_search_results),
+            ActivityPage::Integrity => tr!(integrity_title),
             ActivityPage::Files => tr!(process_files_title),
             ActivityPage::FileDetails => tr!(process_file_details),
         }
     };
-    let status =
-        if activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, borg_core::ActivityRequest::Search { .. })) {
-            tr!(memory_search_running)
-        } else if activity.paused {
-            tr!(activity_paused)
-        } else {
-            tr!(activity_live)
-        };
+    let status = if activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Search { .. })) {
+        tr!(memory_search_running)
+    } else if activity.paused {
+        tr!(activity_paused)
+    } else {
+        tr!(activity_live)
+    };
     let controls = crate::results_view::controls(rect, state.activity.expanded);
     let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
     let block = Block::bordered()
@@ -622,12 +633,7 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     let summary = if page == ActivityPage::FileDetails {
         tr!(process_files_count, count = activity.files.len(), skipped = activity.files_skipped)
     } else if page == ActivityPage::Snapshot && activity.search_form.is_none() {
-        let region = if activity.list == ActivityPage::Search {
-            activity.search_report.as_ref().and_then(|r| r.hits.get(activity.search_cursor)).map(|h| &h.region)
-        } else {
-            activity.selected_region()
-        };
-        region.map_or_else(String::new, |r| {
+        activity.shown_region().map_or_else(String::new, |r| {
             tr!(
                 activity_region_summary,
                 access = r.permissions,
@@ -663,16 +669,7 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     };
     text(buf, row(inner, 0), summary, emphasis(theme));
     let subtitle = if page == ActivityPage::Snapshot && activity.search_form.is_none() {
-        if activity.list == ActivityPage::Search {
-            activity
-                .search_report
-                .as_ref()
-                .and_then(|r| r.hits.get(activity.search_cursor))
-                .map(|h| h.region.name.clone())
-                .unwrap_or_default()
-        } else {
-            activity.selected_region().map(|r| r.name.clone()).unwrap_or_default()
-        }
+        activity.shown_region().map(|r| r.name.clone()).unwrap_or_default()
     } else if page == ActivityPage::Processes {
         String::new()
     } else if let Some(p) = activity.process() {
@@ -712,6 +709,11 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     } else {
         match page {
             ActivityPage::Search => search_results(activity, theme, body, buf),
+            ActivityPage::Integrity => {
+                if let Some(report) = &activity.integrity {
+                    findings(activity, report, theme, body, buf);
+                }
+            }
             ActivityPage::Processes => {
                 let header = row(inner, 2);
                 for (sort, cell) in columns(header) {
@@ -783,8 +785,14 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
         height: FOOTER_ROWS.min(inner.height),
         ..inner
     };
+    let checking = activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Integrity { .. }));
     let progress = activity.search_progress.map(|(scanned, total, hits)| {
-        tr!(memory_search_progress, scanned = format::size(scanned), total = format::size(total), hits = hits)
+        let (scanned, total) = (format::size(scanned), format::size(total));
+        if checking {
+            tr!(integrity_progress, checked = scanned, total = total, findings = hits)
+        } else {
+            tr!(memory_search_progress, scanned = scanned, total = total, hits = hits)
+        }
     });
     let files_note = (activity.list == ActivityPage::Files && activity.files_loaded)
         .then(|| tr!(process_files_count, count = activity.files.len(), skipped = activity.files_skipped));
@@ -1049,6 +1057,16 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
             return page_map(census, activity.census_cursor, activity.page == ActivityPage::Snapshot, look, body, buf);
         }
     }
+    if let Some(finding) =
+        activity.selected_finding().filter(|f| f.address.is_none() && activity.list == ActivityPage::Integrity)
+    {
+        let mut page = Page { buf, area: body, y: 0 };
+        page.wrapped(tr!(integrity_whole_process), dim(theme));
+        page.gap();
+        page.wrapped(&finding.detail, emphasis(theme));
+        page.gap();
+        return page.wrapped(finding.kind.caveat(), theme.styles.overlay);
+    }
     let Some(snapshot) = &activity.snapshot else {
         if activity.error.is_none() && activity.preview_waiting() {
             if let Some(spinner) = spinner {
@@ -1062,6 +1080,8 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
             tr!(activity_region_unreadable)
         } else if activity.list == ActivityPage::Search {
             tr!(activity_no_matches)
+        } else if activity.list == ActivityPage::Integrity {
+            tr!(integrity_none)
         } else {
             tr!(activity_region_choose)
         };
@@ -1093,12 +1113,7 @@ fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner: Option<Sp
         };
         text(buf, row(body, 1), note, dim(theme));
     }
-    let hit = activity
-        .search_report
-        .as_ref()
-        .filter(|_| activity.from_search)
-        .and_then(|r| r.hits.get(activity.search_cursor))
-        .map(|h| h.address..h.address.saturating_add(h.length as u64));
+    let hit = activity.marked();
     let printable = |b: u8| if b.is_ascii_graphic() || b == b' ' { char::from(b) } else { '.' };
     let rows = activity.snapshot_rows(columns);
     for (y, shown) in
@@ -1245,6 +1260,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
             ActivityPage::Snapshot if activity.map => tr!(census_hint),
             ActivityPage::Snapshot => tr!(activity_snapshot_hint),
             ActivityPage::Search => tr!(memory_results_hint),
+            ActivityPage::Integrity => tr!(integrity_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),
         }
     };
@@ -1321,10 +1337,11 @@ pub(crate) fn panel_mouse(
                 .find(|&i| form_field(body, i).contains(point))
                 .map(|i| Msg::Pointer(Pointer::ActivitySearchField(i)));
         }
-        let body = if !preview && activity.list == ActivityPage::Search {
-            Rect { y: body.y.saturating_add(1).min(body.bottom()), height: body.height.saturating_sub(1), ..body }
-        } else {
-            body
+        let body = match activity.list {
+            _ if preview => body,
+            ActivityPage::Search => results_list(body, 0),
+            ActivityPage::Integrity => results_list(body, FINDING_NOTE),
+            _ => body,
         };
         if body.contains(point) && !preview {
             let index = activity.list_start(activity.list, usize::from(body.height)) + usize::from(point.y - body.y);
@@ -1405,7 +1422,7 @@ fn search_results(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buff
         ),
         dim(theme),
     );
-    let list = Rect { y: body.y.saturating_add(1).min(body.bottom()), height: body.height.saturating_sub(1), ..body };
+    let list = results_list(body, 0);
     for (i, hit) in report
         .hits
         .iter()
@@ -1423,5 +1440,57 @@ fn search_results(activity: &Activity, theme: &Theme, body: Rect, buf: &mut Buff
             None => hit.region.name.clone(),
         };
         text(buf, line, format!("{:016x} {:<9} {shown}", hit.address, hit.encoding), style);
+    }
+}
+
+/// The rows of a results list: below its summary, and above `note` rows that explain the
+/// selected result.
+fn results_list(body: Rect, note: u16) -> Rect {
+    Rect { y: body.y.saturating_add(1).min(body.bottom()), height: body.height.saturating_sub(1 + note), ..body }
+}
+
+/// Integrity findings, worst first, with what the selected one means below them.
+fn findings(activity: &Activity, report: &IntegrityReport, theme: &Theme, body: Rect, buf: &mut Buffer) {
+    let summary = tr!(
+        integrity_summary,
+        findings = report.findings.len(),
+        compared = format::size(report.compared),
+        scanned = format::size(report.scanned),
+        unbacked = format::size(report.unbacked),
+        unreadable = format::size(report.unreadable),
+        incomplete = if report.complete { "" } else { tr!(integrity_incomplete) }
+    );
+    text(buf, row(body, 0), summary, dim(theme));
+    let list = results_list(body, FINDING_NOTE);
+    if report.findings.is_empty() {
+        text(buf, row(list, 0), tr!(integrity_none), theme.styles.overlay);
+        return;
+    }
+    let start = activity.list_start(ActivityPage::Integrity, usize::from(list.height));
+    for (i, finding) in report.findings.iter().enumerate().skip(start).take(usize::from(list.height)) {
+        let line = row(list, (i - start) as u16);
+        let selected = i == activity.finding_cursor;
+        let style = if selected { theme.styles.cursor } else { theme.styles.overlay };
+        let severity = match finding.severity {
+            _ if selected => style,
+            Severity::Alert => theme.styles.notice.add_modifier(Modifier::BOLD),
+            Severity::Warning => emphasis(theme),
+            Severity::Notice => dim(theme),
+        };
+        let address = finding.address.map_or_else(String::new, |address| format!("{address:016x}"));
+        buf.set_style(line, style);
+        Line::from(vec![
+            Span::styled(format!("{:<8}", finding.severity.label()), severity),
+            Span::styled(displayable(&format!(" {address:<16} {} · {}", finding.kind.label(), finding.detail)), style),
+        ])
+        .render(line, buf);
+    }
+    let Some(finding) = activity.selected_finding() else { return };
+    let note = Rect { y: list.bottom(), height: FINDING_NOTE.min(body.bottom().saturating_sub(list.bottom())), ..body };
+    let width = usize::from(note.width).max(1);
+    let detail = wrap(&finding.detail, width).into_iter().take(3).map(|line| (line, emphasis(theme)));
+    let caveat = wrap(finding.kind.caveat(), width).into_iter().map(|line| (line, dim(theme)));
+    for (y, (line, style)) in detail.chain(caveat).enumerate() {
+        text(buf, row(note, y as u16), line, style);
     }
 }

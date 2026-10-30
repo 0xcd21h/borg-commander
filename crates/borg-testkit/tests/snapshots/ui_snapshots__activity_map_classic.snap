@@ -34,7 +34,7 @@ expression: describe(&buffer)
 └────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────────────────────────┘
 compiler · PID 410 · /usr/local/bin/compiler
 $
-/ Search  Enter Preview  M Page map  R Refresh  Esc Back
+/ Search  Enter Preview  M Page map  I Integrity  R Refresh  Esc Back
 ←→ Group · G Raw · Tab Pane · 2 Files · / Find · R Reload · Esc Processes                                   ◈ Borg Commander v0.8.3
 --- styles ---
   0: 0-57 Rgb(47, 140, 198) Rgb(0, 0, 128) NONE | 58-60 Rgb(0, 77, 77) Rgb(0, 170, 170) NONE | 61-61 Rgb(47, 140, 198) Rgb(0, 0, 128) NONE | 62-64 Rgb(0, 77, 77) Rgb(0, 170, 170) NONE | 65-123 Rgb(47, 140, 198) Rgb(0, 0, 128) NONE | 124-126 Rgb(0, 77, 77) Rgb(0, 170, 170) NONE | 127-127 Rgb(47, 140, 198) Rgb(0, 0, 128) NONE | 128-130 Rgb(0, 77, 77) Rgb(0, 170, 170) NONE | 131-131 Rgb(47, 140, 198) Rgb(0, 0, 128) NONE
@@ -69,5 +69,5 @@ $
  29: 0-3 Rgb(47, 140, 198) Rgb(0, 0, 128) NONE | 4-129 Rgb(31, 91, 129) Rgb(0, 0, 83) NONE | 130-131 Rgb(20, 59, 84) Rgb(0, 0, 54) NONE
  30: 0-131 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
  31: 0-131 Reset Reset NONE
- 32: 0-57 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 58-131 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE
+ 32: 0-70 Rgb(255, 255, 255) Rgb(0, 0, 0) NONE | 71-131 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE
  33: 0-106 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 107-107 Rgb(0, 0, 0) Rgb(95, 175, 215) BOLD | 108-108 Rgb(0, 0, 0) Rgb(97, 172, 215) BOLD | 109-109 Rgb(0, 0, 0) Rgb(98, 168, 215) BOLD | 110-110 Rgb(0, 0, 0) Rgb(100, 165, 215) BOLD | 111-111 Rgb(0, 0, 0) Rgb(102, 162, 215) BOLD | 112-112 Rgb(0, 0, 0) Rgb(103, 158, 215) BOLD | 113-113 Rgb(0, 0, 0) Rgb(105, 155, 215) BOLD | 114-114 Rgb(0, 0, 0) Rgb(107, 152, 215) BOLD | 115-115 Rgb(0, 0, 0) Rgb(108, 148, 215) BOLD | 116-116 Rgb(0, 0, 0) Rgb(110, 145, 215) BOLD | 117-117 Rgb(0, 0, 0) Rgb(112, 142, 215) BOLD | 118-118 Rgb(255, 255, 255) Rgb(113, 138, 215) BOLD | 119-119 Rgb(255, 255, 255) Rgb(115, 135, 215) BOLD | 120-120 Rgb(255, 255, 255) Rgb(117, 132, 215) BOLD | 121-121 Rgb(255, 255, 255) Rgb(118, 128, 215) BOLD | 122-122 Rgb(255, 255, 255) Rgb(120, 125, 215) BOLD | 123-123 Rgb(255, 255, 255) Rgb(122, 122, 215) BOLD | 124-124 Rgb(255, 255, 255) Rgb(123, 118, 215) BOLD | 125-125 Rgb(255, 255, 255) Rgb(125, 115, 215) BOLD | 126-126 Rgb(255, 255, 255) Rgb(127, 112, 215) BOLD | 127-127 Rgb(255, 255, 255) Rgb(128, 108, 215) BOLD | 128-128 Rgb(255, 255, 255) Rgb(130, 105, 215) BOLD | 129-129 Rgb(255, 255, 255) Rgb(132, 102, 215) BOLD | 130-130 Rgb(255, 255, 255) Rgb(133, 98, 215) BOLD | 131-131 Rgb(255, 255, 255) Rgb(135, 95, 215) BOLD
