@@ -27,6 +27,13 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The base64 of the host's largest copy that goes to the terminal's clipboard, with room to spare.
 const CLIPBOARD_LIMIT: usize = 512 * 1024;
+/// The most of an unfinished sequence held back for the next frame.
+const PARTIAL_LIMIT: usize = 1024 * 1024;
+const ESC: u8 = 0x1b;
+const BEL: u8 = 0x07;
+const CAN: u8 = 0x18;
+const SUB: u8 = 0x1a;
+const UTF8_LEAD: u8 = 0xc0;
 
 fn timeout_message(timeout: Duration, step: &str) -> String {
     borg_i18n::tr!(remote_mirror_step_timeout, seconds = timeout.as_secs(), step = step)
@@ -101,13 +108,87 @@ fn banner(output: &mut Vec<u8>, (cols, rows): (u16, u16), controlling: bool) {
     output.extend_from_slice(b"\x1b[0m\x1b8");
 }
 
+/// How much of `bytes` ends on a whole escape sequence and character. A frame can stop inside
+/// one, and the banner painted after the frame would cut it in two.
+fn whole(bytes: &[u8]) -> usize {
+    enum State {
+        Ground,
+        Escape,
+        Intermediate,
+        Csi,
+        Text,
+        TextEscape,
+    }
+    let escape = |byte: u8| match byte {
+        b'[' => State::Csi,
+        b']' | b'P' | b'X' | b'^' | b'_' => State::Text,
+        0x20..=0x2f => State::Intermediate,
+        _ => State::Ground,
+    };
+    let (mut state, mut start, mut index) = (State::Ground, 0, 0);
+    while let Some(&byte) = bytes.get(index) {
+        state = match state {
+            State::Text => match byte {
+                BEL => State::Ground,
+                ESC => State::TextEscape,
+                _ => State::Text,
+            },
+            State::TextEscape if byte == b'\\' => State::Ground,
+            _ if byte == ESC => {
+                start = index;
+                State::Escape
+            }
+            // An Esc inside a string ends it and starts a sequence of its own.
+            State::TextEscape => {
+                start = index - 1;
+                escape(byte)
+            }
+            State::Escape => escape(byte),
+            State::Intermediate if (0x20..=0x2f).contains(&byte) => State::Intermediate,
+            State::Intermediate => State::Ground,
+            State::Csi if matches!(byte, 0x40..=0x7e | CAN | SUB) => State::Ground,
+            State::Csi => State::Csi,
+            State::Ground if byte >= UTF8_LEAD => {
+                let length = match byte {
+                    0xc0..=0xdf => 2,
+                    0xe0..=0xef => 3,
+                    _ => 4,
+                };
+                let rest = &bytes[index + 1..];
+                let present = rest.iter().take(length - 1).take_while(|byte| (0x80..UTF8_LEAD).contains(*byte)).count();
+                if present == rest.len() && present < length - 1 {
+                    return index;
+                }
+                index += 1 + present;
+                continue;
+            }
+            State::Ground => State::Ground,
+        };
+        index += 1;
+    }
+    if matches!(state, State::Ground) { bytes.len() } else { start }
+}
+
 #[derive(Default)]
 struct Paint {
     banner: Option<((u16, u16), bool)>,
+    /// The end of the last frame when it stopped inside a sequence or character.
+    partial: Vec<u8>,
 }
 
 impl Paint {
     fn frame(&mut self, bytes: &[u8], reset: bool, size: (u16, u16), controlling: bool, native: bool) -> Vec<u8> {
+        if reset {
+            self.partial.clear();
+        }
+        let mut stream = std::mem::take(&mut self.partial);
+        stream.extend_from_slice(bytes);
+        let end = whole(&stream);
+        // A sequence that never ends is painted as it is rather than held for good.
+        if stream.len() - end <= PARTIAL_LIMIT {
+            self.partial = stream.split_off(end);
+        }
+        let bytes = stream.as_slice();
         let mut output = Vec::with_capacity(bytes.len());
         if reset {
             output.extend_from_slice(b"\x1b[?2026h");
@@ -509,7 +590,7 @@ pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> 
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{CLIPBOARD_LIMIT, Paint, clipboard_text, exit_requested, take_requested};
+    use super::{CLIPBOARD_LIMIT, Paint, clipboard_text, exit_requested, take_requested, whole};
 
     #[test]
     fn only_bounded_base64_from_the_host_reaches_the_terminal_clipboard() {
@@ -537,6 +618,41 @@ mod tests {
         let reset = paint.frame(b"\x1b[?2026h\x1b[2J\x1b[?2026l", true, (100, 30), false, true);
         assert!(String::from_utf8_lossy(&reset).contains("EXIT MIRROR"));
         assert!(!reset.windows(8).any(|bytes| bytes == b"\x1b[?1049h"));
+    }
+
+    #[test]
+    fn frames_end_on_whole_sequences_and_characters() {
+        for whole_bytes in [
+            &b"plain text"[..],
+            b"\x1b[38;2;30;30;30m",
+            b"\x1b(B",
+            b"\x1b]0;title\x07",
+            b"\x1bP1$r\x1b\\",
+            b"caf\xc3\xa9",
+        ] {
+            assert_eq!(whole(whole_bytes), whole_bytes.len(), "{whole_bytes:?}");
+        }
+        assert_eq!(whole(b"text\x1b[38;2;30"), 4);
+        assert_eq!(whole(b"text\x1b"), 4);
+        assert_eq!(whole(b"text\x1b("), 4);
+        assert_eq!(whole(b"\x1b[1mtext\x1b]0;tit"), 8);
+        assert_eq!(whole(b"\x1b]0;title\x1b"), 0, "a string waits for the rest of its terminator");
+        assert_eq!(whole(b"caf\xc3"), 3);
+        assert_eq!(whole(b"\x1b[3\x1b[1m"), 7, "an Esc inside a sequence ends it and starts a new one");
+    }
+
+    #[test]
+    fn a_sequence_split_between_frames_reaches_the_terminal_whole() {
+        let mut paint = Paint::default();
+        paint.frame(b"host", true, (120, 40), true, false);
+        let first =
+            String::from_utf8_lossy(&paint.frame(b"text\x1b[38;2;30", false, (120, 40), true, false)).into_owned();
+        assert!(first.starts_with("text\x1b7") && !first.contains("\x1b[38;2"), "{first:?}");
+        let second = String::from_utf8_lossy(&paint.frame(b";30;30mX", false, (120, 40), true, false)).into_owned();
+        assert!(second.starts_with("\x1b[38;2;30;30;30mX\x1b7"), "{second:?}");
+        paint.frame(b"\x1b[38", false, (120, 40), true, false);
+        let reset = paint.frame(b"\x1b[2Jfresh", true, (120, 40), true, false);
+        assert!(!String::from_utf8_lossy(&reset).contains("\x1b[38"), "a full repaint drops what was held");
     }
 
     #[test]
