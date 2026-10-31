@@ -843,6 +843,7 @@ catalog! {
     remote_clients_tab_hint => "Tab: switch hosts / clients",
     remote_checking_hosts => "Checking paired hosts…",
     remote_connecting_mirror => "Connecting mirror to {machine}:{session}…",
+    remote_mirror_choose => "Alt-H: choose a session to mirror.",
     remote_connecting_keys => " Esc: cancel connection ",
     remote_mirror_step_timeout => "Connection timed out after {seconds} seconds while {step}.",
     remote_mirror_step => "While {step}",

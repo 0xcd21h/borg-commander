@@ -828,6 +828,7 @@
   "remote_clients_tab_hint": "Tab: переключить хосты/клиенты",
   "remote_checking_hosts": "Проверка сопряженных хостов…",
   "remote_connecting_mirror": "Подключение зеркала к {machine}:{session}…",
+  "remote_mirror_choose": "Alt-H: выберите сеанс, чтобы открыть его зеркало.",
   "remote_connecting_keys": " Esc: отменить соединение ",
   "remote_mirror_step": "Пока {step}",
   "remote_mirror_opening": "открытие удаленных подключений",

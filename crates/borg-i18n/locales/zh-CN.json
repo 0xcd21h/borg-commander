@@ -828,6 +828,7 @@
   "remote_clients_tab_hint": "Tab：切换主机/客户端",
   "remote_checking_hosts": "检查配对的主机...",
   "remote_connecting_mirror": "正在将镜像连接到{machine}:{session}…",
+  "remote_mirror_choose": "Alt-H：选择要镜像的会话。",
   "remote_connecting_keys": " Esc：取消连接 ",
   "remote_mirror_step": "而{step}",
   "remote_mirror_opening": "打开远程连接",

@@ -828,6 +828,7 @@
   "remote_clients_tab_hint": "Tab: alternar hosts/clientes",
   "remote_checking_hosts": "Verificando hosts emparelhados…",
   "remote_connecting_mirror": "Ligar espelho a {machine}:{session}…",
+  "remote_mirror_choose": "Alt-H: escolha uma sessão para espelhar.",
   "remote_connecting_keys": " Esc: cancelar ligação ",
   "remote_mirror_step": "Enquanto {step}",
   "remote_mirror_opening": "abrindo ligações remotas",

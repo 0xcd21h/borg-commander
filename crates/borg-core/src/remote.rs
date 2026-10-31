@@ -259,6 +259,35 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
     Vec::new()
 }
 
+/// Alt-H: opens the list of remote Borgs, the computers paired here first when there are any.
+pub(crate) fn browse(state: &mut AppState) -> Vec<Effect> {
+    state.overlay = Some(Overlay::Remotes(RemoteBrowser {
+        side: state.active,
+        choices: Vec::new(),
+        selected: 0,
+        loading: true,
+        connecting: false,
+        error: None,
+        clients: None,
+        show_clients: !state.agent.computers.is_empty(),
+        client_selected: 0,
+        deleting: None,
+        forgetting: None,
+    }));
+    vec![Effect::OpenRemotes]
+}
+
+/// Mirrors the remote session a panel shows, or says how to choose one.
+pub(crate) fn mirror_mounted(state: &mut AppState) -> Vec<Effect> {
+    match state.panels.iter().find_map(|panel| panel.remote_mount.as_ref()) {
+        Some(mount) => mirror(state, mount.machine.clone(), mount.session.clone()),
+        None => {
+            state.notice = Some(tr!(remote_mirror_choose).into());
+            Vec::new()
+        }
+    }
+}
+
 pub(crate) fn mirror(state: &mut AppState, machine: String, session: String) -> Vec<Effect> {
     if let Some(Overlay::Remotes(browser)) = state.overlay.as_mut() {
         browser.show_clients = false;
