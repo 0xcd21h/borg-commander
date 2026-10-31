@@ -606,6 +606,7 @@ dependencies = [
  "jiff",
  "portable-pty",
  "ratatui",
+ "rustix",
  "tempfile",
  "unicode-width",
 ]

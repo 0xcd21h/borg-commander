@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail};
 use borg_term::{Emulator, GridSize};
 use borg_ui::Palette;
 use portable_pty::{Child, CommandBuilder, ExitStatus, MasterPty, native_pty_system};
+use rustix::fs::{Mode, OFlags};
 
 use crate::{Fixture, Shell, Snapshot};
 
@@ -21,6 +22,7 @@ const ENV_TIMEOUT: &str = "BORG_TEST_TIMEOUT_SECS";
 const QUIET: Duration = Duration::from_millis(250);
 const POLL: Duration = Duration::from_millis(10);
 const READ_CHUNK: usize = 64 * 1024;
+const ESC: u8 = 0x1b;
 const SCROLLBACK: usize = 0;
 const SCREENSHOT_EXTENSION: &str = "png";
 const TEXT_EXTENSION: &str = "txt";
@@ -142,6 +144,7 @@ impl<'a> SessionBuilder<'a> {
 
         let child = pair.slave.spawn_command(cmd).context("spawning borg")?;
         drop(pair.slave);
+        let tty = pair.master.tty_name();
 
         let reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
@@ -159,6 +162,8 @@ impl<'a> SessionBuilder<'a> {
             screenshots: env::var_os(ENV_SCREENSHOTS).map(|dir| PathBuf::from(dir).join(&self.label)),
             closed: false,
             terminal_replies: self.terminal_replies,
+            tty,
+            escape_unread: false,
         })
     }
 }
@@ -167,6 +172,10 @@ pub struct Session {
     child: Box<dyn Child + Send + Sync>,
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
+    /// The terminal borg reads, to see whether it has read what was sent.
+    tty: Option<PathBuf>,
+    /// The last bytes sent ended in an Esc.
+    escape_unread: bool,
     output: Receiver<Output>,
     emulator: Emulator,
     palette: Palette,
@@ -200,9 +209,35 @@ impl Session {
     }
 
     pub fn send(&mut self, bytes: impl AsRef<[u8]>) -> Result<&mut Self> {
-        self.writer.write_all(bytes.as_ref())?;
+        // Read together with what follows, an Esc becomes part of the next key: Esc Esc is one
+        // Esc and Esc M is Alt-M. A person's next key comes after borg has read the Esc, so here
+        // it waits for that too.
+        if self.escape_unread {
+            self.wait_read()?;
+        }
+        let bytes = bytes.as_ref();
+        self.writer.write_all(bytes)?;
         self.writer.flush()?;
+        self.escape_unread = bytes.last() == Some(&ESC);
         Ok(self)
+    }
+
+    /// Waits until borg has read everything written to its terminal, or has exited.
+    fn wait_read(&mut self) -> Result<()> {
+        let Some(tty) = self.tty.clone() else { return Ok(()) };
+        let deadline = Instant::now() + self.timeout;
+        // Opened for each look: an open copy would keep the terminal from closing when borg exits.
+        let unread = || -> std::io::Result<u64> {
+            let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+            Ok(rustix::io::ioctl_fionread(rustix::fs::open(&tty, flags, Mode::empty())?)?)
+        };
+        while !self.closed && unread().is_ok_and(|bytes| bytes > 0) {
+            if Instant::now() >= deadline {
+                bail!("borg left its input unread for {:?}\n{}", self.timeout, frame(&self.snapshot()));
+            }
+            self.receive(POLL)?;
+        }
+        Ok(())
     }
 
     pub fn snapshot(&self) -> Snapshot {

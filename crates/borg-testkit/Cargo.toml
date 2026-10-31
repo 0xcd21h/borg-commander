@@ -19,6 +19,7 @@ gif          = { workspace = true }
 image        = { workspace = true }
 portable-pty = { workspace = true }
 ratatui      = { workspace = true }
+rustix       = { workspace = true }
 tempfile     = { workspace = true }
 unicode-width = { workspace = true }
 borg-vfs     = { workspace = true }
