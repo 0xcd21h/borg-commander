@@ -10,14 +10,15 @@ use std::{
 
 use anyhow::{Result, ensure};
 use borg_core::Content;
-use borg_gfx::is_picture;
+use borg_gfx::{holds_picture, is_picture};
 use borg_view::{FileSource, Pager, Source};
 
 use crate::app::{picture, span};
 
 pub fn open(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Result<Content> {
     ensure!(fs::metadata(path)?.is_file(), tr!(not_a_regular_file));
-    if is_picture(path) {
+    // A file named like a picture that holds something else reads as text.
+    if is_picture(path) && holds_picture(path) {
         let bounds = (span(size.0, cell.0), span(size.1, cell.1));
         return picture(path, bounds).map(Content::Image);
     }
@@ -63,6 +64,7 @@ mod tests {
             ("main.rs", "fn main() {\n    println!(\"hello\");\n}\n"),
             ("guide.md", "# Heading\n\nA **bold** word.\n\n```rust\nfn main() {}\n```\n"),
             ("dump.bin", "first line\n\0binary"),
+            ("photo.jpg", "notes kept under a picture's name\n"),
         ] {
             let path = folder.path().join(name);
             fs::write(&path, source).unwrap();

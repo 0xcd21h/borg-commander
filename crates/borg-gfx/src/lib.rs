@@ -9,7 +9,7 @@ pub use caps::{Capabilities, CellSize, Hints, Preference, Protocol, Replies, Ter
 pub use fit::{Fit, fit};
 pub use graphics::{Graphics, Output, Placement};
 pub use halfblock::draw_halfblocks;
-pub use picture::{Decoded, Picture, decode, is_picture};
+pub use picture::{Decoded, Picture, decode, holds_picture, is_picture};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GfxError {

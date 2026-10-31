@@ -2,7 +2,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     fmt,
     hash::{Hash, Hasher},
-    io::Cursor,
+    io::{Cursor, Read},
     path::Path,
     sync::{Arc, OnceLock},
 };
@@ -12,6 +12,8 @@ use image::{DynamicImage, ImageFormat, ImageReader, RgbaImage, imageops::FilterT
 use crate::GfxError;
 
 const CHANNELS: usize = 4;
+/// Enough of a file's start to tell which picture format it holds.
+const HEAD: usize = 32;
 const SUPPORTED: [ImageFormat; 6] =
     [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Gif, ImageFormat::WebP, ImageFormat::Bmp, ImageFormat::Ico];
 
@@ -123,6 +125,13 @@ pub fn is_picture(path: &Path) -> bool {
     ImageFormat::from_path(path).is_ok_and(|format| SUPPORTED.contains(&format))
 }
 
+/// Whether the file starts as a picture Borg shows does, whatever its name says.
+pub fn holds_picture(path: &Path) -> bool {
+    let mut head = Vec::with_capacity(HEAD);
+    let read = std::fs::File::open(path).and_then(|file| file.take(HEAD as u64).read_to_end(&mut head));
+    read.is_ok() && image::guess_format(&head).is_ok_and(|format| SUPPORTED.contains(&format))
+}
+
 pub fn decode(path: &Path, bounds: (u32, u32)) -> Result<Decoded, GfxError> {
     let reader = ImageReader::open(path)?.with_guessed_format()?;
     let format = reader.format().filter(|format| SUPPORTED.contains(format)).ok_or(GfxError::Unsupported)?;
@@ -169,7 +178,10 @@ mod tests {
         let path = dir.join("checker.png");
         std::fs::write(&path, checker(40).png().unwrap_or_else(|e| panic!("{e}"))).unwrap_or_else(|e| panic!("{e}"));
 
-        assert!(is_picture(&path));
+        assert!(is_picture(&path) && holds_picture(&path));
+        let notes = dir.join("notes.png");
+        std::fs::write(&notes, "not a picture").unwrap_or_else(|e| panic!("{e}"));
+        assert!(is_picture(&notes) && !holds_picture(&notes), "the name says picture, the bytes do not");
         let decoded = decode(&path, (10, 20)).unwrap_or_else(|e| panic!("{e}"));
         std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(decoded.original, (40, 40));
