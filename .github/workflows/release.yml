@@ -48,15 +48,8 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo build --release --locked -p borg-app --target ${{ matrix.target }}
 
-      - name: Prepare archive compression
-        run: |
-          python3 -m venv .release-compression
-          .release-compression/bin/pip install zopfli==0.4.3
-
       - name: Package
         shell: bash
-        env:
-          BORG_PACKAGE_PYTHON: .release-compression/bin/python
         run: scripts/package.sh "${GITHUB_REF_NAME#v}" "${{ matrix.target }}" dist
 
       - name: Package the relay (Linux)

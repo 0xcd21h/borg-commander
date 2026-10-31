@@ -434,10 +434,8 @@ can also update to the published static MUSL build for the same architecture whe
 target archive is available.
 
 Archive downloads have an explicit 128 MiB limit; release metadata and checksum downloads
-have smaller limits. Packaging keeps Borg archives within the 10 MiB limit used by older
-updaters, using stronger gzip compression when necessary, and rejects oversized archives
-before publication. To package locally, install `zopfli` in a Python environment and set
-`BORG_PACKAGE_PYTHON` to its Python executable.
+have smaller limits. Borg 0.8.2 and earlier read downloads with the HTTP library's 10 MiB
+default, so they cannot download a larger archive and update by installing again.
 
 ## Conventions
 
