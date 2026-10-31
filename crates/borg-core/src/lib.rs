@@ -15,6 +15,7 @@ mod editor;
 mod exclude;
 mod exclusions;
 mod find;
+mod find_bar;
 mod game2048;
 mod history;
 mod input;
@@ -70,6 +71,7 @@ pub use editor::{
 pub use exclude::{ARTIFACTS, CACHEDIR_SIGNATURE, CACHEDIR_TAG, Marker, is_artifact};
 pub use exclusions::{EXCLUSION_SWITCHES, ExclusionEditor};
 pub use find::{Find, Query, summary as find_summary};
+pub use find_bar::{Direction, FindBar, FindNote, summary as find_bar_summary};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
@@ -92,7 +94,7 @@ pub use state::{
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
 };
 pub use update::update;
-pub use viewer::{Content, Image, Viewer, viewer_size};
+pub use viewer::{Content, FoundInViewer, Image, Viewer, find_in, viewer_size};
 
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};

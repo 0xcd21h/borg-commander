@@ -10,6 +10,13 @@ use unicode_width::UnicodeWidthStr;
 
 pub const TAB_WIDTH: usize = 4;
 const DEFAULT_INDENT: usize = 4;
+/// Characters on either side of the cursor a step looks at for where a grapheme ends: a longer
+/// cluster is stepped through in parts.
+const GRAPHEME_REACH: usize = 128;
+/// Lines up to this many bytes are drawn whole; of longer ones, what shows and `MARGIN` columns
+/// on either side.
+const WHOLE_LINE: usize = 64 * 1024;
+const MARGIN: usize = 1024;
 
 /// How lines end in the file: Borg edits with `\n` and writes `\r\n` back where the file had it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +33,8 @@ pub enum Indent {
 }
 
 impl Indent {
-    fn unit(self) -> String {
+    /// What one level of indentation is.
+    pub fn unit(self) -> String {
         match self {
             Self::Tabs => "\t".into(),
             Self::Spaces(width) => " ".repeat(width),
@@ -139,6 +147,16 @@ impl Buffer {
         self.rope.line_to_char(n.min(self.rope.len_lines()))
     }
 
+    /// The characters on line `n`, its line break left out.
+    pub fn line_len(&self, n: usize) -> usize {
+        if n >= self.rope.len_lines() {
+            return 0;
+        }
+        let line = self.rope.line(n);
+        let len = line.len_chars();
+        if len > 0 && line.char(len - 1) == '\n' { len - 1 } else { len }
+    }
+
     /// Line `n` without its line break.
     pub fn line(&self, n: usize) -> String {
         if n >= self.rope.len_lines() {
@@ -160,8 +178,20 @@ impl Buffer {
 
     /// The cursor's column on screen, with tabs expanded and wide characters counted twice.
     pub fn screen_column(&self) -> usize {
-        let (line, column) = self.position();
-        width(&self.line(line).chars().take(column).collect::<String>())
+        let start = self.rope.line_to_char(self.rope.char_to_line(self.cursor));
+        width(&self.rope.slice(start..self.cursor).to_string())
+    }
+
+    /// Line `n` around screen columns `left..left + width`, for drawing what of it shows: a
+    /// long line costs little more than the screen it fills.
+    pub fn window(&self, n: usize, left: usize, width: usize) -> Window {
+        let line = self.line(n);
+        if line.len() <= WHOLE_LINE {
+            return Window { text: line, start: 0, column: 0 };
+        }
+        let first = walk(&line, Spot::default(), Until::Column(left.saturating_sub(MARGIN)));
+        let last = walk(&line, first, Until::Column(left.saturating_add(width).saturating_add(MARGIN)));
+        Window { text: line[first.byte..last.byte].to_owned(), start: first.char, column: first.column }
     }
 
     pub fn selection(&self) -> Option<Range<usize>> {
@@ -188,18 +218,18 @@ impl Buffer {
         self.break_typing();
     }
 
-    fn line_text(&self, line: usize) -> (usize, String) {
-        (self.rope.line_to_char(line), self.line(line))
-    }
-
     fn grapheme_step(&self, forward: bool) -> usize {
         let (line, column) = self.position();
-        let (start, text) = self.line_text(line);
-        let byte = text.char_indices().nth(column).map_or(text.len(), |(byte, _)| byte);
+        let start = self.rope.line_to_char(line);
+        // Only the text near the cursor is looked at, so a step costs the same on a line of any length.
+        let from = column.saturating_sub(GRAPHEME_REACH);
+        let to = (column + GRAPHEME_REACH).min(self.line_len(line));
+        let text = self.rope.slice(start + from..start + to).to_string();
+        let byte = text.char_indices().nth(column - from).map_or(text.len(), |(byte, _)| byte);
         let mut graphemes = GraphemeCursor::new(byte, text.len(), true);
         let next = if forward { graphemes.next_boundary(&text, 0) } else { graphemes.prev_boundary(&text, 0) };
         match next.ok().flatten() {
-            Some(byte) => start + text[..byte].chars().count(),
+            Some(byte) => start + from + text[..byte].chars().count(),
             None if forward => (self.cursor + 1).min(self.rope.len_chars()),
             None => self.cursor.saturating_sub(1),
         }
@@ -207,18 +237,7 @@ impl Buffer {
 
     /// The character index on `line` closest to screen column `goal`.
     fn at_column(&self, line: usize, goal: usize) -> usize {
-        let (start, text) = self.line_text(line);
-        let mut column = 0;
-        let mut chars = 0;
-        for grapheme in text.graphemes(true) {
-            let next = advance(column, grapheme);
-            if next > goal {
-                break;
-            }
-            column = next;
-            chars += grapheme.chars().count();
-        }
-        start + chars
+        self.rope.line_to_char(line) + walk(&self.line(line), Spot::default(), Until::Column(goal)).char
     }
 
     pub fn move_to(&mut self, motion: Motion, select: bool) {
@@ -260,14 +279,12 @@ impl Buffer {
             Motion::WordRight => self.word_boundary(true),
             Motion::Home => {
                 let (line, column) = self.position();
-                let (start, text) = self.line_text(line);
-                let blank = text.chars().take_while(|c| c.is_whitespace()).count();
-                start + if column == blank { 0 } else { blank }
+                let blank = self.rope.line(line).chars().take_while(|c| c.is_whitespace() && *c != '\n').count();
+                self.rope.line_to_char(line) + if column == blank { 0 } else { blank }
             }
             Motion::End => {
                 let (line, _) = self.position();
-                let (start, text) = self.line_text(line);
-                start + text.chars().count()
+                self.rope.line_to_char(line) + self.line_len(line)
             }
             Motion::Start => 0,
             Motion::Finish => self.rope.len_chars(),
@@ -367,7 +384,7 @@ impl Buffer {
     /// Breaks the line, keeping the current line's indentation.
     pub fn newline(&mut self) {
         let (line, _) = self.position();
-        let indent: String = self.line(line).chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let indent: String = self.rope.line(line).chars().take_while(|c| *c == ' ' || *c == '\t').collect();
         self.replace(&format!("\n{indent}"), false);
     }
 
@@ -493,112 +510,84 @@ impl Buffer {
         true
     }
 
-    /// Selects the next match of `needle` after the cursor, or the previous one before the
-    /// selection, wrapping around. A needle in lowercase ignores case.
-    pub fn find(&mut self, needle: &str, forward: bool) -> bool {
-        if needle.is_empty() {
-            return false;
-        }
-        let fold = !needle.chars().any(char::is_uppercase);
-        let text = self.rope.to_string();
-        let (haystack, needle) = if fold && text.is_ascii() && needle.is_ascii() {
-            (text.to_ascii_lowercase(), needle.to_ascii_lowercase())
-        } else if fold {
-            // Lowercasing can change lengths outside ASCII, so match on characters instead.
-            return self.find_chars(&text, needle, forward);
-        } else {
-            (text, needle.to_owned())
-        };
-        let char_at = |byte: usize| haystack[..byte].chars().count();
-        let from = self.rope.char_to_byte(if forward {
-            self.cursor
-        } else {
-            self.selection().map_or(self.cursor, |r| r.start)
-        });
-        let found = if forward {
-            haystack[from..].find(&needle).map(|at| at + from).or_else(|| haystack.find(&needle))
-        } else {
-            haystack[..from].rfind(&needle).or_else(|| haystack.rfind(&needle))
-        };
-        found.is_some_and(|byte| {
-            let start = char_at(byte);
-            self.select(start..start + needle.chars().count());
-            true
-        })
+    pub fn len_chars(&self) -> usize {
+        self.rope.len_chars()
     }
 
-    fn find_chars(&mut self, text: &str, needle: &str, forward: bool) -> bool {
-        let chars: Vec<char> = text.chars().flat_map(char::to_lowercase).collect();
-        let wanted: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
-        if chars.len() != text.chars().count() {
-            return false;
-        }
-        let starts: Vec<usize> =
-            (0..=chars.len().saturating_sub(wanted.len())).filter(|&at| chars[at..].starts_with(&wanted)).collect();
-        let from = if forward { self.cursor } else { self.selection().map_or(self.cursor, |r| r.start) };
-        let found = if forward {
-            starts.iter().find(|&&at| at >= from).or_else(|| starts.first())
-        } else {
-            starts.iter().rev().find(|&&at| at < from).or_else(|| starts.last())
-        };
-        found.copied().is_some_and(|start| {
-            self.select(start..start + wanted.len());
-            true
-        })
+    /// The characters in `range`, with line feeds whatever the file's line endings.
+    pub fn slice(&self, range: Range<usize>) -> String {
+        self.rope.slice(range).to_string()
     }
 
-    /// Every match of `needle` from the start, as `find` matches them, none overlapping.
-    pub fn matches(&self, needle: &str) -> Vec<Range<usize>> {
-        let fold = !needle.chars().any(char::is_uppercase);
-        let normal = |c: char| if fold { c.to_lowercase().next().unwrap_or(c) } else { c };
-        let wanted: Vec<char> = needle.chars().map(normal).collect();
-        let chars: Vec<char> = self.rope.chars().map(normal).collect();
-        let mut found = Vec::new();
-        let mut at = 0;
-        while !wanted.is_empty() && at + wanted.len() <= chars.len() {
-            if chars[at..at + wanted.len()] == wanted[..] {
-                found.push(at..at + wanted.len());
-                at += wanted.len();
-            } else {
-                at += 1;
+    /// The text's length in bytes, with line feeds for line breaks.
+    pub fn len_bytes(&self) -> usize {
+        self.rope.len_bytes()
+    }
+
+    /// Copies the text's bytes from `offset` into `buf`, as far as it fills, returning how many.
+    pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> usize {
+        if offset >= self.rope.len_bytes() {
+            return 0;
+        }
+        let (chunks, chunk_start, _, _) = self.rope.chunks_at_byte(offset);
+        let mut filled = 0;
+        let mut skip = offset - chunk_start;
+        for chunk in chunks {
+            let bytes = &chunk.as_bytes()[skip..];
+            skip = 0;
+            let n = bytes.len().min(buf.len() - filled);
+            buf[filled..filled + n].copy_from_slice(&bytes[..n]);
+            filled += n;
+            if filled == buf.len() {
+                break;
             }
         }
-        found
+        filled
     }
 
-    /// Whether the selection is a match of `needle`, as a replace finds it.
-    pub fn selection_matches(&self, needle: &str) -> bool {
-        self.selection().is_some_and(|range| self.matches(needle).contains(&range))
+    pub fn byte_to_char(&self, byte: usize) -> usize {
+        self.rope.byte_to_char(byte.min(self.rope.len_bytes()))
     }
 
-    /// Replaces every match of `needle` with `with` in one step, returning how many there were.
-    pub fn replace_all(&mut self, needle: &str, with: &str) -> usize {
-        let found = self.matches(needle);
-        if found.is_empty() {
+    pub fn char_to_byte(&self, char: usize) -> usize {
+        self.rope.char_to_byte(char.min(self.rope.len_chars()))
+    }
+
+    /// The line the character at `char` is on.
+    pub fn line_of(&self, char: usize) -> usize {
+        self.rope.char_to_line(char.min(self.rope.len_chars()))
+    }
+
+    /// Replaces each of `edits`' ranges, in order and none overlapping, with its text, in one
+    /// step, returning how many there were.
+    pub fn replace_ranges(&mut self, edits: &[(Range<usize>, String)]) -> usize {
+        if edits.is_empty() {
             return 0;
         }
         let before = (self.cursor, self.anchor);
         let mut changes = Vec::new();
-        // From the end, so the matches before each one keep their places.
-        for range in found.iter().rev() {
+        // From the end, so the ranges before each one keep their places.
+        for (range, with) in edits.iter().rev() {
             let removed = Change::Delete { at: range.start, text: self.rope.slice(range.clone()).to_string() };
             self.apply(&removed);
             changes.push(removed);
             if !with.is_empty() {
-                let added = Change::Insert { at: range.start, text: with.into() };
+                let added = Change::Insert { at: range.start, text: with.clone() };
                 self.apply(&added);
                 changes.push(added);
             }
         }
         let shift = |at: usize| {
-            let before: Vec<_> = found.iter().take_while(|range| range.end <= at).collect();
-            (at + before.len() * with.chars().count()).saturating_sub(before.iter().map(|range| range.len()).sum())
+            let before = edits.iter().take_while(|(range, _)| range.end <= at);
+            let (added, removed) = before
+                .fold((0, 0), |(added, removed), (range, with)| (added + with.chars().count(), removed + range.len()));
+            (at + added).saturating_sub(removed)
         };
         self.cursor = shift(self.cursor).min(self.rope.len_chars());
         self.anchor = None;
         self.goal = None;
         self.record(changes, before, false);
-        found.len()
+        edits.len()
     }
 
     /// Moves the cursor to screen column `column` on `line`, as a click does; `select` keeps
@@ -618,16 +607,15 @@ impl Buffer {
     /// Selects the word at screen column `column` on `line`, as a double click does.
     pub fn select_word(&mut self, line: usize, column: usize) {
         self.place(line, column, false);
-        let word = |c: char| c.is_alphanumeric() || c == '_';
-        let (start, text) = self.line_text(self.rope.char_to_line(self.cursor));
-        let chars: Vec<char> = text.chars().collect();
-        let at = self.cursor - start;
-        if !chars.get(at).is_some_and(|c| word(*c)) {
+        let word = |c: &char| c.is_alphanumeric() || *c == '_';
+        let at = self.cursor;
+        if self.rope.get_char(at).is_none_or(|c| !word(&c)) {
             return;
         }
-        let first = chars[..at].iter().rposition(|c| !word(*c)).map_or(0, |i| i + 1);
-        let last = chars[at..].iter().position(|c| !word(*c)).map_or(chars.len(), |i| at + i);
-        self.select(start + first..start + last);
+        // A line break is no word character, so the word ends on its line.
+        let before = self.rope.chars_at(at).reversed().take_while(word).count();
+        let after = self.rope.chars_at(at).take_while(word).count();
+        self.select(at - before..at + after);
     }
 
     /// Moves to the start of line `line`, counted from 1.
@@ -647,14 +635,92 @@ fn advance(column: usize, grapheme: &str) -> usize {
 
 /// The screen width of `text` from the start of a line.
 pub fn width(text: &str) -> usize {
-    text.graphemes(true).fold(0, advance)
+    walk(text, Spot::default(), Until::Char(usize::MAX)).column
 }
 
-/// The line as screen cells: each grapheme's first character index in the line, how it shows,
-/// and its width. Tabs become spaces to the next tab stop; control characters show as `·`.
-pub fn cells(text: &str) -> Vec<(usize, String, usize)> {
+/// Where a walk along a line stands: at a byte and a character of it, and the screen column there.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Spot {
+    byte: usize,
+    char: usize,
+    column: usize,
+}
+
+/// How far a walk along a line goes: to the last grapheme that ends by a screen column, or by a
+/// character.
+#[derive(Debug, Clone, Copy)]
+enum Until {
+    Column(usize),
+    Char(usize),
+}
+
+/// Printable ASCII: one column wide, and a grapheme on its own unless combining marks follow.
+fn plain(byte: u8) -> bool {
+    (b' '..=b'~').contains(&byte)
+}
+
+/// How many bytes `bytes` starts with that are plain.
+fn plain_prefix(bytes: &[u8]) -> usize {
+    const BLOCK: usize = 32;
+    let mut at = 0;
+    // A block checked whole, without stopping at the first byte that fails, compiles to a few
+    // vector instructions.
+    while at + BLOCK <= bytes.len() && bytes[at..at + BLOCK].iter().fold(true, |all, &byte| all & plain(byte)) {
+        at += BLOCK;
+    }
+    at + bytes[at..].iter().position(|&byte| !plain(byte)).unwrap_or(bytes.len() - at)
+}
+
+/// Walks `text`, a line or its start, from `from` a grapheme at a time as far as `until` lets,
+/// or to its end. Runs of plain ASCII go at once, so a long line of it costs about a read.
+fn walk(text: &str, from: Spot, until: Until) -> Spot {
+    let mut spot = from;
+    while spot.byte < text.len() {
+        let run = plain_prefix(&text.as_bytes()[spot.byte..]);
+        // The run's last byte may take combining marks after it, so it goes with them.
+        let whole = if spot.byte + run == text.len() { run } else { run.saturating_sub(1) };
+        let room = match until {
+            Until::Column(column) => column.saturating_sub(spot.column),
+            Until::Char(char) => char.saturating_sub(spot.char),
+        };
+        let step = whole.min(room);
+        spot = Spot { byte: spot.byte + step, char: spot.char + step, column: spot.column + step };
+        if step < whole {
+            break;
+        }
+        let Some(grapheme) = text[spot.byte..].graphemes(true).next() else { break };
+        let next = Spot {
+            byte: spot.byte + grapheme.len(),
+            char: spot.char + grapheme.chars().count(),
+            column: advance(spot.column, grapheme),
+        };
+        let past = match until {
+            Until::Column(column) => next.column > column,
+            Until::Char(char) => next.char > char,
+        };
+        if past {
+            break;
+        }
+        spot = next;
+    }
+    spot
+}
+
+/// The part of a line `Buffer::window` gives for drawing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    pub text: String,
+    /// The character of the line `text` starts at, and the screen column there.
+    pub start: usize,
+    pub column: usize,
+}
+
+/// `text`, part of a line from screen column `column`, as screen cells: each grapheme's first
+/// character index in `text`, how it shows, and its width. Tabs become spaces to the next tab
+/// stop; control characters show as `·`.
+pub fn cells(text: &str, column: usize) -> Vec<(usize, String, usize)> {
     let mut cells = Vec::new();
-    let (mut column, mut index) = (0, 0);
+    let (mut column, mut index) = (column, 0);
     for grapheme in text.graphemes(true) {
         let next = advance(column, grapheme);
         let shown = match grapheme {
@@ -717,22 +783,34 @@ mod tests {
     }
 
     #[test]
-    fn replacing_all_matches_is_one_step_and_clicks_place_the_cursor_and_select_words() {
+    fn replacing_ranges_is_one_step_and_clicks_place_the_cursor_and_select_words() {
         let mut buffer = Buffer::new("Café cafe\ncafé\tlatte");
-        assert_eq!(buffer.matches("café"), [0..4, 10..14], "a lowercase needle ignores case");
         buffer.place(1, 8, false);
         assert_eq!(buffer.position(), (1, 5), "the tab spans columns 4 to 8");
-        assert_eq!(buffer.replace_all("café", "tea"), 2);
+        assert_eq!(buffer.replace_ranges(&[(0..4, "tea".into()), (10..14, "tea".into())]), 2);
         assert_eq!(buffer.text(), "tea cafe\ntea\tlatte");
         assert_eq!(buffer.position(), (1, 4), "the cursor keeps its place after the shorter text");
         assert!(buffer.undo());
         assert_eq!(buffer.text(), "Café cafe\ncafé\tlatte");
         buffer.select_word(0, 6);
         assert_eq!(buffer.selected_text().as_deref(), Some("cafe"));
-        assert!(!buffer.selection_matches("café"));
         buffer.place(1, 2, true);
         assert_eq!(buffer.selected_text().as_deref(), Some("cafe\nca"), "a drag extends from the word");
-        assert_eq!(buffer.replace_all("missing", "x"), 0);
+        assert_eq!(buffer.replace_ranges(&[]), 0);
+    }
+
+    #[test]
+    fn the_text_reads_as_bytes_from_any_offset() {
+        let text = "naïve\n".repeat(400);
+        let buffer = Buffer::new(&text);
+        assert_eq!(buffer.len_bytes(), text.len());
+        let mut buf = vec![0; 1000];
+        assert_eq!(buffer.read_at(3, &mut buf), 1000);
+        assert_eq!(&buf[..], &text.as_bytes()[3..1003]);
+        assert_eq!(buffer.read_at(text.len() - 2, &mut buf), 2);
+        assert_eq!(buffer.byte_to_char(7), 6, "ï takes two bytes");
+        assert_eq!(buffer.char_to_byte(6), 7);
+        assert_eq!(buffer.line_of(6), 1);
     }
 
     #[test]
@@ -834,20 +912,6 @@ mod tests {
     }
 
     #[test]
-    fn find_selects_matches_wrapping_around_with_smart_case() {
-        let mut buffer = Buffer::new("Alpha beta ALPHA gamma alpha");
-        assert!(buffer.find("alpha", true));
-        assert_eq!(buffer.selection(), Some(0..5));
-        assert!(buffer.find("alpha", true));
-        assert_eq!(buffer.selection(), Some(11..16));
-        assert!(buffer.find("Alpha", true));
-        assert_eq!(buffer.selection(), Some(0..5), "an uppercase needle matches case, wrapping to the start");
-        assert!(buffer.find("alpha", false));
-        assert_eq!(buffer.selection(), Some(23..28));
-        assert!(!buffer.find("delta", true));
-    }
-
-    #[test]
     fn typing_over_a_selection_replaces_it_and_cut_removes_it() {
         let mut buffer = Buffer::new("one two three");
         buffer.move_to(Motion::WordRight, false);
@@ -867,11 +931,54 @@ mod tests {
         assert_eq!(expand("a\tb"), "a   b");
         assert_eq!(expand("ab\u{7}c"), "ab·c");
         assert_eq!(width("日本\t"), 8);
-        let shown = cells("e\u{301}\t日");
+        let shown = cells("e\u{301}\t日", 0);
         assert_eq!(shown, [(0, "e\u{301}".into(), 1), (2, "   ".into(), 3), (3, "日".into(), 2)]);
+        assert_eq!(cells("\tx", 2), [(0, "  ".into(), 2), (1, "x".into(), 1)], "tabs stop where the part starts");
+    }
+
+    #[test]
+    fn a_long_line_is_drawn_and_walked_by_the_part_that_shows() {
+        let line = format!("{}日本{}", "x".repeat(70_000), "y".repeat(10_000));
+        let mut buffer = Buffer::new(&format!("{line}\nshort"));
+        let window = buffer.window(0, 70_000, 80);
+        assert_eq!((window.start, window.column), (70_000 - MARGIN, 70_000 - MARGIN));
+        assert_eq!(width(&window.text), 2 * MARGIN + 80);
+        assert!(window.text.contains("日本"));
+        assert_eq!(buffer.window(1, 0, 80).text, "short", "a short line comes whole");
+
+        buffer.place(0, 70_001, false);
+        assert_eq!(buffer.position(), (0, 70_000), "a click inside a wide character lands before it");
+        buffer.move_to(Motion::Right, false);
+        assert_eq!((buffer.position(), buffer.screen_column()), ((0, 70_001), 70_002));
+        buffer.move_to(Motion::End, false);
+        assert_eq!(buffer.screen_column(), 80_004);
+        buffer.move_to(Motion::Down, false);
+        buffer.move_to(Motion::Up, false);
+        assert_eq!(buffer.position(), (0, 80_002), "the goal column holds across the short line");
+        buffer.select_word(0, 3);
+        assert_eq!(buffer.selection(), Some(0..80_002), "letters of any script are one word");
     }
 
     proptest! {
+        #[test]
+        fn walking_runs_at_once_agrees_with_walking_by_graphemes(
+            text in "[a-c \t\u{7}\u{301}\u{600}日é👍🏽\u{200d}🇩🇪]{0,40}",
+            goal in 0usize..60,
+        ) {
+            let (mut column, mut chars) = (0, 0);
+            for grapheme in text.graphemes(true) {
+                let next = advance(column, grapheme);
+                if next > goal {
+                    break;
+                }
+                (column, chars) = (next, chars + grapheme.chars().count());
+            }
+            let spot = walk(&text, Spot::default(), Until::Column(goal));
+            prop_assert_eq!((spot.char, spot.column), (chars, column));
+            prop_assert_eq!(walk(&text, Spot::default(), Until::Char(chars)).column, column);
+            prop_assert_eq!(width(&text), text.graphemes(true).fold(0, advance));
+        }
+
         #[test]
         fn undoing_every_edit_restores_the_text_and_redo_replays_them(
             start in "[a-c \\n]{0,20}",

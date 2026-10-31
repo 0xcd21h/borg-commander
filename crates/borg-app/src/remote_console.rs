@@ -494,17 +494,17 @@ mod tests {
         assert!(call(&server, Some("owner"), "console_input", payload).await.ok);
         let mut emulator = Emulator::new(GridSize { cols: 100, rows: 24 }, 100);
         let deadline = Instant::now() + Duration::from_secs(10);
+        let proof = runtime.path().join("proof");
         loop {
             let frame = call(&server, Some("owner"), "console_frame", json!({"id":id})).await;
             assert!(frame.ok, "{}", frame.text);
             let value: Value = serde_json::from_str(&frame.text)?;
             emulator.feed(&STANDARD.decode(value["data"].as_str().unwrap())?);
-            if runtime.path().join("proof").exists() {
+            if std::fs::read_to_string(&proof).is_ok_and(|text| text == "remote terminal") {
                 break;
             }
-            assert!(Instant::now() < deadline);
+            assert!(Instant::now() < deadline, "proof holds {:?}", std::fs::read_to_string(&proof).ok());
         }
-        assert_eq!(std::fs::read_to_string(runtime.path().join("proof"))?, "remote terminal");
         assert!(call(&server, Some("owner"), "console_resize", json!({"id":id,"cols":80,"rows":30})).await.ok);
         assert!(call(&server, Some("owner"), "console_close", json!({"id":id})).await.ok);
         assert!(!call(&server, Some("owner"), "console_input", json!({"id":id,"data":"YQ=="})).await.ok);

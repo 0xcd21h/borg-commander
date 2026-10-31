@@ -11,6 +11,7 @@ mod docker_view;
 mod document_view;
 mod draw;
 mod editor_view;
+mod find_view;
 mod format;
 mod fx;
 mod game2048_view;

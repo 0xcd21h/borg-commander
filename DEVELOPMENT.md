@@ -27,6 +27,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+CI runs the same tests with [cargo-nextest](https://nexte.st), as [On CI](#on-ci) describes.
+
 ## How the code is organised
 
 ```
@@ -345,6 +347,16 @@ Rules of thumb:
   forever (the About screen, a screensaver); wait for a condition instead.
 - Fixtures disable update checks. Use `fixture.configure("...")` to add settings.
 - `BORG_TEST_TIMEOUT_SECS` raises the wait timeout on slow machines (CI uses 30).
+
+### On CI
+
+CI runs `cargo nextest run --workspace --profile ci`. nextest runs every test in a process of
+its own, and the `ci` profile in `.config/nextest.toml` retries a failed test up to 2 times. A
+test that fails all 3 attempts fails the job and shows as an error on the run. A test that
+passes on a retry keeps the job green and shows as a warning, with the output of the attempt
+that failed. A warning still means the test depends on timing somewhere, so fix it when you see
+one. To run the suite the way CI does, install nextest with `cargo install cargo-nextest
+--locked` and run the same command.
 
 ### Screenshots
 

@@ -35,10 +35,11 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if let Some(editor) = &state.editor {
         return crate::editor_view::mouse(editor, event, double, state.layout(now).screen, WHEEL_ROWS);
     }
-    if state.viewer.is_some() && !state.shell.captured() {
+    if let Some(viewer) = state.viewer.as_ref().filter(|_| !state.shell.captured()) {
         return match event.kind {
             MouseEventKind::ScrollUp => Some(Msg::Pointer(Pointer::ScrollDocument(-WHEEL_ROWS))),
             MouseEventKind::ScrollDown => Some(Msg::Pointer(Pointer::ScrollDocument(WHEEL_ROWS))),
+            _ if click => crate::viewer_view::click(viewer, state.layout(now).screen, point).map(Msg::Key),
             _ => None,
         };
     }

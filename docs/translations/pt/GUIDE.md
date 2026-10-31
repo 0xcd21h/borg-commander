@@ -765,6 +765,12 @@ prima `s` ou F4 em qualquer dos visualizadores para passar ao código-fonte. Sã
 títulos, ênfase, listas, listas de tarefas, ligações, tabelas e blocos de código delimitados. Os
 ficheiros Markdown com mais de 2 MiB abrem como código-fonte para poupar memória.
 
+O JSON abre organizado com um valor por linha, com as chaves pela ordem original e os números
+exatamente como estão escritos, o que ajuda sobretudo com ficheiros escritos numa só linha. Prima
+`s` ou F4 para ver o ficheiro tal como está escrito. Os ficheiros JSON Lines (`.jsonl`, `.ndjson`)
+são organizados um registo de cada vez. O JSON com mais de 16 MiB, ou que não pode ser analisado,
+abre tal como está escrito.
+
 ### Editor
 
 F4 abre o ficheiro selecionado no editor do Borg, e Shift-F4 abre-o em `$VISUAL` ou `$EDITOR`. O
@@ -774,19 +780,36 @@ Ctrl-V copiam, cortam e colam através da área de transferência do Borg, e o t
 do terminal entra exatamente como está. Ctrl-Z e Ctrl-Y anulam e refazem, e Tab e Shift-Tab
 aumentam e diminuem a indentação. F2 ou Ctrl-S guardam através de um ficheiro temporário, pelo que
 um ficheiro nunca fica escrito a meio. Os ficheiros que não são texto UTF-8, ou que têm mais de 32
-MiB, abrem no visualizador.
+MiB, abrem no visualizador. As linhas com mais de 20 000 caracteres, como código minificado, não
+são realçadas, e só é desenhada a parte da linha que aparece no ecrã, pelo que até um ficheiro
+grande escrito numa só linha se edita sem atrasos. Alt-Shift-F organiza um ficheiro JSON com um
+valor por linha, usando a indentação do próprio ficheiro, num único passo que Ctrl-Z anula; o JSON
+que não pode ser analisado fica como está, e a linha de estado indica onde a análise parou.
 
 O editor faz as suas perguntas em caixas de diálogo sobre o texto: Tab passa entre campos e
 botões, Enter confirma o selecionado, Esc cancela, e pode clicar em qualquer um deles. Ctrl-F ou
-F7 procuram texto, F3 encontra a correspondência seguinte e Shift-F3 a anterior. Ctrl-R ou F4
-substituem: Enter substitui a correspondência e passa à seguinte, **Saltar** deixa-a como está, e
-Alt-A ou **Todas** substitui todas as correspondências de uma só vez, que um único Ctrl-Z anula.
-Uma pesquisa em minúsculas ignora maiúsculas e minúsculas. Ctrl-G vai para uma linha. Esc fecha o
-editor e pergunta primeiro se quer guardar ou descartar as alterações por guardar; se o ficheiro
-tiver mudado no disco desde que o abriu, o Borg pergunta se o quer substituir ou recarregar. Um
-clique coloca o cursor, arrastar ou clicar com Shift seleciona, um duplo clique seleciona uma
-palavra e a roda percorre o texto; as teclas indicadas na linha de estado também podem ser
-clicadas.
+F7 procuram texto com a barra de pesquisa descrita abaixo. Ctrl-R ou F4 substituem, com as mesmas
+opções da barra de pesquisa: Enter substitui a correspondência e passa à seguinte, **Saltar**
+deixa-a como está, e Alt-A ou **Todas** substitui todas as correspondências de uma só vez, que um
+único Ctrl-Z anula. Com uma expressão regular, `$1` na substituição repõe o que o primeiro grupo
+encontrou. Ctrl-G vai para uma linha. Esc fecha o editor e pergunta primeiro se quer guardar ou
+descartar as alterações por guardar; se o ficheiro tiver mudado no disco desde que o abriu, o Borg
+pergunta se o quer substituir ou recarregar. Um clique coloca o cursor, arrastar ou clicar com
+Shift seleciona, um duplo clique seleciona uma palavra e a roda percorre o texto; as teclas
+indicadas na linha de estado também podem ser clicadas.
+
+O visualizador e o editor procuram texto da mesma forma. No visualizador, `/`, F7 ou Ctrl-F abrem
+uma barra de pesquisa na linha de estado; no editor, é Ctrl-F ou F7. O Borg procura à medida que
+escreve, a partir do ponto onde a barra abriu: todas as correspondências no ecrã ficam marcadas, a
+atual destaca-se, e a barra conta-as (3 de 17). Enter, Down ou F3 vão para a correspondência
+seguinte, e Shift-Enter, Up ou Shift-F3 para a anterior; depois da última correspondência, a
+pesquisa continua a partir da outra ponta e avisa disso. Alt-C distingue maiúsculas de minúsculas
+(caso contrário, uma pesquisa em minúsculas encontra qualquer caixa), Alt-W procura palavras
+inteiras, e Alt-R lê a pesquisa como expressão regular; também pode clicar nas opções. Ctrl-P e
+Ctrl-N trazem de volta pesquisas recentes. Esc fecha a barra; a seguir, `n` e `N` no visualizador,
+ou F3 e Shift-F3 no editor, percorrem as correspondências. Num ficheiro grande, o visualizador
+procura em segundo plano, mostra até onde chegou e para quando prime Esc. Conta as
+correspondências em ficheiros até 64 MiB, até 10 000 delas.
 
 ## Configuração
 

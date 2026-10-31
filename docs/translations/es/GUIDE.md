@@ -768,27 +768,52 @@ fuente. Se admiten encabezados, énfasis, listas, listas de tareas, enlaces, tab
 código delimitados. Los archivos Markdown de más de 2 MiB se abren como código fuente para limitar
 el uso de memoria.
 
+JSON se abre organizado con un valor por línea, con las claves en su orden original y los números
+exactamente como están escritos, lo que ayuda sobre todo con archivos escritos en una sola línea.
+Pulsa `s` o F4 para ver el archivo tal como está escrito. Los archivos JSON Lines (`.jsonl`,
+`.ndjson`) se organizan registro a registro. El JSON de más de 16 MiB, o que no se puede analizar,
+se abre tal como está escrito.
+
 ### Editor
 
 F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 lo abre en `$VISUAL` o `$EDITOR`.
 El editor conserva los finales de línea y la sangría del archivo, resalta el código como los
 visores y muestra los números de línea. Shift con las flechas selecciona texto; Ctrl-C, Ctrl-X y
-Ctrl-V copian, cortan y pegan mediante el portapapeles de Borg, y el texto pegado desde el terminal
-entra exactamente tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, y Tab y Shift-Tab aumentan y
-reducen la sangría. F2 o Ctrl-S guardan a través de un archivo temporal, de modo que un archivo
-nunca queda escrito a medias. Los archivos que no son texto UTF-8, o que superan los 32 MiB, se
-abren en el visor.
+Ctrl-V copian, cortan y pegan mediante el portapapeles de Borg, y el texto pegado desde el
+terminal entra exactamente tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, y Tab y Shift-Tab
+aumentan y reducen la sangría. F2 o Ctrl-S guardan a través de un archivo temporal, de modo que un
+archivo nunca queda escrito a medias. Los archivos que no son texto UTF-8, o que superan los 32
+MiB, se abren en el visor. Las líneas de más de 20.000 caracteres, como el código minificado, no
+se resaltan, y solo se dibuja la parte de la línea que aparece en pantalla, así que incluso un
+archivo grande escrito en una sola línea se edita sin retrasos. Alt-Shift-F organiza un archivo
+JSON con un valor por línea, usando la sangría del propio archivo, en un solo paso que Ctrl-Z
+deshace; el JSON que no se puede analizar se queda como está, y la línea de estado indica dónde se
+detuvo el análisis.
 
 El editor hace sus preguntas en diálogos sobre el texto: Tab se mueve entre campos y botones,
 Enter confirma el seleccionado, Esc cancela, y puedes hacer clic en cualquiera de ellos. Ctrl-F o
-F7 buscan texto, F3 busca la siguiente coincidencia y Shift-F3 la anterior. Ctrl-R o F4 reemplazan:
-Enter reemplaza la coincidencia y pasa a la siguiente, **Saltar** la deja como está, y Alt-A o
-**Todo** reemplaza todas las coincidencias en un solo paso que se deshace con un único Ctrl-Z. Una
-búsqueda en minúsculas no distingue mayúsculas. Ctrl-G va a una línea. Esc cierra el editor, y
+F7 buscan texto con la barra de búsqueda que se describe más abajo. Ctrl-R o F4 reemplazan, con
+las mismas opciones que la barra de búsqueda: Enter reemplaza la coincidencia y pasa a la
+siguiente, **Saltar** la deja como está, y Alt-A o **Todo** reemplaza todas las coincidencias en
+un solo paso que se deshace con un único Ctrl-Z. Con una expresión regular, `$1` en el reemplazo
+vuelve a poner lo que encontró su primer grupo. Ctrl-G va a una línea. Esc cierra el editor, y
 antes pregunta si quieres guardar o descartar los cambios sin guardar; si el archivo cambió en el
 disco desde que lo abriste, Borg pregunta si quieres sobrescribirlo o volver a cargarlo. Un clic
 coloca el cursor, arrastrar o hacer Shift-clic selecciona, un doble clic selecciona una palabra y
 la rueda desplaza; también puedes hacer clic en las teclas que aparecen en la línea de estado.
+
+El visor y el editor buscan texto de la misma manera. En el visor, `/`, F7 o Ctrl-F abren una
+barra de búsqueda en la línea de estado; en el editor, Ctrl-F o F7. Borg busca mientras escribes,
+a partir del punto donde se abrió la barra: todas las coincidencias en pantalla quedan marcadas,
+la actual destaca, y la barra las cuenta (3 de 17). Enter, Down o F3 van a la siguiente
+coincidencia, y Shift-Enter, Up o Shift-F3 a la anterior; después de la última, la búsqueda sigue
+desde el otro extremo y lo indica. Alt-C distingue mayúsculas y minúsculas (si no, una búsqueda en
+minúsculas encuentra cualquier combinación), Alt-W busca palabras completas y Alt-R interpreta la
+búsqueda como una expresión regular; también puedes hacer clic en las opciones. Ctrl-P y Ctrl-N
+recuperan las búsquedas recientes. Esc cierra la barra; después, `n` y `N` en el visor, o F3 y
+Shift-F3 en el editor, recorren las coincidencias. En un archivo grande, el visor busca en segundo
+plano, muestra hasta dónde ha llegado y se detiene al pulsar Esc. Cuenta las coincidencias en
+archivos de hasta 64 MiB, hasta 10.000 de ellas.
 
 ## Configuración
 

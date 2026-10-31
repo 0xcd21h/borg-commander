@@ -128,6 +128,16 @@ pub enum Msg {
     EditorOpened(Result<crate::EditorFile, crate::OpenError>),
     /// The editor's save landed, with the file's new stamp, or did not.
     EditorSaved(Result<crate::FileStamp, crate::SaveError>),
+    /// What the viewer's search `id` found, or why it could not look.
+    FoundInViewer {
+        id: u64,
+        found: Result<crate::FoundInViewer, String>,
+    },
+    /// How far the viewer's search `id` got through a large file.
+    SearchingViewer {
+        id: u64,
+        percent: u8,
+    },
     ShellExited,
     Notice(String),
     /// An index for instant search was built, with this many entries, or failed.
@@ -268,6 +278,16 @@ pub enum Effect {
     },
     ScrollConsole(Scroll),
     View(PathBuf),
+    /// Looks for `query` in the viewer's file in the background, stopping any search before.
+    FindInViewer {
+        id: u64,
+        query: borg_view::Query,
+        from: u64,
+        direction: crate::Direction,
+        /// Count the matches too, which reads all of the file.
+        count: bool,
+    },
+    StopFindInViewer,
     /// Reads a file for the built-in editor.
     OpenEditor(PathBuf),
     /// Writes the editor's text, unless the file is no longer `expected` and not `force`d.

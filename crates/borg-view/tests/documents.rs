@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use borg_view::Pager;
+use borg_view::{Format, Pager};
 
 fn document(path: &str, content: &str, width: usize, height: usize) -> Pager {
     Pager::for_path(Arc::new(content.as_bytes().to_vec()), Path::new(path), width, height).unwrap()
@@ -60,6 +60,21 @@ fn markdown_opens_rendered_and_source_toggle_restores_each_position() {
     assert_eq!(pager.offset(), end);
     pager.toggle_source().unwrap();
     assert_eq!(pager.offset(), raw);
+}
+
+#[test]
+fn json_opens_laid_out_and_coloured_and_the_source_toggle_shows_it_as_written() {
+    let mut pager = document("data.json", r#"{"id":7,"tags":["a","b"],"owner":{"name":"Ada"}}"#, 60, 12);
+    assert_eq!((pager.format(), pager.formatted()), (Some(Format::Json), true));
+    assert_eq!(pager.rows()[..4], ["{", "  \"id\": 7,", "  \"tags\": [", "    \"a\","]);
+    assert!(pager.rich_rows().iter().flatten().any(|run| run.paint.dark.is_some()), "coloured as JSON");
+    pager.toggle_source().unwrap();
+    assert_eq!(pager.rows(), [r#"{"id":7,"tags":["a","b"],"owner":{"name":"Ada"}}"#]);
+
+    let lines = document("events.jsonl", "{\"a\":1}\n{\"b\":[]}\n", 60, 12);
+    assert_eq!(lines.rows()[..5], ["{", "  \"a\": 1", "}", "{", "  \"b\": []"]);
+    let broken = document("broken.json", "{\"a\":", 60, 12);
+    assert_eq!((broken.format(), broken.rows()), (None, &["{\"a\":".to_owned()][..]), "shown as it is");
 }
 
 #[test]
