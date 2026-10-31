@@ -1,7 +1,7 @@
 use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
-use borg_core::{AppState, EditorSlot, Layout, Overlay, Side, View, menus};
+use borg_core::{AppState, Layout, Overlay, View, menus};
 use borg_gfx::Placement;
 use borg_term::Screen;
 use jiff::Zoned;
@@ -15,16 +15,13 @@ use ratatui::{
 
 use crate::{
     Palette, Theme, ThemeSet, art_view,
-    aside_view::{AsideScene, draw_aside},
     blend::crossfade,
     dialog_view,
     fx::{self, Unfold},
     job_view,
     look::Look,
     menu_view,
-    panel_view::{Activity, PanelScene, draw_panel},
     picker_view::draw_picker,
-    status_view::draw_status,
     term_view,
     viewer_view::draw_viewer,
 };
@@ -33,10 +30,12 @@ const FULLY_HIDDEN: f32 = 0.0;
 const FULLY_SHOWN: f32 = 1.0;
 const CURSOR_HANDOFF: f32 = 0.5;
 pub(crate) const BACKDROP: f32 = 0.45;
-/// How far the host's command line fades while a container's files are active.
-const HOST_PROMPT_DIM: f32 = 0.5;
 const MENU_BACKDROP: f32 = 0.25;
 const UNFOLD_FLOOR: f32 = 0.4;
+
+mod chrome;
+
+use chrome::chrome;
 
 pub struct Scene<'a> {
     pub state: &'a AppState,
@@ -211,209 +210,6 @@ fn draw_console(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) {
     };
     Line::from(vec![label, Span::styled(history, theme.styles.key_label), Span::styled(hint, theme.styles.key_label)])
         .render(footer, buf);
-}
-
-fn chrome(scene: &Scene<'_>, area: Rect) -> Chrome {
-    let appearance = &scene.state.appearance;
-    let current = scene.theme_at(appearance.current());
-    match appearance.transition(scene.now) {
-        Some((from, progress)) => {
-            let incoming = chrome_with(scene, current, area);
-            let outgoing = chrome_with(scene, scene.theme_at(from), area);
-            let mut blended = Buffer::empty(area);
-            crossfade(&incoming.buf, &outgoing.buf, progress, scene.palette, &mut blended);
-            Chrome { buf: blended, ..incoming }
-        }
-        None => chrome_with(scene, current, area),
-    }
-}
-
-fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
-    let mut buf = Buffer::empty(area);
-    let state = scene.state;
-    let look = scene.look(theme);
-    let layout = state.layout(scene.now);
-    let styles = &theme.styles;
-    let activities = Side::ALL.map(|side| {
-        let job = state.jobs.iter().rev().find(|job| job.shown_on == side);
-        job.map(|job| job_view::activity(job, scene.now)).or_else(|| {
-            if let Some(operation) = state.operation.as_ref().filter(|op| state.shell.running && op.side == side) {
-                return Some(Activity { label: format!("{}…", operation.label), fraction: None });
-            }
-            if let Some((_, command)) = state.agent.running.as_ref().filter(|_| side == state.active) {
-                return Some(Activity { label: tr!(agent_running, command = command), fraction: None });
-            }
-            if let Some(work) = state.docker.files.iter().find(|work| work.side == side) {
-                return Some(Activity { label: crate::docker_view::file_work_label(work), fraction: None });
-            }
-            let scan = state.sizing.as_ref().filter(|scan| scan.side == side)?;
-            Some(Activity { label: tr!(background_sizes_progress, count = scan.progress.visited), fraction: None })
-        })
-    });
-
-    let mut placements = Vec::new();
-    let finding = match &state.overlay {
-        Some(Overlay::Find(find)) => Some((find, borg_core::find_summary(state, find))),
-        _ => None,
-    };
-    let mut panel_cursor = None;
-    let aside_side = state.aside.map(|_| state.active.other());
-    if state.activity.side.is_some() {
-        crate::activity_view::draw(state, &look, layout.panels, state.monitor_panels(scene.now), scene.now, &mut buf);
-    }
-    if state.docker.is_open() {
-        panel_cursor = crate::docker_view::draw(
-            state,
-            &look,
-            layout.panels,
-            scene.docker_shell.as_ref(),
-            scene.clock,
-            scene.now,
-            &mut buf,
-        );
-    }
-    let focused = borg_core::focused_editor(state);
-    for side in Side::ALL {
-        let active = side == state.active;
-        let rect = layout.panels[side.index()];
-        if rect.is_empty() || state.activity.side.is_some() || state.docker.is_open() {
-            continue;
-        }
-        if let Some(editor) = &state.docked[side.index()] {
-            let cursor = crate::editor_view::draw_docked(editor, theme, active, rect, &mut buf);
-            if focused == Some(EditorSlot::Panel(side)) && state.overlay.is_none() {
-                panel_cursor = cursor;
-            }
-            if !active && theme.effects.inactive_dim > FULLY_HIDDEN {
-                fx::fade_to_background(&mut buf, rect, theme.effects.inactive_dim, scene.palette);
-            }
-            continue;
-        }
-        let aside = state.aside.filter(|_| aside_side == Some(side));
-        if let Some(aside) = aside {
-            let shown = AsideScene {
-                aside,
-                focused: state.preview_focused,
-                peeked: state.peeked.as_ref(),
-                area: rect,
-                icons: state.settings.preferences.nerd_font,
-                icon_spacing: state.settings.preferences.icon_spacing,
-                pictures: scene.pixels.pictures(),
-                clock: scene.clock,
-                spinner: crate::spinner::Spinner::of(&state.busy, borg_core::Task::Preview, scene.now),
-            };
-            let pictures = draw_aside(&shown, &look, &mut buf);
-            if state.overlay.is_none() {
-                placements.extend(pictures);
-            }
-        }
-        let panel = PanelScene {
-            state,
-            expanded: active && state.results_expanded(),
-            panel: state.panel(side),
-            client_of_remote: state.panel(side).remote_mount.is_none()
-                && state.panels.iter().any(|panel| panel.remote_mount.is_some()),
-            active: active && !state.preview_focused,
-            area: rect,
-            motion: &state.motions[side.index()],
-            activity: activities[side.index()].clone(),
-            spinner: crate::spinner::Spinner::of(
-                &state.busy,
-                if activities[side.index()].is_some() {
-                    borg_core::Task::Footer(side)
-                } else {
-                    borg_core::Task::Listing(side)
-                },
-                scene.now,
-            ),
-            icons: state.settings.preferences.nerd_font,
-            icon_spacing: state.settings.preferences.icon_spacing,
-            find: finding.filter(|(find, _)| find.side == side),
-            home: scene.home,
-            clock: scene.clock,
-            now: scene.now,
-        };
-        if aside.is_none() {
-            panel_cursor = draw_panel(&panel, &look, &mut buf).or(panel_cursor);
-        }
-        if !active && aside.is_none() && theme.effects.inactive_dim > FULLY_HIDDEN {
-            let busy = activities[side.index()].is_some();
-            let dimmed = Rect { height: rect.height.saturating_sub(u16::from(busy)), ..rect };
-            fx::fade_to_background(&mut buf, dimmed, theme.effects.inactive_dim, scene.palette);
-        }
-    }
-    if let Some(status) = layout.status {
-        if state.activity.side.is_some() {
-            let value = state.activity.process().map_or_else(String::new, |p| {
-                tr!(
-                    activity_process_label,
-                    name = p.name,
-                    pid = p.key.pid,
-                    executable = p.executable.as_ref().map_or_else(String::new, |p| p.display().to_string())
-                )
-            });
-            Line::styled(value, styles.status).render(status, &mut buf);
-        } else if state.docker.is_open() {
-            Line::styled(crate::docker_view::status(&state.docker), styles.status).render(status, &mut buf);
-        } else if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| focused.is_some()) {
-            // The panel's files are out of sight; the status line names the file being edited.
-            Line::styled(format!(" {}", editor.path.display()), styles.status).render(status, &mut buf);
-        } else {
-            draw_status(state.active_panel(), status, styles, scene.clock, &mut buf);
-        }
-    }
-    // The dialog of the active panel's editor may reach over the other panel, so it goes on top.
-    let shown = state.activity.side.is_none() && !state.docker.is_open();
-    if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| shown)
-        && let Some(field) =
-            crate::editor_view::draw_dialog(editor, theme, layout.panels[state.active.index()], &mut buf)
-        && focused == Some(EditorSlot::Panel(state.active))
-        && state.overlay.is_none()
-    {
-        panel_cursor = field;
-    }
-
-    let top = scene.screen.prompt_top(layout.prompt.height);
-    for (offset, y) in (layout.prompt.top()..layout.prompt.bottom()).enumerate() {
-        term_view::draw_row(&scene.screen, top.saturating_add(offset as u16), y, layout.prompt, &mut buf);
-    }
-    // Under a container's files, the host's command line is dimmed and labelled as the host's:
-    // it runs nothing there until a host panel is active.
-    if !state.console_owns_panel() && !layout.prompt.is_empty() && !state.docker.is_open() {
-        fx::fade_to_background(&mut buf, layout.prompt, HOST_PROMPT_DIM, scene.palette);
-        let chip =
-            if state.active_panel().remote_mount.is_some() { tr!(remote_client_chip) } else { tr!(docker_host_chip) };
-        let width = (unicode_width::UnicodeWidthStr::width(chip) as u16).min(layout.prompt.width);
-        let area = Rect { x: layout.prompt.right() - width, width, height: 1, ..layout.prompt };
-        Line::styled(chip, styles.notice.add_modifier(ratatui::style::Modifier::REVERSED)).render(area, &mut buf);
-    }
-    let collection_label = if state
-        .panel(state.active.other())
-        .results
-        .as_ref()
-        .is_some_and(|r| matches!(r.source, borg_core::ResultSource::Collection(_)))
-    {
-        tr!(collect)
-    } else {
-        tr!(copy)
-    };
-    let remove_label = match state.active_panel().results.as_ref().map(|r| &r.source) {
-        Some(borg_core::ResultSource::Collection(_)) => tr!(remove),
-        Some(_) => tr!(delete),
-        None => tr!(delete),
-    };
-    if state.activity.side.is_some() {
-        crate::activity_view::keybar(state, layout.keybar, theme, &mut buf);
-    } else if state.docker.is_open() {
-        crate::docker_view::keybar(state, layout.keybar, theme, &mut buf);
-    } else if focused.is_some() {
-        crate::editor_view::keybar(state, layout.keybar, theme, &mut buf);
-    } else {
-        crate::keybar::draw_keybar(state, layout.keybar, styles, (collection_label, remove_label), scene.now, &mut buf);
-    }
-
-    let cursor = draw_overlay(scene, &look, &layout, &mut buf);
-    Chrome { buf, cursor: cursor.or(panel_cursor), placements }
 }
 
 fn draw_overlay(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, buf: &mut Buffer) -> Option<Position> {
