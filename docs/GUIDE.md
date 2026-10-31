@@ -80,7 +80,7 @@ a sortable list with each file's source path, and both work with the viewer and 
   restarts.
 - **Esc:** hide the results and keep the cursor, scroll position, marks, filter, and grouping.
 - **Alt-Shift-R:** show hidden results again. A scan keeps running while its results are hidden.
-- **Alt-D — Folder sizes:** find folders by total size or file count. Hidden files are included
+- **Alt-D:** open Folder sizes to find folders by total size or file count. Hidden files are included
   by default. Alt-D opens the Ctrl-F dialog set to *Folder totals*; change *Look for* to switch
   between the two. Ctrl-C stops a scan.
 - **Alt-S:** calculate the sizes of the selected folder. **Alt-Shift-D:** open a size tree of
@@ -126,7 +126,7 @@ or minimum file count. Borg keeps the 20,000 largest matching folders and sorts 
 click Files to rank them by file count instead. Use a pattern such as `node_modules` or
 `*cache*`, or `*` to see every folder below the starting folder.
 
-Totals add up file contents; they are not a promise of how much disk space you would get back.
+Totals add up file contents. Deleting a folder may free a different amount of disk space.
 Nested folders are counted in their parents' totals as well. Symlinks are never followed, scans
 stay on the file system where they started, and a folder that contains itself (through a bind
 mount or a hard-linked folder) is counted only once. When a total is incomplete because of such
@@ -204,8 +204,8 @@ totals. A "Files in this folder" row accounts for the bytes stored directly in a
 folder. Errors and skipped subfolders mark totals as incomplete. The cache lives in
 `~/.cache/borg-commander`, or under `XDG_CACHE_HOME` if it is set; `BORG_CACHE_DIR` overrides
 the location. The cache only holds measurements that can be recreated, and is separate from
-collections. A hard-linked file counts once for every path it has. All sizes are file content
-sizes, not the physical space used on disk or the space you would get back.
+collections. A hard-linked file counts once for every path it has. All sizes measure file contents, so the
+space a file takes on disk can be larger or smaller.
 
 ## Keys
 
@@ -267,7 +267,7 @@ terminal's paste shortcut. The File menu offers both copy actions for keyboards 
 Insert key. Copies too large for the terminal to pass on stay in Borg.
 
 If your terminal keeps the F-keys for itself, press **Esc, then a digit** within 1.5 seconds:
-Esc 1–9 act as F1–F9, and Esc 0 as F10. For example, Esc 9 opens the menus and Esc 5 copies.
+Esc 1 to Esc 9 act as F1 to F9, and Esc 0 as F10. For example, Esc 9 opens the menus and Esc 5 copies.
 While Borg waits for the digit, the function key row shows which digit to press. If something is
 open (a notice, results, the quick view or Info), the first Esc closes it, and a second Esc
 cancels. Alt-1 to Alt-0 work too when the terminal passes Alt through. On macOS, you may need to
@@ -355,8 +355,8 @@ moves the panel. Ctrl-O shows that container's console, marked **▣ name consol
 panel, the command line and Ctrl-O belong to the host again, and whatever you had typed there is
 still there. This is the same shell as the container's Shell tab in the Docker view.
 
-To keep the command line on the host, turn off **Follow — remote and container command lines**
-in Options → Plugins. Then, while a panel shows a container's files, the command line is dimmed
+To keep the command line on the host, turn off **Follow** in
+Options → Plugins. Then, while a panel shows a container's files, the command line is dimmed
 and marked **⌂ host**, and Enter does nothing until a host panel is active, so a command never
 runs on the wrong machine.
 
@@ -616,8 +616,8 @@ If another terminal has control of the remote session, the mirror opens in view-
 your keys do not reach the session. Press **Ctrl-T** or click the status line to take control and
 detach the other terminal, or start with `borg mirror MACHINE:SESSION --take`; `--take` always
 takes control from another viewer. Once you have control, the first key wakes a sleeping remote
-screen, and later keys and mouse input reach it. A viewer that falls behind gets the current
-screen rather than old animation frames.
+screen, and later keys and mouse input reach it. A viewer that falls behind skips old animation
+frames and jumps straight to the current screen.
 
 ### Running a relay
 
@@ -695,8 +695,8 @@ Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the ar
 PgUp/PgDn, Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L
 shows file information. F3 opens a text preview in the full viewer, and closing the viewer
 returns to the preview with your position, wrapping, and source mode kept. Both read files the
-same limited way, so opening a large text file only reads around the first page instead of
-loading the whole file.
+same limited way, so opening a large text file reads only around the first page and stays
+fast however big the file is.
 
 Both text viewers highlight common programming languages, markup, and configuration files,
 including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL,
@@ -851,7 +851,7 @@ The map has three columns:
   swapped out or compressed. It is the number to watch for leaks, and on macOS it matches the
   *Memory* column in Activity Monitor.
 - **Resident** is the pages in RAM right now, including pages shared with other processes.
-- **Mapped** is address space, including reservations. It is not RAM.
+- **Mapped** is address space, including reservations. It says nothing about RAM use.
 
 A process can map gigabytes, mostly system libraries shared with every other process, while its
 footprint is only a few megabytes. Regions start out grouped by purpose: heap and allocations,
@@ -872,8 +872,8 @@ available. On macOS it also includes entries such as `cwd` (current directory) a
 executable). R refreshes the list. Each tab keeps its position in the list when you switch. When
 access is restricted, Borg offers to try again as administrator. For a regular file, the details
 also preview its contents, as the quick view does: **Tab** moves into the preview so you can
-scroll it, and **F3** opens the file in the viewer. Borg reads the file by its path with your own
-permissions, not through the process's descriptor.
+scroll it, and **F3** opens the file in the viewer. Borg opens the file by its path with your own
+permissions and leaves the process's descriptor alone.
 
 ### Region preview
 
@@ -902,7 +902,7 @@ arrow keys, **PgUp**, **PgDn**, **Home**, and **End** move a cursor, and **Enter
 under it as bytes. Regions larger than 16,384 pages are sampled evenly. On Linux, the map asks the
 system which pages are in memory and does not read the rest, so it neither brings swapped pages
 back nor touches new ones; on macOS, pages that were never touched read as zeros. Kinds are
-guessed from the bytes alone, so treat them as a hint, not a verdict.
+guessed from the bytes alone, so treat them as a hint.
 
 ### Memory search
 
@@ -923,13 +923,12 @@ private key, an access token, or a password assignment), or a long run of base64
 each one.
 
 Borg also reads the strings in the files the process has mapped, up to 1 GiB, and marks with •
-the strings found only in memory: text the process built, received, or decoded rather than
-loaded from its files. Indicators come first, then strings found only in memory, then those its
+the strings found only in memory: text the process built, received, or decoded, which none of
+its files contain. Indicators come first, then strings found only in memory, then those its
 files also hold, and strings that look like words come before the rest. The list keeps the best
 2,000. Where other matches show their region, each row shows the kind and the number of copies,
-and the preview shows the string in place; **C** steps through its copies. These results are
-leads worth a closer look, not proof of anything: ordinary programs hold plenty of URLs, paths,
-and keys.
+and the preview shows the string in place; **C** steps through its copies. Treat these results as
+leads worth a closer look. Ordinary programs hold plenty of URLs, paths, and keys too.
 
 Matches take the list pane and show their address, encoding, and region. Selecting a match
 previews the bytes around it in the other pane, with the match highlighted. Enter moves into the
@@ -962,7 +961,7 @@ and says if it stopped early.
 On Linux, the page tables show which code pages a process has changed, so only those are read;
 on macOS, regions without modified pages are not read either. Code in the macOS shared cache has
 no file of its own and is not compared. Memory a check cannot read is counted, and Borg offers
-**A: Administrator**. Findings are leads, not verdicts: debuggers, profilers, updaters, and
+**A: Administrator**. Treat findings as leads, because debuggers, profilers, updaters, and
 security tools leave the same traces.
 
 ### Administrator access

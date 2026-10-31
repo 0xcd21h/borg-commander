@@ -55,6 +55,6 @@
   "releaseNotes": "Notas de la versión",
   "notFound": "Página no encontrada",
   "notFoundText": "Puede que esta dirección haya cambiado. Abre la guía, ve a la página de inicio o usa la búsqueda para encontrar un tema.",
-  "staleTranslation": "La guía en inglés ha cambiado desde que se tradujo esta página, así que algunos detalles pueden estar desactualizados. Consulta la versión más reciente en",
+  "staleTranslation": "La guía en inglés ha cambiado desde que se tradujo esta página, así que algunos detalles pueden estar desactualizados. Versión más reciente:",
   "translationNote": "Traducción de la guía en inglés. Las correcciones son bienvenidas. Los comandos y los atajos de teclado no se traducen."
 }

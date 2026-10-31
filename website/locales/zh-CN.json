@@ -22,7 +22,7 @@
   "customizeCardText": "选择主题和图标样式、调整设置，或者自行构建并参与贡献。",
   "readGuide": "阅读指南",
   "themes": "主题",
-  "themesText": "六款内置主题，从熟悉的蓝色面板到素雅的纸张配色，应有尽有。可在 F9 → 选项 → 主题 中切换。",
+  "themesText": "六款内置主题，从经典的蓝色面板到素雅的纸张配色。在 F9 → 选项 → 主题 中切换。",
   "themeAlt": "采用 {theme} 主题的 Borg 文件面板。",
   "fonts": "设置字体与图标",
   "viewScreenshot": "查看完整截图",
@@ -55,6 +55,6 @@
   "releaseNotes": "发布说明",
   "notFound": "页面未找到",
   "notFoundText": "该地址可能已经变更。你可以打开指南、返回首页，或使用搜索查找相关主题。",
-  "staleTranslation": "本页翻译完成后，英文指南又有更新，部分内容可能已过时。最新版本：",
+  "staleTranslation": "本页翻译完成后，英文指南又有更新，部分内容可能已过时。最新内容请参阅",
   "translationNote": "译自英文指南，欢迎指正。命令和键盘快捷键不作翻译。"
 }

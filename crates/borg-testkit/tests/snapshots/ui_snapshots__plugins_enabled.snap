@@ -10,13 +10,13 @@ expression: describe(&buffer)
 │ * build.sh         ??    310 Jan 10 09:30 ││ · kern.log              717K Jan 10 09:30 │
 │ · Cargo.toml   ╭ Plugins ─────────────────────────────────────────────╮3M Jan 10 09:30 │
 │ @ latest.log   │                                                      │                │
-│ · README.md    │ [x] Git — status, diffs, stage/unstage               │                │
-│ ? socket       │ [x] System — processes and memory                    │                │
-│ · 日本語メモ.tx│ [x] Docker — containers and Compose projects         │                │
-│                │ [x] Follow — remote and container command lines      │                │
-│                │ [x] Remote — log what it does while Borg runs        │                │
-│                │ [x] Remote — reachable through borg cloud            │                │
-│                │ [ ] Remote — ask before another computer reads       │                │
+│ · README.md    │ [x] Git: status, diffs, stage/unstage                │                │
+│ ? socket       │ [x] System: processes and memory                     │                │
+│ · 日本語メモ.tx│ [x] Docker: containers and Compose projects          │                │
+│                │ [x] Follow: remote and container command lines       │                │
+│                │ [x] Remote: log what it does while Borg runs         │                │
+│                │ [x] Remote: reachable through borg cloud             │                │
+│                │ [ ] Remote: ask before another computer reads        │                │
 │                │                                                      │                │
 │                ╰ Space toggle · Esc close · saved immediately ────────╯                │
 ╰ 9 items · Git main ───────────────────────╯╰ 5 items ──────────────────────────────────╯

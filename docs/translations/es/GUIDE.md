@@ -88,9 +88,9 @@ el visor y la vista previa rápida.
   el filtro y la agrupación.
 - **Alt-Shift-R:** vuelve a mostrar los resultados ocultos. Un análisis sigue en marcha mientras
   sus resultados están ocultos.
-- **Alt-D — Tamaños de carpetas:** busca carpetas por tamaño total o por número de archivos. Los
-  archivos ocultos se incluyen por defecto. Alt-D abre el diálogo de Ctrl-F en *Totales de
-  carpeta*; cambia el campo *buscar* para alternar entre los dos modos. Ctrl-C detiene un análisis.
+- **Alt-D:** abre Tamaños de carpeta para buscar carpetas por tamaño total o por número de
+  archivos. Los archivos ocultos se incluyen por defecto. Alt-D abre el diálogo de Ctrl-F en
+  *Totales de carpeta*; cambia el campo *Buscar* para alternar entre los dos modos. Ctrl-C detiene un análisis.
 - **Alt-S:** calcula los tamaños de la carpeta seleccionada. **Alt-Shift-D:** abre un árbol de
   tamaños de la carpeta actual.
 - **Alt-W:** maximiza o restaura el panel de resultados activo. Los resultados se abren en un
@@ -112,13 +112,13 @@ colección, F5 añade referencias a ella. F6 necesita una carpeta real como dest
 colección, F8 quita referencias y deja los archivos intactos; en los resultados de búsqueda, F8
 pide confirmación para eliminar los archivos originales. Shift-F8 también elimina los archivos
 originales desde una colección, tras confirmarlo. Si marcas una carpeta y archivos que contiene,
-la tarea procesa la carpeta una sola vez. **Revelar original** abre la carpeta del archivo en el
+la tarea procesa la carpeta una sola vez. **Mostrar original** abre la carpeta del archivo en el
 otro panel. Left o Esc ocultan los resultados, y Alt-Shift-R los recupera tal como los dejaste.
 Tab cambia de panel incluso si el shell tiene un comando a medio escribir. El shell siempre
 permanece en una carpeta real. F10 siempre pregunta antes de salir.
 
 Por ahora, las acciones de Git y de archivos comprimidos solo funcionan en paneles de carpetas
-reales. Para usarlas con un archivo de una colección, abre antes su carpeta con **Revelar
+reales. Para usarlas con un archivo de una colección, abre antes su carpeta con **Mostrar
 original**.
 
 ### Límites de la búsqueda
@@ -138,16 +138,16 @@ coincidentes más grandes y las ordena por tamaño; haz clic en Archivos para or
 de archivos. Usa un patrón como `node_modules` o `*cache*`, o `*` para ver todas las carpetas bajo
 la carpeta de inicio.
 
-Los totales suman el contenido de los archivos; no garantizan cuánto espacio en disco recuperarías.
+Los totales suman el contenido de los archivos. Al eliminar una carpeta, el espacio en disco que se libera puede ser otro.
 Las carpetas anidadas también cuentan en los totales de sus carpetas superiores. Nunca se siguen
 enlaces simbólicos, los análisis no salen del sistema de archivos donde empezaron y una carpeta que
 se contiene a sí misma (mediante un montaje bind o una carpeta con enlace duro) se cuenta una sola
 vez. Cuando un total está incompleto por uno de estos límites, o porque no se pudo leer o se dejó
-fuera una subcarpeta, se muestra con ≥. Los análisis de carpetas solo leen metadatos, nunca el
-contenido de los archivos. Los resultados aparecen cuando termina la medición, y puedes cancelar
+fuera una subcarpeta, se muestra con ≥. Los análisis de carpetas solo leen metadatos y no abren
+el contenido de los archivos. Los resultados aparecen cuando termina la medición, y puedes cancelar
 el análisis en cualquier momento.
 
-**Árbol de tamaño de carpeta** muestra en el panel actual el total de la carpeta de inicio y de
+**Árbol de tamaños de carpetas** muestra en el panel actual el total de la carpeta de inicio y de
 sus subcarpetas. Right despliega una rama, o entra en ella si ya está desplegada; Left pliega una
 rama o selecciona su carpeta superior. Enter abre la propia carpeta. Haz clic en la flecha de una
 rama para plegarla o desplegarla, o en el encabezado de una columna para ordenar por nombre, tamaño
@@ -223,8 +223,8 @@ bytes guardados directamente en una carpeta desplegada. Los errores y las subcar
 marcan los totales como incompletos. La caché está en `~/.cache/borg-commander`, o bajo
 `XDG_CACHE_HOME` si está definida; `BORG_CACHE_DIR` cambia la ubicación. La caché solo guarda
 mediciones que se pueden volver a generar, y es independiente de las colecciones. Un archivo con
-enlaces duros cuenta una vez por cada ruta que tiene. Todos los tamaños son tamaños de contenido,
-no el espacio físico ocupado en disco ni el espacio que recuperarías.
+enlaces duros cuenta una vez por cada ruta que tiene. Todos los tamaños miden el contenido de los
+archivos, así que lo que un archivo ocupa en disco puede ser más o menos.
 
 ## Teclas
 
@@ -288,7 +288,7 @@ acciones de copia para teclados sin tecla Insert. Lo que es demasiado grande par
 lo transmita se queda en Borg.
 
 Si tu terminal se reserva las teclas F, pulsa **Esc y luego un dígito** en menos de 1,5 segundos:
-Esc 1–9 equivalen a F1–F9, y Esc 0 a F10. Por ejemplo, Esc 9 abre los menús y Esc 5 copia.
+Esc 1 a Esc 9 equivalen a F1 a F9, y Esc 0 a F10. Por ejemplo, Esc 9 abre los menús y Esc 5 copia.
 Mientras Borg espera el dígito, la fila de teclas de función indica qué dígito pulsar. Si hay algo
 abierto (un aviso, resultados, la vista rápida o Información), el primer Esc lo cierra y un segundo
 Esc cancela. Alt-1 a Alt-0 también funcionan cuando el terminal deja pasar Alt. En macOS, puede que
@@ -305,12 +305,12 @@ los selectores de tema e idioma, en Hosts remotos y en Acceso remoto, un segundo
 La rueda desplaza listas como las de temas, ajustes y tareas. Puedes hacer clic en las teclas que
 aparecen en el borde de un diálogo: haz clic en **Esc cerrar** para cerrar el diálogo, o en un
 botón para responder a una pregunta. Hacer clic fuera de una lista, un selector o Acerca de los
-cierra, mientras que los formularios y las preguntas siguen abiertos hasta que respondes.
+cierra. Los formularios y las preguntas siguen abiertos hasta que respondes.
 
 Ctrl-O alterna entre los paneles y la consola. Antes de que escribas o abras la consola, el shell
 se cambia a la carpeta del panel activo. En zsh esto ocurre sin mostrar nada y el prompt se vuelve
-a dibujar; en bash y fish verás en su lugar un breve comando `cd` en la consola. Si abriste la
-consola tú mismo, sigue abierta después de los comandos y de Ctrl-C. "Regresar a los paneles
+a dibujar; en bash y fish verás un breve comando `cd` en la consola. Si abriste la
+consola tú mismo, sigue abierta después de los comandos y de Ctrl-C. "Volver a los paneles
 después del comando" solo se aplica a los comandos ejecutados desde los paneles. En el prompt del
 shell, Option-Left y Option-Right (Alt en Linux) mueven el cursor por palabras.
 
@@ -371,7 +371,7 @@ contenedores que cambiaría, así que Iniciar solo inicia los que están detenid
 **F** sobre un contenedor en ejecución cierra la vista de Docker y muestra en ese panel el sistema
 de archivos del contenedor, empezando por su directorio de trabajo. El título del panel muestra el
 nombre del contenedor. El otro panel sigue en tu carpeta del host, de modo que **F5** copia en
-ambas direcciones, mientras que **F3** muestra, **F7** crea una carpeta y **F8** elimina dentro del
+ambas direcciones. **F3** muestra, **F7** crea una carpeta y **F8** elimina dentro del
 contenedor. La búsqueda, los tamaños, las vistas previas y la edición solo funcionan en el host.
 **Alt-C** vuelve a la vista de Docker, y `..` en la raíz del contenedor devuelve el panel a la
 carpeta del host que mostraba antes. Para explorarlo hace falta `sh` en el contenedor, así que no
@@ -381,12 +381,12 @@ Mientras un panel muestra los archivos de un contenedor, la línea de comandos l
 convierte en el shell de ese contenedor, iniciado en la carpeta del panel, con el nombre del
 contenedor al principio del prompt. Los comandos se ejecutan dentro del contenedor, el panel se
 actualiza cuando terminan y `cd` ahí mueve el panel. Ctrl-O muestra la consola de ese contenedor,
-marcada como **▣ nombre console**. En un panel del host, la línea de comandos y Ctrl-O vuelven a
+marcada como **▣ nombre consola**. En un panel del host, la línea de comandos y Ctrl-O vuelven a
 pertenecer al host, y lo que hubieras escrito ahí sigue en su sitio. Es el mismo shell que el de
 la pestaña Shell del contenedor en la vista de Docker.
 
-Para mantener la línea de comandos en el host, desactiva **Seguir: líneas de comando remotas y de
-contenedor** en Opciones → Complementos. Así, mientras un panel muestra los archivos de un
+Para mantener la línea de comandos en el host, desactiva **Seguir** en
+Opciones → Complementos. Así, mientras un panel muestra los archivos de un
 contenedor, la línea de comandos se atenúa y se marca como **⌂ host**, y Enter no hace nada hasta
 que haya un panel del host activo, de modo que un comando nunca se ejecuta en la máquina
 equivocada.
@@ -421,14 +421,14 @@ carpeta del panel, rutas fijas, volúmenes excluidos y los lugares que macOS sie
 
 **Space**, **Insert** o un clic derecho marcan filas, y `*` invierte las marcas. **E** excluye las
 filas marcadas, o la que está bajo el cursor, marcando el propio elemento: no requiere contraseña y
-la exclusión acompaña al elemento si se mueve, pero una herramienta que elimina y vuelve a crear la
-carpeta la pierde. **P** excluye la ruta en su lugar, que queda excluida sea lo que sea lo que
+la exclusión acompaña al elemento si se mueve, aunque una herramienta que elimina y vuelve a crear la
+carpeta la pierde. **P** excluye la ruta, que queda excluida sea lo que sea lo que
 haya en ella, y pide tu contraseña en el diálogo del sistema. **I**, **Delete** o **F8** vuelven a
 incluir elementos. Para volver a incluir en las copias un elemento que está dentro de una carpeta
 excluida, incluye la carpeta. Lo que macOS deja fuera por su cuenta no se puede cambiar.
 
 En Todas las exclusiones, **A** excluye una ruta que escribas, incluso una donde todavía no existe
-nada. **R** vuelve a buscar, **Enter** o un segundo clic en una fila muestra el elemento en el
+nada. **R** vuelve a analizar, **Enter** o un segundo clic en una fila muestra el elemento en el
 panel activo, y **Esc** cierra la ventana. Excluir o incluir un volumen también pide tu
 contraseña. Para indicar cómo trata algunas carpetas, puede que Time Machine necesite que tu
 terminal tenga acceso total al disco en Ajustes del Sistema › Privacidad y seguridad; hasta
@@ -445,7 +445,7 @@ ni acceso a internet.
 
 ### Conectar Claude
 
-Pulsa F1 y luego C (o elige F9 → Remoto → Comparte este Borg como anfitrión). Borg muestra dos
+Pulsa F1 y luego C (o elige F9 → Remoto → Compartir este Borg como host…). Borg muestra dos
 comandos para pegar en un terminal de tu computadora: uno inicia Claude Code ya conectado a este
 borg, y el otro añade la conexión a Claude Code para todas las sesiones. Tab elige uno, y Enter lo
 copia al portapapeles de tu computadora a través del terminal. Esto funciona por SSH en iTerm2,
@@ -454,7 +454,7 @@ no lo acepta, como en muchos terminales del navegador, F3 muestra el comando sol
 plano, para que puedas seleccionarlo con el ratón; cualquier tecla vuelve a borg.
 
 Por SSH, borg rellena la dirección a la que te conectaste. Si tu computadora llega al servidor con
-otro nombre, como un alias de SSH o a través de un host de salto, escribe ese nombre en su lugar.
+otro nombre, como un alias de SSH o a través de un host de salto, escribe ese nombre.
 SSH debe iniciar sesión sin pedir contraseña, con una clave o un agente SSH. `borg mcp setup prod`
 muestra la misma configuración para Claude Code y Claude Desktop desde la línea de comandos.
 
@@ -535,7 +535,7 @@ La conexión está cifrada de extremo a extremo. Cada borg guarda una clave priv
 puedes leer, en su carpeta de estado. El emparejamiento intercambia las claves públicas, y cada
 conexión empieza con un intercambio Noise IK ligado a ellas, de modo que el relay solo reenvía
 texto cifrado y no puede responder en nombre de ninguno de los dos borgs. Las llamadas desde otra
-computadora pueden leer sin preguntar, igual que las locales; activa "pregunte antes de que otra
+computadora pueden leer sin preguntar, igual que las locales; activa "preguntar antes de que otra
 computadora lea" en Opciones → Complementos para que esas lecturas también esperen aprobación.
 Borg no mantiene ninguna conexión con el relay salvo que esté emparejado o mostrando un enlace de
 emparejamiento, y ninguna en absoluto cuando borg cloud está desactivado en Opciones →
@@ -577,7 +577,7 @@ disponibles en los paneles remotos.
 
 El panel derecho sigue en tu computadora. Con **Opciones → Complementos → Seguir** activado, la
 línea de comandos y **Ctrl-O** usan un shell interactivo en el host remoto. Su terminal se dibuja
-localmente, mientras que las teclas, lo que pegas, Ctrl-C y los programas de terminal se ejecutan
+localmente, y las teclas, lo que pegas, Ctrl-C y los programas de terminal se ejecutan
 en el host remoto. Cada sesión remota conserva su propio shell y su línea de comandos a medio
 escribir mientras cambias de panel, y al seleccionar un panel del cliente vuelve el shell local.
 
@@ -600,12 +600,12 @@ entradas recibidas hasta el momento; al ir a otra carpeta se cancela la petició
 ### Hosts remotos
 
 En el Borg local, pulsa **Alt-H**, haz clic en **Hosts remotos** en la barra de atajos o elige
-**F9 → Remoto → Explorar hosts y sesiones** para ver las máquinas emparejadas y sus sesiones con
+**F9 → Remoto → Explorar hosts y sesiones…** para ver las máquinas emparejadas y sus sesiones con
 nombre. Enter abre los archivos de la sesión seleccionada en el panel desde el que abriste el
-selector, en lugar de lo que mostraba ese panel. Pulsa **M** para reflejar la pantalla de la sesión
+selector, y sustituye lo que mostraba ese panel. Pulsa **M** para reflejar la pantalla de la sesión
 y **R** para actualizar la lista.
 
-**Tab** alterna entre **Anfitriones** (computadoras a las que este Borg puede llegar) y
+**Tab** alterna entre **Hosts** (computadoras a las que este Borg puede llegar) y
 **Clientes** (computadoras que pueden llegar a este Borg). Clientes enumera las computadoras
 emparejadas con este Borg, las huellas de sus claves públicas, si están conectadas y cuántas
 conexiones tiene cada una. Una computadora aparece una sola vez aunque un espejo use varias
@@ -614,14 +614,14 @@ conexiones mantiene el servicio en segundo plano. El emparejamiento funciona en 
 cliente autorizado no se convierte automáticamente en un host cuyos archivos pueda explorar este
 Borg. Cuando el propietario de la conexión no puede informar del estado de la conexión, los
 clientes emparejados siguen apareciendo, con **Estado de conexión no disponible**. Un mismo Borg
-puede ser host y cliente a la vez. El menú Remoto también ofrece **Anfitrión montado en espejo** y
-**Comparte este Borg como anfitrión**.
+puede ser host y cliente a la vez. El menú Remoto también ofrece **Reflejar host montado** y
+**Compartir este Borg como host…**.
 
 El selector muestra la versión de Borg de cada host. Al seleccionar una sesión se muestran su
 sistema operativo y su arquitectura, si se ejecuta como servicio en segundo plano o en un terminal,
 la latencia de las peticiones y la dirección del relay. Los hosts se consultan en paralelo, de modo
 que un host no disponible no retrasa a los demás. Un host que no puede informar de su versión
-muestra **versión no disponible**; la versión del relay no es la del host. Mantén Borg actualizado
+muestra **versión no disponible**; la versión del relay es otra cosa. Mantén Borg actualizado
 en ambas computadoras: un host al que le falta una función remota muestra un mensaje que te pide
 actualizarlo.
 
@@ -672,8 +672,8 @@ tus teclas no llegan a la sesión. Pulsa **Ctrl-T** o haz clic en la línea de e
 control y desconectar el otro terminal, o empieza con `borg mirror MACHINE:SESSION --take`;
 `--take` siempre toma el control de otro espectador. Una vez que tienes el control, la primera
 tecla activa una pantalla remota en reposo, y las teclas y la entrada del ratón posteriores llegan
-a ella. Un espectador que se queda atrás recibe la pantalla actual en lugar de fotogramas antiguos
-de animación.
+a ella. Un espectador que se queda atrás omite los fotogramas antiguos de
+animación y pasa directamente a la pantalla actual.
 
 ### Ejecutar un relay
 
@@ -758,7 +758,7 @@ PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la list
 Ctrl-L muestra la información del archivo. F3 abre una vista previa de texto en el visor completo,
 y al cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea y el
 modo de código fuente. Ambos leen los archivos de la misma forma limitada, así que abrir un archivo
-de texto grande solo lee aproximadamente la primera página en lugar de cargar el archivo entero.
+de texto grande solo lee aproximadamente la primera página y es rápido sea cual sea su tamaño.
 
 Los dos visores de texto resaltan los lenguajes de programación, de marcado y los archivos de
 configuración más comunes, entre ellos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java,
@@ -922,10 +922,10 @@ El mapa tiene tres columnas:
   macOS coincide con la columna *Memoria* del Monitor de Actividad.
 - **Residente** son las páginas que están ahora en la RAM, incluidas las compartidas con otros
   procesos.
-- **Mapeada** es espacio de direcciones, incluidas las reservas. No es RAM.
+- **Mapeada** es espacio de direcciones, incluidas las reservas. No dice nada del uso de RAM.
 
 Un proceso puede mapear gigabytes, en su mayoría bibliotecas del sistema compartidas con todos los
-demás procesos, mientras que su memoria usada es de solo unos pocos megabytes. Las regiones
+demás procesos, y aun así tener una memoria usada de solo unos pocos megabytes. Las regiones
 aparecen al principio agrupadas por finalidad: heap y asignaciones, pilas de hilos, el código y los
 datos del propio programa, bibliotecas compartidas, archivos mapeados, memoria compartida,
 asignaciones del sistema y otras, y rangos reservados y páginas de protección. Los grupos y sus
@@ -946,8 +946,8 @@ el desplazamiento actual cuando están disponibles. En macOS también incluye en
 posición en la lista al cambiar de una a otra. Cuando el acceso está restringido, Borg ofrece
 volver a intentarlo como administrador. En un archivo normal, los detalles también muestran una
 vista previa de su contenido, como la vista rápida: **Tab** entra en la vista previa para que
-puedas desplazarte por ella, y **F3** abre el archivo en el visor. Borg lee el archivo por su ruta
-con tus propios permisos, no a través del descriptor del proceso.
+puedas desplazarte por ella, y **F3** abre el archivo en el visor. Borg abre el archivo por su ruta
+con tus propios permisos y deja en paz el descriptor del proceso.
 
 ### Vista previa de la región
 
@@ -955,18 +955,18 @@ Cuando seleccionas una región legible, Borg captura hasta 64 KiB de ella en el 
 principio de la región solo contiene ceros, la captura salta hasta la primera página con datos, y
 la línea sobre los bytes indica en qué parte de la región está la ventana. Cuando te mueves rápido,
 Borg espera un momento antes de leer; seleccionar otra región borra la vista previa anterior y
-cancela su lectura pendiente. Las regiones que no se pueden leer muestran un mensaje en su lugar.
+cancela su lectura pendiente. Las regiones que no se pueden leer muestran un mensaje.
 Pulsa **Tab** o **Enter** para desplazarte por la vista previa. **Esc** ahí vuelve a la lista, y
 **Esc** en el mapa vuelve a la lista de procesos con el cursor y el filtro como estaban.
 
-Las series de filas a cero se agrupan en una sola fila, como "· 60K zero bytes ·". **]** y **[**
+Las series de filas a cero se agrupan en una sola fila, como "· 60K bytes en cero ·". **]** y **[**
 saltan al bloque de datos siguiente y anterior, y **>** y **<** capturan los 64 KiB siguientes y
-anteriores de la región. **H** alterna entre hexadecimal y texto, **R** vuelve a capturar la
+anteriores de la región. **H** alterna entre Hex y texto, **R** vuelve a capturar la
 ventana mostrada y **D** resalta lo que ha cambiado desde la captura anterior del mismo proceso y
 dirección. La vista de texto muestra el ASCII imprimible y sustituye los demás bytes por puntos.
 Las capturas se toman del proceso en vivo sin pausarlo, así que una captura no es una imagen
 coherente de todo el proceso. Se quedan en memoria salvo que las exportes. **E** guarda los bytes
-sin procesar en un archivo nuevo en la carpeta del panel de archivos activo, legible solo por ti.
+en bruto en un archivo nuevo en la carpeta del panel de archivos activo, legible solo por ti.
 Los archivos existentes nunca se sobrescriben.
 
 **M** alterna la vista previa entre los bytes y un mapa de páginas de la región: una celda por
@@ -978,7 +978,7 @@ proporción de cada tipo en la región. Cuando el mapa tiene el foco, las flecha
 regiones de más de 16 384 páginas se muestrean de forma uniforme. En Linux, el mapa pregunta al
 sistema qué páginas están en memoria y no lee las demás, así que ni recupera páginas del swap ni
 toca páginas nuevas; en macOS, las páginas que nunca se han tocado se leen como ceros. Los tipos se
-deducen solo a partir de los bytes, así que tómalos como una pista, no como un veredicto.
+deducen solo a partir de los bytes, así que tómalos como una pista.
 
 ### Búsqueda en memoria
 
@@ -987,7 +987,7 @@ la memoria. Elige un modo, si deben coincidir las mayúsculas y si quieres busca
 legible del proceso o en la captura actual. **Texto** busca en UTF-8, UTF-16 (ambos órdenes de
 bytes) y UTF-32 (ambos órdenes de bytes). **Unicode** además normaliza los caracteres de
 compatibilidad y las secuencias combinadas: por ejemplo, `𝐁𝐨𝐫𝐠` coincide con `Borg`. No
-considera iguales letras distintas solo porque se parezcan. **Bytes hexadecimales** acepta pares de
+considera iguales letras distintas solo porque se parezcan. **Hex** acepta pares de
 bytes como `42 6F 72 67`.
 
 **Cadenas** e **Indicadores** solo leen la memoria que el propio proceso ha rellenado: memoria que
@@ -1002,12 +1002,12 @@ base64, y etiqueta cada una.
 
 Borg también lee las cadenas de los archivos que el proceso tiene mapeados, hasta 1 GiB, y marca
 con • las cadenas que solo están en memoria: texto que el proceso ha construido, recibido o
-descodificado en lugar de cargarlo de sus archivos. Primero aparecen los indicadores, luego las
+descodificado, y que ninguno de sus archivos contiene. Primero aparecen los indicadores, luego las
 cadenas que solo están en memoria y después las que también contienen sus archivos, y las cadenas
 que parecen palabras van antes que el resto. La lista conserva las 2000 mejores. Donde otras
 coincidencias muestran su región, cada fila muestra el tipo y el número de copias, y la vista
-previa muestra la cadena en su sitio; **C** recorre sus copias. Estos resultados son pistas que
-merece la pena examinar, no pruebas de nada: los programas normales contienen muchas URL, rutas y
+previa muestra la cadena en su sitio; **C** recorre sus copias. Toma estos resultados como pistas
+que merece la pena examinar. Los programas normales también contienen muchas URL, rutas y
 claves.
 
 Las coincidencias ocupan el panel de la lista y muestran su dirección, su codificación y su región.
@@ -1045,8 +1045,8 @@ tiempo.
 En Linux, las tablas de páginas muestran qué páginas de código ha modificado un proceso, así que
 solo se leen esas; en macOS, tampoco se leen las regiones sin páginas modificadas. El código de la
 caché compartida de macOS no tiene un archivo propio y no se compara. La memoria que una
-comprobación no puede leer se contabiliza, y Borg ofrece **A Administrador**. Los hallazgos son
-pistas, no veredictos: los depuradores, los perfiladores, los actualizadores y las herramientas de
+comprobación no puede leer se contabiliza, y Borg ofrece **A Administrador**. Toma los hallazgos
+como pistas, porque los depuradores, los perfiladores, los actualizadores y las herramientas de
 seguridad dejan los mismos rastros.
 
 ### Acceso de administrador

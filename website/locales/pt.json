@@ -34,7 +34,7 @@
   "start-here.description": "Instale o Borg em macOS ou Linux e abra o seu primeiro espaço de trabalho.",
   "keys.title": "Teclas e consola",
   "keys.description": "Navegue entre painéis, use atalhos e trabalhe na shell integrada.",
-  "files.title": "Ficheiros e tarefas",
+  "files.title": "Ficheiros, tarefas e visualizadores",
   "files.description": "Localize, pré-visualize, copie, mova e faça a gestão de ficheiros.",
   "search.title": "Pesquisa e coleções",
   "search.description": "Pesquise recursivamente, guarde coleções e meça o tamanho das pastas.",

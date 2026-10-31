@@ -1362,8 +1362,8 @@ fn git_plugin_views_diffs_stages_unstages_and_persists_disabling() -> Result<()>
     app.send(keys::esc())?;
     app.wait_until("panels after Git viewer", panels_ready)?;
     choose(&mut app, OPTIONS_MENU, "Plugins…")?;
-    let screen = app.wait_text("Git — status, diffs, stage/unstage")?;
-    let (x, y) = screen.find("Git — status, diffs, stage/unstage").unwrap();
+    let screen = app.wait_text("Git: status, diffs, stage/unstage")?;
+    let (x, y) = screen.find("Git: status, diffs, stage/unstage").unwrap();
     app.send(mouse(0, x, y))?;
     app.wait_text("[ ] Git")?;
     app.send(keys::esc())?;
@@ -1619,8 +1619,8 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
         panels_ready(s) && !s.contains("Activity monitor")
     })?;
     choose(&mut app, OPTIONS_MENU, "Plugins…")?;
-    let plugin = app.wait_text("System — processes and memory")?;
-    let (x, y) = plugin.find("System — processes and memory").unwrap();
+    let plugin = app.wait_text("System: processes and memory")?;
+    let (x, y) = plugin.find("System: processes and memory").unwrap();
     app.send(mouse(0, x, y))?;
     app.wait_text("[ ] System")?;
     app.send(keys::esc())?;
