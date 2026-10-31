@@ -23,7 +23,7 @@ expression: describe(&buffer)
  drw-r--r--     DIR  2026-01-10 09:30  src
 $
 F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
-Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search              ◈ Borg Commander v0.9.0
+Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search              ◈ Borg Commander v0.9.1
 --- styles ---
   0: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 2-2 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 3-5 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 6-13 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 14-16 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 17-21 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 22-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-47 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 48-50 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 51-53 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 54-56 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 57-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
   1: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 2-5 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 6-43 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 44-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-46 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 47-50 Rgb(85, 255, 255) Rgb(0, 0, 128) BOLD | 51-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE

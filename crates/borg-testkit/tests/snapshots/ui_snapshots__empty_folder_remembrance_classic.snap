@@ -53,7 +53,7 @@ expression: describe(&buffer)
  Up to the parent directory
 $
 F1Help     F2File     F3View     F4Edit     F5Copy     F6Move     F7Mkdir    F8Delete   F9Menu     F10Quit    ^OShell         Esc then 1–9/0 = F1–F10
-Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size  Alt-C Docker  Alt-V Collections             ◈ Borg Commander v0.9.0
+Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size  Alt-C Docker  Alt-V Collections             ◈ Borg Commander v0.9.1
 --- styles ---
   0: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 2-2 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 3-5 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 6-9 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 10-12 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 13-14 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 15-17 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 18-25 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 26-28 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 29-33 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 34-74 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 75-77 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 78-80 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 81-83 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 84-86 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 87-149 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE
   1: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 2-5 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 6-73 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 74-74 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 75-76 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 77-80 Rgb(85, 255, 255) Rgb(0, 0, 128) BOLD | 81-149 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE

@@ -23,7 +23,7 @@ expression: describe(&buffer)
              │              [ Save ]  [ Discard ]  [ Cancel ]               │
              ╰──────────── Tab next · Enter choose · Esc cancel ────────────╯
 
- F2 Save · Ctrl-F Find · Ctrl-R Replace · F3 Next ·… Ln 2, Col 9  ◈ Borg Commander v0.9.0
+ F2 Save · Ctrl-F Find · Ctrl-R Replace · F3 Next ·… Ln 2, Col 9  ◈ Borg Commander v0.9.1
 --- styles ---
   0: 0-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
   1: 0-1 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 2-2 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 3-9 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 10-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
