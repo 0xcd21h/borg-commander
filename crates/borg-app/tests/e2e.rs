@@ -16,6 +16,10 @@ const FIRST_KEY: &str = "F1He";
 const SPLASH_SUBTITLE: &str = "c o m m a n d e r";
 const UNLOCK: &str = "borg";
 const SEVEN: usize = 7;
+/// How every dialog for an agent's request begins.
+const AGENT_ASK: &str = "Remote wants to";
+/// Longer than any request takes, so a lost answer fails the test rather than hanging it.
+const MCP_ANSWER: std::time::Duration = std::time::Duration::from_secs(120);
 const CREW: [&str; 9] =
     ["1.drone", "2.drone", "3.drone", "4.drone", "5.drone", "6.drone", "7.drone", "8.drone", "9.drone"];
 const TOP_LEFT_CORNERS: [char; 4] = ['┌', '╭', '┏', '╔'];
@@ -47,9 +51,19 @@ fn start_with(fixture: &Fixture, label: &str, shell: Shell) -> Result<Session> {
 
 /// Approves an agent's ask once its dialog takes Yes: one that appears right after a key
 /// ignores Yes for a moment.
+/// Approves an agent's request once the dialog takes Y, which it ignores for a moment after
+/// opening over typing. Waiting for the dialog to close keeps the next request's dialog from
+/// being mistaken for this one.
 fn approve(app: &mut Session) -> Result<()> {
     app.pump(std::time::Duration::from_millis(600))?;
     app.send("y")?;
+    app.wait_gone(AGENT_ASK)?;
+    Ok(())
+}
+
+fn decline(app: &mut Session) -> Result<()> {
+    app.send("n")?;
+    app.wait_gone(AGENT_ASK)?;
     Ok(())
 }
 
@@ -2060,7 +2074,8 @@ fn the_host_command_line_waits_for_a_host_panel_when_it_does_not_follow() -> Res
 struct Mcp {
     child: std::process::Child,
     input: std::process::ChildStdin,
-    output: std::io::BufReader<std::process::ChildStdout>,
+    /// Its answers, a line each, read on a thread so a request can stop waiting.
+    output: std::sync::mpsc::Receiver<String>,
     next: u64,
 }
 
@@ -2075,25 +2090,41 @@ impl Mcp {
             std::iter::once(dir.to_path_buf())
                 .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())),
         )?;
-        let mut child = std::process::Command::new(BORG)
+        let child = std::process::Command::new(BORG)
             .arg("mcp")
             .env("PATH", path)
             .env("XDG_RUNTIME_DIR", fixture.runtime())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
+        Ok(Self::talk(child))
+    }
+
+    /// Talks MCP over the piped stdin and stdout of `child`.
+    fn talk(mut child: std::process::Child) -> Self {
         let input = child.stdin.take().unwrap();
-        let output = std::io::BufReader::new(child.stdout.take().unwrap());
-        Ok(Self { child, input, output, next: 0 })
+        let answers = std::io::BufReader::new(child.stdout.take().unwrap());
+        let (lines, output) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in answers.lines().map_while(Result::ok) {
+                if lines.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        Self { child, input, output, next: 0 }
     }
 
     fn request(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
-        use std::io::{BufRead, Write};
+        use std::io::Write;
         self.next += 1;
         let message = serde_json::json!({ "jsonrpc": "2.0", "id": self.next, "method": method, "params": params });
         writeln!(self.input, "{message}")?;
-        let mut line = String::new();
-        self.output.read_line(&mut line)?;
+        let line = self
+            .output
+            .recv_timeout(MCP_ANSWER)
+            .with_context(|| format!("borg mcp did not answer {method} within {MCP_ANSWER:?}"))?;
         let reply: serde_json::Value = serde_json::from_str(&line)?;
         ensure!(reply["id"] == self.next, "answers come back in order: {reply}");
         Ok(reply["result"].clone())
@@ -2134,7 +2165,7 @@ fn an_agent_searches_process_memory_only_after_the_user_approves() -> Result<()>
     });
     app.wait_text("Remote wants to search process memory")?;
     app.wait_text(&format!("PID {pid}"))?;
-    app.send("n")?;
+    decline(&mut app)?;
     let (mut mcp, declined) = asking.join().unwrap();
     let (error, text) = declined?;
     ensure!(error && text.contains("declined"), "{text}");
@@ -2274,7 +2305,7 @@ fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result
     let asking = std::thread::spawn(move || declined.call("run", serde_json::json!({ "command": "touch nope" })));
     app.wait_until("the dialog over the console", |s| s.contains("Remote wants to run") && s.contains("Borg console"))?;
     app.checkpoint("approval-over-console")?;
-    app.send("n")?;
+    decline(&mut app)?;
     let (error, text) = asking.join().unwrap()?;
     ensure!(error && text.contains("declined") && !fixture.work().join("nope").exists(), "{text}");
 
@@ -2651,15 +2682,13 @@ fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::Pat
 
 /// `borg mcp remote NAME` on a computer whose borg keeps its key in `state`.
 fn remote_mcp(state: &Path, name: &str) -> Result<Mcp> {
-    let mut child = std::process::Command::new(BORG)
+    let child = std::process::Command::new(BORG)
         .args(["mcp", "remote", name])
         .env("BORG_STATE_DIR", state)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()?;
-    let input = child.stdin.take().unwrap();
-    let output = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut mcp = Mcp { child, input, output, next: 0 };
+    let mut mcp = Mcp::talk(child);
     mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
     Ok(mcp)
 }
@@ -2735,7 +2764,7 @@ fn reads_from_another_computer_wait_for_approval_when_the_user_asks_for_that() -
         (mcp, read)
     });
     app.wait_text("Remote wants to read")?;
-    app.send("n")?;
+    decline(&mut app)?;
     let (mut mcp, read) = asking.join().unwrap();
     let (error, text) = read?;
     ensure!(error && text.contains("declined"), "{text}");
