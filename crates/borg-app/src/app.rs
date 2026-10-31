@@ -39,8 +39,12 @@ pub(crate) use render::{picture, span};
 mod input;
 use input::WheelBurst;
 mod agent_calls;
+mod cloud;
 mod console;
 mod effects;
+mod jobs;
+mod remotes;
+mod viewers;
 
 /// Indexes are checked after startup, once the panels and shell are up.
 const INDEX_DELAY: Duration = Duration::from_secs(5);
