@@ -1609,8 +1609,10 @@ fn open_files_preview_a_regular_file_the_process_holds_and_f3_views_it() -> Resu
     app.wait_until("worker in the activity list", |s| s.contains(&format!(" {pid} 1 of ")))?;
     app.send("2")?;
     app.wait_text("open entries")?;
+    // Stop on the worker's descriptor and only then wait: its preview is read in the
+    // background and can take longer than a step on a slow machine.
     for _ in 0..20 {
-        if app.snapshot().contains("kept open by a worker") {
+        if app.snapshot().contains("FD 3 · r · REG") {
             break;
         }
         app.send(keys::down())?;
