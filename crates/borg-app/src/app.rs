@@ -590,10 +590,11 @@ impl App {
     fn on_remote_console(&mut self, key: (String, String), event: crate::remote_console::Event) -> Result<Flow> {
         match event {
             crate::remote_console::Event::Output { bytes, foreground, raw_input } => {
-                let echoed = !bytes.is_empty();
                 self.remote_consoles.set_input_mode(&key, foreground, raw_input);
                 let Some(emulator) = self.remote_consoles.emulator(&key) else { return Ok(Flow::Continue) };
                 let signals = emulator.feed(&bytes);
+                // What a command Borg typed writes is held back and echoes nothing typed.
+                let echoed = !bytes.is_empty() && !emulator.concealing();
                 let replies = emulator.drain_replies();
                 for reply in replies {
                     let _ = self.remote_consoles.write(&key, reply.into_bytes());
@@ -768,7 +769,7 @@ impl App {
             flow = self.consume(next)?;
         }
         match flow {
-            Flow::Continue if self.console == borg_core::Console::Host => self.observe(Msg::ShellOutput),
+            Flow::Continue if self.console == borg_core::Console::Host => self.observe_output(),
             flow => Ok(flow),
         }
     }
@@ -1511,11 +1512,7 @@ impl App {
                         return Ok(Flow::Quit);
                     }
                 }
-                if console {
-                    self.observe(Msg::ShellOutput)
-                } else {
-                    self.dispatch(Msg::DockerShellOutput { container, mode })
-                }
+                if console { self.observe_output() } else { self.dispatch(Msg::DockerShellOutput { container, mode }) }
             }
             PtyEvent::Closed => {
                 if let Some(typed) = self.shells.close(&container) {
@@ -1541,6 +1538,12 @@ impl App {
             let container = shell.container.clone();
             self.shells.fit(&container, GridSize { cols: area.width, rows: area.height });
         }
+    }
+
+    /// Reports the console after its output. Output held back while a command Borg typed runs
+    /// shows nothing the user typed, so the command line still counts as holding it.
+    fn observe_output(&mut self) -> Result<Flow> {
+        if self.console_emulator().concealing() { self.observe(Msg::Observe) } else { self.observe(Msg::ShellOutput) }
     }
 
     fn observe(&mut self, message: fn(ShellView) -> Msg) -> Result<Flow> {

@@ -94,6 +94,11 @@ impl Emulator {
         self.concealed = self.prompt_start.map(|prompt| Concealed { prompt, bytes: Vec::new() });
     }
 
+    /// Whether output is held back, so the screen still shows the prompt from before Borg typed.
+    pub fn concealing(&self) -> bool {
+        self.concealed.is_some()
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<ShellSignal> {
         let marks = self.scanner.scan(bytes);
         let mut consumed = 0;

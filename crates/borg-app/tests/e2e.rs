@@ -273,6 +273,22 @@ fn panel_navigation_moves_shell_before_next_command() -> Result<()> {
 }
 
 #[test]
+fn a_command_typed_while_the_shell_follows_the_panel_runs_in_the_shell() -> Result<()> {
+    let fixture = fixture()?;
+    // A slow cd keeps what the shell writes meanwhile out of sight, while the command is typed.
+    fs::write(fixture.home().join(".bashrc"), "PS1='$ '\ncd() { sleep 1; builtin cd \"$@\"; }\n")?;
+    let mut app = start(&fixture, "slow-cd")?;
+    app.send(keys::down())?.send(keys::enter())?;
+    app.wait_text("one.txt")?;
+    app.send("pwd")?;
+    app.pump(std::time::Duration::from_millis(500))?;
+    app.send(keys::enter())?;
+    let expected = fixture.work().join("alpha").display().to_string();
+    app.wait_until("pwd output", |s| s.lines().iter().any(|line| line == &expected))?;
+    Ok(())
+}
+
+#[test]
 fn zsh_follows_panel_folders_without_echoing_cd_commands() -> Result<()> {
     if Shell::Zsh.locate().is_none() {
         return Ok(());
