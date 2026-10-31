@@ -500,7 +500,6 @@ mod tests {
             assert!(frame.ok, "{}", frame.text);
             let value: Value = serde_json::from_str(&frame.text)?;
             emulator.feed(&STANDARD.decode(value["data"].as_str().unwrap())?);
-            // The shell makes the file before printf writes to it.
             if std::fs::read_to_string(&proof).is_ok_and(|text| text == "remote terminal") {
                 break;
             }
