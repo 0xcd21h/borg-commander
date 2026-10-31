@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "7f2097e522ecbd44d491c47163647f58d7e2b67c3f9b004feb7a4ff84b750075",
+      "source": "28facb7c66451118cf7da61814a82b77f78b9d6db264f5ee57925d139d75c65b",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "b22fb603d043eb8ceb91fbd99c3bb903ba04731b4d9dac625257b43ff3cd3a49",
+        "inline code": "92ae4c5fd79cc38481c738e4081980e41120cd182625ece9a8c2404696373583",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
+        "heading levels": "5b93854385013575e479dc862b2757f112462b35501d9d3b504aff1363ec10b4"
       },
       "headings": [
         {
@@ -20,6 +20,34 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Working with results"
+        },
+        {
+          "level": 3,
+          "title": "Search limits"
+        },
+        {
+          "level": 3,
+          "title": "Folder totals and the size tree"
+        },
+        {
+          "level": 3,
+          "title": "What searches leave out"
+        },
+        {
+          "level": 3,
+          "title": "Instant search with an index"
+        },
+        {
+          "level": 3,
+          "title": "Counting sizes in the background"
+        },
+        {
+          "level": 3,
+          "title": "Saved size scans"
         },
         {
           "level": 2,
@@ -38,6 +66,14 @@
           "title": "Docker plugin"
         },
         {
+          "level": 3,
+          "title": "Container files"
+        },
+        {
+          "level": 3,
+          "title": "Container shells"
+        },
+        {
           "level": 2,
           "title": "Time Machine exclusions"
         },
@@ -47,7 +83,31 @@
         },
         {
           "level": 3,
+          "title": "Connecting Claude"
+        },
+        {
+          "level": 3,
+          "title": "What the agent can do"
+        },
+        {
+          "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Remote panels"
+        },
+        {
+          "level": 3,
+          "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Mirroring a session"
         },
         {
           "level": 3,
@@ -56,6 +116,18 @@
         {
           "level": 2,
           "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 3,
+          "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Editor"
         },
         {
           "level": 2,
@@ -68,16 +140,40 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Memory map"
+        },
+        {
+          "level": 3,
+          "title": "Open files"
+        },
+        {
+          "level": 3,
+          "title": "Region preview"
+        },
+        {
+          "level": 3,
+          "title": "Memory search"
+        },
+        {
+          "level": 3,
+          "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Administrator access"
         }
       ]
     },
     "pt": {
-      "source": "7f2097e522ecbd44d491c47163647f58d7e2b67c3f9b004feb7a4ff84b750075",
+      "source": "28facb7c66451118cf7da61814a82b77f78b9d6db264f5ee57925d139d75c65b",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "b22fb603d043eb8ceb91fbd99c3bb903ba04731b4d9dac625257b43ff3cd3a49",
+        "inline code": "92ae4c5fd79cc38481c738e4081980e41120cd182625ece9a8c2404696373583",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
+        "heading levels": "5b93854385013575e479dc862b2757f112462b35501d9d3b504aff1363ec10b4"
       },
       "headings": [
         {
@@ -91,6 +187,34 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Working with results"
+        },
+        {
+          "level": 3,
+          "title": "Search limits"
+        },
+        {
+          "level": 3,
+          "title": "Folder totals and the size tree"
+        },
+        {
+          "level": 3,
+          "title": "What searches leave out"
+        },
+        {
+          "level": 3,
+          "title": "Instant search with an index"
+        },
+        {
+          "level": 3,
+          "title": "Counting sizes in the background"
+        },
+        {
+          "level": 3,
+          "title": "Saved size scans"
         },
         {
           "level": 2,
@@ -109,6 +233,14 @@
           "title": "Docker plugin"
         },
         {
+          "level": 3,
+          "title": "Container files"
+        },
+        {
+          "level": 3,
+          "title": "Container shells"
+        },
+        {
           "level": 2,
           "title": "Time Machine exclusions"
         },
@@ -118,7 +250,31 @@
         },
         {
           "level": 3,
+          "title": "Connecting Claude"
+        },
+        {
+          "level": 3,
+          "title": "What the agent can do"
+        },
+        {
+          "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Remote panels"
+        },
+        {
+          "level": 3,
+          "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Mirroring a session"
         },
         {
           "level": 3,
@@ -127,6 +283,18 @@
         {
           "level": 2,
           "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 3,
+          "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Editor"
         },
         {
           "level": 2,
@@ -139,16 +307,40 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Memory map"
+        },
+        {
+          "level": 3,
+          "title": "Open files"
+        },
+        {
+          "level": 3,
+          "title": "Region preview"
+        },
+        {
+          "level": 3,
+          "title": "Memory search"
+        },
+        {
+          "level": 3,
+          "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Administrator access"
         }
       ]
     },
     "es": {
-      "source": "7f2097e522ecbd44d491c47163647f58d7e2b67c3f9b004feb7a4ff84b750075",
+      "source": "28facb7c66451118cf7da61814a82b77f78b9d6db264f5ee57925d139d75c65b",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "b22fb603d043eb8ceb91fbd99c3bb903ba04731b4d9dac625257b43ff3cd3a49",
+        "inline code": "92ae4c5fd79cc38481c738e4081980e41120cd182625ece9a8c2404696373583",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
+        "heading levels": "5b93854385013575e479dc862b2757f112462b35501d9d3b504aff1363ec10b4"
       },
       "headings": [
         {
@@ -162,6 +354,34 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Working with results"
+        },
+        {
+          "level": 3,
+          "title": "Search limits"
+        },
+        {
+          "level": 3,
+          "title": "Folder totals and the size tree"
+        },
+        {
+          "level": 3,
+          "title": "What searches leave out"
+        },
+        {
+          "level": 3,
+          "title": "Instant search with an index"
+        },
+        {
+          "level": 3,
+          "title": "Counting sizes in the background"
+        },
+        {
+          "level": 3,
+          "title": "Saved size scans"
         },
         {
           "level": 2,
@@ -180,6 +400,14 @@
           "title": "Docker plugin"
         },
         {
+          "level": 3,
+          "title": "Container files"
+        },
+        {
+          "level": 3,
+          "title": "Container shells"
+        },
+        {
           "level": 2,
           "title": "Time Machine exclusions"
         },
@@ -189,7 +417,31 @@
         },
         {
           "level": 3,
+          "title": "Connecting Claude"
+        },
+        {
+          "level": 3,
+          "title": "What the agent can do"
+        },
+        {
+          "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Remote panels"
+        },
+        {
+          "level": 3,
+          "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Mirroring a session"
         },
         {
           "level": 3,
@@ -198,6 +450,18 @@
         {
           "level": 2,
           "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 3,
+          "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Editor"
         },
         {
           "level": 2,
@@ -210,16 +474,40 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Memory map"
+        },
+        {
+          "level": 3,
+          "title": "Open files"
+        },
+        {
+          "level": 3,
+          "title": "Region preview"
+        },
+        {
+          "level": 3,
+          "title": "Memory search"
+        },
+        {
+          "level": 3,
+          "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Administrator access"
         }
       ]
     },
     "ru": {
-      "source": "7f2097e522ecbd44d491c47163647f58d7e2b67c3f9b004feb7a4ff84b750075",
+      "source": "28facb7c66451118cf7da61814a82b77f78b9d6db264f5ee57925d139d75c65b",
       "protected": {
         "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "b22fb603d043eb8ceb91fbd99c3bb903ba04731b4d9dac625257b43ff3cd3a49",
+        "inline code": "92ae4c5fd79cc38481c738e4081980e41120cd182625ece9a8c2404696373583",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "3c8dd1f8dd965c4709a6a9c5884a7a37e26592606bd035c7029c3f0ed963ea25"
+        "heading levels": "5b93854385013575e479dc862b2757f112462b35501d9d3b504aff1363ec10b4"
       },
       "headings": [
         {
@@ -233,6 +521,34 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Working with results"
+        },
+        {
+          "level": 3,
+          "title": "Search limits"
+        },
+        {
+          "level": 3,
+          "title": "Folder totals and the size tree"
+        },
+        {
+          "level": 3,
+          "title": "What searches leave out"
+        },
+        {
+          "level": 3,
+          "title": "Instant search with an index"
+        },
+        {
+          "level": 3,
+          "title": "Counting sizes in the background"
+        },
+        {
+          "level": 3,
+          "title": "Saved size scans"
         },
         {
           "level": 2,
@@ -251,6 +567,14 @@
           "title": "Docker plugin"
         },
         {
+          "level": 3,
+          "title": "Container files"
+        },
+        {
+          "level": 3,
+          "title": "Container shells"
+        },
+        {
           "level": 2,
           "title": "Time Machine exclusions"
         },
@@ -260,7 +584,31 @@
         },
         {
           "level": 3,
+          "title": "Connecting Claude"
+        },
+        {
+          "level": 3,
+          "title": "What the agent can do"
+        },
+        {
+          "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 3,
+          "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Remote panels"
+        },
+        {
+          "level": 3,
+          "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Mirroring a session"
         },
         {
           "level": 3,
@@ -269,6 +617,18 @@
         {
           "level": 2,
           "title": "Find, jobs, and viewers"
+        },
+        {
+          "level": 3,
+          "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Editor"
         },
         {
           "level": 2,
@@ -281,6 +641,30 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Memory map"
+        },
+        {
+          "level": 3,
+          "title": "Open files"
+        },
+        {
+          "level": 3,
+          "title": "Region preview"
+        },
+        {
+          "level": 3,
+          "title": "Memory search"
+        },
+        {
+          "level": 3,
+          "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Administrator access"
         }
       ]
     }
