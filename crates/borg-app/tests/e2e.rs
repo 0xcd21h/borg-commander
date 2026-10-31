@@ -2949,10 +2949,15 @@ fn remote_panel_console_preserves_its_shell_while_idle_and_parked() -> Result<()
         ensure!(local.snapshot().contains(&format!("Host {name}:Default console")), "the idle console stays open");
     }
     local.send(keys::enter())?;
-    local.wait_text("alive")?;
+    local.wait_until("remote prompt after the kept value", |screen| {
+        screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "alive$")
+    })?;
     local.send(keys::ctrl('o'))?;
-    local.wait_text("F1Help")?;
+    let panels = local.wait_text("F1Help")?;
+    let borders = |s: &Snapshot| (s.style_at(0, 0).fg, s.style_at(s.cols() / 2, 0).fg);
+    let (active, inactive) = borders(&panels);
     local.send(keys::tab())?;
+    local.wait_until("the local panel active", |s| borders(s) == (inactive, active))?;
     let until = std::time::Instant::now() + std::time::Duration::from_secs(35);
     while std::time::Instant::now() < until {
         local.pump(std::time::Duration::from_millis(100))?;
