@@ -85,7 +85,7 @@ pub async fn run(dir: PathBuf, tool: Tool, paths: Vec<PathBuf>, size: (usize, us
         Output::Document { name, text } => tokio::task::spawn_blocking(move || {
             let path = PathBuf::from(name);
             let pager = Pager::for_path(Arc::new(text), &path, size.0, size.1)?;
-            Ok(Some(Viewer { path, content: Content::Text(pager) }))
+            Ok(Some(Viewer::new(path, Content::Text(pager))))
         })
         .await
         .context(tr!(opening_git_output))?,

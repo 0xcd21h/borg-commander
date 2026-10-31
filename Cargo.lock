@@ -663,6 +663,9 @@ version = "0.9.1"
 dependencies = [
  "proptest",
  "pulldown-cmark",
+ "regex",
+ "serde",
+ "serde_json",
  "tempfile",
  "two-face",
  "unicode-width",

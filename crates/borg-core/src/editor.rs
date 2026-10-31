@@ -6,13 +6,21 @@ use borg_i18n::tr;
 use std::{path::PathBuf, time::SystemTime};
 
 use borg_edit::{Buffer, Motion};
+use borg_view::{Search, Source};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{AppState, Effect, LineInput, Pointer};
+use crate::{
+    AppState, Effect, LineInput, Pointer,
+    find_bar::{BarKey, Direction, FindBar, FindNote},
+};
 
 /// Lines above the screen highlighted with it, so a comment or string opened there colours
 /// what shows.
 const PAINT_CONTEXT: usize = 300;
+/// Lines longer than this, such as minified code, are left uncoloured, as VS Code leaves them.
+const PAINT_LINE_LIMIT: usize = 20_000;
+/// What a line left uncoloured is kept as, which no line's text can equal.
+const UNPAINTED: &str = "\n";
 /// Rows the editor's title and status lines take from the screen.
 pub const EDITOR_CHROME: u16 = 2;
 
@@ -49,10 +57,6 @@ pub enum SaveError {
 /// A dialog over the editor. Its fields and then its buttons share one focus, counted from 0.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorPrompt {
-    Find {
-        input: LineInput,
-        focus: usize,
-    },
     Replace {
         find: LineInput,
         with: LineInput,
@@ -84,14 +88,9 @@ pub struct EditorDialog<'a> {
 }
 
 impl EditorPrompt {
-    fn find(needle: &str) -> Self {
-        Self::Find { input: LineInput::new(needle), focus: 0 }
-    }
-
     fn focus_mut(&mut self) -> &mut usize {
         match self {
-            Self::Find { focus, .. }
-            | Self::Replace { focus, .. }
+            Self::Replace { focus, .. }
             | Self::Line { focus, .. }
             | Self::Unsaved { focus }
             | Self::Changed { focus } => focus,
@@ -101,7 +100,7 @@ impl EditorPrompt {
     fn fields(&self) -> usize {
         match self {
             Self::Replace { .. } => 2,
-            Self::Find { .. } | Self::Line { .. } => 1,
+            Self::Line { .. } => 1,
             Self::Unsaved { .. } | Self::Changed { .. } => 0,
         }
     }
@@ -109,7 +108,7 @@ impl EditorPrompt {
     fn buttons(&self) -> usize {
         if matches!(self, Self::Replace { .. }) {
             4
-        } else if matches!(self, Self::Find { .. } | Self::Line { .. }) {
+        } else if matches!(self, Self::Line { .. }) {
             2
         } else {
             3
@@ -118,7 +117,7 @@ impl EditorPrompt {
 
     fn field_mut(&mut self) -> Option<&mut LineInput> {
         match self {
-            Self::Find { input, focus: 0 } | Self::Line { input, focus: 0 } => Some(input),
+            Self::Line { input, focus: 0 } => Some(input),
             Self::Replace { find, focus: 0, .. } => Some(find),
             Self::Replace { with, focus: 1, .. } => Some(with),
             _ => None,
@@ -153,7 +152,9 @@ pub struct Editor {
     pub note: Option<String>,
     pub language: Option<String>,
     painted: Option<Painted>,
-    needle: String,
+    pub find: FindBar,
+    /// Where the cursor was when the find bar opened, which a changed query searches on from.
+    origin: usize,
     replacement: String,
     /// The revision a save in flight wrote, and whether the editor closes once it lands.
     saving: Option<(u64, bool)>,
@@ -174,7 +175,8 @@ impl Editor {
             note: None,
             language,
             painted: None,
-            needle: String::new(),
+            find: FindBar::default(),
+            origin: 0,
             replacement: String::new(),
             saving: None,
             closed: false,
@@ -209,6 +211,20 @@ impl Editor {
         painted.lines.get(line.checked_sub(painted.first)?).map(Vec::as_slice)
     }
 
+    /// The matches of the find bar's query in the line `text`, by character, while the bar or
+    /// the replace dialog shows.
+    pub fn matches_on(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        let shown = self.find.open || matches!(self.prompt, Some(EditorPrompt::Replace { .. }));
+        let Some(search) = self.find.search().filter(|_| shown) else { return Vec::new() };
+        let (mut byte, mut char) = (0, 0);
+        let mut to_char = |at: usize| {
+            char += text[byte..at].chars().count();
+            byte = at;
+            char
+        };
+        search.in_line(text.as_bytes()).into_iter().map(|range| to_char(range.start)..to_char(range.end)).collect()
+    }
+
     /// Highlights the lines from `top` down, with context above, when the text or the view
     /// moved past what is coloured. A line keeps its colours while its text and the state
     /// colouring reaches it in stay the same, so an edit colours little more than its own lines.
@@ -240,7 +256,8 @@ impl Editor {
         let shift = old.as_ref().map_or(0, |old| total as isize - old.total as isize);
         let mut painted = Painted { revision, first, total, texts: Vec::new(), lines: Vec::new(), states: Vec::new() };
         for line in first..last {
-            let text = self.buffer.line(line);
+            let long = self.buffer.line_len(line) > PAINT_LINE_LIMIT;
+            let text = if long { UNPAINTED.to_owned() } else { self.buffer.line(line) };
             // Below the change, the lines that were there before have moved by the lines it added.
             let before = old.as_ref().and_then(|old| {
                 let at = if changed.is_none_or(|changed| line < changed) {
@@ -257,6 +274,8 @@ impl Editor {
                     painted.lines.push(old.lines[index].clone());
                     state = old.states[index + 1].clone();
                 }
+                // Colouring goes on below a long line as if it were not there.
+                _ if long => painted.lines.push(Vec::new()),
                 _ => painted.lines.push(borg_view::highlight_line(&text, &mut state)),
             }
             painted.texts.push(text);
@@ -365,6 +384,10 @@ pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
                 }
             }
         }
+        None if editor.find.open => {
+            editor.find.paste(text);
+            seek_from_origin(&mut editor);
+        }
         None => editor.buffer.insert(text),
     }
     settle(state, editor);
@@ -389,6 +412,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     editor.note = None;
     let effects = match editor.prompt.take() {
         Some(prompt) => on_prompt(state, &mut editor, prompt, key),
+        None if editor.find.open => on_bar(state, &mut editor, key),
         None => on_edit(state, &mut editor, key),
     };
     // A key that closed the editor leaves it closed; otherwise it stays, also while its file is read again.
@@ -420,6 +444,7 @@ fn on_prompt(state: &mut AppState, editor: &mut Editor, mut prompt: EditorPrompt
             None
         }
         (EditorPrompt::Replace { .. }, KeyCode::Char('a' | 'A')) if alt => Some(1),
+        (EditorPrompt::Replace { .. }, _) if editor.find.switch(key) => None,
         (EditorPrompt::Unsaved { .. }, KeyCode::Char('s' | 'S')) => Some(0),
         (EditorPrompt::Unsaved { .. }, KeyCode::Char('n' | 'N' | 'd' | 'D')) => Some(1),
         (EditorPrompt::Changed { .. }, KeyCode::Char('o' | 'O')) => Some(0),
@@ -430,6 +455,9 @@ fn on_prompt(state: &mut AppState, editor: &mut Editor, mut prompt: EditorPrompt
                 prompt.field_mut().filter(|_| !digits || !matches!(code, KeyCode::Char(c) if !c.is_ascii_digit()))
             {
                 input.apply(key);
+            }
+            if let EditorPrompt::Replace { find, .. } = &prompt {
+                editor.find.set_text(find.text());
             }
             None
         }
@@ -446,25 +474,23 @@ fn on_prompt(state: &mut AppState, editor: &mut Editor, mut prompt: EditorPrompt
 /// Presses the dialog's button `button`; the dialog closes unless it stays to go on.
 fn press(state: &mut AppState, editor: &mut Editor, prompt: EditorPrompt, button: usize) -> Vec<Effect> {
     match (prompt, button) {
-        (EditorPrompt::Find { input, .. }, 0) => {
-            editor.needle = input.text().to_owned();
-            find(editor, true);
-        }
         (EditorPrompt::Replace { find: needle, with, focus }, button @ (0 | 2)) => {
-            editor.needle = needle.text().to_owned();
+            editor.find.set_text(needle.text());
             editor.replacement = with.text().to_owned();
-            if button == 0 && editor.buffer.selection_matches(&editor.needle) {
-                editor.buffer.insert(&editor.replacement);
+            if button == 0 {
+                replace_selection(editor);
             }
-            find(editor, true);
+            step(editor, Direction::Forward);
+            editor.note = note(&editor.find);
             editor.prompt = Some(EditorPrompt::Replace { find: needle, with, focus });
         }
         (EditorPrompt::Replace { find: needle, with, .. }, 1) => {
-            editor.needle = needle.text().to_owned();
+            editor.find.set_text(needle.text());
+            editor.find.remember(&mut state.find_recent);
             editor.replacement = with.text().to_owned();
-            let count = editor.buffer.replace_all(&editor.needle, &editor.replacement);
+            let count = replace_all(editor);
             editor.note = Some(if count == 0 {
-                tr!(editor_no_match, text = editor.needle)
+                tr!(editor_no_match, text = needle.text())
             } else {
                 tr!(editor_replaced, count = count)
             });
@@ -534,9 +560,140 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> 
     effects
 }
 
-fn find(editor: &mut Editor, forward: bool) {
-    if !editor.buffer.find(&editor.needle, forward) && !editor.needle.is_empty() {
-        editor.note = Some(tr!(editor_no_match, text = editor.needle));
+/// The editor's text as a search reads it.
+struct Text<'a>(&'a Buffer);
+
+impl Source for Text<'_> {
+    fn len(&self) -> u64 {
+        self.0.len_bytes() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(self.0.read_at(usize::try_from(offset).unwrap_or(usize::MAX), buf))
+    }
+}
+
+/// A key in the find bar. Keys the bar does not take that are no text, such as Ctrl-S, F2 or
+/// Page Down, work on the text as they do with the bar closed.
+fn on_bar(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Effect> {
+    match editor.find.on_key(key, &state.find_recent) {
+        BarKey::Step(direction) => {
+            editor.find.remember(&mut state.find_recent);
+            step(editor, direction);
+        }
+        BarKey::Changed => seek_from_origin(editor),
+        BarKey::Closed => editor.find.remember(&mut state.find_recent),
+        BarKey::Kept => {}
+        BarKey::Unhandled => {
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            if ctrl || matches!(key.code, KeyCode::F(_) | KeyCode::PageUp | KeyCode::PageDown) {
+                return on_edit(state, editor, key);
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// Opens the find bar on the selection, when it is within a line, or on the query it had.
+fn open_bar(editor: &mut Editor) {
+    let seed = editor.buffer.selected_text().filter(|text| !text.contains('\n'));
+    editor.origin = editor.buffer.selection().map_or(editor.buffer.cursor(), |range| range.start);
+    editor.find.open(seed);
+}
+
+/// Selects the first match from where the find bar opened, as its query changes; with no
+/// query the cursor goes back there.
+fn seek_from_origin(editor: &mut Editor) {
+    if editor.find.search().is_none() {
+        editor.buffer.select(editor.origin..editor.origin);
+        return;
+    }
+    seek(editor, Direction::Forward, editor.origin);
+}
+
+/// Selects the next match after the cursor, or the previous one before the selection.
+fn step(editor: &mut Editor, direction: Direction) {
+    let from = match direction {
+        Direction::Forward => editor.buffer.cursor(),
+        Direction::Backward => editor.buffer.selection().map_or(editor.buffer.cursor(), |range| range.start),
+    };
+    seek(editor, direction, from);
+}
+
+/// Selects the first match from character `from` on, or the last before it, going on from the
+/// other end of the text when there is none that way, and counts where it stands.
+fn seek(editor: &mut Editor, direction: Direction, from: usize) {
+    let Some(search) = editor.find.search().cloned() else { return };
+    let text = Text(&editor.buffer);
+    let at = editor.buffer.char_to_byte(from) as u64;
+    let go_on = |_| true;
+    let look = |at: u64| match direction {
+        Direction::Forward => search.next(&text, at, &go_on),
+        Direction::Backward => search.previous(&text, at, &go_on),
+    };
+    let wrap_from = if direction == Direction::Forward { 0 } else { text.len() };
+    let (found, wrapped) = match look(at).ok().flatten() {
+        Some(found) => (Some(found), false),
+        None => (look(wrap_from).ok().flatten(), true),
+    };
+    let Some(found) = found else {
+        editor.find.note = Some(FindNote::NoMatch);
+        editor.find.count = None;
+        return;
+    };
+    editor.find.count = search.count(&text, found.start, &go_on).ok();
+    editor.find.note = wrapped.then_some(FindNote::Wrapped);
+    let start = editor.buffer.byte_to_char(found.start as usize);
+    let end = editor.buffer.byte_to_char(found.end as usize);
+    editor.buffer.select(start..end);
+}
+
+/// What `with` becomes for the match at bytes `found`: with a regular expression's groups,
+/// such as `$1`, filled in.
+fn replacement(editor: &Editor, search: &Search, found: std::ops::Range<usize>) -> String {
+    if !editor.find.regex {
+        return editor.replacement.clone();
+    }
+    let buffer = &editor.buffer;
+    let line = buffer.line_of(buffer.byte_to_char(found.start));
+    let start = buffer.char_to_byte(buffer.line_start(line));
+    search.replacement(buffer.line(line).as_bytes(), found.start - start..found.end - start, &editor.replacement)
+}
+
+/// Replaces the selection when it is a match.
+fn replace_selection(editor: &mut Editor) {
+    let (Some(search), Some(range)) = (editor.find.search().cloned(), editor.buffer.selection()) else { return };
+    let bytes = editor.buffer.char_to_byte(range.start)..editor.buffer.char_to_byte(range.end);
+    let found = search.next(&Text(&editor.buffer), bytes.start as u64, &|_| true).ok().flatten();
+    if found == Some(bytes.start as u64..bytes.end as u64) {
+        let with = replacement(editor, &search, bytes);
+        editor.buffer.insert(&with);
+    }
+}
+
+/// Replaces every match in one step, returning how many there were.
+fn replace_all(editor: &mut Editor) -> usize {
+    let Some(search) = editor.find.search().cloned() else { return 0 };
+    let mut found = Vec::new();
+    let _ = search.each_match(&Text(&editor.buffer), 0, &|_| true, &mut |range| {
+        found.push(range.start as usize..range.end as usize);
+        true
+    });
+    let edits: Vec<_> = found
+        .into_iter()
+        .map(|bytes| {
+            let with = replacement(editor, &search, bytes.clone());
+            (editor.buffer.byte_to_char(bytes.start)..editor.buffer.byte_to_char(bytes.end), with)
+        })
+        .collect();
+    editor.buffer.replace_ranges(&edits)
+}
+
+/// The status line's note after a step with the find bar closed.
+fn note(find: &FindBar) -> Option<String> {
+    match &find.note {
+        Some(FindNote::NoMatch) => Some(tr!(editor_no_match, text = find.input.text())),
+        _ => crate::find_bar::summary(find),
     }
 }
 
@@ -575,11 +732,19 @@ fn on_edit(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Eff
         }
         KeyCode::F(2) => return editor.save(false, false),
         KeyCode::Char('s') if ctrl => return editor.save(false, false),
-        KeyCode::Char('f') if ctrl => editor.prompt = Some(EditorPrompt::find(&needle(editor))),
-        KeyCode::F(7) => editor.prompt = Some(EditorPrompt::find(&needle(editor))),
+        KeyCode::Char('f') if ctrl => open_bar(editor),
+        KeyCode::F(3 | 7) if editor.find.input.text().is_empty() => open_bar(editor),
+        KeyCode::F(3) => {
+            step(editor, if shift { Direction::Backward } else { Direction::Forward });
+            editor.note = note(&editor.find);
+        }
+        KeyCode::F(7) if shift || alt => {
+            step(editor, if alt { Direction::Backward } else { Direction::Forward });
+            editor.note = note(&editor.find);
+        }
+        KeyCode::F(7) => open_bar(editor),
         KeyCode::Char('r') if ctrl => editor.prompt = Some(replace(editor)),
         KeyCode::F(4) => editor.prompt = Some(replace(editor)),
-        KeyCode::F(3) => find(editor, !shift),
         KeyCode::Char('g') if ctrl => {
             editor.prompt = Some(EditorPrompt::Line { input: LineInput::default(), focus: 0 })
         }
@@ -596,6 +761,7 @@ fn on_edit(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Eff
             buffer.redo();
         }
         KeyCode::Char('a') if ctrl => buffer.select_all(),
+        KeyCode::Char('f' | 'F') if alt && shift => format(editor),
         KeyCode::Char('c') if ctrl => {
             if let Some(text) = buffer.selected_text() {
                 return crate::clipboard::copy(state, text);
@@ -629,17 +795,43 @@ fn on_edit(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Eff
     Vec::new()
 }
 
-/// What to look for: a selection within one line, or else what was looked for last.
-fn needle(editor: &Editor) -> String {
-    editor.buffer.selected_text().filter(|text| !text.contains('\n')).unwrap_or_else(|| editor.needle.clone())
+/// Lays out JSON one value to a line with the file's indentation, in one step that undoes at
+/// once, as VS Code's Shift-Alt-F does. The cursor stays at the character it was at.
+fn format(editor: &mut Editor) {
+    if editor.language.as_deref().is_some_and(|language| !language.starts_with("JSON")) {
+        editor.note = Some(tr!(editor_format_json_only).into());
+        return;
+    }
+    let buffer = &mut editor.buffer;
+    let text = buffer.slice(0..buffer.len_chars());
+    let laid_out = match borg_view::pretty::json(&text, &buffer.indent.unit(), &|| true) {
+        Some(Ok(laid_out)) => laid_out,
+        Some(Err(reason)) => {
+            editor.note = Some(tr!(editor_not_json, reason = reason));
+            return;
+        }
+        None => return,
+    };
+    // Laying out changes only the spaces between values, so the cursor is found again by the
+    // characters other than spaces before it.
+    let before = text.chars().take(buffer.cursor()).filter(|c| !c.is_whitespace()).count();
+    let mut shown = laid_out.chars().enumerate().filter(|(_, c)| !c.is_whitespace());
+    let cursor = shown.nth(before).map_or_else(|| laid_out.chars().count(), |(at, _)| at);
+    let all = 0..buffer.len_chars();
+    buffer.replace_ranges(&[(all, laid_out)]);
+    buffer.select(cursor..cursor);
+    editor.note = Some(tr!(editor_formatted).into());
 }
 
-fn replace(editor: &Editor) -> EditorPrompt {
-    EditorPrompt::Replace {
-        find: LineInput::new(needle(editor)),
-        with: LineInput::new(editor.replacement.as_str()),
-        focus: 0,
-    }
+/// What to look for: a selection within one line, or else what was looked for last.
+fn needle(editor: &Editor) -> String {
+    editor.buffer.selected_text().filter(|text| !text.contains('\n')).unwrap_or_else(|| editor.find.input.text().into())
+}
+
+fn replace(editor: &mut Editor) -> EditorPrompt {
+    let needle = needle(editor);
+    editor.find.set_text(&needle);
+    EditorPrompt::Replace { find: LineInput::new(needle), with: LineInput::new(editor.replacement.as_str()), focus: 0 }
 }
 
 /// The dialog open over the editor, for the renderer.
@@ -647,13 +839,6 @@ pub fn dialog(editor: &Editor) -> Option<EditorDialog<'_>> {
     let name = editor.name();
     let keys = tr!(editor_dialog_keys);
     let (title, message, fields, buttons, keys) = match editor.prompt.as_ref()? {
-        EditorPrompt::Find { input, .. } => (
-            tr!(editor_find_title),
-            None,
-            vec![(tr!(editor_find), input)],
-            vec![tr!(editor_find_action), tr!(cancel)],
-            keys,
-        ),
         EditorPrompt::Replace { find, with, .. } => (
             tr!(editor_replace_title),
             None,
@@ -680,8 +865,7 @@ pub fn dialog(editor: &Editor) -> Option<EditorDialog<'_>> {
         ),
     };
     let focus = match editor.prompt.as_ref()? {
-        EditorPrompt::Find { focus, .. }
-        | EditorPrompt::Replace { focus, .. }
+        EditorPrompt::Replace { focus, .. }
         | EditorPrompt::Line { focus, .. }
         | EditorPrompt::Unsaved { focus }
         | EditorPrompt::Changed { focus } => *focus,
@@ -830,6 +1014,50 @@ mod tests {
     }
 
     #[test]
+    fn a_line_as_long_as_minified_code_is_left_uncoloured_and_the_rest_colours_as_without_it() {
+        let (mut other, _) = state();
+        let (mut state, now) = state();
+        opened(&mut other, now, "/* open\n\nclosed */ let value = 1;\n");
+        let without = other.editor.as_ref().unwrap().runs(2).map(<[_]>::to_vec);
+        let long = format!("let data = \"{}\";", "x".repeat(PAINT_LINE_LIMIT));
+        opened(&mut state, now, &format!("/* open\n{long}\nclosed */ let value = 1;\n"));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.runs(1), Some(&[][..]));
+        assert_eq!(editor.runs(2).map(<[_]>::to_vec), without, "the comment opened above it still closes below");
+    }
+
+    #[test]
+    fn alt_shift_f_lays_out_json_in_one_undo_with_the_cursor_on_its_character() {
+        let (mut state, now) = state();
+        let format = KeyEvent::new(KeyCode::Char('F'), KeyModifiers::ALT | KeyModifiers::SHIFT);
+        let open = |state: &mut AppState, path: &str, text: &str| {
+            let file = EditorFile { path: path.into(), text: text.into(), stamp: stamp(text.len() as u64) };
+            update(state, Msg::EditorOpened(Ok(file)), now);
+        };
+        let text = r#"{"name":"Ada","tags":["x","y"]}"#;
+        open(&mut state, "/work/data.json", text);
+        state.editor.as_mut().unwrap().buffer.place(0, 23, false);
+        press(&mut state, now, format);
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(
+            editor.buffer.text(),
+            "{\n    \"name\": \"Ada\",\n    \"tags\": [\n        \"x\",\n        \"y\"\n    ]\n}"
+        );
+        assert_eq!(editor.buffer.position(), (3, 9), "still before the x");
+        assert_eq!(editor.note.as_deref(), Some("Formatted as JSON"));
+        press(&mut state, now, ctrl('z'));
+        assert_eq!(state.editor.as_ref().unwrap().buffer.text(), text, "one undo puts it back");
+
+        open(&mut state, "/work/broken.json", r#"{"a":"#);
+        press(&mut state, now, format);
+        let note = state.editor.as_ref().unwrap().note.clone();
+        assert_eq!(note.as_deref(), Some("Not JSON: EOF while parsing a value at line 1 column 5"));
+        opened(&mut state, now, "fn main() {}\n");
+        press(&mut state, now, format);
+        assert_eq!(state.editor.as_ref().unwrap().note.as_deref(), Some("Only JSON is formatted"));
+    }
+
+    #[test]
     fn copy_cut_and_paste_go_through_borgs_clipboard() {
         let (mut state, now) = state();
         opened(&mut state, now, "one two");
@@ -910,7 +1138,7 @@ mod tests {
     }
 
     #[test]
-    fn find_and_go_to_line_open_dialogs() {
+    fn go_to_line_and_the_find_bar_search_on_from_the_cursor() {
         let (mut state, now) = state();
         opened(&mut state, now, &(1..=40).map(|n| format!("line {n}\n")).collect::<String>());
         press(&mut state, now, ctrl('g'));
@@ -923,9 +1151,62 @@ mod tests {
         assert!(editor.top <= 29 && 29 < editor.top + 10, "the cursor stays on screen");
         press(&mut state, now, ctrl('f'));
         update(&mut state, Msg::Paste("line 4".into()), now);
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.buffer.selection(), Some(303..309), "typing finds line 40, the first after line 30");
+        assert_eq!(crate::find_bar::summary(&editor.find).as_deref(), Some("2 of 2"));
+        assert_eq!(editor.matches_on("line 4 and line 40"), [0..6, 11..17], "the bar marks every match");
         press(&mut state, now, KeyCode::Enter.into());
-        assert_eq!(state.editor.as_ref().unwrap().buffer.selection(), Some(303..309), "line 40 matches after line 30");
-        press(&mut state, now, KeyCode::F(3).into());
-        assert_eq!(state.editor.as_ref().unwrap().buffer.position(), (3, 6));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.buffer.position(), (3, 6), "Enter goes on past the end to line 4");
+        assert_eq!(crate::find_bar::summary(&editor.find).as_deref(), Some("1 of 2 · from the other end"));
+        press(&mut state, now, KeyCode::Up.into());
+        assert_eq!(state.editor.as_ref().unwrap().buffer.position(), (39, 6), "Up goes back");
+        for _ in 0.."line 4".len() {
+            press(&mut state, now, KeyCode::Backspace.into());
+        }
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!((editor.buffer.position(), editor.buffer.selection()), ((29, 0), None), "no query, no move");
+        update(&mut state, Msg::Paste("line 9".into()), now);
+        press(&mut state, now, KeyCode::Esc.into());
+        let editor = state.editor.as_ref().unwrap();
+        assert!(!editor.find.open && editor.matches_on("line 9").is_empty(), "Esc takes the marks away");
+        assert_eq!(editor.buffer.selected_text().as_deref(), Some("line 9"), "and keeps the match selected");
+        assert_eq!(state.find_recent, ["line 9", "line 4"], "queries stepped through or closed on are kept");
+        press(&mut state, now, KeyEvent::new(KeyCode::F(3), KeyModifiers::SHIFT));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.buffer.position(), (8, 6), "Shift-F3 steps back with the bar closed");
+        assert_eq!(editor.note.as_deref(), Some("1 of 1 · from the other end"));
+        press(&mut state, now, ctrl('f'));
+        press(&mut state, now, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.note, None);
+        assert_eq!(crate::find_bar::summary(&editor.find).as_deref(), Some("No matches"));
+    }
+
+    #[test]
+    fn whole_words_and_regular_expressions_find_and_replace_with_groups() {
+        let (mut state, now) = state();
+        opened(&mut state, now, "cat concat cat\nlet cat = 1;\n");
+        press(&mut state, now, ctrl('f'));
+        update(&mut state, Msg::Paste("cat".into()), now);
+        assert_eq!(state.editor.as_ref().unwrap().find.count.map(|count| count.total), Some(4));
+        press(&mut state, now, KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT));
+        assert_eq!(state.editor.as_ref().unwrap().find.count.map(|count| count.total), Some(3), "concat is no word");
+        press(&mut state, now, KeyCode::Esc.into());
+        press(&mut state, now, ctrl('r'));
+        for _ in 0..3 {
+            press(&mut state, now, KeyCode::Backspace.into());
+        }
+        update(&mut state, Msg::Paste(r"(\w+) = (\d)".into()), now);
+        press(&mut state, now, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::ALT));
+        assert!(state.editor.as_ref().unwrap().find.regex && state.editor.as_ref().unwrap().find.words);
+        press(&mut state, now, KeyCode::Tab.into());
+        update(&mut state, Msg::Paste("$2 = $1".into()), now);
+        press(&mut state, now, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.buffer.text(), "cat concat cat\nlet 1 = cat;\n");
+        assert_eq!(editor.note.as_deref(), Some("Replaced 1"));
+        press(&mut state, now, ctrl('z'));
+        assert_eq!(state.editor.as_ref().unwrap().buffer.text(), "cat concat cat\nlet cat = 1;\n");
     }
 }

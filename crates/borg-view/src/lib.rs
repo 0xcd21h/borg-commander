@@ -1,11 +1,14 @@
 mod markdown;
 mod pager;
 mod paint;
+pub mod pretty;
+mod search;
 mod source;
 mod text;
 
-pub use pager::{MAX_LINE, Pager};
-pub use paint::{Paint, Run};
+pub use pager::{Format, MAX_LINE, Pager};
+pub use paint::{Mark, Paint, Run};
+pub use search::{Count, MAX_COUNT, Query, Search};
 pub use source::{FileSource, Source};
 
 /// The language Borg highlights a file as, from its name or else its first line.
@@ -37,6 +40,7 @@ pub fn highlight_line(line: &str, state: &mut LineState) -> Vec<Run> {
         .map(|(range, paint)| Run {
             text: rich.text[range.start as usize..range.end as usize].replace('\n', ""),
             paint: *paint,
+            mark: Mark::None,
         })
         .filter(|run| !run.text.is_empty())
         .collect()

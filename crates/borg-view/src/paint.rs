@@ -24,6 +24,17 @@ pub struct Paint {
 pub struct Run {
     pub text: String,
     pub paint: Paint,
+    pub mark: Mark,
+}
+
+/// Whether text is part of a match of the search shown.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    #[default]
+    None,
+    Match,
+    /// The match stepped to.
+    Current,
 }
 
 #[derive(Debug, Default, Clone)]

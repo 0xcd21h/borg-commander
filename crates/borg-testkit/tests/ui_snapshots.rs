@@ -227,16 +227,66 @@ fn viewer_wraps_and_unwraps() -> Result<()> {
         .collect();
     let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
     let pager = borg_view::Pager::new(Arc::new(text.into_bytes()), width, height)?;
-    opened(
-        &mut stage,
-        borg_core::Viewer { path: PathBuf::from("/var/log/app.log"), content: borg_core::Content::Text(pager) },
-    );
+    opened(&mut stage, borg_core::Viewer::new(PathBuf::from("/var/log/app.log"), borg_core::Content::Text(pager)));
     let wrapped = stage.render(stage.started)?;
     check("viewer_wrapped", &stage, wrapped)?;
 
     stage.send(key(KeyCode::Char('w'))).send(key(KeyCode::Right));
     let unwrapped = stage.render(stage.started)?;
     check("viewer_unwrapped", &stage, unwrapped)
+}
+
+/// Sends `msg`, running a search the viewer asks for as the app does.
+fn send_and_search(stage: &mut Stage, msg: Msg) {
+    for effect in borg_core::update(&mut stage.state, msg, stage.started) {
+        let borg_core::Effect::FindInViewer { id, query, from, direction, count } = effect else { continue };
+        let Some(borg_core::Content::Text(pager)) = stage.state.viewer.as_ref().map(|viewer| &viewer.content) else {
+            continue;
+        };
+        let found = borg_core::find_in(&*pager.source(), &query, from, direction, count, &|_| true);
+        stage.send(Msg::FoundInViewer { id, found: found.map_err(|error| error.to_string()) });
+    }
+}
+
+#[test]
+fn viewer_marks_matches_and_steps_through_them() -> Result<()> {
+    use std::sync::Arc;
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let text: String =
+        (1..=60).map(|i| format!("{i:>3} GET /api/items/{} took {} ms\n", i * 37 % 100, i * 7 % 50)).collect();
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(text.into_bytes()), width, height)?;
+    opened(&mut stage, borg_core::Viewer::new(PathBuf::from("/var/log/api.log"), borg_core::Content::Text(pager)));
+    stage.send(key(KeyCode::F(7)));
+    for msg in chars("took 4") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 of 13")?;
+    check("viewer_find", &stage, buffer)?;
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    send_and_search(&mut stage, key(KeyCode::Char('n')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "3 of 13 · n next · N previous")?;
+    check("viewer_find_closed", &stage, buffer)
+}
+
+#[test]
+fn viewer_lays_out_json_written_on_one_line() -> Result<()> {
+    use std::sync::Arc;
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let json = r#"{"service":"api","port":8080,"tls":{"enabled":true,"cert":"/etc/api/cert.pem"},"routes":[{"path":"/items","methods":["GET","POST"]},{"path":"/health","methods":[]}],"retries":3,"timeout":2.5,"owner":null}"#;
+    let path = PathBuf::from("/srv/api/config.json");
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::for_path(Arc::new(json.as_bytes().to_vec()), &path, width, height)?;
+    opened(&mut stage, borg_core::Viewer::new(path, borg_core::Content::Text(pager)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "s source/pretty")?;
+    ensure_text(&buffer, r#"      "methods": ["#)?;
+    check("viewer_json", &stage, buffer)
 }
 
 #[test]
@@ -366,7 +416,7 @@ fn seven_of_nine_and_assimilation() -> Result<()> {
 }
 
 #[test]
-fn editor_shows_highlighted_code_numbers_selection_and_a_find_prompt() -> Result<()> {
+fn editor_shows_highlighted_code_numbers_selection_and_a_find_bar() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
     let text = "fn main() {\n\tlet name = \"Borg\";\n    println!(\"{name}\");\n}\n";
     let stamp = borg_core::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
@@ -376,9 +426,12 @@ fn editor_shows_highlighted_code_numbers_selection_and_a_find_prompt() -> Result
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Ln 2, Col 20")?;
     check("editor", &stage, buffer)?;
-    stage.send(ctrl('f'));
+    stage.send(ctrl('f')).send(ctrl('u'));
+    chars("name").for_each(|msg| {
+        stage.send(msg);
+    });
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "[ Find ]")?;
+    ensure_text(&buffer, "1 of 2")?;
     check("editor_find", &stage, buffer)
 }
 
@@ -563,7 +616,7 @@ fn open_picture(stage: &mut Stage) -> Result<()> {
     let image =
         borg_core::Image { picture: sunset(320, 180)?, original: (3840, 2160), format: "jpg", bytes: 2_411_724 };
     let path = PathBuf::from("/home/me/projects/borg/sunset.jpg");
-    opened(stage, borg_core::Viewer { path, content: borg_core::Content::Image(image) });
+    opened(stage, borg_core::Viewer::new(path, borg_core::Content::Image(image)));
     Ok(())
 }
 
@@ -1075,7 +1128,7 @@ fn markdown_renders_and_source_toggle_is_visible() -> Result<()> {
         usize::from(SIZE.cols),
         usize::from(SIZE.rows - 1),
     )?;
-    opened(&mut stage, borg_core::Viewer { path, content: borg_core::Content::Text(pager) });
+    opened(&mut stage, borg_core::Viewer::new(path, borg_core::Content::Text(pager)));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "s source/render")?;
     check("markdown_rendered", &stage, buffer)?;
@@ -2249,10 +2302,7 @@ fn borg_brand_is_visible_in_panels_console_viewer_and_overlays() -> Result<()> {
     verify(&stage, buffer);
     stage.state.screensaver = false;
     let pager = borg_view::Pager::new(std::sync::Arc::new(b"Brand in the viewer".to_vec()), 88, 20)?;
-    opened(
-        &mut stage,
-        borg_core::Viewer { path: "/workspace/sample.txt".into(), content: borg_core::Content::Text(pager) },
-    );
+    opened(&mut stage, borg_core::Viewer::new("/workspace/sample.txt".into(), borg_core::Content::Text(pager)));
     let buffer = stage.render(stage.started)?;
     verify(&stage, buffer);
     stage.send(key(KeyCode::Esc));

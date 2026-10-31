@@ -634,21 +634,43 @@ Markdown opens formatted by default. Press `s` or F4 in either viewer to toggle 
 Headings, emphasis, lists, tasks, links, tables, and fenced code blocks are supported.
 Markdown files larger than 2 MiB open as source to keep memory bounded.
 
+JSON opens laid out one value to a line, keeping its keys in order and its numbers as written,
+which helps most with files written on a single line; `s` or F4 shows the file as written. JSON
+Lines files (`.jsonl`, `.ndjson`) are laid out a record at a time. JSON larger than 16 MiB, or that
+does not parse, opens as written.
+
 F4 opens the selected file in Borg's editor, and Shift-F4 in `$VISUAL` or `$EDITOR`. The editor
 keeps the file's line endings and indentation, highlights code as the viewers do, and numbers the
 lines. Shift with the arrows selects; Ctrl-C, Ctrl-X and Ctrl-V copy, cut and paste through Borg's
 clipboard, and a paste from the terminal goes in as it is. Ctrl-Z and Ctrl-Y undo and redo, Tab and
 Shift-Tab indent and outdent. F2 or Ctrl-S saves through a temporary file, so the file is never half
 written. Files that are not UTF-8 text, or larger than 32 MiB, open in the viewer instead.
+Lines longer than 20,000 characters, such as minified code, are left uncoloured, and only what
+shows on screen is drawn, so even a large file on a single line edits without delay. Alt-Shift-F
+lays out a JSON file one value to a line with the file's indentation, in one step that Ctrl-Z
+undoes; JSON that does not parse stays as it is, and the status line says where parsing stopped.
 
 The editor asks in dialogs over the text: Tab moves between their fields and buttons, Enter takes
-the one chosen, Esc cancels, and a click works on any of them. Ctrl-F or F7 finds, then F3 finds
-again and Shift-F3 backwards. Ctrl-R or F4 replaces: Enter replaces the match and moves to the next
-one, **Skip** passes it, and Alt-A or **All** replaces every match in one step that Ctrl-Z undoes.
-A search in lower case finds any case. Ctrl-G goes to a line. Esc closes the editor, asking first
+the one chosen, Esc cancels, and a click works on any of them. Ctrl-F or F7 finds with the find bar
+described below. Ctrl-R or F4 replaces, with the find bar's switches: Enter replaces the match and
+moves to the next one, **Skip** passes it, and Alt-A or **All** replaces every match in one step that
+Ctrl-Z undoes. With a regular expression, `$1` in the replacement puts back what its first group
+matched. Ctrl-G goes to a line. Esc closes the editor, asking first
 whether to save or discard unsaved changes, and a file that changed on disk since it was opened asks
 whether to overwrite or reload it. A click places the cursor, a drag or Shift-click selects, a
 double click selects a word, and the wheel scrolls; the keys in the status line take clicks too.
+
+The viewer and the editor find text the same way. In the viewer `/`, F7 or Ctrl-F opens a find
+bar in the status line; in the editor Ctrl-F or F7 does. Typing searches as you go from where the
+bar opened: every match on the screen is marked, the current one stands out, and the bar counts
+them (3 of 17). Enter, Down or F3 go to the next match, and Shift-Enter, Up or Shift-F3 to the
+previous one; past the last match the search goes on from the other end and says so. Alt-C matches
+case exactly (otherwise a query in lower case finds any case), Alt-W matches whole words, and Alt-R
+reads the query as a regular expression; the switches take clicks too. Ctrl-P and Ctrl-N bring
+back recent queries. Esc closes the bar, and then `n` and `N` in the viewer, or F3 and Shift-F3 in
+the editor, step on through the matches. In a large file the viewer searches in the background and
+shows how far it got, and Esc stops it; it counts the matches in files up to 64 MiB, up to 10,000
+of them.
 
 ## Configuration
 

@@ -183,6 +183,14 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
         }
         Msg::EditorOpened(result) => crate::editor::opened(state, result),
         Msg::EditorSaved(result) => crate::editor::saved(state, result),
+        Msg::FoundInViewer { id, found } => {
+            crate::viewer::found(state, id, found);
+            Vec::new()
+        }
+        Msg::SearchingViewer { id, percent } => {
+            crate::viewer::searching(state, id, percent);
+            Vec::new()
+        }
         Msg::Opened(viewer) => {
             crate::viewer::opened(state, viewer);
             Vec::new()

@@ -99,7 +99,7 @@ pub(crate) fn draw_file(peek: &Peek, look: &Look<'_>, base: Style, body: Rect, b
     match peek {
         Peek::Picture(image) => draw_halfblocks(&image.picture, body, buf),
         Peek::Text(pager) if pager.is_empty() => centered(tr!(empty_file), styles.meta, body, buf),
-        Peek::Text(pager) => crate::document_view::draw(pager, base, body, buf),
+        Peek::Text(pager) => crate::document_view::draw(pager, base, (base, base), body, buf),
         Peek::Binary => centered(tr!(binary_file), styles.meta, body, buf),
         Peek::Unavailable(reason) => {
             centered(&format::truncate_end(reason, usize::from(body.width)), styles.notice, body, buf);
@@ -125,7 +125,12 @@ fn footer(peek: &Peek) -> Option<String> {
             Some(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes)))
         }
         Peek::Text(pager) => {
-            Some(tr!(tab_focus, pager.percent(), if pager.markdown() { tr!(s_source_render) } else { tr!(w_wrap) }))
+            let keys = match pager.format() {
+                Some(borg_view::Format::Markdown) => tr!(s_source_render),
+                Some(borg_view::Format::Json) => tr!(s_source_pretty),
+                None => tr!(w_wrap),
+            };
+            Some(tr!(tab_focus, pager.percent(), keys))
         }
         Peek::Info(_) | Peek::Binary | Peek::Unavailable(_) => None,
     }

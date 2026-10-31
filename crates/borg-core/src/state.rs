@@ -419,6 +419,10 @@ pub struct AppState {
     /// What was copied in Borg, for pasting into its own fields.
     pub clipboard: crate::Clipboard,
     pub search_history: crate::SearchHistory,
+    /// Queries looked for in the editor and the viewer, the latest first.
+    pub find_recent: Vec<String>,
+    /// The id of the viewer's latest search.
+    pub(crate) next_find: u64,
     /// A folder just added to the index, whose first build ends with a notice.
     pub indexing: Option<PathBuf>,
     /// When the next flash over an empty folder starts, while one is shown.
@@ -497,6 +501,8 @@ impl AppState {
             rain_until: None,
             clipboard: crate::Clipboard::default(),
             search_history: crate::SearchHistory::default(),
+            find_recent: Vec::new(),
+            next_find: 0,
             indexing: None,
             glitch_wake: None,
             generation: 0,
