@@ -421,7 +421,7 @@ fn editor_shows_highlighted_code_numbers_selection_and_a_find_bar() -> Result<()
     let text = "fn main() {\n\tlet name = \"Borg\";\n    println!(\"{name}\");\n}\n";
     let stamp = borg_core::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
     let file = borg_core::EditorFile { path: "/home/me/projects/borg/src/main.rs".into(), text: text.into(), stamp };
-    borg_core::update(&mut stage.state, Msg::EditorOpened(Ok(file)), stage.started);
+    borg_core::update(&mut stage.state, Msg::EditorOpened(borg_core::EditorSlot::Screen, Ok(file)), stage.started);
     stage.send(key(KeyCode::Down)).send(Msg::Key(KeyEvent::new(KeyCode::End, KeyModifiers::SHIFT)));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Ln 2, Col 20")?;
@@ -443,7 +443,7 @@ fn editor_takes_clicks_in_the_text_its_status_line_and_its_dialogs() -> Result<(
     let text = "cat Cat\ncat dog\n";
     let stamp = borg_core::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
     let file = borg_core::EditorFile { path: "/home/me/projects/borg/notes.txt".into(), text: text.into(), stamp };
-    borg_core::update(&mut stage.state, Msg::EditorOpened(Ok(file)), stage.started);
+    borg_core::update(&mut stage.state, Msg::EditorOpened(borg_core::EditorSlot::Screen, Ok(file)), stage.started);
     let click = |screen: &Snapshot, text: &str| {
         let (column, row) =
             screen.find(text).unwrap_or_else(|| panic!("{text} on screen\n{}", screen.lines().join("\n")));
@@ -452,7 +452,7 @@ fn editor_takes_clicks_in_the_text_its_status_line_and_its_dialogs() -> Result<(
     let hit = |stage: &Stage, event, double| borg_ui::mouse_input(&stage.state, event, double, stage.started);
     let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
     let at_dog = click(&screen, "dog");
-    let Some(Msg::Pointer(word @ Pointer::EditorClick { line: 1, column: 4, select: false, word: true })) =
+    let Some(Msg::Pointer(word @ Pointer::EditorClick { line: 1, column: 4, select: false, word: true, .. })) =
         hit(&stage, at_dog, true)
     else {
         panic!("a double click on dog selects it");
@@ -477,7 +477,7 @@ fn editor_takes_clicks_in_the_text_its_status_line_and_its_dialogs() -> Result<(
     check("editor_replace", &stage, buffer.clone())?;
     let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
     let all = hit(&stage, click(&screen, "[ All ]"), false).unwrap();
-    assert!(matches!(all, Msg::Pointer(Pointer::EditorControl(3))));
+    assert!(matches!(all, Msg::Pointer(Pointer::EditorControl(_, 3))));
     stage.send(all);
     let editor = stage.state.editor.as_ref().unwrap();
     assert_eq!(editor.buffer.text(), "cat Cat\ncat bird\n");
@@ -491,6 +491,60 @@ fn editor_takes_clicks_in_the_text_its_status_line_and_its_dialogs() -> Result<(
     let discard = hit(&stage, click(&screen, "[ Discard ]"), false).unwrap();
     stage.send(discard);
     assert!(stage.state.editor.is_none(), "Discard closes the editor");
+    Ok(())
+}
+
+#[test]
+fn panels_hold_editors_side_by_side_and_the_key_bar_follows_the_focus() -> Result<()> {
+    use borg_core::{EditorSlot, Pointer, Side};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    let open = |stage: &mut Stage, side, path: &str, text: &str| {
+        let stamp = borg_core::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+        let file = borg_core::EditorFile { path: path.into(), text: text.into(), stamp };
+        borg_core::update(&mut stage.state, Msg::EditorOpened(EditorSlot::Panel(side), Ok(file)), stage.started);
+    };
+    let main = "fn main() {\n    println!(\"Borg\");\n}\n";
+    open(&mut stage, Side::Left, "/home/me/projects/borg/src/main.rs", main);
+    open(&mut stage, Side::Right, "/home/me/projects/borg/Cargo.toml", "[package]\nname = \"borg\"\n");
+    stage.send(key(KeyCode::Down)).send(Msg::Key(KeyEvent::new(KeyCode::End, KeyModifiers::SHIFT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "F6Switch")?;
+    ensure_text(&buffer, "Ctrl-C Copy")?;
+    check("docked_editors", &stage, buffer.clone())?;
+
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let at = |text: &str| {
+        let (column, row) =
+            screen.find(text).unwrap_or_else(|| panic!("{text} on screen\n{}", screen.lines().join("\n")));
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
+    };
+    let hit = |stage: &Stage, event| borg_ui::mouse_input(&stage.state, event, false, stage.started);
+    assert!(matches!(hit(&stage, at("F6Switch")), Some(Msg::Key(KeyEvent { code: KeyCode::F(6), .. }))));
+    let Some(Msg::Pointer(click @ Pointer::EditorClick { slot: EditorSlot::Panel(Side::Left), line: 1, .. })) =
+        hit(&stage, at("println"))
+    else {
+        panic!("a click in the left editor places its cursor");
+    };
+    stage.send(Msg::Pointer(click));
+    assert_eq!(stage.state.active, Side::Left);
+
+    // The Replace dialog takes the room its buttons need, past the panel's edge.
+    stage.send(key(KeyCode::F(4)));
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let (column, row) = screen.find("[ Close ]").unwrap_or_else(|| panic!("{}", screen.lines().join("\n")));
+    let close =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE };
+    let close = hit(&stage, close).unwrap();
+    assert!(matches!(close, Msg::Pointer(Pointer::EditorControl(EditorSlot::Panel(Side::Left), _))));
+    stage.send(close);
+    assert!(stage.state.docked[0].as_ref().is_some_and(|editor| editor.prompt.is_none()), "Close closes the dialog");
+
+    stage.send(key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "F5Copy")?;
+    ensure_text(&buffer, "Cargo.toml")?;
+    assert!(stage.state.docked[0].is_none() && stage.state.docked[1].is_some());
     Ok(())
 }
 

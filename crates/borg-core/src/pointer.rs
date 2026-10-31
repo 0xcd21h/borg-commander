@@ -59,15 +59,16 @@ pub enum Pointer {
     /// A click in the editor's text, at a line and screen column; `select` extends the
     /// selection, as a drag or a Shift-click does, and `word` selects the word, as a double click does.
     EditorClick {
+        slot: crate::EditorSlot,
         line: usize,
         column: usize,
         select: bool,
         word: bool,
     },
     /// Scrolls the editor's text by lines.
-    EditorScroll(isize),
+    EditorScroll(crate::EditorSlot, isize),
     /// A field or button of the editor's dialog, by its place among them.
-    EditorControl(usize),
+    EditorControl(crate::EditorSlot, usize),
     /// A row of the open list dialog: a theme, a language, a setting, a job, a host, a way
     /// to connect or an item Time Machine lists.
     DialogRow(usize),
@@ -134,7 +135,20 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     // An agent's dialogs show over the editor and the viewer, and take their clicks.
     let agent = matches!(state.overlay, Some(Overlay::Approval(_) | Overlay::AgentLog { .. }));
     if state.editor.is_some() && !agent {
-        return if resting { Vec::new() } else { crate::editor::on_pointer(state, pointer) };
+        return if resting { Vec::new() } else { crate::editor::on_pointer(state, crate::EditorSlot::Screen, pointer) };
+    }
+    if let Pointer::EditorClick { slot, .. } | Pointer::EditorScroll(slot, _) | Pointer::EditorControl(slot, _) =
+        pointer
+        && let crate::EditorSlot::Panel(side) = slot
+    {
+        if resting || state.overlay.is_some() || state.effective_view() != View::Panels {
+            return Vec::new();
+        }
+        // A click goes to the panel's editor; the wheel scrolls it where it is.
+        if !matches!(pointer, Pointer::EditorScroll(..)) {
+            state.active = side;
+        }
+        return crate::editor::on_pointer(state, slot, pointer);
     }
     if resting
         || state.shell.captured()

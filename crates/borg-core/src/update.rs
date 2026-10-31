@@ -181,8 +181,8 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
             state.idle_since = now;
             on_signal(state, signal, now)
         }
-        Msg::EditorOpened(result) => crate::editor::opened(state, result),
-        Msg::EditorSaved(result) => crate::editor::saved(state, result),
+        Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
+        Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result),
         Msg::FoundInViewer { id, found } => {
             crate::viewer::found(state, id, found);
             Vec::new()
@@ -311,7 +311,7 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let key = &function_alias(*key);
     // An agent's approval shows over the editor and viewer, so it takes the keys first.
     if state.editor.is_some() && !matches!(state.overlay, Some(crate::Overlay::Approval(_))) {
-        return crate::editor::on_key(state, key);
+        return crate::editor::on_key(state, crate::EditorSlot::Screen, key);
     }
     if state.viewer.is_some() && !matches!(state.overlay, Some(crate::Overlay::Approval(_))) {
         return crate::viewer::on_key(state, key);
@@ -335,6 +335,9 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     }
     if state.activity.side.is_some() && state.view == View::Panels {
         return crate::activity::route_key(state, key, now);
+    }
+    if let Some(crate::EditorSlot::Panel(side)) = crate::editor::focused(state) {
+        return crate::editor::on_panel_key(state, side, key, now);
     }
     if state.active_panel().is_size_view() && !state.preview_focused && state.view == View::Panels {
         let action = match (key.code, key.modifiers) {
@@ -431,8 +434,8 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 
 fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     state.intro = None;
-    if state.editor.is_some() && state.overlay.is_none() {
-        return crate::editor::paste(state, text);
+    if let Some(slot) = crate::editor::focused(state).filter(|_| state.overlay.is_none()) {
+        return crate::editor::paste(state, slot, text);
     }
     if state.docker.is_open() && state.view == View::Panels && state.overlay.is_none() {
         return crate::docker::paste(state, text);

@@ -1,4 +1,4 @@
-use borg_core::{Editor, EditorDialog, Msg, Pointer, editor_dialog, editor_status};
+use borg_core::{AppState, Editor, EditorDialog, EditorSlot, Msg, Pointer, editor_dialog, editor_status};
 use borg_i18n::tr;
 use borg_view::Paint;
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -6,7 +6,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
@@ -21,6 +21,18 @@ fn rows(area: Rect) -> [Rect; 3] {
     Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(area)
 }
 
+/// Where the editor's title, text and status go: rows across the screen, short of the badge in
+/// its corner, or a panel's frame, whose edges carry the title and status.
+fn parts(editor: &Editor, area: Rect) -> [Rect; 3] {
+    if editor.slot == EditorSlot::Screen {
+        let [title, body, status] = rows(area);
+        return [title, body, crate::branding::content(status)];
+    }
+    let body = Block::bordered().inner(area);
+    let edge = |y| Rect { y, height: area.height.min(1), ..body };
+    [edge(area.y), body, edge(area.bottom().saturating_sub(1))]
+}
+
 /// Where a dialog's parts sit: its frame, its fields and its buttons.
 struct DialogLayout {
     rect: Rect,
@@ -31,16 +43,24 @@ struct DialogLayout {
 }
 
 /// The dialog over the text, kept off the cursor's line: low on the screen, or high when the
-/// cursor is there.
-fn dialog_layout(editor: &Editor, dialog: &EditorDialog<'_>, area: Rect) -> DialogLayout {
-    let [_, body, _] = rows(area);
+/// cursor is there. A panel too narrow for its buttons and keys lends it room from the `screen`.
+fn dialog_layout(editor: &Editor, dialog: &EditorDialog<'_>, area: Rect, screen: Rect) -> DialogLayout {
+    let [_, body, _] = parts(editor, area);
     let fields = dialog.fields.len() as u16;
     let height = 5 + u16::from(dialog.message.is_some()) + fields;
+    let widths: Vec<u16> = dialog.buttons.iter().map(|label| label.width() as u16 + 4).collect();
+    let total = widths.iter().sum::<u16>() + BUTTON_GAP * widths.len().saturating_sub(1) as u16;
     let width = area.width.saturating_sub(4).min(DIALOG_WIDTH);
     let low = body.bottom().saturating_sub(height + 1).max(body.y);
     let cursor = body.y as usize + editor.buffer.position().0.saturating_sub(editor.top);
     let y = if (low as usize..(low + height) as usize).contains(&cursor) { body.y + 1 } else { low };
-    let rect = Rect { y, height: height.min(body.height), ..centered(area, width, height) };
+    let mut rect = Rect { y, height: height.min(body.height), ..centered(area, width, height) };
+    let needed = (total + 4).max(dialog.keys.width() as u16 + 2);
+    if needed > width && editor.slot != EditorSlot::Screen {
+        rect.width = needed.min(screen.width);
+        let middle = area.x + area.width / 2;
+        rect.x = middle.saturating_sub(rect.width / 2).clamp(screen.x, screen.right().saturating_sub(rect.width));
+    }
     let inner = Rect { x: rect.x + 2, y: rect.y + 1, width: rect.width.saturating_sub(4), height: 1 };
     let message = Rect { y: inner.y + 1, ..inner };
     let first = message.y + u16::from(dialog.message.is_some());
@@ -51,8 +71,6 @@ fn dialog_layout(editor: &Editor, dialog: &EditorDialog<'_>, area: Rect) -> Dial
     let fields = (0..fields)
         .map(|row| Rect { x: field_x, y: first + row, width: inner.right().saturating_sub(field_x), height: 1 })
         .collect();
-    let widths: Vec<u16> = dialog.buttons.iter().map(|label| label.width() as u16 + 4).collect();
-    let total = widths.iter().sum::<u16>() + BUTTON_GAP * widths.len().saturating_sub(1) as u16;
     let mut x = inner.x + inner.width.saturating_sub(total) / 2;
     let y = first + dialog.fields.len() as u16 + 1;
     let buttons = widths
@@ -67,9 +85,9 @@ fn dialog_layout(editor: &Editor, dialog: &EditorDialog<'_>, area: Rect) -> Dial
 }
 
 /// Draws the dialog open over the editor, returning where its field's cursor belongs.
-fn draw_dialog(editor: &Editor, theme: &Theme, area: Rect, buf: &mut Buffer) -> Option<Option<Position>> {
+pub(crate) fn draw_dialog(editor: &Editor, theme: &Theme, area: Rect, buf: &mut Buffer) -> Option<Option<Position>> {
     let dialog = editor_dialog(editor)?;
-    let layout = dialog_layout(editor, &dialog, area);
+    let layout = dialog_layout(editor, &dialog, area, buf.area);
     let styles = &theme.styles;
     Clear.render(layout.rect, buf);
     Block::bordered()
@@ -108,44 +126,52 @@ fn draw_dialog(editor: &Editor, theme: &Theme, area: Rect, buf: &mut Buffer) -> 
     Some(cursor.filter(|cursor| layout.rect.contains(*cursor)))
 }
 
-/// What a mouse event in the editor does: in its dialog, a field or button; in the text, a
-/// click, drag or double click; the wheel scrolls; and the keys named in the status line or
-/// the dialog's border take clicks.
-pub(crate) fn mouse(editor: &Editor, event: MouseEvent, double: bool, area: Rect, wheel: isize) -> Option<Msg> {
+/// What a mouse event in the editor on `area` does: in its dialog, a field or button; in the
+/// text, a click, drag or double click; the wheel scrolls; and the keys named in the status line
+/// or the dialog's border take clicks.
+pub(crate) fn mouse(
+    editor: &Editor,
+    event: MouseEvent,
+    double: bool,
+    (area, screen): (Rect, Rect),
+    wheel: isize,
+) -> Option<Msg> {
     let point = Position::new(event.column, event.row);
     let left = |kind| matches!(kind, MouseEventKind::Down(MouseButton::Left));
+    let slot = editor.slot;
     match event.kind {
-        MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::EditorScroll(-wheel))),
-        MouseEventKind::ScrollDown => return Some(Msg::Pointer(Pointer::EditorScroll(wheel))),
+        MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::EditorScroll(slot, -wheel))),
+        MouseEventKind::ScrollDown => return Some(Msg::Pointer(Pointer::EditorScroll(slot, wheel))),
         _ => {}
     }
     if let Some(dialog) = editor_dialog(editor) {
         if !left(event.kind) {
             return None;
         }
-        let layout = dialog_layout(editor, &dialog, area);
+        let layout = dialog_layout(editor, &dialog, area, screen);
         let fields = layout.fields.iter().chain(&layout.buttons);
         if let Some(control) = fields.into_iter().position(|rect| rect.contains(point)) {
-            return Some(Msg::Pointer(Pointer::EditorControl(control)));
+            return Some(Msg::Pointer(Pointer::EditorControl(slot, control)));
         }
         return crate::hints::bottom(layout.rect, dialog.keys, true, point).map(Msg::Key);
     }
-    let [_, body, status] = rows(area);
+    let [_, body, status] = parts(editor, area);
     let drag = matches!(event.kind, MouseEventKind::Drag(MouseButton::Left));
     if (left(event.kind) || drag) && body.contains(point) {
         let text_x = body.x + editor.gutter().min(body.width);
         return Some(Msg::Pointer(Pointer::EditorClick {
+            slot,
             line: editor.top + usize::from(point.y - body.y),
             column: editor.left + usize::from(point.x.saturating_sub(text_x)),
             select: drag || event.modifiers.contains(KeyModifiers::SHIFT),
             word: double && !drag,
         }));
     }
-    let status = crate::branding::content(status);
     if editor.find.open {
         return left(event.kind).then(|| crate::find_view::click(&editor.find, status, point)).flatten().map(Msg::Key);
     }
-    (left(event.kind) && status.contains(point) && editor_status(editor).is_none())
+    // A panel's editor names its keys on the key bar instead.
+    (left(event.kind) && slot == EditorSlot::Screen && status.contains(point) && editor_status(editor).is_none())
         .then(|| crate::hints::key_at(tr!(editor_hint), status.x + 1, point.x))
         .flatten()
         .map(Msg::Key)
@@ -153,13 +179,52 @@ pub(crate) fn mouse(editor: &Editor, event: MouseEvent, double: bool, area: Rect
 
 /// Draws the editor over `area`, returning where the terminal cursor belongs.
 pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut Buffer) -> Option<Position> {
-    let [title, body, status] = rows(area);
+    let [title, _, status] = rows(area);
     let styles = &theme.styles;
-    let base = styles.viewer;
-    buf.set_style(body, base);
     buf.set_style(title, styles.viewer_status);
     buf.set_style(status, styles.viewer_status);
     draw_title(editor, styles.viewer_status, title, buf);
+    let looks = (styles.viewer_status, styles.viewer_status);
+    draw_inside(editor, theme, area, looks, Some(tr!(editor_hint)), buf)
+}
+
+/// Draws the editor a panel holds in the panel's frame, with its file's name on the top edge
+/// and where the cursor stands on the bottom one, returning where the terminal cursor belongs.
+pub(crate) fn draw_docked(
+    editor: &Editor,
+    theme: &Theme,
+    active: bool,
+    area: Rect,
+    buf: &mut Buffer,
+) -> Option<Position> {
+    let styles = &theme.styles;
+    let (border, title) =
+        if active { (styles.border_active, styles.title_active) } else { (styles.border, styles.title) };
+    Block::bordered().border_type(theme.border.into()).style(styles.panel).border_style(border).render(area, buf);
+    let [top, _, _] = parts(editor, area);
+    let modified = if editor.buffer.modified() { format!(" · {}", tr!(editor_modified)) } else { String::new() };
+    let facts = format!(" {} ", facts(editor));
+    let room = usize::from(top.width).saturating_sub(facts.width() + modified.width() + 3);
+    let path = format::truncate_start(&editor.path.display().to_string(), room);
+    Line::from(Span::styled(format!(" {path}{modified} "), title)).render(top, buf);
+    Line::from(Span::styled(facts, border)).right_aligned().render(top, buf);
+    draw_inside(editor, theme, area, (title, border), None, buf)
+}
+
+/// Draws the editor's text, its status or find bar and its dialog: the status's note in the
+/// first of `looks` and where the cursor stands in the second, after the `hint` if any.
+fn draw_inside(
+    editor: &Editor,
+    theme: &Theme,
+    area: Rect,
+    looks: (Style, Style),
+    hint: Option<&str>,
+    buf: &mut Buffer,
+) -> Option<Position> {
+    let [_, body, status] = parts(editor, area);
+    let styles = &theme.styles;
+    let base = styles.viewer;
+    buf.set_style(body, base);
 
     let background = Palette::default().background_of(base.bg.unwrap_or(Color::Reset));
     let light = u32::from(background.r) + u32::from(background.g) + u32::from(background.b) > 3 * 128;
@@ -191,12 +256,11 @@ pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut 
         x: text.x.saturating_add((column - editor.left) as u16),
         y: body.y.saturating_add((line - editor.top) as u16),
     });
-    let status = crate::branding::content(status);
     let bar = (editor.find.open && editor.prompt.is_none())
         .then(|| crate::find_view::draw_bar(&editor.find, theme, status, buf))
         .filter(|cursor| status.contains(*cursor));
     if bar.is_none() {
-        draw_status(editor, styles.viewer_status, status, buf);
+        draw_status(editor, looks, hint, status, buf);
     }
     match draw_dialog(editor, theme, area, buf) {
         Some(field) => field,
@@ -204,7 +268,8 @@ pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut 
     }
 }
 
-fn draw_title(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
+/// The file's line ends, indentation and language.
+fn facts(editor: &Editor) -> String {
     let buffer = &editor.buffer;
     let eol = match buffer.eol {
         borg_edit::Eol::Lf => "LF",
@@ -215,26 +280,82 @@ fn draw_title(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
         borg_edit::Indent::Spaces(width) => format!("{width}␣"),
     };
     let language = editor.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default();
-    let facts = format!("{eol} · {indent}{language} ");
-    let modified = if buffer.modified() { format!(" · {}", tr!(editor_modified)) } else { String::new() };
+    format!("{eol} · {indent}{language}")
+}
+
+fn draw_title(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
+    let facts = format!("{} ", facts(editor));
+    let modified = if editor.buffer.modified() { format!(" · {}", tr!(editor_modified)) } else { String::new() };
     let room = usize::from(area.width).saturating_sub(facts.chars().count() + modified.chars().count() + 2);
     let path = format::truncate_start(&editor.path.display().to_string(), room);
     Line::styled(format!(" {path}{modified}"), style).render(area, buf);
     Line::styled(facts, style).right_aligned().render(area, buf);
 }
 
-/// The note, or the keys and the cursor position.
-fn draw_status(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
+/// The note, or the keys of the `hint` and where the cursor stands.
+fn draw_status(editor: &Editor, (note_look, look): (Style, Style), hint: Option<&str>, area: Rect, buf: &mut Buffer) {
     let (line, column) = editor.buffer.position();
     let position = format!("{} ", tr!(editor_position, line = line + 1, column = column + 1));
-    match editor_status(editor) {
-        Some(note) => Line::styled(format!(" {note}"), style).render(area, buf),
-        None => {
-            let room = usize::from(area.width).saturating_sub(position.chars().count() + 2);
-            Line::styled(format!(" {}", format::truncate_end(tr!(editor_hint), room)), style).render(area, buf);
-            Line::styled(position, style).right_aligned().render(area, buf);
-        }
+    if let Some(note) = editor_status(editor) {
+        Line::from(Span::styled(format!(" {note} "), note_look)).render(area, buf);
+        return;
     }
+    if let Some(hint) = hint {
+        let room = usize::from(area.width).saturating_sub(position.chars().count() + 2);
+        Line::from(Span::styled(format!(" {}", format::truncate_end(hint, room)), look)).render(area, buf);
+    }
+    Line::from(Span::styled(format!(" {position}"), look)).right_aligned().render(area, buf);
+}
+
+/// Where each of the keys of a panel's editor shows on the key bar: the function keys spread
+/// across the first row as the panels' are, and the others along the second.
+fn keys(area: Rect) -> Vec<(Rect, &'static str)> {
+    let (primary, context) = crate::keybar::rows(area);
+    let functions: Vec<&'static str> = tr!(dock_function_keys).split(" · ").collect();
+    let slot = primary.width / u16::try_from(functions.len().max(1)).unwrap_or(u16::MAX);
+    let spread = functions
+        .into_iter()
+        .zip(0u16..)
+        .map(|(part, at)| (Rect { x: primary.x + slot * at, width: slot, ..primary }, part));
+    let mut x = context.x;
+    let others = tr!(dock_keys).split(" · ").filter_map(|part| {
+        let width = part.width() as u16 + 2;
+        let rect = Rect { x, width, ..context };
+        x += width;
+        (rect.right() <= context.right()).then_some((rect, part))
+    });
+    spread.chain(others).filter(|(rect, _)| !rect.is_empty()).collect()
+}
+
+/// The key bar while a panel's editor has focus: its keys in place of the panels', and a notice
+/// over the second row.
+pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
+    let styles = &theme.styles;
+    buf.set_style(area, styles.key_label);
+    for (rect, part) in keys(area) {
+        let (key, label) = part.split_once(' ').unwrap_or((part, ""));
+        // The function keys run into their labels, as the panels' do.
+        let gap = if rect.y == area.y { "" } else { " " };
+        Line::from(vec![Span::styled(key, styles.key), Span::styled(format!("{gap}{label}"), styles.key_label)])
+            .render(rect, buf);
+    }
+    let (_, context) = crate::keybar::rows(area);
+    if let Some(notice) = state.notice.as_deref().filter(|_| !context.is_empty()) {
+        Clear.render(context, buf);
+        buf.set_style(context, styles.notice);
+        Line::styled(format::truncate_end(notice, usize::from(context.width)), styles.notice).render(context, buf);
+    }
+}
+
+/// What a click on the key bar of a panel's editor does: it presses the key it names, or puts
+/// the notice away.
+pub(crate) fn keybar_click(state: &AppState, area: Rect, point: Position) -> Option<Msg> {
+    let (_, context) = crate::keybar::rows(area);
+    if state.notice.is_some() && context.contains(point) {
+        return Some(Msg::Pointer(Pointer::DismissNotice));
+    }
+    let (_, part) = keys(area).into_iter().find(|(rect, _)| rect.contains(point))?;
+    crate::hints::key(part.split_whitespace().next()?).map(Msg::Key)
 }
 
 /// How text, the selection and matches show, and whether the background is light for syntax

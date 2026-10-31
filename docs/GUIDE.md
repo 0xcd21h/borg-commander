@@ -242,6 +242,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-T | Time Machine: what backups leave out, on macOS |
+| Alt-E | Edit the selected file in this panel, in place of its files |
 | F1 | About |
 | F2 | File menu |
 | F3 | View (text or picture) |
@@ -734,6 +735,15 @@ editor, and asks first whether to save or discard unsaved changes; if the file c
 since you opened it, Borg asks whether to overwrite it or reload it. A click places the cursor,
 dragging or Shift-clicking selects, a double-click selects a word, and the wheel scrolls; the keys
 shown in the status line can be clicked too.
+
+Alt-E opens the selected file in Borg's editor inside the active panel, in place of its files, so
+you can edit two files side by side, or a file next to the folder it is in. F6 moves from a
+panel's editor to the other panel, and Tab goes back to the editor from the file list. Text copied
+with Ctrl-C in one editor pastes with Ctrl-V in the other. While an editor has focus, the shortcut
+bar shows the editor's keys, and the panel keys come back with the file list. Ctrl-O shows the
+console from an editor too, and F9 opens the menus. Esc or F10 closes the editor and gives the
+panel back its files; Quit first asks about each panel editor with unsaved changes. Quick view and
+file information need the other panel, so they wait until its editor is closed.
 
 The viewer and the editor find text the same way. In the viewer, `/`, F7, or Ctrl-F opens a find
 bar in the status line; in the editor, Ctrl-F or F7 does. Borg searches as you type, starting from

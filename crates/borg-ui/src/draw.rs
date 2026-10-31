@@ -1,7 +1,7 @@
 use borg_i18n::tr;
 use std::{path::Path, time::Instant};
 
-use borg_core::{AppState, Layout, Overlay, Side, View, menus};
+use borg_core::{AppState, EditorSlot, Layout, Overlay, Side, View, menus};
 use borg_gfx::Placement;
 use borg_term::Screen;
 use jiff::Zoned;
@@ -272,10 +272,21 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             &mut buf,
         );
     }
+    let focused = borg_core::focused_editor(state);
     for side in Side::ALL {
         let active = side == state.active;
         let rect = layout.panels[side.index()];
         if rect.is_empty() || state.activity.side.is_some() || state.docker.is_open() {
+            continue;
+        }
+        if let Some(editor) = &state.docked[side.index()] {
+            let cursor = crate::editor_view::draw_docked(editor, theme, active, rect, &mut buf);
+            if focused == Some(EditorSlot::Panel(side)) && state.overlay.is_none() {
+                panel_cursor = cursor;
+            }
+            if !active && theme.effects.inactive_dim > FULLY_HIDDEN {
+                fx::fade_to_background(&mut buf, rect, theme.effects.inactive_dim, scene.palette);
+            }
             continue;
         }
         let aside = state.aside.filter(|_| aside_side == Some(side));
@@ -344,9 +355,22 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
             Line::styled(value, styles.status).render(status, &mut buf);
         } else if state.docker.is_open() {
             Line::styled(crate::docker_view::status(&state.docker), styles.status).render(status, &mut buf);
+        } else if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| focused.is_some()) {
+            // The panel's files are out of sight; the status line names the file being edited.
+            Line::styled(format!(" {}", editor.path.display()), styles.status).render(status, &mut buf);
         } else {
             draw_status(state.active_panel(), status, styles, scene.clock, &mut buf);
         }
+    }
+    // The dialog of the active panel's editor may reach over the other panel, so it goes on top.
+    let shown = state.activity.side.is_none() && !state.docker.is_open();
+    if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| shown)
+        && let Some(field) =
+            crate::editor_view::draw_dialog(editor, theme, layout.panels[state.active.index()], &mut buf)
+        && focused == Some(EditorSlot::Panel(state.active))
+        && state.overlay.is_none()
+    {
+        panel_cursor = field;
     }
 
     let top = scene.screen.prompt_top(layout.prompt.height);
@@ -382,6 +406,8 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
         crate::activity_view::keybar(state, layout.keybar, theme, &mut buf);
     } else if state.docker.is_open() {
         crate::docker_view::keybar(state, layout.keybar, theme, &mut buf);
+    } else if focused.is_some() {
+        crate::editor_view::keybar(state, layout.keybar, theme, &mut buf);
     } else {
         crate::keybar::draw_keybar(state, layout.keybar, styles, (collection_label, remove_label), scene.now, &mut buf);
     }

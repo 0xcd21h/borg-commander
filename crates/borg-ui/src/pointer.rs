@@ -33,7 +33,8 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
         return click.then(|| hinted(rect, borg_i18n::tr!(agent_log_hint), true, point)).flatten();
     }
     if let Some(editor) = &state.editor {
-        return crate::editor_view::mouse(editor, event, double, state.layout(now).screen, WHEEL_ROWS);
+        let screen = state.layout(now).screen;
+        return crate::editor_view::mouse(editor, event, double, (screen, screen), WHEEL_ROWS);
     }
     if let Some(viewer) = state.viewer.as_ref().filter(|_| !state.shell.captured()) {
         return match event.kind {
@@ -202,13 +203,26 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if click && event.row == 0 {
         return Some(Msg::Pointer(Pointer::Action(borg_core::Action::OpenMenuBar)));
     }
+    let docked = borg_core::focused_editor(state).is_some();
     if click && layout.keybar.contains(point) {
+        if docked {
+            return crate::editor_view::keybar_click(state, layout.keybar, point);
+        }
         return crate::keybar::action_at(state, layout.keybar, point).map(Msg::Pointer);
+    }
+    // A dialog of the active panel's editor may reach over the other panel, and takes clicks there.
+    let active = state.docked[state.active.index()].as_ref().filter(|_| docked);
+    if let Some(editor) = active.filter(|editor| borg_core::editor_dialog(editor).is_some()) {
+        let area = (layout.panels[state.active.index()], layout.screen);
+        return crate::editor_view::mouse(editor, event, double, area, WHEEL_ROWS);
     }
     for side in Side::ALL {
         let rect = layout.panels[side.index()];
         if !rect.contains(point) {
             continue;
+        }
+        if let Some(editor) = &state.docked[side.index()] {
+            return crate::editor_view::mouse(editor, event, double, (rect, layout.screen), WHEEL_ROWS);
         }
         if state.aside.is_some() && side != state.active {
             return match event.kind {
