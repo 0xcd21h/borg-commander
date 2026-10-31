@@ -1526,8 +1526,22 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
     app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    let list =
-        app.wait_until("own process in activity list", |s| s.contains("borg") && s.contains(&format!(" {pid} 1 of ")))?;
+    // Other PIDs can contain this one, so step to it rather than expect it alone.
+    app.wait_until("activity list filtered by the PID", |s| {
+        s.lines()
+            .iter()
+            .any(|line| line.contains("Filter") && line.contains(&format!(" {pid} ")) && line.contains(" of "))
+    })?;
+    let own = format!("· PID {pid} ·");
+    app.send(keys::key(KeyCode::Home))?;
+    for _ in 0..20 {
+        if app.snapshot().contains(&own) {
+            break;
+        }
+        app.send(keys::down())?;
+        app.pump(std::time::Duration::from_millis(300))?;
+    }
+    let list = app.wait_until("own process in activity list", |s| s.contains("borg") && s.contains(&own))?;
     ensure!(list.contains("RAM") && list.contains("Borg Commander"));
     app.send(keys::tab())?;
     app.wait_text("Process memory")?;
