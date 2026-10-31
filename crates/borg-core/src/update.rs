@@ -184,8 +184,11 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
         Msg::EditorOpened(result) => crate::editor::opened(state, result),
         Msg::EditorSaved(result) => crate::editor::saved(state, result),
         Msg::Opened(viewer) => {
-            state.viewer = Some(viewer);
-            crate::viewer::resize(state);
+            crate::viewer::opened(state, viewer);
+            Vec::new()
+        }
+        Msg::OpenFailed { path, notice } => {
+            crate::viewer::failed(state, path, notice);
             Vec::new()
         }
         Msg::Tick => {
@@ -343,9 +346,13 @@ fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let dismissed = state.notice.take().is_some();
     let pending = state.function_prefix(now);
     state.escaped = None;
-    // Esc backs out of one thing at a time: a notice, results, then the side pane. Only an
-    // Esc with nothing to close starts the Esc-digit function keys, and a second Esc cancels.
+    // Esc backs out of one thing at a time: a file still opening in the viewer, a notice,
+    // results, then the side pane. Only an Esc with nothing to close starts the Esc-digit
+    // function keys, and a second Esc cancels.
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
+        if state.opening.take().is_some() {
+            return Vec::new();
+        }
         if state.active_panel().is_results() {
             let effects = crate::results::back(state);
             state.notice = Some(tr!(results_hidden_alt_r_resumes_in_the).into());

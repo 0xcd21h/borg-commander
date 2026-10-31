@@ -1054,6 +1054,7 @@ fn viewer_keys_scroll_wrap_and_close() {
     let content: Vec<u8> = (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(PathBuf::from("/home/log"));
     update(
         &mut state,
         Msg::Opened(crate::Viewer { path: PathBuf::from("/home/log"), content: crate::Content::Text(pager) }),
@@ -1179,10 +1180,15 @@ fn overlays_open_and_close_without_transitions() {
 }
 
 fn image_viewer(state: &mut AppState, name: &str, now: Instant) {
+    let path = state.active_panel().dir().join(name);
+    state.opening = Some(path.clone());
+    update(state, loaded(path), now);
+}
+
+fn loaded(path: PathBuf) -> Msg {
     let picture = borg_gfx::Picture::from_rgba(1, 1, vec![0, 0, 0, 255]).unwrap_or_else(|e| panic!("{e}"));
     let image = crate::Image { picture, original: (1, 1), format: "png", bytes: 1 };
-    let path = state.active_panel().dir().join(name);
-    update(state, Msg::Opened(crate::Viewer { path, content: crate::Content::Image(image) }), now);
+    Msg::Opened(crate::Viewer { path, content: crate::Content::Image(image) })
 }
 
 #[test]
@@ -1200,6 +1206,35 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
 
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.viewer.is_none());
+}
+
+#[test]
+fn a_picture_loaded_after_the_viewer_gave_it_up_stays_away() {
+    let (mut state, now) = setup_with(vec![file("a.png"), file("b.jpg"), file("c.gif")]);
+    let path = |name: &str| PathBuf::from("/home").join(name);
+    let shown = |state: &AppState| state.viewer.as_ref().map(|viewer| viewer.path.clone());
+    image_viewer(&mut state, "a.png", now);
+
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    update(&mut state, loaded(path("b.jpg")), now);
+    assert_eq!(shown(&state), None, "Esc while it loaded gave it up");
+    update(&mut state, Msg::OpenFailed { path: path("b.jpg"), notice: "unreadable".into() }, now);
+    assert_eq!(state.notice, None);
+
+    image_viewer(&mut state, "a.png", now);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Down));
+    update(&mut state, loaded(path("c.gif")), now);
+    update(&mut state, loaded(path("b.jpg")), now);
+    assert_eq!(shown(&state), Some(path("c.gif")), "an earlier load that arrives late is dropped");
+    press(&mut state, now, key(KeyCode::Esc));
+
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), vec![Effect::View(path("c.gif"))]);
+    press(&mut state, now, key(KeyCode::Esc));
+    update(&mut state, loaded(path("c.gif")), now);
+    assert_eq!(shown(&state), None, "Esc in the panels gives up a file still opening");
 }
 
 fn ctrl_key(c: char) -> KeyEvent {

@@ -227,10 +227,10 @@ fn viewer_wraps_and_unwraps() -> Result<()> {
         .collect();
     let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
     let pager = borg_view::Pager::new(Arc::new(text.into_bytes()), width, height)?;
-    stage.send(Msg::Opened(borg_core::Viewer {
-        path: PathBuf::from("/var/log/app.log"),
-        content: borg_core::Content::Text(pager),
-    }));
+    opened(
+        &mut stage,
+        borg_core::Viewer { path: PathBuf::from("/var/log/app.log"), content: borg_core::Content::Text(pager) },
+    );
     let wrapped = stage.render(stage.started)?;
     check("viewer_wrapped", &stage, wrapped)?;
 
@@ -553,11 +553,17 @@ fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
     Ok(borg_gfx::Picture::from_rgba(width, height, rgba)?)
 }
 
+/// Shows `viewer` as if the file it holds had been asked for and loaded.
+fn opened(stage: &mut Stage, viewer: borg_core::Viewer) {
+    stage.state.opening = Some(viewer.path.clone());
+    stage.send(Msg::Opened(viewer));
+}
+
 fn open_picture(stage: &mut Stage) -> Result<()> {
     let image =
         borg_core::Image { picture: sunset(320, 180)?, original: (3840, 2160), format: "jpg", bytes: 2_411_724 };
     let path = PathBuf::from("/home/me/projects/borg/sunset.jpg");
-    stage.send(Msg::Opened(borg_core::Viewer { path, content: borg_core::Content::Image(image) }));
+    opened(stage, borg_core::Viewer { path, content: borg_core::Content::Image(image) });
     Ok(())
 }
 
@@ -1069,7 +1075,7 @@ fn markdown_renders_and_source_toggle_is_visible() -> Result<()> {
         usize::from(SIZE.cols),
         usize::from(SIZE.rows - 1),
     )?;
-    stage.send(Msg::Opened(borg_core::Viewer { path, content: borg_core::Content::Text(pager) }));
+    opened(&mut stage, borg_core::Viewer { path, content: borg_core::Content::Text(pager) });
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "s source/render")?;
     check("markdown_rendered", &stage, buffer)?;
@@ -2243,10 +2249,10 @@ fn borg_brand_is_visible_in_panels_console_viewer_and_overlays() -> Result<()> {
     verify(&stage, buffer);
     stage.state.screensaver = false;
     let pager = borg_view::Pager::new(std::sync::Arc::new(b"Brand in the viewer".to_vec()), 88, 20)?;
-    stage.send(Msg::Opened(borg_core::Viewer {
-        path: "/workspace/sample.txt".into(),
-        content: borg_core::Content::Text(pager),
-    }));
+    opened(
+        &mut stage,
+        borg_core::Viewer { path: "/workspace/sample.txt".into(), content: borg_core::Content::Text(pager) },
+    );
     let buffer = stage.render(stage.started)?;
     verify(&stage, buffer);
     stage.send(key(KeyCode::Esc));

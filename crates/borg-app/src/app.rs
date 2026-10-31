@@ -1976,9 +1976,10 @@ impl App {
                 (cell.width, cell.height),
                 Arc::new(AtomicBool::new(false)),
             );
-            let opened = content
-                .map(|content| Msg::Opened(Viewer { path: path.clone(), content }))
-                .unwrap_or_else(|e| Msg::Notice(format!("{}: {e:#}", path.display())));
+            let opened =
+                content.map(|content| Msg::Opened(Viewer { path: path.clone(), content })).unwrap_or_else(|e| {
+                    Msg::OpenFailed { notice: format!("{}: {e:#}", path.display()), path: path.clone() }
+                });
             let _ = messages.send(opened);
         });
     }
@@ -2023,9 +2024,13 @@ impl App {
                 Ok(content)
             }
             .await;
-            let msg = opened
-                .map(|content| Msg::Opened(Viewer { path: path.clone(), content }))
-                .unwrap_or_else(|error| Msg::Notice(format!("{} on {}: {error:#}", path.display(), machine)));
+            let msg =
+                opened.map(|content| Msg::Opened(Viewer { path: path.clone(), content })).unwrap_or_else(|error| {
+                    Msg::OpenFailed {
+                        notice: format!("{} on {}: {error:#}", path.display(), machine),
+                        path: path.clone(),
+                    }
+                });
             let _ = messages.send(msg);
         });
     }

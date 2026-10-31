@@ -649,19 +649,15 @@ fn hovered_file(state: &AppState) -> Option<std::path::PathBuf> {
     panel.hovered_entry().filter(|entry| !entry.is_dir()).map(|entry| entry.path(panel.dir()))
 }
 
-fn remote_view(state: &AppState, side: Side) -> Vec<Effect> {
+fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
     let panel = state.panel(side);
     let Some(mount) = &panel.remote_mount else { return Vec::new() };
-    panel
-        .hovered_entry()
-        .filter(|entry| !entry.is_dir())
-        .map(|entry| Effect::RemoteView {
-            machine: mount.machine.clone(),
-            session: mount.session.clone(),
-            path: entry.path(panel.dir()),
-        })
-        .into_iter()
-        .collect()
+    let Some(path) = panel.hovered_entry().filter(|entry| !entry.is_dir()).map(|entry| entry.path(panel.dir())) else {
+        return Vec::new();
+    };
+    let (machine, session) = (mount.machine.clone(), mount.session.clone());
+    state.opening = Some(path.clone());
+    vec![Effect::RemoteView { machine, session, path }]
 }
 
 fn edit(state: &mut AppState) -> Vec<Effect> {

@@ -119,6 +119,11 @@ pub enum Msg {
     Signal(ShellSignal),
     Tick,
     Opened(Viewer),
+    /// Why the viewer could not open `path`.
+    OpenFailed {
+        path: PathBuf,
+        notice: String,
+    },
     /// A file read for the editor, or why it was not.
     EditorOpened(Result<crate::EditorFile, crate::OpenError>),
     /// The editor's save landed, with the file's new stamp, or did not.

@@ -242,11 +242,11 @@ pub(crate) fn opened(state: &mut AppState, result: Result<EditorFile, OpenError>
         }
         Err(OpenError::NotText(path)) => {
             state.notice = Some(tr!(editor_not_text, name = display_name(&path)));
-            vec![Effect::View(path)]
+            vec![crate::viewer::request(state, path)]
         }
         Err(OpenError::TooLarge(path)) => {
             state.notice = Some(tr!(editor_too_large, name = display_name(&path)));
-            vec![Effect::View(path)]
+            vec![crate::viewer::request(state, path)]
         }
         Err(OpenError::Failed(path, error)) => {
             state.notice = Some(tr!(editor_open_failed, name = display_name(&path), error = error));

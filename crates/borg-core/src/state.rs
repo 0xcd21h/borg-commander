@@ -392,6 +392,9 @@ pub struct AppState {
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
     pub viewer: Option<Viewer>,
+    /// The file the viewer is opening. A load that arrives for another file, or after Esc
+    /// gave it up, is dropped.
+    pub opening: Option<PathBuf>,
     pub editor: Option<crate::Editor>,
     pub epoch: Instant,
     pub motions: [PanelMotion; 2],
@@ -472,6 +475,7 @@ impl AppState {
             measured: Default::default(),
             next_size: 0,
             viewer: None,
+            opening: None,
             editor: None,
             epoch: now,
             motions: [PanelMotion::settled(now); 2],

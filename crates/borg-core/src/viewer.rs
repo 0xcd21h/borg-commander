@@ -54,13 +54,37 @@ pub(crate) fn open(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
         && *shown == path
     {
         state.viewer = Some(Viewer { path, content: Content::Text(pager.clone()) });
+        state.opening = None;
         resize(state);
         return Vec::new();
     }
-    vec![Effect::View(path)]
+    vec![request(state, path)]
+}
+
+/// Asks to load `path` for the viewer; of the loads asked for, only the latest is shown.
+pub(crate) fn request(state: &mut AppState, path: PathBuf) -> Effect {
+    state.opening = Some(path.clone());
+    Effect::View(path)
+}
+
+/// Shows a loaded file, if the viewer still waits for it.
+pub(crate) fn opened(state: &mut AppState, viewer: Viewer) {
+    if state.opening.as_ref() == Some(&viewer.path) {
+        state.opening = None;
+        state.viewer = Some(viewer);
+        resize(state);
+    }
+}
+
+pub(crate) fn failed(state: &mut AppState, path: PathBuf, notice: String) {
+    if state.opening.as_ref() == Some(&path) {
+        state.opening = None;
+        state.notice = Some(notice);
+    }
 }
 
 fn close(state: &mut AppState) {
+    state.opening = None;
     if let Some(Viewer { path, content: Content::Text(pager) }) = state.viewer.take()
         && state.aside == Some(Aside::QuickView)
         && crate::aside::hovered_path(state).as_ref() == Some(&path)
@@ -92,7 +116,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
 fn on_image_key(state: &mut AppState, code: KeyCode) -> Vec<Effect> {
     let step = match code {
         code if is_close(code) => {
-            state.viewer = None;
+            close(state);
             return Vec::new();
         }
         KeyCode::Right | KeyCode::Down | KeyCode::PageDown | KeyCode::Char(PAGE_KEY | NEXT_KEY) => Step::Next,
@@ -101,11 +125,12 @@ fn on_image_key(state: &mut AppState, code: KeyCode) -> Vec<Effect> {
         }
         _ => return Vec::new(),
     };
-    sibling(state, step).into_iter().map(Effect::View).collect()
+    sibling(state, step).map(|path| request(state, path)).into_iter().collect()
 }
 
 fn sibling(state: &mut AppState, step: Step) -> Option<PathBuf> {
-    let current = state.viewer.as_ref()?.path.clone();
+    // Stepping again before a picture loads goes on from the one loading.
+    let current = state.opening.clone().or_else(|| state.viewer.as_ref().map(|viewer| viewer.path.clone()))?;
     let panel = state.panels.get_mut(state.active.index())?;
     let pictures: Vec<PathBuf> = panel
         .visible_entries()
