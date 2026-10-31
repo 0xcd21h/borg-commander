@@ -170,26 +170,29 @@ fn panel_menu(title: &'static str, state: &AppState, side: Side) -> Menu {
 
 fn file_menu(state: &AppState) -> Menu {
     let panel = state.active_panel();
-    let has_selection = !panel.selection().is_empty();
-    let hovered_file = panel.hovered_entry().is_some_and(|entry| !entry.is_dir());
-    let archive = panel.hovered_entry().is_some_and(|entry| ArchiveFormat::detect(&entry.name).is_some());
+    // The files of a panel that holds an editor are out of sight, so nothing acts on them.
+    let listed = state.docked[state.active.index()].is_none();
+    let has_selection = listed && !panel.selection().is_empty();
+    let hovered_file = listed && panel.hovered_entry().is_some_and(|entry| !entry.is_dir());
+    let archive = listed && panel.hovered_entry().is_some_and(|entry| ArchiveFormat::detect(&entry.name).is_some());
     Menu {
         title: tr!(file),
         entries: vec![
             when(item(tr!(view), "F3", Action::View), hovered_file),
             when(item(tr!(edit), "F4", Action::Edit), hovered_file),
+            when(item(tr!(edit_in_panel), "M-E", Action::EditInPanel), hovered_file),
             when(item(tr!(edit_external), "S-F4", Action::EditExternal), hovered_file),
             when(item(tr!(copy), "F5", Action::Copy), has_selection),
             when(item(tr!(move), "F6", Action::Move), has_selection),
-            item(tr!(make_directory), "F7", Action::Mkdir),
+            when(item(tr!(make_directory), "F7", Action::Mkdir), listed),
             when(
                 item(if panel.is_results() { tr!(remove_actions) } else { tr!(delete) }, "F8", Action::Delete),
                 has_selection,
             ),
             MenuEntry::Separator,
-            item(tr!(select_group), "+", Action::SelectGroup),
-            item(tr!(unselect_group), "-", Action::UnselectGroup),
-            item(tr!(invert_selection), "*", Action::InvertSelection),
+            when(item(tr!(select_group), "+", Action::SelectGroup), listed),
+            when(item(tr!(unselect_group), "-", Action::UnselectGroup), listed),
+            when(item(tr!(invert_selection), "*", Action::InvertSelection), listed),
             MenuEntry::Separator,
             when(item(tr!(copy_names), "C-Ins", Action::CopyNames), has_selection),
             when(item(tr!(copy_paths), "M-S-Ins", Action::CopyPaths), has_selection),

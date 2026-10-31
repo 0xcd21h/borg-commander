@@ -80,6 +80,8 @@ pub enum Action {
     InvertSelection,
     View,
     Edit,
+    /// Edits in Borg's editor in place of the active panel's files.
+    EditInPanel,
     /// Edits in `$VISUAL` or `$EDITOR` in the console.
     EditExternal,
     Copy,
@@ -193,6 +195,7 @@ pub const KEYMAP: &[Binding] = &[
     labeled(bind(KeyCode::F(3), NONE, Action::View, Scope::Panels), tr!(@ view)),
     labeled(bind(KeyCode::F(4), NONE, Action::Edit, Scope::Panels), tr!(@ edit)),
     bind(KeyCode::F(4), SHIFT, Action::EditExternal, Scope::Panels),
+    bind(KeyCode::Char('e'), ALT, Action::EditInPanel, Scope::Panels),
     labeled(bind(KeyCode::F(5), NONE, Action::Copy, Scope::Panels), tr!(@ copy)),
     labeled(bind(KeyCode::F(6), NONE, Action::Move, Scope::Panels), tr!(@ move)),
     labeled(bind(KeyCode::F(7), NONE, Action::Mkdir, Scope::Panels), tr!(@ mkdir)),

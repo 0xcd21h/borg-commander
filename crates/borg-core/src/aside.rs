@@ -64,6 +64,10 @@ pub struct Peeked {
 }
 
 pub(crate) fn toggle(state: &mut AppState, aside: Aside) -> Vec<Effect> {
+    if state.docked[state.active.other().index()].is_some() {
+        state.notice = Some(tr!(aside_beside_editor).into());
+        return Vec::new();
+    }
     state.aside = (state.aside != Some(aside)).then_some(aside);
     state.preview_focused = false;
     state.peeked = None;
@@ -81,7 +85,9 @@ pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
 }
 
 pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
-    if state.active_panel().mount.is_some() || state.active_panel().remote_mount.is_some() {
+    // A preview has no room while a panel holds an editor.
+    let docked = state.docked.iter().any(Option::is_some);
+    if docked || state.active_panel().mount.is_some() || state.active_panel().remote_mount.is_some() {
         state.aside = None;
     }
     let aside = state.aside?;

@@ -4,19 +4,25 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Position, Rect};
 use unicode_width::UnicodeWidthChar;
 
-/// The key a hint's first word names: `Enter`, `Esc`, `F2`, `Ctrl-F`, `Alt-A`, `S-F2` or a letter.
-fn key(word: &str) -> Option<KeyEvent> {
-    let word = word.trim_end_matches(':');
-    let held = |prefix: &str| word.strip_prefix(prefix).filter(|rest| !rest.is_empty());
-    let (modifiers, name) = if let Some(rest) = held("Ctrl-") {
-        (KeyModifiers::CONTROL, rest)
-    } else if let Some(rest) = held("Alt-") {
-        (KeyModifiers::ALT, rest)
-    } else if let Some(rest) = held("Shift-").or_else(|| held("S-")) {
-        (KeyModifiers::SHIFT, rest)
-    } else {
-        (KeyModifiers::NONE, word)
-    };
+/// The key a hint's first word names: `Enter`, `Esc`, `F2`, `Ctrl-F`, `^O`, `Alt-A`, `S-F2`,
+/// `Alt-Shift-F` or a letter.
+pub(crate) fn key(word: &str) -> Option<KeyEvent> {
+    const HELD: [(&str, KeyModifiers); 5] = [
+        ("Ctrl-", KeyModifiers::CONTROL),
+        ("^", KeyModifiers::CONTROL),
+        ("Alt-", KeyModifiers::ALT),
+        ("Shift-", KeyModifiers::SHIFT),
+        ("S-", KeyModifiers::SHIFT),
+    ];
+    let mut name = word.trim_end_matches(':');
+    let mut modifiers = KeyModifiers::NONE;
+    while let Some((rest, held)) = HELD
+        .iter()
+        .find_map(|(prefix, held)| name.strip_prefix(prefix).filter(|rest| !rest.is_empty()).map(|rest| (rest, held)))
+    {
+        modifiers |= *held;
+        name = rest;
+    }
     let code = match name {
         "Enter" => KeyCode::Enter,
         "Esc" => KeyCode::Esc,

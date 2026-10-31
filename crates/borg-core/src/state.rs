@@ -396,6 +396,8 @@ pub struct AppState {
     /// gave it up, is dropped.
     pub opening: Option<PathBuf>,
     pub editor: Option<crate::Editor>,
+    /// The editors the panels hold in place of their files, left and right.
+    pub docked: [Option<crate::Editor>; 2],
     pub epoch: Instant,
     pub motions: [PanelMotion; 2],
     pub overlay_fade: Fade,
@@ -481,6 +483,7 @@ impl AppState {
             viewer: None,
             opening: None,
             editor: None,
+            docked: [None, None],
             epoch: now,
             motions: [PanelMotion::settled(now); 2],
             overlay_fade: Fade::settled(TRANSPARENT, now),
@@ -820,6 +823,7 @@ impl AppState {
             let reserved = if panel.is_results() { RESULT_FRAME_ROWS } else { PANEL_FRAME_ROWS };
             panel.set_rows(usize::from(layout.panels[side.index()].height.saturating_sub(reserved)));
         }
+        crate::editor::repaint(self);
     }
 
     pub(crate) fn next_generation(&mut self) -> u64 {
