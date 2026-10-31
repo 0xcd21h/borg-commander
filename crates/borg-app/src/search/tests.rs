@@ -6,7 +6,6 @@ use std::os::unix::fs::symlink;
 use std::{
     fs,
     os::unix::fs::MetadataExt,
-    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -159,7 +158,7 @@ async fn other_apps_data_is_left_out_from_above_and_read_when_searched_in_its_ow
         fs::write(root.path().join(folder).join("report.txt"), "kept by an app").unwrap();
     }
     fs::write(root.path().join("Library/report.txt"), "mine").unwrap();
-    async fn found(search: &mut Search, root: &Path, id: u64) -> (Vec<PathBuf>, usize) {
+    async fn found(search: &mut Search, root: &std::path::Path, id: u64) -> (Vec<std::path::PathBuf>, usize) {
         let (skip, query, hidden, options) = (None, "report".into(), false, Default::default());
         search.search(Side::Left, id, SearchRequest { skip, root: root.into(), query, hidden, options });
         let mut found = Vec::new();
