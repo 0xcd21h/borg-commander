@@ -3,10 +3,8 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    fs,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
-    sync::{Arc, Mutex, atomic::AtomicUsize},
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result, bail};
@@ -21,21 +19,21 @@ use portable_pty::CommandBuilder;
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
+    net::UnixStream,
     sync::{
         broadcast,
         mpsc::{UnboundedSender, unbounded_channel},
-        oneshot,
     },
 };
 
 use crate::{
-    agent::{Call, Reply, Session},
-    config::ConfigDir,
+    agent::{Call, Reply},
     launch,
     session::StateDir,
     sessions,
 };
+
+mod server;
 
 const SOCKET: &str = "service.sock";
 const LOCK: &str = "service.lock";
@@ -254,194 +252,6 @@ async fn frame_when_ready(call: Call, child: Arc<Mutex<Child>>) -> Reply {
     mirror_child(&call, &child)
 }
 
-async fn run() -> Result<()> {
-    let state = StateDir::locate().context("set HOME or BORG_STATE_DIR for the service")?;
-    fs::create_dir_all(state.path())?;
-    let runtime = launch::private_dir(&service_runtime()?)?;
-    let lock_file =
-        fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(state.path().join(LOCK))?;
-    lock_file.try_lock().context("a Borg service is already running")?;
-    let socket = service_socket();
-    let _ = fs::remove_file(&socket);
-    let listener = UnixListener::bind(&socket)?;
-    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-    let mut config = ConfigDir::locate().map(|dir| dir.load()).transpose()?.unwrap_or_default();
-    let relay = config.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse);
-    let (calls_tx, mut calls_rx) = unbounded_channel::<(Call, oneshot::Sender<Reply>)>();
-    let (messages, mut notices) = unbounded_channel();
-    let mut cloud = crate::link::LinkServer::new(
-        Some(state.path().to_path_buf()),
-        runtime.clone(),
-        None,
-        relay,
-        calls_tx,
-        messages,
-        Arc::new(AtomicUsize::new(0)),
-    );
-    let console_server = crate::remote_console::Server::new(borg_term::user_shell(), runtime.clone());
-    let (events_tx, mut events_rx) = unbounded_channel::<(String, PtyEvent)>();
-    cloud.set_background_service();
-    let mut children: Children = HashMap::new();
-    let mut removing = std::collections::HashSet::new();
-    let (removed_tx, mut removed_rx) = unbounded_channel::<String>();
-    let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
-    loop {
-        tokio::select! {
-            _ = tick.tick() => {
-                if let Ok(Some(current)) = ConfigDir::locate().map(|dir| dir.load()).transpose() {
-                    if current.relay != config.relay {
-                        let relay = current.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse);
-                        cloud.set_relay(relay);
-                    }
-                    config = current;
-                }
-                cloud.sync(config.plugins.as_ref().is_none_or(|plugins| plugins.agent_cloud));
-                let named: Vec<_> = sessions::ensure_default(&state)?.into_iter().filter(|session| !session.archived).collect();
-                let active: std::collections::HashSet<_> = named.iter().map(|session| session.id.as_str()).collect();
-                children.retain(|id, _| active.contains(id.as_str()));
-                for session in named {
-                    if removing.contains(&session.id) { continue; }
-                    if let std::collections::hash_map::Entry::Vacant(entry) = children.entry(session.id) {
-                        match spawn_child(entry.key(), events_tx.clone()) {
-                            Ok(child) => { entry.insert(child); }
-                            Err(error) => eprintln!("borg service: could not start {}: {error:#}", session.name),
-                        }
-                    }
-                }
-            }
-            Some((id, event)) = events_rx.recv() => {
-                match event {
-                    PtyEvent::Output(bytes) => if let Some(child) = children.get(&id) {
-                        let mut child = child.lock().expect("child lock");
-                        child.emulator.feed(&bytes);
-                        for answer in child.emulator.drain_replies() { let _ = child.pty.write(answer.as_bytes()); }
-                        child.sequence = child.sequence.saturating_add(bytes.len() as u64);
-                        child.replay.extend(&bytes);
-                        while child.replay.len() > REPLAY_LIMIT { child.replay.pop_front(); }
-                        let _ = child.output.send(bytes);
-                    },
-                    PtyEvent::Closed => {
-                        if let Some(child) = children.remove(&id) {
-                            let _ = child.lock().expect("child lock").output.send(Vec::new());
-                        }
-                    }
-                }
-            }
-            Some((call, reply)) = calls_rx.recv() => {
-                if call.tool == "session_delete" {
-                    let id = call.args["id"].as_str().unwrap_or_default().to_owned();
-                    if id == "default" || !sessions::list(&state).is_ok_and(|sessions| sessions.iter().any(|session| session.id == id)) {
-                        let _ = reply.send(Reply::error("The Default session is protected, or the requested session no longer exists"));
-                        continue;
-                    }
-                    if !removing.insert(id.clone()) {
-                        let _ = reply.send(Reply::error("This session is already being removed"));
-                        continue;
-                    }
-                    let child = children.remove(&id);
-                    let removed = removed_tx.clone();
-                    let state = state.clone();
-                    let runtime = runtime.clone();
-                    let consoles = console_server.clone();
-                    tokio::spawn(async move {
-                        let result = async {
-                            if let Some(child) = child {
-                                tokio::task::spawn_blocking(move || child.lock().expect("child lock").pty.stop()).await??;
-                            }
-                            sessions::delete_remote(&state, &runtime, &id, None).await
-                        }.await;
-                        let answer = match result {
-                            Ok(()) => { consoles.close_session(&id); Reply::ok("Session removed") },
-                            Err(error) => Reply::error(format!("{error:#}")),
-                        };
-                        let _ = reply.send(answer);
-                        let _ = removed.send(id);
-                    });
-                    continue;
-                }
-                if call.tool.starts_with("console_") {
-                    console_server.handle(call, reply);
-                    continue;
-                }
-                if call.tool == "mirror_frame"
-                    && let Some(child) = call.args["session"].as_str().and_then(|id| children.get(id)).cloned()
-                {
-                    tokio::spawn(async move { let _ = reply.send(frame_when_ready(call, child).await); });
-                    continue;
-                }
-                if call.tool.starts_with("mirror_") {
-                    let _ = reply.send(mirror(&call, &children));
-                    continue;
-                }
-                let selected = state.path().to_path_buf();
-                tokio::spawn(async move {
-                    let registry = StateDir::at(selected);
-                    let target = sessions::list(&registry).ok()
-                        .and_then(|all| all.into_iter().filter(|session| !session.archived).max_by_key(|session| session.last_opened));
-                    let answer = match target {
-                        Some(session) => match Session::open(&service_runtime().unwrap_or_else(|_| launch::runtime_dir()), Some(&session.id)).await {
-                            Some(mut open) => open.call(&call).await.unwrap_or_else(|| Reply::error("session disconnected")),
-                            None => Reply::error("no running Borg session is ready"),
-                        },
-                        None => Reply::error("no Borg session exists"),
-                    };
-                    let _ = reply.send(answer);
-                });
-            }
-            Some(id) = removed_rx.recv() => { removing.remove(&id); }
-            Ok((stream, _)) = listener.accept() => {
-                let mut reader = BufReader::new(stream);
-                let mut line = String::new();
-                if tokio::time::timeout(std::time::Duration::from_secs(2), reader.read_line(&mut line)).await.is_err() {
-                    continue;
-                }
-                let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-                let mut stream = reader.into_inner();
-                match request["mode"].as_str() {
-                    Some("attach") => {
-                        let id = request["session"].as_str().unwrap_or_default();
-                        if !children.contains_key(id)
-                            && !removing.contains(id)
-                            && sessions::list(&state).is_ok_and(|all| all.iter().any(|session| session.id == id && !session.archived))
-                            && let Ok(child) = spawn_child(id, events_tx.clone())
-                        {
-                            children.insert(id.to_owned(), child);
-                        }
-                        if let Some(child) = children.get(id) {
-                            tokio::spawn(attach(stream, child.clone(), request["take"] == true));
-                        } else { let _ = stream.write_all(b"Session is offline\n").await; }
-                    }
-                    Some("pair") => {
-                        let reply = cloud.pair().map(|link| json!({"ok": true, "link": link}))
-                            .unwrap_or_else(|error| json!({"ok": false, "error": format!("{error:#}")}));
-                        stream.write_all(format!("{reply}\n").as_bytes()).await?;
-                    }
-                    Some("status") => {
-                        let reply = json!({"ok": true, "sessions": children.keys().collect::<Vec<_>>()});
-                        stream.write_all(format!("{reply}\n").as_bytes()).await?;
-                    }
-                    Some("resize") => {
-                        let id = request["session"].as_str().unwrap_or_default();
-                        let cols = request["cols"].as_u64().unwrap_or(0);
-                        let rows = request["rows"].as_u64().unwrap_or(0);
-                        let ok = if let Some(child) = children.get(id).filter(|_| (20..=500).contains(&cols) && (8..=200).contains(&rows)) {
-                            let mut child = child.lock().expect("child lock");
-                            let size = GridSize { cols: cols as u16, rows: rows as u16 };
-                            if matches!(child.controller, Some(Controller::Local(_))) && child.pty.resize(size).is_ok() {
-                                child.emulator.resize(size);
-                                true
-                            } else { false }
-                        } else { false };
-                        stream.write_all(format!("{}\n", json!({"ok": ok})).as_bytes()).await?;
-                    }
-                    _ => { let _ = stream.write_all(b"Unknown service request\n").await; }
-                }
-            }
-            Some(_notice) = notices.recv() => {}
-        }
-    }
-}
-
 async fn request(value: Value) -> Result<Value> {
     let mut stream = UnixStream::connect(service_socket()).await.context("Borg service is not running")?;
     stream.write_all(format!("{value}\n").as_bytes()).await?;
@@ -506,7 +316,7 @@ pub async fn command(args: &[String]) -> Result<()> {
         [action] if action == "disable" => crate::service_install::disable(),
         [action] if action == "start" => crate::service_install::start(),
         [action] if action == "stop" => crate::service_install::stop(),
-        [action] if action == "run" => run().await,
+        [action] if action == "run" => server::run().await,
         [action] if action == "status" => {
             println!("{}", request(json!({"mode": "status"})).await?);
             Ok(())
@@ -519,26 +329,24 @@ pub async fn command(args: &[String]) -> Result<()> {
             println!("{}", reply["link"].as_str().unwrap_or_default());
             Ok(())
         }
-        [action, name] if action == "attach" => {
-            let state = StateDir::locate().context("set HOME or BORG_STATE_DIR")?;
-            let session = sessions::list(&state)?
-                .into_iter()
-                .find(|session| session.id == *name || session.name == *name)
-                .with_context(|| format!("no session named {name}"))?;
-            attach_session(&session.id, false).await
-        }
+        [action, name] if action == "attach" => attach_session(&session_named(name)?, false).await,
         [action, name, flag] if action == "attach" && flag == "--take" => {
-            let state = StateDir::locate().context("set HOME or BORG_STATE_DIR")?;
-            let session = sessions::list(&state)?
-                .into_iter()
-                .find(|session| session.id == *name || session.name == *name)
-                .with_context(|| format!("no session named {name}"))?;
-            attach_session(&session.id, true).await
+            attach_session(&session_named(name)?, true).await
         }
         _ => bail!(
             "usage: borg service install|uninstall|enable|disable|start|stop|run|status|pair|attach NAME [--take]"
         ),
     }
+}
+
+/// The ID of the session with this name or ID.
+fn session_named(name: &str) -> Result<String> {
+    let state = StateDir::locate().context("set HOME or BORG_STATE_DIR")?;
+    let session = sessions::list(&state)?
+        .into_iter()
+        .find(|session| session.id == name || session.name == name)
+        .with_context(|| format!("no session named {name}"))?;
+    Ok(session.id)
 }
 
 #[cfg(test)]

@@ -1,4 +1,7 @@
-use borg_i18n::tr;
+//! The `borg` command. Without arguments it opens Borg Commander in this terminal, or attaches to
+//! its session in the background service; its subcommands manage sessions and the service, pair
+//! computers, copy files between them and serve Borg to agents.
+
 mod activity;
 mod admin;
 mod agent;
@@ -38,6 +41,7 @@ mod update;
 use std::{env, io::stdout, process::ExitCode};
 
 use anyhow::Result;
+use borg_i18n::tr;
 use crossterm::{
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, KeyboardEnhancementFlags,
@@ -46,7 +50,6 @@ use crossterm::{
     execute,
     terminal::{EndSynchronizedUpdate, supports_keyboard_enhancement},
 };
-
 use ratatui::DefaultTerminal;
 
 use crate::{app::App, launch::Launch};
@@ -55,6 +58,23 @@ const USAGE_ERROR: u8 = 2;
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
+    set_language();
+    match env::args().nth(1).as_deref() {
+        None => open(None, None).await,
+        Some("--session") => match env::args().nth(2) {
+            Some(name) => open(Some(name), None).await,
+            None => Ok(usage("usage: borg --session NAME")),
+        },
+        Some("--remote") => match env::args().nth(2) {
+            Some(target) => open(None, Some(target)).await,
+            None => Ok(usage("usage: borg --remote MACHINE:SESSION")),
+        },
+        Some(command) => subcommand(command).await,
+    }
+}
+
+/// Speaks the language the settings or `BORG_LANGUAGE` ask for, or else the system's.
+fn set_language() {
     let configured = config::ConfigDir::locate().and_then(|dir| dir.load().ok()).and_then(|config| config.language);
     let requested = env::var("BORG_LANGUAGE").ok().or(configured);
     let system = ["LC_ALL", "LC_MESSAGES", "LANG"]
@@ -62,137 +82,106 @@ async fn main() -> Result<ExitCode> {
         .filter_map(|name| env::var(name).ok())
         .find(|value| !value.is_empty());
     borg_i18n::set_locale(borg_i18n::detect(requested.as_deref(), system.as_deref()));
-    let mut requested_session = None;
-    let mut requested_remote = None;
-    match env::args().nth(1).as_deref() {
-        None => {}
-        Some("--session") => {
-            let Some(name) = env::args().nth(2) else {
-                eprintln!("usage: borg --session NAME");
-                return Ok(ExitCode::from(USAGE_ERROR));
-            };
-            requested_session = Some(name);
-        }
-        Some("--remote") => {
-            let Some(target) = env::args().nth(2) else {
-                eprintln!("usage: borg --remote MACHINE:SESSION");
-                return Ok(ExitCode::from(USAGE_ERROR));
-            };
-            requested_remote = Some(target);
-        }
-        Some("sessions") => {
+}
+
+/// A subcommand, which does its work and exits.
+async fn subcommand(command: &str) -> Result<ExitCode> {
+    let args: Vec<String> = env::args().skip(2).collect();
+    Ok(match command {
+        "sessions" => {
             let Some(state) = session::StateDir::locate() else {
                 eprintln!("borg has no folder for sessions: set HOME or BORG_STATE_DIR");
                 return Ok(ExitCode::FAILURE);
             };
-            let args: Vec<String> = env::args().skip(2).collect();
-            return Ok(match sessions::command(&state, &args) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("borg sessions: {error:#}");
-                    ExitCode::FAILURE
-                }
-            });
+            finished("borg sessions", sessions::command(&state, &args))
         }
-        Some("service") => {
-            let args: Vec<String> = env::args().skip(2).collect();
-            return Ok(match service::command(&args).await {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("borg service: {error:#}");
-                    ExitCode::FAILURE
-                }
-            });
+        "service" => finished("borg service", service::command(&args).await),
+        "mirror" => {
+            let Some(target) = args.first() else { return Ok(usage("usage: borg mirror SERVER:SESSION [--take]")) };
+            let force = args.get(1).map(String::as_str) == Some("--take");
+            finished("borg mirror", mirror::command(target, force).await)
         }
-        Some("mirror") => {
-            let Some(target) = env::args().nth(2) else {
-                eprintln!("usage: borg mirror SERVER:SESSION [--take]");
-                return Ok(ExitCode::from(USAGE_ERROR));
-            };
-            let force = env::args().nth(3).as_deref() == Some("--take");
-            return Ok(match mirror::command(&target, force).await {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("borg mirror: {error:#}");
-                    ExitCode::FAILURE
-                }
-            });
+        "--inspect-process" => {
+            activity::helper(&args).await?;
+            ExitCode::SUCCESS
         }
-        Some("--inspect-process") => {
-            activity::helper(&env::args().skip(2).collect::<Vec<_>>()).await?;
-            return Ok(ExitCode::SUCCESS);
-        }
-        Some("mcp") => {
-            match env::args().nth(2).as_deref() {
-                Some("setup") => println!("{}", agent::setup(env::args().nth(3).as_deref())),
-                Some("remote") => {
-                    let Some(name) = env::args().nth(3) else {
-                        eprintln!("usage: borg mcp remote NAME");
-                        return Ok(ExitCode::from(USAGE_ERROR));
-                    };
-                    let state = session::StateDir::locate().map(|dir| dir.path().to_path_buf());
-                    let Some(state) = state else {
-                        eprintln!("borg has no folder for its keys: set HOME or BORG_STATE_DIR");
-                        return Ok(ExitCode::FAILURE);
-                    };
-                    agent::serve_remote(state, &name).await?;
-                }
-                _ => {
-                    let local = launch::runtime_dir();
-                    let runtime = if agent::Session::open(&local, None).await.is_some() {
-                        local
-                    } else if service::available().await {
-                        service::runtime_dir().unwrap_or_else(|_| launch::runtime_dir())
-                    } else {
-                        local
-                    };
-                    agent::serve(runtime).await?
-                }
-            }
-            return Ok(ExitCode::SUCCESS);
-        }
-        Some(command @ ("pair" | "get" | "put")) => {
-            let args: Vec<String> = env::args().skip(2).collect();
-            let done = match command {
-                "pair" => link::pair_command(&args).await,
-                "get" => link::get_command(&args).await,
-                _ => link::put_command(&args).await,
-            };
-            return Ok(match done {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("borg {command}: {error:#}");
-                    ExitCode::FAILURE
-                }
-            });
-        }
-        Some("--version" | "-V") => {
+        "mcp" => return mcp(&args).await,
+        "pair" => finished("borg pair", link::pair_command(&args).await),
+        "get" => finished("borg get", link::get_command(&args).await),
+        "put" => finished("borg put", link::put_command(&args).await),
+        "--version" | "-V" => {
             println!("borg {}", update::VERSION);
-            return Ok(ExitCode::SUCCESS);
+            ExitCode::SUCCESS
         }
-        Some("--help" | "-h") => {
+        "--help" | "-h" => {
             println!("{}", tr!(cli_usage));
-            return Ok(ExitCode::SUCCESS);
+            ExitCode::SUCCESS
         }
-        Some("update") => {
-            return Ok(match tokio::task::spawn_blocking(update::run).await? {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("{}", tr!(cli_update_failed, error = error));
-                    ExitCode::FAILURE
-                }
-            });
-        }
-        Some(other) => {
+        "update" => match tokio::task::spawn_blocking(update::run).await? {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{}", tr!(cli_update_failed, error = error));
+                ExitCode::FAILURE
+            }
+        },
+        other => {
             eprintln!("{}", tr!(cli_unknown_argument, other = other, USAGE = tr!(cli_usage)));
-            return Ok(ExitCode::from(USAGE_ERROR));
+            ExitCode::from(USAGE_ERROR)
+        }
+    })
+}
+
+/// `borg mcp`: serves Borg to an agent over standard input and output, prints the setup for
+/// one, or serves a paired computer's Borg.
+async fn mcp(args: &[String]) -> Result<ExitCode> {
+    match args.first().map(String::as_str) {
+        Some("setup") => println!("{}", agent::setup(args.get(1).map(String::as_str))),
+        Some("remote") => {
+            let Some(name) = args.get(1) else { return Ok(usage("usage: borg mcp remote NAME")) };
+            let Some(state) = session::StateDir::locate().map(|dir| dir.path().to_path_buf()) else {
+                eprintln!("borg has no folder for its keys: set HOME or BORG_STATE_DIR");
+                return Ok(ExitCode::FAILURE);
+            };
+            agent::serve_remote(state, name).await?;
+        }
+        _ => {
+            let local = launch::runtime_dir();
+            let runtime = if agent::Session::open(&local, None).await.is_some() {
+                local
+            } else if service::available().await {
+                service::runtime_dir().unwrap_or_else(|_| launch::runtime_dir())
+            } else {
+                local
+            };
+            agent::serve(runtime).await?
         }
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The exit code for a subcommand's result, saying what went wrong after its name.
+fn finished(name: &str, result: Result<()>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{name}: {error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn usage(text: &str) -> ExitCode {
+    eprintln!("{text}");
+    ExitCode::from(USAGE_ERROR)
+}
+
+/// Opens Borg in this terminal, on the session asked for or a remote Borg's. A session the
+/// background service keeps is attached to instead.
+async fn open(requested_session: Option<String>, requested_remote: Option<String>) -> Result<ExitCode> {
     if env::var_os(borg_term::SESSION_MARKER).is_some() {
         eprintln!("{}", tr!(cli_already_running));
         return Ok(ExitCode::FAILURE);
     }
-
     let remote = match requested_remote {
         Some(target) => Some(remote::resolve(&target).await?),
         None => None,

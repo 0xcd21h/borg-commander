@@ -1,6 +1,12 @@
+//! Clicks and the mouse wheel, once the screen has said what lies under them. Each goes to the
+//! editor, the monitor beside the panels, the window open over them or the panels themselves.
+
 use std::time::Instant;
 
 use crate::{Action, AppState, Effect, MenuCursor, Overlay, Side, View, actions, menus};
+
+mod dialogs;
+mod monitors;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pointer {
@@ -114,21 +120,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     state.escaped = None;
     if let Pointer::ScrollDocument(delta) = pointer {
         if !resting && state.overlay.is_none() && !state.shell.captured() {
-            let pager = if let Some(crate::Viewer { content: crate::Content::Text(pager), .. }) = state.viewer.as_mut()
-            {
-                Some(pager)
-            } else if let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = state.peeked.as_mut() {
-                Some(pager)
-            } else {
-                None
-            };
-            if let Some(pager) = pager {
-                let result =
-                    if delta < 0 { pager.scroll_up(delta.unsigned_abs()) } else { pager.scroll_down(delta as usize) };
-                if let Err(error) = result {
-                    state.notice = Some(error.to_string());
-                }
-            }
+            scroll_document(state, delta);
         }
         return Vec::new();
     }
@@ -162,283 +154,133 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         crate::find::on_key(state, find, &crossterm::event::KeyCode::Esc.into());
     }
     match (pointer, state.overlay.clone()) {
-        (Pointer::ActivityExpand { preview, expand }, None) if state.activity.side.is_some() => {
-            state.activity.preview_focused = preview;
-            state.activity.expanded = expand;
-        }
-        (Pointer::ActivityHide, None) if state.activity.side.is_some() => state.activity.side = None,
-        (Pointer::DockerExpand { details, expand }, None) if state.docker.is_open() => {
-            state.docker.details_focused = details;
-            state.docker.expanded = expand;
-        }
-        (Pointer::DockerHide, None) if state.docker.is_open() => crate::docker::close(state),
-        (Pointer::DockerRow { index, open }, None) if state.docker.is_open() => {
-            return crate::docker::click(state, index, open, now);
-        }
-        (Pointer::DockerShellScroll(lines), None) if state.docker.is_open() => {
-            let scroll = borg_term::Scroll::Delta(-(lines as i32));
-            return crate::docker::scroll_shell(state, scroll);
-        }
-        (Pointer::DockerControl { details, code }, None) if state.docker.is_open() => {
-            state.docker.details_focused = details;
-            return crate::docker::route_key(state, &code.into(), now);
-        }
+        (Pointer::Menu(index), None | Some(Overlay::Menu(_))) => open_menu(state, index),
+        (_, Some(overlay)) => dialogs::on_pointer(state, pointer, overlay, now),
+        (_, None) => on_panels(state, pointer, now),
+    }
+}
 
-        (Pointer::ActivitySearchField(index), None) if state.activity.side.is_some() => {
-            state.activity.preview_focused = true;
-            if let Some(form) = state.activity.search_form.as_mut() {
-                form.selected = index;
-            }
-            if index > 0 {
-                return crate::activity::on_key(state, &crossterm::event::KeyCode::Char(' ').into());
-            }
-        }
+/// The wheel over the viewer's text, or over the preview's beside the panels.
+fn scroll_document(state: &mut AppState, delta: isize) {
+    let pager = if let Some(crate::Viewer { content: crate::Content::Text(pager), .. }) = state.viewer.as_mut() {
+        Some(pager)
+    } else if let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = state.peeked.as_mut() {
+        Some(pager)
+    } else {
+        None
+    };
+    let Some(pager) = pager else { return };
+    let result = if delta < 0 { pager.scroll_up(delta.unsigned_abs()) } else { pager.scroll_down(delta as usize) };
+    if let Err(error) = result {
+        state.notice = Some(error.to_string());
+    }
+}
 
-        (Pointer::ActivityControl { preview, code }, None) if state.activity.side.is_some() => {
-            state.activity.preview_focused = preview;
-            return crate::activity::route_key(state, &code.into(), now);
-        }
-        (Pointer::ActivityRow { index, open, preview }, None) if state.activity.side.is_some() => {
-            state.activity.preview_focused = preview;
-            let page = state.activity.page;
-            let context = state.activity.focused_page();
-            let cursor = state.activity.list_cursor(context);
-            state.activity.page = context;
-            let side = state.activity.side.unwrap();
-            let rect = state.layout(now).panels[if preview { side.other() } else { side }.index()];
-            state.activity.move_by(
-                index as isize - cursor as isize,
-                usize::from(rect.height.saturating_sub(crate::activity::chrome_rows(context))),
-                usize::from(rect.width.saturating_sub(2)),
-            );
-            state.activity.page = page;
-            if !preview
-                && matches!(
-                    context,
-                    crate::ActivityPage::Regions | crate::ActivityPage::Search | crate::ActivityPage::Integrity
-                )
-                && cursor != index
-            {
-                state.activity.schedule_preview(now);
-            }
-            if open {
-                return crate::activity::route_key(state, &crossterm::event::KeyCode::Enter.into(), now);
-            }
-        }
-        (Pointer::ActivitySort(sort), None) if state.activity.side.is_some() => {
-            state.activity.preview_focused = false;
-            let key = match sort {
-                crate::ActivitySort::Pid => 'p',
-                crate::ActivitySort::Name => 'n',
-                crate::ActivitySort::Memory => 'm',
-                crate::ActivitySort::Cpu => 'c',
-                crate::ActivitySort::Growth => 'g',
-                crate::ActivitySort::Read => 'i',
-                crate::ActivitySort::Write => 'o',
-            };
-            return crate::activity::route_key(state, &crossterm::event::KeyCode::Char(key).into(), now);
-        }
-        (Pointer::TreeNode { side, index }, None) if state.panel(side).is_tree() => {
-            state.active = side;
-            let delta = index as isize - state.panel(side).cursor() as isize;
-            state.panel_mut(side).move_by(delta);
-            state.panel_mut(side).toggle_tree_node();
-        }
-        (Pointer::PromptField { option }, Some(Overlay::Prompt(mut prompt))) => {
-            prompt.option_focused = option;
-            if option {
-                prompt.purpose.toggle_option();
-            }
-            state.overlay = Some(Overlay::Prompt(prompt));
-        }
-        (Pointer::ResultControl { side, action }, None)
-            if state.panel(side).is_results() && matches!(action, Action::SetExpanded(_) | Action::BackResults) =>
-        {
-            state.active = side;
-            state.preview_focused = false;
-            return actions::perform(state, action, now);
-        }
-        (Pointer::DialogScroll(delta), Some(Overlay::Approval(_) | Overlay::AgentLog { .. })) => {
-            crate::agent::scroll_dialog(state, delta);
-            return Vec::new();
-        }
-        (Pointer::DialogScroll(delta), Some(overlay)) => {
-            if let Some((selected, count)) = list_position(state, &overlay) {
-                let row = selected.saturating_add_signed(delta).min(count.saturating_sub(1));
-                select_row(state, overlay, row, now);
-            }
-        }
-        (Pointer::DialogRow(row), Some(overlay)) => select_row(state, overlay, row, now),
-        (Pointer::DialogMark(row), Some(Overlay::TimeMachine)) => state.backup.window.point(row, true),
-        (Pointer::DismissDialog, Some(_)) => {
-            return crate::overlays::on_key(state, &crossterm::event::KeyCode::Esc.into(), now);
-        }
-        (Pointer::Confirm(accept), Some(Overlay::Confirm(_) | Overlay::Approval(_))) => {
-            return crate::overlays::on_key(
-                state,
-                &crossterm::event::KeyCode::Char(if accept { 'y' } else { 'n' }).into(),
-                now,
-            );
-        }
-        (Pointer::Collection { index, open }, Some(Overlay::Collections(mut picker))) if picker.creating.is_none() => {
-            picker.selected = index.min(state.collections.len().saturating_sub(1));
-            state.overlay = Some(Overlay::Collections(picker));
-            if open {
-                return crate::overlays::on_key(state, &crossterm::event::KeyCode::Enter.into(), now);
-            }
-        }
-        (Pointer::CollectionScroll(delta), Some(Overlay::Collections(mut picker))) if picker.creating.is_none() => {
-            picker.selected =
-                picker.selected.saturating_add_signed(delta).min(state.collections.len().saturating_sub(1));
-            state.overlay = Some(Overlay::Collections(picker));
-        }
-        (Pointer::NewCollection, Some(Overlay::Collections(mut picker))) => {
-            picker.creating = Some(crate::LineInput::new(String::new()));
-            state.overlay = Some(Overlay::Collections(picker));
-        }
-        (Pointer::SearchField(selected), Some(Overlay::Search(mut form))) => {
-            form.selected = selected.min(form.fields() - 1);
-            let toggle = matches!(form.selected, 2 | 5 | 6);
-            state.overlay = Some(Overlay::Search(form));
-            if toggle {
-                return crate::overlays::on_key(state, &crossterm::event::KeyCode::Right.into(), now);
-            }
-        }
-        (Pointer::SearchRecent(at), Some(Overlay::Search(mut form))) => {
-            form.take_recent(state, at);
-            state.overlay = Some(Overlay::Search(form));
-        }
-        (Pointer::EditExclusions, Some(Overlay::Search(form))) => return crate::exclusions::open(state, form),
-        (Pointer::Exclusion(row), Some(Overlay::Exclusions(mut editor))) if editor.editing.is_none() => {
-            let effects = editor.activate(state, row);
-            state.overlay = Some(Overlay::Exclusions(editor));
-            return effects;
-        }
-        (Pointer::SearchStart, Some(Overlay::Search(_) | Overlay::Collections(_))) => {
-            return crate::overlays::on_key(state, &crossterm::event::KeyCode::Enter.into(), now);
-        }
-        (Pointer::Menu(index), None | Some(Overlay::Menu(_))) => {
-            if let Some(menu) = menus(state).get(index) {
-                let cursor = MenuCursor { menu: index, item: menu.first_enabled() };
-                state.last_menu = Some(cursor);
-                state.overlay = Some(Overlay::Menu(cursor));
-            }
-        }
-        (Pointer::MenuItem(index), Some(Overlay::Menu(cursor))) => {
-            if let Some(item) =
-                menus(state).get(cursor.menu).and_then(|menu| menu.item(index)).filter(|item| item.enabled)
-            {
-                state.last_menu = Some(MenuCursor { item: Some(index), ..cursor });
-                state.overlay = None;
-                return actions::perform(state, item.action, now);
-            }
-        }
-        (Pointer::Setting(selected), Some(Overlay::Settings { .. } | Overlay::Plugins { .. })) => {
-            return crate::overlays::toggle_setting(state, selected, now);
-        }
-        (Pointer::FocusPreview, None) if state.aside.is_some() => state.preview_focused = true,
-        (Pointer::DismissMenu, Some(Overlay::Menu(_))) => state.overlay = None,
-        (Pointer::ResultSort { side, key }, None) => {
-            state.active = side;
-            let previous = state.panel(side).sort();
-            state.panel_mut(side).set_sort(crate::Sort {
-                key,
-                reverse: if previous.key == key {
-                    !previous.reverse
-                } else {
-                    matches!(key, crate::SortKey::Size | crate::SortKey::Modified | crate::SortKey::Files)
-                },
-            });
-        }
-        (Pointer::Action(action), None) => return actions::perform(state, action, now),
-        (Pointer::Panel { side, index, open, mark }, None) if state.aside.is_none() || side == state.active => {
-            state.preview_focused = false;
-            state.active = side;
-            let panel = state.panel_mut(side);
-            if index >= panel.len() {
-                return Vec::new();
-            }
-            let delta = index as isize - panel.cursor() as isize;
-            panel.move_by(delta);
-            if mark {
-                panel.toggle_mark();
-            }
-            if open {
-                return actions::perform(state, Action::Open, now);
-            }
-        }
-        (Pointer::ScrollPanel { side, delta }, None) if state.aside.is_none() || side == state.active => {
-            state.preview_focused = false;
-            state.active = side;
-            state.panel_mut(side).move_by(delta);
-        }
-        _ => {}
+/// Opens a menu of the menu bar at its first item that can be chosen.
+fn open_menu(state: &mut AppState, index: usize) -> Vec<Effect> {
+    if let Some(menu) = menus(state).get(index) {
+        let cursor = MenuCursor { menu: index, item: menu.first_enabled() };
+        state.last_menu = Some(cursor);
+        state.overlay = Some(Overlay::Menu(cursor));
     }
     Vec::new()
 }
 
-/// The chosen row of a list dialog and how many rows it has.
-fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> {
-    Some(match overlay {
-        Overlay::Themes(picker) => (picker.selected, state.appearance.choices().len()),
-        Overlay::Languages(picker) => (picker.selected, borg_i18n::Locale::ALL.len()),
-        Overlay::Settings { selected } | Overlay::Plugins { selected } => {
-            (*selected, crate::menu::checkbox_items(state).len())
+/// A click or the wheel with no window open: on a monitor beside the panels, or on the panels,
+/// their trees and their results.
+fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
+    match pointer {
+        Pointer::ActivityExpand { .. }
+        | Pointer::ActivityHide
+        | Pointer::ActivitySearchField(_)
+        | Pointer::ActivityControl { .. }
+        | Pointer::ActivityRow { .. }
+        | Pointer::ActivitySort(_)
+            if state.activity.side.is_some() =>
+        {
+            monitors::activity(state, pointer, now)
         }
-        Overlay::Jobs(list) => (list.selected, state.jobs.len()),
-        Overlay::Remotes(browser) if browser.show_clients => {
-            (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
+        Pointer::DockerExpand { .. }
+        | Pointer::DockerHide
+        | Pointer::DockerRow { .. }
+        | Pointer::DockerShellScroll(_)
+        | Pointer::DockerControl { .. }
+            if state.docker.is_open() =>
+        {
+            monitors::containers(state, pointer, now)
         }
-        Overlay::Remotes(browser) => (browser.selected, browser.choices.len()),
-        Overlay::Exclusions(editor) if editor.editing.is_none() => {
-            (editor.selected, crate::ExclusionEditor::rows(state))
+        Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),
+        Pointer::ResultControl { side, action }
+            if state.panel(side).is_results() && matches!(action, Action::SetExpanded(_) | Action::BackResults) =>
+        {
+            focus(state, side);
+            actions::perform(state, action, now)
         }
-        Overlay::TimeMachine => {
-            let list = state.backup.window.list();
-            (list.cursor, list.items.len())
+        Pointer::FocusPreview if state.aside.is_some() => {
+            state.preview_focused = true;
+            Vec::new()
         }
-        _ => return None,
-    })
+        Pointer::ResultSort { side, key } => sort_by(state, side, key),
+        Pointer::Action(action) => actions::perform(state, action, now),
+        Pointer::Panel { side, index, open, mark } if takes_clicks(state, side) => {
+            click_row(state, side, index, open, mark, now)
+        }
+        Pointer::ScrollPanel { side, delta } if takes_clicks(state, side) => {
+            focus(state, side);
+            state.panel_mut(side).move_by(delta);
+            Vec::new()
+        }
+        _ => Vec::new(),
+    }
 }
 
-/// Chooses `row` in a list dialog as the arrow keys would, previewing a theme as they do.
-fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) {
-    let Some((_, count)) = list_position(state, &overlay).or(matches!(overlay, Overlay::Connect(_)).then_some((0, 3)))
-    else {
-        return;
+/// Whether the panel on `side` takes clicks: any does, unless a preview shows beside the active
+/// one in its place.
+fn takes_clicks(state: &AppState, side: Side) -> bool {
+    state.aside.is_none() || side == state.active
+}
+
+/// Makes the panel on `side` the active one, taking the keys back from the preview.
+fn focus(state: &mut AppState, side: Side) {
+    state.preview_focused = false;
+    state.active = side;
+}
+
+/// A click on a folder of a panel's tree opens or closes it.
+fn toggle_tree_node(state: &mut AppState, side: Side, index: usize) -> Vec<Effect> {
+    state.active = side;
+    let delta = index as isize - state.panel(side).cursor() as isize;
+    state.panel_mut(side).move_by(delta);
+    state.panel_mut(side).toggle_tree_node();
+    Vec::new()
+}
+
+/// A click on a column's title sorts by it, and a second one turns the order round. Sizes, times
+/// and file counts start reversed.
+fn sort_by(state: &mut AppState, side: Side, key: crate::SortKey) -> Vec<Effect> {
+    state.active = side;
+    let previous = state.panel(side).sort();
+    let reverse = if previous.key == key {
+        !previous.reverse
+    } else {
+        matches!(key, crate::SortKey::Size | crate::SortKey::Modified | crate::SortKey::Files)
     };
-    let row = row.min(count.saturating_sub(1));
-    state.overlay = Some(match overlay {
-        Overlay::Themes(picker) => {
-            let fade = state.motion().fade;
-            state.appearance.select(row, now, fade);
-            Overlay::Themes(crate::Picker { selected: row, ..picker })
-        }
-        Overlay::Languages(picker) => Overlay::Languages(crate::Picker { selected: row, ..picker }),
-        Overlay::Settings { .. } => Overlay::Settings { selected: row },
-        Overlay::Plugins { .. } => Overlay::Plugins { selected: row },
-        Overlay::Jobs(_) => Overlay::Jobs(crate::JobList { selected: row }),
-        Overlay::Remotes(mut browser) => {
-            if browser.show_clients {
-                browser.client_selected = row;
-            } else {
-                browser.selected = row;
-                browser.error = None;
-            }
-            Overlay::Remotes(browser)
-        }
-        Overlay::Connect(mut connect) => {
-            connect.pick = row;
-            Overlay::Connect(connect)
-        }
-        Overlay::Exclusions(mut editor) => {
-            editor.selected = row;
-            Overlay::Exclusions(editor)
-        }
-        Overlay::TimeMachine => {
-            state.backup.window.point(row, false);
-            Overlay::TimeMachine
-        }
-        overlay => overlay,
-    });
+    state.panel_mut(side).set_sort(crate::Sort { key, reverse });
+    Vec::new()
+}
+
+/// A click on a panel's row puts the cursor there; a right click also marks it and a double
+/// click opens it.
+fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, mark: bool, now: Instant) -> Vec<Effect> {
+    focus(state, side);
+    let panel = state.panel_mut(side);
+    if index >= panel.len() {
+        return Vec::new();
+    }
+    let delta = index as isize - panel.cursor() as isize;
+    panel.move_by(delta);
+    if mark {
+        panel.toggle_mark();
+    }
+    if open { actions::perform(state, Action::Open, now) } else { Vec::new() }
 }
