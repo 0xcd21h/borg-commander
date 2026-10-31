@@ -191,6 +191,7 @@ fn facts(facts: &Facts, path: &Path, clock: &Zoned) -> Vec<(&'static str, String
         Some((tr!(inode), facts.inode.to_string())),
         Some((tr!(links), facts.links.to_string())),
         facts.disk.map(|(free, total)| (tr!(free_space), tr!(space_of_total, format::size(free), format::size(total)))),
+        facts.backup.as_ref().map(|backup| (tr!(backup_info_label), crate::backup_view::status_label(backup))),
     ];
     rows.into_iter().flatten().collect()
 }

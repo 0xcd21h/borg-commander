@@ -524,6 +524,9 @@ fn paint_overlay(
         Overlay::Remotes(browser) => {
             (crate::remote_view::draw(browser, theme, screen, buf, scene.t()), None, Unfold::FromCenter)
         }
+        Overlay::TimeMachine => {
+            (crate::backup_view::draw(state, look, scene.home, scene.now, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::About(_) => (art_view::draw_about(look, screen, buf), None, Unfold::FromCenter),
         Overlay::Find(_) => (Rect::default(), None, Unfold::Down),
         Overlay::Question(question) => {

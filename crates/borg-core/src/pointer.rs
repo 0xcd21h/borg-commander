@@ -230,8 +230,8 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         }
         (Pointer::PromptField { option }, Some(Overlay::Prompt(mut prompt))) => {
             prompt.option_focused = option;
-            if option && let crate::PromptPurpose::Copy { optimize_hdd, .. } = &mut prompt.purpose {
-                *optimize_hdd = !*optimize_hdd;
+            if option {
+                prompt.purpose.toggle_option();
             }
             state.overlay = Some(Overlay::Prompt(prompt));
         }

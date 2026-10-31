@@ -39,6 +39,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::AgentLog { scroll }) => crate::agent::on_log_key(state, scroll, key),
         Some(Overlay::Connect(connect)) => crate::agent::on_connect_key(state, connect, key),
         Some(Overlay::Remotes(browser)) => crate::remote::on_key(state, browser, key),
+        Some(Overlay::TimeMachine) => crate::backup::on_key(state, key, now),
         None => Vec::new(),
     }
 }
@@ -146,7 +147,7 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             return vec![effect];
         }
     }
-    if let PromptPurpose::Copy { optimize_hdd, .. } = &mut prompt.purpose {
+    if prompt.purpose.option().is_some() {
         match key.code {
             KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
                 prompt.option_focused = !prompt.option_focused;
@@ -154,12 +155,22 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
                 return Vec::new();
             }
             KeyCode::Char(' ') if prompt.option_focused => {
-                *optimize_hdd = !*optimize_hdd;
+                prompt.purpose.toggle_option();
                 state.overlay = Some(Overlay::Prompt(prompt));
                 return Vec::new();
             }
             KeyCode::Enter | KeyCode::Esc => {}
             _ if prompt.option_focused => return Vec::new(),
+            _ => {}
+        }
+    }
+    if let PromptPurpose::BackupAdd { fixed } = prompt.purpose {
+        match key.code {
+            KeyCode::Esc => {
+                state.overlay = Some(Overlay::TimeMachine);
+                return Vec::new();
+            }
+            KeyCode::Enter => return crate::backup::add_path(state, prompt.input.text().trim(), fixed),
             _ => {}
         }
     }
@@ -186,7 +197,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         return Vec::new();
     }
     match purpose {
-        PromptPurpose::RemoteName { .. } => Vec::new(),
+        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } => Vec::new(),
         PromptPurpose::Search { root } => {
             let hidden = state.settings.preferences.show_hidden;
             match crate::results::name_search(state, root, text, hidden, true, Default::default()) {

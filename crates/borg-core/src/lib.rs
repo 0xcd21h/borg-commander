@@ -4,6 +4,7 @@ mod agent;
 mod anim;
 mod appearance;
 mod aside;
+mod backup;
 mod busy;
 mod clipboard;
 mod command;
@@ -49,6 +50,11 @@ pub use agent::{
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked};
+pub use backup::{
+    Backup, BackupChange, BackupEvent, BackupItem, BackupList, BackupListing, BackupPanel, BackupRequest, BackupTab,
+    BackupWindow, Exclusion, list_rows as backup_list_rows, name_of as backup_name, rank as backup_rank,
+    window_height as backup_window_height,
+};
 pub use busy::{Busy, SPINNER_DELAY, Task};
 pub use clipboard::Clipboard;
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};

@@ -390,7 +390,7 @@ fn guarded(path: &Path) -> bool {
 }
 
 /// Whether the folder at `path` is generated: by its name and marker files, or a cache tag.
-fn generated(path: &Path) -> bool {
+pub(crate) fn generated(path: &Path) -> bool {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     borg_core::is_artifact(&name, |file| path.with_file_name(file).exists(), |file| path.join(file).exists())
         || cache_tagged(path)

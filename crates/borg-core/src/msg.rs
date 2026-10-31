@@ -146,6 +146,7 @@ pub enum Msg {
         id: u64,
         result: Result<Option<Viewer>, String>,
     },
+    Backup(crate::BackupEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,5 +318,7 @@ pub enum Effect {
         dir: PathBuf,
         paths: Vec<PathBuf>,
     },
+    /// Reads or changes Time Machine exclusions (macOS).
+    Backup(crate::BackupRequest),
     Quit,
 }

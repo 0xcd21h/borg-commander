@@ -116,6 +116,7 @@ pub struct App {
     preview: preview::Loader,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
+    backup: crate::backup::Backup,
     docker: crate::docker::Docker,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
@@ -225,6 +226,8 @@ impl App {
         let preview = preview::Loader::new(messages.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
+        let backup = crate::backup::Backup::new(messages.clone());
+        state.backup.available = crate::backup::available();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         state.agent.connect = crate::agent::connect_info();
@@ -290,6 +293,7 @@ impl App {
             preview,
             plugins,
             monitor,
+            backup,
             docker,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
@@ -1605,6 +1609,7 @@ impl App {
                     });
                 }
                 Effect::Activity { id, request } => self.monitor.request(id, request),
+                Effect::Backup(request) => self.backup.request(request),
                 Effect::Docker { id, request } => self.docker.request(id, request),
                 Effect::DockerWatch(on) => self.docker.watch(on),
                 Effect::DockerShell(request) => self.container_shell(request),

@@ -90,5 +90,6 @@ fn info(path: &Path, cancelled: &AtomicBool) -> Result<Facts> {
         links: own.nlink(),
         items,
         disk: disk(path),
+        backup: crate::backup::available().then(|| crate::backup::status(path)),
     })
 }

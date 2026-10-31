@@ -204,11 +204,16 @@ fn file_menu(state: &AppState) -> Menu {
 }
 
 fn command_menu(state: &AppState) -> Menu {
+    let time_machine = state.backup.available.then(|| item(tr!(backup_title), "M-t", Action::TimeMachine));
     Menu {
         title: tr!(command),
-        entries: vec![
+        entries: [
             when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
             when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
+        ]
+        .into_iter()
+        .chain(time_machine)
+        .chain([
             item(tr!(find_in_folder), "C-s", Action::Find),
             when(item(tr!(insert_new_line), "S-Enter", Action::InsertNewline), !state.shell.busy()),
             check(tr!(quick_view), "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
@@ -222,7 +227,8 @@ fn command_menu(state: &AppState) -> Menu {
             item(tr!(show_shell), "C-o", Action::ToggleShell),
             MenuEntry::Separator,
             item(tr!(about_borg), "F1", Action::About),
-        ],
+        ])
+        .collect(),
     }
 }
 

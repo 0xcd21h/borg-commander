@@ -13,7 +13,8 @@ use crate::{Theme, format};
 const MAX_WIDTH: u16 = 64;
 const MARGIN: u16 = 4;
 const PROMPT_HEIGHT: u16 = 6;
-const COPY_HEIGHT: u16 = 8;
+/// A prompt with a checkbox below its field.
+const OPTION_HEIGHT: u16 = 8;
 const CONFIRM_HEIGHT: u16 = 6;
 const PADDING: u16 = 1;
 const BUTTON_GAP: &str = "   ";
@@ -21,9 +22,13 @@ const BUTTON_GAP: &str = "   ";
 /// The prompt and the keys its border lists, as many as fit.
 pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str) {
     let rect = prompt_rect(prompt, screen);
-    let copy = matches!(prompt.purpose, PromptPurpose::Copy { .. });
-    let hint = if copy { tr!(copy_dialog_hint) } else { tr!(enter_ok_esc_cancel) };
-    let hint = if copy && hint.width() > usize::from(rect.width.saturating_sub(2)) {
+    let checkbox = prompt.purpose.option();
+    let hint = match prompt.purpose {
+        PromptPurpose::Copy { .. } => tr!(copy_dialog_hint),
+        PromptPurpose::BackupAdd { .. } => tr!(backup_add_hint),
+        _ => tr!(enter_ok_esc_cancel),
+    };
+    let hint = if checkbox.is_some() && hint.width() > usize::from(rect.width.saturating_sub(2)) {
         tr!(copy_dialog_hint_compact)
     } else {
         hint
@@ -34,9 +39,9 @@ pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str)
 pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
     let styles = &theme.styles;
     let (rect, hint) = prompt_hint(prompt, screen);
-    let copy = matches!(prompt.purpose, PromptPurpose::Copy { .. });
+    let checkbox = prompt.purpose.option();
     frame(prompt.title, Some(hint), theme, rect, buf);
-    let [label, field, _, option, _] = prompt_rows(rect, copy);
+    let [label, field, _, option, _] = prompt_rows(rect, checkbox.is_some());
 
     let width = usize::from(field.width);
     Line::styled(format::truncate_end(&prompt.label, width), styles.overlay).render(label, buf);
@@ -48,10 +53,11 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     let shift = before.width().saturating_sub(width.saturating_sub(1));
     Line::styled(skip_columns(text, shift), styles.input).render(field, buf);
 
-    if let PromptPurpose::Copy { optimize_hdd, .. } = prompt.purpose {
+    if let Some((caption, checked)) = checkbox {
         let style = if prompt.option_focused { styles.overlay_selected } else { styles.overlay };
-        let checked = if optimize_hdd { 'x' } else { ' ' };
-        Line::styled(format!("[{checked}] {}", tr!(optimize_copying_for_hard_drives)), style).render(option, buf);
+        let checked = if checked { 'x' } else { ' ' };
+        let caption = format::truncate_end(&format!("[{checked}] {caption}"), usize::from(option.width));
+        Line::styled(caption, style).render(option, buf);
         if prompt.option_focused && option.width > 0 && option.height > 0 {
             return (rect, Position::new(option.x + u16::from(option.width > 1), option.y));
         }
@@ -62,28 +68,28 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
 }
 
 fn prompt_rect(prompt: &Prompt, screen: Rect) -> Rect {
-    let height = if matches!(prompt.purpose, PromptPurpose::Copy { .. }) { COPY_HEIGHT } else { PROMPT_HEIGHT };
+    let height = if prompt.purpose.option().is_some() { OPTION_HEIGHT } else { PROMPT_HEIGHT };
     centered(screen, dialog_width(screen), height)
 }
 
-fn prompt_rows(rect: Rect, copy: bool) -> [Rect; 5] {
+fn prompt_rows(rect: Rect, checkbox: bool) -> [Rect; 5] {
     let inner = padded(Block::bordered().inner(rect));
     Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(u16::from(copy)),
-        Constraint::Length(u16::from(copy)),
+        Constraint::Length(u16::from(checkbox)),
+        Constraint::Length(u16::from(checkbox)),
         Constraint::Fill(1),
     ])
     .areas(inner)
 }
 
 pub(crate) fn prompt_field_at(prompt: &Prompt, screen: Rect, point: Position) -> Option<bool> {
-    let [_, field, _, option, _] =
-        prompt_rows(prompt_rect(prompt, screen), matches!(prompt.purpose, PromptPurpose::Copy { .. }));
+    let checkbox = prompt.purpose.option().is_some();
+    let [_, field, _, option, _] = prompt_rows(prompt_rect(prompt, screen), checkbox);
     if field.contains(point) {
         Some(false)
-    } else if matches!(prompt.purpose, PromptPurpose::Copy { .. }) && option.contains(point) {
+    } else if checkbox && option.contains(point) {
         Some(true)
     } else {
         None

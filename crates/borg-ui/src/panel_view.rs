@@ -25,6 +25,9 @@ use crate::{
 const SIZE_WIDTH: u16 = 6;
 const DATE_WIDTH: u16 = 12;
 const GIT_WIDTH: u16 = 2;
+const BACKUP_WIDTH: u16 = 1;
+/// Marks an entry Time Machine leaves out of backups on its own account.
+const BACKUP_MARK: &str = "⊘";
 const NO_MARKER: char = ' ';
 const FIND_FIELD: usize = 18;
 const FIND_PAD: usize = 1;
@@ -250,7 +253,15 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
             } else {
                 String::new()
             };
-            Line::styled(format!(" {}{git} ", format::count(panel.received(), format::Count::Item)), styles.footer)
+            let backup = if panel.backup.folder.excluded() {
+                tr!(backup_footer_folder).into()
+            } else if panel.backup.marks() {
+                tr!(backup_footer_some, count = format::count(panel.backup.entries.len(), format::Count::Item))
+            } else {
+                String::new()
+            };
+            let items = format::count(panel.received(), format::Count::Item);
+            Line::styled(format!(" {items}{git}{backup} "), styles.footer)
         }
         (_, _, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
     };
@@ -380,7 +391,7 @@ fn visible<'p>(panel: &'p Panel, scroll: usize) -> impl Iterator<Item = (usize, 
 
 fn draw_full(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize, buf: &mut Buffer) {
     let panel = scene.panel;
-    let columns = Columns::fit(body.content.width, panel.git_repository().is_some());
+    let columns = Columns::fit(body.content.width, panel.git_repository().is_some(), panel.backup.marks());
     let mut cursor_row = None;
     for (slot, index, row) in visible(panel, scroll) {
         let Some((full, content)) = body.row(slot) else { continue };
@@ -451,15 +462,20 @@ fn draw_brief(scene: &PanelScene<'_>, look: &Look<'_>, body: Body, scroll: usize
         let y = body.content.y + u16::try_from(slot % rows).unwrap_or(u16::MAX);
         let area = Rect { x: column.x, y, width: column.width.saturating_sub(separator), height: 1 };
         let tone = Tone::of(panel, row, index, scene.active, look.styles());
-        let status_width =
-            if panel.git_repository().is_some() && area.width >= SHOW_GIT_BRIEF_FROM { GIT_WIDTH + GAP } else { 0 };
+        let roomy = area.width >= SHOW_GIT_BRIEF_FROM;
+        let status_width = if panel.git_repository().is_some() && roomy { GIT_WIDTH + GAP } else { 0 };
+        let backup_width = if panel.backup.marks() && roomy { BACKUP_WIDTH + GAP } else { 0 };
         draw_name(
             row,
-            Rect { width: area.width.saturating_sub(status_width), ..area },
+            Rect { width: area.width.saturating_sub(status_width + backup_width), ..area },
             tone,
             &Decor::of(scene, look),
             buf,
         );
+        if backup_width > 0 {
+            let x = area.right() - status_width - BACKUP_WIDTH;
+            draw_backup(row, panel, Rect { x, width: BACKUP_WIDTH, ..area }, tone, buf);
+        }
         if status_width > 0 {
             draw_git(row, panel, Rect { x: area.right() - GIT_WIDTH, width: GIT_WIDTH, ..area }, tone, look, buf);
         }
@@ -515,21 +531,23 @@ impl Tone {
 
 struct Columns {
     name: u16,
+    backup: Option<u16>,
     git: Option<u16>,
     size: Option<u16>,
     date: Option<u16>,
 }
 
 impl Columns {
-    fn fit(width: u16, repository: bool) -> Self {
+    fn fit(width: u16, repository: bool, backup: bool) -> Self {
         let date = (width >= SHOW_DATE_FROM).then_some(DATE_WIDTH);
         let size = (width >= SHOW_SIZE_FROM).then_some(SIZE_WIDTH);
         let git = (repository && width >= SHOW_GIT_FROM).then_some(GIT_WIDTH);
-        let reserved = [git, size, date].into_iter().flatten().map(|w| w + GAP).sum::<u16>();
-        Self { name: width.saturating_sub(reserved), git, size, date }
+        let backup = (backup && width >= SHOW_GIT_FROM).then_some(BACKUP_WIDTH);
+        let reserved = [backup, git, size, date].into_iter().flatten().map(|w| w + GAP).sum::<u16>();
+        Self { name: width.saturating_sub(reserved), backup, git, size, date }
     }
 
-    fn split(&self, area: Rect) -> [Option<Rect>; 4] {
+    fn split(&self, area: Rect) -> [Option<Rect>; 5] {
         let mut x = area.x;
         let mut next = |width: Option<u16>, gap: u16| {
             width.map(|width| {
@@ -538,7 +556,13 @@ impl Columns {
                 rect
             })
         };
-        [next(Some(self.name), 0), next(self.git, GAP), next(self.size, GAP), next(self.date, GAP)]
+        [
+            next(Some(self.name), 0),
+            next(self.backup, GAP),
+            next(self.git, GAP),
+            next(self.size, GAP),
+            next(self.date, GAP),
+        ]
     }
 }
 
@@ -573,9 +597,12 @@ fn draw_full_row(
         ),
     };
 
-    let [name, git_cell, size_cell, date_cell] = columns.split(area);
+    let [name, backup_cell, git_cell, size_cell, date_cell] = columns.split(area);
     if let Some(cell) = name {
         draw_name(row, cell, tone, &Decor::of(scene, look), buf);
+    }
+    if let Some(cell) = backup_cell {
+        draw_backup(row, scene.panel, cell, tone, buf);
     }
     if let Some(cell) = git_cell {
         draw_git(row, scene.panel, cell, tone, look, buf);
@@ -585,6 +612,14 @@ fn draw_full_row(
     }
     if let Some(cell) = date_cell {
         Line::styled(date, tone.meta).render(cell, buf);
+    }
+}
+
+fn draw_backup(row: Row<'_>, panel: &Panel, area: Rect, tone: Tone, buf: &mut Buffer) {
+    if let Row::Entry(entry) = row
+        && panel.backup.entry(&entry.name).is_some()
+    {
+        Line::styled(BACKUP_MARK, tone.meta).render(area, buf);
     }
 }
 

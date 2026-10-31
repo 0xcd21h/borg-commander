@@ -101,6 +101,7 @@ pub struct Panel {
     focus: Option<Anchor>,
     replacing: bool,
     pub git: crate::GitPanel,
+    pub backup: crate::BackupPanel,
     /// The container whose filesystem the panel shows, if any.
     pub mount: Option<crate::Mount>,
     /// A paired Borg session whose filesystem this panel shows.
@@ -135,6 +136,7 @@ impl Panel {
             focus: None,
             replacing: false,
             git: crate::GitPanel::default(),
+            backup: crate::BackupPanel::default(),
             mount: None,
             remote_mount: None,
         }

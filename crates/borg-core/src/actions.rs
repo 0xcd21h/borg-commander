@@ -88,6 +88,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::RefreshSizes
                 | Action::RevealOriginal
                 | Action::RemoveReferences
+                | Action::TimeMachine
         )
     {
         state.notice = Some(tr!(remote_operation_unavailable).into());
@@ -110,6 +111,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::Collect
                 | Action::OpenCollection
                 | Action::Git(_)
+                | Action::TimeMachine
         )
         || other_mounted && action == Action::ExtractToOther
     {
@@ -252,6 +254,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
+        Action::TimeMachine => crate::backup::open(state),
         Action::Up => moved(state, |panel| panel.move_by(LINE_UP)),
         Action::Down => moved(state, |panel| panel.move_by(LINE_DOWN)),
         Action::PageUp => moved(state, |panel| panel.page(PAGE_UP)),

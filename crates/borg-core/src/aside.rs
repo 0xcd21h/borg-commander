@@ -42,6 +42,8 @@ pub struct Facts {
     pub links: u64,
     pub items: Option<usize>,
     pub disk: Option<(u64, u64)>,
+    /// How Time Machine treats it, on macOS.
+    pub backup: Option<crate::Exclusion>,
 }
 
 #[derive(Debug, Clone)]

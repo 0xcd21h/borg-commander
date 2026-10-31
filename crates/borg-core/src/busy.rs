@@ -20,6 +20,8 @@ pub enum Task {
     /// The quick view or Info pane preparing its contents.
     Preview,
     RemoteCatalog,
+    /// The Time Machine window searching or changing exclusions.
+    Backup,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -53,6 +55,9 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
     if matches!(&state.overlay, Some(crate::Overlay::Remotes(browser)) if browser.loading || browser.connecting || browser.deleting.is_some())
     {
         active.push(Task::RemoteCatalog);
+    }
+    if matches!(state.overlay, Some(crate::Overlay::TimeMachine)) && state.backup.window.busy() {
+        active.push(Task::Backup);
     }
     for side in Side::ALL {
         if state.panel(side).loading() {
