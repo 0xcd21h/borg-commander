@@ -1,4 +1,6 @@
-use borg_i18n::tr;
+//! The running app: the state, and the event loop that feeds it keys, the mouse, the shell's
+//! output and the messages of the parts working for it, carrying out the effects it answers with.
+
 use std::{
     collections::HashMap,
     io::Write as _,
@@ -7,31 +9,30 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use borg_core::{AMBIENT_FRAME, AppState, Effect, Msg, Pace, Side, update};
 use borg_gfx::Graphics;
 use borg_jobs::Control;
-use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
+use borg_term::{Emulator, Pty, PtyEvent};
 use borg_ui::{Palette, ThemeSet};
-use borg_vfs::{Backend, Local};
+use borg_vfs::Backend;
 use crossterm::{
     event::{EnableBracketedPaste, EnableMouseCapture, EventStream},
     execute,
     terminal::{EndSynchronizedUpdate, EnterAlternateScreen},
 };
 use futures::StreamExt;
-use ratatui::{DefaultTerminal, layout::Size};
+use ratatui::DefaultTerminal;
 use tokio::{
-    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
     time::sleep_until,
 };
 
 use crate::{
     config::{Config, ConfigDir},
-    launch::{self, Launch},
     preview,
-    session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
+    session::{RESTORED_LINES, Session, StateDir},
 };
 
 mod agent_calls;
@@ -42,6 +43,7 @@ mod input;
 mod jobs;
 mod remotes;
 mod render;
+mod startup;
 mod viewers;
 
 use input::WheelBurst;
@@ -137,161 +139,6 @@ impl Drop for App {
 }
 
 impl App {
-    pub fn start(launch: &Launch, size: Size, detected: launch::Terminal) -> Result<Self> {
-        let grid = GridSize::console(size.width, size.height);
-        let now = Instant::now();
-        let appearance = appearance(launch);
-        let (mut state, mut pending) =
-            AppState::new(launch.startup.clone(), size.width, size.height, launch.settings.clone(), appearance, now);
-        if let Some(dir) = StateDir::locate() {
-            state.remote_identities =
-                crate::link::servers(dir.path()).into_iter().map(|server| (server.name, server.key)).collect();
-            match crate::remote_names::load(dir.path()) {
-                Ok(names) => state.remote_names = names,
-                Err(error) => state.notice = Some(tr!(remote_names_error, error = error)),
-            }
-        }
-        if let Some(target) = &launch.remote {
-            pending.retain(|effect| !matches!(effect, Effect::List { side: Side::Left, .. }));
-            pending.extend(update(
-                &mut state,
-                Msg::MountRemote {
-                    side: Side::Left,
-                    machine: target.machine.clone(),
-                    session: target.session.clone(),
-                    name: target.name.clone(),
-                },
-                now,
-            ));
-        }
-        state.notice = launch.warnings.first().cloned().or(state.notice.take());
-        // The glitch intro plays only where animations do: not over SSH or without truecolor.
-        if state.settings.motion == borg_core::Motion::LOCAL {
-            state.intro = Some(now);
-        }
-        let mut collections_writable = true;
-        if let Some(dir) = &launch.state_dir {
-            state.game2048 = dir.load_game2048().ok().flatten();
-            match dir.load_collections() {
-                Ok(collections) => state.collections = collections,
-                Err(error) => {
-                    collections_writable = false;
-                    state.notice = Some(tr!(collections_load_error, error = error));
-                }
-            }
-            if state.settings.search.history {
-                state.search_history = dir.load_search_history().unwrap_or_default();
-            } else {
-                let _ = dir.save_search_history(&borg_core::SearchHistory::default());
-            }
-        }
-
-        let mut emulator = Emulator::new(grid, state.settings.scrollback);
-        if let Some(restored) = &launch.restored {
-            emulator.feed(restored);
-            emulator.feed(RESTORED_MARKER);
-        }
-
-        let shell_dir = state.active_panel().dir().to_path_buf();
-        let mut command = shell_command(&launch.shell, &shell_dir, &launch.runtime_dir).context("preparing shell")?;
-        command.env("BORG_CONFIRM_EXIT", "1");
-        let (pty_tx, pty_events) = unbounded_channel();
-        let pty = Pty::spawn(command, grid, pty_tx)?;
-        let (messages, inbox) = unbounded_channel();
-
-        let preview = preview::Loader::new(messages.clone());
-        let plugins = crate::plugins::Plugins::new(messages.clone());
-        let monitor = crate::activity::Monitor::new(messages.clone());
-        let backup = crate::backup::Backup::new(messages.clone());
-        state.backup.available = crate::backup::available();
-        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
-        let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
-        state.agent.connect = crate::agent::connect_info();
-        let relay = launch.config.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse);
-        state.agent.connect.relay = relay.as_ref().map(ToString::to_string).unwrap_or_default();
-        let link = crate::link::LinkServer::new(
-            launch.state_dir.as_ref().map(|dir| dir.path().to_path_buf()),
-            launch.runtime_dir.clone(),
-            launch.session_id.clone(),
-            relay,
-            agent.requeue_sender(),
-            messages.clone(),
-            agent.clients(),
-        );
-        state.agent.computers = link.computers();
-        let runtime_dir = launch.runtime_dir.clone();
-        tokio::spawn(async move {
-            let mut refresh = tokio::time::interval(crate::launch::TTL_REFRESH);
-            loop {
-                refresh.tick().await;
-                let _ = crate::launch::mark_in_use(&runtime_dir);
-            }
-        });
-        let search = crate::search::Search::new(launch.config.index_refresh());
-        search.indexes.connect(messages.clone());
-        search.indexes.set_roots(state.settings.index_roots.clone());
-        let (indexes, settings) = (search.indexes.clone(), state.settings.search.clone());
-        tokio::spawn(async move {
-            tokio::time::sleep(INDEX_DELAY).await;
-            indexes.refresh_stale(&settings);
-        });
-        Ok(Self {
-            search,
-            emulator,
-            backend: Arc::new(Local::new(state.settings.listing_batch)),
-            state,
-            pty,
-            cd_request: borg_term::cd_request_file(&launch.runtime_dir),
-            pty_events,
-            messages,
-            inbox,
-            listings: [None, None],
-            remote_listings: crate::remote_fs::Listings::default(),
-            remote_catalog: None,
-            remote_consoles: crate::remote_console::Clients::new(),
-            console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),
-            native_mirror: crate::native_mirror::Host::start(
-                &launch.runtime_dir,
-                launch.session_id.as_deref().unwrap_or("default"),
-            )?,
-            palette: palette(&detected.colors),
-            themes: launch.themes.clone(),
-            config_dir: launch.config_dir.clone(),
-            config: launch.config.clone(),
-            home: launch.home.clone(),
-            state_dir: launch.state_dir.clone(),
-            collections_writable,
-            pending,
-            graphics: Graphics::new(detected.capabilities),
-            jobs: HashMap::new(),
-            last_click: None,
-            wheel: WheelBurst::default(),
-            preview,
-            viewer_search: None,
-            plugins,
-            monitor,
-            backup,
-            docker,
-            shells: crate::docker::Shells::new(),
-            console: borg_core::Console::Host,
-            agent,
-            reveals: Vec::new(),
-            link,
-            uploads: HashMap::new(),
-            downloads: std::collections::HashSet::new(),
-            approve_all: std::collections::HashSet::new(),
-            memory_readers: std::collections::HashSet::new(),
-            runtime_dir: launch.runtime_dir.clone(),
-            mirror_connect: None,
-            mirror_ready: None,
-            cloud_suppressed: launch.remote.is_some() || std::env::var_os("BORG_SERVICE_CHILD").is_some(),
-            host_capture: None,
-            clipboard: None,
-            plain: None,
-            wide_emoji: detected.wide_emoji,
-        })
-    }
-
     pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let result = self.event_loop(terminal).await;
         self.save_session();
