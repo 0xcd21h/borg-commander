@@ -70,6 +70,16 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     }
 }
 
+/// Pastes into the memory search form's query, or into the processes' filter while it is typed.
+pub(crate) fn paste(activity: &mut Activity, text: &str) {
+    if let Some(form) = activity.search_form.as_mut() {
+        form::paste(form, text);
+    } else if activity.filtering {
+        activity.filter.extend(text.chars().take(128));
+        activity.rebuild();
+    }
+}
+
 /// The panels' keys that work in the monitor too: the shell, the menu bar, About and quitting.
 fn panels_action(key: &KeyEvent) -> Option<Action> {
     match key.code {

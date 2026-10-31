@@ -23,7 +23,7 @@ pub use strings::{
 mod request;
 pub use request::{ActivityData, ActivityRequest};
 mod keys;
-pub(crate) use keys::{on_key, route_key};
+pub(crate) use keys::{on_key, paste, route_key};
 mod refresh;
 pub(crate) use refresh::{open, receive, receive_file_preview, sync, sync_file_preview, wake_at};
 mod capture;

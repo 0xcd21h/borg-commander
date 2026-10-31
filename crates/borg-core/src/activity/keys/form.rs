@@ -54,6 +54,19 @@ pub(super) fn on_key(activity: &mut Activity, mut form: MemorySearchForm, key: &
     Vec::new()
 }
 
+/// Pastes into the query, when it has the focus, as much as fits.
+pub(super) fn paste(form: &mut MemorySearchForm, text: &str) {
+    if form.selected != 0 {
+        return;
+    }
+    for c in text.chars().take(QUERY_LIMIT) {
+        if form.input.text().len() + c.len_utf8() > QUERY_LIMIT {
+            break;
+        }
+        form.input.apply(&KeyCode::Char(c).into());
+    }
+}
+
 /// The mode after `mode`, or the one before it.
 fn next_mode(mode: MemorySearchMode, back: bool) -> MemorySearchMode {
     let modes = MemorySearchMode::ALL;
