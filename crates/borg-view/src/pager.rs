@@ -11,6 +11,11 @@ use crate::{
 const MARKDOWN_LIMIT: u64 = 2 * 1024 * 1024;
 const SYNTAX_CONTEXT: u64 = 256 * 1024;
 const SYNTAX_AHEAD: u64 = 4 * 1024;
+/// How far apart the places colouring can carry on from are kept.
+const RESUME_EVERY: u64 = 8 * 1024;
+const MAX_RESUMES: usize = 4096;
+/// How much coloured text is kept before colouring starts afresh near the page.
+const SYNTAX_KEEP: u64 = 1024 * 1024;
 const TAB_WIDTH: usize = 8;
 
 pub const MAX_LINE: u64 = 64 * 1024;
@@ -41,6 +46,15 @@ struct Markdown {
     formatted_top: Position,
 }
 
+/// The language a document is coloured as, and the places colouring can carry on from, by
+/// offset: every so often and at the end of the colours, so that moving down colours only the
+/// new text.
+#[derive(Clone)]
+struct Syntax {
+    language: String,
+    resumes: Vec<(u64, paint::Resume)>,
+}
+
 #[derive(Clone)]
 pub struct Pager {
     source: Arc<dyn Source>,
@@ -53,7 +67,7 @@ pub struct Pager {
     height: usize,
     rows: Vec<String>,
     rich_rows: Vec<Vec<Run>>,
-    syntax: Option<String>,
+    syntax: Option<Box<Syntax>>,
     decoration: Option<Arc<RichText>>,
     markdown: Option<Markdown>,
     formatted: bool,
@@ -116,6 +130,7 @@ impl Pager {
             None
         } else {
             paint::syntax_name(path, String::from_utf8_lossy(&head).lines().next().unwrap_or_default())
+                .map(|language| Box::new(Syntax { language, resumes: Vec::new() }))
         };
         let markdown = path
             .extension()
@@ -147,7 +162,7 @@ impl Pager {
     }
 
     pub fn language(&self) -> Option<&str> {
-        self.syntax.as_deref()
+        self.syntax.as_ref().map(|syntax| syntax.language.as_str())
     }
 
     pub fn toggle_source(&mut self) -> io::Result<()> {
@@ -163,6 +178,9 @@ impl Pager {
         }
         self.formatted = !self.formatted;
         self.decoration = None;
+        if let Some(syntax) = self.syntax.as_mut() {
+            syntax.resumes.clear();
+        }
         self.refresh()
     }
 
@@ -329,7 +347,7 @@ impl Pager {
             self.decoration = self.markdown.as_ref().map(|markdown| markdown.rendered.clone());
             return Ok(());
         }
-        let Some(language) = &self.syntax else { return Ok(()) };
+        let Some(language) = self.syntax.as_ref().map(|syntax| syntax.language.clone()) else { return Ok(()) };
         let mut end = self.top.line;
         let mut remaining = self.height;
         let mut row = self.top.row;
@@ -339,24 +357,89 @@ impl Pager {
             end = line.next;
             row = 0;
         }
-        if self
-            .decoration
-            .as_ref()
-            .is_some_and(|rich| rich.base <= self.top.line && rich.base + rich.text.len() as u64 >= end)
-        {
+        let top = self.top.line;
+        if self.decoration.as_ref().is_some_and(|rich| rich.base <= top && rich.end() >= end) {
             return Ok(());
         }
-        let start = self.top.line.saturating_sub(SYNTAX_CONTEXT);
-        let end = end.saturating_add(SYNTAX_AHEAD).min(self.len());
-        let bytes = self.read(start, end)?;
-        let skip = if start > 0 { bytes.iter().position(|b| *b == NEWLINE).map_or(0, |i| i + 1) } else { 0 };
-        self.decoration = Some(Arc::new(paint::highlight(
-            &String::from_utf8_lossy(&bytes[skip..]),
-            language,
-            start + skip as u64,
-            &|| self.source.is_cancelled(),
-        )?));
+        // Carry on from the end of the colours when the page starts among them; otherwise start
+        // from the nearest place above the page, or with no context some way above it.
+        let carry = self
+            .decoration
+            .as_ref()
+            .filter(|rich| rich.base <= top && top <= rich.end() && rich.end() - rich.base < SYNTAX_KEEP)
+            .and_then(|rich| Some((rich.end(), self.resume_at(rich.end())?.clone())));
+        let above =
+            || self.resumes().iter().rev().find(|(at, _)| *at <= top).filter(|(at, _)| top - at <= SYNTAX_CONTEXT);
+        let carried = carry.is_some();
+        let (start, mut resume, cold) = match carry.or_else(|| above().cloned()) {
+            Some((at, resume)) => (at, resume, false),
+            None => (top.saturating_sub(SYNTAX_CONTEXT), paint::Resume::new(&language), true),
+        };
+        let to = end.saturating_add(SYNTAX_AHEAD).min(self.len());
+        let bytes = self.read(start, to)?;
+        // A cold start begins at the next line; colouring stops at the end of a line, where it can
+        // carry on from, unless that would leave part of the page out.
+        let skip = if cold && start > 0 { bytes.iter().position(|b| *b == NEWLINE).map_or(0, |i| i + 1) } else { 0 };
+        let keep = if to < self.len() {
+            bytes.iter().rposition(|b| *b == NEWLINE).map(|i| i + 1).filter(|&i| i > skip && start + i as u64 >= end)
+        } else {
+            None
+        };
+        let bytes = &bytes[skip..keep.unwrap_or(bytes.len()).max(skip)];
+        let base = start + skip as u64;
+        let mut rich = if carried {
+            self.decoration.take().map(Arc::unwrap_or_clone).unwrap_or_default()
+        } else {
+            RichText { base, ..RichText::default() }
+        };
+        let mut marks = Vec::new();
+        let mut last = base;
+        let mut mark = |at: u64, resume: &paint::Resume| {
+            if at >= last + RESUME_EVERY {
+                marks.push((at, resume.clone()));
+                last = at;
+            }
+        };
+        let cancelled = || self.source.is_cancelled();
+        paint::paint(bytes, &mut resume, &mut rich, &mut mark, &cancelled)?;
+        marks.push((rich.end(), resume));
+        self.keep_resumes(base, rich.end(), marks);
+        self.decoration = Some(Arc::new(rich));
         Ok(())
+    }
+
+    fn resumes(&self) -> &[(u64, paint::Resume)] {
+        self.syntax.as_ref().map_or(&[], |syntax| &syntax.resumes)
+    }
+
+    fn resume_at(&self, offset: u64) -> Option<&paint::Resume> {
+        let resumes = self.resumes();
+        let i = resumes.binary_search_by_key(&offset, |(at, _)| *at).ok()?;
+        Some(&resumes[i].1)
+    }
+
+    /// Keeps the places a colouring of `start..end` found in place of those it went past, as far
+    /// apart as `RESUME_EVERY` but for the end of the colours, and no more than `MAX_RESUMES`.
+    fn keep_resumes(&mut self, start: u64, end: u64, found: Vec<(u64, paint::Resume)>) {
+        let Some(syntax) = self.syntax.as_mut() else { return };
+        let resumes = std::mem::take(&mut syntax.resumes);
+        let (before, rest): (Vec<_>, Vec<_>) = resumes.into_iter().partition(|(at, _)| *at <= start);
+        let after = rest.into_iter().filter(|(at, _)| *at > end);
+        let mut kept: Vec<(u64, paint::Resume)> = Vec::new();
+        for (at, resume) in before.into_iter().chain(found).chain(after) {
+            if at == end || kept.last().is_none_or(|(last, _)| at >= last + RESUME_EVERY) {
+                kept.push((at, resume));
+            }
+        }
+        if kept.len() > MAX_RESUMES {
+            kept = kept
+                .into_iter()
+                .enumerate()
+                .filter(|(i, (at, _))| i % 2 == 0 || *at == end)
+                .map(|(_, kept)| kept)
+                .collect();
+        }
+        syntax.resumes = kept;
     }
 
     fn rich_layout(&self, line: Line) -> io::Result<Vec<Vec<Run>>> {
@@ -609,5 +692,51 @@ mod tests {
         ok(view.end());
         ok(view.scroll_up(1));
         assert_eq!(view.rows()[0], "xxx");
+    }
+
+    #[test]
+    fn colours_reached_by_paging_match_colouring_the_whole_file() {
+        // A comment and a string that span lines, so colours depend on the text above the page.
+        let chunk = "/* a comment\n   over lines */\nfn main() {\n    let text = \"two\n lines\";\n}\n";
+        let text = chunk.repeat(600);
+        let source: Arc<dyn Source> = Arc::new(text.clone().into_bytes());
+        let mut view = Pager::for_path(source.clone(), Path::new("main.rs"), 40, 12).unwrap_or_else(|e| panic!("{e}"));
+        let mut whole = Pager::for_path(source, Path::new("main.rs"), 40, 12).unwrap_or_else(|e| panic!("{e}"));
+        whole.decoration =
+            Some(Arc::new(paint::highlight(&text, "Rust", 0, &|| false).unwrap_or_else(|e| panic!("{e}"))));
+        let mut same = |view: &Pager| {
+            whole.top = view.top;
+            ok(whole.refresh());
+            assert_eq!(view.rich_rows(), whole.rich_rows(), "at {:?}", view.top);
+        };
+        while !view.at_end() {
+            ok(view.page_down());
+            same(&view);
+        }
+        assert!(view.resumes().len() <= text.len() / RESUME_EVERY as usize + 2, "{} places", view.resumes().len());
+        ok(view.home());
+        ok(view.end());
+        same(&view);
+        for _ in 0..40 {
+            ok(view.page_up());
+            same(&view);
+        }
+    }
+
+    #[test]
+    fn paging_down_far_into_a_file_carries_colouring_on_instead_of_starting_again_above() {
+        let text = numbered(40_000);
+        let at = text.find("\nline 30000\n").unwrap() as u64 + 1;
+        let source: Arc<dyn Source> = Arc::new(text.into_bytes());
+        let mut view = Pager::for_path(source, Path::new("notes.txt"), 40, 12).unwrap_or_else(|e| panic!("{e}"));
+        assert!(view.language().is_some());
+        view.top = Position { line: at, row: 0 };
+        ok(view.refresh());
+        let base = view.decoration.as_ref().unwrap().base;
+        assert!(at - base <= SYNTAX_CONTEXT, "a jump colours some way above the page");
+        for _ in 0..50 {
+            ok(view.page_down());
+        }
+        assert_eq!(view.decoration.as_ref().unwrap().base, base, "moving down colours only the new text");
     }
 }

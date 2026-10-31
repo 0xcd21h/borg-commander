@@ -1,7 +1,10 @@
 use std::{io, ops::Range, path::Path, sync::OnceLock};
 
 use two_face::{
-    re_exports::syntect::{easy::HighlightLines, highlighting::FontStyle, parsing::SyntaxSet},
+    re_exports::syntect::{
+        highlighting::{FontStyle, HighlightIterator, HighlightState, Highlighter, Style},
+        parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet},
+    },
     theme::{EmbeddedLazyThemeSet, EmbeddedThemeName},
 };
 
@@ -41,6 +44,11 @@ impl RichText {
         }
     }
 
+    /// The offset just past the text.
+    pub fn end(&self) -> u64 {
+        self.base + self.text.len() as u64
+    }
+
     pub fn at(&self, offset: u64) -> Paint {
         let i = self.regions.partition_point(|(range, _)| range.end <= offset);
         self.regions.get(i).filter(|(range, _)| range.contains(&offset)).map_or(Paint::default(), |(_, paint)| *paint)
@@ -55,6 +63,41 @@ pub(crate) fn syntaxes() -> &'static SyntaxSet {
 fn themes() -> &'static EmbeddedLazyThemeSet {
     static THEMES: OnceLock<EmbeddedLazyThemeSet> = OnceLock::new();
     THEMES.get_or_init(two_face::theme::extra)
+}
+
+/// The dark and the light theme, ready to colour parsed text.
+fn highlighters() -> &'static [Highlighter<'static>; 2] {
+    static HIGHLIGHTERS: OnceLock<[Highlighter<'static>; 2]> = OnceLock::new();
+    HIGHLIGHTERS.get_or_init(|| {
+        [EmbeddedThemeName::Nord, EmbeddedThemeName::InspiredGithub].map(|name| Highlighter::new(&themes()[name]))
+    })
+}
+
+fn syntax(language: &str) -> &'static SyntaxReference {
+    let set = syntaxes();
+    set.find_syntax_by_name(language)
+        .or_else(|| set.find_syntax_by_token(language))
+        .unwrap_or_else(|| set.find_syntax_plain_text())
+}
+
+/// Where colouring stands at the start of a line: what the parser is inside and the styles both
+/// themes have in force. Colouring carries on from it without reading the text above.
+#[derive(Debug, Clone)]
+pub(crate) struct Resume {
+    parse: ParseState,
+    dark: HighlightState,
+    light: HighlightState,
+}
+
+impl Resume {
+    pub(crate) fn new(language: &str) -> Self {
+        let [dark, light] = highlighters();
+        Self {
+            parse: ParseState::new(syntax(language)),
+            dark: HighlightState::new(dark, ScopeStack::new()),
+            light: HighlightState::new(light, ScopeStack::new()),
+        }
+    }
 }
 
 pub(crate) fn syntax_name(path: &Path, first_line: &str) -> Option<String> {
@@ -72,53 +115,78 @@ pub(crate) fn check_cancelled(cancelled: &impl Fn() -> bool) -> io::Result<()> {
 
 pub(crate) fn highlight(text: &str, language: &str, base: u64, cancelled: &impl Fn() -> bool) -> io::Result<RichText> {
     check_cancelled(cancelled)?;
-    let set = syntaxes();
-    let syntax = set
-        .find_syntax_by_name(language)
-        .or_else(|| set.find_syntax_by_token(language))
-        .unwrap_or_else(|| set.find_syntax_plain_text());
-    let mut dark = HighlightLines::new(syntax, &themes()[EmbeddedThemeName::Nord]);
-    let mut light = HighlightLines::new(syntax, &themes()[EmbeddedThemeName::InspiredGithub]);
     let mut rich = RichText { base, ..RichText::default() };
-    for line in text.split_inclusive('\n') {
+    paint(text.as_bytes(), &mut Resume::new(language), &mut rich, &mut |_, _| {}, cancelled)?;
+    Ok(rich)
+}
+
+/// Colours `text`, which starts a line, onto the end of `rich`, carrying on from `resume` and
+/// leaving it at the end of `text`. `mark` hears the offset and the state at the start of each line.
+/// Lines that are too long, hold a NUL or are not UTF-8 keep their length and no colour.
+pub(crate) fn paint(
+    text: &[u8],
+    resume: &mut Resume,
+    rich: &mut RichText,
+    mark: &mut impl FnMut(u64, &Resume),
+    cancelled: &impl Fn() -> bool,
+) -> io::Result<()> {
+    let set = syntaxes();
+    let [dark, light] = highlighters();
+    for line in text.split_inclusive(|byte| *byte == b'\n') {
         check_cancelled(cancelled)?;
-        if line.len() > MAX_HIGHLIGHT_LINE || line.as_bytes().contains(&0) {
+        mark(rich.end(), resume);
+        let Ok(line) = std::str::from_utf8(line) else {
+            // Only its length matters, so that the offsets after it stay where they are.
+            rich.push(&" ".repeat(line.len()), Paint::default());
+            continue;
+        };
+        if line.len() > MAX_HIGHLIGHT_LINE || line.contains('\0') {
             rich.push(line, Paint::default());
             continue;
         }
-        let dark_runs = dark.highlight_line(line, set).unwrap_or_default();
-        let light_runs = light.highlight_line(line, set).unwrap_or_default();
-        let mut light_regions = Vec::new();
-        let mut end = 0;
-        for (style, text) in light_runs {
-            let start = end;
-            end += text.len();
-            light_regions.push((start..end, style));
-        }
-        let mut offset = 0;
-        for (style, text) in dark_runs {
-            let rgb = |c: two_face::re_exports::syntect::highlighting::Color| [c.r, c.g, c.b];
-            for (i, c) in text.char_indices() {
-                let light = light_regions.iter().find(|(range, _)| range.contains(&(offset + i))).map(|(_, s)| s);
-                rich.push(
-                    &c.to_string(),
-                    Paint {
-                        dark: Some(rgb(style.foreground)),
-                        light: light.map(|s| rgb(s.foreground)),
-                        bold: style.font_style.contains(FontStyle::BOLD),
-                        italic: style.font_style.contains(FontStyle::ITALIC),
-                        underline: style.font_style.contains(FontStyle::UNDERLINE),
-                        ..Paint::default()
-                    },
-                );
-            }
-            offset += text.len();
-        }
-        if offset == 0 {
+        let Ok(ops) = resume.parse.parse_line(line, set) else {
             rich.push(line, Paint::default());
+            continue;
+        };
+        let dark: Vec<_> = HighlightIterator::new(&mut resume.dark, &ops, line, dark).collect();
+        let light: Vec<_> = HighlightIterator::new(&mut resume.light, &ops, line, light).collect();
+        push_line(rich, line, &dark, &light);
+    }
+    Ok(())
+}
+
+/// Adds a line coloured by both themes, split wherever either colour changes.
+fn push_line(rich: &mut RichText, line: &str, dark: &[(Style, &str)], light: &[(Style, &str)]) {
+    let mut lights = light
+        .iter()
+        .scan(0, |end, (style, text)| {
+            *end += text.len();
+            Some((*end, *style))
+        })
+        .peekable();
+    let rgb = |c: two_face::re_exports::syntect::highlighting::Color| [c.r, c.g, c.b];
+    let mut at = 0;
+    for (style, text) in dark {
+        let end = at + text.len();
+        while at < end {
+            while lights.next_if(|(light_end, _)| *light_end <= at).is_some() {}
+            let (cut, light) =
+                lights.peek().map_or((end, None), |(light_end, light)| ((*light_end).min(end), Some(light)));
+            let paint = Paint {
+                dark: Some(rgb(style.foreground)),
+                light: light.map(|s| rgb(s.foreground)),
+                bold: style.font_style.contains(FontStyle::BOLD),
+                italic: style.font_style.contains(FontStyle::ITALIC),
+                underline: style.font_style.contains(FontStyle::UNDERLINE),
+                ..Paint::default()
+            };
+            rich.push(&line[at..cut], paint);
+            at = cut;
         }
     }
-    Ok(rich)
+    if at == 0 {
+        rich.push(line, Paint::default());
+    }
 }
 
 #[cfg(test)]
