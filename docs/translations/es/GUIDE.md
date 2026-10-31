@@ -262,6 +262,7 @@ momento.
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
 | Alt-T | Time Machine: qué dejan fuera las copias de seguridad, en macOS |
+| Alt-E | Editar el archivo seleccionado en este panel, en lugar de sus archivos |
 | F1 | Acerca de |
 | F2 | Menú Archivo |
 | F3 | Ver (texto o imagen) |
@@ -801,6 +802,16 @@ antes pregunta si quieres guardar o descartar los cambios sin guardar; si el arc
 disco desde que lo abriste, Borg pregunta si quieres sobrescribirlo o volver a cargarlo. Un clic
 coloca el cursor, arrastrar o hacer Shift-clic selecciona, un doble clic selecciona una palabra y
 la rueda desplaza; también puedes hacer clic en las teclas que aparecen en la línea de estado.
+
+Alt-E abre el archivo seleccionado en el editor de Borg dentro del panel activo, en lugar de sus
+archivos, para que puedas editar dos archivos uno al lado del otro, o un archivo junto a la
+carpeta en la que está. F6 pasa del editor de un panel al otro panel, y Tab vuelve al editor desde
+la lista de archivos. El texto copiado con Ctrl-C en un editor se pega con Ctrl-V en el otro.
+Mientras un editor tiene el foco, la barra de atajos muestra las teclas del editor, y las teclas
+del panel vuelven con la lista de archivos. Ctrl-O también muestra la consola desde un editor, y
+F9 abre los menús. Esc o F10 cierra el editor y devuelve al panel sus archivos; al salir, Borg
+pregunta primero por cada editor de panel con cambios sin guardar. La vista rápida y la
+información del archivo necesitan el otro panel, así que esperan hasta que se cierre su editor.
 
 El visor y el editor buscan texto de la misma manera. En el visor, `/`, F7 o Ctrl-F abren una
 barra de búsqueda en la línea de estado; en el editor, Ctrl-F o F7. Borg busca mientras escribes,

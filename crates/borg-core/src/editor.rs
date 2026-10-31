@@ -3,14 +3,17 @@
 //! file that changed on disk in the meantime.
 
 use borg_i18n::tr;
-use std::{path::PathBuf, time::SystemTime};
+use std::{
+    path::PathBuf,
+    time::{Instant, SystemTime},
+};
 
 use borg_edit::{Buffer, Motion};
 use borg_view::{Search, Source};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    AppState, Effect, LineInput, Pointer,
+    AppState, Effect, LineInput, Pointer, Side, View,
     find_bar::{BarKey, Direction, FindBar, FindNote},
 };
 
@@ -23,6 +26,13 @@ const PAINT_LINE_LIMIT: usize = 20_000;
 const UNPAINTED: &str = "\n";
 /// Rows the editor's title and status lines take from the screen.
 pub const EDITOR_CHROME: u16 = 2;
+
+/// Where an editor shows: over the whole screen, or in a panel in place of its files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorSlot {
+    Screen,
+    Panel(Side),
+}
 
 /// What identifies a file's contents on disk without reading them again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,10 +170,11 @@ pub struct Editor {
     saving: Option<(u64, bool)>,
     /// Set when one of the editor's keys or clicks closed it, so it is not put back.
     closed: bool,
+    pub slot: EditorSlot,
 }
 
 impl Editor {
-    fn new(file: EditorFile) -> Self {
+    fn new(file: EditorFile, slot: EditorSlot) -> Self {
         let language = borg_view::language_of(&file.path, file.text.lines().next().unwrap_or_default());
         Self {
             buffer: Buffer::new(&file.text),
@@ -180,6 +191,7 @@ impl Editor {
             replacement: String::new(),
             saving: None,
             closed: false,
+            slot,
         }
     }
 
@@ -292,13 +304,14 @@ impl Editor {
             bytes: self.buffer.text().into_bytes(),
             expected: self.stamp,
             force,
+            slot: self.slot,
         }]
     }
 
     /// Closes the editor from one of its own keys or clicks.
     fn close(&mut self, state: &mut AppState) -> Vec<Effect> {
         self.closed = true;
-        close_editor(state)
+        close_editor(state, self.slot)
     }
 
     fn name(&self) -> String {
@@ -306,24 +319,57 @@ impl Editor {
     }
 }
 
-/// The text area's size on a screen of `cols` × `rows`, beside the gutter.
+/// Where the editor in `slot` holds its editor.
+fn holder(state: &mut AppState, slot: EditorSlot) -> &mut Option<Editor> {
+    match slot {
+        EditorSlot::Screen => &mut state.editor,
+        EditorSlot::Panel(side) => &mut state.docked[side.index()],
+    }
+}
+
+/// The editor that takes keys: the one over the screen, or the active panel's while the panels
+/// show and nothing covers them.
+pub fn focused(state: &AppState) -> Option<EditorSlot> {
+    if state.editor.is_some() {
+        return Some(EditorSlot::Screen);
+    }
+    let shown = state.effective_view() == View::Panels
+        && state.viewer.is_none()
+        && state.activity.side.is_none()
+        && !state.docker.is_open();
+    (shown && state.docked[state.active.index()].is_some()).then_some(EditorSlot::Panel(state.active))
+}
+
+/// The text area's size: the screen's, or a panel's, less the title, status and gutter.
 fn text_size(state: &AppState, editor: &Editor) -> (usize, usize) {
-    let rows = usize::from(state.rows.saturating_sub(EDITOR_CHROME));
-    let columns = usize::from(state.cols.saturating_sub(editor.gutter()));
-    (rows, columns)
+    let (cols, rows) = match editor.slot {
+        EditorSlot::Screen => (state.cols, state.rows),
+        EditorSlot::Panel(side) => {
+            let layout = crate::Layout::new(state.cols, state.rows, state.chrome(), state.split_target());
+            let area = layout.panels[side.index()];
+            (area.width, area.height)
+        }
+    };
+    (usize::from(rows.saturating_sub(EDITOR_CHROME)), usize::from(cols.saturating_sub(editor.gutter())))
 }
 
-pub(crate) fn open(path: PathBuf) -> Vec<Effect> {
-    vec![Effect::OpenEditor(path)]
+pub(crate) fn open(path: PathBuf, slot: EditorSlot) -> Vec<Effect> {
+    vec![Effect::OpenEditor { path, slot }]
 }
 
-pub(crate) fn opened(state: &mut AppState, result: Result<EditorFile, OpenError>) -> Vec<Effect> {
+pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<EditorFile, OpenError>) -> Vec<Effect> {
     match result {
         Ok(file) => {
-            let mut editor = Editor::new(file);
+            let mut editor = Editor::new(file, slot);
             let (rows, _) = text_size(state, &editor);
             editor.paint(rows);
-            state.editor = Some(editor);
+            if let EditorSlot::Panel(side) = slot {
+                // The panel's files give way to the editor, and previews to both.
+                state.active = side;
+                state.aside = None;
+                state.preview_focused = false;
+            }
+            *holder(state, slot) = Some(editor);
             Vec::new()
         }
         Err(OpenError::NotText(path)) => {
@@ -345,8 +391,8 @@ fn display_name(path: &std::path::Path) -> String {
     path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
 }
 
-pub(crate) fn saved(state: &mut AppState, result: Result<FileStamp, SaveError>) -> Vec<Effect> {
-    let Some(editor) = state.editor.as_mut() else { return Vec::new() };
+pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileStamp, SaveError>) -> Vec<Effect> {
+    let Some(editor) = holder(state, slot).as_mut() else { return Vec::new() };
     let Some((revision, close)) = editor.saving.take() else { return Vec::new() };
     match result {
         Ok(stamp) => {
@@ -356,7 +402,7 @@ pub(crate) fn saved(state: &mut AppState, result: Result<FileStamp, SaveError>) 
             }
             editor.note = Some(tr!(editor_saved).into());
             if close {
-                return close_editor(state);
+                return close_editor(state, slot);
             }
         }
         Err(SaveError::Changed) => {
@@ -368,13 +414,17 @@ pub(crate) fn saved(state: &mut AppState, result: Result<FileStamp, SaveError>) 
     Vec::new()
 }
 
-fn close_editor(state: &mut AppState) -> Vec<Effect> {
-    state.editor = None;
-    vec![state.reload(state.active)]
+fn close_editor(state: &mut AppState, slot: EditorSlot) -> Vec<Effect> {
+    *holder(state, slot) = None;
+    let side = match slot {
+        EditorSlot::Screen => state.active,
+        EditorSlot::Panel(side) => side,
+    };
+    vec![state.reload(side)]
 }
 
-pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
-    let Some(mut editor) = state.editor.take() else { return Vec::new() };
+pub(crate) fn paste(state: &mut AppState, slot: EditorSlot, text: &str) -> Vec<Effect> {
+    let Some(mut editor) = holder(state, slot).take() else { return Vec::new() };
     match editor.prompt.as_mut() {
         Some(prompt) => {
             let line = matches!(prompt, EditorPrompt::Line { .. });
@@ -398,17 +448,66 @@ fn settle(state: &mut AppState, mut editor: Editor) {
     let (rows, columns) = text_size(state, &editor);
     editor.follow(rows, columns);
     editor.paint(rows);
-    state.editor = Some(editor);
+    let slot = editor.slot;
+    *holder(state, slot) = Some(editor);
 }
 
+/// Fits every editor to the room it has now, after the screen or the panels changed size.
 pub(crate) fn resize(state: &mut AppState) {
-    if let Some(editor) = state.editor.take() {
-        settle(state, editor);
+    let slots = [EditorSlot::Screen, EditorSlot::Panel(Side::Left), EditorSlot::Panel(Side::Right)];
+    for slot in slots {
+        if let Some(editor) = holder(state, slot).take() {
+            settle(state, editor);
+        }
     }
 }
 
-pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
-    let Some(mut editor) = state.editor.take() else { return Vec::new() };
+/// Colours what the panel editors show after the panels changed height, leaving their view where
+/// it is, as a wheel turn left it.
+pub(crate) fn repaint(state: &mut AppState) {
+    for side in Side::ALL {
+        if let Some(mut editor) = state.docked[side.index()].take() {
+            let (rows, _) = text_size(state, &editor);
+            editor.paint(rows);
+            state.docked[side.index()] = Some(editor);
+        }
+    }
+}
+
+/// The first panel editor with unsaved changes, made active and asking whether to save them.
+pub(crate) fn ask_unsaved(state: &mut AppState) -> bool {
+    let Some(side) = Side::ALL
+        .into_iter()
+        .find(|side| state.docked[side.index()].as_ref().is_some_and(|editor| editor.buffer.modified()))
+    else {
+        return false;
+    };
+    state.active = side;
+    if let Some(editor) = state.docked[side.index()].as_mut() {
+        editor.prompt = Some(EditorPrompt::Unsaved { focus: 0 });
+    }
+    true
+}
+
+/// A key for the editor a panel holds. The panels' keys that edit nothing work here too: F6 goes
+/// to the other panel, as it moves between parts in VS Code, Ctrl-O shows the console and F9
+/// the menus.
+pub(crate) fn on_panel_key(state: &mut AppState, side: Side, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let editing = state.docked[side.index()].as_ref().is_some_and(|editor| editor.prompt.is_none());
+    let action = match (key.code, key.modifiers) {
+        (KeyCode::F(6), KeyModifiers::NONE) => Some(crate::Action::SwitchPanel),
+        (KeyCode::Char('o'), KeyModifiers::CONTROL) => Some(crate::Action::ToggleShell),
+        (KeyCode::F(9), KeyModifiers::NONE) => Some(crate::Action::OpenMenuBar),
+        _ => None,
+    };
+    match action.filter(|_| editing) {
+        Some(action) => crate::actions::perform(state, action, now),
+        None => on_key(state, EditorSlot::Panel(side), key),
+    }
+}
+
+pub(crate) fn on_key(state: &mut AppState, slot: EditorSlot, key: &KeyEvent) -> Vec<Effect> {
+    let Some(mut editor) = holder(state, slot).take() else { return Vec::new() };
     editor.note = None;
     let effects = match editor.prompt.take() {
         Some(prompt) => on_prompt(state, &mut editor, prompt, key),
@@ -505,18 +604,18 @@ fn press(state: &mut AppState, editor: &mut Editor, prompt: EditorPrompt, button
             let close = editor.saving.is_some_and(|(_, close)| close);
             return editor.save(close, true);
         }
-        (EditorPrompt::Changed { .. }, 1) => return vec![Effect::OpenEditor(editor.path.clone())],
+        (EditorPrompt::Changed { .. }, 1) => return open(editor.path.clone(), editor.slot),
         _ => {}
     }
     Vec::new()
 }
 
 /// A click, drag or wheel turn in the editor, or a click on its dialog's field or button.
-pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> {
-    let Some(mut editor) = state.editor.take() else { return Vec::new() };
+pub(crate) fn on_pointer(state: &mut AppState, slot: EditorSlot, pointer: Pointer) -> Vec<Effect> {
+    let Some(mut editor) = holder(state, slot).take() else { return Vec::new() };
     let mut follow = true;
     let effects = match (pointer, editor.prompt.take()) {
-        (Pointer::EditorControl(control), Some(mut prompt)) => {
+        (Pointer::EditorControl(_, control), Some(mut prompt)) => {
             let fields = prompt.fields();
             if control < fields {
                 *prompt.focus_mut() = control;
@@ -527,7 +626,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> 
                 press(state, &mut editor, prompt, control - fields)
             }
         }
-        (Pointer::EditorClick { line, column, select, word }, None) => {
+        (Pointer::EditorClick { line, column, select, word, .. }, None) => {
             editor.note = None;
             if word {
                 editor.buffer.select_word(line, column);
@@ -536,7 +635,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> 
             }
             Vec::new()
         }
-        (Pointer::EditorScroll(delta), prompt) => {
+        (Pointer::EditorScroll(_, delta), prompt) => {
             // The view moves and the cursor stays where it is, until a key brings it back.
             editor.top = editor.top.saturating_add_signed(delta).min(editor.buffer.lines().saturating_sub(1));
             editor.prompt = prompt;
@@ -554,7 +653,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> 
         } else {
             let (rows, _) = text_size(state, &editor);
             editor.paint(rows);
-            state.editor = Some(editor);
+            *holder(state, slot) = Some(editor);
         }
     }
     effects
@@ -898,7 +997,7 @@ mod tests {
 
     fn opened(state: &mut AppState, now: Instant, text: &str) {
         let file = EditorFile { path: "/work/notes.rs".into(), text: text.into(), stamp: stamp(text.len() as u64) };
-        update(state, Msg::EditorOpened(Ok(file)), now);
+        update(state, Msg::EditorOpened(EditorSlot::Screen, Ok(file)), now);
     }
 
     fn press(state: &mut AppState, now: Instant, key: KeyEvent) -> Vec<Effect> {
@@ -921,7 +1020,7 @@ mod tests {
         let [Effect::SaveFile { bytes, expected, force: false, .. }] = &effects[..] else { panic!("{effects:?}") };
         assert_eq!(String::from_utf8_lossy(bytes), "// hi\nfn main() {}\n");
         assert_eq!(*expected, stamp(13));
-        update(&mut state, Msg::EditorSaved(Ok(stamp(19))), now);
+        update(&mut state, Msg::EditorSaved(EditorSlot::Screen, Ok(stamp(19))), now);
         let editor = state.editor.as_ref().unwrap();
         assert!(!editor.buffer.modified() && editor.stamp == stamp(19));
         assert!(editor.painted.is_some(), "Rust is highlighted");
@@ -936,16 +1035,16 @@ mod tests {
         assert_eq!(state.editor.as_ref().unwrap().prompt, Some(EditorPrompt::Unsaved { focus: 0 }));
         let effects = press(&mut state, now, KeyCode::Enter.into());
         assert!(matches!(&effects[..], [Effect::SaveFile { force: false, .. }]));
-        update(&mut state, Msg::EditorSaved(Err(SaveError::Changed)), now);
+        update(&mut state, Msg::EditorSaved(EditorSlot::Screen, Err(SaveError::Changed)), now);
         assert_eq!(state.editor.as_ref().unwrap().prompt, Some(EditorPrompt::Changed { focus: 0 }));
         press(&mut state, now, KeyCode::Right.into());
         press(&mut state, now, KeyCode::Right.into());
         assert!(press(&mut state, now, KeyCode::Enter.into()).is_empty(), "Cancel keeps editing");
         assert!(state.editor.as_ref().unwrap().prompt.is_none());
-        update(&mut state, Msg::EditorSaved(Err(SaveError::Changed)), now);
+        update(&mut state, Msg::EditorSaved(EditorSlot::Screen, Err(SaveError::Changed)), now);
         let effects = press(&mut state, now, KeyCode::Char('o').into());
         assert!(matches!(&effects[..], [Effect::SaveFile { force: true, .. }]));
-        let effects = update(&mut state, Msg::EditorSaved(Ok(stamp(2))), now);
+        let effects = update(&mut state, Msg::EditorSaved(EditorSlot::Screen, Ok(stamp(2))), now);
         assert!(state.editor.is_none(), "the save that closing asked for closes the editor");
         assert!(
             effects.iter().any(|effect| matches!(effect, Effect::List { .. })),
@@ -973,7 +1072,7 @@ mod tests {
         opened(&mut state, now, "a");
         press(&mut state, now, KeyCode::Char('b').into());
         press(&mut state, now, KeyCode::Esc.into());
-        update(&mut state, Msg::Pointer(Pointer::EditorControl(1)), now);
+        update(&mut state, Msg::Pointer(Pointer::EditorControl(EditorSlot::Screen, 1)), now);
         assert!(state.editor.is_none(), "a click on Discard closes it too");
     }
 
@@ -987,8 +1086,10 @@ mod tests {
             (0..editor.buffer.lines()).map(|line| editor.runs(line).map(<[_]>::to_vec)).collect::<Vec<_>>()
         };
         let afresh = |editor: &Editor| {
-            let mut fresh =
-                Editor::new(EditorFile { path: editor.path.clone(), text: editor.buffer.text(), stamp: stamp(0) });
+            let mut fresh = Editor::new(
+                EditorFile { path: editor.path.clone(), text: editor.buffer.text(), stamp: stamp(0) },
+                EditorSlot::Screen,
+            );
             fresh.top = editor.top;
             fresh.paint(rows);
             colours(&fresh)
@@ -1032,7 +1133,7 @@ mod tests {
         let format = KeyEvent::new(KeyCode::Char('F'), KeyModifiers::ALT | KeyModifiers::SHIFT);
         let open = |state: &mut AppState, path: &str, text: &str| {
             let file = EditorFile { path: path.into(), text: text.into(), stamp: stamp(text.len() as u64) };
-            update(state, Msg::EditorOpened(Ok(file)), now);
+            update(state, Msg::EditorOpened(EditorSlot::Screen, Ok(file)), now);
         };
         let text = r#"{"name":"Ada","tags":["x","y"]}"#;
         open(&mut state, "/work/data.json", text);
@@ -1078,10 +1179,10 @@ mod tests {
         let dialog = dialog(state.editor.as_ref().unwrap()).unwrap();
         assert_eq!(dialog.buttons, ["Save", "Discard", "Cancel"]);
         assert_eq!(dialog.message.as_deref(), Some("Save the changes to notes.rs?"));
-        update(&mut state, Msg::Pointer(Pointer::EditorControl(2)), now);
+        update(&mut state, Msg::Pointer(Pointer::EditorControl(EditorSlot::Screen, 2)), now);
         assert!(state.editor.as_ref().is_some_and(|editor| editor.prompt.is_none()), "Cancel keeps editing");
         press(&mut state, now, KeyCode::Esc.into());
-        let effects = update(&mut state, Msg::Pointer(Pointer::EditorControl(1)), now);
+        let effects = update(&mut state, Msg::Pointer(Pointer::EditorControl(EditorSlot::Screen, 1)), now);
         assert!(state.editor.is_none() && effects.iter().any(|effect| matches!(effect, Effect::List { .. })));
     }
 
@@ -1117,14 +1218,16 @@ mod tests {
     fn clicks_place_the_cursor_drags_select_and_the_wheel_moves_the_view_only() {
         let (mut state, now) = state();
         opened(&mut state, now, &(1..=40).map(|n| format!("line {n}\n")).collect::<String>());
-        let click = |line, column, select, word| Msg::Pointer(Pointer::EditorClick { line, column, select, word });
+        let click = |line, column, select, word| {
+            Msg::Pointer(Pointer::EditorClick { slot: EditorSlot::Screen, line, column, select, word })
+        };
         update(&mut state, click(2, 3, false, false), now);
         assert_eq!(state.editor.as_ref().unwrap().buffer.position(), (2, 3));
         update(&mut state, click(3, 6, true, false), now);
         assert_eq!(state.editor.as_ref().unwrap().buffer.selected_text().as_deref(), Some("e 3\nline 4"));
         update(&mut state, click(5, 1, false, true), now);
         assert_eq!(state.editor.as_ref().unwrap().buffer.selected_text().as_deref(), Some("line"));
-        update(&mut state, Msg::Pointer(Pointer::EditorScroll(20)), now);
+        update(&mut state, Msg::Pointer(Pointer::EditorScroll(EditorSlot::Screen, 20)), now);
         let editor = state.editor.as_ref().unwrap();
         assert_eq!((editor.top, editor.buffer.position()), (20, (5, 4)), "the cursor stays behind");
         update(
@@ -1208,5 +1311,131 @@ mod tests {
         assert_eq!(editor.note.as_deref(), Some("Replaced 1"));
         press(&mut state, now, ctrl('z'));
         assert_eq!(state.editor.as_ref().unwrap().buffer.text(), "cat concat cat\nlet cat = 1;\n");
+    }
+
+    fn docked(state: &mut AppState, now: Instant, side: Side, name: &str, text: &str) {
+        let path = format!("/work/{name}").into();
+        let file = EditorFile { path, text: text.into(), stamp: stamp(text.len() as u64) };
+        update(state, Msg::EditorOpened(EditorSlot::Panel(side), Ok(file)), now);
+    }
+
+    fn text_in(state: &AppState, side: Side) -> String {
+        state.docked[side.index()].as_ref().map(|editor| editor.buffer.text()).unwrap_or_default()
+    }
+
+    #[test]
+    fn each_panel_holds_an_editor_f6_moves_between_them_and_text_copies_across() {
+        let (mut state, now) = state();
+        docked(&mut state, now, Side::Left, "left.txt", "alpha\n");
+        docked(&mut state, now, Side::Right, "right.txt", "beta\n");
+        assert_eq!((state.active, focused(&state)), (Side::Right, Some(EditorSlot::Panel(Side::Right))));
+        press(&mut state, now, ctrl('a'));
+        assert_eq!(press(&mut state, now, ctrl('c')), vec![Effect::Copy("beta\n".into())]);
+
+        press(&mut state, now, KeyCode::F(6).into());
+        assert_eq!(focused(&state), Some(EditorSlot::Panel(Side::Left)));
+        press(&mut state, now, ctrl('v'));
+        press(&mut state, now, KeyCode::Tab.into());
+        assert_eq!(state.active, Side::Left, "Tab indents in an editor and stays");
+        let indent = state.docked[0].as_ref().unwrap().buffer.indent.unit();
+        assert_eq!(text_in(&state, Side::Left), format!("beta\n{indent}alpha\n"));
+        assert_eq!(text_in(&state, Side::Right), "beta\n", "the other editor is as it was");
+
+        let [Effect::SaveFile { path, slot, .. }] = &press(&mut state, now, KeyCode::F(2).into())[..] else {
+            panic!("F2 saves the left file");
+        };
+        assert_eq!((path.as_path(), *slot), (std::path::Path::new("/work/left.txt"), EditorSlot::Panel(Side::Left)));
+        update(&mut state, Msg::EditorSaved(EditorSlot::Panel(Side::Left), Ok(stamp(13))), now);
+        let left = state.docked[0].as_ref().unwrap();
+        assert!(!left.buffer.modified() && left.note.as_deref() == Some("Saved"));
+
+        let effects = press(&mut state, now, KeyCode::Esc.into());
+        assert!(state.docked[0].is_none(), "Esc gives the panel its files back");
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::List { side: Side::Left, .. })));
+        assert_eq!(focused(&state), None, "the panel's own keys work again");
+    }
+
+    #[test]
+    fn quit_asks_about_each_panel_editor_with_changes_first() {
+        let (mut state, now) = state();
+        docked(&mut state, now, Side::Left, "draft.txt", "draft");
+        press(&mut state, now, KeyCode::Char('!').into());
+        press(&mut state, now, KeyCode::F(6).into());
+        assert_eq!((state.active, focused(&state)), (Side::Right, None));
+
+        press(&mut state, now, KeyCode::F(10).into());
+        assert!(state.overlay.is_none());
+        assert_eq!(state.active, Side::Left, "the editor with changes comes forward");
+        let dialog = dialog(state.docked[0].as_ref().unwrap()).unwrap();
+        assert_eq!(dialog.message.as_deref(), Some("Save the changes to draft.txt?"));
+        update(&mut state, Msg::Pointer(Pointer::EditorControl(EditorSlot::Panel(Side::Left), 1)), now);
+        assert!(state.docked[0].is_none(), "Discard closes it");
+
+        press(&mut state, now, KeyCode::F(10).into());
+        assert!(matches!(state.overlay, Some(crate::Overlay::Confirm(_))), "with none left, Quit asks as ever");
+    }
+
+    #[test]
+    fn ctrl_o_shows_the_console_from_a_panel_editor_and_brings_it_back() {
+        let (mut state, now) = state();
+        docked(&mut state, now, Side::Left, "notes.txt", "notes");
+        press(&mut state, now, ctrl('o'));
+        assert_eq!((state.view, focused(&state)), (View::Shell, None));
+        press(&mut state, now, ctrl('o'));
+        assert_eq!((state.view, focused(&state)), (View::Panels, Some(EditorSlot::Panel(Side::Left))));
+        assert_eq!(text_in(&state, Side::Left), "notes", "neither Ctrl-O typed into the file");
+    }
+
+    #[test]
+    fn panel_editors_fit_their_panels_follow_a_swap_and_take_clicks_there() {
+        let (mut state, now) = state();
+        docked(&mut state, now, Side::Left, "one.txt", &"wide line\n".repeat(30));
+        docked(&mut state, now, Side::Right, "two.txt", "two\n");
+        let layout = crate::Layout::new(state.cols, state.rows, state.chrome(), state.split_target());
+        let left = state.docked[0].as_ref().unwrap();
+        assert_eq!(text_size(&state, left).0, usize::from(layout.panels[0].height - EDITOR_CHROME));
+
+        update(&mut state, Msg::Pointer(Pointer::EditorScroll(EditorSlot::Panel(Side::Left), 5)), now);
+        assert_eq!(state.active, Side::Right, "the wheel scrolls without taking focus");
+        assert_eq!(state.docked[0].as_ref().unwrap().top, 5);
+        let click = Pointer::EditorClick {
+            slot: EditorSlot::Panel(Side::Left),
+            line: 7,
+            column: 2,
+            select: false,
+            word: false,
+        };
+        update(&mut state, Msg::Pointer(click), now);
+        assert_eq!(state.active, Side::Left, "a click does");
+        assert_eq!(state.docked[0].as_ref().unwrap().buffer.position(), (7, 2));
+
+        crate::actions::perform(&mut state, crate::Action::SwapPanels, now);
+        let right = state.docked[1].as_ref().unwrap();
+        assert_eq!((right.path.to_str(), right.slot), (Some("/work/one.txt"), EditorSlot::Panel(Side::Right)));
+        assert_eq!(state.docked[0].as_ref().unwrap().slot, EditorSlot::Panel(Side::Left));
+    }
+
+    #[test]
+    fn previews_give_way_to_panel_editors_and_their_hidden_files_take_no_menu_actions() {
+        let (mut state, now) = state();
+        state.aside = Some(crate::Aside::QuickView);
+        docked(&mut state, now, Side::Left, "notes.txt", "notes");
+        assert_eq!(state.aside, None);
+        press(&mut state, now, KeyCode::F(6).into());
+        press(&mut state, now, ctrl('q'));
+        assert_eq!(state.aside, None);
+        assert_eq!(state.notice.as_deref(), Some("The other panel holds an editor; close it to show a preview"));
+
+        // From the files, Tab goes back to the editor; F6 there moves files, as ever.
+        press(&mut state, now, KeyCode::Tab.into());
+        assert_eq!(focused(&state), Some(EditorSlot::Panel(Side::Left)));
+        let file = crate::menus(&state).into_iter().find(|menu| menu.title == "File").unwrap();
+        let enabled = |action: crate::Action| {
+            file.entries
+                .iter()
+                .any(|entry| matches!(entry, crate::MenuEntry::Item(item) if item.action == action && item.enabled))
+        };
+        assert!(!enabled(crate::Action::Mkdir) && !enabled(crate::Action::SelectGroup));
+        assert!(enabled(crate::Action::Quit));
     }
 }

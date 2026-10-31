@@ -42,6 +42,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::DeleteOriginals
                 | Action::View
                 | Action::Edit
+                | Action::EditInPanel
                 | Action::EditExternal
                 | Action::Mkdir
                 | Action::Compress
@@ -68,6 +69,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
                 | Action::Delete
                 | Action::DeleteOriginals
                 | Action::Edit
+                | Action::EditInPanel
                 | Action::EditExternal
                 | Action::Mkdir
                 | Action::Compress
@@ -98,6 +100,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         && matches!(
             action,
             Action::Edit
+                | Action::EditInPanel
                 | Action::EditExternal
                 | Action::QuickView
                 | Action::Info
@@ -187,6 +190,8 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         | Action::RemoveReferences
         | Action::CancelSearch => crate::results::perform(state, action),
         Action::DeleteOriginals => confirm_delete(state),
+        // Each panel editor with unsaved changes asks first; Quit goes on once none does.
+        Action::Quit if crate::editor::ask_unsaved(state) => Vec::new(),
         Action::Quit => {
             state.overlay = Some(Overlay::Confirm(Confirm {
                 title: tr!(quit),
@@ -341,7 +346,14 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Edit => {
             let panel = state.active_panel();
             match panel.hovered_entry().filter(|entry| !entry.is_dir()) {
-                Some(entry) => crate::editor::open(entry.path(panel.dir())),
+                Some(entry) => crate::editor::open(entry.path(panel.dir()), crate::EditorSlot::Screen),
+                None => Vec::new(),
+            }
+        }
+        Action::EditInPanel => {
+            let panel = state.active_panel();
+            match panel.hovered_entry().filter(|entry| !entry.is_dir()) {
+                Some(entry) => crate::editor::open(entry.path(panel.dir()), crate::EditorSlot::Panel(side)),
                 None => Vec::new(),
             }
         }
@@ -409,15 +421,24 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             state.result_history.swap(0, 1);
             state.last_results.swap(0, 1);
             state.panels.iter_mut().for_each(|panel| panel.git = crate::GitPanel::default());
+            state.docked.swap(0, 1);
+            for (side, editor) in Side::ALL.into_iter().zip(&mut state.docked) {
+                if let Some(editor) = editor {
+                    editor.slot = crate::EditorSlot::Panel(side);
+                }
+            }
+            crate::editor::resize(state);
             if state.panels.iter().any(Panel::is_results) { state.reload_all() } else { Vec::new() }
         }
         Action::EqualizePanels => {
             state.set_split(EVEN_SPLIT, now);
+            crate::editor::resize(state);
             Vec::new()
         }
         Action::NudgeSplit(columns) => {
             let step = f32::from(columns) / f32::from(state.cols.max(1));
             state.set_split(state.split_target() + step, now);
+            crate::editor::resize(state);
             Vec::new()
         }
         Action::ToggleStatusLine => preference(state, |prefs| prefs.status_line = !prefs.status_line),

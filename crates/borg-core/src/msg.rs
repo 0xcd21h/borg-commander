@@ -124,10 +124,10 @@ pub enum Msg {
         path: PathBuf,
         notice: String,
     },
-    /// A file read for the editor, or why it was not.
-    EditorOpened(Result<crate::EditorFile, crate::OpenError>),
-    /// The editor's save landed, with the file's new stamp, or did not.
-    EditorSaved(Result<crate::FileStamp, crate::SaveError>),
+    /// A file read for the editor in a slot, or why it was not.
+    EditorOpened(crate::EditorSlot, Result<crate::EditorFile, crate::OpenError>),
+    /// The save of the editor in a slot landed, with the file's new stamp, or did not.
+    EditorSaved(crate::EditorSlot, Result<crate::FileStamp, crate::SaveError>),
     /// What the viewer's search `id` found, or why it could not look.
     FoundInViewer {
         id: u64,
@@ -288,14 +288,19 @@ pub enum Effect {
         count: bool,
     },
     StopFindInViewer,
-    /// Reads a file for the built-in editor.
-    OpenEditor(PathBuf),
-    /// Writes the editor's text, unless the file is no longer `expected` and not `force`d.
+    /// Reads a file for the built-in editor in `slot`.
+    OpenEditor {
+        path: PathBuf,
+        slot: crate::EditorSlot,
+    },
+    /// Writes the text of the editor in `slot`, unless the file is no longer `expected` and not
+    /// `force`d.
     SaveFile {
         path: PathBuf,
         bytes: Vec<u8>,
         expected: crate::FileStamp,
         force: bool,
+        slot: crate::EditorSlot,
     },
     RemoteView {
         machine: String,

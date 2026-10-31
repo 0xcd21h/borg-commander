@@ -1010,6 +1010,18 @@ fn enter_on_regular_file_opens_viewer() {
 }
 
 #[test]
+fn alt_e_edits_the_hovered_file_in_its_own_panel() {
+    let (mut state, now) = setup_with(vec![dir("src"), file("log.txt")]);
+    let alt_e = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT);
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(press(&mut state, now, alt_e), Vec::new(), "a folder opens in no editor");
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, alt_e);
+    let slot = crate::EditorSlot::Panel(state.active);
+    assert_eq!(effects, vec![Effect::OpenEditor { path: PathBuf::from("/home/log.txt"), slot }]);
+}
+
+#[test]
 fn alt_enter_inserts_every_marked_name() {
     let (mut state, now) = setup_with(vec![file("a b"), file("c")]);
     press(&mut state, now, key(KeyCode::Down));
@@ -1568,7 +1580,7 @@ fn mouse_menus_respect_disabled_items_and_modal_dialogs() {
     update(&mut state, Msg::Pointer(Pointer::Menu(1)), now);
     update(&mut state, Msg::Pointer(Pointer::MenuItem(0)), now);
     assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "View is disabled on the parent row");
-    update(&mut state, Msg::Pointer(Pointer::MenuItem(5)), now);
+    update(&mut state, Msg::Pointer(Pointer::MenuItem(6)), now);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "Make directory opens its prompt");
     update(&mut state, Msg::Pointer(Pointer::Action(Action::Quit)), now);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))));

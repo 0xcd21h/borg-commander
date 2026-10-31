@@ -65,8 +65,8 @@ pub use docker::{
     Usage, Working, container_shell_busy, shell_rect,
 };
 pub use editor::{
-    EDITOR_CHROME, Editor, EditorDialog, EditorFile, EditorPrompt, FileStamp, OpenError, SaveError,
-    dialog as editor_dialog, status as editor_status,
+    EDITOR_CHROME, Editor, EditorDialog, EditorFile, EditorPrompt, EditorSlot, FileStamp, OpenError, SaveError,
+    dialog as editor_dialog, focused as focused_editor, status as editor_status,
 };
 pub use exclude::{ARTIFACTS, CACHEDIR_SIGNATURE, CACHEDIR_TAG, Marker, is_artifact};
 pub use exclusions::{EXCLUSION_SWITCHES, ExclusionEditor};

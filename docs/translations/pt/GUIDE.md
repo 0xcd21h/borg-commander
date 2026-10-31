@@ -265,6 +265,7 @@ instantes.
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
 | Alt-T | Time Machine: o que as cópias de segurança deixam de fora, no macOS |
+| Alt-E | Editar o ficheiro selecionado neste painel, em vez dos seus ficheiros |
 | F1 | Sobre |
 | F2 | Menu Ficheiro |
 | F3 | Ver (texto ou imagem) |
@@ -797,6 +798,16 @@ descartar as alterações por guardar; se o ficheiro tiver mudado no disco desde
 pergunta se o quer substituir ou recarregar. Um clique coloca o cursor, arrastar ou clicar com
 Shift seleciona, um duplo clique seleciona uma palavra e a roda percorre o texto; as teclas
 indicadas na linha de estado também podem ser clicadas.
+
+Alt-E abre o ficheiro selecionado no editor do Borg dentro do painel ativo, em vez dos seus
+ficheiros, para que possa editar dois ficheiros lado a lado, ou um ficheiro ao lado da pasta onde
+está. F6 passa do editor de um painel para o outro painel, e Tab volta ao editor a partir da lista
+de ficheiros. O texto copiado com Ctrl-C num editor cola-se com Ctrl-V no outro. Enquanto um
+editor tem o foco, a barra de atalhos mostra as teclas do editor, e as teclas do painel voltam com
+a lista de ficheiros. Ctrl-O também mostra a consola a partir de um editor, e F9 abre os menus.
+Esc ou F10 fecha o editor e devolve ao painel os seus ficheiros; ao sair, o Borg pergunta primeiro
+por cada editor de painel com alterações por guardar. A pré-visualização e as informações do
+ficheiro precisam do outro painel, por isso esperam até que o editor dele seja fechado.
 
 O visualizador e o editor procuram texto da mesma forma. No visualizador, `/`, F7 ou Ctrl-F abrem
 uma barra de pesquisa na linha de estado; no editor, é Ctrl-F ou F7. O Borg procura à medida que
