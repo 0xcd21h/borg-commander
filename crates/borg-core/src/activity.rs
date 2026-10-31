@@ -1263,6 +1263,10 @@ impl Activity {
         let path = PathBuf::from(&file.name);
         (file.kind == "REG" && path.is_absolute()).then_some(path)
     }
+    /// Whether a preview of the selected open file is loading.
+    pub fn file_preview_loading(&self) -> bool {
+        self.file_previewing.is_some()
+    }
     /// Whether a process is open for inspection: its memory map, open files, or matches.
     pub fn inspecting(&self) -> bool {
         self.list != ActivityPage::Processes
@@ -3160,6 +3164,7 @@ mod tests {
         let path = PathBuf::from("/home/me/notes.txt");
         assert_eq!(peeks(&send(&mut state, KeyCode::Down)), vec![path.clone()]);
         assert!(peeks(&send(&mut state, KeyCode::Down)).is_empty(), "asked once while it loads");
+        assert!(state.activity.file_preview_loading(), "the load is kept without a quick view");
         let text = (0..100).map(|n| format!("line {n}\n")).collect::<String>();
         let pager = borg_view::Pager::for_path(std::sync::Arc::new(text.into_bytes()), &path, 40, 10).unwrap();
         update(
@@ -3176,6 +3181,7 @@ mod tests {
             _ => panic!("no text preview"),
         };
         assert_eq!(offset(&state), 0);
+        assert!(!state.activity.file_preview_loading());
         send(&mut state, KeyCode::Tab);
         send(&mut state, KeyCode::Down);
         assert!(offset(&state) > 0, "the focused preview scrolls");

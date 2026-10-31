@@ -1572,7 +1572,10 @@ impl App {
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();
         }
-        if self.state.aside.is_none() || self.state.active_panel().hovered().is_none() {
+        // The quick view and the open files' details share the loader; a load either waits
+        // for must not end with the next message.
+        let quick_view = self.state.aside.is_some() && self.state.active_panel().hovered().is_some();
+        if !quick_view && !self.state.activity.file_preview_loading() {
             self.preview.cancel();
         }
         for side in Side::ALL {
