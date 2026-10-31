@@ -49,15 +49,10 @@ fn start_with(fixture: &Fixture, label: &str, shell: Shell) -> Result<Session> {
     Ok(session)
 }
 
-/// Whether `path` holds `text`. A shell makes the file before the command that writes it
-/// runs, so a file that exists can still be empty.
 fn holds(path: &Path, text: &str) -> bool {
     fs::read_to_string(path).is_ok_and(|found| found == text)
 }
 
-/// A command that runs for 30 seconds once `marker` exists. The process that makes the marker
-/// is the one Ctrl-C reaches, so a Ctrl-C sent after it cannot fall between two commands,
-/// where the terminal can still belong to a command that has already ended.
 fn interruptible(marker: &str) -> String {
     format!("sh -c 'touch {marker}; exec sleep 30'")
 }
@@ -3374,8 +3369,6 @@ printf '\033[?1049l\r\nnative-key=%s\r\n' "$code"
     )?;
     mirror.send(format!("bash '{}'", grabber.display()))?.send(keys::enter())?;
     mirror.wait_text("native-fullscreen-ready")?;
-    // The host's screen was last read on its panels; read it on the app first, so that waiting
-    // for its panels to come back waits for what the app's exit does.
     second.wait_text("native-fullscreen-ready")?;
     mirror.send("q")?;
     second.wait_until("remote panels after app exits", panels_ready)?;
