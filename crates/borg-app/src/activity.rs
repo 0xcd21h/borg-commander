@@ -45,9 +45,9 @@ const SIGNATURE_TIME: Duration = Duration::from_millis(100);
 pub(crate) fn processes() -> SystemSample {
     const SETTLE: Duration = Duration::from_millis(250);
     let mut sampler = Sampler::default();
-    sampler.sample();
+    sampler.sample(None);
     std::thread::sleep(SETTLE);
-    sampler.sample()
+    sampler.sample(None)
 }
 
 #[derive(Default)]
@@ -59,7 +59,9 @@ struct Sampler {
     protections: HashMap<PathBuf, Option<MemoryProtection>>,
 }
 impl Sampler {
-    fn sample(&mut self) -> SystemSample {
+    /// Samples every process. The `selected` one's signature is read whatever the time left,
+    /// since its details show what it says.
+    fn sample(&mut self, selected: Option<ProcessKey>) -> SystemSample {
         self.system.refresh_memory();
         self.system.refresh_cpu_usage();
         self.system.refresh_processes_specifics(
@@ -85,7 +87,7 @@ impl Sampler {
                 // Borg reads its own memory whatever its signature says.
                 let protection = p.exe().filter(|_| key.pid != own).and_then(|exe| match self.protections.get(exe) {
                     Some(known) => *known,
-                    None if Instant::now() < signatures => {
+                    None if Some(key) == selected || Instant::now() < signatures => {
                         *self.protections.entry(exe.to_path_buf()).or_insert(crate::code_signature::protection(exe))
                     }
                     None => None,
@@ -140,7 +142,8 @@ impl Monitor {
             task.abort();
         }
     }
-    pub fn request(&mut self, id: u64, request: ActivityRequest) {
+    /// Starts `request`; a sample reads the signature of the `selected` process first.
+    pub fn request(&mut self, id: u64, request: ActivityRequest, selected: Option<ProcessKey>) {
         self.cancel();
         self.cancelled = Arc::new(AtomicBool::new(false));
         let cancelled = self.cancelled.clone();
@@ -149,7 +152,10 @@ impl Monitor {
         self.task = Some(tokio::spawn(async move {
             let result = match request {
                 ActivityRequest::Sample => tokio::task::spawn_blocking(move || {
-                    sampler.lock().map(|mut s| ActivityData::Sample(s.sample())).map_err(|e| anyhow!(e.to_string()))
+                    sampler
+                        .lock()
+                        .map(|mut s| ActivityData::Sample(s.sample(selected)))
+                        .map_err(|e| anyhow!(e.to_string()))
                 })
                 .await
                 .map_err(anyhow::Error::from)
@@ -825,7 +831,7 @@ mod tests {
     #[test]
     fn sampler_reports_its_own_process_and_rejects_reused_identity() {
         let mut sampler = Sampler::default();
-        let sample = sampler.sample();
+        let sample = sampler.sample(None);
         let own = sample.processes.iter().find(|p| p.key.pid == std::process::id()).unwrap();
         assert!(own.resident.is_some());
         assert!(own.cpu.is_none() && own.read.is_none());
@@ -852,7 +858,7 @@ mod tests {
     #[tokio::test]
     async fn integrity_finds_an_image_hidden_in_its_own_memory_and_runs_its_files_unchanged() {
         use borg_core::FindingKind;
-        let own = Sampler::default().sample().processes.into_iter().find(|p| p.key.pid == std::process::id());
+        let own = Sampler::default().sample(None).processes.into_iter().find(|p| p.key.pid == std::process::id());
         // An executable header at the start of a page of memory no file backs.
         let mut buffer = vec![0u8; 64 * PAGE as usize];
         let at = (buffer.as_ptr() as usize).next_multiple_of(PAGE as usize) - buffer.as_ptr() as usize;
