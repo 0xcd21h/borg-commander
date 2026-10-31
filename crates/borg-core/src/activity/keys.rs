@@ -1,519 +1,297 @@
-//! The monitor's keys: in its lists, its memory map and its forms.
+//! The monitor's keys. The ones for the whole monitor are here: switching pages, moving the
+//! focus, the preview, Esc and Enter, and the lists' own keys. The keys of the page with the
+//! focus are in `pages`, and the memory search form's in `form`.
 
-use super::{
-    Activity, ActivityPage, ActivityRequest, ActivitySort, CENSUS_LEGEND, MemorySearchForm, MemorySearchMode,
-    RegionRow, RowKey, SNAPSHOT_LIMIT, census_grid, check_integrity, chrome_rows,
-};
-use crate::{AppState, Effect};
-use borg_i18n::tr;
-use crossterm::event::{KeyCode, KeyEvent};
 use std::time::Instant;
 
-pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
-    let side = state.activity.side.unwrap_or(state.active);
-    let rect =
-        state.layout(state.epoch).panels[if state.activity.preview_focused { side.other() } else { side }.index()];
-    let activity = &mut state.activity;
-    if let Some(mut form) = activity.search_form.take() {
-        let mut submit = false;
-        match key.code {
-            KeyCode::Esc => {
-                activity.error = None;
-                return Vec::new();
-            }
-            KeyCode::Tab | KeyCode::Down => form.selected = (form.selected + 1) % 4,
-            KeyCode::BackTab | KeyCode::Up => form.selected = (form.selected + 3) % 4,
-            KeyCode::Enter => submit = true,
-            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 1 => {
-                let modes = MemorySearchMode::ALL;
-                let at = modes.iter().position(|&mode| mode == form.mode).unwrap_or(0);
-                let step = if key.code == KeyCode::Left { modes.len() - 1 } else { 1 };
-                form.mode = modes[(at + step) % modes.len()];
-            }
-            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 2 => {
-                form.match_case = !form.match_case
-            }
-            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 3 => {
-                form.snapshot_only = !form.snapshot_only
-            }
-            _ if form.selected == 0 => {
-                form.input.apply(key);
-            }
-            _ => {}
-        }
-        if submit {
-            let valid = (form.mode.strings() || !form.input.text().is_empty())
-                && form.input.text().len() <= 512
-                && (form.mode != MemorySearchMode::Hex || {
-                    let value = form.input.text().split_whitespace().collect::<String>();
-                    !value.is_empty() && value.len() % 2 == 0 && value.chars().all(|c| c.is_ascii_hexdigit())
-                });
-            if !valid {
-                activity.error = Some(tr!(memory_query_invalid).into());
-            } else if let Some(process) = activity.selected {
-                let snapshot =
-                    if form.snapshot_only { activity.snapshot.clone().filter(|s| s.process == process) } else { None };
-                if form.snapshot_only && snapshot.is_none() {
-                    activity.error = Some(tr!(memory_no_snapshot).into());
-                } else {
-                    activity.search_progress = Some((0, 0, 0));
-                    return activity.request(ActivityRequest::Search {
-                        process,
-                        query: form.input.text().to_owned(),
-                        mode: form.mode,
-                        match_case: form.match_case,
-                        snapshot,
-                        start: None,
-                        admin: false,
-                    });
-                }
-            }
-        }
-        activity.search_form = Some(form);
-        return Vec::new();
-    }
-    // Typing edits the filter; the arrows and paging keys still move through the matches.
-    let moving = matches!(
-        key.code,
-        KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
-    );
-    if activity.filtering && !moving {
-        match key.code {
-            KeyCode::Enter => activity.filtering = false,
-            KeyCode::Esc => {
-                activity.filtering = false;
-                activity.filter.clear();
-            }
-            KeyCode::Backspace => {
-                activity.filter.pop();
-            }
-            KeyCode::Char(c) => activity.filter.push(c),
-            _ => {}
-        }
-        activity.rebuild();
-        return Vec::new();
-    }
+use borg_i18n::tr;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    let rows = usize::from(rect.height.saturating_sub(chrome_rows(activity.page))).max(1);
-    let width = usize::from(rect.width.saturating_sub(2));
-    if activity.page == ActivityPage::Snapshot
-        && activity.map
-        && let Some(effects) = map_key(activity, key.code, rows, width)
-    {
-        return effects;
-    }
-    match key.code {
-        KeyCode::Down => activity.move_by(1, rows, width),
-        KeyCode::Up => activity.move_by(-1, rows, width),
-        KeyCode::PageDown => activity.move_by(rows as isize, rows, width),
-        KeyCode::PageUp => activity.move_by(-(rows as isize), rows, width),
-        KeyCode::Home => activity.move_by(isize::MIN, rows, width),
-        KeyCode::End => activity.move_by(isize::MAX, rows, width),
-        KeyCode::Char('/') if activity.page == ActivityPage::Processes => activity.filtering = true,
-        KeyCode::Char('/')
-            if !matches!(activity.page, ActivityPage::Processes | ActivityPage::Files | ActivityPage::FileDetails) =>
-        {
-            activity.search_form = Some(MemorySearchForm {
-                input: crate::LineInput::default(),
-                mode: MemorySearchMode::Text,
-                match_case: true,
-                snapshot_only: false,
-                selected: 0,
-            });
-        }
-        KeyCode::Char('c')
-            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                && activity.pending.as_ref().is_some_and(|(_, r)| {
-                    matches!(r, ActivityRequest::Search { .. } | ActivityRequest::Integrity { .. })
-                }) =>
-        {
-            return vec![Effect::CancelMemorySearch];
-        }
-        KeyCode::Char('n' | 'N') if activity.page == ActivityPage::Search && activity.pending.is_none() => {
-            if let (Some(report), Some(ActivityRequest::Search { process, query, mode, match_case, snapshot, .. })) =
-                (&activity.search_report, &activity.last_search)
-                && let Some(start) = report.next
-            {
-                return activity.request(ActivityRequest::Search {
-                    process: *process,
-                    query: query.clone(),
-                    mode: *mode,
-                    match_case: *match_case,
-                    snapshot: snapshot.clone(),
-                    start: Some(start),
-                    admin: false,
-                });
-            }
-        }
-        KeyCode::Char(' ') => {
-            activity.paused = !activity.paused;
-            if !activity.paused && activity.pending.is_none() {
-                return activity.request(ActivityRequest::Sample);
-            }
-        }
-        KeyCode::Char('a' | 'A') if activity.pending.is_none() => {
-            if let Some(request) = activity.retry.as_ref().and_then(ActivityRequest::elevated) {
-                return activity.request(request);
-            }
-        }
-        KeyCode::Char('r' | 'R') if activity.pending.is_none() => {
-            if activity.page == ActivityPage::Integrity {
-                if let Some(process) = activity.selected {
-                    return activity.request(ActivityRequest::Integrity { process, admin: false });
-                }
-            } else if activity.page == ActivityPage::Snapshot {
-                if let Some(request) = activity.recapture_request() {
-                    return activity.request(request);
-                }
-            } else if activity.page == ActivityPage::Regions {
-                if let Some(process) = activity.selected {
-                    return activity.request(ActivityRequest::Regions { process, admin: false });
-                }
-            } else if matches!(activity.page, ActivityPage::Files | ActivityPage::FileDetails) {
-                if let Some(process) = activity.selected {
-                    return activity.request(ActivityRequest::Files { process, admin: false });
-                }
-            } else {
-                return activity.request(ActivityRequest::Sample);
-            }
-        }
-        KeyCode::Char('h' | 'H') if activity.page == ActivityPage::Snapshot => {
-            activity.text = !activity.text;
-            activity.offset = 0;
-        }
-        KeyCode::Char('d' | 'D') if activity.page == ActivityPage::Snapshot => activity.diff = !activity.diff,
-        KeyCode::Char(c @ (']' | '[')) if activity.page == ActivityPage::Snapshot => {
-            if let Some(row) = activity.data_block(activity.snapshot_columns(width), c == ']') {
-                activity.offset = 0;
-                activity.move_by(row as isize, rows, width);
-            }
-        }
-        KeyCode::Char(c @ ('>' | '<')) if activity.page == ActivityPage::Snapshot && activity.pending.is_none() => {
-            let start = activity.snapshot.as_ref().zip(activity.shown_region()).and_then(|(shown, region)| match c {
-                '>' => Some(shown.address.saturating_add(shown.bytes.len() as u64)),
-                _ => (shown.address > region.start)
-                    .then(|| shown.address.saturating_sub(SNAPSHOT_LIMIT as u64).max(region.start)),
-            });
-            if let Some(request) = start.and_then(|start| activity.capture_at(start, c == '>')) {
-                return activity.request(request);
-            }
-        }
-        KeyCode::Char('e' | 'E') if activity.page == ActivityPage::Snapshot => {
-            if let Some(snapshot) = &activity.snapshot {
-                let path = state.panels[state.active.index()]
-                    .dir()
-                    .join(format!("memory-{}-{:x}-{}.bin", snapshot.process.pid, snapshot.address, snapshot.captured));
-                return vec![Effect::ExportMemory { path, bytes: snapshot.bytes.clone() }];
-            }
-        }
-        KeyCode::Char(c) if activity.page == ActivityPage::Processes => {
-            let sort = match c.to_ascii_lowercase() {
-                'm' => Some(ActivitySort::Memory),
-                'c' => Some(ActivitySort::Cpu),
-                'g' => Some(ActivitySort::Growth),
-                'n' => Some(ActivitySort::Name),
-                'p' => Some(ActivitySort::Pid),
-                'i' => Some(ActivitySort::Read),
-                'o' => Some(ActivitySort::Write),
-                't' => {
-                    activity.tree = !activity.tree;
-                    None
-                }
-                _ => None,
-            };
-            if let Some(sort) = sort {
-                if activity.sort == sort {
-                    activity.reverse = !activity.reverse;
-                } else {
-                    activity.sort = sort;
-                    activity.reverse = sort != ActivitySort::Name && sort != ActivitySort::Pid;
-                }
-            }
-            activity.rebuild();
-        }
-        _ => {}
-    }
-    Vec::new()
-}
+use super::{Activity, ActivityPage, ActivityRequest, RegionRow, RowKey, check_integrity};
+use crate::{Action, AppState, Effect, keymap::SPLIT_STEP};
 
-/// Moves over the page map, or opens the page under the cursor in bytes with Enter.
-pub(super) fn map_key(activity: &mut Activity, code: KeyCode, rows: usize, width: usize) -> Option<Vec<Effect>> {
-    let census = activity.census.as_ref()?;
-    if code == KeyCode::Enter {
-        let address = census.address(activity.census_cursor);
-        let start = address - address % census.page.max(1);
-        activity.map = false;
-        return Some(activity.capture_at(start, false).map(|request| activity.request(request)).unwrap_or_default());
-    }
-    let height = rows.saturating_sub(CENSUS_LEGEND);
-    let (columns, _, span) = census_grid(census.pages.len(), width, height);
-    let cell = (activity.census_cursor / span) as isize;
-    let last = (census.pages.len().saturating_sub(1) / span) as isize;
-    let step = match code {
-        KeyCode::Left => -1,
-        KeyCode::Right => 1,
-        KeyCode::Up => -(columns as isize),
-        KeyCode::Down => columns as isize,
-        KeyCode::PageUp => -((columns * height) as isize),
-        KeyCode::PageDown => (columns * height) as isize,
-        KeyCode::Home => -cell,
-        KeyCode::End => last - cell,
-        _ => return None,
-    };
-    activity.census_cursor = ((cell + step).clamp(0, last) as usize) * span;
-    Some(Vec::new())
-}
+mod form;
+mod pages;
+
+pub(crate) use pages::on_key;
 
 pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
-    if key.modifiers == crossterm::event::KeyModifiers::ALT.union(crossterm::event::KeyModifiers::SHIFT)
-        && matches!(key.code, KeyCode::Left | KeyCode::Right)
-    {
-        return crate::actions::perform(
-            state,
-            crate::Action::NudgeSplit(if key.code == KeyCode::Right {
-                crate::keymap::SPLIT_STEP
-            } else {
-                -crate::keymap::SPLIT_STEP
-            }),
-            now,
-        );
+    let (code, modifiers) = (key.code, key.modifiers);
+    if modifiers == KeyModifiers::ALT.union(KeyModifiers::SHIFT) && matches!(code, KeyCode::Left | KeyCode::Right) {
+        let step = if code == KeyCode::Right { SPLIT_STEP } else { -SPLIT_STEP };
+        return crate::actions::perform(state, Action::NudgeSplit(step), now);
     }
-
-    if key.code == KeyCode::Char('w') && key.modifiers == crossterm::event::KeyModifiers::ALT {
+    if code == KeyCode::Char('w') && modifiers == KeyModifiers::ALT {
         state.activity.expanded = !state.activity.expanded;
         return Vec::new();
     }
     if state.activity.search_form.is_some() {
         return on_key(state, key);
     }
-    if !state.activity.filtering && key.modifiers.is_empty() {
-        match key.code {
-            KeyCode::Char('1') => {
-                if state.activity.selected.is_none() {
-                    return Vec::new();
-                }
-                state.activity.preview_focused = false;
-                if state.activity.pending.as_ref().is_some_and(|(_, r)| !matches!(r, ActivityRequest::Sample)) {
-                    state.activity.pending = None;
-                    state.activity.next = None;
-                }
-                if state.activity.regions.is_empty() {
-                    return enter_map(state);
-                }
-                state.activity.list = ActivityPage::Regions;
-                state.activity.page = ActivityPage::Snapshot;
-                state.activity.schedule_preview(now);
-                return Vec::new();
-            }
-            KeyCode::Char('2') => {
-                let activity = &mut state.activity;
-                let Some(process) = activity.selected else {
-                    return Vec::new();
-                };
-                activity.list = ActivityPage::Files;
-                activity.page = ActivityPage::FileDetails;
-                activity.preview_focused = false;
-                activity.preview_due = None;
-                if !activity.files_loaded {
-                    return activity.request(ActivityRequest::Files { process, admin: false });
-                }
-                if activity.pending.as_ref().is_some_and(|(_, r)| !matches!(r, ActivityRequest::Sample)) {
-                    activity.pending = None;
-                    activity.next = None;
-                }
-                return Vec::new();
-            }
+    if !state.activity.filtering && modifiers.is_empty() {
+        match code {
+            KeyCode::Char('1') => return open_regions(&mut state.activity, now),
+            KeyCode::Char('2') => return open_files(&mut state.activity),
             _ => {}
         }
     }
-    if key.code == KeyCode::Char('f') && key.modifiers == crossterm::event::KeyModifiers::CONTROL {
-        if state.activity.list == ActivityPage::Files {
-            return Vec::new();
-        }
-        state.activity.preview_focused = true;
-        if !matches!(state.activity.list, ActivityPage::Search | ActivityPage::Integrity) {
-            state.activity.results_origin = state.activity.list;
-        }
-        if state.activity.page == ActivityPage::Processes {
-            state.activity.page = ActivityPage::Memory;
-        }
-        return on_key(state, &KeyCode::Char('/').into());
+    if code == KeyCode::Char('f') && modifiers == KeyModifiers::CONTROL {
+        return find_in_memory(state);
     }
-
-    if key.code == KeyCode::Char('o') && key.modifiers == crossterm::event::KeyModifiers::CONTROL {
-        return crate::actions::perform(state, crate::Action::ToggleShell, now);
+    if let Some(action) = panels_action(key) {
+        return crate::actions::perform(state, action, now);
     }
-    if key.code == KeyCode::F(9) {
-        return crate::actions::perform(state, crate::Action::OpenMenuBar, now);
-    }
-    if key.code == KeyCode::F(1) {
-        return crate::actions::perform(state, crate::Action::About, now);
-    }
-    if key.code == KeyCode::F(10) {
-        return crate::actions::perform(state, crate::Action::Quit, now);
-    }
-    if key.code == KeyCode::Char('m') && key.modifiers == crossterm::event::KeyModifiers::ALT {
+    if code == KeyCode::Char('m') && modifiers == KeyModifiers::ALT {
         state.activity.side = None;
         return Vec::new();
     }
-    if key.code == KeyCode::Tab {
+    if code == KeyCode::Tab {
         state.activity.filtering = false;
         state.activity.preview_focused = !state.activity.preview_focused;
         return Vec::new();
     }
     if let Some(path) = state.activity.previewable_file() {
-        if key.code == KeyCode::F(3) {
+        if code == KeyCode::F(3) {
             return crate::viewer::open(state, path);
         }
         // The focused preview scrolls; the keys that act on the process keep working.
-        if state.activity.preview_focused
-            && matches!(
-                key.code,
-                KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
-                    | KeyCode::Home
-                    | KeyCode::End
-                    | KeyCode::Left
-                    | KeyCode::Right
-            )
-        {
-            if let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = state.activity.file_preview.as_mut()
-                && let Err(error) = crate::viewer::scroll(pager, key.code)
-            {
-                state.activity.error = Some(tr!(preview_error, error = error));
-            }
+        if state.activity.preview_focused && scrolls_preview(code) {
+            scroll_preview(&mut state.activity, code);
             return Vec::new();
         }
     }
-    if key.code == KeyCode::Esc {
-        let activity = &mut state.activity;
-        activity.error = None;
-        activity.retry = None;
-        if activity.preview_focused {
-            activity.preview_focused = false;
-            return Vec::new();
-        }
-        if activity.list == ActivityPage::Processes {
-            // Esc stops and clears a filter before it closes the monitor.
-            if activity.filtering || !activity.filter.is_empty() {
-                activity.filtering = false;
-                activity.filter.clear();
-                activity.rebuild();
-            } else {
-                activity.side = None;
-            }
-        } else {
-            if activity.pending.as_ref().is_some_and(|(_, r)| !matches!(r, ActivityRequest::Sample)) {
-                activity.pending = None;
-                activity.next = None;
-            }
-            activity.preview_due = None;
-            activity.search_progress = None;
-            activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
-                activity.results_origin
-            } else {
-                ActivityPage::Processes
-            };
-            activity.page =
-                if activity.list == ActivityPage::Processes { ActivityPage::Memory } else { ActivityPage::Snapshot };
-            if activity.list == ActivityPage::Regions {
-                activity.schedule_preview(now);
-            }
-        }
+    match code {
+        KeyCode::Esc => escape(&mut state.activity, now),
+        KeyCode::Enter if !state.activity.filtering => enter(state, key, now),
+        _ => match list_key(&mut state.activity, key, now) {
+            Some(effects) => effects,
+            None => in_focused_page(state, key, now),
+        },
+    }
+}
+
+/// The panels' keys that work in the monitor too: the shell, the menu bar, About and quitting.
+fn panels_action(key: &KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('o') if key.modifiers == KeyModifiers::CONTROL => Some(Action::ToggleShell),
+        KeyCode::F(9) => Some(Action::OpenMenuBar),
+        KeyCode::F(1) => Some(Action::About),
+        KeyCode::F(10) => Some(Action::Quit),
+        _ => None,
+    }
+}
+
+/// 1 opens the selected process's memory regions, reading them first if need be.
+fn open_regions(activity: &mut Activity, now: Instant) -> Vec<Effect> {
+    if activity.selected.is_none() {
         return Vec::new();
     }
-    if key.code == KeyCode::Enter && !state.activity.filtering {
-        if state.activity.list == ActivityPage::Processes {
-            return enter_map(state);
-        }
-        if state.activity.list == ActivityPage::Regions
-            && (state.activity.selected_group().is_some() || state.activity.selected_file().is_some())
-        {
-            state.activity.preview_focused = false;
-            toggle(&mut state.activity, true, now);
-            return Vec::new();
-        }
-        if state.activity.preview_focused && state.activity.map && state.activity.census.is_some() {
-            return on_key(state, key);
-        }
-        state.activity.preview_focused = true;
-        if state.activity.preview_due.is_some() {
-            state.activity.preview_due = Some(now);
-        }
+    activity.preview_focused = false;
+    forget_request(activity);
+    if activity.regions.is_empty() {
+        return enter_map(activity);
+    }
+    activity.list = ActivityPage::Regions;
+    activity.page = ActivityPage::Snapshot;
+    activity.schedule_preview(now);
+    Vec::new()
+}
+
+/// 2 opens the files the selected process holds open, listing them first if need be.
+fn open_files(activity: &mut Activity) -> Vec<Effect> {
+    let Some(process) = activity.selected else { return Vec::new() };
+    activity.list = ActivityPage::Files;
+    activity.page = ActivityPage::FileDetails;
+    activity.preview_focused = false;
+    activity.preview_due = None;
+    if !activity.files_loaded {
+        return activity.request(ActivityRequest::Files { process, admin: false });
+    }
+    forget_request(activity);
+    Vec::new()
+}
+
+/// Ctrl-F opens the memory search in the preview, from any list but the open files. Its hits go
+/// back with Esc to the list the search began in.
+fn find_in_memory(state: &mut AppState) -> Vec<Effect> {
+    let activity = &mut state.activity;
+    if activity.list == ActivityPage::Files {
         return Vec::new();
     }
-    if key.code == KeyCode::Char('i')
-        && key.modifiers.is_empty()
-        && matches!(state.activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
-        && let Some(process) = state.activity.selected
+    activity.preview_focused = true;
+    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+        activity.results_origin = activity.list;
+    }
+    if activity.page == ActivityPage::Processes {
+        activity.page = ActivityPage::Memory;
+    }
+    on_key(state, &KeyCode::Char('/').into())
+}
+
+fn scrolls_preview(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Left
+            | KeyCode::Right
+    )
+}
+
+fn scroll_preview(activity: &mut Activity, code: KeyCode) {
+    if let Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) = activity.file_preview.as_mut()
+        && let Err(error) = crate::viewer::scroll(pager, code)
     {
-        return check_integrity(&mut state.activity, process);
+        activity.error = Some(tr!(preview_error, error = error));
     }
-    if key.code == KeyCode::Char('c')
-        && key.modifiers.is_empty()
-        && state.activity.list == ActivityPage::Search
-        && state.activity.next_copy()
+}
+
+/// Esc takes the focus back from the preview, or else steps back a page. On the processes it
+/// stops and clears a filter before it closes the monitor.
+fn escape(activity: &mut Activity, now: Instant) -> Vec<Effect> {
+    activity.error = None;
+    activity.retry = None;
+    if activity.preview_focused {
+        activity.preview_focused = false;
+    } else if activity.list != ActivityPage::Processes {
+        step_back(activity, now);
+    } else if activity.filtering || !activity.filter.is_empty() {
+        activity.filtering = false;
+        activity.filter.clear();
+        activity.rebuild();
+    } else {
+        activity.side = None;
+    }
+    Vec::new()
+}
+
+/// Goes back from a search's hits or a check's findings to the list they began in, and from
+/// the regions or the open files to the processes.
+fn step_back(activity: &mut Activity, now: Instant) {
+    forget_request(activity);
+    activity.preview_due = None;
+    activity.search_progress = None;
+    activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+        activity.results_origin
+    } else {
+        ActivityPage::Processes
+    };
+    activity.page =
+        if activity.list == ActivityPage::Processes { ActivityPage::Memory } else { ActivityPage::Snapshot };
+    if activity.list == ActivityPage::Regions {
+        activity.schedule_preview(now);
+    }
+}
+
+/// Enter on the processes opens the selected one's memory map, and on the regions opens a
+/// group or file. In the page map it opens the page under the cursor; anywhere else it gives
+/// the preview the focus, showing it at once if it was to come after a pause.
+fn enter(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let activity = &mut state.activity;
+    if activity.list == ActivityPage::Processes {
+        return enter_map(activity);
+    }
+    if activity.list == ActivityPage::Regions
+        && (activity.selected_group().is_some() || activity.selected_file().is_some())
     {
-        state.activity.schedule_preview(now);
+        activity.preview_focused = false;
+        toggle(activity, true, now);
         return Vec::new();
     }
-    if state.activity.list == ActivityPage::Regions && key.code == KeyCode::Char('m') && key.modifiers.is_empty() {
-        state.activity.map = !state.activity.map;
-        state.activity.schedule_preview(now);
-        return Vec::new();
+    if activity.preview_focused && activity.map && activity.census.is_some() {
+        return on_key(state, key);
     }
-    if !state.activity.preview_focused && state.activity.list == ActivityPage::Regions {
-        match key.code {
-            KeyCode::Char('g' | 'G') => {
-                let address = state.activity.selected_region().map(|r| r.start);
-                state.activity.set_grouped(!state.activity.grouped);
-                state.activity.region_cursor =
-                    address.and_then(|start| state.activity.find_row(&RowKey::Region(start))).unwrap_or(0);
-                state.activity.tops[1] = 0;
-                state.activity.schedule_preview(now);
-                return Vec::new();
-            }
-            KeyCode::Left | KeyCode::Right => {
-                toggle(&mut state.activity, key.code == KeyCode::Right, now);
-                return Vec::new();
-            }
-            _ => {}
+    activity.preview_focused = true;
+    if activity.preview_due.is_some() {
+        activity.preview_due = Some(now);
+    }
+    Vec::new()
+}
+
+/// The keys of the regions, a search's hits and a check's findings: checking the process, the
+/// next copy of a hit, the page map, grouping the regions and opening their groups, and
+/// capturing the focused snapshot again.
+fn list_key(activity: &mut Activity, key: &KeyEvent, now: Instant) -> Option<Vec<Effect>> {
+    let plain = key.modifiers.is_empty();
+    let regions = activity.list == ActivityPage::Regions;
+    let findings = matches!(activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity);
+    match key.code {
+        KeyCode::Char('i') if plain && findings => {
+            let process = activity.selected?;
+            Some(check_integrity(activity, process))
         }
-    }
-    if matches!(key.code, KeyCode::Char('r' | 'R'))
-        && state.activity.preview_focused
-        && state.activity.page == ActivityPage::Snapshot
-    {
-        if let Some(request) = state.activity.recapture_request() {
-            return state.activity.request(request);
+        KeyCode::Char('c') if plain && activity.list == ActivityPage::Search && activity.next_copy() => {
+            activity.schedule_preview(now);
+            Some(Vec::new())
         }
-        return Vec::new();
+        KeyCode::Char('m') if plain && regions => {
+            activity.map = !activity.map;
+            activity.schedule_preview(now);
+            Some(Vec::new())
+        }
+        KeyCode::Char('g' | 'G') if regions && !activity.preview_focused => {
+            regroup(activity, now);
+            Some(Vec::new())
+        }
+        KeyCode::Left | KeyCode::Right if regions && !activity.preview_focused => {
+            toggle(activity, key.code == KeyCode::Right, now);
+            Some(Vec::new())
+        }
+        KeyCode::Char('r' | 'R') if activity.preview_focused && activity.page == ActivityPage::Snapshot => {
+            Some(activity.recapture_request().map(|request| activity.request(request)).unwrap_or_default())
+        }
+        _ => None,
     }
+}
+
+/// G groups the regions, or lists them one by one, keeping the cursor on the region it was on.
+fn regroup(activity: &mut Activity, now: Instant) {
+    let address = activity.selected_region().map(|region| region.start);
+    activity.set_grouped(!activity.grouped);
+    activity.region_cursor = address.and_then(|start| activity.find_row(&RowKey::Region(start))).unwrap_or(0);
+    activity.tops[1] = 0;
+    activity.schedule_preview(now);
+}
+
+/// Any other key goes to the page with the focus, as if it were the monitor's page. Moving to
+/// another region, hit or finding previews it after a pause.
+fn in_focused_page(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let page = state.activity.page;
     let context = state.activity.focused_page();
     let cursor = state.activity.list_cursor(context);
     state.activity.page = context;
     let effects = on_key(state, key);
-    state.activity.page = page;
-    if state.activity.search_form.is_some() {
-        if state.activity.list != ActivityPage::Search {
-            state.activity.results_origin = state.activity.list;
+    let activity = &mut state.activity;
+    activity.page = page;
+    if activity.search_form.is_some() {
+        if activity.list != ActivityPage::Search {
+            activity.results_origin = activity.list;
         }
-        state.activity.preview_focused = true;
+        activity.preview_focused = true;
     }
     if matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
-        && cursor != state.activity.list_cursor(context)
+        && cursor != activity.list_cursor(context)
     {
-        state.activity.schedule_preview(now);
+        activity.schedule_preview(now);
     }
     effects
 }
 
+/// Gives up the request under way, unless it is only a sample, and the time set for the next.
+fn forget_request(activity: &mut Activity) {
+    if activity.pending.as_ref().is_some_and(|(_, request)| !matches!(request, ActivityRequest::Sample)) {
+        activity.pending = None;
+        activity.next = None;
+    }
+}
+
 /// Right opens the selected group or file and steps into it; Left closes the selected
 /// group or file, or the one around the selected row, and selects it.
-pub(super) fn toggle(activity: &mut Activity, expand: bool, now: Instant) {
+fn toggle(activity: &mut Activity, expand: bool, now: Instant) {
     if !activity.grouped {
         return;
     }
@@ -544,8 +322,8 @@ pub(super) fn toggle(activity: &mut Activity, expand: bool, now: Instant) {
     activity.schedule_preview(now);
 }
 
-pub(super) fn enter_map(state: &mut AppState) -> Vec<Effect> {
-    let activity = &mut state.activity;
+/// Opens the selected process's memory map, reading its regions again.
+fn enter_map(activity: &mut Activity) -> Vec<Effect> {
     let Some(process) = activity.selected else {
         return Vec::new();
     };
