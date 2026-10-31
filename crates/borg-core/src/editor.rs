@@ -8,7 +8,7 @@ use std::{path::PathBuf, time::SystemTime};
 use borg_edit::{Buffer, Motion};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{AppState, Effect, LineInput};
+use crate::{AppState, Effect, LineInput, Pointer};
 
 /// Lines above the screen highlighted with it, so a comment or string opened there colours
 /// what shows.
@@ -46,14 +46,84 @@ pub enum SaveError {
     Failed(String),
 }
 
+/// A dialog over the editor. Its fields and then its buttons share one focus, counted from 0.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorPrompt {
-    Find(LineInput),
-    Line(LineInput),
+    Find {
+        input: LineInput,
+        focus: usize,
+    },
+    Replace {
+        find: LineInput,
+        with: LineInput,
+        focus: usize,
+    },
+    Line {
+        input: LineInput,
+        focus: usize,
+    },
     /// Closing with changes not saved.
-    Unsaved,
+    Unsaved {
+        focus: usize,
+    },
     /// Saving over a file changed on disk.
-    Changed,
+    Changed {
+        focus: usize,
+    },
+}
+
+/// What an editor dialog shows, for the renderer and for clicks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorDialog<'a> {
+    pub title: &'static str,
+    pub message: Option<String>,
+    pub fields: Vec<(&'static str, &'a LineInput)>,
+    pub buttons: Vec<&'static str>,
+    pub focus: usize,
+    pub keys: &'static str,
+}
+
+impl EditorPrompt {
+    fn find(needle: &str) -> Self {
+        Self::Find { input: LineInput::new(needle), focus: 0 }
+    }
+
+    fn focus_mut(&mut self) -> &mut usize {
+        match self {
+            Self::Find { focus, .. }
+            | Self::Replace { focus, .. }
+            | Self::Line { focus, .. }
+            | Self::Unsaved { focus }
+            | Self::Changed { focus } => focus,
+        }
+    }
+
+    fn fields(&self) -> usize {
+        match self {
+            Self::Replace { .. } => 2,
+            Self::Find { .. } | Self::Line { .. } => 1,
+            Self::Unsaved { .. } | Self::Changed { .. } => 0,
+        }
+    }
+
+    fn buttons(&self) -> usize {
+        if matches!(self, Self::Replace { .. }) {
+            4
+        } else if matches!(self, Self::Find { .. } | Self::Line { .. }) {
+            2
+        } else {
+            3
+        }
+    }
+
+    fn field_mut(&mut self) -> Option<&mut LineInput> {
+        match self {
+            Self::Find { input, focus: 0 } | Self::Line { input, focus: 0 } => Some(input),
+            Self::Replace { find, focus: 0, .. } => Some(find),
+            Self::Replace { with, focus: 1, .. } => Some(with),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +141,7 @@ pub struct Editor {
     /// Syntax colours: the revision and first line they were made for, and each line's runs.
     pub painted: Option<(u64, usize, Vec<Vec<borg_view::Run>>)>,
     needle: String,
+    replacement: String,
     /// The revision a save in flight wrote, and whether the editor closes once it lands.
     saving: Option<(u64, bool)>,
 }
@@ -89,6 +160,7 @@ impl Editor {
             language,
             painted: None,
             needle: String::new(),
+            replacement: String::new(),
             saving: None,
         }
     }
@@ -203,7 +275,7 @@ pub(crate) fn saved(state: &mut AppState, result: Result<FileStamp, SaveError>) 
         }
         Err(SaveError::Changed) => {
             editor.saving = Some((revision, close));
-            editor.prompt = Some(EditorPrompt::Changed);
+            editor.prompt = Some(EditorPrompt::Changed { focus: 0 });
         }
         Err(SaveError::Failed(error)) => editor.note = Some(tr!(editor_save_failed, error = error)),
     }
@@ -218,12 +290,14 @@ fn close_editor(state: &mut AppState) -> Vec<Effect> {
 pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     let Some(mut editor) = state.editor.take() else { return Vec::new() };
     match editor.prompt.as_mut() {
-        Some(EditorPrompt::Find(input) | EditorPrompt::Line(input)) => {
-            for c in text.chars().filter(|c| !c.is_control()).take(512) {
-                input.apply(&KeyCode::Char(c).into());
+        Some(prompt) => {
+            let line = matches!(prompt, EditorPrompt::Line { .. });
+            if let Some(input) = prompt.field_mut() {
+                for c in text.chars().filter(|c| !c.is_control() && (!line || c.is_ascii_digit())).take(512) {
+                    input.apply(&KeyCode::Char(c).into());
+                }
             }
         }
-        Some(_) => {}
         None => editor.buffer.insert(text),
     }
     settle(state, editor);
@@ -257,37 +331,140 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     effects
 }
 
-fn on_prompt(state: &mut AppState, editor: &mut Editor, prompt: EditorPrompt, key: &KeyEvent) -> Vec<Effect> {
-    match (prompt, key.code) {
-        (_, KeyCode::Esc) => {}
-        (EditorPrompt::Find(input), KeyCode::Enter) => {
+fn on_prompt(state: &mut AppState, editor: &mut Editor, mut prompt: EditorPrompt, key: &KeyEvent) -> Vec<Effect> {
+    let (fields, count) = (prompt.fields(), prompt.fields() + prompt.buttons());
+    let focus = *prompt.focus_mut();
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let button = match (&prompt, key.code) {
+        (_, KeyCode::Esc) => return Vec::new(),
+        (_, KeyCode::Enter) => Some(focus.saturating_sub(fields)),
+        (_, KeyCode::Tab | KeyCode::Down) => {
+            *prompt.focus_mut() = (focus + 1) % count;
+            None
+        }
+        (_, KeyCode::BackTab | KeyCode::Up) => {
+            *prompt.focus_mut() = (focus + count - 1) % count;
+            None
+        }
+        (_, KeyCode::Left | KeyCode::Right) if focus >= fields => {
+            let buttons = count - fields;
+            let step = if key.code == KeyCode::Left { buttons - 1 } else { 1 };
+            *prompt.focus_mut() = fields + (focus - fields + step) % buttons;
+            None
+        }
+        (EditorPrompt::Replace { .. }, KeyCode::Char('a' | 'A')) if alt => Some(1),
+        (EditorPrompt::Unsaved { .. }, KeyCode::Char('s' | 'S')) => Some(0),
+        (EditorPrompt::Unsaved { .. }, KeyCode::Char('n' | 'N' | 'd' | 'D')) => Some(1),
+        (EditorPrompt::Changed { .. }, KeyCode::Char('o' | 'O')) => Some(0),
+        (EditorPrompt::Changed { .. }, KeyCode::Char('r' | 'R')) => Some(1),
+        (_, code) => {
+            let digits = matches!(prompt, EditorPrompt::Line { .. });
+            if let Some(input) =
+                prompt.field_mut().filter(|_| !digits || !matches!(code, KeyCode::Char(c) if !c.is_ascii_digit()))
+            {
+                input.apply(key);
+            }
+            None
+        }
+    };
+    match button {
+        Some(button) => press(state, editor, prompt, button),
+        None => {
+            editor.prompt = Some(prompt);
+            Vec::new()
+        }
+    }
+}
+
+/// Presses the dialog's button `button`; the dialog closes unless it stays to go on.
+fn press(state: &mut AppState, editor: &mut Editor, prompt: EditorPrompt, button: usize) -> Vec<Effect> {
+    match (prompt, button) {
+        (EditorPrompt::Find { input, .. }, 0) => {
             editor.needle = input.text().to_owned();
             find(editor, true);
         }
-        (EditorPrompt::Line(input), KeyCode::Enter) => match input.text().trim().parse::<usize>() {
-            Ok(line) => editor.buffer.go_to_line(line),
-            Err(_) => editor.prompt = Some(EditorPrompt::Line(input)),
-        },
-        (EditorPrompt::Find(mut input), _) => {
-            input.apply(key);
-            editor.prompt = Some(EditorPrompt::Find(input));
-        }
-        (EditorPrompt::Line(mut input), _) => {
-            if !matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit()) {
-                input.apply(key);
+        (EditorPrompt::Replace { find: needle, with, focus }, button @ (0 | 2)) => {
+            editor.needle = needle.text().to_owned();
+            editor.replacement = with.text().to_owned();
+            if button == 0 && editor.buffer.selection_matches(&editor.needle) {
+                editor.buffer.insert(&editor.replacement);
             }
-            editor.prompt = Some(EditorPrompt::Line(input));
+            find(editor, true);
+            editor.prompt = Some(EditorPrompt::Replace { find: needle, with, focus });
         }
-        (EditorPrompt::Unsaved, KeyCode::Enter | KeyCode::Char('s' | 'S')) => return editor.save(true, false),
-        (EditorPrompt::Unsaved, KeyCode::Char('n' | 'N' | 'd' | 'D')) => return close_editor(state),
-        (EditorPrompt::Changed, KeyCode::Char('o' | 'O')) => {
+        (EditorPrompt::Replace { find: needle, with, .. }, 1) => {
+            editor.needle = needle.text().to_owned();
+            editor.replacement = with.text().to_owned();
+            let count = editor.buffer.replace_all(&editor.needle, &editor.replacement);
+            editor.note = Some(if count == 0 {
+                tr!(editor_no_match, text = editor.needle)
+            } else {
+                tr!(editor_replaced, count = count)
+            });
+        }
+        (EditorPrompt::Line { input, focus }, 0) => match input.text().trim().parse::<usize>() {
+            Ok(line) => editor.buffer.go_to_line(line),
+            Err(_) => editor.prompt = Some(EditorPrompt::Line { input, focus }),
+        },
+        (EditorPrompt::Unsaved { .. }, 0) => return editor.save(true, false),
+        (EditorPrompt::Unsaved { .. }, 1) => return close_editor(state),
+        (EditorPrompt::Changed { .. }, 0) => {
             let close = editor.saving.is_some_and(|(_, close)| close);
             return editor.save(close, true);
         }
-        (EditorPrompt::Changed, KeyCode::Char('r' | 'R')) => return vec![Effect::OpenEditor(editor.path.clone())],
-        (prompt, _) => editor.prompt = Some(prompt),
+        (EditorPrompt::Changed { .. }, 1) => return vec![Effect::OpenEditor(editor.path.clone())],
+        _ => {}
     }
     Vec::new()
+}
+
+/// A click, drag or wheel turn in the editor, or a click on its dialog's field or button.
+pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> {
+    let Some(mut editor) = state.editor.take() else { return Vec::new() };
+    let mut follow = true;
+    let effects = match (pointer, editor.prompt.take()) {
+        (Pointer::EditorControl(control), Some(mut prompt)) => {
+            let fields = prompt.fields();
+            if control < fields {
+                *prompt.focus_mut() = control;
+                editor.prompt = Some(prompt);
+                Vec::new()
+            } else {
+                *prompt.focus_mut() = control;
+                press(state, &mut editor, prompt, control - fields)
+            }
+        }
+        (Pointer::EditorClick { line, column, select, word }, None) => {
+            editor.note = None;
+            if word {
+                editor.buffer.select_word(line, column);
+            } else {
+                editor.buffer.place(line, column, select);
+            }
+            Vec::new()
+        }
+        (Pointer::EditorScroll(delta), prompt) => {
+            // The view moves and the cursor stays where it is, until a key brings it back.
+            editor.top = editor.top.saturating_add_signed(delta).min(editor.buffer.lines().saturating_sub(1));
+            editor.prompt = prompt;
+            follow = false;
+            Vec::new()
+        }
+        (_, prompt) => {
+            editor.prompt = prompt;
+            Vec::new()
+        }
+    };
+    if !effects.iter().any(|effect| matches!(effect, Effect::List { .. })) {
+        if follow {
+            settle(state, editor);
+        } else {
+            let (rows, _) = text_size(state, &editor);
+            editor.paint(rows);
+            state.editor = Some(editor);
+        }
+    }
+    effects
 }
 
 fn find(editor: &mut Editor, forward: bool) {
@@ -324,17 +501,21 @@ fn on_edit(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Eff
     match key.code {
         KeyCode::Esc | KeyCode::F(10) => {
             if buffer.modified() {
-                editor.prompt = Some(EditorPrompt::Unsaved);
+                editor.prompt = Some(EditorPrompt::Unsaved { focus: 0 });
             } else {
                 return close_editor(state);
             }
         }
         KeyCode::F(2) => return editor.save(false, false),
         KeyCode::Char('s') if ctrl => return editor.save(false, false),
-        KeyCode::Char('f') if ctrl => editor.prompt = Some(EditorPrompt::Find(LineInput::new(editor.needle.clone()))),
-        KeyCode::F(7) => editor.prompt = Some(EditorPrompt::Find(LineInput::new(editor.needle.clone()))),
+        KeyCode::Char('f') if ctrl => editor.prompt = Some(EditorPrompt::find(&needle(editor))),
+        KeyCode::F(7) => editor.prompt = Some(EditorPrompt::find(&needle(editor))),
+        KeyCode::Char('r') if ctrl => editor.prompt = Some(replace(editor)),
+        KeyCode::F(4) => editor.prompt = Some(replace(editor)),
         KeyCode::F(3) => find(editor, !shift),
-        KeyCode::Char('g') if ctrl => editor.prompt = Some(EditorPrompt::Line(LineInput::default())),
+        KeyCode::Char('g') if ctrl => {
+            editor.prompt = Some(EditorPrompt::Line { input: LineInput::default(), focus: 0 })
+        }
         KeyCode::Char('z') if ctrl && shift => {
             buffer.redo();
         }
@@ -381,16 +562,69 @@ fn on_edit(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Eff
     Vec::new()
 }
 
-/// The status line's prompt or note, for the renderer.
-pub fn status(editor: &Editor) -> Option<(String, Option<&LineInput>)> {
-    let name = editor.name();
-    match &editor.prompt {
-        Some(EditorPrompt::Find(input)) => Some((tr!(editor_find).into(), Some(input))),
-        Some(EditorPrompt::Line(input)) => Some((tr!(editor_line).into(), Some(input))),
-        Some(EditorPrompt::Unsaved) => Some((tr!(editor_unsaved, name = name), None)),
-        Some(EditorPrompt::Changed) => Some((tr!(editor_changed, name = name), None)),
-        None => editor.note.clone().map(|note| (note, None)),
+/// What to look for: a selection within one line, or else what was looked for last.
+fn needle(editor: &Editor) -> String {
+    editor.buffer.selected_text().filter(|text| !text.contains('\n')).unwrap_or_else(|| editor.needle.clone())
+}
+
+fn replace(editor: &Editor) -> EditorPrompt {
+    EditorPrompt::Replace {
+        find: LineInput::new(needle(editor)),
+        with: LineInput::new(editor.replacement.as_str()),
+        focus: 0,
     }
+}
+
+/// The dialog open over the editor, for the renderer.
+pub fn dialog(editor: &Editor) -> Option<EditorDialog<'_>> {
+    let name = editor.name();
+    let keys = tr!(editor_dialog_keys);
+    let (title, message, fields, buttons, keys) = match editor.prompt.as_ref()? {
+        EditorPrompt::Find { input, .. } => (
+            tr!(editor_find_title),
+            None,
+            vec![(tr!(editor_find), input)],
+            vec![tr!(editor_find_action), tr!(cancel)],
+            keys,
+        ),
+        EditorPrompt::Replace { find, with, .. } => (
+            tr!(editor_replace_title),
+            None,
+            vec![(tr!(editor_find), find), (tr!(editor_replace_with), with)],
+            vec![tr!(editor_replace_action), tr!(editor_replace_all), tr!(editor_skip), tr!(editor_close_action)],
+            tr!(editor_replace_keys),
+        ),
+        EditorPrompt::Line { input, .. } => {
+            (tr!(editor_line_title), None, vec![(tr!(editor_line), input)], vec![tr!(editor_go), tr!(cancel)], keys)
+        }
+        EditorPrompt::Unsaved { .. } => (
+            tr!(editor_unsaved_title),
+            Some(tr!(editor_unsaved, name = name)),
+            Vec::new(),
+            vec![tr!(editor_save_action), tr!(editor_discard), tr!(cancel)],
+            keys,
+        ),
+        EditorPrompt::Changed { .. } => (
+            tr!(editor_changed_title),
+            Some(tr!(editor_changed, name = name)),
+            Vec::new(),
+            vec![tr!(editor_overwrite), tr!(editor_reload), tr!(cancel)],
+            keys,
+        ),
+    };
+    let focus = match editor.prompt.as_ref()? {
+        EditorPrompt::Find { focus, .. }
+        | EditorPrompt::Replace { focus, .. }
+        | EditorPrompt::Line { focus, .. }
+        | EditorPrompt::Unsaved { focus }
+        | EditorPrompt::Changed { focus } => *focus,
+    };
+    Some(EditorDialog { title, message, fields, buttons, focus, keys })
+}
+
+/// The status line's note, for the renderer.
+pub fn status(editor: &Editor) -> Option<&str> {
+    editor.note.as_deref()
 }
 
 #[cfg(test)]
@@ -448,11 +682,16 @@ mod tests {
         opened(&mut state, now, "a");
         press(&mut state, now, KeyCode::Char('b').into());
         press(&mut state, now, KeyCode::Esc.into());
-        assert_eq!(state.editor.as_ref().unwrap().prompt, Some(EditorPrompt::Unsaved));
+        assert_eq!(state.editor.as_ref().unwrap().prompt, Some(EditorPrompt::Unsaved { focus: 0 }));
         let effects = press(&mut state, now, KeyCode::Enter.into());
         assert!(matches!(&effects[..], [Effect::SaveFile { force: false, .. }]));
         update(&mut state, Msg::EditorSaved(Err(SaveError::Changed)), now);
-        assert_eq!(state.editor.as_ref().unwrap().prompt, Some(EditorPrompt::Changed));
+        assert_eq!(state.editor.as_ref().unwrap().prompt, Some(EditorPrompt::Changed { focus: 0 }));
+        press(&mut state, now, KeyCode::Right.into());
+        press(&mut state, now, KeyCode::Right.into());
+        assert!(press(&mut state, now, KeyCode::Enter.into()).is_empty(), "Cancel keeps editing");
+        assert!(state.editor.as_ref().unwrap().prompt.is_none());
+        update(&mut state, Msg::EditorSaved(Err(SaveError::Changed)), now);
         let effects = press(&mut state, now, KeyCode::Char('o').into());
         assert!(matches!(&effects[..], [Effect::SaveFile { force: true, .. }]));
         let effects = update(&mut state, Msg::EditorSaved(Ok(stamp(2))), now);
@@ -476,7 +715,75 @@ mod tests {
     }
 
     #[test]
-    fn find_and_go_to_line_use_the_status_line() {
+    fn closing_asks_in_a_dialog_whose_buttons_take_clicks() {
+        let (mut state, now) = state();
+        opened(&mut state, now, "a");
+        press(&mut state, now, KeyCode::Char('b').into());
+        press(&mut state, now, KeyCode::Esc.into());
+        let dialog = dialog(state.editor.as_ref().unwrap()).unwrap();
+        assert_eq!(dialog.buttons, ["Save", "Discard", "Cancel"]);
+        assert_eq!(dialog.message.as_deref(), Some("Save the changes to notes.rs?"));
+        update(&mut state, Msg::Pointer(Pointer::EditorControl(2)), now);
+        assert!(state.editor.as_ref().is_some_and(|editor| editor.prompt.is_none()), "Cancel keeps editing");
+        press(&mut state, now, KeyCode::Esc.into());
+        let effects = update(&mut state, Msg::Pointer(Pointer::EditorControl(1)), now);
+        assert!(state.editor.is_none() && effects.iter().any(|effect| matches!(effect, Effect::List { .. })));
+    }
+
+    #[test]
+    fn replace_steps_through_matches_and_all_replaces_the_rest_in_one_undo() {
+        let (mut state, now) = state();
+        opened(&mut state, now, "cat Cat\ncat dog\n");
+        press(&mut state, now, ctrl('r'));
+        update(&mut state, Msg::Paste("cat".into()), now);
+        press(&mut state, now, KeyCode::Tab.into());
+        update(&mut state, Msg::Paste("cow".into()), now);
+        press(&mut state, now, KeyCode::Enter.into());
+        assert_eq!(state.editor.as_ref().unwrap().buffer.selection(), Some(0..3), "the first Enter finds a match");
+        press(&mut state, now, KeyCode::Enter.into());
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.buffer.text(), "cow Cat\ncat dog\n");
+        assert_eq!(editor.buffer.selection(), Some(4..7), "replacing moves on to the next match, in any case");
+        assert!(matches!(editor.prompt, Some(EditorPrompt::Replace { .. })), "the dialog stays open");
+        press(&mut state, now, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(editor.buffer.text(), "cow cow\ncow dog\n");
+        assert_eq!(editor.note.as_deref(), Some("Replaced 2"));
+        assert!(editor.prompt.is_none());
+        press(&mut state, now, ctrl('z'));
+        assert_eq!(state.editor.as_ref().unwrap().buffer.text(), "cow Cat\ncat dog\n");
+        press(&mut state, now, KeyCode::Right.into());
+        press(&mut state, now, KeyCode::F(4).into());
+        let Some(EditorPrompt::Replace { find, with, .. }) = &state.editor.as_ref().unwrap().prompt else { panic!() };
+        assert_eq!((find.text(), with.text()), ("cat", "cow"), "the dialog remembers what it replaced");
+    }
+
+    #[test]
+    fn clicks_place_the_cursor_drags_select_and_the_wheel_moves_the_view_only() {
+        let (mut state, now) = state();
+        opened(&mut state, now, &(1..=40).map(|n| format!("line {n}\n")).collect::<String>());
+        let click = |line, column, select, word| Msg::Pointer(Pointer::EditorClick { line, column, select, word });
+        update(&mut state, click(2, 3, false, false), now);
+        assert_eq!(state.editor.as_ref().unwrap().buffer.position(), (2, 3));
+        update(&mut state, click(3, 6, true, false), now);
+        assert_eq!(state.editor.as_ref().unwrap().buffer.selected_text().as_deref(), Some("e 3\nline 4"));
+        update(&mut state, click(5, 1, false, true), now);
+        assert_eq!(state.editor.as_ref().unwrap().buffer.selected_text().as_deref(), Some("line"));
+        update(&mut state, Msg::Pointer(Pointer::EditorScroll(20)), now);
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!((editor.top, editor.buffer.position()), (20, (5, 4)), "the cursor stays behind");
+        update(
+            &mut state,
+            Msg::Pointer(Pointer::Panel { side: crate::Side::Left, index: 2, open: true, mark: false }),
+            now,
+        );
+        assert!(state.editor.is_some(), "clicks never reach the panels behind the editor");
+        press(&mut state, now, KeyCode::Right.into());
+        assert!(state.editor.as_ref().unwrap().top <= 5, "a key brings the cursor back into view");
+    }
+
+    #[test]
+    fn find_and_go_to_line_open_dialogs() {
         let (mut state, now) = state();
         opened(&mut state, now, &(1..=40).map(|n| format!("line {n}\n")).collect::<String>());
         press(&mut state, now, ctrl('g'));

@@ -82,10 +82,14 @@ pub fn draw_rain_backdrop(look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     fx::draw_rain(buf, area, look.t, look.accent().dimmed(background, RAIN_DIM), background);
 }
 
+pub(crate) fn about_rect(screen: Rect) -> Rect {
+    let (width, height) = sized(screen, ABOUT_SIZE);
+    centered(screen, width, height)
+}
+
 pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
     let styles = look.styles();
-    let (width, height) = sized(screen, ABOUT_SIZE);
-    let rect = centered(screen, width, height);
+    let rect = about_rect(screen);
     Clear.render(rect, buf);
     let block = Block::bordered()
         .border_type(look.theme.border.into())

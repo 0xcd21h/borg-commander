@@ -189,6 +189,10 @@ fn exclusions_window(editor: &ExclusionEditor, state: &AppState, screen: Rect) -
     (area, (chosen + 1).saturating_sub(shown.max(1)).min(patterns - shown), shown)
 }
 
+pub(crate) fn exclusions_area(editor: &ExclusionEditor, state: &AppState, screen: Rect) -> Rect {
+    exclusions_window(editor, state, screen).0
+}
+
 /// The row of the exclusion list at `point`: a switch, a pattern or the row for adding one.
 pub(crate) fn exclusion_row(
     editor: &ExclusionEditor,

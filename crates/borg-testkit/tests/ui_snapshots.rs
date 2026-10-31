@@ -378,8 +378,67 @@ fn editor_shows_highlighted_code_numbers_selection_and_a_find_prompt() -> Result
     check("editor", &stage, buffer)?;
     stage.send(ctrl('f'));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Find:")?;
+    ensure_text(&buffer, "[ Find ]")?;
     check("editor_find", &stage, buffer)
+}
+
+#[test]
+fn editor_takes_clicks_in_the_text_its_status_line_and_its_dialogs() -> Result<()> {
+    use borg_core::Pointer;
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = staged(Motion::STILL, QUIET, Vec::new(), CLOCK)?;
+    let text = "cat Cat\ncat dog\n";
+    let stamp = borg_core::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let file = borg_core::EditorFile { path: "/home/me/projects/borg/notes.txt".into(), text: text.into(), stamp };
+    borg_core::update(&mut stage.state, Msg::EditorOpened(Ok(file)), stage.started);
+    let click = |screen: &Snapshot, text: &str| {
+        let (column, row) =
+            screen.find(text).unwrap_or_else(|| panic!("{text} on screen\n{}", screen.lines().join("\n")));
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
+    };
+    let hit = |stage: &Stage, event, double| borg_ui::mouse_input(&stage.state, event, double, stage.started);
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let at_dog = click(&screen, "dog");
+    let Some(Msg::Pointer(word @ Pointer::EditorClick { line: 1, column: 4, select: false, word: true })) =
+        hit(&stage, at_dog, true)
+    else {
+        panic!("a double click on dog selects it");
+    };
+    stage.send(Msg::Pointer(word));
+    assert_eq!(stage.state.editor.as_ref().unwrap().buffer.selected_text().as_deref(), Some("dog"));
+    let at_menu = MouseEvent { row: 0, ..at_dog };
+    assert!(
+        !matches!(hit(&stage, at_menu, false), Some(Msg::Pointer(Pointer::Menu(_)))),
+        "the menu behind the editor takes no clicks"
+    );
+
+    let find = hit(&stage, click(&screen, "Ctrl-R Replace"), false).unwrap();
+    assert!(matches!(find, Msg::Key(KeyEvent { code: KeyCode::Char('r'), modifiers: KeyModifiers::CONTROL, .. })));
+    stage.send(find);
+    stage.send(key(KeyCode::Tab));
+    chars("bird").for_each(|msg| {
+        stage.send(msg);
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace with")?;
+    check("editor_replace", &stage, buffer.clone())?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let all = hit(&stage, click(&screen, "[ All ]"), false).unwrap();
+    assert!(matches!(all, Msg::Pointer(Pointer::EditorControl(3))));
+    stage.send(all);
+    let editor = stage.state.editor.as_ref().unwrap();
+    assert_eq!(editor.buffer.text(), "cat Cat\ncat bird\n");
+    assert!(editor.prompt.is_none(), "All closes the dialog");
+
+    stage.send(key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Save the changes to notes.txt?")?;
+    check("editor_unsaved", &stage, buffer.clone())?;
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let discard = hit(&stage, click(&screen, "[ Discard ]"), false).unwrap();
+    stage.send(discard);
+    assert!(stage.state.editor.is_none(), "Discard closes the editor");
+    Ok(())
 }
 
 #[test]
@@ -622,12 +681,35 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "Overwrite all")?;
     ensure_text(&buffer, "Alt-J Waiting for you")?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
     check("job_conflict", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Char('s')));
+    let (column, row) = shot.find("[ Skip ]").unwrap();
+    let skip = borg_ui::mouse_input(&stage.state, crossterm::event::MouseEvent { column, row, ..click }, false, later);
+    assert!(matches!(skip, Some(Msg::Key(KeyEvent { code: KeyCode::Char('s'), .. }))), "{skip:?}");
+    stage.send(skip.unwrap());
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)));
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "p pause · c cancel")?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let at = |text: &str| {
+        let (column, row) = shot.find(text).unwrap();
+        borg_ui::mouse_input(&stage.state, crossterm::event::MouseEvent { column, row, ..click }, false, later)
+    };
+    assert!(matches!(at("Copying"), Some(Msg::Pointer(borg_core::Pointer::DialogRow(0)))));
+    assert!(matches!(at("c cancel"), Some(Msg::Key(KeyEvent { code: KeyCode::Char('c'), .. }))));
+    assert!(
+        matches!(
+            borg_ui::mouse_input(
+                &stage.state,
+                crossterm::event::MouseEvent { column: 0, row: 1, ..click },
+                false,
+                later
+            ),
+            Some(Msg::Pointer(borg_core::Pointer::DismissDialog))
+        ),
+        "a click beside the list closes it"
+    );
     check("job_list", &stage, buffer)
 }
 
@@ -898,6 +980,81 @@ fn settings_window_has_checkboxes() -> Result<()> {
     ensure_text(&buffer, "[x] Screensaver when idle")?;
     ensure_text(&buffer, "[x] Return to panels after command")?;
     check("settings_window", &stage, buffer)
+}
+
+#[test]
+fn dialogs_take_clicks_on_rows_and_key_hints_and_close_when_clicked_beside() -> Result<()> {
+    use borg_core::{Action, Overlay, Pointer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;
+    let event = |kind, (column, row)| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+    let down = MouseEventKind::Down(MouseButton::Left);
+    let find = |stage: &mut Stage, text: &str| -> Result<(u16, u16)> {
+        let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+        screen.find(text).with_context(|| format!("{text} on screen\n{}", screen.lines().join("\n")))
+    };
+    let hit = |stage: &Stage, kind, at| borg_ui::mouse_input(&stage.state, event(kind, at), false, stage.started);
+    let pressed = |msg: Option<Msg>, code| matches!(msg, Some(Msg::Key(KeyEvent { code: c, .. })) if c == code);
+    let tap = |stage: &mut Stage, text: &str| -> Result<Option<Msg>> {
+        let at = find(stage, text)?;
+        Ok(hit(stage, down, at))
+    };
+
+    // Themes: the wheel moves the choice, a click picks a row, a second click keeps it.
+    stage.send(Msg::Pointer(Pointer::Action(Action::PickTheme)));
+    let scrolled = hit(&stage, MouseEventKind::ScrollDown, (45, 15)).unwrap();
+    assert!(matches!(scrolled, Msg::Pointer(Pointer::DialogScroll(1))));
+    let paper = stage.state.appearance.choices().iter().find(|c| c.id == "paper").unwrap().name.to_string();
+    let at = find(&mut stage, &paper)?;
+    let picked = hit(&stage, down, at).unwrap();
+    assert!(matches!(picked, Msg::Pointer(Pointer::DialogRow(_))), "{picked:?}");
+    stage.send(picked);
+    assert!(pressed(hit(&stage, down, at), KeyCode::Enter), "a click on the chosen row keeps it");
+    let esc = find(&mut stage, "Esc cancel")?;
+    assert!(pressed(hit(&stage, down, esc), KeyCode::Esc));
+    stage.send(hit(&stage, down, (0, 1)).unwrap());
+    assert!(stage.state.overlay.is_none(), "a click beside the picker closes it");
+
+    // Settings scroll with the wheel; About closes when clicked beside.
+    stage.send(Msg::Pointer(Pointer::Action(Action::Settings)));
+    assert!(matches!(hit(&stage, MouseEventKind::ScrollUp, (45, 15)), Some(Msg::Pointer(Pointer::DialogScroll(-1)))));
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(1)));
+    stage.send(hit(&stage, down, (0, 1)).unwrap());
+    assert!(stage.state.overlay.is_none(), "a click beside About closes it");
+
+    // Remote hosts: the tabs, the rows and the keys in the border take clicks.
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog { choices: Vec::new(), complete: true });
+    let client =
+        |name: &str| borg_core::RemoteClient { name: name.into(), fingerprint: "aa:bb".into(), connections: None };
+    stage.send(Msg::RemoteClients(vec![client("dev@laptop"), client("workstation")]));
+    assert!(matches!(stage.state.overlay, Some(Overlay::Remotes(ref browser)) if browser.show_clients));
+    let row = tap(&mut stage, "workstation")?.unwrap();
+    assert!(matches!(row, Msg::Pointer(Pointer::DialogRow(1))), "{row:?}");
+    assert!(pressed(tap(&mut stage, "R: refresh")?, KeyCode::Char('r')));
+    let hosts = tap(&mut stage, " Hosts ")?;
+    assert!(pressed(hosts, KeyCode::Tab), "the Hosts tab switches to the hosts");
+    stage.send(key(KeyCode::Esc));
+
+    // Remote access: a click picks a way to connect.
+    stage.send(key(KeyCode::F(1))).send(key(KeyCode::Char('c')));
+    let pick = tap(&mut stage, "Start Claude Code connected")?.unwrap();
+    assert!(matches!(pick, Msg::Pointer(Pointer::DialogRow(1))), "{pick:?}");
+    stage.send(pick);
+    assert!(matches!(stage.state.overlay, Some(Overlay::Connect(ref connect)) if connect.pick == 1));
+    stage.send(key(KeyCode::Esc));
+
+    // 2048: a click toward a side of the board slides the tiles that way.
+    stage.send(key(KeyCode::F(1)));
+    chars("2048").for_each(|msg| {
+        stage.send(msg);
+    });
+    assert!(matches!(stage.state.overlay, Some(Overlay::Game2048)));
+    // The game is centred on the screen: 44 columns by 22 rows from (23, 6).
+    assert!(pressed(hit(&stage, down, (25, 17)), KeyCode::Left));
+    assert!(pressed(hit(&stage, down, (45, 26)), KeyCode::Down));
+    assert!(pressed(hit(&stage, down, (45, 7)), KeyCode::Up));
+    Ok(())
 }
 
 #[test]

@@ -1,20 +1,156 @@
-use borg_core::{Editor, editor_status};
+use borg_core::{Editor, EditorDialog, Msg, Pointer, editor_dialog, editor_status};
 use borg_i18n::tr;
 use borg_view::Paint;
+use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Style},
     text::Line,
-    widgets::Widget,
+    widgets::{Block, Clear, Widget},
 };
+use unicode_width::UnicodeWidthStr;
 
-use crate::{Palette, Theme, format};
+use crate::{Palette, Theme, dialog_view::centered, format};
+
+const DIALOG_WIDTH: u16 = 64;
+const BUTTON_GAP: u16 = 2;
+
+/// The editor's title, text and status rows on `area`.
+fn rows(area: Rect) -> [Rect; 3] {
+    Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(area)
+}
+
+/// Where a dialog's parts sit: its frame, its fields and its buttons.
+struct DialogLayout {
+    rect: Rect,
+    message: Rect,
+    labels: Vec<Rect>,
+    fields: Vec<Rect>,
+    buttons: Vec<Rect>,
+}
+
+/// The dialog over the text, kept off the cursor's line: low on the screen, or high when the
+/// cursor is there.
+fn dialog_layout(editor: &Editor, dialog: &EditorDialog<'_>, area: Rect) -> DialogLayout {
+    let [_, body, _] = rows(area);
+    let fields = dialog.fields.len() as u16;
+    let height = 5 + u16::from(dialog.message.is_some()) + fields;
+    let width = area.width.saturating_sub(4).min(DIALOG_WIDTH);
+    let low = body.bottom().saturating_sub(height + 1).max(body.y);
+    let cursor = body.y as usize + editor.buffer.position().0.saturating_sub(editor.top);
+    let y = if (low as usize..(low + height) as usize).contains(&cursor) { body.y + 1 } else { low };
+    let rect = Rect { y, height: height.min(body.height), ..centered(area, width, height) };
+    let inner = Rect { x: rect.x + 2, y: rect.y + 1, width: rect.width.saturating_sub(4), height: 1 };
+    let message = Rect { y: inner.y + 1, ..inner };
+    let first = message.y + u16::from(dialog.message.is_some());
+    let label_width =
+        dialog.fields.iter().map(|(label, _)| label.width() as u16).max().unwrap_or(0).min(inner.width / 2);
+    let labels = (0..fields).map(|row| Rect { y: first + row, width: label_width, ..inner }).collect();
+    let field_x = inner.x + label_width + BUTTON_GAP;
+    let fields = (0..fields)
+        .map(|row| Rect { x: field_x, y: first + row, width: inner.right().saturating_sub(field_x), height: 1 })
+        .collect();
+    let widths: Vec<u16> = dialog.buttons.iter().map(|label| label.width() as u16 + 4).collect();
+    let total = widths.iter().sum::<u16>() + BUTTON_GAP * widths.len().saturating_sub(1) as u16;
+    let mut x = inner.x + inner.width.saturating_sub(total) / 2;
+    let y = first + dialog.fields.len() as u16 + 1;
+    let buttons = widths
+        .into_iter()
+        .map(|width| {
+            let button = Rect { x, y, width, height: 1 };
+            x += width + BUTTON_GAP;
+            button
+        })
+        .collect();
+    DialogLayout { rect, message, labels, fields, buttons }
+}
+
+/// Draws the dialog open over the editor, returning where its field's cursor belongs.
+fn draw_dialog(editor: &Editor, theme: &Theme, area: Rect, buf: &mut Buffer) -> Option<Option<Position>> {
+    let dialog = editor_dialog(editor)?;
+    let layout = dialog_layout(editor, &dialog, area);
+    let styles = &theme.styles;
+    Clear.render(layout.rect, buf);
+    Block::bordered()
+        .border_type(theme.border.into())
+        .style(styles.overlay)
+        .border_style(styles.overlay_border)
+        .title(Line::styled(dialog.title, styles.overlay_border).centered())
+        .title_bottom(Line::styled(dialog.keys, styles.overlay).centered())
+        .render(layout.rect, buf);
+    if let Some(message) = &dialog.message {
+        let text = format::truncate_end(message, usize::from(layout.message.width));
+        Line::styled(text, styles.overlay).render(layout.message, buf);
+    }
+    let mut cursor = None;
+    for (index, ((label, input), (label_area, field))) in
+        dialog.fields.iter().zip(layout.labels.iter().zip(&layout.fields)).enumerate()
+    {
+        Line::styled(*label, styles.overlay).render(*label_area, buf);
+        let focused = dialog.focus == index;
+        buf.set_style(*field, if focused { styles.overlay_selected } else { styles.input });
+        let room = usize::from(field.width.saturating_sub(2));
+        let before: String = input.text().chars().take(input.cursor_chars()).collect();
+        let shift = before.width().saturating_sub(room.saturating_sub(1));
+        let shown = crate::dialog_view::skip_columns(input.text(), shift);
+        let style = if focused { styles.overlay_selected } else { styles.input };
+        Line::styled(format!(" {}", format::truncate_end(&shown, room)), style).render(*field, buf);
+        if focused {
+            cursor = Some(Position::new(field.x + 1 + (before.width() - shift) as u16, field.y));
+        }
+    }
+    for (index, (label, button)) in dialog.buttons.iter().zip(&layout.buttons).enumerate() {
+        let focused = dialog.focus == dialog.fields.len() + index;
+        let style = if focused { styles.overlay_selected } else { styles.menu };
+        Line::styled(format!("[ {label} ]"), style).render(*button, buf);
+    }
+    Some(cursor.filter(|cursor| layout.rect.contains(*cursor)))
+}
+
+/// What a mouse event in the editor does: in its dialog, a field or button; in the text, a
+/// click, drag or double click; the wheel scrolls; and the keys named in the status line or
+/// the dialog's border take clicks.
+pub(crate) fn mouse(editor: &Editor, event: MouseEvent, double: bool, area: Rect, wheel: isize) -> Option<Msg> {
+    let point = Position::new(event.column, event.row);
+    let left = |kind| matches!(kind, MouseEventKind::Down(MouseButton::Left));
+    match event.kind {
+        MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::EditorScroll(-wheel))),
+        MouseEventKind::ScrollDown => return Some(Msg::Pointer(Pointer::EditorScroll(wheel))),
+        _ => {}
+    }
+    if let Some(dialog) = editor_dialog(editor) {
+        if !left(event.kind) {
+            return None;
+        }
+        let layout = dialog_layout(editor, &dialog, area);
+        let fields = layout.fields.iter().chain(&layout.buttons);
+        if let Some(control) = fields.into_iter().position(|rect| rect.contains(point)) {
+            return Some(Msg::Pointer(Pointer::EditorControl(control)));
+        }
+        return crate::hints::bottom(layout.rect, dialog.keys, true, point).map(Msg::Key);
+    }
+    let [_, body, status] = rows(area);
+    let drag = matches!(event.kind, MouseEventKind::Drag(MouseButton::Left));
+    if (left(event.kind) || drag) && body.contains(point) {
+        let text_x = body.x + editor.gutter().min(body.width);
+        return Some(Msg::Pointer(Pointer::EditorClick {
+            line: editor.top + usize::from(point.y - body.y),
+            column: editor.left + usize::from(point.x.saturating_sub(text_x)),
+            select: drag || event.modifiers.contains(KeyModifiers::SHIFT),
+            word: double && !drag,
+        }));
+    }
+    let status = crate::branding::content(status);
+    (left(event.kind) && status.contains(point) && editor_status(editor).is_none())
+        .then(|| crate::hints::key_at(tr!(editor_hint), status.x + 1, point.x))
+        .flatten()
+        .map(Msg::Key)
+}
 
 /// Draws the editor over `area`, returning where the terminal cursor belongs.
 pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut Buffer) -> Option<Position> {
-    let [title, body, status] =
-        Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+    let [title, body, status] = rows(area);
     let styles = &theme.styles;
     let base = styles.viewer;
     buf.set_style(body, base);
@@ -45,8 +181,11 @@ pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut 
         x: text.x.saturating_add((buffer.screen_column() - editor.left) as u16),
         y: body.y.saturating_add((line - editor.top) as u16),
     });
-    let prompt = draw_status(editor, styles.viewer_status, crate::branding::content(status), buf);
-    prompt.or(cursor.filter(|cursor| text.contains(*cursor)))
+    draw_status(editor, styles.viewer_status, crate::branding::content(status), buf);
+    match draw_dialog(editor, theme, area, buf) {
+        Some(field) => field,
+        None => cursor.filter(|cursor| text.contains(*cursor)),
+    }
 }
 
 fn draw_title(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
@@ -68,27 +207,18 @@ fn draw_title(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
     Line::styled(facts, style).right_aligned().render(area, buf);
 }
 
-/// The prompt, note or keys, and the cursor position; returns where a prompt's cursor is.
-fn draw_status(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) -> Option<Position> {
+/// The note, or the keys and the cursor position.
+fn draw_status(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
     let (line, column) = editor.buffer.position();
     let position = format!("{} ", tr!(editor_position, line = line + 1, column = column + 1));
     match editor_status(editor) {
-        Some((label, Some(input))) => {
-            let shown = format!(" {label} {}", input.text());
-            Line::styled(shown, style).render(area, buf);
-            let before = unicode_width::UnicodeWidthStr::width(format!(" {label} ").as_str());
-            let typed: String = input.text().chars().take(input.cursor_chars()).collect();
-            let x = before + unicode_width::UnicodeWidthStr::width(typed.as_str());
-            return Some(Position { x: area.x.saturating_add(x as u16), y: area.y }).filter(|p| area.contains(*p));
-        }
-        Some((text, None)) => Line::styled(format!(" {text}"), style).render(area, buf),
+        Some(note) => Line::styled(format!(" {note}"), style).render(area, buf),
         None => {
             let room = usize::from(area.width).saturating_sub(position.chars().count() + 2);
             Line::styled(format!(" {}", format::truncate_end(tr!(editor_hint), room)), style).render(area, buf);
             Line::styled(position, style).right_aligned().render(area, buf);
         }
     }
-    None
 }
 
 /// How text and the selection show, and whether the background is light for syntax colours.

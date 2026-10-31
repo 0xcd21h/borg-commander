@@ -56,6 +56,23 @@ pub enum Pointer {
     SearchRecent(usize),
     /// Opens the list of what searches leave out.
     EditExclusions,
+    /// A click in the editor's text, at a line and screen column; `select` extends the
+    /// selection, as a drag or a Shift-click does, and `word` selects the word, as a double click does.
+    EditorClick {
+        line: usize,
+        column: usize,
+        select: bool,
+        word: bool,
+    },
+    /// Scrolls the editor's text by lines.
+    EditorScroll(isize),
+    /// A field or button of the editor's dialog, by its place among them.
+    EditorControl(usize),
+    /// A row of the open list dialog: a theme, a language, a setting, a job, a host or a way
+    /// to connect.
+    DialogRow(usize),
+    /// A click beside a dialog that closes on one, as Esc does.
+    DismissDialog,
     /// A row of that list: a switch, a pattern or the row for adding one.
     Exclusion(usize),
     SearchStart,
@@ -112,10 +129,22 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         }
         return Vec::new();
     }
-    if resting || state.shell.captured() || state.viewer.is_some() || state.effective_view() != View::Panels {
+    // An agent's dialogs show over the editor and the viewer, and take their clicks.
+    let agent = matches!(state.overlay, Some(Overlay::Approval(_) | Overlay::AgentLog { .. }));
+    if state.editor.is_some() && !agent {
+        return if resting { Vec::new() } else { crate::editor::on_pointer(state, pointer) };
+    }
+    if resting
+        || state.shell.captured()
+        || ((state.viewer.is_some() || state.effective_view() != View::Panels) && !agent)
+    {
         return Vec::new();
     }
     state.notice = None;
+    // Finding in a panel ends at a click, which then acts on the panels.
+    if let Some(Overlay::Find(find)) = state.overlay.clone() {
+        crate::find::on_key(state, find, &crossterm::event::KeyCode::Esc.into());
+    }
     match (pointer, state.overlay.clone()) {
         (Pointer::ActivityExpand { preview, expand }, None) if state.activity.side.is_some() => {
             state.activity.preview_focused = preview;
@@ -216,6 +245,16 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         (Pointer::DialogScroll(delta), Some(Overlay::Approval(_) | Overlay::AgentLog { .. })) => {
             crate::agent::scroll_dialog(state, delta);
             return Vec::new();
+        }
+        (Pointer::DialogScroll(delta), Some(overlay)) => {
+            if let Some((selected, count)) = list_position(state, &overlay) {
+                let row = selected.saturating_add_signed(delta).min(count.saturating_sub(1));
+                select_row(state, overlay, row, now);
+            }
+        }
+        (Pointer::DialogRow(row), Some(overlay)) => select_row(state, overlay, row, now),
+        (Pointer::DismissDialog, Some(_)) => {
+            return crate::overlays::on_key(state, &crossterm::event::KeyCode::Esc.into(), now);
         }
         (Pointer::Confirm(accept), Some(Overlay::Confirm(_) | Overlay::Approval(_))) => {
             return crate::overlays::on_key(
@@ -319,4 +358,62 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         _ => {}
     }
     Vec::new()
+}
+
+/// The chosen row of a list dialog and how many rows it has.
+fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> {
+    Some(match overlay {
+        Overlay::Themes(picker) => (picker.selected, state.appearance.choices().len()),
+        Overlay::Languages(picker) => (picker.selected, borg_i18n::Locale::ALL.len()),
+        Overlay::Settings { selected } | Overlay::Plugins { selected } => {
+            (*selected, crate::menu::checkbox_items(state).len())
+        }
+        Overlay::Jobs(list) => (list.selected, state.jobs.len()),
+        Overlay::Remotes(browser) if browser.show_clients => {
+            (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
+        }
+        Overlay::Remotes(browser) => (browser.selected, browser.choices.len()),
+        Overlay::Exclusions(editor) if editor.editing.is_none() => {
+            (editor.selected, crate::ExclusionEditor::rows(state))
+        }
+        _ => return None,
+    })
+}
+
+/// Chooses `row` in a list dialog as the arrow keys would, previewing a theme as they do.
+fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) {
+    let Some((_, count)) = list_position(state, &overlay).or(matches!(overlay, Overlay::Connect(_)).then_some((0, 3)))
+    else {
+        return;
+    };
+    let row = row.min(count.saturating_sub(1));
+    state.overlay = Some(match overlay {
+        Overlay::Themes(picker) => {
+            let fade = state.motion().fade;
+            state.appearance.select(row, now, fade);
+            Overlay::Themes(crate::Picker { selected: row, ..picker })
+        }
+        Overlay::Languages(picker) => Overlay::Languages(crate::Picker { selected: row, ..picker }),
+        Overlay::Settings { .. } => Overlay::Settings { selected: row },
+        Overlay::Plugins { .. } => Overlay::Plugins { selected: row },
+        Overlay::Jobs(_) => Overlay::Jobs(crate::JobList { selected: row }),
+        Overlay::Remotes(mut browser) => {
+            if browser.show_clients {
+                browser.client_selected = row;
+            } else {
+                browser.selected = row;
+                browser.error = None;
+            }
+            Overlay::Remotes(browser)
+        }
+        Overlay::Connect(mut connect) => {
+            connect.pick = row;
+            Overlay::Connect(connect)
+        }
+        Overlay::Exclusions(mut editor) => {
+            editor.selected = row;
+            Overlay::Exclusions(editor)
+        }
+        overlay => overlay,
+    });
 }

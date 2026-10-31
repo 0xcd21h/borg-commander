@@ -122,6 +122,8 @@ Si su terminal reserva teclas F, presione **Esc, luego un dígito** en 1,5 segun
 
 Haga clic en una fila para enfocarla, haga doble clic para abrirla y haga clic derecho para marcarla. Haga clic en la barra de menú o en las acciones inferiores para usarlas. La rueda se mueve a través de las entradas del panel.
 
+Los diálogos también admiten el ratón. Haga clic en una fila de una lista para elegirla; en los selectores de tema e idioma, en Hosts remotos y en Acceso remoto, un segundo clic la acepta. La rueda recorre listas como los temas, los ajustes y los trabajos. Las teclas que un diálogo muestra en su borde admiten clics: haga clic en **Esc cerrar** para cerrarlo, o en un botón de una pregunta para responderla. Un clic fuera de una lista, de un selector o de Acerca de lo cierra, mientras que los formularios y las preguntas siguen abiertos hasta que los responda.
+
 Ctrl-O cambia entre paneles y consola. El shell sigue la carpeta del panel activo antes de escribir o abrir la consola. En zsh cambia de carpeta silenciosamente y vuelve a dibujar el mensaje; en bash y fish un corto `cd` El comando aparece en la consola en su lugar. Los comandos y Ctrl-C mantienen visible una consola abierta explícitamente. “Regresar a los paneles después del comando” se aplica a los comandos iniciados desde los paneles. En el símbolo del shell, Opción/Alt-Left y Opción/Alt-Right se mueven por palabras.
 
 En la consola, la rueda desplaza el historial de salida sin cambiar el comando que se escribe. Shift-PgUp/AvPág desplazarse por una página; Shift-Home va a la salida más antigua; Shift-End regresa al mensaje en vivo. Al escribir, también se regresa al mensaje en vivo. Utilice el gesto de selección de su terminal, generalmente Shift-drag, luego su acceso directo de copia normal para copiar la salida visible.
@@ -250,7 +252,9 @@ Ctrl-Q muestra una vista previa rápida en el otro panel. Tab lo enfoca; Las fle
 
 Ambos visores de texto destacan lenguajes de programación, marcas y archivos de configuración comunes, incluidos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL, HTML/CSS, JSON, YAML, TOML, scripts de shell y Dockerfiles. Markdown se abre formateado de forma predeterminada. Presione `s` o F4 en cualquiera de los visores para alternar la vista de origen. Se admiten encabezados, énfasis, listas, tareas, enlaces, tablas y bloques de código delimitados. Los archivos Markdown de más de 2 MiB se abren como fuente para mantener la memoria limitada.
 
-F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 en `$VISUAL` o `$EDITOR`. El editor conserva los finales de línea y la sangría del archivo, resalta el código como los visores y numera las líneas. Shift con las flechas selecciona; Ctrl-C, Ctrl-X y Ctrl-V copian, cortan y pegan a través del portapapeles de Borg, y lo que se pega desde el terminal entra tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, Tab y Shift-Tab aumentan y reducen la sangría, Ctrl-F busca (F3 de nuevo, Shift-F3 hacia atrás) y Ctrl-G va a una línea. F2 o Ctrl-S guarda mediante un archivo temporal, así que el archivo nunca queda a medio escribir, y si el archivo cambió en el disco desde que se abrió, pregunta si sobrescribirlo o recargarlo. Esc cierra y antes pregunta por los cambios sin guardar. Los archivos que no son texto UTF-8, o mayores de 32 MiB, se abren en el visor.
+F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 en `$VISUAL` o `$EDITOR`. El editor conserva los finales de línea y la sangría del archivo, resalta el código como los visores y numera las líneas. Shift con las flechas selecciona; Ctrl-C, Ctrl-X y Ctrl-V copian, cortan y pegan a través del portapapeles de Borg, y lo que se pega desde el terminal entra tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, Tab y Shift-Tab aumentan y reducen la sangría. F2 o Ctrl-S guarda mediante un archivo temporal, así que el archivo nunca queda a medio escribir. Los archivos que no son texto UTF-8, o mayores de 32 MiB, se abren en el visor.
+
+El editor pregunta en diálogos sobre el texto: Tab pasa por sus campos y botones, Enter acepta el elegido, Esc cancela y un clic funciona en cualquiera de ellos. Ctrl-F o F7 busca; luego F3 vuelve a buscar y Shift-F3 busca hacia atrás. Ctrl-R o F4 reemplaza: Enter reemplaza la coincidencia y pasa a la siguiente, **Saltar** la deja, y Alt-A o **Todo** reemplaza todas las coincidencias en un solo paso que Ctrl-Z deshace. Una búsqueda en minúsculas encuentra el texto en mayúsculas o minúsculas. Ctrl-G va a una línea. Esc cierra el editor y antes pregunta si guardar o descartar los cambios sin guardar, y si el archivo cambió en el disco desde que se abrió, pregunta si sobrescribirlo o recargarlo. Un clic coloca el cursor, arrastrar o Shift-clic selecciona, un doble clic selecciona una palabra y la rueda desplaza el texto; las teclas de la línea de estado también admiten clics.
 
 ## Configuración
 
@@ -314,7 +318,7 @@ Para crear, probar o contribuir, consulte [Desarrollo](../../../DEVELOPMENT.md).
 
 ## Una pequeña distracción
 
-Abra Acerca de con F1 y escriba `2048` jugar en un modal. Las teclas de flecha se mueven, U deshace el último movimiento, R comienza un nuevo juego y Esc lo cierra. Llega a 2048, luego presiona Enter para seguir jugando. El tablero y la mejor puntuación se guardan entre sesiones.
+Abra Acerca de con F1 y escriba `2048` para jugar en un modal. Las teclas de flecha, o un clic hacia un lado del tablero, mueven las fichas; U deshace el último movimiento, R comienza un nuevo juego y Esc lo cierra. Llega a 2048, luego presiona Enter para seguir jugando. El tablero y la mejor puntuación se guardan entre sesiones.
 
 
 ## Actividad y memoria

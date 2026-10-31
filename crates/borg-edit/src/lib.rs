@@ -537,6 +537,89 @@ impl Buffer {
         })
     }
 
+    /// Every match of `needle` from the start, as `find` matches them, none overlapping.
+    pub fn matches(&self, needle: &str) -> Vec<Range<usize>> {
+        let fold = !needle.chars().any(char::is_uppercase);
+        let normal = |c: char| if fold { c.to_lowercase().next().unwrap_or(c) } else { c };
+        let wanted: Vec<char> = needle.chars().map(normal).collect();
+        let chars: Vec<char> = self.rope.chars().map(normal).collect();
+        let mut found = Vec::new();
+        let mut at = 0;
+        while !wanted.is_empty() && at + wanted.len() <= chars.len() {
+            if chars[at..at + wanted.len()] == wanted[..] {
+                found.push(at..at + wanted.len());
+                at += wanted.len();
+            } else {
+                at += 1;
+            }
+        }
+        found
+    }
+
+    /// Whether the selection is a match of `needle`, as a replace finds it.
+    pub fn selection_matches(&self, needle: &str) -> bool {
+        self.selection().is_some_and(|range| self.matches(needle).contains(&range))
+    }
+
+    /// Replaces every match of `needle` with `with` in one step, returning how many there were.
+    pub fn replace_all(&mut self, needle: &str, with: &str) -> usize {
+        let found = self.matches(needle);
+        if found.is_empty() {
+            return 0;
+        }
+        let before = (self.cursor, self.anchor);
+        let mut changes = Vec::new();
+        // From the end, so the matches before each one keep their places.
+        for range in found.iter().rev() {
+            let removed = Change::Delete { at: range.start, text: self.rope.slice(range.clone()).to_string() };
+            self.apply(&removed);
+            changes.push(removed);
+            if !with.is_empty() {
+                let added = Change::Insert { at: range.start, text: with.into() };
+                self.apply(&added);
+                changes.push(added);
+            }
+        }
+        let shift = |at: usize| {
+            let before: Vec<_> = found.iter().take_while(|range| range.end <= at).collect();
+            (at + before.len() * with.chars().count()).saturating_sub(before.iter().map(|range| range.len()).sum())
+        };
+        self.cursor = shift(self.cursor).min(self.rope.len_chars());
+        self.anchor = None;
+        self.goal = None;
+        self.record(changes, before, false);
+        found.len()
+    }
+
+    /// Moves the cursor to screen column `column` on `line`, as a click does; `select` keeps
+    /// the selection's other end where it was, as a drag or a Shift-click does.
+    pub fn place(&mut self, line: usize, column: usize, select: bool) {
+        if select {
+            self.anchor.get_or_insert(self.cursor);
+        } else {
+            self.anchor = None;
+        }
+        let line = line.min(self.rope.len_lines().saturating_sub(1));
+        self.cursor = self.at_column(line, column);
+        self.goal = None;
+        self.break_typing();
+    }
+
+    /// Selects the word at screen column `column` on `line`, as a double click does.
+    pub fn select_word(&mut self, line: usize, column: usize) {
+        self.place(line, column, false);
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let (start, text) = self.line_text(self.rope.char_to_line(self.cursor));
+        let chars: Vec<char> = text.chars().collect();
+        let at = self.cursor - start;
+        if !chars.get(at).is_some_and(|c| word(*c)) {
+            return;
+        }
+        let first = chars[..at].iter().rposition(|c| !word(*c)).map_or(0, |i| i + 1);
+        let last = chars[at..].iter().position(|c| !word(*c)).map_or(chars.len(), |i| at + i);
+        self.select(start + first..start + last);
+    }
+
     /// Moves to the start of line `line`, counted from 1.
     pub fn go_to_line(&mut self, line: usize) {
         let line = line.saturating_sub(1).min(self.rope.len_lines().saturating_sub(1));
@@ -621,6 +704,25 @@ mod tests {
 
     fn typed(buffer: &mut Buffer, text: &str) {
         text.chars().for_each(|c| if c == '\n' { buffer.newline() } else { buffer.type_char(c) });
+    }
+
+    #[test]
+    fn replacing_all_matches_is_one_step_and_clicks_place_the_cursor_and_select_words() {
+        let mut buffer = Buffer::new("Café cafe\ncafé\tlatte");
+        assert_eq!(buffer.matches("café"), [0..4, 10..14], "a lowercase needle ignores case");
+        buffer.place(1, 8, false);
+        assert_eq!(buffer.position(), (1, 5), "the tab spans columns 4 to 8");
+        assert_eq!(buffer.replace_all("café", "tea"), 2);
+        assert_eq!(buffer.text(), "tea cafe\ntea\tlatte");
+        assert_eq!(buffer.position(), (1, 4), "the cursor keeps its place after the shorter text");
+        assert!(buffer.undo());
+        assert_eq!(buffer.text(), "Café cafe\ncafé\tlatte");
+        buffer.select_word(0, 6);
+        assert_eq!(buffer.selected_text().as_deref(), Some("cafe"));
+        assert!(!buffer.selection_matches("café"));
+        buffer.place(1, 2, true);
+        assert_eq!(buffer.selected_text().as_deref(), Some("cafe\nca"), "a drag extends from the word");
+        assert_eq!(buffer.replace_all("missing", "x"), 0);
     }
 
     #[test]

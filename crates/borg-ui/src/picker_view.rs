@@ -24,8 +24,28 @@ pub fn draw_languages(picker: &Picker, theme: &Theme, area: Rect, buf: &mut Buff
     draw_names(picker, &names, tr!(language), theme, area, buf)
 }
 
-fn draw_names(picker: &Picker, names: &[&str], title: &str, theme: &Theme, area: Rect, buf: &mut Buffer) -> Rect {
-    let styles = &theme.styles;
+/// The names a picker lists: the themes, or the languages when `choices` is `None`.
+pub(crate) fn names(choices: Option<&[ThemeChoice]>) -> Vec<&str> {
+    match choices {
+        Some(choices) => choices.iter().map(|choice| choice.name.as_str()).collect(),
+        None => borg_i18n::Locale::ALL.iter().map(|language| language.name()).collect(),
+    }
+}
+
+/// The picker listing `names`, and the row of the name at `point`.
+pub(crate) fn name_at(names: &[&str], area: Rect, point: ratatui::layout::Position) -> (Rect, Option<usize>) {
+    let rect = rect(names, area);
+    let inner = Rect {
+        x: rect.x + 1,
+        y: rect.y + 1,
+        width: rect.width.saturating_sub(2),
+        height: rect.height.saturating_sub(2),
+    };
+    let row = inner.contains(point).then(|| usize::from(point.y - inner.y)).filter(|row| *row < names.len());
+    (rect, row)
+}
+
+fn rect(names: &[&str], area: Rect) -> Rect {
     let widest = names.iter().map(|name| name.width()).max().unwrap_or_default();
     let width = u16::try_from(widest)
         .unwrap_or(u16::MAX)
@@ -33,7 +53,12 @@ fn draw_names(picker: &Picker, names: &[&str], title: &str, theme: &Theme, area:
         .max(MIN_WIDTH)
         .max(u16::try_from(tr!(enter_keep_esc_cancel).width()).unwrap_or(u16::MAX).saturating_add(SIDE_PADDING));
     let height = u16::try_from(names.len()).unwrap_or(u16::MAX).saturating_add(BORDER_ROWS);
-    let rect = centered(area, width, height);
+    centered(area, width, height)
+}
+
+fn draw_names(picker: &Picker, names: &[&str], title: &str, theme: &Theme, area: Rect, buf: &mut Buffer) -> Rect {
+    let styles = &theme.styles;
+    let rect = rect(names, area);
 
     Clear.render(rect, buf);
     let block = Block::bordered()

@@ -9,10 +9,71 @@ use ratatui::{
 
 use crate::{Theme, dialog_view::centered, format};
 
-pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buffer, t: f32) -> Rect {
+pub(crate) fn rect(screen: Rect) -> Rect {
     let width = screen.width.saturating_sub(2).min(104);
     let height = screen.height.saturating_sub(2).clamp(5, 20).min(screen.height);
-    let rect = centered(screen, width, height);
+    centered(screen, width, height)
+}
+
+/// The keys the border lists for what the list is doing.
+pub(crate) fn keys(browser: &RemoteBrowser, rect: Rect) -> &'static str {
+    if browser.connecting {
+        tr!(remote_connecting_keys)
+    } else if browser.deleting.is_some() || browser.forgetting.is_some() {
+        tr!(remote_session_removing_keys)
+    } else if browser.show_clients {
+        tr!(remote_clients_keys)
+    } else if rect.width >= 104 {
+        tr!(remote_colony_keys)
+    } else {
+        tr!(remote_colony_keys_compact)
+    }
+}
+
+/// What a click at `point` lands on: the hosts or clients tab, or a row of the list.
+pub(crate) enum RemoteSpot {
+    Tab { clients: bool },
+    Row(usize),
+}
+
+pub(crate) fn spot(browser: &RemoteBrowser, screen: Rect, point: ratatui::layout::Position) -> Option<RemoteSpot> {
+    use unicode_width::UnicodeWidthStr;
+    let rect = rect(screen);
+    let body = Rect {
+        x: rect.x + 2,
+        y: rect.y + 1,
+        width: rect.width.saturating_sub(4),
+        height: rect.height.saturating_sub(2),
+    };
+    if rect.height < 5 || !body.contains(point) {
+        return None;
+    }
+    if point.y == body.y + 1 {
+        let hosts = tr!(remote_hosts_tab).width() as u16;
+        let clients = tr!(remote_clients_tab).width() as u16;
+        return match point.x - body.x {
+            x if x < hosts => Some(RemoteSpot::Tab { clients: false }),
+            x if x >= hosts + 2 && x < hosts + 2 + clients => Some(RemoteSpot::Tab { clients: true }),
+            _ => None,
+        };
+    }
+    let list = Rect { y: body.y + 2, height: body.height.saturating_sub(7), ..body };
+    if !list.contains(point) {
+        return None;
+    }
+    let (selected, count) = if browser.show_clients {
+        (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
+    } else {
+        (browser.selected, browser.choices.len())
+    };
+    let start =
+        if browser.show_clients { 0 } else { selected.saturating_sub(usize::from(list.height).saturating_sub(1)) };
+    let row = start + usize::from(point.y - list.y);
+    (row < count).then_some(RemoteSpot::Row(row))
+}
+
+pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buffer, t: f32) -> Rect {
+    let rect = rect(screen);
     let styles = &theme.styles;
     Clear.render(rect, buf);
     Block::bordered()
@@ -20,23 +81,7 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
         .style(styles.overlay)
         .border_style(styles.overlay_border)
         .title(Line::styled(tr!(remote_colony_title), styles.overlay_border).centered())
-        .title_bottom(
-            Line::styled(
-                if browser.connecting {
-                    tr!(remote_connecting_keys)
-                } else if browser.deleting.is_some() || browser.forgetting.is_some() {
-                    tr!(remote_session_removing_keys)
-                } else if browser.show_clients {
-                    tr!(remote_clients_keys)
-                } else if width >= 104 {
-                    tr!(remote_colony_keys)
-                } else {
-                    tr!(remote_colony_keys_compact)
-                },
-                styles.overlay,
-            )
-            .centered(),
-        )
+        .title_bottom(Line::styled(keys(browser, rect), styles.overlay).centered())
         .render(rect, buf);
     if rect.height < 5 || rect.width < 8 {
         return rect;

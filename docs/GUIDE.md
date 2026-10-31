@@ -248,6 +248,12 @@ terminal if needed.
 Click a row to focus it, double-click to open it, and right-click to mark it. Click the menu
 bar or bottom actions to use them. The wheel moves through panel entries.
 
+Dialogs take the mouse as well. Click a row in a list to choose it; in the theme and language
+pickers, remote hosts and Remote access, a second click takes it. The wheel moves through lists such
+as themes, settings and jobs. The keys a dialog lists in its border take clicks: click **Esc close**
+to close it, or a button in a question to answer it. A click beside a list, a picker or About closes
+it, while forms and questions stay open until you answer them.
+
 Ctrl-O switches between panels and console. The shell follows the active panel's folder
 before you type or open the console. In zsh it changes folder silently and redraws the
 prompt; in bash and fish a short `cd` command appears in the console instead. Commands and
@@ -604,11 +610,17 @@ F4 opens the selected file in Borg's editor, and Shift-F4 in `$VISUAL` or `$EDIT
 keeps the file's line endings and indentation, highlights code as the viewers do, and numbers the
 lines. Shift with the arrows selects; Ctrl-C, Ctrl-X and Ctrl-V copy, cut and paste through Borg's
 clipboard, and a paste from the terminal goes in as it is. Ctrl-Z and Ctrl-Y undo and redo, Tab and
-Shift-Tab indent and outdent, Ctrl-F finds (F3 again, Shift-F3 backwards) and Ctrl-G goes to a
-line. F2 or Ctrl-S saves through a temporary file, so the file is never half written, and a file
-that changed on disk since it was opened asks whether to overwrite or reload it. Esc closes,
-asking first about unsaved changes. Files that are not UTF-8 text, or larger than 32 MiB, open in
-the viewer instead.
+Shift-Tab indent and outdent. F2 or Ctrl-S saves through a temporary file, so the file is never half
+written. Files that are not UTF-8 text, or larger than 32 MiB, open in the viewer instead.
+
+The editor asks in dialogs over the text: Tab moves between their fields and buttons, Enter takes
+the one chosen, Esc cancels, and a click works on any of them. Ctrl-F or F7 finds, then F3 finds
+again and Shift-F3 backwards. Ctrl-R or F4 replaces: Enter replaces the match and moves to the next
+one, **Skip** passes it, and Alt-A or **All** replaces every match in one step that Ctrl-Z undoes.
+A search in lower case finds any case. Ctrl-G goes to a line. Esc closes the editor, asking first
+whether to save or discard unsaved changes, and a file that changed on disk since it was opened asks
+whether to overwrite or reload it. A click places the cursor, a drag or Shift-click selects, a
+double click selects a word, and the wheel scrolls; the keys in the status line take clicks too.
 
 ## Configuration
 
@@ -688,9 +700,9 @@ For building, testing, or contributing, see [Development](../DEVELOPMENT.md).
 
 ## A small distraction
 
-Open About with F1 and type `2048` to play in a modal. Arrow keys move, U undoes the
-last move, R starts a new game, and Esc closes it. Reach 2048, then press Enter to
-keep playing. The board and best score are saved between sessions.
+Open About with F1 and type `2048` to play in a modal. Arrow keys, or a click toward a side
+of the board, move the tiles; U undoes the last move, R starts a new game, and Esc closes it.
+Reach 2048, then press Enter to keep playing. The board and best score are saved between sessions.
 
 
 ## Activity and memory

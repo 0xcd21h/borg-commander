@@ -18,8 +18,8 @@ const CONFIRM_HEIGHT: u16 = 6;
 const PADDING: u16 = 1;
 const BUTTON_GAP: &str = "   ";
 
-pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
-    let styles = &theme.styles;
+/// The prompt and the keys its border lists, as many as fit.
+pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str) {
     let rect = prompt_rect(prompt, screen);
     let copy = matches!(prompt.purpose, PromptPurpose::Copy { .. });
     let hint = if copy { tr!(copy_dialog_hint) } else { tr!(enter_ok_esc_cancel) };
@@ -28,6 +28,13 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     } else {
         hint
     };
+    (rect, hint)
+}
+
+pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
+    let styles = &theme.styles;
+    let (rect, hint) = prompt_hint(prompt, screen);
+    let copy = matches!(prompt.purpose, PromptPurpose::Copy { .. });
     frame(prompt.title, Some(hint), theme, rect, buf);
     let [label, field, _, option, _] = prompt_rows(rect, copy);
 

@@ -13,6 +13,7 @@ mod editor_view;
 mod format;
 mod fx;
 mod game2048_view;
+mod hints;
 mod icons;
 mod job_view;
 mod keybar;

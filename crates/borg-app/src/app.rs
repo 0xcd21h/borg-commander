@@ -743,9 +743,10 @@ impl App {
         let msg = mouse_input(&self.state, event, double, now);
         if left {
             self.last_click = match &msg {
-                Some(Msg::Pointer(borg_core::Pointer::Panel { mark: false, .. })) if !double => {
-                    Some((event.column, event.row, now))
-                }
+                Some(Msg::Pointer(
+                    borg_core::Pointer::Panel { mark: false, .. }
+                    | borg_core::Pointer::EditorClick { select: false, word: false, .. },
+                )) if !double => Some((event.column, event.row, now)),
                 _ => None,
             };
         } else if matches!(event.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown) {

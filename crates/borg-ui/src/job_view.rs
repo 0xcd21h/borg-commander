@@ -101,40 +101,102 @@ fn frame(title: &str, hint: Option<&str>, look: &Look<'_>, rect: Rect, buf: &mut
     Rect { x: inner.x + PADDING, width: inner.width.saturating_sub(PADDING * 2), ..inner }
 }
 
-fn buttons<'a>(job: &Job, selected: usize, width: usize, look: &Look<'_>) -> Vec<Line<'a>> {
-    let styles = look.styles();
-    let mut rows: Vec<Vec<Span<'a>>> = vec![Vec::new()];
+/// A job's answers as buttons in rows that fit `width`: each one's label and hotkey.
+fn button_rows(job: &Job, width: usize) -> Vec<Vec<(String, char)>> {
+    let mut rows = vec![Vec::new()];
     let mut used = 0;
-    for (index, (_, hotkey, label)) in job.choices().iter().enumerate() {
+    for (_, hotkey, label) in job.choices().iter() {
+        let hotkey = *hotkey;
         let translated = label.text();
-        let label = if translated.chars().any(|c| c.to_ascii_lowercase() == *hotkey) {
+        let label = if translated.chars().any(|c| c.to_ascii_lowercase() == hotkey) {
             translated.to_owned()
         } else {
             format!("{hotkey} {translated}")
         };
-        let text = format!("[ {label} ]");
-        let needed = text.width() + BUTTON_GAP.width();
+        let needed = format!("[ {label} ]").width() + BUTTON_GAP.width();
         if used + needed > width && used > 0 {
             rows.push(Vec::new());
             used = 0;
         }
-        let style = if index == selected { styles.overlay_selected } else { styles.overlay };
-        let hot = label.char_indices().find(|(_, c)| c.to_ascii_lowercase() == *hotkey).map(|(offset, _)| offset);
-        let row = rows.last_mut().into_iter().next();
-        if let Some(row) = row {
-            let (before, rest) = label.split_at(hot.unwrap_or(label.len()));
-            let mut chars = rest.chars();
-            let key = chars.next().map(String::from).unwrap_or_default();
-            row.extend([
-                Span::styled(format!("[ {before}"), style),
-                Span::styled(key, style.add_modifier(Modifier::UNDERLINED)),
-                Span::styled(format!("{} ]", chars.as_str()), style),
-                Span::styled(BUTTON_GAP, styles.overlay),
-            ]);
+        if let Some(row) = rows.last_mut() {
+            row.push((label, hotkey));
         }
         used += needed;
     }
+    rows
+}
+
+fn buttons<'a>(job: &Job, selected: usize, width: usize, look: &Look<'_>) -> Vec<Line<'a>> {
+    let styles = look.styles();
+    let mut rows: Vec<Vec<Span<'a>>> = Vec::new();
+    let mut index = 0;
+    for row_labels in button_rows(job, width) {
+        rows.push(Vec::new());
+        for (label, hotkey) in row_labels {
+            let hotkey = &hotkey;
+            let style = if index == selected { styles.overlay_selected } else { styles.overlay };
+            index += 1;
+            let hot = label.char_indices().find(|(_, c)| c.to_ascii_lowercase() == *hotkey).map(|(offset, _)| offset);
+            if let Some(row) = rows.last_mut() {
+                let (before, rest) = label.split_at(hot.unwrap_or(label.len()));
+                let mut chars = rest.chars();
+                let key = chars.next().map(String::from).unwrap_or_default();
+                row.extend([
+                    Span::styled(format!("[ {before}"), style),
+                    Span::styled(key, style.add_modifier(Modifier::UNDERLINED)),
+                    Span::styled(format!("{} ]", chars.as_str()), style),
+                    Span::styled(BUTTON_GAP, styles.overlay),
+                ]);
+            }
+        }
+    }
     rows.into_iter().map(|spans| Line::from(spans).centered()).collect()
+}
+
+/// The question's dialog and its buttons, each with the hotkey that answers with it.
+pub(crate) fn question_buttons(job: &Job, screen: Rect) -> (Rect, Vec<(Rect, char)>) {
+    let width = screen.width.saturating_sub(MARGIN).min(DIALOG_WIDTH);
+    let text_width = usize::from(width.saturating_sub(PADDING * 2 + BORDER_ROWS));
+    let lines = match &job.state {
+        JobState::Asking(Ask::Conflict { .. }) => 3,
+        JobState::Asking(Ask::Failure { .. }) => 2,
+        _ => return (Rect::default(), Vec::new()),
+    };
+    let rows = button_rows(job, text_width);
+    let height = u16::try_from(lines + rows.len()).unwrap_or(u16::MAX) + BORDER_ROWS + 3;
+    let rect = centered(screen, width, height);
+    let inner = Rect { x: rect.x + 1 + PADDING, width: rect.width.saturating_sub(2 + PADDING * 2), ..rect };
+    let mut buttons = Vec::new();
+    for (row, labels) in rows.iter().enumerate() {
+        let widths: Vec<u16> = labels.iter().map(|(label, _)| format!("[ {label} ]").width() as u16).collect();
+        let total = widths.iter().map(|width| width + BUTTON_GAP.width() as u16).sum::<u16>();
+        let mut x = inner.x + inner.width.saturating_sub(total) / 2;
+        let y = rect.y + 2 + lines as u16 + 1 + row as u16;
+        for ((_, hotkey), width) in labels.iter().zip(widths) {
+            buttons.push((Rect { x, y, width, height: 1 }, *hotkey));
+            x += width + BUTTON_GAP.width() as u16;
+        }
+    }
+    (rect, buttons)
+}
+
+/// The jobs list and the job at `point`.
+pub(crate) fn job_at(count: usize, screen: Rect, point: ratatui::layout::Position) -> (Rect, Option<usize>) {
+    let rect = jobs_rect(count, screen);
+    let inner = Rect {
+        x: rect.x + 1,
+        y: rect.y + 1,
+        width: rect.width.saturating_sub(2),
+        height: rect.height.saturating_sub(2),
+    };
+    let row = inner.contains(point).then(|| usize::from((point.y - inner.y) / ROWS_PER_JOB)).filter(|row| *row < count);
+    (rect, row)
+}
+
+fn jobs_rect(count: usize, screen: Rect) -> Rect {
+    let width = screen.width.saturating_sub(MARGIN).min(JOBS_WIDTH);
+    let height = u16::try_from(count).unwrap_or(u16::MAX).saturating_mul(ROWS_PER_JOB) + BORDER_ROWS + 1;
+    centered(screen, width, height.min(screen.height))
 }
 
 pub fn draw_question(job: &Job, question: Question, look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
@@ -193,9 +255,7 @@ fn bar(fraction: f32) -> (String, String) {
 
 pub fn draw_jobs(list: JobList, jobs: &[Job], look: &Look<'_>, now: Instant, screen: Rect, buf: &mut Buffer) -> Rect {
     let styles = look.styles();
-    let width = screen.width.saturating_sub(MARGIN).min(JOBS_WIDTH);
-    let height = u16::try_from(jobs.len()).unwrap_or(u16::MAX).saturating_mul(ROWS_PER_JOB) + BORDER_ROWS + 1;
-    let rect = centered(screen, width, height.min(screen.height));
+    let rect = jobs_rect(jobs.len(), screen);
     let inner = frame(tr!(job_view_jobs), Some(tr!(p_pause_c_cancel_esc_close)), look, rect, buf);
     let text_width = usize::from(inner.width);
     let accent = look.accent();

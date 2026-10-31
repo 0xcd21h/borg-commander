@@ -139,6 +139,47 @@ fn command_rows(command: &str, width: u16) -> Vec<String> {
     chars.chunks(width).map(|piece| piece.iter().collect()).collect()
 }
 
+/// The Connect dialog and the rows each way to connect takes, from its label to its notes.
+pub(crate) fn connect_picks(
+    state: &AppState,
+    connect: &Connect,
+    screen: Rect,
+) -> (Rect, Vec<(usize, std::ops::Range<u16>)>) {
+    let info = &state.agent.connect;
+    let width = screen.width.saturating_sub(MARGIN).min(CONNECT_WIDTH);
+    let inner_width = width.saturating_sub(4);
+    let [start, keep] = borg_core::connect_commands(info, connect.target.text().trim());
+    let (cloud, cloud_note) = match &state.agent.pairing {
+        Some(Ok(link)) => (borg_core::pair_command(link), true),
+        Some(Err(reason)) => (reason.clone(), false),
+        None => (tr!(agent_connect_cloud_wait).to_owned(), false),
+    };
+    let relay_changed = connect.relay.text().trim() != info.relay;
+    let blocks = [
+        (
+            borg_core::CONNECT_CLOUD,
+            command_rows(&cloud, inner_width).len() + usize::from(cloud_note) + 1 + usize::from(relay_changed),
+        ),
+        (borg_core::CONNECT_START, command_rows(&start, inner_width).len()),
+        (borg_core::CONNECT_KEEP, command_rows(&keep, inner_width).len()),
+    ];
+    let mut height: u16 = 2 + 2 + blocks.iter().map(|(_, rows)| 2 + *rows as u16).sum::<u16>();
+    // The relay field and its note count with the cloud's rows; then the SSH target and the paired computers.
+    height += if info.ssh.is_some() { 2 } else { 0 };
+    height += u16::from(!state.agent.computers.is_empty());
+    let rect = centered(screen, width, height.min(screen.height));
+    let mut y = rect.y + 3;
+    let picks = blocks
+        .into_iter()
+        .map(|(pick, rows)| {
+            let range = y..y + 1 + rows as u16;
+            y = range.end + 1;
+            (pick, range)
+        })
+        .collect();
+    (rect, picks)
+}
+
 pub fn draw_connect(
     state: &AppState,
     connect: &Connect,

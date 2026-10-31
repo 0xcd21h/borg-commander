@@ -21,14 +21,23 @@ const BOARD_MARGIN: u16 = 2;
 const MAX_COLOR_EXPONENT: u8 = 11;
 const TILE_TINT: f32 = 0.28;
 
-pub fn draw(game: Option<&Game2048>, look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
-    let rect = centered(screen, WIDTH.min(screen.width), HEIGHT.min(screen.height));
-    let styles = look.styles();
-    Clear.render(rect, buf);
-    let hint = [tr!(game2048_hint), tr!(game2048_hint_compact), tr!(game2048_hint_tiny)]
+pub(crate) fn rect(screen: Rect) -> Rect {
+    centered(screen, WIDTH.min(screen.width), HEIGHT.min(screen.height))
+}
+
+/// The keys the game's border lists, as many as fit `rect`.
+pub(crate) fn hint(rect: Rect) -> &'static str {
+    [tr!(game2048_hint), tr!(game2048_hint_compact), tr!(game2048_hint_tiny)]
         .into_iter()
         .find(|hint| hint.width() <= usize::from(rect.width.saturating_sub(2)))
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+pub fn draw(game: Option<&Game2048>, look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
+    let rect = rect(screen);
+    let styles = look.styles();
+    Clear.render(rect, buf);
+    let hint = hint(rect);
     let block = Block::bordered()
         .border_type(look.theme.border.into())
         .style(styles.overlay)
