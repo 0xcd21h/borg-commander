@@ -1680,12 +1680,39 @@ fn open_files_preview_a_regular_file_the_process_holds_and_f3_views_it() -> Resu
 #[cfg(target_os = "macos")]
 #[test]
 fn memory_of_a_macos_program_is_marked_protected_and_explained_without_offering_administrator() -> Result<()> {
+    const COLLAPSED: &str = "▸";
+    const EXPANDED: &str = "▾";
+    const HEAP: &str = "Heap & allocations";
+    const MEMORY_GROUPS: usize = 8;
     struct Worker(std::process::Child);
     impl Drop for Worker {
         fn drop(&mut self) {
             let _ = self.0.kill();
             let _ = self.0.wait();
         }
+    }
+    fn group_cursor(s: &Snapshot) -> Option<u16> {
+        let (x, _) = s.find(COLLAPSED)?;
+        let lines = s.lines();
+        let rows: Vec<_> = (0..s.rows())
+            .filter(|&y| lines[usize::from(y)].contains(COLLAPSED))
+            .map(|y| (y, s.style_at(x, y).bg))
+            .collect();
+        (rows.len() > 2).then_some(())?;
+        rows.iter().find(|(_, bg)| rows.iter().filter(|(_, other)| other == bg).count() == 1).map(|(y, _)| *y)
+    }
+    fn select_group(app: &mut Session, group: &str) -> Result<Snapshot> {
+        let label = format!("{COLLAPSED} {group}");
+        let mut screen = app.wait_until("memory groups", |s| s.contains(&label) && group_cursor(s).is_some())?;
+        for _ in 0..MEMORY_GROUPS {
+            let (Some(cursor), Some((_, target))) = (group_cursor(&screen), screen.find(&label)) else { break };
+            if cursor == target {
+                return Ok(screen);
+            }
+            app.send(if target < cursor { keys::up() } else { keys::down() })?;
+            screen = app.wait_until("the cursor on another group", |s| group_cursor(s).is_some_and(|y| y != cursor))?;
+        }
+        anyhow::bail!("could not select {group:?}\n{}", screen.text())
     }
     let status = std::process::Command::new("/usr/bin/csrutil").arg("status").output()?;
     if String::from_utf8_lossy(&status.stdout).contains("disabled") {
@@ -1700,9 +1727,9 @@ fn memory_of_a_macos_program_is_marked_protected_and_explained_without_offering_
     select_process(&mut app, pid)?;
     app.wait_text("Memory protected · part of macOS")?;
     app.send(keys::enter())?;
-    app.wait_text("▸ Heap & allocations")?;
+    select_group(&mut app, HEAP)?;
     app.send(keys::right())?;
-    app.wait_text("▾ Heap & allocations")?;
+    app.wait_text(&format!("{EXPANDED} {HEAP}"))?;
     app.send(keys::down())?;
     let shown = app.wait_text("macOS protects this process's memory")?;
     ensure!(shown.contains("sleep is part of macOS"), "{}", shown.text());
