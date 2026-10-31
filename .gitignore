@@ -17,3 +17,5 @@ __pycache__/
 /website/src/content/docs/pt/
 /website/src/content/docs/es/
 /website/src/content/docs/ru/
+/CLAUDE.md
+/.claude
