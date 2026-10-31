@@ -157,6 +157,8 @@ pub struct Editor {
     replacement: String,
     /// The revision a save in flight wrote, and whether the editor closes once it lands.
     saving: Option<(u64, bool)>,
+    /// Set when one of the editor's keys or clicks closed it, so it is not put back.
+    closed: bool,
 }
 
 impl Editor {
@@ -175,6 +177,7 @@ impl Editor {
             needle: String::new(),
             replacement: String::new(),
             saving: None,
+            closed: false,
         }
     }
 
@@ -271,6 +274,12 @@ impl Editor {
             expected: self.stamp,
             force,
         }]
+    }
+
+    /// Closes the editor from one of its own keys or clicks.
+    fn close(&mut self, state: &mut AppState) -> Vec<Effect> {
+        self.closed = true;
+        close_editor(state)
     }
 
     fn name(&self) -> String {
@@ -382,8 +391,8 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         Some(prompt) => on_prompt(state, &mut editor, prompt, key),
         None => on_edit(state, &mut editor, key),
     };
-    // Closing reloads the panel; otherwise the editor stays, also while a reload is read.
-    if !effects.iter().any(|effect| matches!(effect, Effect::List { .. })) {
+    // A key that closed the editor leaves it closed; otherwise it stays, also while its file is read again.
+    if !editor.closed {
         settle(state, editor);
     }
     effects
@@ -465,7 +474,7 @@ fn press(state: &mut AppState, editor: &mut Editor, prompt: EditorPrompt, button
             Err(_) => editor.prompt = Some(EditorPrompt::Line { input, focus }),
         },
         (EditorPrompt::Unsaved { .. }, 0) => return editor.save(true, false),
-        (EditorPrompt::Unsaved { .. }, 1) => return close_editor(state),
+        (EditorPrompt::Unsaved { .. }, 1) => return editor.close(state),
         (EditorPrompt::Changed { .. }, 0) => {
             let close = editor.saving.is_some_and(|(_, close)| close);
             return editor.save(close, true);
@@ -513,7 +522,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer) -> Vec<Effect> 
             Vec::new()
         }
     };
-    if !effects.iter().any(|effect| matches!(effect, Effect::List { .. })) {
+    if !editor.closed {
         if follow {
             settle(state, editor);
         } else {
@@ -561,7 +570,7 @@ fn on_edit(state: &mut AppState, editor: &mut Editor, key: &KeyEvent) -> Vec<Eff
             if buffer.modified() {
                 editor.prompt = Some(EditorPrompt::Unsaved { focus: 0 });
             } else {
-                return close_editor(state);
+                return editor.close(state);
             }
         }
         KeyCode::F(2) => return editor.save(false, false),
@@ -758,6 +767,30 @@ mod tests {
             effects.iter().any(|effect| matches!(effect, Effect::List { .. })),
             "the panel shows the new size: {effects:?}"
         );
+    }
+
+    #[test]
+    fn the_editor_closes_over_search_results_and_collections() {
+        let (mut state, now) = state();
+        let side = state.active;
+        state.panel_mut(side).open_results(crate::ResultSource::Collection("notes".into()), Vec::new(), 1);
+        opened(&mut state, now, "a");
+        let effects = press(&mut state, now, KeyCode::Esc.into());
+        assert!(state.editor.is_none(), "Esc closes an unchanged file: {effects:?}");
+        assert!(matches!(&effects[..], [Effect::RefreshCollection { .. }]), "{effects:?}");
+
+        opened(&mut state, now, "a");
+        press(&mut state, now, KeyCode::Char('b').into());
+        press(&mut state, now, KeyCode::Esc.into());
+        press(&mut state, now, KeyCode::Right.into());
+        press(&mut state, now, KeyCode::Enter.into());
+        assert!(state.editor.is_none(), "Discard closes the editor");
+
+        opened(&mut state, now, "a");
+        press(&mut state, now, KeyCode::Char('b').into());
+        press(&mut state, now, KeyCode::Esc.into());
+        update(&mut state, Msg::Pointer(Pointer::EditorControl(1)), now);
+        assert!(state.editor.is_none(), "a click on Discard closes it too");
     }
 
     #[test]
