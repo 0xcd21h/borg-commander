@@ -15,7 +15,7 @@ expression: describe(&buffer)
 │ · 日本語メモ.txt                  2048 Jan 10 09:30 ││                                                     │
 │                      ╭─────────────────────────── Salir ────────────────────────────╮                      │
 │                      │                                                              │                      │
-│                      │                    ¿Salir Borg Commander?                    │                      │
+│                      │                   ¿Salir de Borg Commander?                  │                      │
 │                      │                                                              │                      │
 │                      │                       [ Sí ]   [ No ]                        │                      │
 │                      ╰──────────────────────────────────────────────────────────────╯                      │
@@ -26,7 +26,7 @@ expression: describe(&buffer)
 │                                                     ││                                                     │
 │                                                     ││                                                     │
 ╰ 9 elementos ────────────────────────────────────────╯╰ 5 elementos ────────────────────────────────────────╯
- Hasta el directorio principal
+ Subir a la carpeta superior
 $
 F1Ayuda   F2Archivo F3Ver     F4Editar  F5Copiar  F6Mover   F7Crear c…F8EliminarF9Menú    F10Salir  ^OShell
 Alt-H Hosts remotos  Alt-I Contar tamaños  Ctrl-F Buscar  Alt-M Actividad             ◈ Borg Commander v0.9.1
