@@ -82,7 +82,7 @@ fn syntax(language: &str) -> &'static SyntaxReference {
 
 /// Where colouring stands at the start of a line: what the parser is inside and the styles both
 /// themes have in force. Colouring carries on from it without reading the text above.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Resume {
     parse: ParseState,
     dark: HighlightState,

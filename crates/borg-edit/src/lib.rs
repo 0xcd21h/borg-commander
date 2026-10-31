@@ -80,6 +80,8 @@ pub struct Buffer {
     next_step: u64,
     /// The step the file was saved at; `None` for the text as opened.
     saved: Option<u64>,
+    /// The first character a change touched since `take_changed_line` last asked.
+    changed: Option<usize>,
     pub eol: Eol,
     pub indent: Indent,
 }
@@ -99,6 +101,7 @@ impl Buffer {
             revision: 0,
             next_step: 0,
             saved: None,
+            changed: None,
             eol: if crlf { Eol::Crlf } else { Eol::Lf },
         }
     }
@@ -120,6 +123,11 @@ impl Buffer {
 
     pub fn mark_saved(&mut self) {
         self.saved = self.undo.last().map(|step| step.id);
+    }
+
+    /// The first line a change touched since the last call; the lines above it are as they were.
+    pub fn take_changed_line(&mut self) -> Option<usize> {
+        self.changed.take().map(|at| self.rope.char_to_line(at.min(self.rope.len_chars())))
     }
 
     pub fn lines(&self) -> usize {
@@ -296,6 +304,8 @@ impl Buffer {
     }
 
     fn apply(&mut self, change: &Change) {
+        let (Change::Insert { at, .. } | Change::Delete { at, .. }) = change;
+        self.changed = Some(self.changed.map_or(*at, |changed| changed.min(*at)));
         match change {
             Change::Insert { at, text } => self.rope.insert(*at, text),
             Change::Delete { at, text } => self.rope.remove(*at..*at + text.chars().count()),
@@ -723,6 +733,20 @@ mod tests {
         buffer.place(1, 2, true);
         assert_eq!(buffer.selected_text().as_deref(), Some("cafe\nca"), "a drag extends from the word");
         assert_eq!(buffer.replace_all("missing", "x"), 0);
+    }
+
+    #[test]
+    fn the_first_changed_line_waits_until_it_is_asked_for() {
+        let mut buffer = Buffer::new("a\nb\nc\nd");
+        assert_eq!(buffer.take_changed_line(), None);
+        buffer.place(2, 1, false);
+        buffer.type_char('x');
+        buffer.place(1, 0, false);
+        buffer.newline();
+        assert_eq!(buffer.take_changed_line(), Some(1), "the earliest of the changes");
+        assert_eq!(buffer.take_changed_line(), None);
+        assert!(buffer.undo());
+        assert_eq!(buffer.take_changed_line(), Some(1), "an undo changes the text too");
     }
 
     #[test]

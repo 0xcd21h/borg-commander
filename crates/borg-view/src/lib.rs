@@ -13,20 +13,31 @@ pub fn language_of(path: &std::path::Path, first_line: &str) -> Option<String> {
     paint::syntax_name(path, first_line)
 }
 
-/// Colours for `text` in `language`: the runs of each line, line breaks left out.
-pub fn highlight_lines(text: &str, language: &str) -> Vec<Vec<Run>> {
-    let Ok(rich) = paint::highlight(text, language, 0, &|| false) else { return Vec::new() };
-    let mut lines = vec![Vec::new()];
-    for (range, paint) in &rich.regions {
-        let piece = &rich.text[range.start as usize..range.end as usize];
-        for (i, part) in piece.split('\n').enumerate() {
-            if i > 0 {
-                lines.push(Vec::new());
-            }
-            if let (false, Some(line)) = (part.is_empty(), lines.last_mut()) {
-                line.push(Run { text: part.into(), paint: *paint });
-            }
-        }
+/// Where colouring stands at the start of a line. Colouring a line carries it to the next, so
+/// a line coloured from the same state as before colours the same.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineState(paint::Resume);
+
+impl LineState {
+    /// The state at the start of a text in `language`.
+    pub fn new(language: &str) -> Self {
+        Self(paint::Resume::new(language))
     }
-    lines
+}
+
+/// The runs of `line`, given without its break, coloured on from `state`, which it leaves at the
+/// start of the next line.
+pub fn highlight_line(line: &str, state: &mut LineState) -> Vec<Run> {
+    let mut rich = paint::RichText::default();
+    if paint::paint(format!("{line}\n").as_bytes(), &mut state.0, &mut rich, &mut |_, _| {}, &|| false).is_err() {
+        return Vec::new();
+    }
+    rich.regions
+        .iter()
+        .map(|(range, paint)| Run {
+            text: rich.text[range.start as usize..range.end as usize].replace('\n', ""),
+            paint: *paint,
+        })
+        .filter(|run| !run.text.is_empty())
+        .collect()
 }

@@ -126,6 +126,20 @@ impl EditorPrompt {
     }
 }
 
+/// Syntax colours for the lines from `first`, with the text and state each was coloured from,
+/// so that after an edit only the lines it changed are coloured again.
+#[derive(Debug, Clone)]
+struct Painted {
+    revision: u64,
+    first: usize,
+    /// The text's line count when coloured, to find the lines below an edit again.
+    total: usize,
+    texts: Vec<String>,
+    lines: Vec<Vec<borg_view::Run>>,
+    /// Where colouring stood at the start of each line, and after the last.
+    states: Vec<borg_view::LineState>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Editor {
     pub path: PathBuf,
@@ -138,8 +152,7 @@ pub struct Editor {
     /// A message in the status line, until the next key.
     pub note: Option<String>,
     pub language: Option<String>,
-    /// Syntax colours: the revision and first line they were made for, and each line's runs.
-    pub painted: Option<(u64, usize, Vec<Vec<borg_view::Run>>)>,
+    painted: Option<Painted>,
     needle: String,
     replacement: String,
     /// The revision a save in flight wrote, and whether the editor closes once it lands.
@@ -187,21 +200,66 @@ impl Editor {
         }
     }
 
+    /// The syntax colours of line `line`, when it is coloured.
+    pub fn runs(&self, line: usize) -> Option<&[borg_view::Run]> {
+        let painted = self.painted.as_ref()?;
+        painted.lines.get(line.checked_sub(painted.first)?).map(Vec::as_slice)
+    }
+
     /// Highlights the lines from `top` down, with context above, when the text or the view
-    /// moved past what is coloured.
+    /// moved past what is coloured. A line keeps its colours while its text and the state
+    /// colouring reaches it in stay the same, so an edit colours little more than its own lines.
     fn paint(&mut self, rows: usize) {
         let Some(language) = &self.language else { return };
+        let changed = self.buffer.take_changed_line();
         let revision = self.buffer.revision();
-        let fresh = self.painted.as_ref().is_some_and(|(painted, first, lines)| {
-            *painted == revision && self.top >= *first && self.top + rows <= first + lines.len()
+        let fresh = self.painted.as_ref().is_some_and(|painted| {
+            painted.revision == revision
+                && self.top >= painted.first
+                && self.top + rows <= painted.first + painted.lines.len()
         });
         if fresh {
             return;
         }
-        let first = self.top.saturating_sub(PAINT_CONTEXT);
+        let wanted = self.top.saturating_sub(PAINT_CONTEXT);
         let last = (self.top + rows + PAINT_CONTEXT / 3).min(self.buffer.lines());
-        let text: String = (first..last).map(|line| self.buffer.line(line) + "\n").collect();
-        self.painted = Some((revision, first, borg_view::highlight_lines(&text, language)));
+        // Colouring carries on from what is coloured above the view, unless a change above that
+        // may have altered the state it starts in.
+        let old = self.painted.take().filter(|old| {
+            let first = wanted.max(old.first);
+            old.first <= self.top && first <= old.first + old.lines.len() && changed.is_none_or(|line| line >= first)
+        });
+        let first = old.as_ref().map_or(wanted, |old| wanted.max(old.first));
+        let mut state = old
+            .as_ref()
+            .map_or_else(|| borg_view::LineState::new(language), |old| old.states[first - old.first].clone());
+        let total = self.buffer.lines();
+        let shift = old.as_ref().map_or(0, |old| total as isize - old.total as isize);
+        let mut painted = Painted { revision, first, total, texts: Vec::new(), lines: Vec::new(), states: Vec::new() };
+        for line in first..last {
+            let text = self.buffer.line(line);
+            // Below the change, the lines that were there before have moved by the lines it added.
+            let before = old.as_ref().and_then(|old| {
+                let at = if changed.is_none_or(|changed| line < changed) {
+                    Some(line)
+                } else {
+                    line.checked_add_signed(-shift)
+                };
+                let index = at?.checked_sub(old.first)?;
+                (old.texts.get(index) == Some(&text) && old.states[index] == state).then_some(index)
+            });
+            painted.states.push(state.clone());
+            match (before, &old) {
+                (Some(index), Some(old)) => {
+                    painted.lines.push(old.lines[index].clone());
+                    state = old.states[index + 1].clone();
+                }
+                _ => painted.lines.push(borg_view::highlight_line(&text, &mut state)),
+            }
+            painted.texts.push(text);
+        }
+        painted.states.push(state);
+        self.painted = Some(painted);
     }
 
     fn save(&mut self, close: bool, force: bool) -> Vec<Effect> {
@@ -700,6 +758,42 @@ mod tests {
             effects.iter().any(|effect| matches!(effect, Effect::List { .. })),
             "the panel shows the new size: {effects:?}"
         );
+    }
+
+    #[test]
+    fn an_edit_colours_the_text_as_colouring_it_afresh_would() {
+        let (mut state, now) = state();
+        let text: String = (0..60).map(|n| format!("let value_{n} = \"{n}\"; // line {n}\n")).collect();
+        opened(&mut state, now, &text);
+        let rows = usize::from(state.rows - EDITOR_CHROME);
+        let colours = |editor: &Editor| {
+            (0..editor.buffer.lines()).map(|line| editor.runs(line).map(<[_]>::to_vec)).collect::<Vec<_>>()
+        };
+        let afresh = |editor: &Editor| {
+            let mut fresh =
+                Editor::new(EditorFile { path: editor.path.clone(), text: editor.buffer.text(), stamp: stamp(0) });
+            fresh.top = editor.top;
+            fresh.paint(rows);
+            colours(&fresh)
+        };
+        for _ in 0..3 {
+            press(&mut state, now, KeyCode::Down.into());
+        }
+        // A comment opened above the rest changes the colour of every line below it.
+        for key in ["/", "*", " "].map(|c| KeyCode::Char(c.chars().next().unwrap())).into_iter().chain([KeyCode::Enter])
+        {
+            press(&mut state, now, key.into());
+            let editor = state.editor.as_ref().unwrap();
+            assert_eq!(colours(editor), afresh(editor), "after {key:?}");
+        }
+        for key in [KeyCode::Backspace, KeyCode::Backspace, KeyCode::Backspace, KeyCode::Backspace, KeyCode::PageDown] {
+            press(&mut state, now, key.into());
+            let editor = state.editor.as_ref().unwrap();
+            assert_eq!(colours(editor), afresh(editor), "after {key:?}");
+        }
+        press(&mut state, now, ctrl('z'));
+        let editor = state.editor.as_ref().unwrap();
+        assert_eq!(colours(editor), afresh(editor), "after an undo");
     }
 
     #[test]

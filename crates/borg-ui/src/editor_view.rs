@@ -171,9 +171,8 @@ pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut 
         let start = buffer.line_start(line);
         let selected =
             selection.clone().map(|range| range.start.saturating_sub(start)..range.end.saturating_sub(start));
-        let runs = editor.painted.as_ref().and_then(|(_, first, lines)| lines.get(line.checked_sub(*first)?));
         let look = LineLook { base, selection: styles.cursor, light };
-        draw_line(&buffer.line(line), runs.map(Vec::as_slice), selected, editor.left, (text, y), look, buf);
+        draw_line(&buffer.line(line), editor.runs(line), selected, editor.left, (text, y), look, buf);
     }
 
     let (line, _) = buffer.position();
