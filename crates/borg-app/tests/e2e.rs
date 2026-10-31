@@ -49,6 +49,27 @@ fn start_with(fixture: &Fixture, label: &str, shell: Shell) -> Result<Session> {
     Ok(session)
 }
 
+/// Filters the activity monitor by `pid` and puts the cursor on that process. Other PIDs can
+/// contain it, so it steps to it rather than expect it alone.
+fn select_process(app: &mut Session, pid: u32) -> Result<Snapshot> {
+    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
+    app.wait_until("activity list filtered by the PID", |s| {
+        s.lines()
+            .iter()
+            .any(|line| line.contains("Filter") && line.contains(&format!(" {pid} ")) && line.contains(" of "))
+    })?;
+    let selected = format!("· PID {pid} ·");
+    app.send(keys::key(KeyCode::Home))?;
+    for _ in 0..20 {
+        if app.snapshot().contains(&selected) {
+            break;
+        }
+        app.send(keys::down())?;
+        app.pump(std::time::Duration::from_millis(300))?;
+    }
+    app.wait_until("the process selected", |s| s.contains(&selected))
+}
+
 /// Approves an agent's ask once its dialog takes Yes: one that appears right after a key
 /// ignores Yes for a moment.
 /// Approves an agent's request once the dialog takes Y, which it ignores for a moment after
@@ -1541,24 +1562,8 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     app.wait_text("Borg Commander")?;
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
-    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    // Other PIDs can contain this one, so step to it rather than expect it alone.
-    app.wait_until("activity list filtered by the PID", |s| {
-        s.lines()
-            .iter()
-            .any(|line| line.contains("Filter") && line.contains(&format!(" {pid} ")) && line.contains(" of "))
-    })?;
-    let own = format!("· PID {pid} ·");
-    app.send(keys::key(KeyCode::Home))?;
-    for _ in 0..20 {
-        if app.snapshot().contains(&own) {
-            break;
-        }
-        app.send(keys::down())?;
-        app.pump(std::time::Duration::from_millis(300))?;
-    }
-    let list = app.wait_until("own process in activity list", |s| s.contains("borg") && s.contains(&own))?;
-    ensure!(list.contains("RAM") && list.contains("Borg Commander"));
+    let list = select_process(&mut app, pid)?;
+    ensure!(list.contains("borg") && list.contains("RAM") && list.contains("Borg Commander"));
     app.send(keys::tab())?;
     app.wait_text("Process memory")?;
     app.wait_text("Resident memory")?;
@@ -1692,8 +1697,7 @@ fn memory_of_a_macos_program_is_marked_protected_and_explained_without_offering_
     let pid = worker.0.id();
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
-    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    app.wait_until("sleep in the activity list", |s| s.contains(&format!(" {pid} 1 of ")))?;
+    select_process(&mut app, pid)?;
     app.wait_text("Memory protected · part of macOS")?;
     app.send(keys::enter())?;
     app.wait_text("▸ Heap & allocations")?;
