@@ -13,18 +13,20 @@ use ratatui::{
     widgets::{Block, Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
+
 mod controls;
-pub(crate) use controls::{keybar, panel_mouse};
-mod processes;
-use processes::filter_row;
+mod files;
 mod memory;
+mod processes;
+mod regions;
+mod search;
+
+pub(crate) use controls::{keybar, panel_mouse};
+use files::{file_details, files};
 pub(crate) use memory::{Unit, chart};
 use memory::{memory, metrics, sized_line, sizes};
-mod regions;
+use processes::filter_row;
 use regions::{Page, regions, snapshot};
-mod files;
-use files::{file_details, files};
-mod search;
 use search::{findings, search_form, search_results};
 
 pub(crate) const HEADER_ROWS: u16 = 3;

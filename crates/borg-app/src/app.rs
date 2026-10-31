@@ -33,18 +33,20 @@ use crate::{
     preview,
     session::{RESTORED_LINES, RESTORED_MARKER, Session, StateDir},
 };
-mod render;
-use render::{Plain, appearance, clear_screen, palette};
-pub(crate) use render::{picture, span};
-mod input;
-use input::WheelBurst;
+
 mod agent_calls;
 mod cloud;
 mod console;
 mod effects;
+mod input;
 mod jobs;
 mod remotes;
+mod render;
 mod viewers;
+
+use input::WheelBurst;
+use render::{Plain, appearance, clear_screen, palette};
+pub(crate) use render::{picture, span};
 
 /// Indexes are checked after startup, once the panels and shell are up.
 const INDEX_DELAY: Duration = Duration::from_secs(5);

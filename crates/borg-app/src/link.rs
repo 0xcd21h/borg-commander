@@ -22,19 +22,21 @@ use tokio::{
 };
 
 use crate::agent::{Call, Reply};
+
 mod caller;
-mod store;
-pub use store::{Computer, Server, forget_server, identity, server, servers};
-use store::{claim, clean_name, load, same, save, state_dir, this_computer};
 mod clients;
+mod commands;
+mod remote;
+mod served;
+mod store;
+
 pub use clients::paired_clients;
 use clients::{ClientConnection, client_status};
-mod served;
-use served::Served;
-mod remote;
-pub use remote::{CHUNK, Remote, download_in_session, pair, upload_in_session};
-mod commands;
 pub use commands::{get_command, pair_command, put_command};
+pub use remote::{CHUNK, Remote, download_in_session, pair, upload_in_session};
+use served::Served;
+pub use store::{Computer, Server, forget_server, identity, server, servers};
+use store::{claim, clean_name, load, same, save, state_dir, this_computer};
 
 const LINK_DIR: &str = "link";
 const KEY_FILE: &str = "key";
