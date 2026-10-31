@@ -23,6 +23,7 @@ use borg_core::{BackupChange, BackupEvent, BackupItem, BackupListing, BackupRequ
 use tokio::sync::mpsc::UnboundedSender;
 
 const TMUTIL: &str = "/usr/bin/tmutil";
+#[cfg(target_os = "macos")]
 const OSASCRIPT: &str = "/usr/bin/osascript";
 const MDFIND: &str = "/usr/bin/mdfind";
 const DEFAULTS: &str = "/usr/bin/defaults";
@@ -55,6 +56,7 @@ const VERSION_CONTROL: &[&str] = &[".git", ".hg", ".svn"];
 const ASK_TIMEOUT: Duration = Duration::from_secs(10);
 const SPOTLIGHT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Long enough for the user to read the password dialog and answer it.
+#[cfg(target_os = "macos")]
 const ADMIN_TIMEOUT: Duration = Duration::from_secs(300);
 const PREFERENCES_FRESH: Duration = Duration::from_secs(5);
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
