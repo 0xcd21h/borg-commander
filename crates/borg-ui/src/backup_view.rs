@@ -7,7 +7,7 @@ use borg_core::{AppState, BackupItem, BackupTab, BackupWindow, Exclusion, Task};
 use borg_i18n::{Count, count, tr};
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Position, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Widget, Wrap},
@@ -38,6 +38,67 @@ enum Row<'a> {
     Item(usize, &'a BackupItem),
 }
 
+/// What a click in the window lands on: a tab, by the digit that shows it, or an item.
+pub(crate) enum BackupSpot {
+    Tab(char),
+    Item(usize),
+}
+
+/// The window on `screen`, and the area inside its border and margins.
+fn frame(screen: Rect) -> (Rect, Rect) {
+    let width = screen.width.saturating_sub(4).min(MAX_WIDTH);
+    let rect = centered(screen, width, borg_core::backup_window_height(screen.height));
+    let body = Rect {
+        x: rect.x.saturating_add(2),
+        y: rect.y.saturating_add(1),
+        width: rect.width.saturating_sub(4),
+        height: rect.height.saturating_sub(2),
+    };
+    (rect, body)
+}
+
+/// The rows of the list, under the tabs and the summary.
+fn list_area(body: Rect, screen: Rect) -> Rect {
+    let room = body.height.saturating_sub(HEADER_ROWS + FOOTER_ROWS);
+    let rows = u16::try_from(borg_core::backup_list_rows(screen.height)).unwrap_or(room).min(room);
+    Rect { y: body.y + HEADER_ROWS, height: rows, ..body }
+}
+
+/// The keys the border lists, as many as fit `rect`.
+pub(crate) fn keys(window: &BackupWindow, rect: Rect) -> &'static str {
+    let keys = match window.tab {
+        BackupTab::All => tr!(backup_keys_all),
+        _ => tr!(backup_keys),
+    };
+    if keys.width() + 2 <= usize::from(rect.width) { keys } else { tr!(backup_keys_compact) }
+}
+
+fn tab_labels() -> [&'static str; 3] {
+    [tr!(backup_tab_selection), tr!(backup_tab_caches), tr!(backup_tab_all)]
+}
+
+/// The window, and the tab or item under `point`.
+pub(crate) fn spot(window: &BackupWindow, screen: Rect, point: Position) -> (Rect, Option<BackupSpot>) {
+    let (rect, body) = frame(screen);
+    if point.y == body.y {
+        let mut x = body.x;
+        for (digit, label) in ('1'..='3').zip(tab_labels()) {
+            let width = u16::try_from(label.width()).unwrap_or(u16::MAX).saturating_add(2);
+            if (x..x.saturating_add(width)).contains(&point.x) {
+                return (rect, Some(BackupSpot::Tab(digit)));
+            }
+            x = x.saturating_add(width + 1);
+        }
+    }
+    let area = list_area(body, screen);
+    if !area.contains(point) {
+        return (rect, None);
+    }
+    let start = window.list_start(usize::from(area.height));
+    let at = layout(window).into_iter().nth(start + usize::from(point.y - area.y));
+    (rect, at.and_then(|row| if let Row::Item(index, _) = row { Some(BackupSpot::Item(index)) } else { None }))
+}
+
 pub(crate) fn draw(
     state: &AppState,
     look: &Look<'_>,
@@ -49,14 +110,8 @@ pub(crate) fn draw(
     let window = &state.backup.window;
     let theme = look.theme;
     let styles = &theme.styles;
-    let width = screen.width.saturating_sub(4).min(MAX_WIDTH);
-    let height = borg_core::backup_window_height(screen.height);
-    let rect = centered(screen, width, height);
-    let keys = match window.tab {
-        BackupTab::All => tr!(backup_keys_all),
-        _ => tr!(backup_keys),
-    };
-    let keys = if keys.width() + 2 <= usize::from(width) { keys } else { tr!(backup_keys_compact) };
+    let (rect, body) = frame(screen);
+    let keys = keys(window, rect);
     Clear.render(rect, buf);
     Block::bordered()
         .border_type(theme.border.into())
@@ -65,12 +120,6 @@ pub(crate) fn draw(
         .title(Line::styled(tr!(backup_window_title), styles.overlay_border).centered())
         .title_bottom(Line::styled(keys, styles.overlay).centered())
         .render(rect, buf);
-    let body = Rect {
-        x: rect.x.saturating_add(2),
-        y: rect.y.saturating_add(1),
-        width: rect.width.saturating_sub(4),
-        height: rect.height.saturating_sub(2),
-    };
     if body.height < HEADER_ROWS + FOOTER_ROWS + 1 || body.width < 16 {
         return rect;
     }
@@ -78,10 +127,7 @@ pub(crate) fn draw(
     let list = window.list();
     tabs(window, look, row(body, 0), buf);
     summary(window, look, home, spinner, row(body, 1), buf);
-    let room = body.height.saturating_sub(HEADER_ROWS + FOOTER_ROWS);
-    let rows = u16::try_from(borg_core::backup_list_rows(screen.height)).unwrap_or(room).min(room);
-    let rows = Rect { y: body.y + HEADER_ROWS, height: rows, ..body };
-    items(window, look, home, rows, buf);
+    items(window, look, home, list_area(body, screen), buf);
     let footer = Rect { y: body.bottom() - FOOTER_ROWS + 1, height: FOOTER_ROWS - 1, ..body };
     if let Some(item) = list.hovered() {
         Paragraph::new(about(&item.exclusion))
@@ -109,8 +155,7 @@ pub(crate) fn draw(
 
 fn tabs(window: &BackupWindow, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let theme = look.theme;
-    let labels = [tr!(backup_tab_selection), tr!(backup_tab_caches), tr!(backup_tab_all)];
-    let spans = BackupTab::ALL.into_iter().zip(labels).flat_map(|(tab, label)| {
+    let spans = BackupTab::ALL.into_iter().zip(tab_labels()).flat_map(|(tab, label)| {
         let style = if tab == window.tab { theme.styles.overlay_selected } else { dim(theme) };
         [Span::styled(format!(" {label} "), style), Span::raw(" ")]
     });

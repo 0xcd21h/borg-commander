@@ -150,6 +150,15 @@ impl BackupList {
     fn settle(&mut self) {
         self.cursor = self.cursor.min(self.items.len().saturating_sub(1));
     }
+
+    /// Marks the item at `index`, or unmarks it.
+    fn toggle(&mut self, index: usize) {
+        if let Some(path) = self.items.get(index).map(|item| item.path.clone())
+            && !self.marks.remove(&path)
+        {
+            self.marks.insert(path);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -198,6 +207,17 @@ impl BackupWindow {
         let at = self.row_of(list.cursor);
         let first = at - usize::from(self.heading(list.cursor).is_some());
         list.top.min(first).max(at.saturating_sub(height.max(1) - 1))
+    }
+
+    /// Puts the cursor on the item at `index`, and marks or unmarks it when `mark`, as a click
+    /// and a right-click do.
+    pub(crate) fn point(&mut self, index: usize, mark: bool) {
+        let list = self.list_mut();
+        list.cursor = index;
+        list.settle();
+        if mark {
+            list.toggle(list.cursor);
+        }
     }
 
     fn keep_visible(&mut self, height: usize) {
@@ -509,11 +529,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: std::time::Insta
         KeyCode::Home => list.cursor = 0,
         KeyCode::End => list.step(isize::MAX),
         KeyCode::Char(' ') | KeyCode::Insert => {
-            if let Some(path) = list.hovered().map(|item| item.path.clone())
-                && !list.marks.remove(&path)
-            {
-                list.marks.insert(path);
-            }
+            list.toggle(list.cursor);
             list.step(1);
         }
         KeyCode::Char('*') => {

@@ -3179,6 +3179,17 @@ fn time_machine_marks_excluded_entries_and_lists_exclusions_by_kind() -> Result<
     let buffer = stage.render(stage.started + Duration::from_secs(1))?;
     ensure_text(&buffer, "Fixed path · changing one asks for your password")?;
     ensure_text(&buffer, "Waiting for your password")?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let at = |text: &str| {
+        let (column, row) = shot.find(text).unwrap_or_else(|| panic!("{text} on screen\n{}", shot.lines().join("\n")));
+        let down = crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left);
+        let click = crossterm::event::MouseEvent { kind: down, column, row, modifiers: KeyModifiers::NONE };
+        borg_ui::mouse_input(&stage.state, click, false, stage.started)
+    };
+    assert!(
+        matches!(at("/System"), Some(Msg::Pointer(borg_core::Pointer::DialogRow(4)))),
+        "a click finds the item under the headings above it"
+    );
     check("time_machine_all", &stage, buffer)?;
 
     stage.send(key(KeyCode::Char('a'))).send(key(KeyCode::Tab)).send(key(KeyCode::Char(' ')));
@@ -3218,5 +3229,62 @@ fn time_machine_list_scrolls_only_when_the_cursor_leaves_it() -> Result<()> {
         "moving up inside the list moves the cursor, not the list"
     );
     anyhow::ensure!(row_of(&buffer, "app20/") == Some(bottom), "the rows below the cursor stay where they were");
+    Ok(())
+}
+
+#[test]
+fn time_machine_window_takes_clicks_on_its_tabs_rows_and_keys() -> Result<()> {
+    use borg_core::{BackupRequest, Exclusion, Pointer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
+    stage.state.backup.available = true;
+    let opened = backup_requests(&mut stage, Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT)));
+    let caches = opened.iter().find(|request| matches!(request, BackupRequest::Caches { .. }));
+    let caches = caches.context("with nothing marked, Alt-T opens on Caches here")?.clone();
+    let found = (0..40)
+        .map(|n| {
+            backup_item(&format!("/home/me/projects/borg/app{n:02}/node_modules"), true, None, Exclusion::Included)
+        })
+        .collect();
+    backup_found(&mut stage, &caches, found);
+    for _ in 0..25 {
+        stage.send(key(KeyCode::Down));
+    }
+    let event = |kind, (column, row)| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+    let left = MouseEventKind::Down(MouseButton::Left);
+    let find = |stage: &mut Stage, text: &str| -> Result<(u16, u16)> {
+        let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+        screen.find(text).with_context(|| format!("{text} on screen\n{}", screen.lines().join("\n")))
+    };
+    let hit = |stage: &Stage, kind, at| borg_ui::mouse_input(&stage.state, event(kind, at), false, stage.started);
+    let pressed = |msg: Option<Msg>, code| matches!(msg, Some(Msg::Key(KeyEvent { code: c, .. })) if c == code);
+    let tap = |stage: &mut Stage, kind, text: &str| -> Result<Option<Msg>> {
+        let at = find(stage, text)?;
+        Ok(hit(stage, kind, at))
+    };
+
+    let row = tap(&mut stage, left, "app22/")?;
+    assert!(
+        matches!(row, Some(Msg::Pointer(Pointer::DialogRow(22)))),
+        "a click finds rows in a scrolled list: {row:?}"
+    );
+    stage.send(row.unwrap());
+    assert_eq!(stage.state.backup.window.list().cursor, 22);
+    assert!(pressed(tap(&mut stage, left, "app22/")?, KeyCode::Enter), "a second click shows it");
+    let mark = tap(&mut stage, MouseEventKind::Down(MouseButton::Right), "app23/")?;
+    assert!(matches!(mark, Some(Msg::Pointer(Pointer::DialogMark(23)))), "{mark:?}");
+    stage.send(mark.unwrap());
+    let list = stage.state.backup.window.list();
+    assert_eq!((list.cursor, list.marks.len()), (23, 1), "a right-click marks the row, as in the panels");
+    let wheel = tap(&mut stage, MouseEventKind::ScrollDown, "app23/")?;
+    stage.send(wheel.unwrap());
+    assert_eq!(stage.state.backup.window.list().cursor, 24, "the wheel moves through the list");
+
+    assert!(pressed(tap(&mut stage, left, "E Exclude")?, KeyCode::Char('e')));
+    assert!(pressed(tap(&mut stage, left, "3 All exclusions")?, KeyCode::Char('3')));
+    let beside = hit(&stage, left, (0, 1)).unwrap();
+    let effects = borg_core::update(&mut stage.state, beside, stage.started);
+    assert!(stage.state.overlay.is_none(), "a click beside the window closes it");
+    assert!(effects.iter().any(|effect| matches!(effect, borg_core::Effect::Backup(BackupRequest::Cancel))));
     Ok(())
 }

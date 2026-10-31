@@ -400,6 +400,22 @@ fn dialog_mouse(state: &AppState, event: MouseEvent, screen: Rect) -> Option<Opt
                 None => Some(hinted(rect, tr!(agent_connect_hint), true, point)),
             }
         }
+        Overlay::TimeMachine => {
+            use crate::backup_view::BackupSpot;
+            let window = &state.backup.window;
+            if let Some(delta) = wheel {
+                return scroll(delta);
+            }
+            let (rect, at) = crate::backup_view::spot(window, screen, point);
+            let right = matches!(event.kind, MouseEventKind::Down(MouseButton::Right));
+            Some(match at {
+                Some(BackupSpot::Item(index)) if right => Some(Msg::Pointer(Pointer::DialogMark(index))),
+                _ if !click => None,
+                Some(BackupSpot::Tab(digit)) => Some(Msg::Key(KeyCode::Char(digit).into())),
+                Some(BackupSpot::Item(index)) => row(index, window.list().cursor).flatten(),
+                None => hinted(rect, crate::backup_view::keys(window, rect), true, point),
+            })
+        }
         Overlay::Collections(picker) => {
             let rect = discovery_view::collection_area(screen);
             if click && picker.creating.is_none() && !rect.contains(point) {

@@ -68,9 +68,11 @@ pub enum Pointer {
     EditorScroll(isize),
     /// A field or button of the editor's dialog, by its place among them.
     EditorControl(usize),
-    /// A row of the open list dialog: a theme, a language, a setting, a job, a host or a way
-    /// to connect.
+    /// A row of the open list dialog: a theme, a language, a setting, a job, a host, a way
+    /// to connect or an item Time Machine lists.
     DialogRow(usize),
+    /// A right-click on a row of the Time Machine window, which marks it as in the panels.
+    DialogMark(usize),
     /// A click beside a dialog that closes on one, as Esc does.
     DismissDialog,
     /// A row of that list: a switch, a pattern or the row for adding one.
@@ -253,6 +255,7 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
             }
         }
         (Pointer::DialogRow(row), Some(overlay)) => select_row(state, overlay, row, now),
+        (Pointer::DialogMark(row), Some(Overlay::TimeMachine)) => state.backup.window.point(row, true),
         (Pointer::DismissDialog, Some(_)) => {
             return crate::overlays::on_key(state, &crossterm::event::KeyCode::Esc.into(), now);
         }
@@ -376,6 +379,10 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
         Overlay::Exclusions(editor) if editor.editing.is_none() => {
             (editor.selected, crate::ExclusionEditor::rows(state))
         }
+        Overlay::TimeMachine => {
+            let list = state.backup.window.list();
+            (list.cursor, list.items.len())
+        }
         _ => return None,
     })
 }
@@ -413,6 +420,10 @@ fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) 
         Overlay::Exclusions(mut editor) => {
             editor.selected = row;
             Overlay::Exclusions(editor)
+        }
+        Overlay::TimeMachine => {
+            state.backup.window.point(row, false);
+            Overlay::TimeMachine
         }
         overlay => overlay,
     });
