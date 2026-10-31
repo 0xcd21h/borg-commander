@@ -1,7 +1,6 @@
 //! The memory map's tree: regions grouped by what they hold, and the files they map.
 
-use super::Activity;
-use super::{GroupEntry, Member, MemoryGroup, MemoryRegion, MemoryTotals, RegionItem, RegionRow};
+use super::{Activity, GroupEntry, Member, MemoryGroup, MemoryRegion, MemoryTotals, RegionItem, RegionRow};
 use std::collections::HashMap;
 
 impl Activity {

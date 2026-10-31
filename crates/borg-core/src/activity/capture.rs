@@ -1,8 +1,7 @@
 //! What the monitor asks to read next: memory to capture, files to preview, snapshots to lay out.
 
-use super::Activity;
 use super::{
-    ActivityPage, ActivityRequest, Finding, MemoryRegion, MemorySearchReport, PREVIEW_DELAY, SNAPSHOT_LIMIT,
+    Activity, ActivityPage, ActivityRequest, Finding, MemoryRegion, MemorySearchReport, PREVIEW_DELAY, SNAPSHOT_LIMIT,
     SnapshotRow, ZERO_ROWS,
 };
 use crate::Effect;
