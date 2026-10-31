@@ -1,277 +1,806 @@
-# Borg guia do utilizador
+# Guia do utilizador do Borg
 
-[De volta à montra](../../../README.md)
+[Voltar à apresentação](../../../README.md)
 
-[Instalar](#install) · [Temas e ícones](#themes-and-icons) · [Teclas](#keys) ·
-[Rato e consola](#mouse-and-console) · [Plug-in Git](#git-plugin) ·
-[Encontrar, tarefas e visualizadores](#find-jobs-and-viewers) · [Configuração](#configuration)
+[Instalação](#install) · [Temas e ícones](#themes-and-icons) · [Teclas](#keys) ·
+[Rato e consola](#mouse-and-console) · [Plugin Git](#git-plugin) ·
+[Localizar, tarefas e visualizadores](#find-jobs-and-viewers) · [Configuração](#configuration)
 
-## Instalar
+## Instalação
 
-Descarregue um binário de [GitHub Releases](https://github.com/0xcd21h/borg-commander/releases) ou execute o instalador em macOS ou Linux, com processador Intel ou ARM:
+Transfira um binário a partir das [GitHub Releases](https://github.com/0xcd21h/borg-commander/releases)
+ou execute o instalador. Funciona em macOS e Linux, tanto em Intel como em ARM:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install.sh | sh
 ```
 
-O instalador verifica a soma de verificação do arquivo e instala `borg` num diretório do PATH, para funcionar no mesmo terminal: usa `~/.local/bin` quando já está no PATH; `/usr/local/bin` quando é gravável, por exemplo como root num contentor; ou, em alternativa, `~/.local/bin`, que adiciona ao ficheiro de arranque da shell. Depois inicia o Borg. `BORG_NO_RUN=1` impede esse arranque e `BORG_INSTALL_DIR` permite escolher o diretório. Se a mesma versão já estiver instalada, uma nova execução dispensa o download. Para compilar a partir do código-fonte, utilize Rust 1.97 ou mais recente:
+O instalador verifica a soma de controlo do arquivo e coloca `borg` numa pasta do seu PATH, para
+que o possa executar de imediato no mesmo terminal. Escolhe `~/.local/bin` se essa pasta já
+estiver no PATH; caso contrário, `/usr/local/bin` se tiver permissão de escrita (por exemplo,
+como root num contentor); se nenhuma servir, usa `~/.local/bin` e acrescenta-a ao ficheiro de
+arranque da sua shell. No fim, inicia o borg; defina `BORG_NO_RUN=1` para o impedir, ou
+`BORG_INSTALL_DIR` para escolher a pasta. Se a mesma versão já estiver instalada, voltar a
+executar o instalador dispensa a transferência.
+
+Para compilar a partir do código-fonte, precisa do Rust 1.97 ou mais recente:
 
 ```sh
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-O suporte para Homebrew está preparado. Quando o repositório tap estiver publicado:
+O suporte para Homebrew já está preparado e passará a funcionar quando o tap for publicado:
 
 ```sh
 brew install 0xcd21h/tap/borg-commander
 ```
 
-Execute `borg` na pasta que pretende explorar. F10 sai; Ctrl-O regressa da consola aos painéis. Execute `borg update` para atualizar uma instalação descarregada, ou utilize o gestor de pacotes se instalou através de Homebrew ou cargo. `borg --version` mostra a versão instalada.
+Execute `borg` na pasta que pretende explorar. F10 sai e Ctrl-O passa da consola para os painéis.
+Para atualizar, execute `borg update` numa cópia transferida, ou use o Homebrew ou o cargo se
+tiver instalado dessa forma. `borg --version` mostra a versão instalada.
 
 ## Temas e ícones
 
-Escolha um tema com F9 → Opções → Tema. Veja o [galeria temática](../../../README.md#themes) para Midnight, Aurora, Neon, Classic, Paper e Ember.
+Escolha um tema em F9 → Opções → Tema. A [galeria de temas](../../../README.md#themes) mostra os
+seis: Midnight, Aurora, Neon, Classic, Paper e Ember.
 
-Os temas utilizam cores fixas para que as personalizações da paleta do terminal não alterem o seu aspeto. Os terminais sem truecolour usam as cores mais próximas na paleta 256-colour.
+Os temas usam cores fixas, pelo que uma paleta personalizada no terminal não altera o seu aspeto.
+Nos terminais sem cor verdadeira (true color), são usadas as cores mais próximas da paleta de 256
+cores.
 
-Os ícones dos ficheiros são sempre mostrados. Ghostty utiliza os ícones Nerd Font mais ricos automaticamente. Outros terminais utilizam símbolos portáteis como padrão: `/` para pastas, `@` para links e `*` para executáveis. Definir `icon-style = "nerd"` utilizar ícones ricos noutro terminal com uma fonte adequada, ou `icon-style = "portable"` para forçar símbolos portáteis. O padrão, `"auto"`, adapta-se ao terminal sem guardar esta deteção como preferência de fonte.
+Todos os ficheiros têm um ícone. No Ghostty, o Borg usa automaticamente os ícones mais ricos da
+Nerd Font; nos restantes terminais, usa por omissão símbolos portáveis: `/` para pastas, `@` para
+ligações e `*` para executáveis. Defina `icon-style = "nerd"` para usar os ícones ricos noutro
+terminal com um tipo de letra adequado, ou `icon-style = "portable"` para usar sempre os símbolos
+portáveis. O valor por omissão, `"auto"`, adapta-se ao terminal e não guarda o que deteta como
+preferência de tipo de letra.
 
-Os ficheiros de lançamento incluem **Borg Mono**, uma fonte monoespaçada com ícones Nerd Font. Instale as fontes normais e a negrito de `fonts/`, selecione Borg Mono no seu terminal e escolha o `"nerd"` estilo de ícone. Borg não é possível alterar a fonte do seu terminal. O instalador guarda-os em `${XDG_DATA_HOME:-~/.local/share}/borg-commander/fonts`; Homebrew mantém-nos dentro `$(brew --prefix)/share/borg-commander/fonts`.
+Os arquivos de cada versão incluem o **Borg Mono**, um tipo de letra monoespaçado com os ícones
+da Nerd Font. Instale os estilos normal e negrito a partir de `fonts/`, selecione o Borg Mono nas
+definições do terminal e escolha o estilo de ícones
+`"nerd"`. O Borg não consegue mudar o tipo de letra do terminal por si.
+O instalador coloca os tipos de letra em `${XDG_DATA_HOME:-~/.local/share}/borg-commander/fonts`;
+o Homebrew coloca-os em `$(brew --prefix)/share/borg-commander/fonts`.
 
-## Colecções e pesquisa recursiva
+## Coleções e pesquisa recursiva
 
-O menu Pesquisar abre coleções e pesquisa recursiva de nomes de ficheiros. Ambos utilizam resultados classificáveis ​​com caminhos de origem e o visualizador existente e visualização rápida.
+O menu Pesquisar reúne as coleções e a pesquisa recursiva por nome de ficheiro. Ambas mostram os
+resultados numa lista ordenável com o caminho de origem de cada ficheiro, e ambas funcionam com
+o visualizador e com a pré-visualização.
 
-- **Ctrl-F:** pesquisa recursivamente abaixo da pasta atual. Todas as palavras têm de corresponder: `main rs` encontra `main.rs`, e `a | b` encontra qualquer uma das duas. Uma palavra em minúsculas ignora maiúsculas e minúsculas; uma com alguma maiúscula respeita-as. Também funcionam globs como `*.log`, frases entre aspas, caminhos com barra como `src/lib` e `-word` para excluir correspondências, bem como os filtros `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d` (alterado na última semana), `mod:>1y` e `in:src` (uma pasta em qualquer ponto do caminho). As pesquisas mais recentes aparecem por baixo do formulário, primeiro as feitas na mesma pasta; clique numa, ou prima Ctrl-P e Ctrl-N no campo da pesquisa, para a usar. Os nomes correspondem em qualquer alfabeto, seja qual for a capitalização de um glob, e as letras acentuadas correspondem seja qual for a forma como o sistema de ficheiros as guarda. As correspondências perto da pasta da pesquisa aparecem primeiro, enquanto o resto da árvore ainda está a ser lido.
-- **Alt-K:** recolha os ficheiros marcados, ou o ficheiro atual, no outro painel. Adicionar uma referência não copia o conteúdo do ficheiro.
-- **Alt-V:** escolha uma coleção guardada numa lista rolável com contagens de entradas e estimativas de tamanho. Prima F7 ou N para criar um. As recolhas sobrevivem ao reinício Borg.
-- **Esc:** ocultar resultados, preservando o cursor, o scroll, as marcas, o filtro e o agrupamento.
-- **Alt-Shift-R:** retome a visualização oculta. Uma verificação continua enquanto está oculta.
-- **Alt-D — Tamanhos de pasta:** encontrar pastas pelo tamanho total ou contagem de ficheiros, incluindo ficheiros ocultos por defeito. Abre a caixa de diálogo Ctrl-F definida como *Totais de pastas*; trocando   *Procure* se move entre os dois. Ctrl-C interrompe uma verificação.
-- **Alt-S:** calcular tamanhos para a pasta selecionada. **Alt-Shift-D:** abra uma árvore de tamanhos para a pasta atual.
-- **Alt-W:** maximizar ou restaurar o painel de resultados ativo. Os resultados são abertos num painel normal por defeito. A barra de título `[+]` (maximizar), `[=]` (restaurar) e `[-]` (dobrar) os controlos são clicáveis. Fold oculta a visualização; Alt-Shift-R retoma com o seu layout e seleção preservados.
-- **Ctrl-S:** filtre os resultados por nome ou caminho de origem. Um filtro vazio mostra tudo.
+- **Ctrl-F:** pesquisa a pasta atual e tudo o que está abaixo dela. Todas as palavras têm de
+  corresponder: `main rs` encontra `main.rs`, e `a | b` encontra qualquer uma das palavras. Uma
+  palavra em minúsculas ignora maiúsculas e minúsculas; uma palavra com alguma maiúscula tem de
+  corresponder exatamente. Pode também usar padrões glob como `*.log`, expressões entre aspas,
+  caminhos com uma barra como `src/lib` e `-word` para excluir correspondências, além dos filtros
+  `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d`
+  (alterado na última semana), `mod:>1y` e `in:src` (uma pasta em qualquer ponto do caminho). As
+  pesquisas recentes aparecem por baixo do formulário, com as feitas na mesma pasta em primeiro
+  lugar; clique numa delas, ou prima Ctrl-P e Ctrl-N no campo de pesquisa, para a reutilizar. Os
+  nomes correspondem em qualquer alfabeto, seja qual for a capitalização de um glob, e as letras
+  acentuadas correspondem independentemente da forma como o sistema de ficheiros as guarda. As
+  correspondências próximas da pasta de pesquisa aparecem primeiro, enquanto o resto da árvore
+  ainda está a ser lido.
+- **Alt-K:** junta os ficheiros marcados, ou o ficheiro atual, numa coleção no outro painel. Uma
+  coleção guarda referências, pelo que o conteúdo dos ficheiros não é copiado.
+- **Alt-V:** escolhe uma coleção guardada numa lista com deslocamento que mostra quantas entradas
+  tem cada uma e uma estimativa do seu tamanho. Prima F7 ou N para criar uma. As coleções são
+  mantidas quando o Borg reinicia.
+- **Esc:** oculta os resultados e mantém o cursor, a posição de deslocamento, as marcas, o filtro
+  e o agrupamento.
+- **Alt-Shift-R:** volta a mostrar os resultados ocultos. Uma análise continua a decorrer enquanto
+  os seus resultados estão ocultos.
+- **Alt-D — Tamanhos de pastas:** encontra pastas pelo tamanho total ou pelo número de ficheiros.
+  Os ficheiros ocultos são incluídos por omissão. Alt-D abre a caixa de diálogo de Ctrl-F com
+  *Totais de pastas* selecionado; altere *Procure* para alternar entre os dois modos. Ctrl-C
+  interrompe uma análise.
+- **Alt-S:** calcula os tamanhos da pasta selecionada. **Alt-Shift-D:** abre uma árvore de
+  tamanhos da pasta atual.
+- **Alt-W:** maximiza ou restaura o painel de resultados ativo. Os resultados abrem num painel
+  normal por omissão. Os controlos `[+]` (maximizar), `[=]` (restaurar) e `[-]` (recolher) na
+  barra de título podem ser clicados. Recolher oculta a vista; Alt-Shift-R repõe-na com o mesmo
+  esquema e a mesma seleção.
+- **Ctrl-S:** filtra os resultados por nome ou caminho de origem. Um filtro vazio mostra tudo.
 
-Clique no cabeçalho de uma coluna para a ordenar ou reverter. Os menus Esquerda/Direita também oferecem classificação; A pesquisa adiciona a classificação e o agrupamento de pastas de origem por pasta ou tipo de ficheiro. Enter num título de grupo dobra-o; O Insert marca os seus membros correspondentes. As marcas sobrevivem à classificação e filtragem; o rodapé também conta os ficheiros marcados ocultos pelo filtro.
+### Trabalhar com os resultados
 
-F3 e Ctrl-Q abrem a fonte real. F5 cópias para um destino real; se o painel de destino for uma coleção, adiciona referências. F6 requer um destino real. F8 remove referências de uma coleção. Nos resultados da pesquisa, F8 pede para apagar os originais. Shift-F8 também exclui originais de uma coleção, após confirmação. Quando uma pasta e o seu conteúdo são marcados, a pasta é enviada uma vez para o trabalho. O Reveal original abre a sua pasta de origem no outro painel. Esquerda ou Esc oculta resultados; Alt-Shift-R retoma-os no mesmo lugar. Tab alterna os painéis virtuais mesmo quando o shell tem um comando pendente. O shell mantém um diretório de trabalho real. F10 pergunta sempre antes de desistir.
+Clique no cabeçalho de uma coluna para ordenar por ela e clique de novo para inverter a ordem. Os
+menus Esquerda e Direita também permitem ordenar, e o menu Pesquisar acrescenta a ordenação por
+pasta de origem e o agrupamento por pasta ou tipo de ficheiro. Enter no cabeçalho de um grupo
+recolhe-o; Insert marca os ficheiros correspondentes desse grupo. As marcas mantêm-se quando
+ordena ou filtra, e o rodapé conta também os ficheiros marcados que o filtro oculta.
 
-A pesquisa lê nomes de ficheiros e metadados, com um trabalhador cancelável e um máximo de 20.000 correspondências por pesquisa. A linha de contexto mostra a conclusão, os erros, as entradas ignoradas e se este limite foi atingido. As pastas ocultas seguem Mostrar ficheiros ocultos. A pesquisa permanece no sistema de ficheiros inicial e não recorre através de links simbólicos de diretório. A janela de pesquisa pode restringir os resultados a ficheiros ou pastas e definir um tamanho mínimo. Escolha **Totais de pastas** para medir todos os ficheiros descendentes antes de filtrar por nome, tamanho ou contagem mínima de ficheiros. Mantém as maiores 20.000 pastas correspondentes e classifica por tamanho de conteúdo; clique em Ficheiros para ordenar por número de ficheiros. Utilize um padrão como `node_modules` ou `*cache*`, ou `*` para inspecionar tudo o que está abaixo da raiz escolhida. Os totais contabilizam o conteúdo do ficheiro, sem garantia de espaço recuperável em disco. As linhas da pasta aninhadas sobrepõem-se. Os links simbólicos nunca são seguidos, as varreduras permanecem no sistema de ficheiros inicial e uma pasta que se contém a si própria (através de uma montagem de ligação ou de uma pasta com ligação física) é inserida apenas uma vez; tais limites e as crianças ilegíveis ou excluídas tornam os totais incompletos, apresentados com ≥. As verificações de diretório utilizam metadados e não leem o conteúdo do ficheiro. Os resultados aparecem após a medição; a verificação permanece cancelável. **Árvore de tamanho de pasta** mostra o total raiz e as suas subpastas no painel atual. À direita expande uma ramificação ou entra numa ramificação expandida; Esquerda dobra ou seleciona o seu pai. Enter abre a pasta real. Clique numa seta de ramificação para duplicar ou expandir, ou num cabeçalho de coluna para classificar irmãos por nome, tamanho ou contagem de ficheiros. Esc esconde a árvore; Alt-Shift-R restaura as suas ramificações, marcas e cursor. As operações de ficheiro utilizam caminhos reais e a marcação de pai e filho envia apenas o pai para uma tarefa de cópia ou eliminação.
+F3 e Ctrl-Q abrem o ficheiro original. F5 copia para uma pasta real; se o outro painel for uma
+coleção, F5 acrescenta-lhe referências. F6 precisa de uma pasta real como destino. Numa coleção,
+F8 remove referências e não mexe nos ficheiros; nos resultados de pesquisa, F8 pede confirmação
+para eliminar os ficheiros originais. Shift-F8 também elimina os ficheiros originais a partir de
+uma coleção, depois de confirmar. Quando estão marcados uma pasta e ficheiros dentro dela, a
+tarefa trata a pasta uma única vez. **Revelar original** abre a pasta do ficheiro no outro painel.
+Left ou Esc ocultam os resultados, e Alt-Shift-R repõe-nos onde os deixou. Tab alterna entre os
+painéis mesmo quando a shell tem um comando por terminar. A shell fica sempre numa pasta real. F10
+pede sempre confirmação antes de sair.
 
-As pesquisas por nome omitem as pastas geradas enquanto **Omitir resultados de compilação, caches e ficheiros ignorados** estiver marcado: `node_modules`, `.git`, caches e ambientes virtuais de Python, pastas como `target` e `dist` quando há um ficheiro de compilação ao lado (`Cargo.toml`, `package.json`), e qualquer pasta marcada com um ficheiro `CACHEDIR.TAG`. Os ficheiros que `.gitignore`, `.ignore`, `.rgignore` ou `.borgignore` excluem também são omitidos, tal como os globs em `[search] exclude`. Prima F4 no diálogo de pesquisa, ou clique em **F4 Editar**, para mudar o que é omitido: ligue ou desligue as pastas geradas e os ficheiros ignorados, e adicione (Ins), edite (Enter) ou remova (Del) padrões. As alterações ficam guardadas no ficheiro de configuração. Uma pasta omitida cujo próprio nome corresponda continua a aparecer, e a linha de contexto conta as pastas omitidas. `excluded:yes` pesquisa tudo uma vez, e `hidden:yes` inclui ficheiros ocultos. As análises de tamanho leem sempre tudo. No macOS, as pesquisas e as análises de tamanho iniciadas acima omitem `~/Library/Containers` e `~/Library/Group Containers`, onde o macOS retém cada leitura até alguém responder se permite o acesso aos dados de outra app; uma pesquisa iniciada numa delas lê-a. O histórico de pesquisa fica neste computador e só o utilizador o pode ler; `history = false` em `[search]` deixa de o guardar.
+Por agora, as ações de Git e de arquivos só funcionam em painéis de pastas reais. Para as usar
+num ficheiro de uma coleção, abra primeiro a respetiva pasta com **Revelar original**.
 
-**Pesquisar → Indexar esta pasta para pesquisa instantânea** mantém um índice de todos os nomes abaixo da pasta ativa, para que Ctrl-F nela, ou em qualquer pasta abaixo, responda de imediato; a linha de contexto indica quando o índice foi criado. Os índices são reconstruídos em segundo plano depois de o Borg iniciar e quando têm mais de 15 minutos, e o índice anterior responde até o novo estar completo. Uma pesquisa que não omite nada, ou que usa outras exclusões, percorre as pastas. Escolha novamente o item para deixar de indexar e apagar o índice. Os índices ficam na pasta de cache com as análises de tamanho; `[index]` na configuração lista as pastas indexadas.
+### Limites da pesquisa
 
-Para medir tamanhos enquanto mantém os painéis de ficheiros comuns abertos, prima **Alt-I** ou escolha **Pesquisar → Contar tamanhos em segundo plano**. Borg verifica todas as pastas abaixo do diretório atual, inclui ficheiros ocultos e preenche os totais das pastas à medida que terminam. Pode navegar ou usar a consola enquanto ele é executado. As pastas que ainda estão a ser medidas mostram um total em execução crescente marcado `≥`e os totais permanecem quando sai de uma pasta e regressa. O rodapé do painel mostra o progresso; **Alt-I** novamente, ou um clique no rodapé, interrompe a digitalização e mantém os totais medidos até à data. Iniciar um trabalho de cópia, movimentação ou eliminação interrompe uma verificação de tamanho em curso. As varreduras concluídas partilham a sua cache com a árvore de tamanho e a análise de espaço.
+A pesquisa lê nomes de ficheiros e metadados num processo em segundo plano que pode cancelar, e
+para às 20 000 correspondências. A linha de contexto indica se a pesquisa terminou, os erros e as
+entradas ignoradas, e se atingiu esse limite. As pastas ocultas só são pesquisadas com **Mostrar
+ficheiros ocultos** ativo. A pesquisa não sai do sistema de ficheiros onde começou e não segue
+ligações simbólicas para pastas. A janela de pesquisa pode limitar os resultados a ficheiros ou a
+pastas e definir um tamanho mínimo.
 
-As verificações concluídas são guardadas localmente. Tanto a análise de espaço como a árvore de pastas reutilizam uma verificação guardada para a mesma política de raiz e de ficheiros ocultos. A reabertura de uma raiz medida utiliza este instantâneo imediatamente: `~` marca os tamanhos armazenados em cache, com a data de medição acima da árvore. **Ctrl-R** verifica novamente em qualquer visualização de tamanho; **Ctrl-C** cancela. A árvore anterior permanece visível durante uma atualização e sobrevive ao cancelamento ou falha. As listagens de pastas comuns também mostram os totais em cache disponíveis. Alterações fora de Borg podem torná-los desatualizados; a navegação não aciona varrimentos recursivos. Borg copiar, mover e eliminar tarefas invalidam os instantâneos que se sobrepõem aos seus caminhos alterados.
+### Totais de pastas e árvore de tamanhos
 
-O índice SQLite local retém cada pasta medida até 16 raízes. As árvores transportam as crianças à medida que os ramos se expandem; uma ramificação apresenta até 20.000 pastas e a análise de espaço plana mantém as maiores 20.000 correspondências. Estes limites de visualização não interrompem a digitalização nem reduzem os totais medidos. Uma linha “Ficheiros nesta pasta” contabiliza os bytes armazenados diretamente numa pasta expandida. Os erros e as subárvores ignoradas marcam os totais como incompletos. Os ficheiros de cache residem em `~/.cache/borg-commander`, respeitando `XDG_CACHE_HOME`; `BORG_CACHE_DIR` substitui a localização. São medidas descartáveis, separadas das coleções. Os ficheiros com link físico contam uma vez por caminho. Estes são tamanhos de conteúdo lógico, não de utilização de disco físico ou recuperável.
+Escolha **Totais de pastas** para medir todos os ficheiros abaixo de cada pasta antes de filtrar
+por nome, tamanho ou número mínimo de ficheiros. O Borg guarda as 20 000 maiores pastas
+correspondentes e ordena-as por tamanho; clique em Ficheiros para as ordenar pelo número de
+ficheiros. Use um padrão como `node_modules` ou
+`*cache*`, ou `*` para ver todas as pastas abaixo da pasta inicial.
 
-As ações Git e de ficheiro funcionam atualmente em painéis de diretório reais. Utilize o Reveal original para aceder a eles para um ficheiro recolhido.
+Os totais somam o conteúdo dos ficheiros; não garantem quanto espaço em disco recuperaria. As
+subpastas também contam para os totais das pastas que as contêm. As ligações simbólicas nunca são
+seguidas, as análises não saem do sistema de ficheiros onde começaram, e uma pasta que se contém
+a si própria (através de uma montagem bind ou de uma pasta com ligação física) só é contada uma
+vez. Quando um total fica incompleto por causa de um destes limites, ou porque uma subpasta não
+pôde ser lida ou foi omitida, aparece com ≥. As análises de pastas leem apenas metadados, nunca o
+conteúdo dos ficheiros. Os resultados aparecem quando a medição termina, e pode cancelar a
+análise a qualquer momento.
+
+**Árvore de tamanho de pasta** mostra no painel atual o total da pasta inicial e das suas
+subpastas. Right expande um ramo, ou entra nele se já estiver expandido; Left recolhe um ramo ou
+seleciona o ramo pai. Enter abre a própria pasta. Clique na seta de um ramo para o recolher ou
+expandir, ou no cabeçalho de uma coluna para ordenar as pastas do mesmo nível por nome, tamanho ou
+número de ficheiros. Esc oculta a árvore, e Alt-Shift-R repõe os ramos, as marcas e o cursor. As
+operações com ficheiros atuam sobre os caminhos reais e, se marcar uma pasta e uma subpasta dela,
+uma tarefa de cópia ou eliminação recebe apenas a pasta.
+
+### O que as pesquisas omitem
+
+Com **Omitir resultados de compilação, caches e ficheiros ignorados** assinalado, as pesquisas
+por nome ignoram pastas geradas: `node_modules`, `.git`, caches e ambientes virtuais de Python,
+pastas como `target` e `dist` que estejam ao lado de um ficheiro de compilação (`Cargo.toml`,
+`package.json`), e qualquer pasta marcada com um ficheiro `CACHEDIR.TAG`. Ignoram também os
+ficheiros excluídos por `.gitignore`,
+`.ignore`, `.rgignore` ou `.borgignore`, e os globs definidos em `[search] exclude`.
+
+Para alterar o que fica de fora, prima F4 na caixa de diálogo de pesquisa ou clique em **F4
+Editar**. Pode ativar ou desativar as pastas geradas e os ficheiros de exclusão, e adicionar
+(Ins), editar (Enter) ou remover (Del) padrões. As alterações são guardadas no ficheiro de
+configuração. Uma pasta omitida continua a aparecer se o próprio nome corresponder, e a linha de
+contexto indica quantas pastas foram omitidas. Acrescente `excluded:yes` a uma pesquisa para
+procurar em tudo nessa vez, ou `hidden:yes` para incluir ficheiros ocultos. As análises de
+tamanho leem sempre tudo.
+
+No macOS, as pesquisas e as análises de tamanho que começam acima de `~/Library/Containers` e
+`~/Library/Group Containers` ignoram estas pastas: ler aí faz com que o macOS suspenda a leitura
+até alguém responder se autoriza o acesso aos dados de outra aplicação. Uma pesquisa iniciada
+dentro de uma destas pastas lê-a normalmente.
+
+O histórico de pesquisa fica neste computador e só o utilizador o pode ler. Defina
+`history = false` em `[search]` para deixar de o guardar.
+
+### Pesquisa instantânea com índice
+
+**Pesquisar → Indexar esta pasta para pesquisa instantânea** mantém um índice de todos os nomes
+abaixo da pasta ativa, para que Ctrl-F responda de imediato nessa pasta ou em qualquer pasta
+abaixo dela. A linha de contexto indica quando o índice foi criado. O Borg reconstrói os índices
+em segundo plano depois de arrancar e sempre que um índice tem mais de 15 minutos, e o índice
+antigo continua a responder até o novo estar pronto. Uma pesquisa que não omite nada, ou que usa
+exclusões diferentes, lê as pastas diretamente. Escolha de novo a mesma opção do menu para deixar
+de indexar e eliminar o índice. Os índices ficam na pasta de cache, junto às análises de tamanho,
+e `[index]` na configuração enumera as pastas indexadas.
+
+### Contar tamanhos em segundo plano
+
+Para medir tamanhos sem fechar os painéis de ficheiros normais, prima **Alt-I** ou escolha
+**Pesquisar → Contar tamanhos em segundo plano**. O Borg analisa todas as pastas abaixo da atual,
+incluindo ficheiros ocultos, e preenche o total de cada pasta à medida que termina. Pode continuar
+a navegar ou usar a consola enquanto a análise decorre. As pastas que ainda estão a ser medidas
+mostram um total crescente assinalado com `≥`, e os totais mantêm-se quando sai de uma pasta e
+volta a ela. O rodapé do painel mostra o progresso; prima **Alt-I** de novo, ou clique no rodapé,
+para parar a análise e manter os totais medidos até esse momento. Iniciar uma tarefa de cópia,
+movimentação ou eliminação para uma análise de tamanhos em curso. As análises concluídas partilham
+a cache com a árvore de tamanhos e com Totais de pastas.
+
+### Análises de tamanho guardadas
+
+As análises concluídas ficam guardadas neste computador. Totais de pastas e a árvore de tamanhos
+reutilizam uma análise guardada da mesma pasta com a mesma definição de ficheiros ocultos. Quando
+volta a abrir uma pasta que já foi medida, os tamanhos guardados aparecem de imediato, assinalados
+com `~`, com a data da medição por cima da árvore. **Ctrl-R** volta a analisar em qualquer das
+vistas de tamanho, e **Ctrl-C** cancela. A árvore anterior continua visível durante a atualização
+e mantém-se se a nova análise for cancelada ou falhar. As listagens normais de pastas também
+mostram os totais guardados, quando existem. Alterações feitas fora do Borg podem desatualizá-los,
+e a navegação nunca inicia uma análise recursiva por si só. As tarefas de cópia, movimentação e
+eliminação do Borg descartam as análises guardadas que abrangem os caminhos alterados.
+
+A cache SQLite local guarda todas as pastas medidas para até 16 pastas iniciais. As árvores
+carregam as subpastas de um ramo quando o expande. Um ramo mostra até 20 000 pastas, e Totais de
+pastas guarda as 20 000 maiores correspondências; estes limites de apresentação não interrompem a
+análise nem alteram os totais. Uma linha "Ficheiros nesta pasta" contabiliza os bytes guardados
+diretamente numa pasta expandida. Os erros e as subpastas ignoradas marcam os totais como
+incompletos. A cache fica em
+`~/.cache/borg-commander`, ou em `XDG_CACHE_HOME` se estiver definido; `BORG_CACHE_DIR` substitui
+essa localização. A cache contém apenas medições que podem ser recriadas e é independente das
+coleções. Um ficheiro com ligações físicas conta uma vez por cada caminho que tem. Todos os
+tamanhos são tamanhos do conteúdo dos ficheiros, não o espaço físico ocupado em disco nem o
+espaço que recuperaria.
 
 ## Teclas
 
-A barra de atalho de duas linhas encontra-se abaixo da linha de comandos. As teclas de função estão na primeira linha; pesquisa, coleções e outros atalhos contextuais estão no segundo. Ambas as linhas são clicáveis. Os avisos substituem temporariamente a segunda linha.
+A barra de atalhos de duas linhas fica por baixo da linha de comando. A primeira linha mostra as
+teclas de função; a segunda mostra a pesquisa, as coleções e outros atalhos que dependem do que
+está a fazer. Pode clicar nas duas linhas. As notificações substituem a segunda linha durante uns
+instantes.
 
-| Chave | Ação |
+| Tecla | Ação |
 | --- | --- |
-| Cima, Baixo, PgUp, PgDn, Home, End | Mover |
-| Enter, Certo | Abrir pasta/executar ou visualizar ficheiro |
-| Esquerda | Vá para a pasta pai |
-| Tab | Alternar painel ou focar na visualização rápida/regressar à lista de ficheiros |
-| Ctrl-O | Mostrar a shell/voltar aos painéis |
-| Alt-I | Contar o tamanho das pastas em segundo plano/parar de contar |
+| Up, Down, PgUp, PgDn, Home, End | Mover |
+| Enter, Right | Abrir uma pasta / executar ou ver um ficheiro |
+| Left | Ir para a pasta pai |
+| Tab | Alternar entre painéis, ou entrar na pré-visualização e voltar à lista de ficheiros |
+| Ctrl-O | Mostrar a shell / voltar aos painéis |
+| Alt-I | Contar tamanhos de pastas em segundo plano / parar a contagem |
 | Ctrl-S | Localização rápida na pasta |
-| Ctrl-Q | Visualização rápida: o outro painel visualiza o ficheiro sob o cursor (texto, imagem ou pasta) |
-| Ctrl-L | Informação: o outro painel mostra o tamanho, o modo, o proprietário, as datas e o espaço livre |
-| Inserir, Ctrl-T, Shift-Up/Para baixo | Marcar ficheiros |
-| `+` `-` `*` | Selecionar, desmarcar ou inverter por defeito (`*.rs`, `build/`) |
-| Alt-Enter | Coloque os nomes marcados (ou o atual) na linha de comandos |
-| Ctrl-Insert / Alt-Shift-Insert | Copiar os nomes marcados / os seus caminhos completos |
-| Shift-Enter, Ctrl-J | Introduza uma nova linha no cursor da linha de comandos; Enter executa o comando, Ctrl-C limpa-o |
-| Alt-A / Alt-Shift-A | Coloque o caminho da pasta deste painel/do outro painel na linha de comandos |
-| Shift-PgUp / Shift-PgDn | Percorrer o histórico de saída da consola |
-| Shift-Home / Shift-End | Saída de consola mais antiga/de volta ao prompt ao vivo |
-| Ctrl-P / Ctrl-N, Ctrl-R | Histórico do shell: comando anterior/seguinte, pesquisa (manejado pelo seu shell) |
+| Ctrl-Q | Pré-visualização: mostra o ficheiro sob o cursor (texto, imagem ou pasta) no outro painel |
+| Ctrl-L | Informações: mostra tamanho, permissões, proprietário, datas e espaço livre no outro painel |
+| Insert, Ctrl-T, Shift-Up/Down | Marcar ficheiros |
+| `+` `-` `*` | Selecionar, desselecionar ou inverter por padrão (`*.rs`, `build/`) |
+| Alt-Enter | Colocar os nomes marcados (ou o atual) na linha de comando |
+| Ctrl-Insert / Alt-Shift-Insert | Copiar os nomes marcados / os respetivos caminhos completos |
+| Shift-Enter, Ctrl-J | Inserir uma quebra de linha no cursor da linha de comando; Enter executa o comando, Ctrl-C limpa-o |
+| Alt-A / Alt-Shift-A | Colocar na linha de comando o caminho da pasta deste painel / do outro painel |
+| Shift-PgUp / Shift-PgDn | Percorrer a saída da consola para trás e para a frente |
+| Shift-Home / Shift-End | Ir para a saída mais antiga da consola / voltar ao prompt ativo |
+| Ctrl-P / Ctrl-N, Ctrl-R | Histórico da shell: comando anterior / seguinte, pesquisa (tratados pela sua shell) |
 | Alt-. | Mostrar ficheiros ocultos |
-| Alt-R | Recarregar o painel ativo: a sua pasta, resultados de pesquisa ou coleção |
-| Alt-H | Hosts remotos: computadores emparelhados e as suas sessões |
+| Alt-R | Recarregar o painel ativo: a pasta, os resultados de pesquisa ou a coleção |
+| Alt-H | Hosts remotos: máquinas emparelhadas e as respetivas sessões |
 | Alt-Shift-Left/Right | Redimensionar os painéis |
-| Ctrl-U | Trocar painéis |
-| Alt-J | Trabalhos: pausar ou cancelar cópias, movimentações e eliminações em execução |
-| Alt-M | Monitor de atividades: processos e memória |
-| Alt-C | Docker: Compor projetos e contentores |
+| Ctrl-U | Trocar os painéis |
+| Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
+| Alt-M | Monitor de atividade: processos e memória |
+| Alt-C | Docker: projetos Compose e contentores |
 | Alt-T | Time Machine: o que as cópias de segurança deixam de fora, no macOS |
 | F1 | Sobre |
 | F2 | Menu Ficheiro |
 | F3 | Ver (texto ou imagem) |
-| F4 / Shift-F4 | Editar no editor do Borg / com `$VISUAL` ou `$EDITOR` |
-| F5 / F6 | Copiar/mover para o outro painel |
-| F7 | Criar pasta |
-| F8 | Excluir |
-| F9 | Barra de menu |
+| F4 / Shift-F4 | Editar no editor do Borg / em `$VISUAL` ou `$EDITOR` |
+| F5 / F6 | Copiar / mover para o outro painel |
+| F7 | Criar uma pasta |
+| F8 | Eliminar |
+| F9 | Barra de menus |
 | F10 | Sair |
 
-Tab, Enter, Home, End, Left e Right atuam nos painéis enquanto a linha de comandos está vazia. Depois de digitar um comando, estas chaves vão para a shell. Ctrl-P, Ctrl-N e Ctrl-R utilizam o histórico de comandos da sua shell. Shift-Enter (ou Ctrl-J) insere uma nova linha sem executar o comando. Os comandos multilinha digitados e recuperados expandem a mesma área de prompt, diminuindo os painéis e mantendo o cursor visível. O shell mantém as suas chaves habituais de edição e conclusão.
+Tab, Enter, Home, End, Left e Right controlam os painéis enquanto a linha de comando está vazia.
+Assim que começa a escrever um comando, estas teclas passam para a shell. Ctrl-P, Ctrl-N e Ctrl-R
+usam o histórico de comandos da sua shell. Shift-Enter (ou Ctrl-J) insere uma quebra de linha sem
+executar o comando. Os comandos com várias linhas, escritos ou recuperados do histórico, tornam a
+área do prompt mais alta e os painéis mais baixos, para que o cursor fique sempre visível. Todas
+as teclas habituais de edição e de conclusão da sua shell continuam a funcionar.
 
-As cópias chegam à área de transferência do seu computador através do terminal, também por SSH e num espelho que controla. O Borg guarda também as suas últimas 20 cópias: Ctrl-V ou Shift-Insert cola a mais recente nos campos do próprio Borg, como as caixas de diálogo e a pesquisa na memória, mesmo onde o terminal não chega à sua área de transferência. Na linha de comandos, Ctrl-V continua a ser do shell, por isso cole aí com a tecla de colar do seu terminal. O menu Ficheiro oferece as duas cópias para teclados sem Insert; as cópias demasiado grandes para o terminal ficam no Borg.
+O que copia chega à área de transferência do computador através do terminal, mesmo por SSH e
+num espelho que controle. O Borg guarda também as últimas 20 cópias: Ctrl-V ou Shift-Insert cola
+a mais recente nos campos do próprio Borg, como as caixas de diálogo e a pesquisa de memória,
+mesmo quando o terminal não tem acesso à área de transferência. Na linha de comando, Ctrl-V
+pertence à shell, por isso cole aí com o atalho de colar do terminal. O menu Ficheiro oferece as
+duas ações de cópia para teclados sem tecla Insert. As cópias demasiado grandes para o terminal
+transmitir ficam no Borg.
 
-Se o seu terminal reservar teclas F, prima **Esc, depois um dígito** no espaço de 1,5 segundos: Esc 1–9 são F1–F9; Esc 0 é F10. Por exemplo, Esc 9 abre os menus e Esc 5 copia. Enquanto Borg espera pelo dígito, a linha das teclas de função mostra os dígitos a premir. Esc primeiro fecha o que está aberto (um aviso, resultados, visualização rápida ou Informação); um segundo Esc cancela. Alt-1–0 também funciona quando Alt chega ao terminal. Em macOS, ative Option como Meta no seu terminal, se necessário.
+Se o terminal reservar as teclas F para si, prima **Esc e depois um algarismo** no espaço de 1,5
+segundos: Esc 1–9 equivalem a F1–F9, e Esc 0 a F10. Por exemplo, Esc 9 abre os menus e Esc 5
+copia. Enquanto o Borg espera pelo algarismo, a linha das teclas de função mostra qual premir. Se
+houver algo aberto (uma notificação, resultados, a pré-visualização ou Informações), o primeiro Esc
+fecha-o e um segundo Esc cancela. Alt-1 a Alt-0 também funcionam quando o terminal deixa passar a
+tecla Alt. No macOS, pode ser necessário ativar "Use Option as Meta key" (usar Option como tecla
+Meta) no terminal.
 
 ## Rato e consola
 
-Clique numa linha para a focar, clique duas vezes para a abrir e clique com o botão direito do rato para a marcar. Clique na barra de menu ou nas ações inferiores para os utilizar. A roda move-se pelas entradas do painel.
+Clique numa linha para lhe mover o cursor, faça duplo clique para a abrir e clique com o botão
+direito para a marcar. Clique na barra de menus ou na barra de atalhos para as usar. A roda do
+rato percorre o painel.
 
-Os diálogos também aceitam o rato. Clique numa linha de uma lista para a escolher; nos seletores de tema e de idioma, em Hosts remotos e em Acesso remoto, um segundo clique aceita-a. A roda percorre listas como os temas, as definições e as tarefas. As teclas que um diálogo mostra no seu limite aceitam cliques: clique em **Esc fechar** para o fechar, ou num botão de uma pergunta para lhe responder. Um clique fora de uma lista, de um seletor ou de Sobre fecha-o, enquanto os formulários e as perguntas ficam abertos até lhes responder.
+As caixas de diálogo também funcionam com o rato. Clique numa linha de uma lista para a escolher;
+nos seletores de tema e de idioma, em Hosts remotos e em Acesso remoto, um segundo clique
+confirma. A roda percorre listas como as de temas, definições e tarefas. As teclas indicadas no
+contorno de uma caixa de diálogo podem ser clicadas: clique em **Esc Fechar** para fechar a caixa,
+ou num botão para responder a uma pergunta. Clicar fora de uma lista, de um seletor ou de Sobre
+fecha-os, enquanto os formulários e as perguntas ficam abertos até responder.
 
-Ctrl-O alterna entre painéis e consola. O shell segue a pasta do painel ativo antes de escrever ou abrir a consola. Em zsh muda de pasta silenciosamente e redesenha o prompt; em bash e fish um breve `cd` comando aparece na consola. Os comandos e Ctrl-C mantêm visível uma consola explicitamente aberta. “Regressar aos painéis após o comando” aplica-se aos comandos iniciados a partir dos painéis. No prompt da shell, Option/Alt-Left e Option/Alt-Right movem-se por palavras.
+Ctrl-O alterna entre os painéis e a consola. Antes de escrever ou de abrir a consola, a shell
+muda para a pasta do painel ativo. No zsh isto acontece de forma silenciosa e o prompt é
+redesenhado; no bash e no fish, vê na consola um breve comando `cd`. Se tiver aberto a consola
+por iniciativa própria, ela continua aberta depois dos comandos e de Ctrl-C. "Regressar aos
+painéis após o comando" aplica-se apenas aos comandos executados a partir dos painéis. No prompt
+da shell, Option-Left e Option-Right (Alt no Linux) avançam palavra a palavra.
 
-Na consola, a roda faz rolar o histórico de saída sem alterar o comando introduzido. Shift-PgUp/PgDn percorrer uma página; Shift-Home vai para a saída mais antiga; Shift-End regressa ao prompt ao vivo. A digitação também regressa ao prompt ao vivo. Utilize o gesto de seleção do seu terminal, geralmente Shift-drag, e depois o atalho de cópia normal para copiar a saída visível.
+Na consola, a roda do rato percorre a saída para trás sem mexer no comando que está a escrever.
+Shift-PgUp e Shift-PgDn percorrem uma página de cada vez, Shift-Home salta para a saída mais antiga e
+Shift-End volta ao prompt ativo, tal como começar a escrever. Para copiar a saída visível,
+selecione-a da forma que o terminal permitir, normalmente arrastando com Shift, e use o atalho de
+copiar habitual.
 
-## Plug-in Git
+## Plugin Git
 
-O Git é um plugin incluído, ativado por defeito. F9 → Opções → Plugins abre a sua caixa de seleção; desligá-lo oculta o menu do Git e as colunas de estado e interrompe as verificações de estado em segundo plano. Requer Git no seu PATH.
+O suporte para Git é um plugin incluído e está ativo por omissão. A caixa de verificação
+encontra-se em F9 → Opções → Plugins; desativá-la oculta o menu Git e as colunas de estado e
+interrompe as verificações de estado em segundo plano. O Git tem de estar instalado e no PATH.
 
-Dentro de um repositório, os painéis mostram a ramificação e um estado de dois caracteres ao lado de cada ficheiro. O caractere à esquerda descreve o índice (alterações escalonadas); a direita descreve a árvore de trabalho. `M` significa modificado, `A` adicionado, `D` excluído, `R` renomeado, `??` não rastreado e `U` um conflito. As pastas resumem as alterações abaixo das mesmas. Os ficheiros limpos e ignorados não possuem marcador. Fora dos repositórios, os nomes dos ficheiros utilizam o espaço extra.
+Dentro de um repositório, os painéis mostram o ramo atual e um estado de dois caracteres junto a
+cada ficheiro. O carácter da esquerda refere-se ao índice (alterações preparadas) e o da direita à
+árvore de trabalho. `M` significa modificado, `A` adicionado, `D` eliminado, `R` mudado de nome,
+`??` não seguido e `U` um conflito. As pastas resumem as alterações que contêm. Os ficheiros sem
+alterações e os ignorados não têm marcador. Fora de um repositório, os nomes dos ficheiros ocupam
+o espaço extra.
 
-O menu Git oferece o estado do repositório, diferenças não preparadas e preparadas, commits recentes e preparação/desembalagem para ficheiros marcados (ou o ficheiro atual quando nada está marcado). As diferenças e o histórico são abertos no visualizador normal. O Unstage preserva os ficheiros de trabalho. O estado é atualizado após a navegação, os comandos e as ações do Git e a cada cinco segundos enquanto os painéis estão inativos. O estado de atualização no menu Git é novamente verificado imediatamente.
+O menu Git mostra o estado do repositório, as diferenças não preparadas e preparadas e os commits
+recentes, e pode preparar ou retirar da preparação os ficheiros marcados (ou o ficheiro atual, se
+nada estiver marcado). As diferenças e o histórico abrem no visualizador normal. Retirar da
+preparação não altera os ficheiros de trabalho. O estado é atualizado quando muda de pasta,
+executa comandos ou usa ações do Git, e de cinco em cinco segundos enquanto os painéis estão
+inativos. **Atualizar estado**, no menu Git, volta a verificar de imediato.
 
-## Docker plug-in
+## Plugin Docker
 
-**Alt-C** ou **Comando → Docker** lista os seus contentores no painel ativo, agrupados por projeto do Compose, com os contentores fora do Compose por último. O outro painel mostra o contentor selecionado: o seu estado, portas, redes, montagens, comando e política de reinicialização, com CPU ativo, memória, utilização de rede e disco e um gráfico de última hora. Num projeto mostra a pasta do projeto, os seus contentores e a sua utilização combinada. Esc fecha a visualização.
+**Alt-C** ou **Comando → Docker** lista os seus contentores no painel ativo, agrupados por
+projeto Compose, com os contentores que não pertencem a nenhum projeto no fim. O outro painel
+mostra o contentor selecionado: estado, portas, redes, montagens, comando e política de
+reinício, além da utilização de CPU, memória, rede e disco em tempo real, com um gráfico do
+último minuto. Num projeto, mostra a pasta do projeto, os seus contentores e a utilização
+conjunta. Esc fecha a vista.
 
-| Chave | Ação |
+| Tecla | Ação |
 | --- | --- |
-| ↑ ↓, PgUp, PgDn, Início, Fim | Mover |
-| ← → / Enter | Dobre ou desdobre um projeto; Enter num contentor concentra os seus detalhes |
-| S/X/R | Iniciar/parar/reiniciar o contentor ou os contentores do projeto |
+| ↑ ↓, PgUp, PgDn, Home, End | Mover |
+| ← → / Enter | Recolher ou expandir um projeto; Enter num contentor passa para os detalhes |
+| S / X / R | Iniciar / parar / reiniciar o contentor, ou os contentores do projeto |
 | P | Pausar ou retomar |
-| F | Navegue pelos ficheiros do contentor |
-| E, Alt-2 | Abra um shell no contentor ou regresse ao shell aberto |
-| Alt-1 | Mostrar novamente a visão geral do contentor, também a partir do interior do shell |
+| F | Explorar os ficheiros do contentor |
+| E, Alt-2 | Abrir uma shell no contentor, ou voltar à shell já aberta |
+| Alt-1 | Voltar a mostrar a visão geral do contentor, também a partir da shell |
 | `/` | Filtrar por nome, serviço, imagem ou projeto |
 | Tab | Alternar entre a lista e os detalhes |
-| Alt-W | Maximize o painel em foco |
+| Alt-W | Maximizar o painel com o foco |
 
-Parando e reiniciando pergunte primeiro. Num projeto, uma ação afeta apenas os contentores que altera, pelo que Iniciar inicia os que foram interrompidos.
+Parar e reiniciar pedem confirmação primeiro. Num projeto, uma ação só afeta os contentores que
+alteraria, pelo que Começar só inicia os contentores parados.
 
-**F** num contentor em execução fecha a vista Docker e mostra o sistema de ficheiros do contentor nesse painel, começando no seu diretório de trabalho. O título do painel nomeia o contentor. O outro painel mantém a sua pasta host, pelo que **F5** cópias de qualquer forma, e **F3** visualizações, **F7** cria uma pasta e **F8** exclui dentro do contentor. As pesquisas, tamanhos, visualizações e edições permanecem no host. **Alt-C** regressa à visualização Docker; `..` na raiz do contentor retorna o painel para a pasta host mostrada antes. Necessidades de navegação `sh` no contentor, pelo que as imagens mínimas sem shell não podem ser listadas.
+### Ficheiros do contentor
 
-Nos ficheiros de um contentor, a linha de comando segue o painel: torna-se a shell desse contentor, iniciada na pasta do painel, com o nome do contentor no início do prompt. Os comandos são executados dentro do contentor, o painel é atualizado quando terminam e um `cd` aí se move o painel. Ctrl-O mostra a consola desse contentor, marcada **▣ consola de nome**; num painel do host, a linha de comandos e Ctrl-O são novamente do host, com tudo o que lá introduziu guardado. O shell do contentor é o mesmo do separador Shell na vista Docker.
+**F** num contentor em execução fecha a vista Docker e mostra o sistema de ficheiros do contentor
+nesse painel, a começar no diretório de trabalho. O título do painel mostra o nome do contentor. O
+outro painel continua na pasta do anfitrião, pelo que **F5** copia em ambos os sentidos, enquanto
+**F3** mostra, **F7** cria uma pasta e **F8** elimina dentro do contentor. A pesquisa, os
+tamanhos, as pré-visualizações e a edição só funcionam no anfitrião. **Alt-C** volta à vista
+Docker, e `..` na raiz do contentor devolve o painel à pasta do anfitrião que mostrava antes.
+Explorar exige `sh` no contentor, pelo que não é possível listar imagens mínimas sem shell.
 
-Desligue **Docker — linha de comando segue os painéis do contentor** em Opções → Plugins para manter a linha de comandos no host. Nos ficheiros de um contentor, fica esmaecido e marcado **⌂ anfitrião**, e Enter não executa nada até que um painel host esteja ativo, pelo que um comando nunca é executado na máquina errada.
+Enquanto um painel mostra os ficheiros de um contentor, a linha de comando acompanha-o: passa a
+ser a shell desse contentor, iniciada na pasta do painel, com o nome do contentor no início do
+prompt. Os comandos são executados dentro do contentor, o painel é atualizado quando terminam e
+`cd` aí move o painel. Ctrl-O mostra a consola desse contentor, assinalada como **▣ nome
+console**. Num painel do anfitrião, a linha de comando e Ctrl-O voltam a pertencer ao anfitrião, e
+o que lá tinha escrito continua lá. Trata-se da mesma shell do separador Shell do contentor na
+vista Docker.
 
-**E** abre um shell no contentor (bash quando a imagem o possui, caso contrário `sh`) no separador Shell do painel de detalhes e envia-lhe as suas chaves, incluindo as teclas de função. **Alt-1** mostra a visão geral e **Alt-C** regressa à lista; a roda do rato faz rolar o seu histórico. Um shell continua a ser executado enquanto olha para outros contentores, fecha a vista Docker ou utiliza a consola do host, e o seu contentor é marcado `›_` na lista e contou com o atalho Alt-C. Fecha quando sai, quando o seu contentor pára ou quando sai Borg, que pergunta primeiro enquanto os shells estão abertos. O plug-in utiliza o `docker` CLI e o seu contexto atual, pelo que funciona com Docker Desktop, OrbStack, Colima e motores remotos. Pode ser desativado em Opções → Plug-ins.
+Para manter a linha de comando no anfitrião, desative **Seguir – linhas de comando remotas e de
+contentor** em Opções → Plugins. Nesse caso, enquanto um painel mostra os ficheiros de um
+contentor, a linha de comando fica esbatida e assinalada com **⌂ anfitrião**, e Enter não faz nada até
+um painel do anfitrião estar ativo, para que um comando nunca seja executado na máquina errada.
+
+### Shells de contentores
+
+**E** abre uma shell no contentor (bash, se a imagem o tiver; caso contrário, `sh`) no separador
+Shell do painel de detalhes, e envia-lhe as teclas, incluindo as teclas de função. **Alt-1**
+mostra a visão geral, **Alt-C** volta à lista e a roda do rato percorre para trás a saída da
+shell. Uma shell continua em execução enquanto vê outros contentores, fecha a vista Docker ou usa
+a consola do anfitrião; o respetivo contentor fica assinalado com `›_` na lista e é contado no
+atalho Alt-C. A
+shell fecha quando sai dela, quando o contentor para ou quando o Borg termina (o Borg pede
+confirmação primeiro se houver shells abertas).
+
+O plugin usa a CLI `docker` e o contexto atual, pelo que funciona igualmente com Docker Desktop,
+OrbStack, Colima e motores remotos. Pode desativá-lo em Opções → Plugins.
 
 ## Exclusões do Time Machine
 
-No macOS, **Alt-T** ou **Comando → Time Machine** mostra o que o Time Machine deixa de fora das cópias de segurança e permite alterá-lo. Os painéis marcam com ⊘ as entradas excluídas por si mesmas, e o rodapé conta-as ou indica que a pasta inteira fica fora da cópia. **Ctrl-L** Informação mostra como o Time Machine trata o item sob o cursor.
+No macOS, **Alt-T** ou **Comando → Time Machine** mostra o que o Time Machine deixa fora das
+cópias de segurança e permite alterá-lo. Os painéis assinalam com ⊘ os itens que estão excluídos
+por si próprios, e o rodapé conta-os ou indica que a pasta inteira não tem cópia de segurança.
+**Ctrl-L** (Informações) mostra como o Time Machine trata o item sob o cursor.
 
-A janela tem três separadores; **1**, **2**, **3**, **Tab** ou um clique num separador alternam entre eles. **Seleção** lista os itens marcados, ou o que está sob o cursor. **Caches aqui** procura na pasta do painel pastas de cache e de compilação como `node_modules`, `target`, `.venv` e pastas com um `CACHEDIR.TAG`, da maior para a menor, e soma o que ainda é copiado. **Todas as exclusões** lista, por tipo, todas as exclusões que o Borg encontra: os itens marcados que o Spotlight conhece e os da pasta do painel, os caminhos fixos, os volumes excluídos e os locais que o macOS deixa de fora por si mesmo.
+A janela tem três separadores; prima **1**, **2**, **3** ou **Tab**, ou clique num separador,
+para mudar. **Seleção** lista os itens marcados, ou o item sob o cursor. **Caches aqui** procura
+na pasta do painel pastas de cache e de compilação como `node_modules`, `target`, `.venv` e
+pastas com um `CACHEDIR.TAG`, das maiores para as menores, e soma quanto delas ainda entra nas
+cópias de segurança. **Todas as exclusões** lista todas as exclusões que o Borg consegue
+encontrar, por tipo: itens marcados que o Spotlight conhece e os que estão na pasta do painel,
+caminhos fixos, volumes excluídos e os locais que o macOS deixa sempre de fora.
 
-**Space**, **Insert** ou um clique com o botão direito marcam linhas e `*` inverte as marcas. **E** exclui as linhas marcadas, ou a que está sob o cursor, com uma marca no próprio item: não precisa de palavra-passe e acompanha o item, mas uma ferramenta que apaga e volta a criar a pasta perde-a. **P** exclui antes o caminho, que fica excluído seja o que for que lá esteja, e pede a sua palavra-passe na caixa de diálogo do sistema. **I**, **Delete** ou **F8** voltam a incluir itens. Um item dentro de uma pasta excluída volta a ser copiado quando se inclui essa pasta, e o que o macOS deixa de fora não pode ser alterado.
+**Space**, **Insert** ou um clique com o botão direito marcam linhas, e `*` inverte as marcas.
+**E** exclui as linhas marcadas, ou a que está sob o cursor, marcando o próprio item: não precisa
+de palavra-passe e a exclusão acompanha o item, mas perde-se se uma ferramenta eliminar e voltar a
+criar a pasta. **P** exclui antes o caminho, que fica excluído seja o que for que lá esteja, e
+pede a palavra-passe na caixa de diálogo do sistema. **I**, **Delete** ou **F8** voltam a incluir
+itens. Para voltar a incluir nas cópias de segurança um item que está dentro de uma pasta
+excluída, inclua a pasta. O que o macOS deixa de fora por si não pode ser alterado.
 
-Em Todas as exclusões, **A** exclui um caminho que escreva, mesmo que ainda lá não exista nada. **R** procura de novo, **Enter** ou um segundo clique numa linha mostra o item no painel ativo e **Esc** fecha a janela. Excluir ou incluir um volume também pede a sua palavra-passe. O Time Machine pode precisar de acesso total ao disco para o seu terminal, em Definições do Sistema › Privacidade e segurança, para indicar como trata algumas pastas; até lá aparecem como Desconhecido. Noutros sistemas o item do menu fica oculto.
+Em Todas as exclusões, **A** exclui um caminho que escreva, mesmo que ainda não exista nada nesse
+local. **R** procura de novo, **Enter** ou um segundo clique numa linha mostra o item no painel
+ativo, e **Esc** fecha a janela. Excluir ou incluir um volume também pede a palavra-passe. Para
+indicar como trata algumas pastas, o Time Machine pode precisar de que o terminal tenha Acesso
+total ao disco em Definições do Sistema › Privacidade e segurança; até lá, essas pastas aparecem
+como Desconhecido. Nos outros sistemas, esta opção do menu fica oculta.
 
 ## Claude e outros agentes (MCP)
 
-`borg mcp` permite que um agente de IA como o Claude trabalhe no borg que abriu, na sua máquina ou num servidor acedido por SSH. Nada precisa de ser instalado para além de borg: o agente inicia `borg mcp` em si, através de SSH para um servidor, e liga-se à sessão borg aí aberta. O servidor não necessita de porta aberta nem de acesso à Internet.
+`borg mcp` permite que um agente de IA como o Claude trabalhe no borg que tem aberto, seja no seu
+próprio computador, seja num servidor a que acede por SSH. Não precisa de instalar mais nada além
+do borg: o agente inicia `borg mcp` por si (através de SSH, no caso de um servidor) e este liga-se
+à sessão do borg que está a correr nessa máquina. O servidor não precisa de portas abertas nem de
+acesso à internet.
 
-Com espaços de trabalho nomeados, `borg sessions list` mostra os seus IDs e nomes; `borg sessions create NAME` adiciona um, e `borg --session NAME` abre. `borg mcp` pode ligar `list_sessions`,
-`list_remote_sessions`e `use_session` para escolher um alvo para esta ligação MCP. Uma chamada de ferramenta também pode fornecer um `session` ID para uma substituição de uma chamada. O destino selecionado permanece privado para essa ligação MCP.
+### Ligar o Claude
 
-`borg service install`, `enable`e `start` configure o serviço de segundo plano opcional. Possui a ligação de emparelhamento da máquina e mantém as sessões nomeadas em execução quando os seus terminais são desligados. `borg service attach NAME` se volta a ligar a um. Ctrl-] desprende-se sem acabar com a sua casca. Usar `borg service stop`, `disable`, ou `uninstall` para controlar o ciclo de vida do serviço. Num contentor sem systemd, execute o supervisor de processo do contentor `borg service run`; o `install` e `enable` os comandos requerem um host systemd em Linux.
+Prima F1 e depois C (ou escolha F9 → Remoto → Partilhe isto Borg como anfitrião…). O Borg mostra
+dois comandos para colar num terminal do seu computador: um inicia o Claude Code já ligado a este
+borg; o outro acrescenta a ligação ao Claude Code para todas as sessões. Tab escolhe um deles e
+Enter copia-o para a área de transferência do computador através do terminal. Isto funciona por
+SSH no iTerm2, Ghostty, kitty, WezTerm e Alacritty (no tmux, acrescente `set -g set-clipboard on`).
+Quando o terminal não o aceita, como acontece em muitos terminais de browser, F3 mostra o comando
+isolado em texto simples, para o poder selecionar com o rato; qualquer tecla volta ao borg.
 
-Após o emparelhamento, `borg --remote MACHINE:SESSION` abre o sistema de ficheiros dessa sessão no painel local esquerdo. Enter ou F3 visualiza um ficheiro remoto através de um download local temporário. **F5** copia ficheiros e pastas marcados entre painéis locais e remotos ou entre dois hosts emparelhados. A caixa de diálogo de destino identifica o cliente ou o host. As cópias são executadas como tarefas de segundo plano com progresso de bytes, pausar/cancelar e substituir, ignorar ou manter ambas as opções. As pastas incluem pastas vazias e links simbólicos; permissões executáveis ​​e tempos de modificação são preservados para ficheiros regulares. Um ficheiro torna-se visível no seu destino final apenas depois de o seu conteúdo chegar completamente. F6 mover e F8 eliminar não estão disponíveis nos painéis remotos. O painel direito permanece no seu computador. Com **Opções → Plug-ins → Seguir** activado, a linha de comandos e **Ctrl-O** utilize um shell interativo no host remoto. O seu terminal é renderizado localmente; chaves, colar, Ctrl-C e programas de terminal são executados remotamente. Cada sessão remota mantém o seu próprio shell e a linha de comandos por concluir enquanto muda de painel. A seleção de um painel de cliente restaura o shell local. As aplicações que usam o ecrã alternativo e as aplicações em primeiro plano que usam entrada bruta, como `top`, receba todas as chaves durante a execução, incluindo Ctrl-O. O redimensionamento do terminal chega ao PTY remoto. Saia da aplicação usando as suas próprias teclas (`q` em `top`); Borg regressa aos painéis se o tiver iniciado a partir da linha de comandos do painel ou deixa a consola remota aberta se o tiver iniciado aí. Os próprios painéis e shell do comando Borg são independentes desta consola. Usar `borg get MACHINE/SESSION:PATH [TO]` e `borg put FROM MACHINE/SESSION:PATH` para transferências de ficheiros. No local Borg, pressione **Alt-H**, utilize a parte inferior **Hosts remotos** atalho ou escolha **F9 → Remoto → Navegar por hosts e sessões…** para ver máquinas emparelhadas e as suas sessões nomeadas. Enter abre os ficheiros da sessão selecionada no painel que abriu o seletor, substituindo a localização anterior desse painel. Pressione **M** no seletor para espelhar o seu ecrã; **R** atualiza a lista. **Tab** alterna entre **Anfitriões** (acesso de saída) e **Clientes** (acesso de entrada). Os clientes listam os computadores emparelhados com este Borg, as suas impressões digitais de chave pública, se estão ligados e as suas contagens de ligação. Um computador aparece uma vez mesmo quando um espelho utiliza diversas ligações. Atualizações de estado enquanto o seletor está aberto, incluindo dentro de uma sessão cujas ligações pertencem ao serviço em segundo plano. O emparelhamento é direccional: um cliente permitido não se torna automaticamente um host cujos ficheiros este Borg pode navegar. Quando o proprietário da ligação não consegue indicar o seu estado, os clientes emparelhados continuam visíveis com **Estado da ligação indisponível**. Enquanto um espelho se liga, o seletor mostra um estado animado e **Esc** cancela imediatamente. Cada passo da ligação tem um prazo de 10 segundos, com um limite de 30 segundos para toda a tentativa. Uma tentativa falhada mantém o seletor aberto e indica o passo que falhou; **M** tenta novamente a sessão selecionada. No selecionador, **F2** renomeia o rótulo do host selecionado para cada sessão nesse host; **Shift-F2** renomeia o rótulo da sessão selecionada. Estes rótulos são guardados neste cliente e aparecem no seletor, nos títulos dos painéis e no rodapé da consola. Deixe um nome em branco para restaurar o original. Os detalhes mantêm os nomes originais do host e da sessão. Os rótulos estão ligados à chave e ao ID da sessão do host emparelhado; os destinos e os nomes dos comandos no host remoto permanecem os mesmos.
+Por SSH, o borg preenche o endereço a que se ligou. Se o seu computador chegar ao servidor por
+outro nome, como um alias de SSH ou através de um jump host, escreva antes esse nome. O SSH tem de
+iniciar sessão sem pedir palavra-passe, com uma chave ou um agente SSH. `borg mcp setup prod`
+mostra na linha de comando a mesma configuração para o Claude Code e o Claude Desktop.
 
-**F8** num host indisponível esquece o seu emparelhamento neste cliente. **Shift-F8** esquece o host selecionado mesmo quando está online. A confirmação tem **Não** como predefinição. Esquecer um host fecha os painéis e as consolas deste cliente para esse host; as sessões e os ficheiros do host são mantidos. A identidade do cliente e os seus outros emparelhamentos são preservados. Emparelhe novamente para voltar a ligar.
+### O que o agente pode fazer
 
-**F8** ou **Excluir** remove a sessão do host selecionada após uma confirmação cujo padrão é **Não**. A remoção fecha essa sessão e as suas consolas remotas e remove os seus painéis Borg guardados e o histórico do terminal; ficheiros e pastas no host são mantidos. A sessão predefinida está protegida. Uma sessão autónoma que atualmente aloja a ligação não pode ser removida; feche-o no host e execute primeiro o Borg noutra sessão. A remoção falhada mantém a sessão visível para nova tentativa. As sessões geridas pelo serviço são interrompidas antes de o seu estado guardado ser removido e o serviço não as recria.
+Depois de ligado, o agente vê o mesmo que o utilizador: o próprio ecrã em texto, quer esteja nos
+painéis quer na consola, os dois painéis, os ficheiros realçados e marcados, onde corre a linha de
+comando e o que está escrito nela. Refere-se a sítios como localizações: um caminho absoluto ou
+`~/…` na máquina onde o borg corre, `docker://web/etc/nginx` dentro de um contentor, ou um caminho
+relativo ao painel ativo. Sem pedir autorização, pode ler pastas e ficheiros (por intervalo de
+linhas, ou apenas as linhas que contêm determinado texto), ver os processos mais ativos e os
+contentores, e mostrar um ficheiro ou uma pasta no seu outro painel.
 
-O seletor distingue os hosts de saída dos clientes de entrada; o mesmo Borg pode servir ambas as funções. O menu Remoto também oferece **Host montado em espelho** e **Partilhe isto Borg como anfitrião…**. O selector mostra a versão Borg de cada host; selecionar uma sessão mostra o sistema operativo/arquitetura, o serviço de fundo ou o modo de terminal, a latência de pedido e o endereço de retransmissão. Os hosts são verificados simultaneamente, pelo que um host indisponível não oculta os resultados de outros. Um host que não consegue indicar a sua versão mostra **versão indisponível**; a versão do relé não é a versão do host. Mantenha o Borg atualizado em ambos os computadores: um host sem uma funcionalidade remota mostra uma mensagem de atualização.
+Tudo o que altera a máquina fica à sua espera numa caixa de diálogo que mostra a alteração
+completa: um comando e o sítio onde vai ser executado, um ficheiro novo ou uma edição sob a forma
+de diff. Percorra as alterações longas com as setas, PgUp e PgDn ou a roda do rato, e prima F3
+para ver a caixa de diálogo em ecrã inteiro. A opção Não mantém-se selecionada até escolher Sim, e uma edição é
+recusada se o ficheiro tiver mudado enquanto decidia.
+Para um computador emparelhado, `approval_mode` pede-lhe confirmação uma vez antes de ativar
+Aprovar tudo nessa sessão. Enquanto estiver ativo, fica visível um distintivo; clique nele ou prima
+Ctrl+Alt+A para o desativar de imediato. Desativa-se também quando essa ligação emparelhada fecha.
+As aprovações de emparelhamento são independentes.
 
-As pastas remotas chegam por partes, com um indicador de carregamento e uma contagem das entradas recebidas; a navegação cancela o pedido. `borg mirror MACHINE:SESSION` mostra o ecrã ao vivo da sessão remota no seu terminal local; Alt+Shift+M abre o mesmo espelho de um Borg local com um painel remoto. **Ctrl-G** sai do espelho e regressa aos painéis locais: mantenha premido Control e prima G. Também pode clicar na linha inferior do banner. O espelho mantém o seu estado de controlo visível na linha acima; Ctrl-] também sai. `--take` assume explicitamente o controlo de outro visualizador. Um normal `borg` ou `borg --session NAME` pode ser espelhado enquanto está a ser executado; não é necessário nenhum serviço em segundo plano. O seu terminal local permanece visível e a entrada local do teclado ou do rato recupera o controlo do espelho. O espelho segue o layout e os clipes do terminal host para caber numa janela mais pequena do cliente; ampliar o cliente revela o resto. O host de segundo plano opcional mantém as sessões ativas após o fecho do terminal original e permite ao cliente controlador redimensionar o seu PTY. Se outro terminal controlar a sessão remota, o espelho abre no modo de visualização apenas; as suas chaves não alteram a sessão remota. Pressione **Ctrl-T** ou clique na linha de estado para assumir o controlo, desligar o outro terminal ou utilizar `borg mirror MACHINE:SESSION --take` para assumir o controlo ao iniciá-lo. Depois de assumir o controlo, a primeira tecla ativa um ecrã remoto adormecido; as teclas subsequentes e a entrada do rato chegam até ele. Um visualizador que fique para trás recebe o ecrã atual em vez de fotogramas de animação antigos. Escrever `exit` no shell principal do Borg (Bash, Zsh ou Fish) pede confirmação. **Não** é selecionado por defeito e mantém o mesmo shell, variáveis, diretório e espelhos em execução. Numa consola remota, `exit` pergunta se deve fechar o shell no host; depois de Sim, escolha novamente a sessão com Alt-H para abrir outro.
+Os comandos são escritos numa shell que pode acompanhar e ficam fora do respetivo histórico. Os
+comandos para esta máquina vão para a consola do próprio borg, que é mostrada enquanto correm para
+poder responder a um pedido como o do sudo; os comandos para um contentor vão para a shell desse
+contentor na vista Docker. A shell mantém a pasta e as variáveis entre comandos.
 
-Para ligar, prima F1 e depois C (ou F9 → Remoto → Partilhar isto Borg como host…). Borg mostra dois comandos para colar num terminal do seu computador: um inicia o Claude Code já ligado a este borg, o outro mantém a ligação em Claude Code para cada sessão. Tab escolhe um, Enter copia-o para a área de transferência do seu computador através do terminal, que funciona via SSH em iTerm2, Ghostty, kitty, WezTerm e Alacritty (em tmux, com `set -g set-clipboard on`). Onde o terminal não aceita, como em muitos terminais de browser, F3 mostra o comando sozinho como texto simples, com o rato livre para o seleccionar; qualquer tecla regressa a borg. Por SSH, borg preenche o endereço pelo qual entrou; se o seu computador aceder ao servidor por outro nome, como um alias SSH ou através de um host de salto, introduza esse nome. O SSH deve iniciar sessão sem pedido de palavra-passe: uma chave ou um agente SSH. `borg mcp setup prod` imprime o mesmo para o Claude Code e Claude Desktop na linha de comandos.
+O agente também pode escrever texto para o utilizador rever: um comando no prompt, ou um script
+no vim ou no nano abertos na consola. Nada é executado: Enter nunca é premido, e o texto com várias
+linhas entra como colagem, que as shells e os editores inserem sem executar.
 
-Ligado, o agente vê o que vê: o próprio ecrã como texto, quer esteja nos painéis ou na consola, ambos os painéis, os ficheiros destacados e marcados, onde é executada a linha de comandos e o que aí é digitado. Ela nomeia os lugares como localizações: um caminho absoluto ou `~/…` na máquina borg continua, `docker://web/etc/nginx` dentro de um contentor ou um caminho relativo ao painel ativo. Sem perguntar, lê pastas, ficheiros (por intervalos de linhas ou linhas que contêm algum texto), os processos mais ocupados e os contentores, e mostra um ficheiro ou pasta no seu outro painel.
+O agente pode ainda pesquisar a memória de um processo da mesma forma que a pesquisa de memória,
+à procura de cadeias de caracteres, indicadores, texto ou bytes. A memória pode conter
+palavras-passe, chaves e mensagens privadas, e tudo o que a pesquisa encontrar vai para o agente;
+por isso, a primeira pesquisa em cada processo aguarda a sua aprovação numa caixa de diálogo que
+indica o processo, o programa e a pesquisa. Depois de aprovar, o agente pode voltar a pesquisar
+esse processo até o borg terminar. Pode pedir para ler como administrador, o que abre o pedido de
+palavra-passe do próprio sistema.
 
-Tudo o que altere a máquina espera por si numa caixa de diálogo que mostra tudo: um comando e onde é executado, um novo ficheiro ou uma edição como comparação. Os longos rolam com as teclas de seta, PgUp e PgDn ou com a roda do rato, e F3 mostra a caixa de diálogo em ecrã inteiro. Não é selecionado até escolher Sim; uma edição será recusada se o ficheiro for alterado enquanto estava a decidir. Para um computador emparelhado, `approval_mode` pergunta uma vez antes de ativar Aprovar tudo para essa sessão. O seu emblema permanece visível; clique no emblema ou prima Ctrl+Alt+A para o desligar imediatamente. Também é desligado quando a ligação emparelhada é fechada. As aprovações de emparelhamento permanecem separadas. Os comandos são digitados num shell que assiste e mantidos fora do seu histórico: comandos nesta máquina na própria consola do borg, que mostra enquanto são executados, para que possa responder a um prompt como o do sudo; comandos num contentor na shell desse contentor na vista Docker. O shell mantém a sua pasta e as variáveis ​​entre comandos.
+Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele
+para ver um registo do que o agente fez: o que viu, leu, mostrou e escreveu, e todos os comandos e
+alterações, aprovados ou recusados. O Borg guarda o registo apenas em memória, até terminar; para
+não guardar registo nenhum, desative-o em Opções → Plugins.
 
-O agente também pode digitar texto para que possa rever: um comando no prompt ou um script no vim ou nano aberto na consola. Nada é executado: não é premido qualquer Enter e o texto com várias linhas entra como uma pasta, que as shells e os editores inserem sem executar.
+### Borg cloud
 
-O agente também pode pesquisar a memória de um processo tal como a pesquisa de memória faz: cadeias, indicadores, texto ou bytes. A memória pode conter palavras-passe, chaves e mensagens privadas, e o que a pesquisa encontra vai para o agente, por isso a primeira pesquisa de cada processo aguarda por si numa caixa de diálogo que indica o processo, o seu programa e a pesquisa. Aprovar permite ao agente pesquisar esse processo novamente até o borg terminar. Pode pedir para ler como administrador, o que abre o pedido de palavra-passe do próprio sistema.
+O borg cloud permite que o Claude chegue a um borg para o qual não tem caminho SSH: um servidor
+que abre num terminal de browser, um contentor ou uma máquina atrás de NAT. Ambos os lados se
+ligam a um relay, e o relay junta-os.
 
-### Borg nuvem
+1. No borg do servidor, prima F1 e depois C. A primeira opção é `borg pair` com uma ligação; Enter
+   copia-a. A ligação funciona uma única vez, durante dez minutos. Por baixo fica o relay: para usar
+   outro relay, cole aí o respetivo endereço e prima Enter para o guardar e obter uma ligação
+   através dele.
+2. Execute o comando num terminal do seu computador, onde o borg também esteja instalado. É
+   apresentado um código de emparelhamento: seis emojis, cada um com o seu nome, como
+   `🐱 Cat · 🦁 Lion · 🐎 Horse`.
+3. O borg do servidor pergunta se quer emparelhar, mostrando o nome do seu computador e o código.
+   Escolha Sim se os códigos coincidirem. Em seguida, `borg pair` propõe acrescentar o servidor ao
+   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`.
 
-Borg cloud permite que Claude alcance um borg para o qual não existe uma rota SSH: um servidor que abre num terminal de browser, um contentor, uma máquina atrás de NAT. Ambos os lados ligam-se a um relé e o relé une-os.
+O código deriva do handshake cifrado que os dois borgs acabaram de concluir, pelo que só é igual
+nos dois ecrãs se for o seu computador a comunicar com o servidor. Alguém que tivesse obtido a
+ligação e a usasse primeiro mostraria ao servidor um código diferente, e não consegue escolher um
+que coincida com o seu. Se o terminal desenhar os emojis mais estreitos do que o borg espera, o
+borg mostra apenas os nomes; nesse caso, compare os nomes.
 
-1. Em borg no servidor, prima F1 e depois C. A primeira opção é `borg pair` com um link; Enter cópia. O link funciona uma vez, durante dez minutos. Abaixo dele está o relé: cole lá o endereço de outro relé e pressione Enter para o guardar e obter um link através dele.
-2. Execute-o num terminal do seu computador, onde também está instalado borg. Imprime um código de emparelhamento: seis emojis, cada um com o seu nome, como `🐱 Cat · 🦁 Lion · 🐎 Horse`.
-3. Borg no servidor pergunta se pretende emparelhar, mostrando o nome do computador e o código. Escolha Sim se os códigos corresponderem. `borg pair` oferece-se então para adicionar o servidor ao código Claude, como    `claude mcp add borg-NAME -- borg mcp remote NAME`.
+A partir daí, o Claude pode chegar a esse borg sempre que estiver a correr nessa máquina.
+`borg pair` sozinho lista os servidores emparelhados, e `borg pair --forget NAME` esquece um
+deles; no servidor, F8 na caixa de diálogo Acesso remoto esquece todos os computadores
+emparelhados. Através do borg cloud, o Claude obtém também
+`download` e `upload`, que copiam ficheiros entre o servidor e o seu computador;
+`borg get NAME:PATH [TO]` e `borg put FROM NAME:PATH` fazem o mesmo a partir do terminal. Os
+envios aguardam a sua aprovação no borg, e cada aprovação indica o computador que fez o pedido.
 
-O código vem do aperto de mão encriptado que os dois borgs acabaram de finalizar, pelo que é o mesmo nos dois ecrãs apenas quando é o seu computador a falar com o servidor. Alguém que obtivesse o link e o utilizasse primeiro mostraria ao servidor um código diferente e não poderia escolher um que correspondesse ao seu. Onde um terminal desenha emojis mais estreitos do que borg os apresenta, borg mostra apenas os nomes; compare os nomes.
+A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave privada, que só o utilizador pode
+ler, na sua pasta de estado. O emparelhamento troca as chaves públicas, e cada ligação abre com um
+handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não consegue
+responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem pedir
+autorização, tal como os locais; ative "pergunte antes que outro computador leia" em Opções →
+Plugins para que também essas leituras aguardem aprovação. O Borg não mantém nenhuma ligação ao
+relay a menos que esteja emparelhado ou a mostrar uma ligação de emparelhamento, e não mantém
+nenhuma quando o borg cloud está desativado em Opções → Plugins.
 
-A partir daí, o Claude alcança esse borg sempre que lá estiver aberto. `borg pair` sozinho lista os servidores emparelhados e `borg pair --forget NAME` esquece um; no servidor, F8 no diálogo Acesso remoto esquece todos os computadores emparelhados. Através da borg nuvem Claude recebe também `download` e `upload`, que copia ficheiros entre o servidor e o seu computador; `borg get NAME:PATH [TO]` e `borg put FROM NAME:PATH` faça o mesmo no seu terminal. Os uploads aguardam a sua aprovação em borg. Cada aprovação nomeia o computador que solicitou.
+O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador
+chega ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de
+relay, volte a emparelhar o computador. Todos os borgs de uma máquina partilham uma chave, pelo
+que só o primeiro a ser aberto se liga ao relay; os outros indicam qual deles tem o borg cloud.
 
-A ligação é encriptada de ponta a ponta. Cada borg guarda uma chave privada, legível apenas por si, na sua pasta de estado. O emparelhamento troca as chaves públicas e cada ligação é aberta com um handshake Noise IK ligado a estas, pelo que o relé apenas reencaminha texto cifrado e não pode responder em nome de nenhum dos borg. As chamadas de outro computador podem ser lidas sem perguntar, como as locais; Opções → Plugins → "perguntar antes de outro computador ler" faz com que estas leituras também aguardem aprovação. Borg não mantém qualquer ligação com o relé, a menos que esteja emparelhado ou a mostrar uma ligação de emparelhamento, e nenhuma ligação quando borg a nuvem está desligada em Opções → Plugins.
+### Sessões com nome e serviço em segundo plano
 
-Borg guarda o relé na configuração, como `relay = "wss://relay.example.com"`. Um computador chega ao servidor através do relé através do qual foi emparelhado; depois de o servidor mudar de retransmissão, emparelhe novamente o computador. Os borgs numa máquina partilham uma chave, pelo que apenas o primeiro aberto se liga ao relé; os outros dizem qual deles tem nuvem borg.
+Com espaços de trabalho com nome, `borg sessions list` mostra os respetivos IDs e nomes,
+`borg sessions create NAME` acrescenta um e `borg --session NAME` abre-o. Através de MCP, o agente
+pode chamar `list_sessions`, `list_remote_sessions` e `use_session` para escolher a sessão com que
+essa ligação trabalha. Uma única chamada de ferramenta pode também passar um ID em `session` para
+visar outra sessão apenas dessa vez. A sessão escolhida aplica-se apenas a essa ligação MCP.
 
-Enquanto um agente está ligado, **◈ Remoto** encontra-se no início da linha de atalho; clique nele para ver o registo do que fez: o que viu, leu, mostrou e digitou, e cada comando e alteração, aprovado ou recusado. Borg mantém o log apenas na memória, até sair; para não manter qualquer registo, desative-o em Opções → Plugins.
+`borg service install`, `enable` e `start` configuram o serviço opcional em segundo plano. Este
+mantém a ligação de emparelhamento da máquina e mantém as sessões com nome em execução depois de
+os respetivos terminais fecharem. `borg service attach NAME` volta a ligar-se a uma delas, e
+Ctrl-] desliga-se de novo sem terminar a shell. Use `borg service stop`, `disable` ou `uninstall`
+para parar ou remover o serviço.
+Num contentor sem systemd, configure o supervisor de processos do contentor para executar
+`borg service run`; os comandos `install` e `enable` precisam de um anfitrião Linux com systemd.
 
-### Executar um relé
+### Painéis remotos
 
-`borg-relay` é o ponto de encontro dos borgs. Num servidor Linux cujo domínio aponta para ele, com a porta 443 livre, um comando instala-o como um serviço com um certificado TLS da Let's Encrypt:
+Depois do emparelhamento, `borg --remote MACHINE:SESSION` abre os ficheiros dessa sessão no painel
+esquerdo. Enter ou F3 pré-visualiza um ficheiro remoto transferindo uma cópia local temporária.
+**F5** copia ficheiros e pastas marcados entre painéis locais e remotos, ou entre dois anfitriões
+emparelhados, e a caixa de diálogo de destino indica que cliente ou anfitrião está de cada lado.
+As cópias correm como tarefas em segundo plano, com progresso em bytes, pausa e cancelamento, e a
+opção de substituir, ignorar ou manter ambos. As pastas são copiadas com as subpastas vazias e as
+ligações simbólicas, e os ficheiros normais mantêm a permissão de execução e a data de
+modificação. Um ficheiro só aparece no destino depois de todo o seu conteúdo ter chegado. F6
+(mover) e F8 (eliminar) não estão disponíveis em painéis remotos.
+
+O painel direito fica no seu computador. Com **Opções → Plugins → Seguir** ativo, a linha de
+comando e **Ctrl-O** usam uma shell interativa no anfitrião remoto. O terminal é desenhado
+localmente, enquanto as teclas, as colagens, Ctrl-C e os programas de terminal correm no
+anfitrião remoto. Cada sessão remota mantém a sua shell e a linha de comando por terminar enquanto
+muda de painel, e selecionar um painel do cliente traz de volta a shell local.
+
+Os programas de ecrã inteiro, e os que leem diretamente o teclado, como `top`, recebem todas as
+teclas enquanto correm, incluindo Ctrl-O, e redimensionar o terminal redimensiona o PTY remoto.
+Saia desses programas com as respetivas teclas (`q` no `top`). Se o tiver iniciado a partir da
+linha de comando do painel, o Borg volta depois aos painéis; se o tiver iniciado na consola
+remota, a consola fica aberta. Os painéis e a shell do próprio Borg remoto são independentes desta
+consola. Para transferir ficheiros a partir da linha de comando, use
+`borg get MACHINE/SESSION:PATH [TO]` e `borg put FROM MACHINE/SESSION:PATH`.
+
+Escrever `exit` na shell principal Bash, Zsh ou Fish do Borg pede confirmação. **Não** está
+selecionado por omissão e mantém em execução a mesma shell, as variáveis, a pasta e os espelhos.
+Numa consola remota,
+`exit` pergunta se quer fechar a shell no anfitrião; depois de Sim, escolha de novo a sessão com
+Alt-H para obter uma nova.
+
+As pastas remotas carregam por partes, com um indicador de atividade e a contagem das entradas
+recebidas até ao momento; mudar para outra pasta cancela o pedido.
+
+### Anfitriões remotos
+
+No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos ou escolha
+**F9 → Remoto → Procure hosts e sessões…** para ver as máquinas emparelhadas e as respetivas
+sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a partir do qual abriu o
+seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
+**R** para atualizar a lista.
+
+**Tab** alterna entre **Anfitriões** (computadores a que este Borg chega) e **Clientes**
+(computadores que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg,
+as impressões digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem
+cada um. Um computador aparece uma só vez, mesmo que um espelho use várias ligações. O estado é
+atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são mantidas pelo
+serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente autorizado não
+passa automaticamente a ser um anfitrião cujos ficheiros este Borg possa explorar. Quando quem
+detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a ser
+listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser anfitrião e cliente ao
+mesmo tempo. O menu Remoto oferece também **Host montado em espelho** e **Partilhe isto Borg como
+anfitrião…**.
+
+O seletor mostra a versão do Borg de cada anfitrião. Selecionar uma sessão mostra o sistema
+operativo e a arquitetura, se corre como serviço em segundo plano ou num terminal, a latência dos
+pedidos e o endereço do relay. Os anfitriões são verificados em paralelo, pelo que um anfitrião
+indisponível não atrasa os outros. Um anfitrião que não consiga indicar a versão mostra **versão
+indisponível**; a versão do relay não é a do anfitrião. Mantenha o Borg atualizado nos dois
+computadores: um anfitrião a que falte uma funcionalidade remota mostra uma mensagem a pedir que o
+atualize.
+
+Enquanto um espelho se liga, o seletor mostra um estado animado, e **Esc** cancela de imediato.
+Cada passo da ligação tem 10 segundos, e a tentativa completa tem 30. Se a tentativa falhar, o
+seletor fica aberto e indica o passo que falhou; **M** volta a tentar a sessão selecionada.
+
+No seletor, **F2** muda o nome do anfitrião selecionado para todas as suas sessões, e **Shift-F2**
+muda o nome da sessão selecionada. Estes nomes ficam guardados neste cliente e aparecem no seletor,
+nos títulos dos painéis e no rodapé da consola. Deixe um nome vazio para voltar ao original. Os
+detalhes continuam a mostrar os nomes originais do anfitrião e da sessão. Os nomes ficam
+associados à chave do anfitrião emparelhado e ao ID da sessão; os destinos dos comandos e os nomes
+no anfitrião remoto não mudam.
+
+**F8** num anfitrião indisponível esquece o respetivo emparelhamento neste cliente, e **Shift-F8**
+esquece o anfitrião selecionado mesmo que esteja online. A confirmação tem Não por omissão.
+Esquecer um anfitrião fecha os painéis e as consolas deste cliente ligados a ele; as sessões e os
+ficheiros do anfitrião mantêm-se, tal como a identidade deste cliente e os seus outros
+emparelhamentos. Volte a emparelhar para restabelecer a ligação.
+
+**F8** ou **Delete** numa sessão de um anfitrião remove-a, depois de uma confirmação que tem
+**Não** por omissão. Isto fecha a sessão e as respetivas consolas remotas e elimina os painéis do
+Borg e o histórico de terminal guardados; os ficheiros e as pastas no anfitrião mantêm-se. A
+sessão Default não pode ser removida. Uma sessão autónoma que esteja a alojar a ligação não se
+pode remover a si própria; feche-a primeiro no anfitrião e execute o Borg noutra sessão. Se a
+remoção falhar, a sessão continua na lista para poder tentar de novo. As sessões geridas pelo
+serviço são paradas antes de o seu estado guardado ser removido, e o serviço não as volta a criar.
+
+### Espelhar uma sessão
+
+`borg mirror MACHINE:SESSION` mostra o ecrã em direto da sessão remota no seu terminal local;
+Alt+Shift+M abre o mesmo espelho a partir de um Borg local com um painel remoto. **Ctrl-G** (mantenha
+Control premido e prima G) sai do espelho e volta aos painéis locais, tal como um clique na faixa
+na parte inferior. A linha acima dela indica quem tem o controlo; Ctrl-] também sai.
+
+Um `borg` normal ou `borg --session NAME` pode ser espelhado enquanto corre, sem o serviço em
+segundo plano. O terminal original continua visível, e qualquer entrada de teclado ou rato nele
+retoma o controlo ao espelho. O espelho segue o esquema do terminal do anfitrião e é cortado para
+caber numa janela mais pequena; aumentar a janela mostra o resto. O serviço opcional em segundo
+plano mantém as sessões ativas depois de o terminal original fechar e permite que o cliente que
+tem o controlo redimensione o respetivo PTY.
+
+Se outro terminal tiver o controlo da sessão remota, o espelho abre em modo só de visualização e
+as suas teclas não chegam à sessão. Prima **Ctrl-T** ou clique na linha de estado para assumir o
+controlo e desligar o outro terminal, ou comece com `borg mirror MACHINE:SESSION --take`; `--take`
+assume sempre o controlo retirando-o a outro visualizador. Depois de ter o controlo, a primeira
+tecla acorda um ecrã remoto em repouso, e as teclas e a entrada de rato seguintes chegam-lhe. Um
+visualizador que fique para trás recebe o ecrã atual em vez de fotogramas de animação antigos.
+
+### Executar um relay
+
+`borg-relay` é o relay através do qual os borgs se encontram. Num servidor Linux com um domínio
+apontado para ele e a porta 443 livre, um só comando instala-o como serviço, com um certificado
+TLS da Let's Encrypt:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts/install-relay.sh | sudo sh -s -- relay.example.com you@example.com
 ```
 
-Execute-o novamente para atualizar.
+Execute o mesmo comando para o atualizar.
 
-No Dokploy, Coolify ou outro host Docker cujo proxy adicione TLS, execute a imagem `ghcr.io/0xcd21h/borg-relay:latest` e atribua-lhe um domínio na porta 8080: no Dokploy, uma aplicação dessa imagem Docker com um domínio na porta do contentor 8080 e HTTPS ativado; no Coolify, uma funcionalidade dessa imagem Docker com a porta 8080 exposta e um domínio. Qualquer um também leva [embalagem/relay/docker-compose.yml](../../../packaging/relay/docker-compose.yml) como um serviço de composição. A imagem corre `borg-relay --behind-proxy`: o proxy serve HTTPS e passa WebSockets, e a retransmissão conta os seus limites pelo endereço do cliente no qual o proxy reporta `X-Forwarded-For`. É executado como um utilizador sem privilégios e possui uma verificação de integridade (`GET /health`).
+No Dokploy, no Coolify ou noutro anfitrião Docker cujo proxy trate do TLS, execute a imagem
+`ghcr.io/0xcd21h/borg-relay:latest` e atribua-lhe um domínio na porta 8080. No Dokploy, crie uma
+aplicação a partir dessa imagem Docker com um domínio na porta 8080 do contentor e HTTPS ativo; no
+Coolify, crie um recurso a partir dessa imagem Docker com a porta 8080 exposta e um domínio.
+Ambos aceitam também [packaging/relay/docker-compose.yml](../../../packaging/relay/docker-compose.yml)
+como serviço Compose. A imagem executa `borg-relay --behind-proxy`: o proxy serve HTTPS e deixa
+passar os WebSockets, e o relay aplica os seus limites por endereço de cliente, tal como o proxy o
+indica em `X-Forwarded-For`. Corre como utilizador sem privilégios e tem uma verificação de estado
+(`GET /health`).
 
-Num host Docker sem este proxy, a mesma imagem serve o próprio TLS:
+Num anfitrião Docker sem esse proxy, a mesma imagem serve TLS diretamente:
 
 ```sh
 docker run -d --restart unless-stopped -p 443:443 -v borg-relay:/data ghcr.io/0xcd21h/borg-relay --domain relay.example.com --cache /data
 ```
 
-Atrás de outro proxy que adicione TLS, execute `borg-relay --behind-proxy --listen 127.0.0.1:8080`; utilize-o apenas atrás de um proxy, pois o relé confia no endereço do cliente que o proxy reporta. O relé mantém limites por endereço, em servidores e sessões, em tamanho de trama, largura de banda, bytes por sessão, tempo de inatividade e duração da sessão. Não armazena nada além do seu certificado.
+Atrás de outro proxy que trate do TLS, execute `borg-relay --behind-proxy --listen 127.0.0.1:8080`.
+Execute-o desta forma apenas atrás de um proxy, porque o relay confia no endereço de cliente que o
+proxy indica. O relay impõe limites por endereço para servidores e sessões, tamanho de frame,
+largura de banda, bytes por sessão, tempo de inatividade e duração da sessão. Não guarda nada além
+do seu certificado.
 
-Os registos de retransmissão contam apenas: uma vez por minuto, quando mudam, uma linha como
+O relay regista apenas contagens: uma vez por minuto, se algo tiver mudado, escreve uma linha como
 
 ```text
 stats: connections=3 servers=2 sessions=1 joined=14 carried=3.2MiB limited=0
 ```
 
-com as ligações que mantém, os servidores registados e as sessões abertas, e desde que foi iniciado, as sessões que se encontravam, os bytes que carregavam e as ligações e sessões com limite recusado ou terminado. Para depuração, `--log`ou a variável de ambiente `BORG_RELAY_LOG=1` para a imagem, regista também o registo de cada servidor pelo início da sua chave, cada sessão com os bytes que carregava e cada limite atingido com o endereço do cliente.
+Esta linha mostra as ligações que mantém, os servidores registados e as sessões abertas e, desde
+que arrancou, as sessões estabelecidas, os bytes que transportaram e as ligações e sessões que um
+limite recusou ou terminou. Para depuração, `--log`, ou a variável de ambiente `BORG_RELAY_LOG=1`
+no caso da imagem, regista também a inscrição de cada servidor, identificado pelo início da sua chave, cada sessão
+com os bytes que transportou e cada limite atingido com o endereço do cliente.
 
-## Encontrar, tarefas e visualizadores
+## Localizar, tarefas e visualizadores
 
-Ctrl-S abre a pesquisa rápida. Introduza um nome ou glob como `*.rs`; Para baixo e para cima movem-se entre correspondências, Inserir marca uma correspondência, Ctrl-A marca todas as correspondências e Enter ou Esc fecha a pesquisa. A correspondência não distingue maiúsculas de minúsculas, a menos que a consulta contenha maiúsculas.
+Ctrl-S abre a localização rápida. Escreva um nome ou um glob como `*.rs`; Down e Up passam de uma
+correspondência para outra, Insert marca uma correspondência, Ctrl-A marca todas e Enter ou Esc
+fecham a pesquisa. A correspondência ignora maiúsculas e minúsculas, a menos que a pesquisa
+contenha maiúsculas.
 
-F5, F6 e F8 iniciam a cópia, movimentação e eliminação de trabalhos. Alt-J abre a lista de trabalhos para pausar ou cancelar.
+### Copiar, mover e eliminar
 
-A caixa de diálogo Copiar tem uma opção opcional **Otimize a cópia para discos rígidos** caixa de seleção. Utilize Tab para focar e Espaço para alternar ou clique nele. Começa desmarcado para cada cópia. Este modo lê pequenos ficheiros na memória em lotes e depois escreve cada lote, o que pode reduzir a pesquisa de origem/destino ao copiar dentro de um HDD. Os lotes armazenam até 64 MiB de dados de ficheiro ou 4.096 ficheiros; ficheiros maiores que 1 MiB são transmitidos normalmente. O desempenho depende da unidade, do sistema de ficheiros e da cache do sistema operativo; pode ser mais lento entre unidades separadas. Para conflitos de nomes: `o` substitui, `s` salta, `k` mantém ambos, `a` substitui tudo, `n` salta tudo e Esc cancela. As cópias são gravadas em ficheiros temporários e renomeadas após a conclusão.
+F5, F6 e F8 iniciam tarefas de cópia, movimentação e eliminação. Alt-J abre a lista de tarefas,
+onde as pode pausar ou cancelar.
 
-F3 abre o visualizador. Em ficheiros de texto, setas e scroll PgUp/PgDn, `w` altera o empacotamento e Esc ou `q` fecha. Nas imagens, Esquerda/Direita ou `p`/`n` selecione a imagem anterior ou seguinte. Os protocolos de imagem são utilizados ​​quando disponíveis; outros terminais apresentam blocos coloridos.
+A caixa de diálogo Copiar tem uma caixa de verificação **Otimize a cópia para discos rígidos**.
+Prima Tab para lá chegar e Space para a assinalar ou desassinalar, ou clique nela. Fica por
+assinalar em cada nova cópia. Neste modo, o Borg lê ficheiros pequenos para memória em lotes e
+depois escreve cada lote, o que pode reduzir as deslocações da cabeça de leitura ao copiar dentro
+do mesmo disco rígido. Um lote contém até 64 MiB de dados ou 4096 ficheiros; os ficheiros com
+mais de 1 MiB são copiados normalmente. O ganho depende do disco, do sistema de ficheiros e da
+cache do sistema operativo, e pode ser mais lento ao copiar entre discos diferentes.
+Quando já existe um ficheiro com o mesmo nome: `o` substitui, `s` ignora, `k` mantém ambos, `a`
+substitui todos,
+`n` ignora todos e Esc cancela. As cópias são escritas em ficheiros temporários e mudam de nome
+quando estão completas.
 
-Ctrl-Q mostra uma visualização rápida no outro painel. Tab foca; setas, PgUp/PgDn, Home/End e a roda do rato fazem scroll no documento. Tab ou Esc regressa à lista de ficheiros. Ctrl-L mostra informações do ficheiro. F3 expande uma visualização de texto no visualizador; fechá-lo regressa à visualização com a sua posição, quebra automática e modo de origem preservados. Ambos utilizam o mesmo leitor de ficheiros limitado, pelo que a abertura de um ficheiro de texto grande é lida junto à primeira página, em vez de carregar o ficheiro inteiro.
+### Visualizador e pré-visualização
 
-Ambos os visualizadores de texto destacam linguagens de programação comuns, marcação e ficheiros de configuração, incluindo Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL, HTML/CSS, JSON, YAML, TOML, scripts de shell e Dockerfiles. O Markdown abre formatado por defeito. Pressione `s` ou F4 em qualquer visualizador para alternar a visualização de origem. São suportados títulos, ênfases, listas, tarefas, links, tabelas e blocos de código protegidos. Os ficheiros Markdown maiores que 2 MiB são abertos como origem para manter a memória limitada.
+F3 abre o visualizador. Em ficheiros de texto, as setas e PgUp/PgDn percorrem o texto, `w` ativa
+ou desativa a moldagem de linhas e Esc ou `q` fecham-no. Em imagens, Left/Right ou `p`/`n` mostram
+a imagem anterior ou a seguinte. O Borg usa o protocolo de imagens do terminal quando existe; nos
+outros terminais, a imagem aparece como blocos coloridos.
 
-F4 abre o ficheiro selecionado no editor do Borg, e Shift-F4 em `$VISUAL` ou `$EDITOR`. O editor mantém os finais de linha e a indentação do ficheiro, destaca o código como os visualizadores e numera as linhas. Shift com as setas seleciona; Ctrl-C, Ctrl-X e Ctrl-V copiam, cortam e colam através da área de transferência do Borg, e o que se cola a partir do terminal entra tal como está. Ctrl-Z e Ctrl-Y anulam e refazem, Tab e Shift-Tab aumentam e reduzem a indentação. F2 ou Ctrl-S guarda através de um ficheiro temporário, para que o ficheiro nunca fique meio escrito. Os ficheiros que não são texto UTF-8, ou maiores do que 32 MiB, abrem no visualizador.
+Ctrl-Q mostra uma pré-visualização no outro painel. Tab entra nela, onde as setas, PgUp/PgDn,
+Home/End e a roda do rato percorrem o conteúdo; Tab ou Esc voltam à lista de ficheiros. Ctrl-L
+mostra informações sobre o ficheiro. F3 abre uma pré-visualização de texto no visualizador
+completo, e fechar o visualizador regressa à pré-visualização com a posição, a moldagem e o modo
+de código-fonte preservados. Ambos leem os ficheiros da mesma forma limitada, pelo que abrir um
+ficheiro de texto grande só lê mais ou menos a primeira página, em vez de carregar o ficheiro
+inteiro.
 
-O editor pergunta em diálogos sobre o texto: Tab passa pelos seus campos e botões, Enter aceita o escolhido, Esc cancela e um clique funciona em qualquer um deles. Ctrl-F ou F7 procura; depois F3 procura de novo e Shift-F3 procura para trás. Ctrl-R ou F4 substitui: Enter substitui a correspondência e passa à seguinte, **Saltar** deixa-a, e Alt-A ou **Todas** substitui todas as correspondências num só passo que Ctrl-Z anula. Uma procura em minúsculas encontra o texto em maiúsculas ou minúsculas. Ctrl-G vai para uma linha. Esc fecha o editor, perguntando antes se deve guardar ou descartar as alterações por guardar, e se o ficheiro mudou no disco desde que foi aberto, pergunta se deve substituí-lo ou recarregá-lo. Um clique coloca o cursor, arrastar ou Shift-clique seleciona, um duplo clique seleciona uma palavra e a roda desloca o texto; as teclas da linha de estado também aceitam cliques.
+Os dois visualizadores de texto realçam a sintaxe de linguagens de programação, formatos de
+marcação e ficheiros de configuração comuns, incluindo Rust, Python, JavaScript, TypeScript/TSX,
+Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL, HTML/CSS, JSON, YAML, TOML, scripts de shell e
+Dockerfiles. O Markdown abre formatado por omissão;
+prima `s` ou F4 em qualquer dos visualizadores para passar ao código-fonte. São suportados
+títulos, ênfase, listas, listas de tarefas, ligações, tabelas e blocos de código delimitados. Os
+ficheiros Markdown com mais de 2 MiB abrem como código-fonte para poupar memória.
+
+### Editor
+
+F4 abre o ficheiro selecionado no editor do Borg, e Shift-F4 abre-o em `$VISUAL` ou `$EDITOR`. O
+editor mantém os finais de linha e a indentação do ficheiro, realça o código como os
+visualizadores e mostra os números de linha. Shift com as setas seleciona texto; Ctrl-C, Ctrl-X e
+Ctrl-V copiam, cortam e colam através da área de transferência do Borg, e o texto colado a partir
+do terminal entra exatamente como está. Ctrl-Z e Ctrl-Y anulam e refazem, e Tab e Shift-Tab
+aumentam e diminuem a indentação. F2 ou Ctrl-S guardam através de um ficheiro temporário, pelo que
+um ficheiro nunca fica escrito a meio. Os ficheiros que não são texto UTF-8, ou que têm mais de 32
+MiB, abrem antes no visualizador.
+
+O editor faz as suas perguntas em caixas de diálogo sobre o texto: Tab passa entre campos e
+botões, Enter confirma o selecionado, Esc cancela, e pode clicar em qualquer um deles. Ctrl-F ou
+F7 procuram texto, F3 encontra a correspondência seguinte e Shift-F3 a anterior. Ctrl-R ou F4
+substituem: Enter substitui a correspondência e passa à seguinte, **Saltar** deixa-a como está, e
+Alt-A ou **Todas** substitui todas as correspondências de uma só vez, que um único Ctrl-Z anula.
+Uma pesquisa em minúsculas ignora maiúsculas e minúsculas. Ctrl-G vai para uma linha. Esc fecha o
+editor e pergunta primeiro se quer guardar ou descartar as alterações por guardar; se o ficheiro
+tiver mudado no disco desde que o abriu, o Borg pergunta se o quer substituir ou recarregar. Um
+clique coloca o cursor, arrastar ou clicar com Shift seleciona, um duplo clique seleciona uma
+palavra e a roda percorre o texto; as teclas indicadas na linha de estado também podem ser
+clicadas.
 
 ## Configuração
 
-Altere o idioma da interface em **F9 → Opções → Idioma**. Escolha inglês, chinês simplificado, português de Portugal, espanhol ou russo e prima Enter para guardar. Esc cancela. A escolha fica em `config.toml`, como `language = "en"`, `"zh-CN"`, `"pt"`, `"es"` ou `"ru"`. `BORG_LANGUAGE` tem prioridade sobre a definição guardada. Sem nenhuma delas, o Borg consulta `LC_ALL`, `LC_MESSAGES` e `LANG`, usando inglês para idiomas não suportados. Os comandos, caminhos, nomes de ficheiros e atalhos mantêm-se. O menu de idiomas do site controla o guia de forma independente.
+Mude o idioma da interface em **F9 → Opções → Idioma**. Escolha inglês, chinês simplificado,
+português (Portugal), espanhol ou russo e prima Enter; Esc cancela. A escolha fica guardada em
+`config.toml` como `language = "en"`, `"zh-CN"`, `"pt"`, `"es"` ou `"ru"`.
+`BORG_LANGUAGE` sobrepõe-se à definição guardada. Se nenhum estiver definido, o Borg segue
+`LC_ALL`,
+`LC_MESSAGES` ou `LANG`, e usa inglês para os idiomas que não suporta. Os comandos, os caminhos,
+os nomes de ficheiros e os atalhos de teclado nunca são traduzidos. O menu de idioma deste site
+muda o idioma do guia de forma independente.
 
-As definições são guardadas em `~/.config/borg-commander/config.toml`, ou o diretório selecionado pelo `$XDG_CONFIG_HOME` ou `$BORG_CONFIG_DIR`. F9 → Opções → Definições abre caixas de seleção; Espaço ou clique alterna uma definição e guarda-a imediatamente. Esc fecha a janela.
+As definições ficam guardadas em `~/.config/borg-commander/config.toml`, ou na pasta indicada por
+`$XDG_CONFIG_HOME` ou `$BORG_CONFIG_DIR`. F9 → Opções → Definições mostra-as como caixas de
+verificação; Space ou um clique alterna uma definição e guarda-a de imediato. Esc fecha a janela.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -308,13 +837,24 @@ roots = ["~/Projects"]      # folders indexed for instant search
 refresh-minutes = 15        # rebuild an index once it is this old
 ```
 
-Num terminal local com cores verdadeiras, Borg abre com uma breve introdução do seu logótipo; qualquer tecla ou clique ignora. Sobre SSH e em terminais sem true color começa diretamente nos painéis.
+Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com
+efeito de falha (glitch); qualquer tecla ou clique a salta. Por SSH, e em terminais sem cor
+verdadeira, abre diretamente nos painéis.
 
-As pastas do painel, a posição do cursor, a divisão, o modo de listagem e a classificação são guardados em `~/.local/state/borg-commander`, ou o local selecionado pelo `$XDG_STATE_HOME` ou `$BORG_STATE_DIR`.
+As pastas dos painéis, as posições do cursor, a divisão, os modos de listagem e a ordenação ficam
+guardados em
+`~/.local/state/borg-commander`, ou na pasta indicada por `$XDG_STATE_HOME` ou `$BORG_STATE_DIR`.
 
-Enquanto é executado, o Borg mantém os scripts de integração da shell e os ficheiros copiados dos contentores em `$XDG_RUNTIME_DIR/borg-commander`, ou `borg-commander-<uid>` na pasta temporária. Só você o pode abrir; aquele que outra pessoa criou, ou que outros possam entrar, é preterido por um novo nome. É `TTL` O ficheiro começa com a hora até à qual está a ser utilizado: cada borg em execução avança essa hora um dia a cada hora, pelo que, depois de passado, a pasta pode ser removida.
+Enquanto corre, o Borg guarda os scripts de integração com a shell e os ficheiros copiados de
+contentores em
+`$XDG_RUNTIME_DIR/borg-commander`, ou em `borg-commander-<uid>` na pasta temporária. Só o
+utilizador pode abrir esta pasta; se já existir uma criada por outra pessoa, ou em que outros
+utilizadores possam entrar, o Borg ignora-a e usa outro nome. O ficheiro `TTL` começa com a hora
+até à qual a pasta está em uso: cada borg em execução adia essa hora um dia, de hora a hora, pelo
+que, depois de ela passar, a pasta pode ser eliminada.
 
-Temas personalizados entram `~/.config/borg-commander/themes/`. Um tema pode estender um tema integrado:
+Os temas personalizados ficam em `~/.config/borg-commander/themes/`. Um tema pode estender um dos
+temas incluídos:
 
 ```toml
 name = "Deep Space"
@@ -325,62 +865,207 @@ cursor = { fg = "#0b0b16", bg = "#00e5ff", bold = true }
 dir = { fg = "#b388ff", bold = true }
 ```
 
-Para construir, testar ou contribuir, consulte [Desenvolvimento](../../../DEVELOPMENT.md).
+Para compilar, testar ou contribuir, consulte [Desenvolvimento](../../../DEVELOPMENT.md).
 
 ## Uma pequena distração
 
-Abra Sobre com F1 e digite `2048` para jogar num modal. As teclas de seta, ou um clique em direção a um lado do tabuleiro, movem as peças; U desfaz o último movimento, R inicia um novo jogo e Esc fecha-o. Alcança 2048 e prime Enter para continuar a jogar. O tabuleiro e a melhor pontuação são guardados entre sessões.
-
+Abra Sobre com F1 e escreva `2048` para jogar numa janela. As setas, ou um clique na direção de um
+dos lados do tabuleiro, movem as peças; U desfaz a última jogada, R começa um jogo novo e Esc fecha
+a janela. Quando chegar a 2048, prima Enter para continuar a jogar. O tabuleiro e a sua melhor
+pontuação são guardados entre sessões.
 
 ## Atividade e memória
 
-**Alt-M** ou **Comando → Monitor de atividades** abre o monitor de processo. O plugin do sistema incluído está ativado por defeito e pode ser desativado em Opções → Plugins. A lista de processos ocupa o painel ativo, com a visão geral da memória do processo selecionado ao lado. **Enter** ou um duplo clique abre este processo numa janela no monitor: o seu mapa de memória de um lado e uma visualização dos bytes da região selecionada do outro. **Esc** fecha. **Tab** muda o foco. **Alt-W** ou o **[+]** o botão maximiza o painel em foco; **[=]** restabelece a divisão e **[-]** esconde o monitor. A amostragem é executada uma vez por segundo enquanto o monitor está aberto; fechá-lo interrompe a amostragem. As inspeções de memória retêm temporariamente a amostragem até que o resultado chegue.
+**Alt-M** ou **Comando → Monitor de atividade** abre o monitor de processos. Faz parte do plugin
+Sistema incluído, que está ativo por omissão e pode ser desativado em Opções → Plugins. A lista de
+processos ocupa o painel ativo, e o outro painel mostra um resumo da memória do processo
+selecionado. **Enter** ou um duplo clique abre esse processo numa janela sobre o monitor, com o
+mapa de memória de um lado e uma pré-visualização dos bytes da região selecionada do outro.
+**Esc** fecha-a e **Tab** alterna entre os dois lados. **Alt-W** ou o botão **[+]** maximiza o
+painel com o foco, **[=]** restaura a divisão e **[-]** oculta o monitor. O monitor recolhe
+amostras uma vez por segundo enquanto está aberto e para quando o fecha. A amostragem fica em
+pausa enquanto decorre uma inspeção de memória e é retomada quando chega o resultado.
 
-A lista mostra CPU, memória residente, crescimento de memória e taxas de leitura/escrita de disco. CPU 100% significa um núcleo ocupado. As páginas residentes partilhadas podem aparecer em mais do que um processo, pelo que os valores do processo RAM não devem ser adicionados como um total exclusivo do sistema. A primeira amostra CPU e a taxa de E/S ficam indisponíveis até que chegue uma segunda observação.
+A lista mostra CPU, memória residente, crescimento da memória e débitos de leitura e escrita em
+disco. CPU a 100% corresponde a um núcleo totalmente ocupado. As páginas residentes partilhadas
+entre processos contam para cada um deles, pelo que somar a RAM de todos os processos não dá o
+total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amostra.
 
-| Chave | Ação |
+| Tecla | Ação |
 | --- | --- |
-| Enter | Abra o mapa de memória do processo/focalize a visualização da região |
-| `/` | Filtrar por nome ou PID; ↑↓ ainda se move, Enter mantém o filtro, Esc limpa-o |
-| C/M/G/N/P | Ordenar por CPU / RAM / crescimento / nome / PID; repetir para reverter |
-| E/S | Ordenar por taxa de leitura/escrita |
-| T | Alternar árvore de processos |
-| Espaço | Pausar ou retomar a amostragem |
-| R | Atualizar a visualização atual |
-| Esc | Voltar; fechar da lista de processos |
+| Enter | Abrir o mapa de memória do processo / passar para a pré-visualização da região |
+| `/` | Filtrar por nome ou PID; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
+| C / M / G / N / P | Ordenar por CPU / RAM / crescimento / nome / PID; prima de novo para inverter |
+| I / O | Ordenar por débito de leitura / escrita |
+| T | Mostrar ou ocultar a árvore de processos |
+| Space | Pausar ou retomar a amostragem |
+| R | Atualizar a vista atual |
+| Esc | Voltar; na lista de processos, fechar o monitor |
 
-Clique nos títulos dos processos para classificar; clique duas vezes num processo para abrir o seu mapa de memória. A vista geral mostra a memória residente atual, o pico de memória observado, a alteração desde o início da monitorização, CPU, espaço de endereço virtual e um gráfico dos últimos 60 segundos de memória residente. Os totais de pegada, trocados, privados e partilhados aparecem assim que o mapa de memória é lido e a plataforma os reporta. **Enter** no painel de memória abre o seu mapa de memória. O mapa de memória é uma medição realizada mediante pedido. Atualize-o com R depois de o processo alterar os seus mapeamentos.
+Clique no cabeçalho de uma coluna para ordenar, e faça duplo clique num processo para abrir o seu
+mapa de memória. O resumo mostra a memória residente atual, o valor mais alto observado, a
+variação desde o início da monitorização, a CPU, o espaço de endereçamento virtual e um gráfico da
+memória residente nos últimos 60 segundos. Os totais de memória usada, em swap, privada e
+partilhada aparecem depois de o mapa de memória ser lido, se o sistema os indicar. **Enter** no
+painel de memória abre o mapa de memória. O mapa só é lido quando o pede; prima R para o voltar a
+ler depois de o processo alterar os seus mapeamentos.
+
+### Mapa de memória
 
 O mapa tem três colunas:
 
-- **Pegada** é a memória cobrada apenas para este processo: páginas que ele escreveu mais páginas trocadas ou comprimidas. É a figura a observar em busca de fugas e a macOS corresponde ao Activity Monitor *Memória* coluna.
-- **Residente** são páginas em RAM agora, incluindo páginas partilhadas com outros processos.
-- **Mapeado** é o espaço de endereço, incluindo reservas. Não é RAM.
+- **Memória usada** é a memória imputada apenas a este processo: as páginas que escreveu, mais as
+  páginas enviadas para swap ou comprimidas. É o valor a vigiar para detetar fugas de memória e,
+  no macOS, coincide com a coluna *Memória* do Monitor de Atividade.
+- **Residente** são as páginas que estão neste momento na RAM, incluindo as partilhadas com outros
+  processos.
+- **Mapeada** é espaço de endereçamento, incluindo reservas. Não é RAM.
 
-Um processo pode mapear gigabytes, principalmente bibliotecas de sistema partilhadas com todos os outros processos, enquanto o seu espaço ocupado é de alguns megabytes. As regiões começam agrupadas por finalidade: heap e alocações, thread stacks, código e dados do próprio programa, bibliotecas partilhadas, ficheiros mapeados, memória partilhada, sistema e outras alocações, bem como intervalos e guardas reservados. Os grupos e os seus membros estão ordenados por área ocupada, sendo as reservas em último lugar. As bibliotecas e os ficheiros mapeados listam uma linha por ficheiro; expanda um ficheiro para ver as suas regiões. Os nomes dos grupos são inferidos a partir dos rótulos do sistema operativo. A seleção de um grupo ou ficheiro explica-o e mostra a sua participação na área ocupada e os seus maiores membros. Enter ou Direita expande um grupo ou ficheiro; Esquerda recolhe-o ou aquele que rodeia a linha selecionada. G alterna entre listas agrupadas e em bruto.
+Um processo pode mapear gigabytes, sobretudo bibliotecas do sistema partilhadas com todos os
+outros processos, e ter uma memória usada de apenas alguns megabytes. Inicialmente, as regiões
+aparecem agrupadas por finalidade: heap e alocações, pilhas das threads, código e dados do próprio
+programa, bibliotecas partilhadas, ficheiros mapeados, memória partilhada, alocações do sistema e
+outras, e intervalos reservados e páginas de guarda. Os grupos e as regiões dentro deles são
+ordenados pela memória usada, com as reservas no fim. As bibliotecas e os ficheiros mapeados têm
+uma linha por ficheiro; expanda um ficheiro para ver as suas regiões. Os nomes dos grupos são
+deduzidos das etiquetas atribuídas pelo sistema operativo. Selecionar um grupo ou ficheiro
+explica o que é e mostra a sua parte da memória usada e os seus maiores membros. Enter ou Right
+expandem um grupo ou ficheiro; Left recolhe-o, ou recolhe o que contém a linha selecionada. G
+alterna entre a lista agrupada e a lista em bruto.
 
-**1 memória** e **2 Abra ficheiros** comute as guias de inspeção ou clique nos seus rótulos. A lista de ficheiros abertos inclui o descritor, o modo de acesso, o tipo e o caminho ou terminal; o outro painel mostra os detalhes completos, o tamanho do ficheiro e o deslocamento atual, quando disponível. Em macOS inclui também entradas como `cwd` (diretório atual) e `txt` (executável mapeado). R atualiza a lista. A troca de separadores mantém as posições da lista. As restrições de acesso oferecem uma nova tentativa explícita do administrador existente. Um ficheiro normal mostra também o que contém por baixo dos seus detalhes, tal como a vista rápida: **Tab** foca a pré-visualização para a percorrer e **F3** abre o ficheiro no visualizador. O Borg lê o ficheiro pelo seu caminho com as suas próprias permissões, não através do descritor do processo.
+### Ficheiros abertos
 
-A seleção de uma região legível captura automaticamente até 64 KiB dela no painel oposto. Quando o início da região contém apenas zeros, a captura continua a ler até à primeira página com dados, e a linha acima dos bytes indica em que ponto da região está a janela. Os movimentos rápidos são agrupados com um pequeno atraso; selecionar outra região limpa a pré-visualização anterior e cancela a leitura pendente. As regiões ilegíveis mostram uma mensagem sem tentar ler. Pressione **Tab** ou **Enter** para percorrer a pré-visualização. **Esc** aí foca a lista; **Esc** a partir do mapa volta à lista de processos, mantendo o cursor e o filtro.
+**1 Memória** e **2 Ficheiros abertos** alternam entre os separadores de inspeção; também pode
+clicar neles. A lista de ficheiros abertos mostra cada descritor, o modo de acesso, o tipo e o
+caminho ou o ponto de rede; o outro painel mostra os detalhes completos, o tamanho do ficheiro e o
+deslocamento atual, quando estão disponíveis. No macOS inclui também entradas como `cwd`
+(diretório atual) e `txt` (executável mapeado). R atualiza a lista. Cada separador mantém a sua
+posição na lista quando muda de separador. Quando o acesso é restrito, o Borg propõe tentar de
+novo como administrador. Num ficheiro normal, os detalhes mostram também uma pré-visualização do
+conteúdo, como a pré-visualização dos painéis: **Tab** entra na pré-visualização para a poder
+percorrer, e **F3** abre o ficheiro no visualizador. O Borg lê o ficheiro pelo caminho, com as
+suas próprias permissões, e não através do descritor do processo.
 
-As sequências de linhas de zeros dobram-se numa única linha, como «· 60K bytes a zero ·». **]** e **[** saltam para o bloco de dados seguinte e anterior, e **>** e **<** capturam os 64 KiB seguintes e anteriores da região. **H** alterna a apresentação hexadecimal/texto, **R** captura novamente a janela mostrada e **D** destaca as diferenças em relação à captura anterior do mesmo processo e endereço. A apresentação de texto mostra o ASCII imprimível e substitui os pontos por outros bytes. Os instantâneos são observações ao vivo; o processo não é pausado, pelo que uma captura não é uma imagem atómica de todo o seu estado. Permanecem na memória, a menos que sejam exportados explicitamente. **E** exporta bytes brutos para o diretório do painel de ficheiros ativo, utilizando um novo nome de ficheiro e permissões de ficheiro apenas do proprietário. Os ficheiros existentes nunca são substituídos.
+### Pré-visualização de regiões
 
-**M** alterna a pré-visualização entre os bytes e um mapa de páginas da região: uma célula por cada página de 4 KiB, ou por cada sequência de páginas numa região grande, marcada pelo que contém: ponteiros para a própria memória do processo, texto, texto UTF-16, código, dados comprimidos ou cifrados, outros dados, preenchimento, zeros e páginas que não estão em memória. Uma legenda indica a parte da região que cada tipo ocupa. No mapa focado, as setas, **PgUp**, **PgDn**, **Home** e **End** movem um cursor, e **Enter** abre em bytes a página que está por baixo. As regiões com mais de 16 384 páginas são amostradas de forma uniforme. No Linux, o mapa pergunta ao sistema que páginas estão em memória e deixa as restantes por ler, pelo que não traz de volta páginas trocadas nem toca em páginas novas; no macOS, as páginas não usadas são lidas como zeros. Os tipos são deduzidos apenas a partir dos bytes, por isso trate-os como uma orientação e não como um veredicto.
+Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início
+da região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por
+cima dos bytes indica em que ponto da região está a janela. Quando se move depressa, o Borg espera
+um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela a
+leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
+**Enter** para percorrer a pré-visualização. **Esc** aí volta à lista, e **Esc** no mapa volta à
+lista de processos com o cursor e o filtro como estavam.
 
-Pressione **/** no painel de memória ou **Ctrl-F** de qualquer painel, para pesquisar na memória. Escolha um modo, a correspondência de maiúsculas e minúsculas e a memória de processo legível ou o instantâneo atual. **Texto** pesquisa UTF-8, UTF-16 (ambas as ordens de bytes) e UTF-32 (ambas as ordens de bytes). **Unicode** também normaliza os caracteres de compatibilidade e a combinação de sequências: por ex. `𝐁𝐨𝐫𝐠` partidas `Borg`. Isto não significa letras não relacionadas que apenas parecem semelhantes. **Feitiço** aceita pares de bytes como `42 6F 72 67`.
+As sequências de linhas a zero recolhem-se numa única linha, como "· 60K zero bytes ·". **]** e
+**[** saltam para o bloco de dados seguinte e anterior, e **>** e **<** capturam os 64 KiB
+seguintes e anteriores da região. **H** alterna entre hexadecimal e texto, **R** volta a capturar
+a janela mostrada e **D** realça o que mudou desde a captura anterior do mesmo processo e
+endereço. A vista de texto mostra ASCII imprimível e substitui os outros bytes por pontos. As
+capturas são feitas sobre o processo em execução sem o pausar, pelo que uma captura não é uma
+imagem consistente de todo o processo. Ficam em memória, a menos que as exporte. **E** guarda os
+bytes em bruto num ficheiro novo na pasta do painel de ficheiros ativo, legível apenas pelo
+utilizador. Os ficheiros existentes nunca são substituídos.
 
-**Cadeias** e **Indicadores** leem apenas a memória que o próprio processo preencheu: a memória que nenhum ficheiro suporta e a memória em que pode escrever; no macOS, as regiões em que nunca escreveu também ficam de fora. **Cadeias** lista uma única vez cada sequência de pelo menos seis caracteres ASCII ou UTF-16LE imprimíveis, com o número de cópias na memória, e deixa de fora o enchimento, como caracteres repetidos ou pontuação; uma consulta, quando indicada, mantém as que a contêm. **Indicadores** mantém as cadeias que parecem um URL, um endereço IP, um endereço de e-mail, um caminho de ficheiro, uma linha de comandos, um segredo (uma chave privada, um token de acesso ou uma atribuição de palavra-passe) ou uma sequência longa de base64, e identifica cada uma.
+**M** alterna a pré-visualização entre bytes e um mapa de páginas da região: uma célula por
+página de 4 KiB, ou por sequência de páginas numa região grande, assinalada conforme o que
+contém: ponteiros para a memória do próprio processo, texto, texto UTF-16, código, dados
+comprimidos ou cifrados, outros dados, enchimento, zeros e páginas que não estão em memória. Uma
+legenda mostra a proporção de cada tipo na região. Com o mapa em foco, as setas, **PgUp**,
+**PgDn**, **Home** e **End** movem um cursor, e **Enter** abre como bytes a página sob o cursor.
+As regiões com mais de 16 384 páginas são amostradas de forma uniforme. No Linux, o mapa pergunta
+ao sistema que páginas estão em memória e não lê as restantes, pelo que não traz de volta páginas
+em swap nem toca em páginas novas; no macOS, as páginas nunca usadas são lidas como zeros. Os
+tipos são deduzidos apenas a partir dos bytes, por isso encare-os como uma indicação, não como um
+veredicto.
 
-O Borg também lê as cadeias dos ficheiros que o processo mapeou, até 1 GiB, e marca com • as que só a memória contém: texto que o processo construiu, recebeu ou descodificou em vez de o carregar dos seus ficheiros. Os indicadores vêm primeiro, as cadeias que só a memória contém vêm antes das que os seus ficheiros contêm, e as cadeias que se leem como palavras vêm antes das restantes. A lista mantém as 2000 melhores. Cada linha mostra o tipo e o número de cópias onde as outras correspondências mostram a sua região, e a pré-visualização mostra a cadeia no seu lugar; **C** percorre as suas cópias. Estes resultados são pistas para uma análise mais atenta, não prova de nada: os programas comuns contêm muitos URL, caminhos e chaves.
+### Pesquisa de memória
 
-**I**, no mapa de memória ou entre as correspondências da pesquisa, verifica se o processo executa o código que os seus ficheiros contêm. Compara o código em memória com os ficheiros a partir dos quais foi mapeado e indica as páginas que diferem, procura na memória que nenhum ficheiro suporta os cabeçalhos de imagens executáveis (ELF, Mach-O e PE), e lista a memória executável que nenhum ficheiro suporta, a memória simultaneamente gravável e executável, e o código de ficheiros eliminados, sem nome ou temporários. Verifica também o processo no seu todo: bibliotecas injetadas através de `LD_PRELOAD`, `LD_AUDIT`, `DYLD_INSERT_LIBRARIES` ou `/etc/ld.so.preload`, caminhos de pesquisa de bibliotecas, um rastreador no Linux, um programa cujo ficheiro desapareceu ou foi substituído, e um nome diferente do do seu programa.
+Prima **/** no painel de memória, ou **Ctrl-F** em qualquer dos painéis, para pesquisar a
+memória. Escolha um modo, se as maiúsculas e minúsculas têm de coincidir, e se quer pesquisar a
+memória legível do processo ou a captura atual. **Texto** pesquisa UTF-8, UTF-16 (nas duas ordens
+de bytes) e UTF-32 (nas duas ordens de bytes). **Unicode** normaliza também os caracteres de
+compatibilidade e as sequências combinadas: por exemplo,
+`𝐁𝐨𝐫𝐠` corresponde a `Borg`. Não trata como iguais letras diferentes só por serem parecidas.
+**Bytes hexadecimais** aceita pares de bytes como `42 6F 72 67`.
 
-As descobertas ocupam o painel da lista, primeiro os alertas e depois os avisos e as notas. Selecionar uma pré-visualiza os bytes a que diz respeito, com a evidência realçada, e as linhas abaixo da lista dizem o que mais a poderia explicar. Os programas que compilam código enquanto correm, como os navegadores, o Java e os motores de JavaScript, contêm constantemente código que nenhum ficheiro suporta, por isso para eles essas descobertas são notas. **R** verifica de novo, **Ctrl-C** interrompe uma verificação e mantém o que encontrou, e **Esc** volta atrás. Uma verificação lê no máximo 512 MiB de código e 1 GiB de outra memória, durante no máximo 45 segundos, e indica quando parou mais cedo.
+**Cadeias** e **Indicadores** só leem a memória que o próprio processo preencheu: memória que não
+provém de um ficheiro e em que o processo pode escrever; no macOS, as regiões em que nunca
+escreveu também são ignoradas. **Cadeias** lista uma vez cada sequência de pelo menos seis
+caracteres ASCII imprimíveis ou UTF-16LE, com o número de cópias em memória, e ignora enchimento
+como caracteres ou pontuação repetidos; se indicar uma pesquisa, mantém apenas as cadeias que a
+contêm. **Indicadores** mantém as cadeias que parecem um URL, um endereço IP, um endereço de
+email, um caminho de ficheiro, uma linha de comando, um segredo (uma chave privada, um token de
+acesso ou a atribuição de uma palavra-passe) ou uma sequência longa de base64, e classifica cada
+uma.
 
-No Linux, as tabelas de páginas indicam que páginas de código um processo alterou, por isso só essas são lidas; no macOS também não é lida uma região sem páginas modificadas. O código na cache partilhada do macOS não tem ficheiro próprio e não é comparado. A memória que uma verificação não consegue ler é contabilizada e oferece **A: Administrador**. As descobertas são pistas, não veredictos: depuradores, perfiladores, atualizadores e ferramentas de segurança deixam os mesmos vestígios.
+O Borg lê também as cadeias dos ficheiros que o processo mapeou, até 1 GiB, e assinala com • as
+cadeias encontradas apenas em memória: texto que o processo construiu, recebeu ou descodificou, em
+vez de o carregar dos seus ficheiros. Os indicadores aparecem primeiro, depois as cadeias
+encontradas apenas em memória e, por fim, as que também existem nos ficheiros; dentro de cada
+grupo, as cadeias que parecem palavras vêm antes das restantes. A lista guarda as 2000 melhores.
+Enquanto as outras correspondências mostram a sua região, aqui cada linha mostra o tipo e o número
+de cópias, e a pré-visualização mostra a cadeia no seu contexto; **C** percorre as cópias. Estes
+resultados são pistas que merecem um olhar mais atento, não provas de nada: os programas comuns
+contêm muitos URL, caminhos e chaves.
 
-As correspondências ocupam o painel de lista e mostram o seu endereço, codificação e região originais. A seleção de uma correspondência visualiza os bytes circundantes no painel oposto, com os bytes correspondentes destacados. Enter foca a visualização; Esc volta o foco para as partidas. Esc das partidas restaura o mapa anterior ou lista de processos. A pesquisa de um instantâneo armazenado utiliza os seus bytes capturados sem ler o processo em execução. As pesquisas de processos são lidas por partes, reportam bytes inacessíveis e param após 2000 correspondências ou 60 segundos. **N** continua a partir dessa posição; **Ctrl-C** pára preservando os resultados. Os relatórios de cobertura distinguem os bytes pesquisados ​​e inacessíveis. Um processo pode alterar a sua memória enquanto está a ser pesquisado.
+As correspondências ocupam o painel da lista e mostram o endereço, a codificação e a região.
+Selecionar uma correspondência pré-visualiza os bytes à volta dela no outro painel, com a
+correspondência realçada. Enter entra na pré-visualização e Esc volta às correspondências. Esc
+nas correspondências regressa ao mapa de memória ou à lista de processos de onde veio. Pesquisar
+uma captura guardada usa os bytes dela sem ler o processo em execução. As pesquisas em processos
+leem a memória por partes, indicam os bytes que não conseguiram ler e param ao fim de 2000
+correspondências ou 60 segundos. **N** continua a partir do ponto onde a pesquisa parou, e
+**Ctrl-C** interrompe-a e mantém os resultados. O relatório de cobertura distingue os bytes
+pesquisados dos ilegíveis. Um processo pode alterar a sua memória enquanto está a ser pesquisado.
 
-Leituras restritas de mapas de memória ou instantâneos e pesquisas parcialmente inacessíveis oferecem **A: Administrador**. Em macOS abre o prompt de autorização do sistema; em Linux ele usa `pkexec` e necessita de um agente de autorização disponível. Apenas um auxiliar de inspeção de curta duração é elevado. Borg continua a funcionar normalmente e o auxiliar apenas devolve dados do mapa ou bytes limitados. O macOS impede que qualquer outro programa, mesmo como administrador, leia a memória dos seus próprios programas (Proteção da Integridade do Sistema) e dos programas compilados com o Hardened Runtime. O Borg lê isto da assinatura do programa: os detalhes do processo indicam **Memória protegida**, uma leitura recusada explica porquê e **A: Administrador** não é oferecido, pois não ajudaria. Os seus mapas de memória e ficheiros abertos continuam visíveis. Também não é oferecido quando o Borg já é executado como administrador. A política de segurança do Linux pode ainda negar o acesso; Borg mostra a falha e deixa o monitor de processo comum utilizável.
+### Verificação de integridade do código
 
-A identidade do processo inclui a sua hora de início, pelo que um PID reutilizado não herda o histórico de outro processo. Os mapas de memória, os resultados de inspeção, os instantâneos e o histórico são limitados. Borg Commander permanece visível no canto inferior direito, incluindo a consola, o visualizador, o monitor, as caixas de diálogo e o protetor de ecrã.
+**I**, no mapa de memória ou nas correspondências de uma pesquisa, verifica se o processo está a
+executar o código que os seus ficheiros contêm. Compara o código em memória com os ficheiros a
+partir dos quais foi mapeado e indica as páginas que diferem, procura cabeçalhos de imagens
+executáveis (ELF, Mach-O e PE) na memória que não provém de ficheiros, e lista a memória
+executável que não provém de ficheiros, a memória que é simultaneamente gravável e executável, e o
+código de ficheiros eliminados, sem nome ou temporários. Verifica também o processo no seu todo:
+bibliotecas injetadas através de `LD_PRELOAD`, `LD_AUDIT`, `DYLD_INSERT_LIBRARIES`
+ou `/etc/ld.so.preload`, caminhos de pesquisa de bibliotecas, um tracer no Linux, um programa cujo
+ficheiro foi eliminado ou substituído, e um nome de processo diferente do nome do programa.
+
+As conclusões ocupam o painel da lista, com os alertas primeiro, depois os avisos e por fim as
+notas. Selecionar uma pré-visualiza os bytes a que se refere, com as provas realçadas, e as linhas
+por baixo da lista indicam o que mais a poderia explicar. Os programas que compilam código
+enquanto correm, como os browsers e os motores de Java e JavaScript, contêm sempre código que não
+provém de nenhum ficheiro, por isso, nesses casos, essas conclusões são apenas notas. **R**
+verifica de novo, **Ctrl-C** interrompe uma verificação e mantém o que encontrou até então, e
+**Esc** volta atrás. Uma verificação lê no máximo 512 MiB de código e 1 GiB de outra memória,
+durante até 45 segundos, e indica se parou antes do fim.
+
+No Linux, as tabelas de páginas mostram que páginas de código um processo alterou, pelo que só
+essas são lidas; no macOS, as regiões sem páginas modificadas também não são lidas. O código da
+cache partilhada do macOS não tem um ficheiro próprio e não é comparado. A memória que uma
+verificação não consegue ler é contabilizada, e o Borg oferece **A: Administrador**. As conclusões
+são pistas, não veredictos: depuradores, profilers, atualizadores e ferramentas de segurança
+deixam os mesmos vestígios.
+
+### Acesso de administrador
+
+Quando a leitura de um mapa de memória ou de uma captura está restrita, ou uma pesquisa não
+conseguiu ler parte da memória, o Borg oferece **A: Administrador**. No macOS, isto abre o pedido
+de autorização do sistema; no Linux, usa `pkexec` e precisa de um agente de autorização em
+execução. Apenas um auxiliar de inspeção de curta duração corre com privilégios elevados. O
+próprio Borg continua a correr normalmente, e o auxiliar devolve apenas dados do mapa ou um número
+limitado de bytes.
+
+O macOS protege a memória dos seus próprios programas (System Integrity Protection) e dos programas
+compilados com o Hardened Runtime contra todos os outros programas, incluindo os administradores.
+O Borg obtém esta informação a partir da assinatura do programa: os detalhes do processo indicam
+**Memória protegida**, uma leitura recusada explica porquê, e **A: Administrador** não é oferecido,
+porque não ajudaria. Os mapas de memória e os ficheiros abertos destes programas continuam a ser
+mostrados. Também não é oferecido quando o Borg já está a correr como administrador. No Linux, a
+política de segurança pode ainda assim negar o acesso; o Borg mostra o erro e o monitor de
+processos continua a funcionar normalmente.
+
+Um processo é identificado em conjunto com a sua hora de início, pelo que um processo novo que
+reutilize um PID não herda o histórico de outro processo. Os mapas de memória, os resultados de
+inspeção, as capturas e o histórico têm todos limites de tamanho. O nome Borg Commander fica
+visível no canto inferior direito em todo o lado, incluindo a consola, o visualizador, o monitor,
+as caixas de diálogo e a proteção de ecrã.
