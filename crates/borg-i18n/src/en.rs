@@ -783,6 +783,8 @@ catalog! {
     agent_cloud_off => "Borg cloud is off; turn it on in Options → Plugins",
     agent_cloud_no_relay => "No relay is set: paste its address below and press Enter",
     agent_cloud_bad_relay => "That is not a relay address; one looks like wss://relay.example.com",
+    agent_cloud_service_pairs => "The background service or viewer owns no pairing connection; use borg service pair.",
+    agent_approve_all_off => "Approve all is off for this session.",
     agent_cloud_forgotten => "Forgot every paired computer",
     agent_cloud_registered => "Borg cloud: registered at {relay}",
     agent_cloud_connection_closed => "the relay connection closed",

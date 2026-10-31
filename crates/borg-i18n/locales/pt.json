@@ -771,6 +771,8 @@
   "agent_cloud_off": "Borg a nuvem está desligada; ative-o em Opções → Plug-ins",
   "agent_cloud_no_relay": "Nenhum relé está configurado: cole o seu endereço abaixo e prima Enter",
   "agent_cloud_bad_relay": "Aquele não é um endereço de retransmissão; um parece wss://relay.example.com",
+  "agent_cloud_service_pairs": "O serviço em segundo plano ou o visualizador não tem ligação de emparelhamento própria; use borg service pair.",
+  "agent_approve_all_off": "Aprovar tudo está desligado nesta sessão.",
   "agent_cloud_forgotten": "Esqueci-me de todos os computadores emparelhados",
   "agent_wants_pair": "Emparelhe este computador com borg?",
   "agent_wants_read": "O cliente remoto pede para ler",

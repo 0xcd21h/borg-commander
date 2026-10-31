@@ -8,7 +8,7 @@ impl App {
     /// Makes a pairing link for the Connect dialog, or says why there is none.
     pub(super) fn start_pairing(&mut self) {
         let pairing = if self.cloud_suppressed {
-            Err("The background service or viewer owns no pairing connection; use borg service pair.".into())
+            Err(tr!(agent_cloud_service_pairs).to_owned())
         } else if !self.state.settings.preferences.agent_cloud {
             Err(tr!(agent_cloud_off).to_owned())
         } else if self.link.relay().is_none() {
@@ -50,7 +50,7 @@ impl App {
     pub(super) fn approval_mode_off(&mut self) {
         self.approve_all.clear();
         self.state.agent.auto_approve.clear();
-        self.state.notice = Some("Approve all is off for this session.".into());
+        self.state.notice = Some(tr!(agent_approve_all_off).into());
         self.agent.note("Approve all turned off locally");
     }
 }

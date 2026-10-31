@@ -771,6 +771,8 @@
   "agent_cloud_off": "Borg 云已关闭；在“选项”→“插件”中将其打开",
   "agent_cloud_no_relay": "未设置中继服务器：将其地址粘贴到下面并按 Enter",
   "agent_cloud_bad_relay": "那不是中继地址；一个看起来像wss：//relay.example.com",
+  "agent_cloud_service_pairs": "后台服务或查看器没有自己的配对连接；请使用 borg service pair。",
+  "agent_approve_all_off": "此会话的“全部批准”已关闭。",
   "agent_cloud_forgotten": "忘记每台配对的计算机",
   "agent_wants_pair": "将此计算机与 borg 配对？",
   "agent_wants_read": "远程客户端请求读取",
