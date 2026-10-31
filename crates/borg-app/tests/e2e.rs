@@ -49,6 +49,19 @@ fn start_with(fixture: &Fixture, label: &str, shell: Shell) -> Result<Session> {
     Ok(session)
 }
 
+/// Whether `path` holds `text`. A shell makes the file before the command that writes it
+/// runs, so a file that exists can still be empty.
+fn holds(path: &Path, text: &str) -> bool {
+    fs::read_to_string(path).is_ok_and(|found| found == text)
+}
+
+/// A command that runs for 30 seconds once `marker` exists. The process that makes the marker
+/// is the one Ctrl-C reaches, so a Ctrl-C sent after it cannot fall between two commands,
+/// where the terminal can still belong to a command that has already ended.
+fn interruptible(marker: &str) -> String {
+    format!("sh -c 'touch {marker}; exec sleep 30'")
+}
+
 /// Filters the activity monitor by `pid` and puts the cursor on that process. Other PIDs can
 /// contain it, so it steps to it rather than expect it alone.
 fn select_process(app: &mut Session, pid: u32) -> Result<Snapshot> {
@@ -1807,9 +1820,9 @@ fn console_remembers_its_view_and_option_arrows_edit_words_in_each_shell() -> Re
         app.wait_until("cancelled command returned to prompt", console_prompt)?;
         ensure!(!panels_ready(&app.settle()?), "Ctrl-C at the console prompt changed the view");
         ensure!(!fixture.work().join("cancelled").exists());
-        app.send("touch running; sleep 30")?.send(keys::enter())?;
+        app.send(interruptible("running"))?.send(keys::enter())?;
         app.wait_until("interruptible command started", |s| {
-            fixture.work().join("running").exists() && s.contains("touch running; sleep 30")
+            fixture.work().join("running").exists() && s.contains("exec sleep 30")
         })?;
         app.send(keys::ctrl('c'))?;
         app.wait_until("shell prompt returned after Ctrl-C", console_prompt)?;
@@ -3007,12 +3020,13 @@ printf '\r\nremote-got=%s\r\n' "$code"
     local.wait_text(&format!("Host {name}:Default console"))?;
     local.send("printf 'remote-proof' > \"$HOME/remote-console-proof\"")?;
     local.send(keys::enter())?;
-    local.wait_until("command executed on the host", |_| host.home().join("remote-console-proof").exists())?;
-    ensure!(fs::read_to_string(host.home().join("remote-console-proof"))? == "remote-proof");
+    local.wait_until("command executed on the host", |_| {
+        holds(&host.home().join("remote-console-proof"), "remote-proof")
+    })?;
     ensure!(!client.home().join("remote-console-proof").exists());
-    local.send("sleep 30")?;
+    local.send(interruptible("\"$HOME/remote-sleeping\""))?;
     local.send(keys::enter())?;
-    local.wait_text("sleep 30")?;
+    local.wait_until("remote command running", |_| host.home().join("remote-sleeping").exists())?;
     local.send(keys::ctrl('c'))?;
     local.send("printf 'interrupt-proof' > \"$HOME/interrupt-proof\"")?;
     local.send(keys::enter())?;
@@ -3335,9 +3349,8 @@ fn a_regular_named_borg_can_be_mirrored_and_controlled_without_a_background_serv
     let command = "printf 'native-proof' > \"$HOME/native-mirror-proof\"";
     mirror.send(format!("\x1b[200~{command}\x1b[201~"))?.send(keys::enter())?;
     mirror.wait_until("pasted command ran in the selected remote Borg", |_| {
-        host.home().join("native-mirror-proof").exists()
+        holds(&host.home().join("native-mirror-proof"), "native-proof")
     })?;
-    ensure!(fs::read_to_string(host.home().join("native-mirror-proof"))? == "native-proof");
     ensure!(!client.home().join("native-mirror-proof").exists());
     second.wait_until("remote shell returns to its prompt", |screen| {
         screen.cursor().is_some_and(|(_, row)| screen.lines()[usize::from(row)].trim() == "$")
@@ -3361,6 +3374,9 @@ printf '\033[?1049l\r\nnative-key=%s\r\n' "$code"
     )?;
     mirror.send(format!("bash '{}'", grabber.display()))?.send(keys::enter())?;
     mirror.wait_text("native-fullscreen-ready")?;
+    // The host's screen was last read on its panels; read it on the app first, so that waiting
+    // for its panels to come back waits for what the app's exit does.
+    second.wait_text("native-fullscreen-ready")?;
     mirror.send("q")?;
     second.wait_until("remote panels after app exits", panels_ready)?;
     mirror.wait_until("mirrored panels after app exits", |screen| {
