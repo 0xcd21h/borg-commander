@@ -262,11 +262,9 @@ impl Panel {
     }
 
     pub fn reload(&mut self, generation: u64) {
-        // A folder still loading keeps the entry it was opened to select.
-        let focus = match &self.incoming {
-            Some(incoming) => incoming.focus.clone(),
-            None => self.anchor(),
-        };
+        // A folder still loading keeps the entry it was opened to select; otherwise the
+        // refresh selects whatever is hovered when it arrives, after any move made meanwhile.
+        let focus = self.incoming.as_ref().and_then(|incoming| incoming.focus.clone());
         let dir = self.destination().to_path_buf();
         let refresh = self.is_reloading_into(&dir);
         self.incoming = Some(Incoming { dir, generation, focus, refresh });
@@ -509,7 +507,9 @@ impl Panel {
     fn commit(&mut self) {
         let Some(incoming) = self.incoming.take() else { return };
         self.generation = incoming.generation;
-        self.focus = incoming.focus;
+        if incoming.focus.is_some() || !incoming.refresh {
+            self.focus = incoming.focus;
+        }
         self.replacing = incoming.refresh;
         self.pending.clear();
         self.listing = Listing::Loading;
@@ -1131,6 +1131,18 @@ mod tests {
         panel.settle();
         assert_eq!(names(&panel), ["b", "c"]);
         assert_eq!(panel.hovered_entry().map(|e| e.name.as_str()), Some("b"));
+    }
+
+    #[test]
+    fn a_move_made_while_a_refresh_loads_is_kept() {
+        let mut panel = loaded("/x", vec![vec![file("a"), file("b")]]);
+        panel.move_by(2);
+        panel.reload(2);
+        panel.to_start();
+        panel.receive(2, vec![file("a"), file("b")], false);
+        panel.finish(2, None);
+        panel.settle();
+        assert!(matches!(panel.hovered(), Some(Row::Parent)));
     }
 
     #[test]
