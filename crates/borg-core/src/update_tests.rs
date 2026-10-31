@@ -1046,6 +1046,74 @@ fn ctrl_v_pastes_borg_copies_into_its_fields_but_stays_the_shells_at_the_prompt(
     assert_eq!(prompt.input.text(), "notes.txt");
 }
 
+/// Runs the viewer's search as the app does, and hands back what it found.
+fn run_viewer_search(state: &mut AppState, now: Instant, effects: &[Effect]) {
+    let [Effect::FindInViewer { id, query, from, direction, count }] = effects else { panic!("{effects:?}") };
+    let crate::Content::Text(pager) = &state.viewer.as_ref().unwrap().content else { panic!() };
+    let found = crate::find_in(&*pager.source(), query, *from, *direction, *count, &|_| true);
+    update(state, Msg::FoundInViewer { id: *id, found: found.map_err(|error| error.to_string()) }, now);
+}
+
+#[test]
+fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let content: Vec<u8> = (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(PathBuf::from("/home/log"));
+    update(&mut state, Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))), now);
+    let current = |state: &AppState| text(state.viewer.as_ref().unwrap()).current_match();
+    let summary = |state: &AppState| crate::find_bar_summary(&state.viewer.as_ref().unwrap().find);
+
+    press(&mut state, now, key(KeyCode::Char('/')));
+    let mut effects = Vec::new();
+    for c in "row 5".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    assert!(
+        text(state.viewer.as_ref().unwrap()).rich_rows()[4].iter().any(|run| run.mark == borg_view::Mark::Match),
+        "the page marks row 5 while the search runs"
+    );
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(current(&state), Some(24..29));
+    assert_eq!(summary(&state).as_deref(), Some("1 of 11"), "row 5 and rows 50 to 59");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    run_viewer_search(&mut state, now, &effects);
+    let top = format!("row {}", 50 - height / 3);
+    assert_eq!(text(state.viewer.as_ref().unwrap()).rows()[0], top, "row 50 shows a third of the page down");
+    assert_eq!(summary(&state).as_deref(), Some("2 of 11"));
+    let effects = press(&mut state, now, key(KeyCode::Up));
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(current(&state), Some(24..29), "Up steps back");
+    let effects = press(&mut state, now, key(KeyCode::Up));
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(summary(&state).as_deref(), Some("11 of 11 · from the other end"));
+
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    let viewer = state.viewer.as_ref().unwrap();
+    assert!(!viewer.find.open && !text(viewer).shows_matches(), "Esc closes the bar and takes the marks away");
+    assert_eq!(state.find_recent, ["row 5"]);
+    assert_eq!(current(&state), Some(397..402), "the match stepped to, row 59, stays marked");
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(text(state.viewer.as_ref().unwrap()).shows_matches(), "n marks the matches again");
+    let stale = effects.clone();
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(summary(&state).as_deref(), Some("1 of 11 · from the other end"), "n goes on from row 59");
+    run_viewer_search(&mut state, now, &stale);
+    assert_eq!(current(&state), Some(24..29), "an answer the viewer no longer waits for changes nothing");
+
+    let effects = press(&mut state, now, shift(KeyCode::Char('N')));
+    assert!(matches!(effects[..], [Effect::FindInViewer { direction: crate::Direction::Backward, .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInViewer]);
+    assert!(state.viewer.is_some(), "Esc stops a running search before it closes the viewer");
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(summary(&state), None, "a key that moves the page clears what the last step said");
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.viewer.is_none());
+}
+
 #[test]
 fn viewer_keys_scroll_wrap_and_close() {
     use std::sync::Arc;
@@ -1055,11 +1123,7 @@ fn viewer_keys_scroll_wrap_and_close() {
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
     state.opening = Some(PathBuf::from("/home/log"));
-    update(
-        &mut state,
-        Msg::Opened(crate::Viewer { path: PathBuf::from("/home/log"), content: crate::Content::Text(pager) }),
-        now,
-    );
+    update(&mut state, Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))), now);
 
     press(&mut state, now, key(KeyCode::End));
     let last = state.viewer.as_ref().and_then(|v| text(v).rows().last().cloned());
@@ -1188,7 +1252,7 @@ fn image_viewer(state: &mut AppState, name: &str, now: Instant) {
 fn loaded(path: PathBuf) -> Msg {
     let picture = borg_gfx::Picture::from_rgba(1, 1, vec![0, 0, 0, 255]).unwrap_or_else(|e| panic!("{e}"));
     let image = crate::Image { picture, original: (1, 1), format: "png", bytes: 1 };
-    Msg::Opened(crate::Viewer { path, content: crate::Content::Image(image) })
+    Msg::Opened(crate::Viewer::new(path, crate::Content::Image(image)))
 }
 
 #[test]

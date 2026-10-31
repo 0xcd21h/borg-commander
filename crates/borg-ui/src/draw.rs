@@ -115,12 +115,12 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         return (cursor, Vec::new());
     }
     if let Some(viewer) = &state.viewer {
-        let placements = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
+        let (placements, cursor) = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
         // An agent's approval shows over the viewer too; pictures under it would cover it.
         if matches!(state.overlay, Some(Overlay::Approval(_))) {
             return (console_overlay(buf, scene), Vec::new());
         }
-        return (None, placements);
+        return (cursor, placements);
     }
     if state.screensaver {
         art_view::draw_screensaver(&scene.look(theme), state.saver, area, buf);

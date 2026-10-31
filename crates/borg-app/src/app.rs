@@ -114,6 +114,8 @@ pub struct App {
     last_click: Option<(u16, u16, Instant)>,
     wheel: WheelBurst,
     preview: preview::Loader,
+    /// Stops the viewer's search running in the background.
+    viewer_search: Option<Arc<AtomicBool>>,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
     backup: crate::backup::Backup,
@@ -291,6 +293,7 @@ impl App {
             last_click: None,
             wheel: WheelBurst::default(),
             preview,
+            viewer_search: None,
             plugins,
             monitor,
             backup,
@@ -1825,6 +1828,10 @@ impl App {
                     }
                 }
                 Effect::View(path) => self.open_viewer(path),
+                Effect::FindInViewer { id, query, from, direction, count } => {
+                    self.find_in_viewer(id, query, from, direction, count);
+                }
+                Effect::StopFindInViewer => self.stop_viewer_search(),
                 Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),
                 Effect::SetLanguage(locale) => borg_i18n::set_locale(locale),
                 Effect::SaveConfig => self.save_config(),
@@ -1968,6 +1975,59 @@ impl App {
         }
     }
 
+    /// Looks for `query` in the viewer's file on a thread of its own, saying how far it got
+    /// when it takes a while.
+    fn find_in_viewer(
+        &mut self,
+        id: u64,
+        query: borg_view::Query,
+        from: u64,
+        direction: borg_core::Direction,
+        count: bool,
+    ) {
+        const QUIET: Duration = Duration::from_millis(300);
+        const PROGRESS_EVERY: Duration = Duration::from_millis(150);
+        self.stop_viewer_search();
+        let Some(borg_core::Content::Text(pager)) = self.state.viewer.as_ref().map(|viewer| &viewer.content) else {
+            return;
+        };
+        let source = pager.source();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.viewer_search = Some(stop.clone());
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let started = Instant::now();
+            let said = std::cell::Cell::new(started);
+            let len = source.len().max(1);
+            let go_on = |at: u64| {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    return false;
+                }
+                if started.elapsed() > QUIET && said.get().elapsed() > PROGRESS_EVERY {
+                    said.set(Instant::now());
+                    // How much of the file is behind the search, in the direction it reads.
+                    let done = match direction {
+                        borg_core::Direction::Forward => at.wrapping_sub(from).wrapping_add(len) % len,
+                        borg_core::Direction::Backward => from.wrapping_sub(at).wrapping_add(len) % len,
+                    };
+                    let percent = (done.saturating_mul(100) / len).min(99) as u8;
+                    let _ = messages.send(Msg::SearchingViewer { id, percent });
+                }
+                true
+            };
+            let found = borg_core::find_in(&*source, &query, from, direction, count, &go_on);
+            if !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = messages.send(Msg::FoundInViewer { id, found: found.map_err(|error| error.to_string()) });
+            }
+        });
+    }
+
+    fn stop_viewer_search(&mut self) {
+        if let Some(stop) = self.viewer_search.take() {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     fn open_viewer(&self, path: PathBuf) {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
         let cell = self.graphics.capabilities().cell;
@@ -1979,10 +2039,9 @@ impl App {
                 (cell.width, cell.height),
                 Arc::new(AtomicBool::new(false)),
             );
-            let opened =
-                content.map(|content| Msg::Opened(Viewer { path: path.clone(), content })).unwrap_or_else(|e| {
-                    Msg::OpenFailed { notice: format!("{}: {e:#}", path.display()), path: path.clone() }
-                });
+            let opened = content.map(|content| Msg::Opened(Viewer::new(path.clone(), content))).unwrap_or_else(|e| {
+                Msg::OpenFailed { notice: format!("{}: {e:#}", path.display()), path: path.clone() }
+            });
             let _ = messages.send(opened);
         });
     }
@@ -2027,13 +2086,9 @@ impl App {
                 Ok(content)
             }
             .await;
-            let msg =
-                opened.map(|content| Msg::Opened(Viewer { path: path.clone(), content })).unwrap_or_else(|error| {
-                    Msg::OpenFailed {
-                        notice: format!("{} on {}: {error:#}", path.display(), machine),
-                        path: path.clone(),
-                    }
-                });
+            let msg = opened.map(|content| Msg::Opened(Viewer::new(path.clone(), content))).unwrap_or_else(|error| {
+                Msg::OpenFailed { notice: format!("{} on {}: {error:#}", path.display(), machine), path: path.clone() }
+            });
             let _ = messages.send(msg);
         });
     }

@@ -1,14 +1,18 @@
-use std::{fmt, io, path::Path, sync::Arc};
+use std::{fmt, io, ops::Range, path::Path, sync::Arc};
 
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    Paint, Run, Source,
+    Mark, Paint, Run, Search, Source,
     paint::{self, RichText},
     text,
 };
 
 const MARKDOWN_LIMIT: u64 = 2 * 1024 * 1024;
+/// The largest JSON laid out to read, held whole in memory with its layout.
+const JSON_LIMIT: u64 = 16 * 1024 * 1024;
+/// What a level of JSON is indented by, as jq and browsers lay it out.
+const JSON_INDENT: &str = "  ";
 const SYNTAX_CONTEXT: u64 = 256 * 1024;
 const SYNTAX_AHEAD: u64 = 4 * 1024;
 /// How far apart the places colouring can carry on from are kept.
@@ -32,16 +36,38 @@ struct Line {
     next: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A row on screen: the offset its line starts at, and which of the line's rows it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Position {
     line: u64,
     row: usize,
 }
 
+/// One cell of a laid out line, and the offset of the character it shows.
+#[derive(Debug, Clone, Copy)]
+struct Cell {
+    c: char,
+    width: usize,
+    offset: u64,
+    paint: Paint,
+    mark: Mark,
+}
+
+/// Documents shown formatted, which `toggle_source` switches to their source and back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    Markdown,
+    /// JSON, or JSON Lines, laid out one value to a line.
+    Json,
+}
+
 #[derive(Clone)]
-struct Markdown {
+struct Formatted {
+    format: Format,
     original: Arc<dyn Source>,
-    rendered: Arc<RichText>,
+    text: Arc<Vec<u8>>,
+    /// The colours Markdown is rendered in; JSON is coloured as its language.
+    rendered: Option<Arc<RichText>>,
     raw_top: Position,
     formatted_top: Position,
 }
@@ -69,9 +95,12 @@ pub struct Pager {
     rich_rows: Vec<Vec<Run>>,
     syntax: Option<Box<Syntax>>,
     decoration: Option<Arc<RichText>>,
-    markdown: Option<Markdown>,
+    document: Option<Box<Formatted>>,
     formatted: bool,
     after_page: Option<Position>,
+    /// The search whose matches the page marks, and the match stepped to, marked on its own.
+    matches: Option<Search>,
+    current: Option<Range<u64>>,
 }
 
 impl fmt::Debug for Pager {
@@ -116,9 +145,11 @@ impl Pager {
             rich_rows: Vec::new(),
             syntax: None,
             decoration: None,
-            markdown: None,
+            document: None,
             formatted: false,
             after_page: None,
+            matches: None,
+            current: None,
         }
     }
 
@@ -132,18 +163,51 @@ impl Pager {
             paint::syntax_name(path, String::from_utf8_lossy(&head).lines().next().unwrap_or_default())
                 .map(|language| Box::new(Syntax { language, resumes: Vec::new() }))
         };
-        let markdown = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdown" | "mkd"));
-        if markdown && !binary && source.len() <= MARKDOWN_LIMIT {
+        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or_default().to_ascii_lowercase();
+        let (format, limit) = match extension.as_str() {
+            "md" | "markdown" | "mdown" | "mkd" => (Some(Format::Markdown), MARKDOWN_LIMIT),
+            "json" | "jsonl" | "ndjson" | "geojson" | "har" | "webmanifest" => (Some(Format::Json), JSON_LIMIT),
+            _ => (None, 0),
+        };
+        if let Some(format) = format.filter(|_| !binary && source.len() <= limit) {
             let bytes = pager.read(0, source.len())?;
-            let rendered =
-                Arc::new(crate::markdown::render(&String::from_utf8_lossy(&bytes), &|| source.is_cancelled())?);
-            pager.source = Arc::new(rendered.text.as_bytes().to_vec());
-            pager.markdown =
-                Some(Markdown { original: source, rendered, raw_top: pager.top, formatted_top: pager.top });
-            pager.formatted = true;
+            let text = String::from_utf8_lossy(&bytes);
+            let cancelled = || source.is_cancelled();
+            let (text, rendered) = match format {
+                Format::Markdown => {
+                    let rendered = crate::markdown::render(&text, &cancelled)?;
+                    (rendered.text.clone(), Some(Arc::new(rendered)))
+                }
+                Format::Json => {
+                    let lines = matches!(extension.as_str(), "jsonl" | "ndjson");
+                    let go_on = || !source.is_cancelled();
+                    let laid_out = if lines {
+                        crate::pretty::json_lines(&text, JSON_INDENT, &go_on)
+                    } else {
+                        crate::pretty::json(&text, JSON_INDENT, &go_on)
+                    };
+                    match laid_out {
+                        None => return Err(io::Error::new(io::ErrorKind::Interrupted, "document loading cancelled")),
+                        // Not JSON after all: it shows as it is.
+                        Some(Err(_)) => (String::new(), None),
+                        Some(Ok(text)) => (text, None),
+                    }
+                }
+            };
+            if rendered.is_some() || !text.is_empty() {
+                let text = Arc::new(text.into_bytes());
+                pager.source = text.clone();
+                let top = pager.top;
+                pager.document = Some(Box::new(Formatted {
+                    format,
+                    original: source,
+                    text,
+                    rendered,
+                    raw_top: top,
+                    formatted_top: top,
+                }));
+                pager.formatted = true;
+            }
         }
         pager.refresh()?;
         Ok(pager)
@@ -153,8 +217,9 @@ impl Pager {
         &self.rich_rows
     }
 
-    pub fn markdown(&self) -> bool {
-        self.markdown.is_some()
+    /// How the document shows formatted, when it can.
+    pub fn format(&self) -> Option<Format> {
+        self.document.as_ref().map(|document| document.format)
     }
 
     pub fn formatted(&self) -> bool {
@@ -166,18 +231,19 @@ impl Pager {
     }
 
     pub fn toggle_source(&mut self) -> io::Result<()> {
-        let Some(markdown) = self.markdown.as_mut() else { return Ok(()) };
+        let Some(document) = self.document.as_mut() else { return Ok(()) };
         if self.formatted {
-            markdown.formatted_top = self.top;
-            self.top = markdown.raw_top;
-            self.source = markdown.original.clone();
+            document.formatted_top = self.top;
+            self.top = document.raw_top;
+            self.source = document.original.clone();
         } else {
-            markdown.raw_top = self.top;
-            self.top = markdown.formatted_top;
-            self.source = Arc::new(markdown.rendered.text.as_bytes().to_vec());
+            document.raw_top = self.top;
+            self.top = document.formatted_top;
+            self.source = document.text.clone();
         }
         self.formatted = !self.formatted;
         self.decoration = None;
+        self.current = None;
         if let Some(syntax) = self.syntax.as_mut() {
             syntax.resumes.clear();
         }
@@ -186,6 +252,73 @@ impl Pager {
 
     pub fn rows(&self) -> &[String] {
         &self.rows
+    }
+
+    /// What the pager reads, for a search through all of it.
+    pub fn source(&self) -> Arc<dyn Source> {
+        self.source.clone()
+    }
+
+    /// Marks the matches of `search` on the page, or none; the match stepped to stays marked.
+    pub fn show_matches(&mut self, search: Option<Search>) -> io::Result<()> {
+        self.matches = search;
+        self.refresh()
+    }
+
+    /// Whether the page marks matches.
+    pub fn shows_matches(&self) -> bool {
+        self.matches.is_some()
+    }
+
+    /// The match stepped to last.
+    pub fn current_match(&self) -> Option<Range<u64>> {
+        self.current.clone()
+    }
+
+    /// Stops marking the match stepped to, as a new query has other matches.
+    pub fn forget_match(&mut self) -> io::Result<()> {
+        self.current = None;
+        self.refresh()
+    }
+
+    /// Marks `found` as the match stepped to and scrolls to it, when it is off the page, with a
+    /// third of the page above it.
+    pub fn reveal(&mut self, found: Range<u64>) -> io::Result<()> {
+        self.current = Some(found.clone());
+        let start = self.previous_line_start(found.start + 1)?;
+        let line = self.line_at(start)?;
+        let cells = self.cells(line)?;
+        let first = cells.iter().position(|cell| cell.offset >= found.start).unwrap_or(cells.len());
+        let row = if self.wrap {
+            let mut seen = 0;
+            self.rich_layout(line)?
+                .iter()
+                .position(|row| {
+                    seen += row.iter().map(|run| run.text.chars().count()).sum::<usize>();
+                    seen > first
+                })
+                .unwrap_or(0)
+        } else {
+            let column: usize = cells[..first].iter().map(|cell| cell.width).sum();
+            let width: usize =
+                cells[first..].iter().take_while(|cell| cell.offset < found.end).map(|cell| cell.width).sum();
+            if column < self.column || column + width > self.column + self.width {
+                self.column = column.saturating_sub(self.width / 4);
+            }
+            0
+        };
+        let target = Position { line: start, row };
+        if target < self.top || self.after_page.is_some_and(|after| target >= after) {
+            self.top = target;
+            for _ in 0..self.height / 3 {
+                match self.previous_position(self.top)? {
+                    Some(position) => self.top = position,
+                    None => break,
+                }
+            }
+            self.top = self.top.min(self.last_top()?);
+        }
+        self.refresh()
     }
 
     pub fn len(&self) -> u64 {
@@ -343,8 +476,10 @@ impl Pager {
     }
 
     fn decorate(&mut self) -> io::Result<()> {
-        if self.formatted {
-            self.decoration = self.markdown.as_ref().map(|markdown| markdown.rendered.clone());
+        if let Some(rendered) = self.document.as_ref().and_then(|document| document.rendered.clone())
+            && self.formatted
+        {
+            self.decoration = Some(rendered);
             return Ok(());
         }
         let Some(language) = self.syntax.as_ref().map(|syntax| syntax.language.clone()) else { return Ok(()) };
@@ -442,12 +577,16 @@ impl Pager {
         syntax.resumes = kept;
     }
 
-    fn rich_layout(&self, line: Line) -> io::Result<Vec<Vec<Run>>> {
+    /// The cells `line` shows as, with their colours and whether they are part of a match.
+    fn cells(&self, line: Line) -> io::Result<Vec<Cell>> {
         let bytes = self.read(line.start, line.end)?;
+        let matches = self.matches.as_ref().map(|search| search.in_line(&bytes)).unwrap_or_default();
+        let current = self.current.clone();
         let text = String::from_utf8_lossy(&bytes);
         let text = text.strip_suffix('\r').unwrap_or(&text);
         let mut cells = Vec::new();
         let mut column = 0;
+        let mut next = 0;
         for (index, c) in text.char_indices() {
             let offset = line.start + index as u64;
             let paint = self
@@ -455,21 +594,35 @@ impl Pager {
                 .as_ref()
                 .filter(|rich| offset >= rich.base)
                 .map_or(Paint::default(), |rich| rich.at(offset - rich.base));
+            while matches.get(next).is_some_and(|found| found.end <= index) {
+                next += 1;
+            }
+            let mark = if current.as_ref().is_some_and(|current| current.contains(&offset)) {
+                Mark::Current
+            } else if matches.get(next).is_some_and(|found| found.contains(&index)) {
+                Mark::Match
+            } else {
+                Mark::None
+            };
             if c == '\t' {
                 let spaces = TAB_WIDTH - column % TAB_WIDTH;
-                cells.extend(std::iter::repeat_n((' ', 1, paint), spaces));
+                cells.extend(std::iter::repeat_n(Cell { c: ' ', width: 1, offset, paint, mark }, spaces));
                 column += spaces;
             } else {
                 let c = if c.is_control() { '·' } else { c };
                 let width = c.width().unwrap_or(0);
-                cells.push((c, width, paint));
+                cells.push(Cell { c, width, offset, paint, mark });
                 column += width;
             }
         }
+        Ok(cells)
+    }
+
+    fn rich_layout(&self, line: Line) -> io::Result<Vec<Vec<Run>>> {
         let mut rows = vec![Vec::<Run>::new()];
         let mut used = 0;
         let mut column = 0;
-        for (c, width, paint) in cells {
+        for Cell { c, width, paint, mark, .. } in self.cells(line)? {
             let start = column;
             column += width;
             if !self.wrap && (start < self.column || column > self.column.saturating_add(self.width)) {
@@ -480,10 +633,10 @@ impl Pager {
                 used = 0;
             }
             let row = rows.last_mut().unwrap();
-            if let Some(last) = row.last_mut().filter(|last| last.paint == paint) {
+            if let Some(last) = row.last_mut().filter(|last| last.paint == paint && last.mark == mark) {
                 last.text.push(c);
             } else {
-                row.push(Run { text: c.to_string(), paint });
+                row.push(Run { text: c.to_string(), paint, mark });
             }
             used += width;
         }
@@ -692,6 +845,38 @@ mod tests {
         ok(view.end());
         ok(view.scroll_up(1));
         assert_eq!(view.rows()[0], "xxx");
+    }
+
+    fn marks(view: &Pager, row: usize) -> Vec<(String, Mark)> {
+        view.rich_rows()[row].iter().map(|run| (run.text.clone(), run.mark)).collect()
+    }
+
+    #[test]
+    fn matches_on_the_page_are_marked_and_one_off_the_page_scrolls_into_view() {
+        let mut view = pager(&numbered(100), 20, 6);
+        let search = crate::Query { text: "line 9".into(), ..crate::Query::default() }.compile().unwrap().unwrap();
+        ok(view.show_matches(Some(search.clone())));
+        assert!(view.rich_rows().iter().flatten().all(|run| run.mark == Mark::None));
+        let first = search.next(&*view.source(), 0, &|_| true).unwrap().unwrap();
+        ok(view.reveal(first.clone()));
+        assert_eq!(view.rows()[0], "line 7", "a third of the page shows above the match");
+        assert_eq!(marks(&view, 2), [("line 9".to_owned(), Mark::Current)]);
+        let next = search.next(&*view.source(), first.end, &|_| true).unwrap().unwrap();
+        ok(view.reveal(next.clone()));
+        assert_eq!(view.rows()[0], "line 88");
+        assert_eq!(marks(&view, 2), [("line 9".to_owned(), Mark::Current), ("0".to_owned(), Mark::None)]);
+        assert_eq!(marks(&view, 3), [("line 9".to_owned(), Mark::Match), ("1".to_owned(), Mark::None)]);
+        let shown = search.next(&*view.source(), next.end, &|_| true).unwrap().unwrap();
+        ok(view.reveal(shown));
+        assert_eq!(view.rows()[0], "line 88", "a match on the page leaves it where it is");
+        assert_eq!(view.current_match().map(|range| range.start), Some(next.end + 2));
+
+        let mut wide = pager(&format!("{}needle\n", "x".repeat(50)), 10, 2);
+        ok(wide.toggle_wrap());
+        let needle = crate::Query { text: "needle".into(), ..crate::Query::default() }.compile().unwrap().unwrap();
+        ok(wide.show_matches(Some(needle)));
+        ok(wide.reveal(50..56));
+        assert_eq!(wide.rows()[0], "xxneedle", "the view scrolls sideways to the match");
     }
 
     #[test]

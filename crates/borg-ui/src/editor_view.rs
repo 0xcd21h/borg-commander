@@ -142,6 +142,9 @@ pub(crate) fn mouse(editor: &Editor, event: MouseEvent, double: bool, area: Rect
         }));
     }
     let status = crate::branding::content(status);
+    if editor.find.open {
+        return left(event.kind).then(|| crate::find_view::click(&editor.find, status, point)).flatten().map(Msg::Key);
+    }
     (left(event.kind) && status.contains(point) && editor_status(editor).is_none())
         .then(|| crate::hints::key_at(tr!(editor_hint), status.x + 1, point.x))
         .flatten()
@@ -165,25 +168,39 @@ pub(crate) fn draw_editor(editor: &Editor, theme: &Theme, area: Rect, buf: &mut 
     let text = Rect { x: body.x + gutter, width: body.width - gutter, ..body };
     let buffer = &editor.buffer;
     let selection = buffer.selection();
+    let (found, current) = crate::find_view::match_styles(theme);
+    let look = LineLook { base, selection: styles.cursor, found, current, light };
     for (y, line) in (body.top()..body.bottom()).zip(editor.top..buffer.lines()) {
         let number = format!("{:>width$} ", line + 1, width = usize::from(gutter.saturating_sub(2)));
         buf.set_stringn(body.x, y, number, usize::from(gutter), numbers);
         let start = buffer.line_start(line);
         let selected =
             selection.clone().map(|range| range.start.saturating_sub(start)..range.end.saturating_sub(start));
-        let look = LineLook { base, selection: styles.cursor, light };
-        draw_line(&buffer.line(line), editor.runs(line), selected, editor.left, (text, y), look, buf);
+        let window = buffer.window(line, editor.left, usize::from(text.width));
+        let found = editor
+            .matches_on(&window.text)
+            .into_iter()
+            .map(|found| window.start + found.start..window.start + found.end);
+        let marks = Marks { selected, found: found.collect(), length: buffer.line_len(line) };
+        draw_line(&window, editor.runs(line), &marks, editor.left, (text, y), look, buf);
     }
 
     let (line, _) = buffer.position();
-    let cursor = (line >= editor.top && buffer.screen_column() >= editor.left).then(|| Position {
-        x: text.x.saturating_add((buffer.screen_column() - editor.left) as u16),
+    let column = buffer.screen_column();
+    let cursor = (line >= editor.top && column >= editor.left).then(|| Position {
+        x: text.x.saturating_add((column - editor.left) as u16),
         y: body.y.saturating_add((line - editor.top) as u16),
     });
-    draw_status(editor, styles.viewer_status, crate::branding::content(status), buf);
+    let status = crate::branding::content(status);
+    let bar = (editor.find.open && editor.prompt.is_none())
+        .then(|| crate::find_view::draw_bar(&editor.find, theme, status, buf))
+        .filter(|cursor| status.contains(*cursor));
+    if bar.is_none() {
+        draw_status(editor, styles.viewer_status, status, buf);
+    }
     match draw_dialog(editor, theme, area, buf) {
         Some(field) => field,
-        None => cursor.filter(|cursor| text.contains(*cursor)),
+        None => bar.or(cursor.filter(|cursor| text.contains(*cursor))),
     }
 }
 
@@ -220,36 +237,56 @@ fn draw_status(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
     }
 }
 
-/// How text and the selection show, and whether the background is light for syntax colours.
+/// How text, the selection and matches show, and whether the background is light for syntax
+/// colours.
 #[derive(Clone, Copy)]
 struct LineLook {
     base: Style,
     selection: Style,
+    found: Style,
+    /// A match that is selected: the one stepped to.
+    current: Style,
     light: bool,
 }
 
-/// One line of text from screen column `left`: syntax colours, the selection over them, and a
-/// selected line break as one marked cell after the text.
-fn draw_line(
-    text: &str,
-    runs: Option<&[borg_view::Run]>,
+/// What of a line is selected and which parts match the find bar's query, by character, and
+/// how many characters it has.
+struct Marks {
     selected: Option<std::ops::Range<usize>>,
+    found: Vec<std::ops::Range<usize>>,
+    length: usize,
+}
+
+/// One line of text from screen column `left`, of which `window` holds what shows: syntax
+/// colours, matches and the selection over them, and a selected line break as one marked cell
+/// after the text.
+fn draw_line(
+    window: &borg_edit::Window,
+    runs: Option<&[borg_view::Run]>,
+    marks: &Marks,
     left: usize,
     (area, y): (Rect, u16),
     look: LineLook,
     buf: &mut Buffer,
 ) {
-    let LineLook { base, selection, light } = look;
-    let chars = text.chars().count();
+    let LineLook { base, selection, found, current, light } = look;
     let paints: Option<Vec<Paint>> = runs
         .map(|runs| runs.iter().flat_map(|run| std::iter::repeat_n(run.paint, run.text.chars().count())).collect())
-        .filter(|paints: &Vec<Paint>| paints.len() == chars);
-    let selected = |at: usize| selected.as_ref().is_some_and(|range| range.contains(&at));
+        .filter(|paints: &Vec<Paint>| paints.len() == marks.length);
+    let selected = |at: usize| marks.selected.as_ref().is_some_and(|range| range.contains(&at));
     let width = usize::from(area.width);
-    let mut column = 0;
-    for (at, shown, cells) in borg_edit::cells(text) {
+    let mut column = window.column;
+    let mut next = 0;
+    for (at, shown, cells) in borg_edit::cells(&window.text, window.column) {
+        let at = window.start + at;
+        while marks.found.get(next).is_some_and(|range| range.end <= at) {
+            next += 1;
+        }
+        let matched = marks.found.get(next).is_some_and(|range| range.contains(&at));
         let style = if selected(at) {
-            selection
+            if matched { current } else { selection }
+        } else if matched {
+            found
         } else {
             paints
                 .as_ref()
@@ -261,7 +298,8 @@ fn draw_line(
         }
         column += cells;
     }
-    if selected(chars) && column >= left && column < left + width {
+    let to_end = window.start + window.text.chars().count() == marks.length;
+    if to_end && selected(marks.length) && column >= left && column < left + width {
         buf.set_stringn(area.x + (column - left) as u16, y, " ", 1, selection);
     }
 }
