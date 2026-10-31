@@ -1,5 +1,7 @@
 use super::*;
 use borg_core::{ProcessFile, ProcessFiles};
+#[cfg(target_os = "macos")]
+use {super::helper::bounded_output, tokio::process::Command};
 
 pub(super) async fn list(process: ProcessKey) -> Result<ProcessFiles> {
     verify(process)?;
