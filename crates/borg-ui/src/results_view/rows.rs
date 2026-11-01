@@ -1,16 +1,19 @@
 //! The rows of a panel of results: entries with their columns, groups, and in a tree the row
 //! for the files directly in a folder.
 
-use borg_core::{Panel, Results, Row, SortKey};
+use borg_core::{LineMatch, Panel, Results, Row, SortKey};
 use borg_i18n::tr;
 use borg_vfs::Entry;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::Widget,
 };
+use unicode_width::UnicodeWidthStr;
 
-use super::{MARK_WIDTH, panel_columns, text, tree_indent};
+use super::{MARK_WIDTH, match_column, panel_columns, text, tree_indent};
 use crate::{format, icons, panel_view::PanelScene, theme::Styles};
 
 /// Where a row draws: its place among the panel's rows, its line, and whether the cursor is on it.
@@ -97,6 +100,41 @@ fn draw_entry(
         };
         text(buf, cell, &value, style);
     }
+    if let Some(cell) = match_column(panel, place.area)
+        && let Some(line) = results.line(entry.identity())
+    {
+        let (found, current) = crate::find_view::match_styles(styles);
+        let (style, found) = if place.focused {
+            (style, current)
+        } else {
+            (styles.meta.patch(style.remove_modifier(Modifier::BOLD)), found)
+        };
+        let width = cell.width.saturating_sub(1);
+        first_match(line, usize::from(width), style, found).render(Rect { width, ..cell }, buf);
+    }
+}
+
+/// A contents search's first match in a file: its line number, then the line with the match
+/// marked, cut at its start when the match would not show otherwise.
+fn first_match(line: &LineMatch, width: usize, style: Style, found: Style) -> Line<'static> {
+    let number = format!("{}: ", line.line);
+    let room = width.saturating_sub(number.width());
+    let matched = format::truncate_end(&line.found, room);
+    let left = room.saturating_sub(matched.width());
+    let before = line.before.trim_start();
+    let before = match before.width() {
+        fits if fits <= left => before.to_owned(),
+        _ if left == 0 => String::new(),
+        _ => format::truncate_start(before, left),
+    };
+    let after = left.saturating_sub(before.width());
+    let after = if after == 0 { String::new() } else { format::truncate_end(&line.after, after) };
+    Line::from(vec![
+        Span::styled(number, style),
+        Span::styled(before, style),
+        Span::styled(matched, found),
+        Span::styled(after, style),
+    ])
 }
 
 fn entry_style(styles: &Styles<Style>, entry: &Entry, marked: bool, cursor: bool) -> Style {

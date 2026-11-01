@@ -35,7 +35,13 @@ pub fn draw_viewer(
     let status = crate::branding::content(status);
     match &viewer.content {
         Content::Text(pager) => {
-            crate::document_view::draw(pager, theme.styles.viewer, crate::find_view::match_styles(theme), body, buf);
+            crate::document_view::draw(
+                pager,
+                theme.styles.viewer,
+                crate::find_view::match_styles(&theme.styles),
+                body,
+                buf,
+            );
             if viewer.find.open {
                 let cursor = crate::find_view::draw_bar(&viewer.find, theme, status, buf);
                 return (Vec::new(), Some(cursor).filter(|cursor| status.contains(*cursor)));

@@ -105,7 +105,15 @@ fn overlay_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<Option
             .flatten()
             .map(|option| Pointer::PromptField { option }),
         Overlay::Collections(picker) => collections_mouse(state, picker, mouse, screen),
-        Overlay::Search(form) => search_form_mouse(state, form, mouse, screen),
+        Overlay::Search(form) => {
+            let recent = form.recent(state).len();
+            let switch = (click && form.shows(borg_core::CONTENTS_FIELD))
+                .then(|| crate::discovery_view::contents_switch(screen, recent, point));
+            if let Some(key) = switch.flatten() {
+                return Some(Some(Msg::Key(key)));
+            }
+            search_form_mouse(state, form, mouse, screen)
+        }
         Overlay::Exclusions(editor) => click
             .then(|| crate::discovery_view::exclusion_row(editor, state, screen, point))
             .flatten()

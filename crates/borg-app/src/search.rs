@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use borg_core::{Msg, RESULT_LIMIT, SearchKind, SearchProgress, SearchQuery, SearchRequest, Side};
+use borg_core::{LineMatch, Msg, RESULT_LIMIT, Scan, SearchKind, SearchProgress, SearchQuery, SearchRequest, Side};
 use borg_vfs::Entry;
 use tokio::{
     sync::{mpsc, watch},
@@ -153,6 +153,7 @@ fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stor
         messages,
         cancelled: &request.cancelled,
         batch: Vec::with_capacity(BATCH_SIZE),
+        found: Vec::new(),
         background,
     };
     match request.work {
@@ -173,8 +174,8 @@ fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stor
             return;
         }
         Work::Search(search) => {
-            let answered =
-                stores.indexes.covering(&search).and_then(|index| search_index(&index, &search, &mut stream));
+            let index = search.options.contents.is_none().then(|| stores.indexes.covering(&search)).flatten();
+            let answered = index.and_then(|index| search_index(&index, &search, &mut stream));
             if !answered.unwrap_or_else(|| search_names(&search, &mut stream)) {
                 return;
             }
@@ -196,6 +197,10 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     let query = match SearchQuery::parse(&search.query) {
         Ok(query) => query,
         Err(error) => return failed(stream, error.message()),
+    };
+    let contents = match search.options.contents.as_deref().map(borg_view::Query::compile).transpose() {
+        Ok(contents) => contents.flatten(),
+        Err(reason) => return failed(stream, reason),
     };
     if let Err(error) = fs::read_dir(&search.root) {
         return failed(stream, error.to_string());
@@ -274,7 +279,22 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
                         continue;
                     }
                 };
-                if (cheap.is_none() && !wanted(&entry, &path)) || !stream.push(entry) {
+                if cheap.is_none() && !wanted(&entry, &path) {
+                    continue;
+                }
+                let line = match &contents {
+                    Some(contents) => match look_inside(&path, contents, stream, &mut progress) {
+                        Inside::Found(line) => Some(line),
+                        Inside::Passed => continue,
+                        Inside::Stopped => return false,
+                    },
+                    None => None,
+                };
+                let pushed = match line {
+                    Some(line) => stream.push_found(entry, line),
+                    None => stream.push(entry),
+                };
+                if !pushed {
                     if stream.stopped() {
                         return false;
                     }
@@ -298,6 +318,44 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
         progress.skipped = hidden_before.max(hidden.load(Ordering::Relaxed));
     }
     stream.flush() && stream.progress(progress)
+}
+
+/// What reading a file for a contents search came to.
+enum Inside {
+    Found(LineMatch),
+    /// No match, or a file left unread or unreadable.
+    Passed,
+    Stopped,
+}
+
+/// Reads the file at `path` for `contents`, counting it as read, left unread or failed.
+fn look_inside(
+    path: &Path,
+    contents: &borg_view::Search,
+    stream: &Output<'_>,
+    progress: &mut SearchProgress,
+) -> Inside {
+    let scanned = borg_view::FileSource::open(path)
+        .and_then(|source| borg_core::scan_contents(&source, contents, &|_| !stream.stopped()));
+    match scanned {
+        Ok(Scan::Matched(line)) => {
+            progress.read += 1;
+            Inside::Found(line)
+        }
+        Ok(Scan::NoMatch) => {
+            progress.read += 1;
+            Inside::Passed
+        }
+        Ok(Scan::Binary | Scan::TooLarge) => {
+            progress.unread += 1;
+            Inside::Passed
+        }
+        Err(_) if stream.stopped() => Inside::Stopped,
+        Err(_) => {
+            progress.errors += 1;
+            Inside::Passed
+        }
+    }
 }
 
 /// Answers from an index: `None` when its folder is not in it, so a live search must answer;
@@ -409,6 +467,8 @@ struct Output<'a> {
     messages: &'a mpsc::Sender<Msg>,
     cancelled: &'a AtomicBool,
     batch: Vec<Entry>,
+    /// Files a contents search found, sent apart from the batch so each keeps its match.
+    found: Vec<(Entry, LineMatch)>,
     background: bool,
 }
 
@@ -451,7 +511,17 @@ impl Output<'_> {
         self.batch.push(entry);
         self.batch.len() < BATCH_SIZE || self.flush()
     }
+    fn push_found(&mut self, entry: Entry, line: LineMatch) -> bool {
+        self.found.push((entry, line));
+        self.found.len() < BATCH_SIZE || self.flush()
+    }
     fn flush(&mut self) -> bool {
+        if !self.found.is_empty() {
+            let found = std::mem::take(&mut self.found);
+            if !self.send(Msg::Found { side: self.side, generation: self.generation, found }) {
+                return false;
+            }
+        }
         if self.batch.is_empty() {
             return !self.stopped();
         }

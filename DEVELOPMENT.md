@@ -198,6 +198,10 @@ request's `hidden:` and `excluded:` switches against the window's settings in co
 worker only applies them. The worker walks with the `ignore` crate: ignore files, configured
 globs as overrides, and a `filter_entry` that drops hidden names and generated folders
 (`borg-core::exclude`, plus `CACHEDIR.TAG`). A dropped folder is still tested against the query.
+A contents search compiles the find bar's `borg_view::Query` once, and the worker reads each file
+whose name matches through `borg-core::contents`, which leaves binary and oversized files unread
+and cuts the first matching line to a preview. Those files travel in `Msg::Found`, each with its
+line, and `Results::lines` keeps them by path for the panel and for F3 to land on the match.
 Name-only queries match on what the listing gives and read metadata for matches alone. The
 search history is core state saved owner-only as `search-history.json` in the state directory.
 
