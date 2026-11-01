@@ -9,7 +9,7 @@ use borg_edit::Buffer;
 use borg_view::Query;
 use crossterm::event::KeyCode;
 
-use crate::{AppState, Effect, LineInput, Side, View, find_bar::FindBar, viewer::Landing};
+use crate::{AppState, Aside, Effect, LineInput, Side, View, find_bar::FindBar, viewer::Landing};
 
 mod find;
 mod keys;
@@ -33,6 +33,13 @@ pub const EDITOR_CHROME: u16 = 2;
 pub enum EditorSlot {
     Screen,
     Panel(Side),
+}
+
+/// What a panel editor opened beside results gives back when it closes: the focus goes to the
+/// results, and the preview they showed comes back, read again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Beside {
+    pub aside: Option<Aside>,
 }
 
 /// What identifies a file's contents on disk without reading them again.
@@ -172,6 +179,7 @@ pub struct Editor {
     /// Set when one of the editor's keys or clicks closed it, so it is not put back.
     closed: bool,
     pub slot: EditorSlot,
+    pub(crate) beside: Option<Beside>,
 }
 
 impl Editor {
@@ -193,6 +201,7 @@ impl Editor {
             saving: None,
             closed: false,
             slot,
+            beside: None,
         }
     }
 
@@ -312,7 +321,7 @@ impl Editor {
     /// Closes the editor from one of its own keys or clicks.
     fn close(&mut self, state: &mut AppState) -> Vec<Effect> {
         self.closed = true;
-        close_editor(state, self.slot)
+        close_editor(state, self.slot, self.beside)
     }
 
     fn name(&self) -> String {
@@ -367,11 +376,30 @@ pub(crate) fn open_at(state: &mut AppState, path: PathBuf, slot: EditorSlot, que
     vec![Effect::OpenEditor { path, slot }]
 }
 
+/// Readies the panel on `side` for an editor beside the results in the other panel. An editor it
+/// holds with unsaved changes takes the focus and asks whether to save them, and `false` says so.
+pub(crate) fn ready_beside(state: &mut AppState, side: Side) -> bool {
+    if let Some(editor) = state.docked[side.index()].as_mut().filter(|editor| editor.buffer.modified()) {
+        editor.prompt = Some(EditorPrompt::Unsaved { focus: 0 });
+        state.active = side;
+        return false;
+    }
+    let aside = match &state.docked[side.index()] {
+        Some(editor) => editor.beside.and_then(|beside| beside.aside),
+        None => state.aside,
+    };
+    state.beside = Some((side, Beside { aside }));
+    true
+}
+
 pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<EditorFile, OpenError>) -> Vec<Effect> {
+    let beside = state.beside.take_if(|(side, _)| slot == EditorSlot::Panel(*side)).map(|(_, beside)| beside);
     match result {
         Ok(file) => {
             let landing = state.landing.take_if(|landing| landing.path == file.path);
             let mut editor = Editor::new(file, slot);
+            let reread = holder(state, slot).as_ref().and_then(|held| held.beside);
+            editor.beside = beside.or(reread);
             let (rows, columns) = text_size(state, &editor);
             if let Some(landing) = landing {
                 land(&mut editor, &landing, rows);
@@ -418,7 +446,8 @@ pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileS
             }
             editor.note = Some(tr!(editor_saved).into());
             if close {
-                return close_editor(state, slot);
+                let beside = editor.beside;
+                return close_editor(state, slot, beside);
             }
         }
         Err(SaveError::Changed) => {
@@ -430,12 +459,18 @@ pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileS
     Vec::new()
 }
 
-fn close_editor(state: &mut AppState, slot: EditorSlot) -> Vec<Effect> {
+fn close_editor(state: &mut AppState, slot: EditorSlot, beside: Option<Beside>) -> Vec<Effect> {
     *holder(state, slot) = None;
     let side = match slot {
         EditorSlot::Screen => state.active,
         EditorSlot::Panel(side) => side,
     };
+    if let Some(Beside { aside }) = beside {
+        state.active = side.other();
+        state.aside = aside;
+        state.peeked = None;
+        state.peeking = None;
+    }
     vec![state.reload(side)]
 }
 

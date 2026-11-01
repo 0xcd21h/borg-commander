@@ -341,6 +341,7 @@ pub enum Effect {
     Peek {
         aside: Aside,
         path: PathBuf,
+        at: Option<crate::FirstMatch>,
         size: (usize, usize),
     },
     GitScan {

@@ -117,13 +117,15 @@ campo **Com o texto**.
 Cada resultado mostra a primeira linha com correspondência, com o número da linha, na coluna
 **Correspondência**, e a linha de estado junta o número da linha ao caminho do ficheiro. F3 abre o
 ficheiro no visualizador nessa correspondência, com a barra de pesquisa aberta na pesquisa, para que
-Enter avance para a seguinte. Os ficheiros Markdown e JSON abrem aí como código-fonte, porque a
-pesquisa leu o ficheiro tal como está, e `s` muda para a vista formatada. F4 e Alt-E abrem o
-ficheiro no editor do Borg nessa correspondência, com a correspondência selecionada e a barra de
-pesquisa aberta na pesquisa. O Borg lê os ficheiros em segundo plano, e a linha de contexto conta os
-ficheiros lidos. Os ficheiros binários (um byte NUL nos primeiros 8 KiB) e os ficheiros com mais de
-64 MiB ficam por ler e contam como binários ou demasiado grandes. Ctrl-C interrompe a pesquisa, que
-para nos 20 000 ficheiros como qualquer pesquisa.
+Enter avance para a seguinte, e Ctrl-Q mostra-o aí na pré-visualização, com a pesquisa marcada. Os
+ficheiros Markdown e JSON abrem como código-fonte em ambos, porque a pesquisa leu o ficheiro tal
+como está, e `s` muda para a vista formatada. F4 abre o ficheiro no editor do Borg nessa
+correspondência, com a correspondência selecionada e a barra de pesquisa aberta na pesquisa, e Alt-E
+faz o mesmo no outro painel, para que os resultados continuem à vista. O Borg lê os ficheiros em
+segundo plano, e a linha de contexto conta os ficheiros lidos. Os ficheiros binários (um byte NUL
+nos primeiros 8 KiB) e os ficheiros com mais de 64 MiB ficam por ler e contam como binários ou
+demasiado grandes. Ctrl-C interrompe a pesquisa, que para nos 20 000 ficheiros como qualquer
+pesquisa.
 
 ### Trabalhar com os resultados
 
@@ -133,15 +135,20 @@ pasta de origem e o agrupamento por pasta ou tipo de ficheiro. Enter no cabeçal
 recolhe-o; Insert marca os ficheiros correspondentes desse grupo. As marcas mantêm-se quando
 ordena ou filtra, e o rodapé conta também os ficheiros marcados que o filtro oculta.
 
-F3 e Ctrl-Q abrem o ficheiro original. F5 copia para uma pasta real; se o outro painel for uma
-coleção, F5 acrescenta-lhe referências. F6 precisa de uma pasta real como destino. Numa coleção,
-F8 remove referências e não mexe nos ficheiros; nos resultados de pesquisa, F8 pede confirmação
-para eliminar os ficheiros originais. Shift-F8 também elimina os ficheiros originais a partir de
-uma coleção, depois de confirmar. Quando estão marcados uma pasta e ficheiros dentro dela, a
-tarefa trata a pasta uma única vez. **Revelar original** abre a pasta do ficheiro no outro painel.
-Left ou Esc ocultam os resultados, e Alt-Shift-R repõe-nos onde os deixou. Tab alterna entre os
-painéis mesmo quando a shell tem um comando por terminar. A shell fica sempre numa pasta real. F10
-pede sempre confirmação antes de sair.
+F3 e Ctrl-Q abrem o ficheiro original e, depois de uma pesquisa de texto, abrem-no na primeira
+correspondência. A pré-visualização acompanha o cursor pelos resultados e mostra cada ficheiro na
+sua correspondência, com a pesquisa marcada como a barra de pesquisa a marca. Alt-E abre o ficheiro
+no editor do Borg no outro painel, para que os resultados continuem à vista. Esc ou F10 fecha esse
+editor e devolve o foco aos resultados, e a pré-visualização regressa se estava aberta antes. F5
+copia para uma pasta real; se o outro painel for uma coleção, F5 acrescenta-lhe referências. F6
+precisa de uma pasta real como destino. Numa coleção, F8 remove referências e não mexe nos
+ficheiros; nos resultados de pesquisa, F8 pede confirmação para eliminar os ficheiros originais.
+Shift-F8 também elimina os ficheiros originais a partir de uma coleção, depois de confirmar. Quando
+estão marcados uma pasta e ficheiros dentro dela, a tarefa trata a pasta uma única vez. **Revelar
+original** abre a pasta do ficheiro no outro painel. Left ou Esc ocultam os resultados, e
+Alt-Shift-R repõe-nos onde os deixou. Tab alterna entre os painéis mesmo quando a shell tem um
+comando por terminar. A shell fica sempre numa pasta real. F10 pede sempre confirmação antes de
+sair.
 
 Por agora, as ações de Git e de arquivos só funcionam em painéis de pastas reais. Para as usar
 num ficheiro de uma coleção, abra primeiro a respetiva pasta com **Revelar original**.
@@ -289,7 +296,7 @@ instantes.
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
 | Alt-T | Time Machine: o que as cópias de segurança deixam de fora, no macOS |
-| Alt-E | Editar o ficheiro selecionado neste painel, em vez dos seus ficheiros |
+| Alt-E | Editar o ficheiro selecionado neste painel, em vez dos seus ficheiros, ou no outro painel ao lado dos resultados |
 | F1 | Sobre |
 | F2 | Menu Ficheiro |
 | F3 | Ver (texto ou imagem) |
@@ -776,11 +783,13 @@ outros terminais, a imagem aparece como blocos coloridos.
 
 Ctrl-Q mostra uma pré-visualização no outro painel. Tab entra nela, onde as setas, PgUp/PgDn,
 Home/End e a roda do rato percorrem o conteúdo; Tab ou Esc voltam à lista de ficheiros. Ctrl-L
-mostra informações sobre o ficheiro. F3 abre uma pré-visualização de texto no visualizador
-completo, e fechar o visualizador regressa à pré-visualização com a posição, a moldagem e o modo
-de código-fonte preservados. Ambos leem os ficheiros da mesma forma limitada, pelo que abrir um
-ficheiro de texto grande lê apenas mais ou menos a primeira página e continua rápido, seja qual
-for o tamanho do ficheiro.
+mostra informações sobre o ficheiro. F3 abre uma pré-visualização de texto no visualizador completo,
+e fechar o visualizador regressa à pré-visualização com a posição, a moldagem e o modo de
+código-fonte preservados. Ambos leem os ficheiros da mesma forma limitada, pelo que abrir um
+ficheiro de texto grande lê apenas mais ou menos a primeira página e continua rápido, seja qual for
+o tamanho do ficheiro. Num resultado de uma pesquisa de texto, a pré-visualização abre em vez disso
+na primeira correspondência do ficheiro, com a pesquisa marcada como a barra de pesquisa a marca, e
+lê apenas à volta dessa correspondência.
 
 Os dois visualizadores de texto realçam a sintaxe de linguagens de programação, formatos de
 marcação e ficheiros de configuração comuns, incluindo Rust, Python, JavaScript, TypeScript/TSX,
@@ -825,13 +834,18 @@ indicadas na linha de estado também podem ser clicadas.
 
 Alt-E abre o ficheiro selecionado no editor do Borg dentro do painel ativo, em vez dos seus
 ficheiros, para que possa editar dois ficheiros lado a lado, ou um ficheiro ao lado da pasta onde
-está. F6 passa do editor de um painel para o outro painel, e Tab volta ao editor a partir da lista
-de ficheiros. O texto copiado com Ctrl-C num editor cola-se com Ctrl-V no outro. Enquanto um
-editor tem o foco, a barra de atalhos mostra as teclas do editor, e as teclas do painel voltam com
-a lista de ficheiros. Ctrl-O também mostra a consola a partir de um editor, e F9 abre os menus.
-Esc ou F10 fecha o editor e devolve ao painel os seus ficheiros; ao sair, o Borg pergunta primeiro
-por cada editor de painel com alterações por guardar. A pré-visualização e as informações do
-ficheiro precisam do outro painel, por isso esperam até que o editor dele seja fechado.
+está. Nos resultados de pesquisa e nas coleções, Alt-E abre o editor no outro painel, para que a
+lista continue à vista. Alt-E noutro resultado abre-o no lugar do ficheiro que lá está. Quando esse
+ficheiro tem alterações por guardar, Alt-E traz o editor dele para a frente e pergunta se as quer
+guardar. F6 passa do editor de um painel para o outro painel, e Tab volta ao editor a partir da
+lista de ficheiros. O texto copiado com Ctrl-C num editor cola-se com Ctrl-V no outro. Enquanto um
+editor tem o foco, a barra de atalhos mostra as teclas do editor, e as teclas do painel voltam com a
+lista de ficheiros. Ctrl-O também mostra a consola a partir de um editor, e F9 abre os menus. Esc ou
+F10 fecha o editor e devolve ao painel os seus ficheiros; ao sair, o Borg pergunta primeiro por cada
+editor de painel com alterações por guardar. A pré-visualização e as informações do ficheiro
+precisam do outro painel, por isso esperam até que o editor dele seja fechado. Um editor aberto ao
+lado dos resultados devolve-lhes o foco quando fecha e traz de volta a pré-visualização ou as
+informações do ficheiro que mostravam.
 
 O visualizador e o editor procuram texto da mesma forma. No visualizador, `/`, F7 ou Ctrl-F abrem
 uma barra de pesquisa na linha de estado; no editor, é Ctrl-F ou F7. O Borg procura à medida que

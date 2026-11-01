@@ -136,6 +136,8 @@ pub struct AppState {
     pub opening: Option<PathBuf>,
     /// Where the file the viewer or the editor is opening shows a contents search's match.
     pub(crate) landing: Option<crate::viewer::Landing>,
+    /// The panel an editor about to open beside results goes to, and what it gives back.
+    pub(crate) beside: Option<(Side, crate::editor::Beside)>,
     pub editor: Option<crate::Editor>,
     /// The editors the panels hold in place of their files, left and right.
     pub docked: [Option<crate::Editor>; 2],
@@ -150,7 +152,7 @@ pub struct AppState {
     pub(crate) last_menu: Option<MenuCursor>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
-    pub(crate) peeking: Option<(Aside, PathBuf)>,
+    pub(crate) peeking: Option<(Aside, PathBuf, Option<crate::FirstMatch>)>,
     pub next_job: u64,
     pub idle_since: Instant,
     pub screensaver: bool,
@@ -224,6 +226,7 @@ impl AppState {
             viewer: None,
             opening: None,
             landing: None,
+            beside: None,
             editor: None,
             docked: [None, None],
             epoch: now,

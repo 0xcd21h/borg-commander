@@ -3,7 +3,7 @@
 
 use super::{App, Flow, Plain, TERMINAL_CLIPBOARD_LIMIT};
 use anyhow::Result;
-use borg_core::{Aside, EditorSlot, Effect, FileStamp, Msg, Side, viewer_size};
+use borg_core::{Aside, EditorSlot, Effect, FileStamp, FirstMatch, Msg, Side, viewer_size};
 use borg_i18n::tr;
 use borg_term::Scroll;
 use futures::StreamExt;
@@ -89,7 +89,7 @@ impl App {
                 self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target })
             }
             Effect::JobControl { id, command } => self.control_job(id, command),
-            Effect::Peek { aside, path, size } => self.peek(aside, path, size),
+            Effect::Peek { aside, path, at, size } => self.peek(aside, path, at, size),
             Effect::Quit => return Ok(Flow::Quit),
         }
         Ok(Flow::Continue)
@@ -213,9 +213,9 @@ impl App {
         self.clipboard = Some(text);
     }
 
-    pub(super) fn peek(&mut self, aside: Aside, path: PathBuf, size: (usize, usize)) {
+    pub(super) fn peek(&mut self, aside: Aside, path: PathBuf, at: Option<FirstMatch>, size: (usize, usize)) {
         let cell = self.graphics.capabilities().cell;
-        self.preview.request(aside, path, size, (cell.width, cell.height));
+        self.preview.request(aside, path, at, size, (cell.width, cell.height));
     }
 
     /// Lists `dir` into the panel on `side`, from this machine, a container or a remote Borg,

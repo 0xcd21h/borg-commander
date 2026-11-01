@@ -293,6 +293,7 @@ fn a_regular_open_file_previews_under_its_details_scrolls_and_opens_in_the_viewe
         Msg::Peeked(crate::Peeked {
             aside: crate::Aside::OpenFile,
             path: path.clone(),
+            at: None,
             peek: crate::Peek::Text(pager),
         }),
         now,

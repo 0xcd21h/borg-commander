@@ -124,7 +124,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::InvertSelection => panels::moved(state, Panel::invert_marks),
         Action::View => files::view(state, side),
         Action::Edit => files::edit_hovered(state, crate::EditorSlot::Screen),
-        Action::EditInPanel => files::edit_hovered(state, crate::EditorSlot::Panel(side)),
+        Action::EditInPanel => files::edit_in_panel(state, side),
         Action::EditExternal => files::edit_external(state),
         Action::Copy => files::copy(state, side),
         Action::Move => files::move_selection(state, side),

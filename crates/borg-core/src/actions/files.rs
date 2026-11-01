@@ -7,11 +7,10 @@ use std::{
 };
 
 use borg_i18n::tr;
-use borg_view::Query;
 
 use super::{dialogs::prompt, shell::interactive, shell::run_operation};
 use crate::{
-    Action, AppState, Confirm, ConfirmPurpose, EditorSlot, Effect, Overlay, Panel, PromptPurpose, Side,
+    Action, AppState, Confirm, ConfirmPurpose, EditorSlot, Effect, FirstMatch, Overlay, Panel, PromptPurpose, Side,
     ops::{self, ArchiveFormat, DEFAULT_ARCHIVE_SUFFIX},
 };
 
@@ -25,16 +24,15 @@ pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
         return remote_view(state, side);
     }
     let Some(path) = hovered_file(state) else { return Vec::new() };
-    match contents_match(state.panel(side), &path) {
-        Some((query, offset)) => crate::viewer::open_at(state, path, query, offset),
+    match first_match(state.panel(side), &path) {
+        Some(FirstMatch { query, offset }) => crate::viewer::open_at(state, path, query, offset),
         None => crate::viewer::open(state, path),
     }
 }
 
-/// The query a contents search found the file at `path` with, and where its first match starts.
-fn contents_match(panel: &Panel, path: &Path) -> Option<(Query, u64)> {
-    let results = panel.results.as_ref()?;
-    Some((results.contents()?.clone(), results.line(path)?.offset))
+/// Where a contents search found its first match in the file at `path`.
+fn first_match(panel: &Panel, path: &Path) -> Option<FirstMatch> {
+    panel.results.as_ref()?.first_match(path)
 }
 
 pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
@@ -52,10 +50,22 @@ pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
 /// search found in it.
 pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot) -> Vec<Effect> {
     let Some(path) = hovered_file(state) else { return Vec::new() };
-    match contents_match(state.active_panel(), &path) {
-        Some((query, offset)) => crate::editor::open_at(state, path, slot, query, offset),
+    match first_match(state.active_panel(), &path) {
+        Some(FirstMatch { query, offset }) => crate::editor::open_at(state, path, slot, query, offset),
         None => crate::editor::open(state, path, slot),
     }
+}
+
+/// Alt-E: opens the hovered file in a panel's editor, in place of the panel's files, or beside
+/// results in the other panel, so the list stays in view.
+pub(super) fn edit_in_panel(state: &mut AppState, side: Side) -> Vec<Effect> {
+    if !state.panel(side).is_results() {
+        return edit_hovered(state, EditorSlot::Panel(side));
+    }
+    if hovered_file(state).is_none() || !crate::editor::ready_beside(state, side.other()) {
+        return Vec::new();
+    }
+    edit_hovered(state, EditorSlot::Panel(side.other()))
 }
 
 /// Opens the hovered file in the editor the shell names.

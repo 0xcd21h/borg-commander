@@ -126,7 +126,7 @@ pub(crate) fn open_at(state: &mut AppState, path: PathBuf, query: Query, offset:
 
 /// Shows `path` at once when the quick view has it, or else asks to load it.
 fn show(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
-    if let Some(Peeked { aside: Aside::QuickView, path: shown, peek: Peek::Text(pager) }) = &state.peeked
+    if let Some(Peeked { aside: Aside::QuickView, path: shown, peek: Peek::Text(pager), .. }) = &state.peeked
         && *shown == path
     {
         state.viewer = Some(Viewer::new(path, Content::Text(pager.clone())));
@@ -186,9 +186,11 @@ fn close(state: &mut AppState) {
         && state.aside == Some(Aside::QuickView)
         && crate::aside::hovered_path(state).as_ref() == Some(&path)
     {
-        // The quick view shows the document without the viewer's matches.
-        let _ = pager.show_matches(None).and_then(|()| pager.forget_match());
-        state.peeked = Some(Peeked { aside: Aside::QuickView, path, peek: Peek::Text(pager) });
+        // The quick view marks a contents search's matches, and not the viewer's.
+        let at = crate::aside::opens_on(state, Aside::QuickView, &path);
+        let marks = at.as_ref().and_then(|at| at.query.compile().ok().flatten());
+        let _ = pager.show_matches(marks).and_then(|()| pager.forget_match());
+        state.peeked = Some(Peeked { aside: Aside::QuickView, path, at, peek: Peek::Text(pager) });
         state.peeking = None;
     }
 }

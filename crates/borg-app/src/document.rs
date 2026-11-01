@@ -70,7 +70,7 @@ mod tests {
             fs::write(&path, source).unwrap();
             let cancelled = Arc::new(AtomicBool::new(false));
             let Peek::Text(mut preview) =
-                crate::peek::peek(Aside::QuickView, &path, (45, 20), (8, 16), cancelled.clone())
+                crate::peek::peek(Aside::QuickView, &path, None, (45, 20), (8, 16), cancelled.clone())
             else {
                 panic!("expected text preview")
             };
@@ -82,6 +82,30 @@ mod tests {
             assert_eq!(preview.rich_rows(), viewer.rich_rows(), "{name}");
             assert_eq!(preview.formatted(), viewer.formatted(), "{name}");
             assert_eq!(preview.language(), viewer.language(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_contents_result_previews_around_its_match_deep_in_a_large_file_and_in_markdown_source() {
+        const HAY: usize = 256 * 1024;
+        let folder = tempfile::tempdir().unwrap();
+        let query = borg_view::Query { text: "needle".into(), ..Default::default() };
+        for (name, text) in [
+            ("huge.txt", "hay\n".repeat(HAY) + "the needle\n" + &"hay\n".repeat(HAY)),
+            ("notes.md", "# Notes\n\nA **needle** in the text.\n".to_owned()),
+        ] {
+            let path = folder.path().join(name);
+            fs::write(&path, &text).unwrap();
+            let offset = text.find("needle").unwrap() as u64;
+            let at = borg_core::FirstMatch { query: query.clone(), offset };
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let Peek::Text(pager) = crate::peek::peek(Aside::QuickView, &path, Some(&at), (45, 20), (8, 16), cancelled)
+            else {
+                panic!("expected text preview")
+            };
+            assert_eq!(pager.current_match(), Some(offset..offset + 6), "{name}");
+            assert!(pager.shows_matches() && !pager.formatted(), "{name}: marked, in the source the search read");
+            assert!(pager.rows().iter().any(|row| row.contains("needle")), "{name}");
         }
     }
 
