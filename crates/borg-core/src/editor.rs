@@ -6,14 +6,15 @@ use borg_i18n::tr;
 use std::{path::PathBuf, time::SystemTime};
 
 use borg_edit::Buffer;
+use borg_view::Query;
 use crossterm::event::KeyCode;
 
-use crate::{AppState, Effect, LineInput, Side, View, find_bar::FindBar};
+use crate::{AppState, Effect, LineInput, Side, View, find_bar::FindBar, viewer::Landing};
 
 mod find;
 mod keys;
 
-use find::seek_from_origin;
+use find::{land, seek_from_origin};
 use keys::on_edit;
 pub(crate) use keys::{on_key, on_panel_key, on_pointer};
 
@@ -353,15 +354,29 @@ fn text_size(state: &AppState, editor: &Editor) -> (usize, usize) {
     (usize::from(rows.saturating_sub(EDITOR_CHROME)), usize::from(cols.saturating_sub(editor.gutter())))
 }
 
-pub(crate) fn open(path: PathBuf, slot: EditorSlot) -> Vec<Effect> {
+pub(crate) fn open(state: &mut AppState, path: PathBuf, slot: EditorSlot) -> Vec<Effect> {
+    state.landing = None;
+    vec![Effect::OpenEditor { path, slot }]
+}
+
+/// Opens `path` with the match a contents search found at `offset` selected, the find bar
+/// ready with `query` to step on through the others. A file the editor leaves to the viewer
+/// opens there on the match.
+pub(crate) fn open_at(state: &mut AppState, path: PathBuf, slot: EditorSlot, query: Query, offset: u64) -> Vec<Effect> {
+    state.landing = Some(Landing { path: path.clone(), query, offset });
     vec![Effect::OpenEditor { path, slot }]
 }
 
 pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<EditorFile, OpenError>) -> Vec<Effect> {
     match result {
         Ok(file) => {
+            let landing = state.landing.take_if(|landing| landing.path == file.path);
             let mut editor = Editor::new(file, slot);
-            let (rows, _) = text_size(state, &editor);
+            let (rows, columns) = text_size(state, &editor);
+            if let Some(landing) = landing {
+                land(&mut editor, &landing, rows);
+            }
+            editor.follow(rows, columns);
             editor.paint(rows);
             if let EditorSlot::Panel(side) = slot {
                 // The panel's files give way to the editor, and previews to both.
@@ -381,6 +396,7 @@ pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<Edit
             vec![crate::viewer::request(state, path)]
         }
         Err(OpenError::Failed(path, error)) => {
+            state.landing.take_if(|landing| landing.path == path);
             state.notice = Some(tr!(editor_open_failed, name = display_name(&path), error = error));
             Vec::new()
         }

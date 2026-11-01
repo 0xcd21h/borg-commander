@@ -128,7 +128,7 @@ pub(super) fn press(state: &mut AppState, editor: &mut Editor, prompt: EditorPro
             let close = editor.saving.is_some_and(|(_, close)| close);
             return editor.save(close, true);
         }
-        (EditorPrompt::Changed { .. }, 1) => return open(editor.path.clone(), editor.slot),
+        (EditorPrompt::Changed { .. }, 1) => return open(state, editor.path.clone(), editor.slot),
         _ => {}
     }
     Vec::new()

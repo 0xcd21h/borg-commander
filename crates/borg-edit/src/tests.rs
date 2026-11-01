@@ -93,6 +93,15 @@ fn crlf_files_edit_with_line_feeds_and_save_their_endings() {
 }
 
 #[test]
+fn a_byte_of_the_file_as_read_finds_its_character_whatever_the_line_endings() {
+    let crlf = Buffer::new("one\r\ntwø\r\nthree\r\n");
+    let found = [0, 5, 7, 9, 11, 100].map(|byte| crlf.file_byte_to_char(byte));
+    assert_eq!(found, [0, 4, 6, 7, 8, crlf.len_chars()], "each line ending before the byte took one more");
+    let lf = Buffer::new("one\ntwø\nthree\n");
+    assert_eq!([0, 4, 6, 9].map(|byte| lf.file_byte_to_char(byte)), [0, 4, 6, 8]);
+}
+
+#[test]
 fn the_cursor_steps_over_whole_graphemes_and_keeps_its_column_on_short_lines() {
     let mut buffer = Buffer::new("a👩‍💻b\nx\nwide 日本語");
     buffer.move_to(Motion::Right, false);

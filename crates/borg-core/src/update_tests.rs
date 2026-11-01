@@ -1126,12 +1126,8 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
     assert!(state.viewer.is_none());
 }
 
-#[test]
-fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_the_find_bar_ready() {
-    use std::sync::Arc;
-
-    let (mut state, now) = setup();
-    let query = borg_view::Query { text: "row 5".into(), ..Default::default() };
+/// A contents search for `query` that found its first match in `/home/log` at `line`.
+fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, line: crate::LineMatch) {
     let request = crate::SearchRequest {
         root: "/home".into(),
         query: "*".into(),
@@ -1143,14 +1139,23 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
         },
         skip: None,
     };
-    let effects = crate::results::start_search(&mut state, request);
+    let effects = crate::results::start_search(state, request);
     let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
     let mut log = file("log");
     log.source = Some(PathBuf::from("/home/log"));
+    update(state, Msg::Found { side, generation, found: vec![(log, line)] }, now);
+    update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+#[test]
+fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_the_find_bar_ready() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "row 5".into(), ..Default::default() };
     let line =
         crate::LineMatch { line: 5, offset: 24, before: String::new(), found: "row 5".into(), after: String::new() };
-    update(&mut state, Msg::Found { side, generation, found: vec![(log, line.clone())] }, now);
-    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+    found_in_log(&mut state, now, &query, line.clone());
     let results = state.active_panel().results.as_ref().unwrap();
     assert_eq!(results.title(), "Search: * containing \"row 5\"");
     assert_eq!(results.line(Path::new("/home/log")), Some(&line));
@@ -1174,6 +1179,66 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
     let effects = press(&mut state, now, key(KeyCode::Enter));
     run_viewer_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(334..339), "Enter steps on to row 50");
+}
+
+#[test]
+fn f4_on_a_contents_match_opens_the_editor_on_it_with_the_find_bar_ready() {
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "retry".into(), words: true, ..Default::default() };
+    let text: String = (1..=100)
+        .map(|i| match i {
+            70 => "retry once\r\n".to_owned(),
+            90 => "then retry again\r\n".to_owned(),
+            _ => format!("retrying {i}\r\n"),
+        })
+        .collect();
+    let offset = text.find("retry once").unwrap() as u64;
+    let line =
+        crate::LineMatch { line: 70, offset, before: String::new(), found: "retry".into(), after: " once".into() };
+    found_in_log(&mut state, now, &query, line);
+
+    let path = PathBuf::from("/home/log");
+    let slot = crate::EditorSlot::Screen;
+    assert_eq!(press(&mut state, now, key(KeyCode::F(4))), [Effect::OpenEditor { path: path.clone(), slot }]);
+    let stamp = crate::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let file = crate::EditorFile { path: path.clone(), text, stamp };
+    update(&mut state, Msg::EditorOpened(slot, Ok(file.clone())), now);
+    let editor = state.editor.as_ref().unwrap();
+    assert!(editor.find.open && editor.find.input.text() == "retry" && editor.find.words, "the bar takes the query");
+    assert_eq!(editor.buffer.selected_text().as_deref(), Some("retry"));
+    assert_eq!(editor.buffer.position(), (69, 5), "the offset counted the line endings the editor holds as \\n");
+    let rows = usize::from(ROWS - crate::EDITOR_CHROME);
+    assert_eq!(editor.top, 69 - rows / 3, "a third of the screen shows above the match, as in the viewer");
+    assert_eq!(crate::find_bar_summary(&editor.find).as_deref(), Some("1 of 2"), "retrying is no whole word");
+    press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(state.editor.as_ref().unwrap().buffer.position(), (89, 10), "Enter steps on to line 90");
+
+    press(&mut state, now, key(KeyCode::F(10)));
+    assert!(state.editor.is_none());
+    crate::editor::open_at(&mut state, path.clone(), slot, query, offset);
+    crate::editor::open(&mut state, path, slot);
+    update(&mut state, Msg::EditorOpened(slot, Ok(file)), now);
+    let editor = state.editor.as_ref().unwrap();
+    assert!(!editor.find.open && editor.buffer.cursor() == 0, "a plain open after it starts at the top");
+}
+
+#[test]
+fn a_contents_match_the_editor_leaves_to_the_viewer_opens_there_on_the_match() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let path = PathBuf::from("/home/huge.log");
+    let query = borg_view::Query { text: "needle".into(), ..Default::default() };
+    let slot = crate::EditorSlot::Screen;
+    crate::editor::open_at(&mut state, path.clone(), slot, query.clone(), 9);
+    let effects = update(&mut state, Msg::EditorOpened(slot, Err(crate::OpenError::TooLarge(path.clone()))), now);
+    assert_eq!(effects, [Effect::View(path.clone())]);
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(Arc::new(b"haystack\nneedle\n".to_vec()), width, height).unwrap();
+    let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 9, .. }] if *asked == query));
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(9..15));
 }
 
 #[test]

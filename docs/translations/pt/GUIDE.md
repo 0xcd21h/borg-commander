@@ -116,13 +116,14 @@ campo **Com o texto**.
 
 Cada resultado mostra a primeira linha com correspondência, com o número da linha, na coluna
 **Correspondência**, e a linha de estado junta o número da linha ao caminho do ficheiro. F3 abre o
-ficheiro no visualizador nessa correspondência, com a barra de pesquisa aberta na pesquisa, para
-que Enter avance para a seguinte. Os ficheiros Markdown e JSON abrem aí como código-fonte, porque a
-pesquisa leu o ficheiro tal como está, e `s` muda para a vista formatada. O Borg lê os ficheiros em
-segundo plano, e a linha de contexto conta os ficheiros lidos. Os ficheiros binários (um byte NUL
-nos primeiros 8 KiB) e os ficheiros com mais de 64 MiB ficam por ler e contam como binários ou
-demasiado grandes. Ctrl-C interrompe a pesquisa, que para nos 20 000 ficheiros como qualquer
-pesquisa.
+ficheiro no visualizador nessa correspondência, com a barra de pesquisa aberta na pesquisa, para que
+Enter avance para a seguinte. Os ficheiros Markdown e JSON abrem aí como código-fonte, porque a
+pesquisa leu o ficheiro tal como está, e `s` muda para a vista formatada. F4 e Alt-E abrem o
+ficheiro no editor do Borg nessa correspondência, com a correspondência selecionada e a barra de
+pesquisa aberta na pesquisa. O Borg lê os ficheiros em segundo plano, e a linha de contexto conta os
+ficheiros lidos. Os ficheiros binários (um byte NUL nos primeiros 8 KiB) e os ficheiros com mais de
+64 MiB ficam por ler e contam como binários ou demasiado grandes. Ctrl-C interrompe a pesquisa, que
+para nos 20 000 ficheiros como qualquer pesquisa.
 
 ### Trabalhar com os resultados
 

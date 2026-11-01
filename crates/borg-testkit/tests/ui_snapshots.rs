@@ -1330,7 +1330,7 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
 }
 
 #[test]
-fn contents_search_dialog_results_and_viewer_landing() -> Result<()> {
+fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Result<()> {
     use borg_core::{Action, LineMatch, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
     use std::sync::Arc;
 
@@ -1398,14 +1398,24 @@ fn contents_search_dialog_results_and_viewer_landing() -> Result<()> {
     check("search_contents_results_expanded", &stage, buffer)?;
 
     stage.send(key(KeyCode::Down)).send(key(KeyCode::F(3)));
+    let path = PathBuf::from("/workspace/api/src/handlers.rs");
     let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
-    let pager = borg_view::Pager::new(Arc::new(source.into_bytes()), width, height)?;
-    let viewer =
-        borg_core::Viewer::new(PathBuf::from("/workspace/api/src/handlers.rs"), borg_core::Content::Text(pager));
+    let pager = borg_view::Pager::new(Arc::new(source.clone().into_bytes()), width, height)?;
+    let viewer = borg_core::Viewer::new(path.clone(), borg_core::Content::Text(pager));
     send_and_search(&mut stage, Msg::Opened(viewer));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "1 of 2")?;
-    check("search_contents_viewer", &stage, buffer)
+    check("search_contents_viewer", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(10))).send(key(KeyCode::F(4)));
+    anyhow::ensure!(stage.state.viewer.is_none(), "the viewer closed");
+    let stamp = borg_core::FileStamp { len: source.len() as u64, modified: None, inode: 1 };
+    let file = borg_core::EditorFile { path, text: source, stamp };
+    stage.send(Msg::EditorOpened(borg_core::EditorSlot::Screen, Ok(file)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 2")?;
+    ensure_text(&buffer, "let todo = queue.pop();")?;
+    check("search_contents_editor", &stage, buffer)
 }
 
 #[test]
