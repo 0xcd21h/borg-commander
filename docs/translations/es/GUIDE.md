@@ -115,11 +115,12 @@ Cada resultado muestra la primera línea que coincide, con su número de línea,
 **Coincidencia**, y la línea de estado añade el número de línea a la ruta del archivo. F3 abre el
 archivo en el visor en esa coincidencia, con la barra de búsqueda abierta con la consulta, para que
 Enter pase a la siguiente. Los archivos Markdown y JSON se abren ahí como código fuente, porque la
-búsqueda leyó el archivo tal cual, y `s` cambia a la vista formateada. Borg lee los archivos en
-segundo plano, y la línea de contexto cuenta los archivos leídos. Los archivos binarios (un byte
-NUL en los primeros 8 KiB) y los de más de 64 MiB quedan sin leer y cuentan como binarios o
-demasiado grandes. Ctrl-C detiene la búsqueda, que se para en 20.000 archivos como cualquier
-búsqueda.
+búsqueda leyó el archivo tal cual, y `s` cambia a la vista formateada. F4 y Alt-E abren el archivo
+en el editor de Borg en esa coincidencia, con la coincidencia seleccionada y la barra de búsqueda
+abierta con la consulta. Borg lee los archivos en segundo plano, y la línea de contexto cuenta los
+archivos leídos. Los archivos binarios (un byte NUL en los primeros 8 KiB) y los de más de 64 MiB
+quedan sin leer y cuentan como binarios o demasiado grandes. Ctrl-C detiene la búsqueda, que se para
+en 20.000 archivos como cualquier búsqueda.
 
 ### Trabajar con los resultados
 

@@ -105,10 +105,11 @@ field.
 Each result shows its first matching line, with the line number, in the **Match** column, and the
 status line adds the line number to the file's path. F3 opens the file in the viewer at that match
 with the find bar open on the query, so Enter goes on to the next one. Markdown and JSON files open
-as source there, since the search read the file as it is, and `s` switches to the formatted view.
-Borg reads the files in the background, and the context line counts the files read. Binary files (a
-NUL byte in the first 8 KiB) and files over 64 MiB stay unread and are counted as binary or too
-large. Ctrl-C stops the search, and it stops at 20,000 files like any search.
+as source there, since the search read the file as it is, and `s` switches to the formatted view. F4
+and Alt-E open the file in Borg's editor at that match, with the match selected and the find bar
+open on the query. Borg reads the files in the background, and the context line counts the files
+read. Binary files (a NUL byte in the first 8 KiB) and files over 64 MiB stay unread and are counted
+as binary or too large. Ctrl-C stops the search, and it stops at 20,000 files like any search.
 
 ### Working with results
 

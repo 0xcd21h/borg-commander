@@ -1,9 +1,13 @@
 //! The file commands: viewing and editing the hovered file, and copying, moving, deleting,
 //! packing and unpacking the selection.
 
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use borg_i18n::tr;
+use borg_view::Query;
 
 use super::{dialogs::prompt, shell::interactive, shell::run_operation};
 use crate::{
@@ -21,11 +25,16 @@ pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
         return remote_view(state, side);
     }
     let Some(path) = hovered_file(state) else { return Vec::new() };
-    let results = state.panel(side).results.as_ref();
-    match results.and_then(|results| Some((results.contents()?.clone(), results.line(&path)?.offset))) {
+    match contents_match(state.panel(side), &path) {
         Some((query, offset)) => crate::viewer::open_at(state, path, query, offset),
         None => crate::viewer::open(state, path),
     }
+}
+
+/// The query a contents search found the file at `path` with, and where its first match starts.
+fn contents_match(panel: &Panel, path: &Path) -> Option<(Query, u64)> {
+    let results = panel.results.as_ref()?;
+    Some((results.contents()?.clone(), results.line(path)?.offset))
 }
 
 pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
@@ -39,9 +48,14 @@ pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
     vec![Effect::RemoteView { machine, session, path }]
 }
 
-/// Opens the hovered file in Borg's editor, full screen or in a panel.
+/// Opens the hovered file in Borg's editor, full screen or in a panel, on the match a contents
+/// search found in it.
 pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot) -> Vec<Effect> {
-    hovered_file(state).map(|path| crate::editor::open(path, slot)).unwrap_or_default()
+    let Some(path) = hovered_file(state) else { return Vec::new() };
+    match contents_match(state.active_panel(), &path) {
+        Some((query, offset)) => crate::editor::open_at(state, path, slot, query, offset),
+        None => crate::editor::open(state, path, slot),
+    }
 }
 
 /// Opens the hovered file in the editor the shell names.

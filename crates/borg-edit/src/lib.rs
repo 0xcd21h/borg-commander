@@ -247,6 +247,25 @@ impl Buffer {
         self.rope.byte_to_char(byte.min(self.rope.len_bytes()))
     }
 
+    /// The character at byte `byte` of the file as read, where each `\r\n` the text holds as
+    /// `\n` took a byte more.
+    pub fn file_byte_to_char(&self, byte: usize) -> usize {
+        if self.eol == Eol::Lf {
+            return self.byte_to_char(byte);
+        }
+        let starts_by = |line: usize| self.rope.line_to_byte(line) + line <= byte;
+        let (mut line, mut after) = (0, self.rope.len_lines());
+        while line + 1 < after {
+            let middle = line + (after - line) / 2;
+            if starts_by(middle) {
+                line = middle;
+            } else {
+                after = middle;
+            }
+        }
+        self.byte_to_char(byte - line)
+    }
+
     pub fn char_to_byte(&self, char: usize) -> usize {
         self.rope.char_to_byte(char.min(self.rope.len_chars()))
     }
