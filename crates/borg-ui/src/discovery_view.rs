@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use crate::{Theme, dialog_view::centered, format};
-use borg_core::{AppState, CollectionPicker, EXCLUSION_SWITCHES, ExclusionEditor, LineInput, PastSearch, SearchForm};
+use borg_core::{
+    AppState, CONTENTS_FIELD, CollectionPicker, EXCLUSION_SWITCHES, ExclusionEditor, FILES_FIELD, HIDDEN_FIELD,
+    LineInput, MINIMUM_FIELD, PATTERN_FIELD, PastSearch, ROOT_FIELD, SKIP_FIELD, SearchForm,
+};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -11,13 +14,17 @@ use ratatui::{
 };
 
 const MAX_WIDTH: u16 = 82;
-const SEARCH_HEIGHT: u16 = 13;
-const SEARCH_BUTTON_ROW: u16 = 9;
-const HIDDEN_ROW: u16 = 6;
-const SKIP_ROW: u16 = 7;
-const HINT_ROW: u16 = 10;
+const SEARCH_HEIGHT: u16 = 14;
+/// The contents field's row, which it shares with the switches for case, words and regular
+/// expressions.
+const CONTENTS_ROW: u16 = 2;
+const HIDDEN_ROW: u16 = 7;
+const SKIP_ROW: u16 = 8;
+const ERROR_ROW: u16 = 9;
+const SEARCH_BUTTON_ROW: u16 = 10;
+const HINT_ROW: u16 = 11;
 /// The heading over recent searches, a row below the hint.
-const RECENT_ROW: u16 = 12;
+const RECENT_ROW: u16 = 13;
 /// The first pattern's row in the exclusion list, below the switches and a heading.
 const PATTERNS_ROW: u16 = 5;
 /// The exclusion list's rows besides its patterns: borders, switches, headings, the row for
@@ -169,6 +176,30 @@ pub(crate) fn search_field(screen: Rect, recent: usize, point: Position) -> Opti
     let area = search_area(screen, recent).inner(ratatui::layout::Margin::new(2, 1));
     (area.contains(point) && point.y > area.y && point.y <= area.y + SKIP_ROW)
         .then(|| usize::from(point.y - area.y - 1))
+}
+
+/// The search dialog's labels, and where its fields start.
+fn search_fields(screen: Rect, recent: usize) -> (Rect, u16) {
+    use unicode_width::UnicodeWidthStr;
+    let inner = search_area(screen, recent).inner(ratatui::layout::Margin::new(2, 1));
+    let labels =
+        [tr!(name_or_glob), tr!(contents_label), tr!(search_in), tr!(look_for), tr!(minimum_size), tr!(minimum_files)];
+    let label_width = labels.iter().map(|label| label.width()).max().unwrap_or(0) as u16;
+    let label_width = label_width.min(inner.width / 2);
+    (inner, inner.x.saturating_add(label_width).saturating_add(FIELD_GAP))
+}
+
+/// The contents field's switches, at the end of its row.
+fn contents_switches(screen: Rect, recent: usize) -> [Rect; 3] {
+    let (inner, field_x) = search_fields(screen, recent);
+    let row = Rect { y: inner.y + CONTENTS_ROW, height: u16::from(inner.height > CONTENTS_ROW), ..inner };
+    let end = inner.right().saturating_sub(crate::find_view::SWITCHES_WIDTH).max(field_x);
+    crate::find_view::switch_areas(Rect { x: field_x, width: end - field_x, ..row }, row)
+}
+
+/// The key a click on one of the contents field's switches presses.
+pub(crate) fn contents_switch(screen: Rect, recent: usize, point: Position) -> Option<crossterm::event::KeyEvent> {
+    crate::find_view::switch_key(contents_switches(screen, recent), point)
 }
 
 /// The label on the leave-out row that opens what is left out.
@@ -364,31 +395,35 @@ pub(crate) fn search(
         })
         .title_bottom(tr!(tab_fields_mode_space_toggle_esc_cancel))
         .render(area, buf);
-    let inner = area.inner(ratatui::layout::Margin::new(2, 1));
-    let labels = [tr!(name_or_glob), tr!(search_in), tr!(look_for), tr!(minimum_size), tr!(minimum_files)];
-    let label_width = labels.iter().map(|label| label.width()).max().unwrap_or(0) as u16;
-    let label_width = label_width.min(inner.width / 2);
-    let field_x = inner.x.saturating_add(label_width).saturating_add(FIELD_GAP);
+    let (inner, field_x) = search_fields(screen, recent.len());
     let field_width = inner.right().saturating_sub(field_x);
     let width = usize::from(field_width.saturating_sub(FIELD_PADDING * 2));
+    let switches = contents_switches(screen, recent.len());
+    let contents_width = switches[0].x.saturating_sub(1).saturating_sub(field_x);
+    let contents_room = usize::from(contents_width.saturating_sub(FIELD_PADDING * 2));
+    let any = |input: &LineInput, field: usize| {
+        if input.text().is_empty() && form.selected != field {
+            tr!(any).into()
+        } else {
+            input_text(input, form.selected == field, width)
+        }
+    };
     let fields = [
-        input_text(&form.pattern, form.selected == 0, width),
-        input_text(&form.root, form.selected == 1, width),
-        format!("‹ {} ›", form.kind.label()),
-        if form.minimum.text().is_empty() && form.selected != 3 {
-            tr!(any).into()
-        } else {
-            input_text(&form.minimum, form.selected == 3, width)
-        },
-        if form.files.text().is_empty() && form.selected != 4 {
-            tr!(any).into()
-        } else {
-            input_text(&form.files, form.selected == 4, width)
-        },
+        (tr!(name_or_glob), input_text(&form.pattern, form.selected == PATTERN_FIELD, width), field_width),
+        (
+            tr!(contents_label),
+            input_text(&form.contents.input, form.selected == CONTENTS_FIELD, contents_room),
+            contents_width,
+        ),
+        (tr!(search_in), input_text(&form.root, form.selected == ROOT_FIELD, width), field_width),
+        (tr!(look_for), format!("‹ {} ›", form.kind.label()), field_width),
+        (tr!(minimum_size), any(&form.minimum, MINIMUM_FIELD), field_width),
+        (tr!(minimum_files), any(&form.files, FILES_FIELD), field_width),
     ];
-    for (index, (label, value)) in labels.into_iter().zip(fields).enumerate() {
+    let label_width = field_x.saturating_sub(inner.x).saturating_sub(FIELD_GAP);
+    for (index, (label, value, field_width)) in fields.into_iter().enumerate() {
         let row = index as u16 + 1;
-        if row >= inner.height {
+        if row >= inner.height || !form.shows(index) {
             continue;
         }
         write(buf, Rect { width: label_width, ..inner }, row, label.into(), theme.styles.overlay);
@@ -400,12 +435,16 @@ pub(crate) fn search(
             theme,
         );
     }
+    if form.shows(CONTENTS_FIELD) {
+        let off = theme.styles.overlay.add_modifier(ratatui::style::Modifier::DIM);
+        crate::find_view::draw_switches(&form.contents, switches, theme.styles.cursor, off, buf);
+    }
     let sizes = matches!(form.kind, borg_core::SearchKind::FolderTotals | borg_core::SearchKind::FolderTree);
     let checks = [
-        (HIDDEN_ROW, form.hidden, 5, tr!(include_hidden_files_and_folders)),
-        (SKIP_ROW, form.skip, 6, tr!(skip_generated_files)),
+        (HIDDEN_ROW, form.hidden, HIDDEN_FIELD, tr!(include_hidden_files_and_folders)),
+        (SKIP_ROW, form.skip, SKIP_FIELD, tr!(skip_generated_files)),
     ];
-    for (row, checked, index, label) in checks.into_iter().take(if sizes { 1 } else { 2 }) {
+    for (row, checked, index, label) in checks.into_iter().filter(|(_, _, index, _)| form.shows(*index)) {
         write(
             buf,
             Rect { width: 3.min(inner.width), ..inner },
@@ -418,16 +457,11 @@ pub(crate) fn search(
     }
     if !sizes {
         write(buf, edit_exclusions(screen, recent.len()), 0, tr!(edit_exclusions).into(), theme.styles.footer);
-        write(
-            buf,
-            inner,
-            HINT_ROW,
-            format::truncate_end(tr!(search_query_hint), usize::from(inner.width)),
-            theme.styles.footer,
-        );
+        let hint = if form.selected == CONTENTS_FIELD { tr!(contents_hint) } else { tr!(search_query_hint) };
+        write(buf, inner, HINT_ROW, format::truncate_end(hint, usize::from(inner.width)), theme.styles.footer);
     }
     if let Some(error) = &form.error {
-        write(buf, inner, 8, error.clone(), theme.styles.notice);
+        write(buf, inner, ERROR_ROW, error.clone(), theme.styles.notice);
     }
     write(buf, search_button(screen, recent.len()), 0, tr!(search_start_button).into(), theme.styles.menu);
     if !recent.is_empty() {

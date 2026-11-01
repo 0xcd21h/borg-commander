@@ -48,11 +48,15 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     let line = text.lines().next().unwrap_or_default();
     let input = match state.overlay.as_mut() {
         Some(Overlay::Collections(crate::CollectionPicker { creating: Some(input), .. })) => input,
+        Some(Overlay::Search(form)) if form.selected == crate::CONTENTS_FIELD => {
+            form.contents.paste(line);
+            return Vec::new();
+        }
         Some(Overlay::Search(form)) => match form.selected {
-            0 => &mut form.pattern,
-            1 => &mut form.root,
-            3 => &mut form.minimum,
-            4 => &mut form.files,
+            crate::PATTERN_FIELD => &mut form.pattern,
+            crate::ROOT_FIELD => &mut form.root,
+            crate::MINIMUM_FIELD => &mut form.minimum,
+            crate::FILES_FIELD => &mut form.files,
             _ => return Vec::new(),
         },
         Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,

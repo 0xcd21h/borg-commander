@@ -95,8 +95,12 @@ fn pick_collection(
 
 /// A field of the search dialog; a click on one of its switches flips it, as Right does.
 fn pick_search_field(state: &mut AppState, mut form: crate::SearchForm, selected: usize, now: Instant) -> Vec<Effect> {
-    form.selected = selected.min(form.fields() - 1);
-    let toggle = matches!(form.selected, 2 | 5 | 6);
+    if !form.shows(selected) {
+        state.overlay = Some(Overlay::Search(form));
+        return Vec::new();
+    }
+    form.selected = selected;
+    let toggle = matches!(form.selected, crate::KIND_FIELD | crate::HIDDEN_FIELD | crate::SKIP_FIELD);
     state.overlay = Some(Overlay::Search(form));
     if toggle { press(state, KeyCode::Right, now) } else { Vec::new() }
 }

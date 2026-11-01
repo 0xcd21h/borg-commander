@@ -1,7 +1,7 @@
 use borg_i18n::tr;
 use std::{
-    collections::{BTreeMap, HashSet},
-    path::PathBuf,
+    collections::{BTreeMap, HashMap, HashSet},
+    path::{Path, PathBuf},
 };
 
 use borg_vfs::Entry;
@@ -31,6 +31,9 @@ pub struct SearchProgress {
     pub excluded: usize,
     /// When the index that answered was built; `None` for a live search.
     pub indexed: Option<std::time::SystemTime>,
+    /// Files a contents search read, and those it left unread as binary or too large.
+    pub read: usize,
+    pub unread: usize,
     pub limited: bool,
     pub cancelled: bool,
 }
@@ -88,6 +91,8 @@ pub struct Results {
     pub group: ResultGroup,
     pub rows: Vec<ResultRow>,
     pub collapsed: HashSet<String>,
+    /// A contents search's first match in each file it found, by the file's path.
+    pub lines: HashMap<PathBuf, crate::LineMatch>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,7 +132,21 @@ impl Results {
             group: ResultGroup::None,
             rows: Vec::new(),
             collapsed: HashSet::new(),
+            lines: HashMap::new(),
         }
+    }
+
+    /// The text a contents search looked for, with its switches.
+    pub fn contents(&self) -> Option<&borg_view::Query> {
+        match &self.source {
+            ResultSource::Search { request, .. } => request.options.contents.as_deref(),
+            ResultSource::Collection(_) => None,
+        }
+    }
+
+    /// The first match a contents search found in the file at `path`.
+    pub fn line(&self, path: &Path) -> Option<&crate::LineMatch> {
+        self.lines.get(path)
     }
 
     pub fn title(&self) -> String {
@@ -138,6 +157,9 @@ impl Results {
             ResultSource::Collection(name) => tr!(collection_title, name = name),
             ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::FolderTotals => {
                 tr!(folder_sizes, request.query)
+            }
+            ResultSource::Search { request, .. } if let Some(contents) = &request.options.contents => {
+                tr!(contents_search_title, query = request.query, contents = contents.text)
             }
             ResultSource::Search { request, .. } => tr!(search_title, request.query),
         }
@@ -550,6 +572,21 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         _ => Vec::new(),
     }
+}
+
+/// Files a contents search found, each with its first match.
+pub(crate) fn found(state: &mut AppState, side: Side, generation: u64, found: Vec<(Entry, crate::LineMatch)>) {
+    let show_hidden = state.settings.preferences.show_hidden;
+    let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let Some(results) = panel.results.as_mut() else { return };
+    let entries = found
+        .into_iter()
+        .map(|(entry, line)| {
+            results.lines.insert(entry.identity().to_path_buf(), line);
+            entry
+        })
+        .collect();
+    panel.receive(generation, entries, show_hidden);
 }
 
 pub(crate) fn progress(state: &mut AppState, side: Side, generation: u64, update: SearchProgress) {

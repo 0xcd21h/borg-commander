@@ -57,6 +57,17 @@ pub struct FindBar {
     recalled: Option<usize>,
 }
 
+/// Bars are alike when their query, switches and state are; the compiled search follows from those.
+impl PartialEq for FindBar {
+    fn eq(&self, other: &Self) -> bool {
+        (self.input == other.input && self.case == other.case && self.words == other.words)
+            && (self.regex == other.regex && self.open == other.open && self.count == other.count)
+            && (self.note == other.note && self.recalled == other.recalled)
+    }
+}
+
+impl Eq for FindBar {}
+
 impl FindBar {
     pub fn query(&self) -> Query {
         Query { text: self.input.text().to_owned(), case: self.case, words: self.words, regex: self.regex }
@@ -73,6 +84,14 @@ impl FindBar {
             self.input = LineInput::new(seed);
         }
         self.open = true;
+        self.recalled = None;
+        self.compile();
+    }
+
+    /// Takes `query`'s text and switches.
+    pub(crate) fn load(&mut self, query: &Query) {
+        self.input = LineInput::new(query.text.as_str());
+        (self.case, self.words, self.regex) = (query.case, query.words, query.regex);
         self.recalled = None;
         self.compile();
     }
@@ -120,11 +139,7 @@ impl FindBar {
 
     pub(crate) fn on_key(&mut self, key: &KeyEvent, recent: &[String]) -> BarKey {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
-        if self.switch(key) {
-            return BarKey::Changed;
-        }
         match key.code {
             KeyCode::Esc => {
                 self.open = false;
@@ -134,6 +149,18 @@ impl FindBar {
             KeyCode::F(7) if alt => BarKey::Step(Direction::Backward),
             KeyCode::Up => BarKey::Step(Direction::Backward),
             KeyCode::Enter | KeyCode::Down | KeyCode::F(3 | 7) => BarKey::Step(Direction::Forward),
+            _ => self.edit(key, recent),
+        }
+    }
+
+    /// A key that edits the query: typing, a switch, or Ctrl-P and Ctrl-N for a recent query.
+    /// The search dialog's contents field takes these too.
+    pub(crate) fn edit(&mut self, key: &KeyEvent, recent: &[String]) -> BarKey {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if self.switch(key) {
+            return BarKey::Changed;
+        }
+        match key.code {
             KeyCode::Char('p') if ctrl => self.recall(recent, true),
             KeyCode::Char('n') if ctrl => self.recall(recent, false),
             _ => {

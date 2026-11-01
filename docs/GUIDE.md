@@ -60,8 +60,9 @@ Homebrew puts them in `$(brew --prefix)/share/borg-commander/fonts`.
 
 ## Collections and recursive search
 
-The Search menu holds collections and recursive file name search. Both show their results as
-a sortable list with each file's source path, and both work with the viewer and quick preview.
+The Search menu holds collections and recursive search by file name or contents. Both show their
+results as a sortable list with each file's source path, and both work with the viewer and quick
+preview.
 
 - **Ctrl-F:** search the current folder and everything below it. Every word must match:
   `main rs` finds `main.rs`, and `a | b` finds either word. A lowercase word ignores case; a word
@@ -89,6 +90,25 @@ a sortable list with each file's source path, and both work with the viewer and 
   default. The `[+]` (maximize), `[=]` (restore), and `[-]` (fold) controls in the title bar can
   be clicked. Folding hides the view; Alt-Shift-R brings it back with its layout and selection.
 - **Ctrl-S:** filter the results by name or source path. An empty filter shows everything.
+
+### Searching inside files
+
+Type text in **Containing** in the Ctrl-F dialog to list the files below the folder that contain
+it. The name pattern still applies, so `*.rs` with `fn main` in **Containing** finds the Rust files
+that have it. The switches beside the field work as in the find bar: Alt-C matches case exactly
+(otherwise a lowercase query matches any case), Alt-W matches whole words, and Alt-R reads the
+text as a regular expression. You can click the switches too. Ctrl-P and Ctrl-N in the field bring
+back recent queries from the find bar and earlier searches. A search for text lists files only,
+so it takes no folder totals or minimum file count, and **Folder sizes** has no **Containing**
+field.
+
+Each result shows its first matching line, with the line number, in the **Match** column, and the
+status line adds the line number to the file's path. F3 opens the file in the viewer at that match
+with the find bar open on the query, so Enter goes on to the next one. Markdown and JSON files open
+as source there, since the search read the file as it is, and `s` switches to the formatted view.
+Borg reads the files in the background, and the context line counts the files read. Binary files (a
+NUL byte in the first 8 KiB) and files over 64 MiB stay unread and are counted as binary or too
+large. Ctrl-C stops the search, and it stops at 20,000 files like any search.
 
 ### Working with results
 
@@ -171,7 +191,8 @@ Search history stays on this computer and only you can read it. Set
 folder, so Ctrl-F there, or in any folder below it, answers at once. The context line says when
 the index was built. Borg rebuilds indexes in the background after it starts and whenever an
 index is more than 15 minutes old, and the old index keeps answering until the new one is ready.
-A search that leaves nothing out, or uses different exclusions, reads the folders instead. Choose
+A search that leaves nothing out, or uses different exclusions, reads the folders instead, and so
+does a search for text, because the index holds only names. Choose
 the menu item again to stop indexing and delete the index. Indexes are kept in the cache folder
 next to the size scans, and `[index]` in the configuration lists the indexed folders.
 

@@ -1330,6 +1330,85 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
 }
 
 #[test]
+fn contents_search_dialog_results_and_viewer_landing() -> Result<()> {
+    use borg_core::{Action, LineMatch, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
+    use std::sync::Arc;
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    stage.send(key(KeyCode::Tab));
+    for msg in chars("todo") {
+        stage.send(msg);
+    }
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Containing")?;
+    ensure_text(&buffer, "Alt-C case · Alt-W whole words")?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (x, y) = screen.find(" ab ").context("the whole words switch")?;
+    assert_ne!(screen.style_at(x + 1, y), screen.style_at(x - 3, y), "whole words is on, case is off");
+    check("search_contents_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let source = (1..=60)
+        .map(|i| match i {
+            42 => "    // TODO: retry on timeout\n".to_owned(),
+            51 => "    let todo = queue.pop();\n".to_owned(),
+            _ => format!("    handle(request, {i});\n"),
+        })
+        .collect::<String>();
+    let offset = source.find("TODO").context("the match")? as u64;
+    let contents = borg_view::Query { text: "todo".into(), words: true, ..Default::default() };
+    let request = borg_core::SearchRequest {
+        skip: None,
+        root: "/workspace".into(),
+        query: "*".into(),
+        hidden: false,
+        options: SearchOptions { kind: SearchKind::Files, contents: Some(Box::new(contents)), ..Default::default() },
+    };
+    let found = |path: &str, size: u64, line: u64, before: &str, found: &str, after: &str| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), EntryKind::File, size, RECENT, false);
+        file.source = Some(path.into());
+        let line = LineMatch { line, offset, before: before.into(), found: found.into(), after: after.into() };
+        (file, line)
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(
+        ResultSource::Search { request, progress: SearchProgress::default() },
+        Vec::new(),
+        60,
+    );
+    stage.state.panels[0].begin_search(60);
+    let found = vec![
+        found("/workspace/api/src/handlers.rs", 2_048, 42, "    // ", "TODO", ": retry on timeout"),
+        found("/workspace/web/app.js", 9_310, 7, "  const total = items.length; // ", "todo", " paging"),
+        found("/workspace/notes.md", 412, 3, "Ship it once the ", "todo", " list is empty"),
+    ];
+    stage.send(Msg::Found { side: Side::Left, generation: 60, found });
+    let progress = SearchProgress { visited: 214, read: 187, unread: 9, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 60, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 60, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "finished · 187 files read · 9 binary or too large")?;
+    ensure_text(&buffer, "42: // TODO: retry")?;
+    check("search_contents_results", &stage, buffer)?;
+    stage.state.panels[0].results.as_mut().context("results")?.expanded = true;
+    stage.send(Msg::Resize { cols: 110, rows: 30 });
+    let buffer = stage.render(stage.started)?;
+    check("search_contents_results_expanded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::F(3)));
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(source.into_bytes()), width, height)?;
+    let viewer =
+        borg_core::Viewer::new(PathBuf::from("/workspace/api/src/handlers.rs"), borg_core::Content::Text(pager));
+    send_and_search(&mut stage, Msg::Opened(viewer));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 2")?;
+    check("search_contents_viewer", &stage, buffer)
+}
+
+#[test]
 fn results_panel_resizes_without_buffer_overrun() -> Result<()> {
     let mut stage = collected_stage(SIZE)?;
     for (cols, rows) in [(1, 1), (4, 3), (20, 8), (80, 24), (193, 40)] {
@@ -1582,12 +1661,9 @@ fn search_controls_have_distinct_boundaries_and_labels_in_each_theme() -> Result
         let mut stage = stage(GridSize { cols: 110, rows: 26 }, Motion::STILL)?;
         select_theme(&mut stage, theme);
         stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
-        stage
-            .send(key(KeyCode::Tab))
-            .send(key(KeyCode::Tab))
-            .send(key(KeyCode::Tab))
-            .send(key(KeyCode::Tab))
-            .send(key(KeyCode::Tab));
+        for _ in 0..borg_core::HIDDEN_FIELD {
+            stage.send(key(KeyCode::Tab));
+        }
         let buffer = stage.render(stage.started)?;
         let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
         let (x, y) = screen.find("Name or glob").unwrap();

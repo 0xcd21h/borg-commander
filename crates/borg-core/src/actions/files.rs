@@ -20,7 +20,12 @@ pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
     if panel.remote_mount.is_some() {
         return remote_view(state, side);
     }
-    hovered_file(state).map(|path| crate::viewer::open(state, path)).unwrap_or_default()
+    let Some(path) = hovered_file(state) else { return Vec::new() };
+    let results = state.panel(side).results.as_ref();
+    match results.and_then(|results| Some((results.contents()?.clone(), results.line(&path)?.offset))) {
+        Some((query, offset)) => crate::viewer::open_at(state, path, query, offset),
+        None => crate::viewer::open(state, path),
+    }
 }
 
 pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
