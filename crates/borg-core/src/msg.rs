@@ -109,6 +109,12 @@ pub enum Msg {
         generation: u64,
         entries: Vec<Entry>,
     },
+    /// Files a contents search found, each with its first matching line.
+    Found {
+        side: Side,
+        generation: u64,
+        found: Vec<(Entry, crate::LineMatch)>,
+    },
     Listed {
         side: Side,
         generation: u64,

@@ -1127,6 +1127,75 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
 }
 
 #[test]
+fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_the_find_bar_ready() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "row 5".into(), ..Default::default() };
+    let request = crate::SearchRequest {
+        root: "/home".into(),
+        query: "*".into(),
+        hidden: false,
+        options: crate::SearchOptions {
+            kind: crate::SearchKind::Files,
+            contents: Some(Box::new(query.clone())),
+            ..Default::default()
+        },
+        skip: None,
+    };
+    let effects = crate::results::start_search(&mut state, request);
+    let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
+    let mut log = file("log");
+    log.source = Some(PathBuf::from("/home/log"));
+    let line =
+        crate::LineMatch { line: 5, offset: 24, before: String::new(), found: "row 5".into(), after: String::new() };
+    update(&mut state, Msg::Found { side, generation, found: vec![(log, line.clone())] }, now);
+    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert_eq!(results.title(), "Search: * containing \"row 5\"");
+    assert_eq!(results.line(Path::new("/home/log")), Some(&line));
+    assert_eq!(state.active_panel().hovered_entry().map(|entry| entry.identity()), Some(Path::new("/home/log")));
+
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View(PathBuf::from("/home/log"))]);
+    let content: Vec<u8> = (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
+    let effects = update(
+        &mut state,
+        Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))),
+        now,
+    );
+    assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 24, .. }] if *asked == query));
+    let viewer = state.viewer.as_ref().unwrap();
+    assert!(viewer.find.open && viewer.find.input.text() == "row 5", "the find bar is ready on the query");
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(24..29));
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find).as_deref(), Some("1 of 11"));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    run_viewer_search(&mut state, now, &effects);
+    assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(334..339), "Enter steps on to row 50");
+}
+
+#[test]
+fn landing_on_a_contents_match_in_markdown_shows_the_source_where_the_offset_was_counted() {
+    let (mut state, now) = setup();
+    let path = PathBuf::from("/home/plan.md");
+    let query = borg_view::Query { text: "release".into(), words: true, ..Default::default() };
+    let effects = crate::viewer::open_at(&mut state, path.clone(), query, 17);
+    assert_eq!(effects, [Effect::View(path.clone())]);
+    let source = b"# Plan\n\nShip the release.\nThen send the Release notes.\n".to_vec();
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(source), &path, width, height).unwrap();
+    assert!(pager.formatted());
+    let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    run_viewer_search(&mut state, now, &effects);
+    let viewer = state.viewer.as_ref().unwrap();
+    assert!(!text(viewer).formatted());
+    assert_eq!(text(viewer).current_match(), Some(17..24));
+    assert_eq!(crate::find_bar_summary(&viewer.find).as_deref(), Some("1 of 2"));
+}
+
+#[test]
 fn viewer_keys_scroll_wrap_and_close() {
     use std::sync::Arc;
 

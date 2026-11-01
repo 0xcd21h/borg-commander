@@ -1,9 +1,18 @@
-use crate::{AppState, Effect, LineInput, Overlay, PastSearch, ResultSource};
+use crate::{AppState, Effect, FindBar, FindNote, LineInput, Overlay, PastSearch, ResultSource};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 
-pub const SEARCH_FIELDS: usize = 7;
+/// The search dialog's fields, in the order Tab takes them.
+pub const PATTERN_FIELD: usize = 0;
+pub const CONTENTS_FIELD: usize = 1;
+pub const ROOT_FIELD: usize = 2;
+pub const KIND_FIELD: usize = 3;
+pub const MINIMUM_FIELD: usize = 4;
+pub const FILES_FIELD: usize = 5;
+pub const HIDDEN_FIELD: usize = 6;
+pub const SKIP_FIELD: usize = 7;
+pub const SEARCH_FIELDS: usize = 8;
 /// Recent searches the search dialog lists.
 pub const RECENT_SHOWN: usize = 5;
 const UNIT: f64 = 1024.0;
@@ -41,11 +50,16 @@ pub struct SearchOptions {
     pub kind: SearchKind,
     pub minimum: u64,
     pub minimum_files: u64,
+    /// Text the files must contain. A search with it lists files only.
+    pub contents: Option<Box<borg_view::Query>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchForm {
     pub pattern: LineInput,
+    /// Text the files must contain, with the find bar's switches for case, words and regular
+    /// expressions.
+    pub contents: FindBar,
     pub root: LineInput,
     pub original_root: PathBuf,
     pub kind: SearchKind,
@@ -67,8 +81,13 @@ impl SearchForm {
             _ => None,
         };
         let root = request.map_or_else(|| state.active_panel().dir().to_path_buf(), |r| r.root.clone());
+        let mut contents = FindBar::default();
+        if let Some(query) = request.and_then(|r| r.options.contents.as_ref()) {
+            contents.load(query);
+        }
         Self {
             pattern: LineInput::new(request.map_or_else(|| "*".into(), |r| r.query.clone())),
+            contents,
             root: LineInput::new(root.display().to_string()),
             original_root: root,
             kind: if space { SearchKind::FolderTotals } else { request.map_or(SearchKind::All, |r| r.options.kind) },
@@ -88,12 +107,21 @@ impl SearchForm {
         }
     }
 
-    /// Size scans read everything, so they have no field for leaving things out.
-    pub fn fields(&self) -> usize {
-        if matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree) {
-            SEARCH_FIELDS - 1
-        } else {
-            SEARCH_FIELDS
+    /// Whether the dialog shows `field`. Size scans measure folders and read everything, so
+    /// they look inside no file and have no switch for leaving things out.
+    pub fn shows(&self, field: usize) -> bool {
+        let sizes = matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree);
+        field < SEARCH_FIELDS && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD))
+    }
+
+    /// The field Tab goes to, or Shift-Tab when `back`, passing over those not shown.
+    fn step(&self, back: bool) -> usize {
+        let mut field = self.selected;
+        loop {
+            field = (field + if back { SEARCH_FIELDS - 1 } else { 1 }) % SEARCH_FIELDS;
+            if self.shows(field) {
+                return field;
+            }
         }
     }
 
@@ -197,71 +225,61 @@ pub(crate) fn collections_key(state: &mut AppState, mut picker: CollectionPicker
 }
 
 pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEvent) -> Vec<Effect> {
+    if form.shows(CONTENTS_FIELD) && form.contents.switch(key) {
+        state.overlay = Some(Overlay::Search(form));
+        return Vec::new();
+    }
     match key.code {
         KeyCode::Esc => {
             state.overlay = None;
             return Vec::new();
         }
-        KeyCode::Tab | KeyCode::Down => form.selected = (form.selected + 1) % form.fields(),
-        KeyCode::BackTab | KeyCode::Up => form.selected = (form.selected + form.fields() - 1) % form.fields(),
-        KeyCode::Char(c @ ('p' | 'n')) if key.modifiers == KeyModifiers::CONTROL && form.selected == 0 => {
+        KeyCode::Tab | KeyCode::Down => form.selected = form.step(false),
+        KeyCode::BackTab | KeyCode::Up => form.selected = form.step(true),
+        KeyCode::Char(c @ ('p' | 'n')) if key.modifiers == KeyModifiers::CONTROL && form.selected == PATTERN_FIELD => {
             form.recall(state, c == 'p');
         }
         KeyCode::F(4) => return crate::exclusions::open(state, form),
-        KeyCode::Enter => {
-            let minimum = parse_size(form.minimum.text());
-            let files =
-                if form.files.text().trim().is_empty() { Ok(0) } else { form.files.text().trim().parse::<u64>() };
-            match (minimum, files) {
-                (Some(minimum), Ok(minimum_files)) => {
-                    let root = form.root(state);
-                    let query = form.pattern.text().trim();
-                    let query = if query.is_empty() { "*" } else { query };
-                    let options = SearchOptions {
-                        refresh: false,
-                        kind: if form.kind != SearchKind::FolderTree
-                            && (minimum_files > 0 || (form.kind == SearchKind::Folders && minimum > 0))
-                        {
-                            SearchKind::FolderTotals
-                        } else {
-                            form.kind
-                        },
-                        minimum,
-                        minimum_files,
-                    };
-                    match crate::results::name_search(state, root, query, form.hidden, form.skip, options) {
-                        Ok(request) => {
-                            state.overlay = None;
-                            let mut effects = Vec::new();
-                            if state.settings.search.history
-                                && state.search_history.record(&request.query, &request.root)
-                            {
-                                effects.push(Effect::SaveSearchHistory);
-                            }
-                            effects.extend(crate::results::start_search(state, request));
-                            return effects;
+        KeyCode::Enter => match options(&form) {
+            Ok(options) => {
+                let root = form.root(state);
+                let query = form.pattern.text().trim();
+                let query = if query.is_empty() { "*" } else { query };
+                match crate::results::name_search(state, root, query, form.hidden, form.skip, options) {
+                    Ok(request) => {
+                        state.overlay = None;
+                        let mut effects = Vec::new();
+                        if state.settings.search.history && state.search_history.record(&request.query, &request.root) {
+                            effects.push(Effect::SaveSearchHistory);
                         }
-                        Err(error) => form.error = Some(error.message()),
+                        form.contents.remember(&mut state.find_recent);
+                        effects.extend(crate::results::start_search(state, request));
+                        return effects;
                     }
+                    Err(error) => form.error = Some(error.message()),
                 }
-                _ => form.error = Some(tr!(use_a_size_such_as_500m_or).into()),
             }
-        }
-        KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == 2 => {
+            Err(error) => form.error = Some(error),
+        },
+        KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if form.selected == KIND_FIELD => {
             form.kind = form.kind.step(key.code == KeyCode::Left);
-            form.selected = form.selected.min(form.fields() - 1);
         }
-        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == 5 => form.hidden = !form.hidden,
-        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == 6 => form.skip = !form.skip,
+        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == HIDDEN_FIELD => {
+            form.hidden = !form.hidden;
+        }
+        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == SKIP_FIELD => form.skip = !form.skip,
+        _ if form.selected == CONTENTS_FIELD => {
+            form.contents.edit(key, &state.find_recent);
+        }
         _ => {
-            if form.selected == 0 {
+            if form.selected == PATTERN_FIELD {
                 form.recalled = None;
             }
             let input = match form.selected {
-                0 => Some(&mut form.pattern),
-                1 => Some(&mut form.root),
-                3 => Some(&mut form.minimum),
-                4 => Some(&mut form.files),
+                PATTERN_FIELD => Some(&mut form.pattern),
+                ROOT_FIELD => Some(&mut form.root),
+                MINIMUM_FIELD => Some(&mut form.minimum),
+                FILES_FIELD => Some(&mut form.files),
                 _ => None,
             };
             if let Some(input) = input {
@@ -272,9 +290,40 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
     if key.modifiers == KeyModifiers::ALT && key.code == KeyCode::Char('d') {
         form.kind = SearchKind::FolderTotals;
         form.hidden = true;
+        if !form.shows(form.selected) {
+            form.selected = KIND_FIELD;
+        }
     }
     state.overlay = Some(Overlay::Search(form));
     Vec::new()
+}
+
+/// What the form asks the search for, or why it cannot search. Folder sizes and file counts
+/// turn a name search into folder totals; text to look for makes it a search of files, and
+/// size scans leave that text aside.
+fn options(form: &SearchForm) -> Result<SearchOptions, String> {
+    let files = form.files.text().trim();
+    let files = if files.is_empty() { Ok(0) } else { files.parse::<u64>() };
+    let (Some(minimum), Ok(minimum_files)) = (parse_size(form.minimum.text()), files) else {
+        return Err(tr!(use_a_size_such_as_500m_or).into());
+    };
+    if let Some(FindNote::Invalid(reason)) = form.contents.note.as_ref().filter(|_| form.shows(CONTENTS_FIELD)) {
+        return Err(tr!(find_invalid, reason = reason));
+    }
+    let contents = Some(form.contents.query()).filter(|query| form.shows(CONTENTS_FIELD) && !query.text.is_empty());
+    if contents.is_some() && minimum_files > 0 {
+        return Err(tr!(contents_lists_files).into());
+    }
+    let totals =
+        form.kind != SearchKind::FolderTree && (minimum_files > 0 || (form.kind == SearchKind::Folders && minimum > 0));
+    let kind = if contents.is_some() {
+        SearchKind::Files
+    } else if totals {
+        SearchKind::FolderTotals
+    } else {
+        form.kind
+    };
+    Ok(SearchOptions { refresh: false, kind, minimum, minimum_files, contents: contents.map(Box::new) })
 }
 
 pub(crate) fn parse_size(text: &str) -> Option<u64> {

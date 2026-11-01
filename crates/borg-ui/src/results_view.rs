@@ -26,6 +26,11 @@ const FILES_FROM: u16 = 44;
 const CONTROL_GAP: u16 = 1;
 const FRAME_WIDTH: u16 = 2;
 const SOURCE_DIVISOR: u16 = 3;
+/// A contents search's share of the row for the first match, and for the source folder beside it
+/// when the panel is wide enough for both.
+const MATCH_PERCENT: u16 = 40;
+const SOURCE_BESIDE_MATCH_PERCENT: u16 = 20;
+const PERCENT: u32 = 100;
 
 pub(crate) fn controls(area: Rect, expanded: bool) -> Vec<(Rect, &'static str, Action)> {
     if area.is_empty() {
@@ -59,27 +64,49 @@ pub(crate) fn geometry(area: Rect) -> (Rect, Rect) {
     (header, body)
 }
 
-pub(crate) fn columns(area: Rect, totals: bool) -> Vec<(SortKey, Rect)> {
+/// The columns a row of results sorts by, and where a contents search shows each file's first
+/// match: after the name, taking the source folder's room when the panel is narrow.
+fn layout(area: Rect, totals: bool, lines: bool) -> (Vec<(SortKey, Rect)>, Option<Rect>) {
+    let share = |percent: u16| (u32::from(area.width) * u32::from(percent) / PERCENT) as u16;
     let size = SIZE_WIDTH.min(area.width / 3);
     let date = if area.width >= DATE_FROM { DATE_WIDTH } else { 0 };
-    let source = if area.width >= SOURCE_FROM { area.width / SOURCE_DIVISOR } else { 0 };
+    let found = if lines && area.width >= SOURCE_FROM { share(MATCH_PERCENT) } else { 0 };
+    let source = match (lines, area.width) {
+        (false, width) if width >= SOURCE_FROM => width / SOURCE_DIVISOR,
+        (true, width) if width >= DATE_FROM => share(SOURCE_BESIDE_MATCH_PERCENT),
+        _ => 0,
+    };
     let files = if totals && area.width >= FILES_FROM { if area.width >= DATE_FROM { 9 } else { 7 } } else { 0 };
-    let name = area.width.saturating_sub(size + date + source + files + MARK_WIDTH);
+    let name = area.width.saturating_sub(size + date + found + source + files + MARK_WIDTH);
     let mut x = area.x.saturating_add(MARK_WIDTH.min(area.width));
-    [
-        (SortKey::Name, name),
-        (SortKey::Source, source),
-        (SortKey::Size, size),
-        (SortKey::Files, files),
-        (SortKey::Modified, date),
-    ]
-    .into_iter()
-    .filter_map(|(key, width)| {
+    let (mut columns, mut line) = (Vec::new(), None);
+    for (key, width) in [
+        (Some(SortKey::Name), name),
+        (None, found),
+        (Some(SortKey::Source), source),
+        (Some(SortKey::Size), size),
+        (Some(SortKey::Files), files),
+        (Some(SortKey::Modified), date),
+    ] {
         let rect = Rect { x, width, ..area };
         x = x.saturating_add(width);
-        (width > 0).then_some((key, rect))
-    })
-    .collect()
+        match key {
+            _ if width == 0 => {}
+            Some(key) => columns.push((key, rect)),
+            None => line = Some(rect),
+        }
+    }
+    (columns, line)
+}
+
+pub(crate) fn columns(area: Rect, totals: bool, lines: bool) -> Vec<(SortKey, Rect)> {
+    layout(area, totals, lines).0
+}
+
+/// Where a contents search shows each file's first match, when the panel has room for it.
+pub(crate) fn match_column(panel: &Panel, area: Rect) -> Option<Rect> {
+    let results = panel.results.as_ref()?;
+    (!panel.is_tree() && results.contents().is_some()).then(|| layout(area, has_totals(panel), true).1).flatten()
 }
 
 pub(crate) fn has_totals(panel: &Panel) -> bool {
@@ -90,7 +117,8 @@ pub(crate) fn has_totals(panel: &Panel) -> bool {
 
 pub(crate) fn panel_columns(panel: &Panel, area: Rect) -> Vec<(SortKey, Rect)> {
     if !panel.is_tree() {
-        return columns(area, has_totals(panel));
+        let lines = panel.results.as_ref().is_some_and(|results| results.contents().is_some());
+        return columns(area, has_totals(panel), lines);
     }
     let size = SIZE_WIDTH.min(area.width / 3);
     let files = if area.width >= 34 { 8 } else { 0 };
@@ -215,7 +243,7 @@ fn context(scene: &PanelScene<'_>, source: &ResultSource, width: u16) -> String 
             if progress.limited { tr!(sizes_limited, text = cached) } else { cached }
         }
         ResultSource::Search { request, progress } => {
-            let summary = search_summary(panel, progress, scene.clock);
+            let summary = search_summary(panel, progress, request.options.contents.is_some(), scene.clock);
             let room = usize::from(width).saturating_sub(summary.chars().count() + 3);
             format!("{summary} · {}", format::truncate_start(&request.root.display().to_string(), room))
         }
@@ -223,8 +251,8 @@ fn context(scene: &PanelScene<'_>, source: &ResultSource, width: u16) -> String 
 }
 
 /// How a search went: whether it still runs, what it read or the index it used, and how many
-/// folders it left out.
-fn search_summary(panel: &Panel, progress: &SearchProgress, clock: &jiff::Zoned) -> String {
+/// folders it left out. A contents search counts the files it read instead of the names.
+fn search_summary(panel: &Panel, progress: &SearchProgress, contents: bool, clock: &jiff::Zoned) -> String {
     let state = if progress.cancelled {
         tr!(cancelled)
     } else if progress.limited {
@@ -234,15 +262,17 @@ fn search_summary(panel: &Panel, progress: &SearchProgress, clock: &jiff::Zoned)
     } else {
         tr!(finished)
     };
+    let errors = format::count(progress.errors, format::Count::Error);
     let summary = match progress.indexed {
         Some(built) => format!("{state} · {}", tr!(indexed_at, time = format::modified(Some(built), clock))),
-        None => tr!(
-            scanned_skipped,
-            progress.visited,
-            format::count(progress.errors, format::Count::Error),
-            progress.skipped,
-            state = state
+        None if contents => tr!(
+            contents_progress,
+            state = state,
+            files = format::count(progress.read, format::Count::File),
+            unread = progress.unread,
+            errors = errors
         ),
+        None => tr!(scanned_skipped, progress.visited, errors, progress.skipped, state = state),
     };
     if progress.excluded > 0 {
         let folders = format::count(progress.excluded, format::Count::Folder);
@@ -266,6 +296,9 @@ fn draw_header(panel: &Panel, header: Rect, styles: &Styles<Style>, buf: &mut Bu
         let arrow = if panel.sort().key == key { if panel.sort().reverse { " ↓" } else { " ↑" } } else { "" };
         text(buf, cell, &format!("{label}{arrow}"), styles.menu);
     }
+    if let Some(cell) = match_column(panel, header) {
+        text(buf, cell, tr!(results_view_match), styles.menu);
+    }
 }
 
 pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String {
@@ -285,10 +318,12 @@ pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String
                 if u.cached { tr!(sizes_cached_status, time = time) } else { tr!(sizes_measured_status, time = time) }
             });
             let suffix = format!("{}{totals}{observation}", if entry.missing { tr!(missing_original) } else { "" });
-            let path = format::truncate_start(
-                &entry.identity().display().to_string(),
-                width.saturating_sub(suffix.chars().count()),
-            );
+            let line = panel.results.as_ref().and_then(|results| results.line(entry.identity()));
+            let place = match line {
+                Some(line) => format!("{}:{}", entry.identity().display(), line.line),
+                None => entry.identity().display().to_string(),
+            };
+            let path = format::truncate_start(&place, width.saturating_sub(suffix.chars().count()));
             format!("{path}{suffix}")
         }
         Some(Row::Group { label, .. }) if panel.is_tree() => label.to_owned(),

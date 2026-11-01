@@ -233,7 +233,7 @@ fn draw_inside(
     let text = Rect { x: body.x + gutter, width: body.width - gutter, ..body };
     let buffer = &editor.buffer;
     let selection = buffer.selection();
-    let (found, current) = crate::find_view::match_styles(theme);
+    let (found, current) = crate::find_view::match_styles(&theme.styles);
     let look = LineLook { base, selection: styles.cursor, found, current, light };
     for (y, line) in (body.top()..body.bottom()).zip(editor.top..buffer.lines()) {
         let number = format!("{:>width$} ", line + 1, width = usize::from(gutter.saturating_sub(2)));

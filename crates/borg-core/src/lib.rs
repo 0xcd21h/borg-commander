@@ -8,6 +8,7 @@ mod backup;
 mod busy;
 mod clipboard;
 mod command;
+mod contents;
 mod delight;
 mod discovery;
 mod docker;
@@ -58,8 +59,12 @@ pub use backup::{
 };
 pub use busy::{Busy, SPINNER_DELAY, Task};
 pub use clipboard::Clipboard;
+pub use contents::{CONTENTS_SIZE_LIMIT, LineMatch, Scan, scan as scan_contents};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
-pub use discovery::{CollectionPicker, SearchForm, SearchKind, SearchOptions};
+pub use discovery::{
+    CONTENTS_FIELD, CollectionPicker, FILES_FIELD, HIDDEN_FIELD, KIND_FIELD, MINIMUM_FIELD, PATTERN_FIELD, ROOT_FIELD,
+    SKIP_FIELD, SearchForm, SearchKind, SearchOptions,
+};
 pub use docker::{
     ContainerShell, Docker, DockerData, DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, ShellRequest,
     Usage, Working, container_shell_busy, shell_rect,

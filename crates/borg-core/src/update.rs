@@ -48,6 +48,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
 
         Msg::Batch { side, generation, entries } => batch(state, side, generation, entries),
+        Msg::Found { side, generation, found } => {
+            crate::results::found(state, side, generation, found);
+            Vec::new()
+        }
         Msg::Listed { side, generation, error } => listed(state, side, generation, error),
         message @ (Msg::Sized { .. } | Msg::SizeProgress { .. } | Msg::SizesFinished { .. }) => {
             crate::measure::receive(state, message)
@@ -87,10 +91,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 
         Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
         Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result),
-        Msg::Opened(viewer) => {
-            crate::viewer::opened(state, viewer);
-            Vec::new()
-        }
+        Msg::Opened(viewer) => crate::viewer::opened(state, viewer),
         Msg::OpenFailed { path, notice } => {
             crate::viewer::failed(state, path, notice);
             Vec::new()

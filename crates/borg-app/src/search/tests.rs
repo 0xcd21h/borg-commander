@@ -12,6 +12,59 @@ use std::{
 use tokio::sync::mpsc;
 
 #[tokio::test]
+async fn a_contents_search_reads_text_files_for_their_first_match_and_leaves_binary_and_large_ones_unread() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("src/todo")).unwrap();
+    fs::write(root.path().join("src/main.rs"), "fn main() {\n    println!(\"TODO: ship\");\n}\n").unwrap();
+    fs::write(root.path().join("src/lib.rs"), "pub fn done() {}\n").unwrap();
+    fs::write(root.path().join("notes.txt"), "groceries\ntodo later\ntodo again\n").unwrap();
+    fs::write(root.path().join("image.bin"), b"\x89PNG\0\0todo").unwrap();
+    fs::write(root.path().join(".secret"), "todo").unwrap();
+    fs::File::create(root.path().join("huge.log")).unwrap().set_len(borg_core::CONTENTS_SIZE_LIMIT + 1).unwrap();
+    let mut worker = Search::with_cache(crate::size_cache::SizeCache::at(None));
+    worker.search(
+        Side::Left,
+        3,
+        SearchRequest {
+            skip: None,
+            root: root.path().into(),
+            query: "*".into(),
+            hidden: false,
+            options: borg_core::SearchOptions {
+                kind: SearchKind::Files,
+                contents: Some(Box::new(borg_view::Query { text: "todo".into(), ..Default::default() })),
+                ..Default::default()
+            },
+        },
+    );
+    let (mut found, mut progress) = (Vec::new(), SearchProgress::default());
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), worker.incoming.recv()).await.unwrap().unwrap() {
+            Msg::Found { found: batch, .. } => found.extend(batch),
+            Msg::Batch { entries, .. } => assert!(entries.is_empty(), "every file comes with its match"),
+            Msg::SearchProgress { progress: latest, .. } => progress = latest,
+            Msg::Listed { error, .. } => {
+                assert!(error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    found.sort_by(|(a, _), (b, _)| a.name.cmp(&b.name));
+    let lines: Vec<_> = found
+        .iter()
+        .map(|(entry, line)| {
+            (entry.name.as_str(), line.line, line.before.as_str(), line.found.as_str(), line.after.as_str())
+        })
+        .collect();
+    assert_eq!(
+        lines,
+        [("main.rs", 2, "    println!(\"", "TODO", ": ship\");"), ("notes.txt", 2, "", "todo", " later")]
+    );
+    assert_eq!((progress.read, progress.unread), (3, 2), "the image and the file over the limit stay unread");
+}
+
+#[tokio::test]
 async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("project/node_modules/.cache")).unwrap();
@@ -437,6 +490,7 @@ async fn cancelled_tree_refresh_never_replaces_the_previous_saved_scan() {
             messages: &messages,
             cancelled: &cancel_worker,
             batch: Vec::new(),
+            found: Vec::new(),
             background: false,
         };
         scan_sizes(&request, &mut stream, &worker_cache);

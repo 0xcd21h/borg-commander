@@ -63,9 +63,9 @@ del terminal por ti. El instalador coloca las fuentes en
 
 ## Colecciones y búsqueda recursiva
 
-El menú Buscar reúne las colecciones y la búsqueda recursiva por nombre de archivo. Ambas muestran
-los resultados en una lista ordenable con la ruta de origen de cada archivo, y ambas funcionan con
-el visor y la vista previa rápida.
+El menú Buscar reúne las colecciones y la búsqueda recursiva por nombre o contenido de archivo.
+Ambas muestran los resultados en una lista ordenable con la ruta de origen de cada archivo, y ambas
+funcionan con el visor y la vista previa rápida.
 
 - **Ctrl-F:** busca en la carpeta actual y en todo lo que contiene. Todas las palabras deben
   coincidir: `main rs` encuentra `main.rs`, y `a | b` encuentra cualquiera de las dos. Una palabra
@@ -98,6 +98,28 @@ el visor y la vista previa rápida.
   (restaurar) y `[-]` (plegar) de la barra de título. Plegar oculta la vista; Alt-Shift-R la
   recupera con su disposición y su selección.
 - **Ctrl-S:** filtra los resultados por nombre o ruta de origen. Un filtro vacío lo muestra todo.
+
+### Buscar dentro de los archivos
+
+Escribe texto en **Con el texto** en el diálogo de Ctrl-F para ver los archivos bajo la carpeta que
+lo contienen. El patrón de nombre sigue aplicándose, así que `*.rs` con `fn main` en **Con el
+texto** encuentra los archivos Rust que lo tienen. Las opciones junto al campo funcionan como en la
+barra de búsqueda: Alt-C distingue mayúsculas y minúsculas (si no, una búsqueda en minúsculas
+encuentra cualquier combinación), Alt-W busca palabras completas y Alt-R interpreta el texto como
+una expresión regular. También puedes hacer clic en las opciones. Ctrl-P y Ctrl-N en el campo
+recuperan las búsquedas recientes de la barra de búsqueda y de búsquedas anteriores. Una búsqueda
+de texto solo muestra archivos, así que no admite totales de carpeta ni un mínimo de archivos, y
+**Tamaños de carpeta** no tiene el campo **Con el texto**.
+
+Cada resultado muestra la primera línea que coincide, con su número de línea, en la columna
+**Coincidencia**, y la línea de estado añade el número de línea a la ruta del archivo. F3 abre el
+archivo en el visor en esa coincidencia, con la barra de búsqueda abierta con la consulta, para que
+Enter pase a la siguiente. Los archivos Markdown y JSON se abren ahí como código fuente, porque la
+búsqueda leyó el archivo tal cual, y `s` cambia a la vista formateada. Borg lee los archivos en
+segundo plano, y la línea de contexto cuenta los archivos leídos. Los archivos binarios (un byte
+NUL en los primeros 8 KiB) y los de más de 64 MiB quedan sin leer y cuentan como binarios o
+demasiado grandes. Ctrl-C detiene la búsqueda, que se para en 20.000 archivos como cualquier
+búsqueda.
 
 ### Trabajar con los resultados
 
@@ -186,7 +208,8 @@ nombres bajo la carpeta activa, de modo que Ctrl-F en ella, o en cualquier carpe
 responde al instante. La línea de contexto indica cuándo se creó el índice. Borg reconstruye los
 índices en segundo plano al iniciarse y cada vez que un índice tiene más de 15 minutos, y el
 índice anterior sigue respondiendo hasta que el nuevo está listo. Una búsqueda que no deja nada
-fuera, o que usa otras exclusiones, lee las carpetas directamente. Vuelve a elegir la opción del
+fuera, o que usa otras exclusiones, lee las carpetas directamente, igual que una búsqueda de texto,
+porque el índice solo guarda nombres. Vuelve a elegir la opción del
 menú para dejar de indexar y eliminar el índice. Los índices se guardan en la carpeta de caché,
 junto a los análisis de tamaño, e `[index]` en la configuración enumera las carpetas indexadas.
 

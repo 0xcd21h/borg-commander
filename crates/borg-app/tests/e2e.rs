@@ -526,6 +526,35 @@ fn searches_match_any_case_and_composition_and_are_listed_again_after_a_restart(
 }
 
 #[test]
+fn a_contents_search_lists_the_files_with_the_text_and_f3_opens_the_viewer_on_the_match() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.file("alpha/inner/plan.md", "# Plan\n\nShip the release.\nThen send the Release notes.\n")?;
+    fixture.file("beta/blob.bin", "release\0\0")?;
+    let mut app = start(&fixture, "contents-search")?;
+    app.send(keys::ctrl('f'))?;
+    app.wait_text("Containing")?;
+    app.send(keys::tab())?;
+    app.send("release")?;
+    app.send(keys::alt(KeyCode::Char('w')))?;
+    app.send(keys::enter())?;
+    let found = app.wait_until("the files with the text", |s| {
+        s.contains("Search: * containing \"release\"") && s.contains("finished")
+    })?;
+    ensure!(
+        found.contains("1/1 items") && found.contains("plan.md:3") && found.contains("1 binary or too large"),
+        "only the text file is listed, on its first match\n{}",
+        found.text()
+    );
+    app.send(keys::f(3))?;
+    app.wait_until("the source on the match with the find bar ready", |s| {
+        s.contains("# Plan") && s.contains("1 of 2")
+    })?;
+    app.send(keys::enter())?;
+    app.wait_text("2 of 2")?;
+    Ok(())
+}
+
+#[test]
 fn patterns_left_out_of_searches_are_edited_from_the_search_dialog_and_saved() -> Result<()> {
     let fixture = fixture()?;
     fixture.file("alpha/one.bak", "old\n")?;

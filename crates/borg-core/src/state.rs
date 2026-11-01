@@ -134,6 +134,8 @@ pub struct AppState {
     /// The file the viewer is opening. A load that arrives for another file, or after Esc
     /// gave it up, is dropped.
     pub opening: Option<PathBuf>,
+    /// Where the file the viewer is opening shows a contents search's match.
+    pub(crate) landing: Option<crate::viewer::Landing>,
     pub editor: Option<crate::Editor>,
     /// The editors the panels hold in place of their files, left and right.
     pub docked: [Option<crate::Editor>; 2],
@@ -221,6 +223,7 @@ impl AppState {
             next_size: 0,
             viewer: None,
             opening: None,
+            landing: None,
             editor: None,
             docked: [None, None],
             epoch: now,

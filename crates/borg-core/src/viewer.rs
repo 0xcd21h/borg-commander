@@ -54,6 +54,14 @@ impl Viewer {
     }
 }
 
+/// Where a file about to open shows a contents search's match, with the find bar on its query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Landing {
+    pub path: PathBuf,
+    pub query: Query,
+    pub offset: u64,
+}
+
 /// What a search through the viewer's file found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FoundInViewer {
@@ -105,37 +113,71 @@ fn is_close(code: KeyCode) -> bool {
 }
 
 pub(crate) fn open(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
+    state.landing = None;
+    show(state, path)
+}
+
+/// Opens `path` on the match a contents search found at `offset`, the find bar ready with
+/// `query` to step on through the others.
+pub(crate) fn open_at(state: &mut AppState, path: PathBuf, query: Query, offset: u64) -> Vec<Effect> {
+    state.landing = Some(Landing { path: path.clone(), query, offset });
+    show(state, path)
+}
+
+/// Shows `path` at once when the quick view has it, or else asks to load it.
+fn show(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
     if let Some(Peeked { aside: Aside::QuickView, path: shown, peek: Peek::Text(pager) }) = &state.peeked
         && *shown == path
     {
         state.viewer = Some(Viewer::new(path, Content::Text(pager.clone())));
         state.opening = None;
         resize(state);
-        return Vec::new();
+        return land(state);
     }
     vec![request(state, path)]
 }
 
 /// Asks to load `path` for the viewer; of the loads asked for, only the latest is shown.
 pub(crate) fn request(state: &mut AppState, path: PathBuf) -> Effect {
+    state.landing = state.landing.take().filter(|landing| landing.path == path);
     state.opening = Some(path.clone());
     Effect::View(path)
 }
 
 /// Shows a loaded file, if the viewer still waits for it.
-pub(crate) fn opened(state: &mut AppState, viewer: Viewer) {
-    if state.opening.as_ref() == Some(&viewer.path) {
-        state.opening = None;
-        state.viewer = Some(viewer);
-        resize(state);
+pub(crate) fn opened(state: &mut AppState, viewer: Viewer) -> Vec<Effect> {
+    if state.opening.as_ref() != Some(&viewer.path) {
+        return Vec::new();
     }
+    state.opening = None;
+    state.viewer = Some(viewer);
+    resize(state);
+    land(state)
 }
 
 pub(crate) fn failed(state: &mut AppState, path: PathBuf, notice: String) {
     if state.opening.as_ref() == Some(&path) {
         state.opening = None;
+        state.landing = None;
         state.notice = Some(notice);
     }
+}
+
+/// Opens the find bar on the landing's query and looks for the match from where it was found,
+/// in the file's source, where the offset was counted.
+fn land(state: &mut AppState) -> Vec<Effect> {
+    let Some(landing) = state.landing.take() else { return Vec::new() };
+    let Some(viewer) = state.viewer.as_mut().filter(|viewer| viewer.path == landing.path) else {
+        return Vec::new();
+    };
+    let Content::Text(pager) = &mut viewer.content else { return Vec::new() };
+    viewer.find.load(&landing.query);
+    viewer.find.open(None);
+    viewer.origin = landing.offset;
+    let source = if pager.formatted() { pager.toggle_source() } else { Ok(()) };
+    let shown = source.and_then(|()| pager.show_matches(viewer.find.search().cloned())).map(|()| true);
+    finish(state, shown);
+    search(state, Direction::Forward, Some(landing.offset))
 }
 
 fn close(state: &mut AppState) {
