@@ -2,7 +2,7 @@
 
 use super::{Page, SIZE_WIDTH, dim, emphasis, heading, row, size, text};
 use crate::{Rgb, format, look::Look};
-use borg_core::{Activity, HISTORY, MemoryProtection, MemoryRegion, MemoryTotals};
+use borg_core::{Activity, DEFAULT_NICE, HISTORY, MemoryProtection, MemoryRegion, MemoryTotals};
 use borg_i18n::tr;
 use ratatui::{buffer::Buffer, layout::Rect, style::Modifier};
 use unicode_width::UnicodeWidthStr;
@@ -113,6 +113,9 @@ pub(super) fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut
         (tr!(activity_cpu_tile), p.cpu.map_or_else(|| "—".into(), |v| format!("{:.1}%", f64::from(v) / 100.0))),
         (tr!(activity_virtual), size(p.virtual_bytes)),
     ];
+    if let Some(nice) = p.nice.filter(|&nice| nice != DEFAULT_NICE) {
+        tiles.push((tr!(activity_nice_tile), nice.to_string()));
+    }
     let footprint = activity.region_totals().footprint;
     for (label, value) in [
         (tr!(activity_footprint), footprint),
@@ -137,6 +140,10 @@ pub(super) fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut
             text(buf, area(1), value.clone(), accent);
         }
         y += 3;
+    }
+    if p.stopped {
+        text(buf, row(body, y), tr!(process_stopped_note), emphasis(theme));
+        y += 2;
     }
     if let Some(protection) = p.protection {
         let note = match protection {

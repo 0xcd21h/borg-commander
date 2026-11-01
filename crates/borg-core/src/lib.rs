@@ -114,6 +114,10 @@ pub use activity::{
 };
 
 pub use activity::{CENSUS_LEGEND, Indicator, MemoryCensus, PageClass, census_grid};
+pub use activity::{
+    CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
+    PRIORITY_STEP, ProcessControl, ProcessSignal,
+};
 pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity, chrome_rows};
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport, StringsTally};

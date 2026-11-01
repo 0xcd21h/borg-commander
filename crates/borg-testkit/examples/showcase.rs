@@ -341,6 +341,8 @@ fn sample(tick: usize) -> SystemSample {
                 read: Some(if p.pid == 5133 { 48 * MIB } else { 120 * KIB * (i as u64 % 4) }),
                 written: Some(if p.pid == 5133 { 22 * MIB } else { 16 * KIB * (i as u64 % 3) }),
                 protection: None,
+                nice: Some(borg_core::DEFAULT_NICE),
+                stopped: false,
             }
         })
         .collect();
@@ -352,6 +354,7 @@ fn sample(tick: usize) -> SystemSample {
         swap_used: 412 * MIB,
         cpu: vec![9_100, 7_800, 6_400, 5_200, 2_900, 2_100, 1_400, 800],
         administrator: false,
+        own: None,
     }
 }
 

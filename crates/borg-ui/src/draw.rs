@@ -333,6 +333,9 @@ fn paint_overlay(
             (rect, Some(position), Unfold::FromCenter)
         }
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::ProcessControl(dialog) => {
+            (crate::activity_view::control::draw(dialog, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Approval(approval) => {
             (crate::agent_view::draw_approval(approval, theme, screen, buf), None, Unfold::FromCenter)
         }

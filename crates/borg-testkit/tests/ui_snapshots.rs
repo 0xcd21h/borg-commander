@@ -2085,6 +2085,8 @@ fn activity_stage() -> Result<Stage> {
                 read: Some(1_200_000),
                 written: Some(64_000),
                 protection: None,
+                nice: Some(if name == "database" { 5 } else { 0 }),
+                stopped: false,
             })
             .collect();
         stage.send(Msg::Activity {
@@ -2097,6 +2099,7 @@ fn activity_stage() -> Result<Stage> {
                 swap_used: 256_000_000,
                 cpu: vec![7500, 4400, 2100, 1200],
                 administrator: false,
+                own: Some(413),
             })),
         });
         if tick < 9 {
@@ -2105,6 +2108,24 @@ fn activity_stage() -> Result<Stage> {
         }
     }
     Ok(stage)
+}
+
+#[test]
+fn activity_signal_dialog_lists_signals_and_priority_steps() -> Result<()> {
+    use borg_core::{ActivityRequest, ProcessControl, ProcessSignal};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('k')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Signal or priority")?;
+    ensure_text(&buffer, "nice 0 to 5")?;
+    check("activity_signal_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('k')));
+    assert!(stage.state.overlay.is_none());
+    assert!(matches!(
+        stage.state.activity.pending,
+        Some((_, ActivityRequest::Control { control: ProcessControl::Signal(ProcessSignal::Kill), admin: false, .. }))
+    ));
+    Ok(())
 }
 
 #[test]

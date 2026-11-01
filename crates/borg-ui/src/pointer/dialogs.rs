@@ -31,6 +31,14 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
                 _ => None,
             })
         }
+        Overlay::ProcessControl(dialog) => {
+            let (rect, at) = crate::activity_view::control::choice_at(dialog, screen, point);
+            Some(match (click, at) {
+                (true, Some(at)) => Some(pick_row(at, dialog.selected)),
+                (true, None) => hinted(rect, tr!(process_control_keys), true, point),
+                _ => None,
+            })
+        }
         Overlay::Settings { .. } | Overlay::Plugins { .. } => {
             let rect = crate::settings_view::rect(state, screen);
             (click && crate::settings_view::item_at(state, point, screen).is_none())
@@ -99,6 +107,7 @@ fn scrolls(overlay: &Overlay) -> bool {
         | Overlay::Plugins { .. }
         | Overlay::Jobs(_)
         | Overlay::Remotes(_)
+        | Overlay::ProcessControl(_)
         | Overlay::TimeMachine => true,
         Overlay::Exclusions(editor) => editor.editing.is_none(),
         _ => false,
