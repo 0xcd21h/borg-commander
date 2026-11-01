@@ -104,12 +104,14 @@ field.
 
 Each result shows its first matching line, with the line number, in the **Match** column, and the
 status line adds the line number to the file's path. F3 opens the file in the viewer at that match
-with the find bar open on the query, so Enter goes on to the next one. Markdown and JSON files open
-as source there, since the search read the file as it is, and `s` switches to the formatted view. F4
-and Alt-E open the file in Borg's editor at that match, with the match selected and the find bar
-open on the query. Borg reads the files in the background, and the context line counts the files
-read. Binary files (a NUL byte in the first 8 KiB) and files over 64 MiB stay unread and are counted
-as binary or too large. Ctrl-C stops the search, and it stops at 20,000 files like any search.
+with the find bar open on the query, so Enter goes on to the next one, and Ctrl-Q shows it there in
+the quick view with the query marked. Markdown and JSON files open as source in both, since the
+search read the file as it is, and `s` switches to the formatted view. F4 opens the file in Borg's
+editor at that match, with the match selected and the find bar open on the query, and Alt-E does the
+same in the other panel, so the results stay in view. Borg reads the files in the background, and
+the context line counts the files read. Binary files (a NUL byte in the first 8 KiB) and files over
+64 MiB stay unread and are counted as binary or too large. Ctrl-C stops the search, and it stops at
+20,000 files like any search.
 
 ### Working with results
 
@@ -119,7 +121,11 @@ folder or file type. Enter on a group heading folds the group; Insert marks the 
 in it. Marks are kept when you sort or filter, and the footer also counts marked files that the
 filter hides.
 
-F3 and Ctrl-Q open the original file. F5 copies to a real folder; if the other panel is a
+F3 and Ctrl-Q open the original file, and after a search for text they open it at its first match.
+The quick view follows the cursor through the results and shows each file at its match, with the
+query marked as the find bar marks it. Alt-E opens the file in Borg's editor in the other panel, so
+the results stay in view. Esc or F10 closes that editor and gives the focus back to the results, and
+the quick view comes back if it showed before. F5 copies to a real folder; if the other panel is a
 collection, F5 adds references to it instead. F6 needs a real folder as its destination. In a
 collection, F8 removes references and leaves the files alone; in search results, F8 asks to
 delete the original files. Shift-F8 deletes the original files from a collection too, after
@@ -264,7 +270,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-T | Time Machine: what backups leave out, on macOS |
-| Alt-E | Edit the selected file in this panel, in place of its files |
+| Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
 | F2 | File menu |
 | F3 | View (text or picture) |
@@ -719,7 +725,9 @@ PgUp/PgDn, Home/End, and the mouse wheel scroll; Tab or Esc goes back to the fil
 shows file information. F3 opens a text preview in the full viewer, and closing the viewer
 returns to the preview with your position, wrapping, and source mode kept. Both read files the
 same limited way, so opening a large text file reads only around the first page and stays
-fast however big the file is.
+fast however big the file is. On a result of a search for text, the preview opens at the file's
+first match instead, with the query marked as the find bar marks it, and reads only around that
+match.
 
 Both text viewers highlight common programming languages, markup, and configuration files,
 including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL,
@@ -759,13 +767,17 @@ dragging or Shift-clicking selects, a double-click selects a word, and the wheel
 shown in the status line can be clicked too.
 
 Alt-E opens the selected file in Borg's editor inside the active panel, in place of its files, so
-you can edit two files side by side, or a file next to the folder it is in. F6 moves from a
-panel's editor to the other panel, and Tab goes back to the editor from the file list. Text copied
-with Ctrl-C in one editor pastes with Ctrl-V in the other. While an editor has focus, the shortcut
-bar shows the editor's keys, and the panel keys come back with the file list. Ctrl-O shows the
-console from an editor too, and F9 opens the menus. Esc or F10 closes the editor and gives the
-panel back its files; Quit first asks about each panel editor with unsaved changes. Quick view and
-file information need the other panel, so they wait until its editor is closed.
+you can edit two files side by side, or a file next to the folder it is in. In search results and
+collections, Alt-E opens the editor in the other panel, so the list stays in view. Alt-E on another
+result opens it in place of the file there. When that file has unsaved changes, Alt-E brings its
+editor forward and asks whether to save them. F6 moves from a panel's editor to the other panel, and
+Tab goes back to the editor from the file list. Text copied with Ctrl-C in one editor pastes with
+Ctrl-V in the other. While an editor has focus, the shortcut bar shows the editor's keys, and the
+panel keys come back with the file list. Ctrl-O shows the console from an editor too, and F9 opens
+the menus. Esc or F10 closes the editor and gives the panel back its files; Quit first asks about
+each panel editor with unsaved changes. Quick view and file information need the other panel, so
+they wait until its editor is closed. An editor opened beside results gives the focus back to them
+when it closes, and brings back the quick view or file information they showed.
 
 The viewer and the editor find text the same way. In the viewer, `/`, F7, or Ctrl-F opens a find
 bar in the status line; in the editor, Ctrl-F or F7 does. Borg searches as you type, starting from

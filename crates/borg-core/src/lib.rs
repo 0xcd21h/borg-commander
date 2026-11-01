@@ -51,7 +51,7 @@ pub use agent::{
 };
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
-pub use aside::{Aside, Facts, Nature, Peek, Peeked};
+pub use aside::{Aside, Facts, Nature, Peek, Peeked, land_on_match};
 pub use backup::{
     Backup, BackupChange, BackupEvent, BackupItem, BackupList, BackupListing, BackupPanel, BackupRequest, BackupTab,
     BackupWindow, Exclusion, list_rows as backup_list_rows, name_of as backup_name, rank as backup_rank,
@@ -104,8 +104,8 @@ pub use viewer::{Content, FoundInViewer, Image, Viewer, find_in, viewer_size};
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
-    COLLECTION_LIMIT, Collection, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results, SearchProgress,
-    SearchRequest, selected_paths,
+    COLLECTION_LIMIT, Collection, FirstMatch, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results,
+    SearchProgress, SearchRequest, selected_paths,
 };
 
 pub use activity::{

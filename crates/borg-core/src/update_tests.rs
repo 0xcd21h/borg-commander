@@ -1128,6 +1128,11 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
 
 /// A contents search for `query` that found its first match in `/home/log` at `line`.
 fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, line: crate::LineMatch) {
+    found_in(state, now, query, vec![("log", line)]);
+}
+
+/// A contents search for `query` that found its first match in each file of `/home` named, at its line.
+fn found_in(state: &mut AppState, now: Instant, query: &borg_view::Query, files: Vec<(&str, crate::LineMatch)>) {
     let request = crate::SearchRequest {
         root: "/home".into(),
         query: "*".into(),
@@ -1141,9 +1146,15 @@ fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, li
     };
     let effects = crate::results::start_search(state, request);
     let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
-    let mut log = file("log");
-    log.source = Some(PathBuf::from("/home/log"));
-    update(state, Msg::Found { side, generation, found: vec![(log, line)] }, now);
+    let found = files
+        .into_iter()
+        .map(|(name, line)| {
+            let mut found = file(name);
+            found.source = Some(Path::new("/home").join(name));
+            (found, line)
+        })
+        .collect();
+    update(state, Msg::Found { side, generation, found }, now);
     update(state, Msg::Listed { side, generation, error: None }, now);
 }
 
@@ -1239,6 +1250,179 @@ fn a_contents_match_the_editor_leaves_to_the_viewer_opens_there_on_the_match() {
     assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 9, .. }] if *asked == query));
     run_viewer_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(9..15));
+}
+
+/// Where the quick view's request in `effects` opens a file, if it asks for one.
+fn peeked_at(effects: &[Effect]) -> Option<(PathBuf, Option<crate::FirstMatch>)> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Peek { aside: crate::Aside::QuickView, path, at, .. } => Some((path.clone(), at.clone())),
+        _ => None,
+    })
+}
+
+#[test]
+fn ctrl_q_on_contents_results_previews_each_file_on_its_match_with_the_query_marked() {
+    use borg_view::Mark;
+    use std::sync::Arc;
+
+    const HAY: usize = 400;
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "needle".into(), ..Default::default() };
+    let deep = "hay\n".repeat(HAY) + "a needle beside a needle\n" + &"hay\n".repeat(HAY);
+    let offset = deep.find("needle").unwrap() as u64;
+    let line = |line, offset| crate::LineMatch {
+        line,
+        offset,
+        before: String::new(),
+        found: "needle".into(),
+        after: String::new(),
+    };
+    found_in(&mut state, now, &query, vec![("log", line(HAY as u64 + 1, offset)), ("notes", line(1, 2))]);
+
+    let effects = press(&mut state, now, ctrl('q'));
+    let at = crate::FirstMatch { query: query.clone(), offset };
+    assert_eq!(peeked_at(&effects), Some((PathBuf::from("/home/log"), Some(at.clone()))));
+    let Some(Effect::Peek { path, size, .. }) =
+        effects.into_iter().find(|effect| matches!(effect, Effect::Peek { .. }))
+    else {
+        unreachable!()
+    };
+    let mut pager = borg_view::Pager::new(Arc::new(deep.into_bytes()), size.0, size.1).unwrap();
+    crate::land_on_match(&mut pager, &at, &|_| true).unwrap();
+    let row = size.1 / 3;
+    assert_eq!(pager.rows()[row], "a needle beside a needle", "a third of the preview shows above the match");
+    let marks: Vec<_> = pager.rich_rows()[row]
+        .iter()
+        .filter(|run| run.mark != Mark::None)
+        .map(|run| (run.text.as_str(), run.mark))
+        .collect();
+    assert_eq!(marks, [("needle", Mark::Current), ("needle", Mark::Match)], "as the viewer's find bar marks them");
+
+    let top = crate::Peeked {
+        aside: crate::Aside::QuickView,
+        path: path.clone(),
+        at: None,
+        peek: crate::Peek::Text(pager.clone()),
+    };
+    update(&mut state, Msg::Peeked(top), now);
+    assert!(state.peeked.is_none(), "a preview of the file from its top is not the one asked for");
+    let landed =
+        crate::Peeked { aside: crate::Aside::QuickView, path, at: Some(at.clone()), peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(landed), now);
+    assert!(peeked_at(&update(&mut state, Msg::Tick, now)).is_none() && state.peeked.is_some());
+
+    press(&mut state, now, key(KeyCode::F(3)));
+    assert!(state.viewer.as_ref().is_some_and(|viewer| viewer.find.open), "F3 takes the preview to the viewer");
+    press(&mut state, now, key(KeyCode::Esc));
+    press(&mut state, now, key(KeyCode::Esc));
+    let Some(crate::Peeked { at: back, peek: crate::Peek::Text(pager), .. }) = &state.peeked else { panic!("preview") };
+    assert_eq!(back.as_ref(), Some(&at));
+    assert!(pager.shows_matches() && pager.current_match().is_none(), "the preview marks the search's matches again");
+
+    let next = crate::FirstMatch { query, offset: 2 };
+    let effects = press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(peeked_at(&effects), Some((PathBuf::from("/home/notes"), Some(next))), "the preview follows the cursor");
+    let effects = press(&mut state, now, key(KeyCode::Esc));
+    assert!(!state.active_panel().is_results());
+    assert!(peeked_at(&effects).is_some_and(|(_, at)| at.is_none()), "the folder's files open at the top");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert_eq!(state.aside, None, "Esc closes the quick view");
+}
+
+#[test]
+fn alt_e_on_results_edits_beside_them_and_closing_gives_back_the_results_and_quick_view() {
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "retry".into(), ..Default::default() };
+    let text = "first line\nretry once\n".to_owned();
+    let offset = text.find("retry").unwrap() as u64;
+    let line =
+        crate::LineMatch { line: 2, offset, before: String::new(), found: "retry".into(), after: " once".into() };
+    found_in_log(&mut state, now, &query, line);
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((shown, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let pager = borg_view::Pager::new(std::sync::Arc::new(text.clone().into_bytes()), 30, 10).unwrap();
+    let peek = crate::Peek::Text(pager);
+    update(&mut state, Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path: shown, at, peek }), now);
+
+    let alt_e = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT);
+    let path = PathBuf::from("/home/log");
+    let slot = crate::EditorSlot::Panel(Side::Right);
+    assert_eq!(press(&mut state, now, alt_e), [Effect::OpenEditor { path: path.clone(), slot }]);
+    let stamp = crate::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let file = crate::EditorFile { path, text, stamp };
+    update(&mut state, Msg::EditorOpened(slot, Ok(file.clone())), now);
+    assert_eq!((state.active, crate::editor::focused(&state)), (Side::Right, Some(slot)));
+    assert!(state.panel(Side::Left).is_results() && state.aside.is_none(), "the editor takes the quick view's place");
+    let editor = state.docked[1].as_ref().unwrap();
+    assert!(editor.find.open && editor.buffer.selected_text().as_deref() == Some("retry"), "on the match, as F4");
+
+    press(&mut state, now, key(KeyCode::F(6)));
+    assert_eq!((state.active, crate::editor::focused(&state)), (Side::Left, None), "F6 goes to the results");
+    press(&mut state, now, ctrl('q'));
+    assert_eq!(state.notice.as_deref(), Some("The other panel holds an editor; close it to show a preview"));
+    press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(crate::editor::focused(&state), Some(slot), "Tab goes back to the editor");
+
+    press(&mut state, now, key(KeyCode::Esc));
+    let effects = press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.docked[1].is_none(), "the first Esc closes the find bar and the second the editor");
+    assert_eq!((state.active, state.aside), (Side::Left, Some(crate::Aside::QuickView)));
+    let at = crate::FirstMatch { query, offset };
+    let back = Some((PathBuf::from("/home/log"), Some(at)));
+    assert_eq!(peeked_at(&effects), back, "the quick view comes back and reads the file the editor saved");
+
+    press(&mut state, now, ctrl('q'));
+    press(&mut state, now, alt_e);
+    update(&mut state, Msg::EditorOpened(slot, Ok(file)), now);
+    press(&mut state, now, key(KeyCode::F(10)));
+    assert!(state.docked[1].is_none(), "F10 closes it too");
+    assert_eq!((state.active, state.aside), (Side::Left, None), "with no quick view before, none comes back");
+}
+
+#[test]
+fn alt_e_on_results_asks_about_unsaved_changes_beside_them_and_replaces_a_saved_file() {
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "retry".into(), ..Default::default() };
+    let line = |offset| crate::LineMatch {
+        line: 1,
+        offset,
+        before: String::new(),
+        found: "retry".into(),
+        after: String::new(),
+    };
+    found_in(&mut state, now, &query, vec![("a.log", line(0)), ("b.log", line(6))]);
+    press(&mut state, now, ctrl('q'));
+    let alt_e = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT);
+    let slot = crate::EditorSlot::Panel(Side::Right);
+    let open = |state: &mut AppState, name: &str, text: &str| {
+        let stamp = crate::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+        let file = crate::EditorFile { path: Path::new("/home").join(name), text: text.into(), stamp };
+        update(state, Msg::EditorOpened(slot, Ok(file)), now);
+    };
+    press(&mut state, now, alt_e);
+    open(&mut state, "a.log", "retry\n");
+    press(&mut state, now, key(KeyCode::F(6)));
+    press(&mut state, now, key(KeyCode::Down));
+    let path = PathBuf::from("/home/b.log");
+    assert_eq!(press(&mut state, now, alt_e), [Effect::OpenEditor { path, slot }], "a saved file gives way");
+    open(&mut state, "b.log", "again retry\n");
+    assert_eq!(state.docked[1].as_ref().unwrap().buffer.selected_text().as_deref(), Some("retry"));
+
+    press(&mut state, now, key(KeyCode::Esc));
+    press(&mut state, now, key(KeyCode::Char('!')));
+    press(&mut state, now, key(KeyCode::F(6)));
+    press(&mut state, now, key(KeyCode::Up));
+    assert!(press(&mut state, now, alt_e).is_empty(), "unsaved changes are not replaced");
+    assert_eq!(state.active, Side::Right, "the editor with changes comes forward");
+    let dialog = crate::editor::dialog(state.docked[1].as_ref().unwrap()).unwrap();
+    assert_eq!(dialog.message.as_deref(), Some("Save the changes to b.log?"));
+    press(&mut state, now, key(KeyCode::Char('d')));
+    assert!(state.docked[1].is_none(), "Discard closes it");
+    assert_eq!(
+        (state.active, state.aside),
+        (Side::Left, Some(crate::Aside::QuickView)),
+        "as the first Alt-E left them"
+    );
 }
 
 #[test]
@@ -1605,6 +1789,7 @@ fn quick_view_asks_for_the_hovered_file_once_and_follows_the_cursor() {
     let stale = crate::Peeked {
         aside: crate::Aside::QuickView,
         path: PathBuf::from("/home/a.txt"),
+        at: None,
         peek: crate::Peek::Text(borg_view::Pager::new(std::sync::Arc::new(b"old".to_vec()), 20, 5).unwrap()),
     };
     update(&mut state, Msg::Peeked(stale), now);
@@ -1613,6 +1798,7 @@ fn quick_view_asks_for_the_hovered_file_once_and_follows_the_cursor() {
     let fresh = crate::Peeked {
         aside: crate::Aside::QuickView,
         path: PathBuf::from("/home/b.txt"),
+        at: None,
         peek: crate::Peek::Text(borg_view::Pager::new(std::sync::Arc::new(b"new".to_vec()), 20, 5).unwrap()),
     };
     update(&mut state, Msg::Peeked(fresh), now);
@@ -1778,7 +1964,7 @@ fn preview_focus_scrolls_document_and_tab_returns_to_listing() {
     let pager = borg_view::Pager::for_path(std::sync::Arc::new(text.into_bytes()), &path, 40, 10).unwrap();
     update(
         &mut state,
-        Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path, peek: crate::Peek::Text(pager) }),
+        Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path, at: None, peek: crate::Peek::Text(pager) }),
         now,
     );
     press(&mut state, now, key(KeyCode::Tab));
@@ -1808,7 +1994,12 @@ fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
         let offset = pager.offset();
         update(
             &mut state,
-            Msg::Peeked(crate::Peeked { aside: crate::Aside::QuickView, path, peek: crate::Peek::Text(pager) }),
+            Msg::Peeked(crate::Peeked {
+                aside: crate::Aside::QuickView,
+                path,
+                at: None,
+                peek: crate::Peek::Text(pager),
+            }),
             now,
         );
         if focused {

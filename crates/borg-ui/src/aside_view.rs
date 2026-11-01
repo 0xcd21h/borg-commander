@@ -99,7 +99,7 @@ pub(crate) fn draw_file(peek: &Peek, look: &Look<'_>, base: Style, body: Rect, b
     match peek {
         Peek::Picture(image) => draw_halfblocks(&image.picture, body, buf),
         Peek::Text(pager) if pager.is_empty() => centered(tr!(empty_file), styles.meta, body, buf),
-        Peek::Text(pager) => crate::document_view::draw(pager, base, (base, base), body, buf),
+        Peek::Text(pager) => crate::document_view::draw(pager, base, crate::find_view::match_styles(styles), body, buf),
         Peek::Binary => centered(tr!(binary_file), styles.meta, body, buf),
         Peek::Unavailable(reason) => {
             centered(&format::truncate_end(reason, usize::from(body.width)), styles.notice, body, buf);

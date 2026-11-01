@@ -830,7 +830,7 @@ fn peek(stage: &mut Stage, aside: borg_core::Aside, peek: borg_core::Peek) -> Re
     let panel = stage.state.active_panel();
     let Some(borg_core::Row::Entry(entry)) = panel.hovered() else { anyhow::bail!("the cursor must be on an entry") };
     let path = panel.dir().join(&entry.name);
-    stage.send(Msg::Peeked(borg_core::Peeked { aside, path, peek }));
+    stage.send(Msg::Peeked(borg_core::Peeked { aside, path, at: None, peek }));
     Ok(())
 }
 
@@ -1329,26 +1329,10 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
     check("search_cancelled", &stage, buffer)
 }
 
-#[test]
-fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Result<()> {
-    use borg_core::{Action, LineMatch, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
-    use std::sync::Arc;
-
-    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
-    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
-    stage.send(key(KeyCode::Tab));
-    for msg in chars("todo") {
-        stage.send(msg);
-    }
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
-    let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Containing")?;
-    ensure_text(&buffer, "Alt-C case · Alt-W whole words")?;
-    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
-    let (x, y) = screen.find(" ab ").context("the whole words switch")?;
-    assert_ne!(screen.style_at(x + 1, y), screen.style_at(x - 3, y), "whole words is on, case is off");
-    check("search_contents_dialog", &stage, buffer)?;
-    stage.send(key(KeyCode::Esc));
+/// A finished search below `/workspace` for files containing the whole word `todo`, which
+/// found its first match in `handlers.rs`, whose text it returns.
+fn contents_results(stage: &mut Stage) -> Result<String> {
+    use borg_core::{LineMatch, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
 
     let source = (1..=60)
         .map(|i| match i {
@@ -1388,6 +1372,31 @@ fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Res
     let progress = SearchProgress { visited: 214, read: 187, unread: 9, ..Default::default() };
     stage.send(Msg::SearchProgress { side: Side::Left, generation: 60, progress });
     stage.send(Msg::Listed { side: Side::Left, generation: 60, error: None });
+    Ok(source)
+}
+
+#[test]
+fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Result<()> {
+    use borg_core::{Action, Pointer};
+    use std::sync::Arc;
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    stage.send(key(KeyCode::Tab));
+    for msg in chars("todo") {
+        stage.send(msg);
+    }
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Containing")?;
+    ensure_text(&buffer, "Alt-C case · Alt-W whole words")?;
+    let screen = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (x, y) = screen.find(" ab ").context("the whole words switch")?;
+    assert_ne!(screen.style_at(x + 1, y), screen.style_at(x - 3, y), "whole words is on, case is off");
+    check("search_contents_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let source = contents_results(&mut stage)?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "finished · 187 files read · 9 binary or too large")?;
     ensure_text(&buffer, "42: // TODO: retry")?;
@@ -1416,6 +1425,44 @@ fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Res
     ensure_text(&buffer, "1 of 2")?;
     ensure_text(&buffer, "let todo = queue.pop();")?;
     check("search_contents_editor", &stage, buffer)
+}
+
+#[test]
+fn contents_results_preview_and_edit_their_match_beside_the_list() -> Result<()> {
+    use borg_core::{Aside, EditorSlot, Effect, Peek, Peeked, Side};
+    use std::sync::Arc;
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    let source = contents_results(&mut stage)?;
+    stage.send(key(KeyCode::Down));
+    let effects = borg_core::update(&mut stage.state, ctrl('q'), stage.started);
+    let Some(Effect::Peek { path, at: Some(at), size, .. }) =
+        effects.into_iter().find(|effect| matches!(effect, Effect::Peek { .. }))
+    else {
+        anyhow::bail!("the quick view asks for the match")
+    };
+    let mut pager = borg_view::Pager::for_path(Arc::new(source.clone().into_bytes()), &path, size.0, size.1)?;
+    borg_core::land_on_match(&mut pager, &at, &|_| true)?;
+    stage.send(Msg::Peeked(Peeked {
+        aside: Aside::QuickView,
+        path: path.clone(),
+        at: Some(at),
+        peek: Peek::Text(pager),
+    }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "// TODO: retry on timeout")?;
+    check("search_contents_quick_view", &stage, buffer)?;
+
+    let slot = EditorSlot::Panel(Side::Right);
+    let alt_e = Msg::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT));
+    let effects = borg_core::update(&mut stage.state, alt_e, stage.started);
+    anyhow::ensure!(effects == [Effect::OpenEditor { path: path.clone(), slot }], "the other panel takes the editor");
+    let stamp = borg_core::FileStamp { len: source.len() as u64, modified: None, inode: 1 };
+    stage.send(Msg::EditorOpened(slot, Ok(borg_core::EditorFile { path, text: source, stamp })));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 2")?;
+    ensure_text(&buffer, "app.js")?;
+    check("search_contents_editor_beside", &stage, buffer)
 }
 
 #[test]
@@ -2334,6 +2381,7 @@ fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<(
     stage.send(Msg::Peeked(borg_core::Peeked {
         aside: borg_core::Aside::OpenFile,
         path,
+        at: None,
         peek: borg_core::Peek::Text(pager),
     }));
     let buffer = stage.render(stage.started)?;

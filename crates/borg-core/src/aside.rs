@@ -1,12 +1,14 @@
 use borg_i18n::tr;
 use std::{
-    path::PathBuf,
+    io,
+    path::{Path, PathBuf},
     time::{Instant, SystemTime},
 };
 
 use borg_vfs::Entry;
+use borg_view::Pager;
 
-use crate::{AppState, Effect, Image, Row};
+use crate::{AppState, Direction, Effect, FirstMatch, Image, Row};
 
 const BORDER_CELLS: u16 = 2;
 const PADDING_CELLS: u16 = 2;
@@ -60,7 +62,21 @@ pub enum Peek {
 pub struct Peeked {
     pub aside: Aside,
     pub path: PathBuf,
+    /// The match the quick view opens a contents search's result on.
+    pub at: Option<FirstMatch>,
     pub peek: Peek,
+}
+
+/// Scrolls the preview of a contents search's result to the match found at `at`, marking the
+/// query's matches as the viewer's find bar does, in the source the search read.
+pub fn land_on_match(pager: &mut Pager, at: &FirstMatch, go_on: &dyn Fn(u64) -> bool) -> io::Result<()> {
+    let search = at.query.compile().map_err(io::Error::other)?;
+    if pager.formatted() {
+        pager.toggle_source()?;
+    }
+    pager.show_matches(search)?;
+    let found = crate::find_in(&*pager.source(), &at.query, at.offset, Direction::Forward, false, go_on)?;
+    found.range.map_or(Ok(()), |range| pager.reveal(range))
 }
 
 pub(crate) fn toggle(state: &mut AppState, aside: Aside) -> Vec<Effect> {
@@ -84,6 +100,12 @@ pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
     }
 }
 
+/// The match the quick view opens the file at `path` on, among a contents search's results.
+pub(crate) fn opens_on(state: &AppState, aside: Aside, path: &Path) -> Option<FirstMatch> {
+    let results = state.active_panel().results.as_ref().filter(|_| aside == Aside::QuickView)?;
+    results.first_match(path)
+}
+
 pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
     // A preview has no room while a panel holds an editor.
     let docked = state.docked.iter().any(Option::is_some);
@@ -102,8 +124,9 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         state.peeking = None;
         return None;
     };
-    let wanted = Some((aside, path.clone()));
-    let shown = state.peeked.as_ref().map(|peeked| (peeked.aside, peeked.path.clone()));
+    let at = opens_on(state, aside, &path);
+    let wanted = Some((aside, path.clone(), at.clone()));
+    let shown = state.peeked.as_ref().map(|peeked| (peeked.aside, peeked.path.clone(), peeked.at.clone()));
     let layout = state.layout(state.epoch);
     let area = layout.panels[state.active.other().index()];
     let size = (
@@ -123,14 +146,17 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         return None;
     }
     state.peeking = wanted;
-    Some(Effect::Peek { aside, path, size })
+    Some(Effect::Peek { aside, path, at, size })
 }
 
 pub(crate) fn receive(state: &mut AppState, peeked: Peeked) {
     if peeked.aside == Aside::OpenFile {
         return crate::activity::receive_file_preview(&mut state.activity, peeked);
     }
-    if state.peeking.as_ref().is_some_and(|(aside, path)| *aside == peeked.aside && *path == peeked.path) {
+    let asked = |(aside, path, at): &(Aside, PathBuf, Option<FirstMatch>)| {
+        *aside == peeked.aside && *path == peeked.path && *at == peeked.at
+    };
+    if state.peeking.as_ref().is_some_and(asked) {
         state.peeking = None;
         state.peeked = Some(peeked);
     }

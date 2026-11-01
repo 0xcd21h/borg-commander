@@ -70,7 +70,7 @@ pub(crate) fn sync_file_preview(state: &mut AppState) -> Option<Effect> {
         return None;
     }
     activity.file_previewing = Some(path.clone());
-    Some(Effect::Peek { aside: crate::Aside::OpenFile, path, size })
+    Some(Effect::Peek { aside: crate::Aside::OpenFile, path, at: None, size })
 }
 
 pub(crate) fn receive_file_preview(activity: &mut Activity, preview: crate::Peeked) {

@@ -9,27 +9,46 @@ use std::{
 };
 
 use anyhow::Result;
-use borg_core::{Aside, Content, Facts, Nature, Peek};
+use borg_core::{Aside, Content, Facts, FirstMatch, Nature, Peek};
 use borg_vfs::{Entry, entries};
 
 const PERMISSION_BITS: u32 = 0o7777;
 
-pub fn peek(aside: Aside, path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Peek {
+pub fn peek(
+    aside: Aside,
+    path: &Path,
+    at: Option<&FirstMatch>,
+    size: (usize, usize),
+    cell: (u16, u16),
+    cancelled: Arc<AtomicBool>,
+) -> Peek {
     let peeked = match aside {
-        Aside::QuickView | Aside::OpenFile => quick_view(path, size, cell, cancelled),
+        Aside::QuickView | Aside::OpenFile => quick_view(path, at, size, cell, cancelled),
         Aside::Info => info(path, &cancelled).map(Peek::Info),
     };
     peeked.unwrap_or_else(|e| Peek::Unavailable(format!("{e:#}")))
 }
 
-fn quick_view(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Result<Peek> {
+/// A file or folder for the quick view; a contents search's result shows around its match.
+fn quick_view(
+    path: &Path,
+    at: Option<&FirstMatch>,
+    size: (usize, usize),
+    cell: (u16, u16),
+    cancelled: Arc<AtomicBool>,
+) -> Result<Peek> {
     if fs::metadata(path)?.is_dir() {
         return folder(path, size.1, &cancelled);
     }
-    crate::document::open(path, size, cell, cancelled).map(|content| match content {
-        Content::Text(pager) => Peek::Text(pager),
-        Content::Image(image) => Peek::Picture(image),
-    })
+    match crate::document::open(path, size, cell, cancelled.clone())? {
+        Content::Text(mut pager) => {
+            if let Some(at) = at {
+                borg_core::land_on_match(&mut pager, at, &|_| !cancelled.load(Ordering::Relaxed))?;
+            }
+            Ok(Peek::Text(pager))
+        }
+        Content::Image(image) => Ok(Peek::Picture(image)),
+    }
 }
 
 fn folder(path: &Path, shown: usize, cancelled: &AtomicBool) -> Result<Peek> {

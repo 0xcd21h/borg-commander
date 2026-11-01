@@ -114,13 +114,15 @@ de texto solo muestra archivos, así que no admite totales de carpeta ni un mín
 Cada resultado muestra la primera línea que coincide, con su número de línea, en la columna
 **Coincidencia**, y la línea de estado añade el número de línea a la ruta del archivo. F3 abre el
 archivo en el visor en esa coincidencia, con la barra de búsqueda abierta con la consulta, para que
-Enter pase a la siguiente. Los archivos Markdown y JSON se abren ahí como código fuente, porque la
-búsqueda leyó el archivo tal cual, y `s` cambia a la vista formateada. F4 y Alt-E abren el archivo
-en el editor de Borg en esa coincidencia, con la coincidencia seleccionada y la barra de búsqueda
-abierta con la consulta. Borg lee los archivos en segundo plano, y la línea de contexto cuenta los
-archivos leídos. Los archivos binarios (un byte NUL en los primeros 8 KiB) y los de más de 64 MiB
-quedan sin leer y cuentan como binarios o demasiado grandes. Ctrl-C detiene la búsqueda, que se para
-en 20.000 archivos como cualquier búsqueda.
+Enter pase a la siguiente, y Ctrl-Q lo muestra ahí en la vista rápida, con la consulta marcada. Los
+archivos Markdown y JSON se abren como código fuente en ambos, porque la búsqueda leyó el archivo
+tal cual, y `s` cambia a la vista formateada. F4 abre el archivo en el editor de Borg en esa
+coincidencia, con la coincidencia seleccionada y la barra de búsqueda abierta con la consulta, y
+Alt-E hace lo mismo en el otro panel, para que los resultados sigan a la vista. Borg lee los
+archivos en segundo plano, y la línea de contexto cuenta los archivos leídos. Los archivos binarios
+(un byte NUL en los primeros 8 KiB) y los de más de 64 MiB quedan sin leer y cuentan como binarios o
+demasiado grandes. Ctrl-C detiene la búsqueda, que se para en 20.000 archivos como cualquier
+búsqueda.
 
 ### Trabajar con los resultados
 
@@ -130,15 +132,19 @@ carpeta de origen y la agrupación por carpeta o por tipo de archivo. Enter sobr
 un grupo lo pliega; Insert marca los archivos coincidentes que contiene. Las marcas se conservan
 al ordenar o filtrar, y el pie también cuenta los archivos marcados que el filtro oculta.
 
-F3 y Ctrl-Q abren el archivo original. F5 copia a una carpeta real; si el otro panel es una
-colección, F5 añade referencias a ella. F6 necesita una carpeta real como destino. En una
-colección, F8 quita referencias y deja los archivos intactos; en los resultados de búsqueda, F8
-pide confirmación para eliminar los archivos originales. Shift-F8 también elimina los archivos
-originales desde una colección, tras confirmarlo. Si marcas una carpeta y archivos que contiene,
-la tarea procesa la carpeta una sola vez. **Mostrar original** abre la carpeta del archivo en el
-otro panel. Left o Esc ocultan los resultados, y Alt-Shift-R los recupera tal como los dejaste.
-Tab cambia de panel incluso si el shell tiene un comando a medio escribir. El shell siempre
-permanece en una carpeta real. F10 siempre pregunta antes de salir.
+F3 y Ctrl-Q abren el archivo original y, tras una búsqueda de texto, lo abren en su primera
+coincidencia. La vista rápida sigue al cursor por los resultados y muestra cada archivo en su
+coincidencia, con la consulta marcada como la marca la barra de búsqueda. Alt-E abre el archivo en
+el editor de Borg en el otro panel, para que los resultados sigan a la vista. Esc o F10 cierra ese
+editor y devuelve el foco a los resultados, y la vista rápida vuelve si estaba abierta antes. F5
+copia a una carpeta real; si el otro panel es una colección, F5 añade referencias a ella. F6
+necesita una carpeta real como destino. En una colección, F8 quita referencias y deja los archivos
+intactos; en los resultados de búsqueda, F8 pide confirmación para eliminar los archivos originales.
+Shift-F8 también elimina los archivos originales desde una colección, tras confirmarlo. Si marcas
+una carpeta y archivos que contiene, la tarea procesa la carpeta una sola vez. **Mostrar original**
+abre la carpeta del archivo en el otro panel. Left o Esc ocultan los resultados, y Alt-Shift-R los
+recupera tal como los dejaste. Tab cambia de panel incluso si el shell tiene un comando a medio
+escribir. El shell siempre permanece en una carpeta real. F10 siempre pregunta antes de salir.
 
 Por ahora, las acciones de Git y de archivos comprimidos solo funcionan en paneles de carpetas
 reales. Para usarlas con un archivo de una colección, abre antes su carpeta con **Mostrar
@@ -286,7 +292,7 @@ momento.
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
 | Alt-T | Time Machine: qué dejan fuera las copias de seguridad, en macOS |
-| Alt-E | Editar el archivo seleccionado en este panel, en lugar de sus archivos |
+| Alt-E | Editar el archivo seleccionado en este panel, en lugar de sus archivos, o en el otro panel junto a los resultados |
 | F1 | Acerca de |
 | F2 | Menú Archivo |
 | F3 | Ver (texto o imagen) |
@@ -779,11 +785,14 @@ muestran la imagen anterior o la siguiente. Borg usa el protocolo de imágenes d
 lo hay; los demás terminales muestran la imagen como bloques de colores.
 
 Ctrl-Q muestra una vista previa rápida en el otro panel. Tab entra en ella, donde las flechas,
-PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos.
-Ctrl-L muestra la información del archivo. F3 abre una vista previa de texto en el visor completo,
-y al cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea y el
-modo de código fuente. Ambos leen los archivos de la misma forma limitada, así que abrir un archivo
-de texto grande solo lee aproximadamente la primera página y es rápido sea cual sea su tamaño.
+PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos. Ctrl-L
+muestra la información del archivo. F3 abre una vista previa de texto en el visor completo, y al
+cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea y el modo de
+código fuente. Ambos leen los archivos de la misma forma limitada, así que abrir un archivo de texto
+grande solo lee aproximadamente la primera página y es rápido sea cual sea su tamaño. En un
+resultado de una búsqueda de texto, la vista previa se abre en cambio en la primera coincidencia del
+archivo, con la consulta marcada como la marca la barra de búsqueda, y solo lee alrededor de esa
+coincidencia.
 
 Los dos visores de texto resaltan los lenguajes de programación, de marcado y los archivos de
 configuración más comunes, entre ellos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java,
@@ -828,14 +837,19 @@ coloca el cursor, arrastrar o hacer Shift-clic selecciona, un doble clic selecci
 la rueda desplaza; también puedes hacer clic en las teclas que aparecen en la línea de estado.
 
 Alt-E abre el archivo seleccionado en el editor de Borg dentro del panel activo, en lugar de sus
-archivos, para que puedas editar dos archivos uno al lado del otro, o un archivo junto a la
-carpeta en la que está. F6 pasa del editor de un panel al otro panel, y Tab vuelve al editor desde
-la lista de archivos. El texto copiado con Ctrl-C en un editor se pega con Ctrl-V en el otro.
-Mientras un editor tiene el foco, la barra de atajos muestra las teclas del editor, y las teclas
-del panel vuelven con la lista de archivos. Ctrl-O también muestra la consola desde un editor, y
-F9 abre los menús. Esc o F10 cierra el editor y devuelve al panel sus archivos; al salir, Borg
-pregunta primero por cada editor de panel con cambios sin guardar. La vista rápida y la
-información del archivo necesitan el otro panel, así que esperan hasta que se cierre su editor.
+archivos, para que puedas editar dos archivos uno al lado del otro, o un archivo junto a la carpeta
+en la que está. En los resultados de búsqueda y en las colecciones, Alt-E abre el editor en el otro
+panel, para que la lista siga a la vista. Alt-E sobre otro resultado lo abre en lugar del archivo
+que hay ahí. Si ese archivo tiene cambios sin guardar, Alt-E trae su editor al frente y pregunta si
+quieres guardarlos. F6 pasa del editor de un panel al otro panel, y Tab vuelve al editor desde la
+lista de archivos. El texto copiado con Ctrl-C en un editor se pega con Ctrl-V en el otro. Mientras
+un editor tiene el foco, la barra de atajos muestra las teclas del editor, y las teclas del panel
+vuelven con la lista de archivos. Ctrl-O también muestra la consola desde un editor, y F9 abre los
+menús. Esc o F10 cierra el editor y devuelve al panel sus archivos; al salir, Borg pregunta primero
+por cada editor de panel con cambios sin guardar. La vista rápida y la información del archivo
+necesitan el otro panel, así que esperan hasta que se cierre su editor. Un editor abierto junto a
+los resultados les devuelve el foco al cerrarse y trae de vuelta la vista rápida o la información
+del archivo que mostraban.
 
 El visor y el editor buscan texto de la misma manera. En el visor, `/`, F7 o Ctrl-F abren una
 barra de búsqueda en la línea de estado; en el editor, Ctrl-F o F7. Borg busca mientras escribes,

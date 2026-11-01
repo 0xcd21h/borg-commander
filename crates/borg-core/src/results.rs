@@ -95,6 +95,13 @@ pub struct Results {
     pub lines: HashMap<PathBuf, crate::LineMatch>,
 }
 
+/// Where a contents search found its first match in a file, and the query it found it with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FirstMatch {
+    pub query: borg_view::Query,
+    pub offset: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct TreeState {
     pub root: PathBuf,
@@ -147,6 +154,11 @@ impl Results {
     /// The first match a contents search found in the file at `path`.
     pub fn line(&self, path: &Path) -> Option<&crate::LineMatch> {
         self.lines.get(path)
+    }
+
+    /// Where the file at `path` opens on a contents search's result.
+    pub fn first_match(&self, path: &Path) -> Option<FirstMatch> {
+        Some(FirstMatch { query: self.contents()?.clone(), offset: self.line(path)?.offset })
     }
 
     pub fn title(&self) -> String {
