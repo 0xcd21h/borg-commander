@@ -26,6 +26,18 @@ c o m m a n d e r
 
 <p align="center"><em>Resistance is futile.</em></p>
 
+## Why Borg
+
+There have always been good terminals and good file managers. Programs that are both are rare:
+two file panels with your shell running underneath, one Ctrl-O away. Norton Commander made that
+layout famous on DOS. Volkov Commander, DOS Navigator, FAR Manager and Midnight Commander kept it
+going, but most of them stayed in the DOS and Windows console era.
+
+Borg Commander is a direct continuation of those projects for current macOS and Linux. It keeps
+the keys you remember: F3 views, F4 edits, F5 copies, F6 moves, and Ctrl-O switches between the
+panels and your bash, zsh or fish. On top of that it brings Git, Docker, remote sessions and
+access for Claude and other agents into the same two panels.
+
 ## Install
 
 ```sh
