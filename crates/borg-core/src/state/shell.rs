@@ -96,7 +96,7 @@ impl ShellStatus {
 
     pub(crate) fn observe(&mut self, view: ShellView) {
         self.observed = view;
-        self.went_full_screen |= self.running && self.captured();
+        self.went_full_screen |= self.busy() && self.captured();
     }
 
     pub(crate) fn mark_typed(&mut self) {
