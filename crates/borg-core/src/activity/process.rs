@@ -23,6 +23,12 @@ pub struct ProcessInfo {
     /// Why the system keeps every other program, administrators included, out of its memory.
     #[serde(default)]
     pub protection: Option<MemoryProtection>,
+    /// How nice the process is to others, from -20 to 19, when the system shows it.
+    #[serde(default)]
+    pub nice: Option<i32>,
+    /// Paused by a stop signal until it is sent Continue.
+    #[serde(default)]
+    pub stopped: bool,
 }
 
 /// Why macOS lets no other program, administrators included, read a process's memory.
@@ -45,4 +51,7 @@ pub struct SystemSample {
     /// Borg itself runs as administrator, so asking to be one again reads nothing more.
     #[serde(default)]
     pub administrator: bool,
+    /// Borg's own process, which the monitor sends no signals to.
+    #[serde(default)]
+    pub own: Option<u32>,
 }

@@ -971,6 +971,7 @@ total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amo
 | C / M / G / N / P | Ordenar por CPU / RAM / crescimento / nome / PID; prima de novo para inverter |
 | I / O | Ordenar por débito de leitura / escrita |
 | T | Mostrar ou ocultar a árvore de processos |
+| K | Enviar um sinal ou alterar a prioridade |
 | Space | Pausar ou retomar a amostragem |
 | R | Atualizar a vista atual |
 | Esc | Voltar; na lista de processos, fechar o monitor |
@@ -982,6 +983,33 @@ memória residente nos últimos 60 segundos. Os totais de memória usada, em swa
 partilhada aparecem depois de o mapa de memória ser lido, se o sistema os indicar. **Enter** no
 painel de memória abre o mapa de memória. O mapa só é lido quando o pede; prima R para o voltar a
 ler depois de o processo alterar os seus mapeamentos.
+
+### Sinais e prioridade
+
+K abre **Sinal ou prioridade** para o processo selecionado. Prima a letra de uma opção, ou
+desloque-se até ela e prima Enter. Esc fecha a caixa de diálogo sem enviar nada.
+
+| Tecla | Opção | O que faz |
+| --- | --- | --- |
+| T | **Terminar** | Envia TERM, que pede ao processo que saia |
+| I | **Interromper** | Envia INT, o mesmo que Ctrl-C no seu terminal |
+| H | **Desligar** | Envia HUP; muitos serviços voltam a ler as definições |
+| K | **Matar** | Envia KILL, que termina o processo de imediato sem lhe dar tempo para limpar |
+| S | **Parar** | Envia STOP, que coloca o processo em pausa |
+| C | **Continuar** | Envia CONT, que retoma um processo parado |
+| L | **Baixar prioridade** | Sobe o valor nice em 5, até 19, para que espere mais pela CPU quando o sistema está ocupado |
+| R | **Subir prioridade** | Desce o valor nice em 5, até -20 |
+
+Imediatamente antes de enviar, o Borg confirma que o PID ainda pertence ao processo que escolheu,
+iniciado à mesma hora, para que um processo novo que tenha reutilizado o PID fique intacto. A linha
+de estado confirma o que foi enviado e a lista volta a ser amostrada de imediato. A visão geral
+indica quando um processo está parado e mostra o seu valor **Nice** quando não é 0.
+
+Pode enviar sinais aos seus próprios processos e baixar a prioridade deles. O sistema recusa o
+resto: processos de outro utilizador e subir uma prioridade, que só um administrador pode fazer.
+Nesse caso, o Borg oferece **A: Administrador**, que envia a mesma opção através do auxiliar
+descrito em [Acesso de administrador](#administrator-access). O Borg não envia sinais a si
+próprio; F10 fecha-o.
 
 ### Mapa de memória
 
@@ -1121,12 +1149,13 @@ deixam os mesmos vestígios.
 
 ### Acesso de administrador
 
-Quando a leitura de um mapa de memória ou de uma captura está restrita, ou uma pesquisa não
-conseguiu ler parte da memória, o Borg oferece **A: Administrador**. No macOS, isto abre o pedido
+Quando a leitura de um mapa de memória ou de uma captura está restrita, uma pesquisa não
+conseguiu ler parte da memória, ou o sistema recusa um sinal ou uma alteração de prioridade, o Borg
+oferece **A: Administrador**. No macOS, isto abre o pedido
 de autorização do sistema; no Linux, usa `pkexec` e precisa de um agente de autorização em
-execução. Apenas um auxiliar de inspeção de curta duração corre com privilégios elevados. O
-próprio Borg continua a correr normalmente, e o auxiliar devolve apenas dados do mapa ou um número
-limitado de bytes.
+execução. Apenas um auxiliar de curta duração corre com privilégios elevados. O próprio Borg
+continua a correr normalmente, e o auxiliar devolve apenas dados do mapa ou um número limitado de
+bytes, ou envia o sinal ou a prioridade que escolheu.
 
 O macOS protege a memória dos seus próprios programas (System Integrity Protection) e dos programas
 compilados com o Hardened Runtime contra todos os outros programas, incluindo os administradores.

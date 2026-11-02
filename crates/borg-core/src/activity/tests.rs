@@ -5,6 +5,7 @@ use crate::{AppState, Effect};
 use crate::{Appearance, Msg, Settings, Startup, ThemeChoice, update};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{path::PathBuf, time::Instant};
+mod control;
 mod map;
 mod processes;
 mod search;
@@ -35,6 +36,8 @@ fn process(pid: u32, start: u64, ram: u64) -> ProcessInfo {
         read: Some(0),
         written: Some(0),
         protection: None,
+        nice: Some(0),
+        stopped: false,
     }
 }
 fn sample(state: &mut AppState, processes: Vec<ProcessInfo>, now: Instant) {

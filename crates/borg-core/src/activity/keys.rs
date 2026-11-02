@@ -38,6 +38,13 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if code == KeyCode::Char('f') && modifiers == KeyModifiers::CONTROL {
         return find_in_memory(state);
     }
+    if matches!(code, KeyCode::Char('k' | 'K'))
+        && !modifiers.contains(KeyModifiers::CONTROL)
+        && !state.activity.filtering
+        && state.activity.list == ActivityPage::Processes
+    {
+        return super::open_control(state);
+    }
     if let Some(action) = panels_action(key) {
         return crate::actions::perform(state, action, now);
     }

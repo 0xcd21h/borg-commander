@@ -1,8 +1,8 @@
 //! What the monitor asks the app for, and what comes back.
 
 use super::{
-    IntegrityReport, MemoryCensus, MemoryRegion, MemorySearchMode, MemorySearchReport, MemorySnapshot, ProcessFiles,
-    ProcessKey, SystemSample,
+    ControlReport, IntegrityReport, MemoryCensus, MemoryRegion, MemorySearchMode, MemorySearchReport, MemorySnapshot,
+    ProcessControl, ProcessFiles, ProcessKey, SystemSample,
 };
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +46,12 @@ pub enum ActivityRequest {
         process: ProcessKey,
         admin: bool,
     },
+    /// A signal or priority change for the process.
+    Control {
+        process: ProcessKey,
+        control: ProcessControl,
+        admin: bool,
+    },
 }
 
 impl ActivityRequest {
@@ -78,6 +84,9 @@ impl ActivityRequest {
                 Some(Self::Capture { process: *process, region: region.clone(), admin: true, seek: *seek })
             }
             Self::Integrity { process, .. } => Some(Self::Integrity { process: *process, admin: true }),
+            Self::Control { process, control, .. } => {
+                Some(Self::Control { process: *process, control: *control, admin: true })
+            }
         }
     }
 }
@@ -91,4 +100,5 @@ pub enum ActivityData {
     Snapshot(MemorySnapshot),
     Census(MemoryCensus),
     Integrity(IntegrityReport),
+    Control(ControlReport),
 }

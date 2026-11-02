@@ -16,9 +16,10 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, ThreadKind, UpdateKind};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, ThreadKind, UpdateKind};
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
+mod control;
 mod helper;
 mod maps;
 mod process_files;
@@ -110,6 +111,11 @@ impl Sampler {
                     read: sampled.map(|s| (io.read_bytes as f64 / s) as u64),
                     written: sampled.map(|s| (io.written_bytes as f64 / s) as u64),
                     protection,
+                    nice: i32::try_from(key.pid)
+                        .ok()
+                        .and_then(rustix::process::Pid::from_raw)
+                        .and_then(|pid| rustix::process::getpriority_process(Some(pid)).ok()),
+                    stopped: p.status() == ProcessStatus::Stop,
                 }
             })
             .collect();
@@ -127,9 +133,16 @@ impl Sampler {
             swap_used: self.system.used_swap(),
             cpu: self.system.cpus().iter().map(|c| (c.cpu_usage().max(0.0) * 100.0) as u32).collect(),
             administrator: rustix::process::geteuid().is_root(),
+            own: Some(own),
         }
     }
 }
+/// What a failed request was doing, which its error says.
+enum RequestKind {
+    Inspection,
+    Control,
+}
+
 pub struct Monitor {
     sampler: Arc<Mutex<Sampler>>,
     cancelled: Arc<AtomicBool>,
@@ -156,6 +169,11 @@ impl Monitor {
         let cancelled = self.cancelled.clone();
         let sampler = self.sampler.clone();
         let messages = self.messages.clone();
+        let kind = if matches!(request, ActivityRequest::Control { .. }) {
+            RequestKind::Control
+        } else {
+            RequestKind::Inspection
+        };
         self.task = Some(tokio::spawn(async move {
             let result = match request {
                 ActivityRequest::Sample => tokio::task::spawn_blocking(move || {
@@ -169,7 +187,10 @@ impl Monitor {
                 .and_then(|r| r),
                 request => inspect(request, cancelled, Some((id, messages.clone()))).await,
             }
-            .map_err(|error| tr!(activity_cannot_inspect, error = error));
+            .map_err(|error| match kind {
+                RequestKind::Control => tr!(process_control_failed, error = error),
+                RequestKind::Inspection => tr!(activity_cannot_inspect, error = error),
+            });
             let _ = messages.send(Msg::Activity { id, result });
         }));
     }
@@ -192,14 +213,18 @@ pub(crate) fn identify(pid: u32) -> Option<(ProcessKey, String, Option<PathBuf>)
     let key = ProcessKey { pid, start: process.start_time() };
     Some((key, process.name().to_string_lossy().into_owned(), process.exe().map(PathBuf::from)))
 }
-fn verify(process: ProcessKey) -> Result<()> {
+/// Whether `process` still runs under its PID, started when it was first seen.
+fn running(process: ProcessKey) -> bool {
     let mut system = System::new();
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[Pid::from_u32(process.pid)]),
         true,
         ProcessRefreshKind::nothing(),
     );
-    if !system.process(Pid::from_u32(process.pid)).is_some_and(|p| p.start_time() == process.start) {
+    system.process(Pid::from_u32(process.pid)).is_some_and(|p| p.start_time() == process.start)
+}
+fn verify(process: ProcessKey) -> Result<()> {
+    if !running(process) {
         bail!(tr!(activity_identity_changed));
     }
     Ok(())

@@ -27,6 +27,7 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
             ActivityPage::Processes => vec![
                 (tr!(activity_memory_button), KeyCode::Enter),
                 (tr!(activity_filter_button), KeyCode::Char('/')),
+                (tr!(activity_signal_button), KeyCode::Char('k')),
                 (tr!(activity_pause_button), KeyCode::Char(' ')),
                 (tr!(activity_close_button), KeyCode::Esc),
             ],
