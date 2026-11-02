@@ -347,6 +347,9 @@ fn paint_overlay(
             Unfold::FromCenter,
         ),
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::Storage(window) => {
+            (crate::storage_view::draw(state, window, scene.clock, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Approval(approval) => {
             (crate::agent_view::draw_approval(approval, theme, screen, buf), None, Unfold::FromCenter)
         }

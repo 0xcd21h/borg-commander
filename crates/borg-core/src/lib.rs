@@ -43,6 +43,7 @@ mod remote;
 mod results;
 mod settings;
 mod state;
+mod storage;
 mod update;
 mod viewer;
 
@@ -107,6 +108,12 @@ pub use settings::{
 pub use state::{
     AppState, Confirm, ConfirmPurpose, Console, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
+};
+pub use storage::{
+    CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR, INDEX_SUFFIX,
+    Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX, SIZES_PREFIX,
+    SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport, StorageRow, StorageWindow,
+    TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
 pub use viewer::{Content, FoundInViewer, Image, Viewer, find_in, viewer_size};

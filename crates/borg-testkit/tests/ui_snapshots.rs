@@ -3844,3 +3844,63 @@ fn ctrl_backslash_opens_the_folder_hotlist_on_the_panels_folder() -> Result<()> 
     ensure_text(&buffer, "Filter pro")?;
     check("folder_hotlist_filtered", &stage, buffer)
 }
+
+#[test]
+fn borgs_files_lists_each_place_the_captures_and_what_is_left_over() -> Result<()> {
+    use borg_core::{Cleanup, Leftover, Overlay, Place, PlaceUsage, SavedCapture, StorageReport, StorageWindow};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(9)));
+    let options =
+        borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Options").context("an Options menu")?;
+    while !matches!(&stage.state.overlay, Some(Overlay::Menu(cursor)) if cursor.menu == options) {
+        stage.send(key(KeyCode::Right));
+    }
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Enter));
+    assert!(matches!(stage.state.overlay, Some(Overlay::Storage(StorageWindow { report: None, .. }))));
+    ensure_text(&stage.render(stage.started)?, "Measuring…")?;
+    let usage =
+        |place, path: Option<&str>, bytes, items| PlaceUsage { place, path: path.map(PathBuf::from), bytes, items };
+    let saved = at(RECENT).context("a recent time")?;
+    let report = StorageReport {
+        places: vec![
+            usage(Place::Temporary, Some("/run/user/1000/borg-commander"), 19_456, 14),
+            usage(Place::Sockets, Some("/tmp/borg-1000-default"), 0, 2),
+            usage(Place::Caches, Some("/home/me/.cache/borg-commander"), 24_117_248, 21),
+            usage(Place::State, Some("/home/me/.local/state/borg-commander"), 60_416, 18),
+            usage(Place::Settings, Some("/home/me/.config/borg-commander"), 342, 2),
+            usage(Place::Captures, None, 3_145_728, 2),
+        ],
+        captures: vec![
+            SavedCapture {
+                path: "/home/me/projects/borg/capture-20260115-114210.pcapng".into(),
+                bytes: 2_097_152,
+                saved,
+                keys: Some("/home/me/projects/borg/capture-20260115-114210.keylog".into()),
+            },
+            SavedCapture {
+                path: "/home/me/net/capture-20260110-090000.pcap".into(),
+                bytes: 1_048_576,
+                saved,
+                keys: None,
+            },
+        ],
+        leftovers: vec![
+            Leftover { path: "/run/user/1000/borg-commander/0.8.3".into(), bytes: 2_744 },
+            Leftover { path: "/run/user/1000/borg-commander/0.8.2".into(), bytes: 2_744 },
+            Leftover { path: "/home/me/.cache/borg-commander/sizes-ab.json".into(), bytes: 10_011_004 },
+            Leftover { path: "/tmp/borg-1000-default/session-default-4242.sock".into(), bytes: 0 },
+        ],
+        cleaned: Some(Cleanup { at: saved, removed: 12, bytes: 3_145_728, failed: 0 }),
+    };
+    stage.send(Msg::Storage(report));
+    stage.send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Folder sizes and the name index")?;
+    check("storage_window", &stage, buffer)?;
+
+    stage.send(key(KeyCode::F(8)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 items in /run/user/1000/borg-commander")?;
+    check("storage_clean_question", &stage, buffer)
+}

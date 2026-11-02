@@ -93,7 +93,7 @@ impl App {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
         let cell = self.graphics.capabilities().cell;
         let state = self.state_dir.clone();
-        let scratch = self.runtime_dir.join("remote-preview");
+        let scratch = self.runtime_dir.join(borg_core::REMOTE_PREVIEWS);
         let messages = self.messages.clone();
         tokio::spawn(async move {
             let opened: Result<borg_core::Content> = async {

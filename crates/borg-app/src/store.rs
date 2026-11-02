@@ -2,7 +2,7 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
 
-const STAGING_SUFFIX: &str = "part";
+use borg_core::STAGING_SUFFIX;
 
 pub fn write_atomically(path: &Path, contents: &[u8]) -> Result<()> {
     let staging = path.with_extension(STAGING_SUFFIX);

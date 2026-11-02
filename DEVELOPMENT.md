@@ -336,6 +336,20 @@ as JSON lines, with byte counts but no screen contents or identity keys. `--size
 compares response sizes; a failed frame is followed by a fresh status connection to tell a
 stalled display from an unreachable host.
 
+### Borg's own files
+
+`borg-core::storage::leftovers` decides what is left over from a listing of Borg's folders, given
+the time, this version, whether the runtime folder was idle at start, which processes run and
+which sockets answer. The rules match file names Borg writes, and a name they do not know is
+never left over. `borg-app::storage` lists the folders, answers those questions, measures each
+place for the Borg's files window and `borg storage`, and cleans up 30 seconds after start and
+then at the interval of the runtime TTL refresh. Saved captures are remembered in `captures.json` in
+the state directory, owner-only, newest first.
+
+When you add a file or folder that Borg writes, name it with a constant the rules can share, add
+the rule and a test in `borg-core::storage`, and check the place it is measured under. A file
+the rules do not know is never cleaned up and never shown as left over.
+
 ### Interface text
 
 English interface text lives in `crates/borg-i18n/src/en.rs`. Use stable message keys

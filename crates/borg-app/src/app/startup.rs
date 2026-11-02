@@ -13,7 +13,7 @@ use borg_vfs::Local;
 use ratatui::layout::Size;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use super::{App, DOCKER_SCRATCH, INDEX_DELAY, WheelBurst, appearance, palette};
+use super::{App, INDEX_DELAY, WheelBurst, appearance, palette};
 use crate::{
     launch::{self, Launch},
     preview,
@@ -35,12 +35,13 @@ impl App {
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
         state.network.access = crate::network::capture_access();
-        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
+        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
         let search = start_search(launch, &state, &messages);
+        let storage = start_storage(launch, &search, &messages);
         Ok(Self {
             search,
             emulator,
@@ -79,6 +80,7 @@ impl App {
             backup,
             docker,
             network,
+            storage,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
             agent,
@@ -228,6 +230,23 @@ fn keep_runtime_dir(runtime_dir: PathBuf) {
             let _ = crate::launch::mark_in_use(&runtime_dir);
         }
     });
+}
+
+/// Borg's own files: measured for the Borg's files window, and cleaned up while Borg runs.
+fn start_storage(
+    launch: &Launch,
+    search: &crate::search::Search,
+    messages: &UnboundedSender<Msg>,
+) -> crate::storage::Storage {
+    let places = crate::storage::Places {
+        runtime: launch.runtime_dir.clone(),
+        state: launch.state_dir.as_ref().map(|dir| dir.path().to_path_buf()),
+        cache: crate::size_cache::cache_dir(),
+        config: launch.config_dir.as_ref().map(|dir| dir.path().to_path_buf()),
+    };
+    let indexes = search.indexes.clone();
+    let roots: crate::storage::Roots = std::sync::Arc::new(move || indexes.roots());
+    crate::storage::Storage::start(places, launch.runtime_idle, roots, messages.clone())
 }
 
 /// The searches and their indexes, which refresh the stale ones once Borg is up.

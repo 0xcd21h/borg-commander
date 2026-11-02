@@ -251,7 +251,11 @@ async fn record(
         if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
     let mut file = match OpenOptions::new().write(true).create_new(true).mode(FILE_MODE).open(&path) {
-        Ok(file) => file,
+        Ok(file) => {
+            let saved = path.clone();
+            tokio::task::spawn_blocking(move || crate::storage::remember_capture(&saved));
+            file
+        }
         Err(error) => {
             tap.stop();
             let _ = tap.finish().await;

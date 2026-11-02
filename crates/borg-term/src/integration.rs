@@ -16,6 +16,10 @@ const ENV_USER_ZDOTDIR: &str = "BORG_USER_ZDOTDIR";
 const ENV_ZDOTDIR: &str = "ZDOTDIR";
 const ENV_TERM: &str = "TERM";
 const ENV_CD_FILE: &str = "BORG_CD_FILE";
+/// The start of a folder request's file, followed by the process that writes it.
+pub const CD_PREFIX: &str = "cd-";
+/// The extension of a folder request while it is being written.
+pub const CD_STAGING: &str = "new";
 const PRIVATE_FILE: u32 = 0o600;
 const PRIVATE_DIR: u32 = 0o700;
 
@@ -104,13 +108,13 @@ pub fn user_shell() -> PathBuf {
 
 /// Where this process asks its shell to change directory (see [`SILENT_CD_KEY`]).
 pub fn cd_request_file(runtime_dir: &Path) -> PathBuf {
-    runtime_dir.join(env!("CARGO_PKG_VERSION")).join(format!("cd-{}", std::process::id()))
+    runtime_dir.join(env!("CARGO_PKG_VERSION")).join(format!("{CD_PREFIX}{}", std::process::id()))
 }
 
 /// Writes the folder for the shell to change into. The file is replaced, never written
 /// through, and readable only by its owner.
 pub fn request_cd(file: &Path, dir: &Path) -> io::Result<()> {
-    let staged = file.with_extension("new");
+    let staged = file.with_extension(CD_STAGING);
     match fs::remove_file(&staged) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
         _ => {}

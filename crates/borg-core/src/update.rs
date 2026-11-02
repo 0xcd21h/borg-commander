@@ -76,6 +76,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         Msg::GitFinished { id, result } => crate::plugins::finish(state, id, result),
         Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
         Msg::Backup(event) => crate::backup::receive(state, event),
+        Msg::Storage(report) => crate::storage::receive(state, report),
 
         Msg::Observe(view) => shell::observe(state, view, false),
         Msg::ShellOutput(view) => shell::observe(state, view, true),

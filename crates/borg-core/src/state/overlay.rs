@@ -91,6 +91,11 @@ pub enum ConfirmPurpose {
     Delete {
         sources: Vec<PathBuf>,
     },
+    /// Removing the leftovers the Borg's files window listed.
+    CleanStorage {
+        paths: Vec<PathBuf>,
+        window: Box<crate::StorageWindow>,
+    },
     Quit,
     ShellExit {
         token: String,
@@ -160,4 +165,6 @@ pub enum Overlay {
     Capture(crate::CaptureDialog),
     /// The command that installs a missing program, before it runs in the shell.
     Install(crate::InstallOffer),
+    /// Where Borg keeps its own files, how much each place holds, and the leftovers.
+    Storage(crate::StorageWindow),
 }

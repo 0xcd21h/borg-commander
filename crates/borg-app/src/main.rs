@@ -36,6 +36,7 @@ mod service_install;
 mod session;
 mod sessions;
 mod size_cache;
+mod storage;
 mod store;
 mod subfolders;
 mod tools;
@@ -99,6 +100,13 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
             finished("borg sessions", sessions::command(&state, &args))
         }
         "service" => finished("borg service", service::command(&args).await),
+        "storage" => match storage::command(&args) {
+            Ok(code) => code,
+            Err(error) => {
+                eprintln!("borg storage: {error:#}");
+                ExitCode::from(USAGE_ERROR)
+            }
+        },
         "mirror" => {
             let Some(target) = args.first() else { return Ok(usage("usage: borg mirror SERVER:SESSION [--take]")) };
             let force = args.get(1).map(String::as_str) == Some("--take");

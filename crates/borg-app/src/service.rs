@@ -69,8 +69,11 @@ fn service_socket() -> PathBuf {
     StateDir::locate().map_or_else(|| launch::runtime_dir().join(SOCKET), |state| state.path().join(SOCKET))
 }
 
+/// The background service's runtime folder, inside the state folder.
+pub(crate) const SERVICE_RUNTIME: &str = "runtime";
+
 fn service_runtime() -> Result<PathBuf> {
-    Ok(StateDir::locate().context("set HOME or BORG_STATE_DIR")?.path().join("runtime"))
+    Ok(StateDir::locate().context("set HOME or BORG_STATE_DIR")?.path().join(SERVICE_RUNTIME))
 }
 
 pub fn runtime_dir() -> Result<PathBuf> {
