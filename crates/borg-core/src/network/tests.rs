@@ -387,19 +387,18 @@ fn ctrl_c_copies_what_reaches_the_row() {
     assert!(effects.contains(&Effect::Copy("203.0.113.9:443".into())));
 }
 
-#[test]
-fn enter_shows_the_rows_process_in_the_activity_monitor() {
-    let (mut state, now) = opened();
-    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
-    assert!(!state.network.is_open());
-    assert!(state.activity.side.is_some());
-    let id = effects
+fn activity_request(effects: &[Effect]) -> u64 {
+    effects
         .iter()
         .find_map(|effect| match effect {
             Effect::Activity { id, .. } => Some(*id),
             _ => None,
         })
-        .unwrap();
+        .unwrap()
+}
+
+/// Answers the activity monitor's request with a few processes, one of them without sockets.
+fn answer_activity(state: &mut AppState, effects: &[Effect], now: Instant) {
     let process = |pid: u32| ProcessInfo {
         key: ProcessKey { pid, start: 1 },
         parent: None,
@@ -416,8 +415,76 @@ fn enter_shows_the_rows_process_in_the_activity_monitor() {
     };
     let processes = vec![process(1), process(MDNS), process(SSHD), process(BROWSER)];
     let sample = ActivityData::Sample(SystemSample { processes, ..SystemSample::default() });
-    update(&mut state, Msg::Activity { id, result: Ok(sample) }, now);
+    update(state, Msg::Activity { id: activity_request(effects), result: Ok(sample) }, now);
+}
+
+#[test]
+fn enter_shows_the_rows_process_in_the_activity_monitor() {
+    let (mut state, now) = opened();
+    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!state.network.is_open());
+    assert!(state.activity.side.is_some());
+    answer_activity(&mut state, &effects, now);
     assert_eq!(state.activity.process().map(|process| process.key.pid), Some(SSHD));
+}
+
+#[test]
+fn esc_in_the_activity_monitor_goes_back_to_the_row_it_came_from() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('3'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    let chosen = state.network.connection().map(|(socket, _)| socket.key());
+    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    answer_activity(&mut state, &effects, now);
+    let effects = press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.activity.side.is_none());
+    assert!(state.network.is_open());
+    assert!(requested(&effects).is_some());
+    assert_eq!(state.network.page, NetworkPage::Connections);
+    assert_eq!(state.network.connection().map(|(socket, _)| socket.key()), chosen);
+    assert!(state.network.traffic.processes.values().any(|meter| !meter.history.is_empty()));
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!state.network.is_open());
+    assert!(state.activity.side.is_none());
+}
+
+#[test]
+fn alt_m_opens_a_monitor_that_esc_closes() {
+    let (mut state, now) = opened();
+    let effects = press(&mut state, KeyCode::Char('m'), KeyModifiers::ALT);
+    answer_activity(&mut state, &effects, now);
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.activity.side.is_none());
+    assert!(!state.network.is_open());
+}
+
+#[test]
+fn alt_n_in_the_activity_monitor_shows_the_process_traffic_and_esc_goes_back() {
+    let (mut state, now) = state();
+    let effects = press(&mut state, KeyCode::Char('m'), KeyModifiers::ALT);
+    state.activity.reveal(BROWSER, false);
+    answer_activity(&mut state, &effects, now);
+    let id = requested(&press(&mut state, KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+    assert!(state.activity.side.is_none());
+    assert_eq!(state.network.page, NetworkPage::Processes);
+    update(&mut state, Msg::Network { id, result: Ok(sample(1)) }, now);
+    assert_eq!(state.network.process().map(|row| row.pid), Some(Some(BROWSER)));
+    let effects = press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!state.network.is_open());
+    answer_activity(&mut state, &effects, now);
+    assert_eq!(state.activity.process().map(|process| process.key.pid), Some(BROWSER));
+}
+
+#[test]
+fn a_process_off_the_network_says_so() {
+    let (mut state, now) = state();
+    let effects = press(&mut state, KeyCode::Char('m'), KeyModifiers::ALT);
+    state.activity.reveal(1, false);
+    answer_activity(&mut state, &effects, now);
+    let id = requested(&press(&mut state, KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+    update(&mut state, Msg::Network { id, result: Ok(sample(1)) }, now);
+    let process = tr!(process_control_subject, name = "process-1", pid = 1);
+    assert_eq!(state.notice, Some(tr!(network_process_idle, process = process)));
 }
 
 #[test]

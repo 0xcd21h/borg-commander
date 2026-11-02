@@ -6,7 +6,7 @@ use std::{net::SocketAddr, time::Instant};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Exposure, FILTER_LIMIT, Network, NetworkPage, NetworkSort, Order, PAGE, close};
+use super::{Exposure, FILTER_LIMIT, Network, NetworkPage, NetworkSort, Order, PAGE, close, leave};
 use crate::{Action, AppState, Effect};
 
 const LOCALHOST: &str = "localhost";
@@ -49,7 +49,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     let network = &mut state.network;
     match code {
         KeyCode::Tab => network.details_focused = !network.details_focused,
-        KeyCode::Esc => escape(state),
+        KeyCode::Esc => return escape(state),
         KeyCode::Enter => return enter(state),
         KeyCode::Char('/') => {
             network.filtering = true;
@@ -131,8 +131,9 @@ fn filter_key(network: &mut Network, key: &KeyEvent) -> bool {
     true
 }
 
-/// Esc gives the list back the keys, then clears a filter, then closes the screen.
-fn escape(state: &mut AppState) {
+/// Esc gives the list back the keys, then clears a filter, then closes the screen or goes back
+/// to the activity monitor it was opened from.
+fn escape(state: &mut AppState) -> Vec<Effect> {
     let network = &mut state.network;
     if network.details_focused {
         network.details_focused = false;
@@ -140,8 +141,9 @@ fn escape(state: &mut AppState) {
         network.filter.clear();
         network.rebuild();
     } else {
-        close(state);
+        return leave(state);
     }
+    Vec::new()
 }
 
 /// Enter shows the selected row's process in the activity monitor; on a row without one it
@@ -168,6 +170,7 @@ fn show_process(state: &mut AppState, control: bool) -> Vec<Effect> {
     let effects = crate::activity::open(state);
     if state.activity.side.is_some() {
         state.activity.reveal(pid, control);
+        state.activity.from_network = true;
     }
     effects
 }

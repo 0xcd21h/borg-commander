@@ -169,6 +169,8 @@ pub struct Activity {
     next: Option<Instant>,
     /// A process to select once a sample lists it, and whether to offer its signals then.
     revealing: Option<(u32, bool)>,
+    /// The monitor was opened from the network screen, and Esc goes back to it.
+    pub from_network: bool,
 }
 impl Default for Activity {
     fn default() -> Self {
@@ -229,6 +231,7 @@ impl Default for Activity {
             next_id: 0,
             next: None,
             revealing: None,
+            from_network: false,
         }
     }
 }

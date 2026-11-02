@@ -155,6 +155,10 @@ pub struct Network {
     resolving: HashSet<IpAddr>,
     pub error: Option<String>,
     pub pending: Option<u64>,
+    /// The screen was opened from the activity monitor on this process, and Esc goes back to it.
+    back: Option<u32>,
+    /// A process to select once a sample lists it.
+    revealing: Option<u32>,
     next_id: u64,
     next: Option<Instant>,
     sampled: Option<Instant>,
@@ -187,6 +191,8 @@ impl Default for Network {
             resolving: HashSet::new(),
             error: None,
             pending: None,
+            back: None,
+            revealing: None,
             next_id: 0,
             next: None,
             sampled: None,
@@ -235,6 +241,11 @@ impl Network {
 
     pub fn is_open(&self) -> bool {
         self.side.is_some()
+    }
+
+    /// Whether Esc on the list goes back to the activity monitor.
+    pub fn goes_back(&self) -> bool {
+        self.back.is_some()
     }
 
     pub fn order(&self) -> Order {
@@ -373,6 +384,14 @@ impl Network {
         self.chosen[page.index()] = self.key_at(page, index);
     }
 
+    /// Shows the Processes page on the process with `pid`, when a row has it.
+    fn reveal(&mut self, pid: u32) -> bool {
+        let Some(index) = self.processes.iter().position(|row| row.pid == Some(pid)) else { return false };
+        keys::show_page(self, NetworkPage::Processes);
+        self.select(index);
+        true
+    }
+
     pub(crate) fn move_by(&mut self, delta: isize) {
         let last = self.len(self.page).saturating_sub(1) as isize;
         self.select((self.cursor() as isize + delta).clamp(0, last.max(0)) as usize);
@@ -485,10 +504,63 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     network.details_focused = false;
     network.paused = false;
     network.error = None;
+    network.back = None;
+    network.revealing = None;
     network.loaded = false;
     network.traffic = Traffic::default();
     network.sampled = None;
     network.request()
+}
+
+/// Shows the screen again as it was left, with its rows and charts, when coming back to it from
+/// the activity monitor.
+pub(crate) fn resume(state: &mut AppState) -> Vec<Effect> {
+    if !state.network.loaded {
+        return open(state);
+    }
+    state.overlay = None;
+    state.activity.side = None;
+    crate::docker::close(state);
+    let network = &mut state.network;
+    network.side = Some(state.active);
+    network.details_focused = false;
+    network.paused = false;
+    network.error = None;
+    network.back = None;
+    network.revealing = None;
+    network.sampled = None;
+    network.request()
+}
+
+/// Alt-N in the activity monitor: the screen on the selected process's traffic, and Esc goes
+/// back to the monitor.
+pub(crate) fn show_traffic(state: &mut AppState, pid: u32) -> Vec<Effect> {
+    let effects = if state.activity.from_network { resume(state) } else { open(state) };
+    let network = &mut state.network;
+    if !network.is_open() {
+        return effects;
+    }
+    network.back = Some(pid);
+    network.filter.clear();
+    network.filtering = false;
+    network.rebuild();
+    keys::show_page(network, NetworkPage::Processes);
+    if !network.reveal(pid) {
+        network.revealing = Some(pid);
+    }
+    effects
+}
+
+/// Esc on the screen's list: back to the activity monitor it was opened from, or closed.
+fn leave(state: &mut AppState) -> Vec<Effect> {
+    let back = state.network.back.take();
+    close(state);
+    let Some(pid) = back else { return Vec::new() };
+    let effects = crate::activity::open(state);
+    if state.activity.side.is_some() {
+        state.activity.reveal(pid, false);
+    }
+    effects
 }
 
 pub(crate) fn close(state: &mut AppState) {
@@ -556,7 +628,15 @@ pub(crate) fn receive(
             network.error = None;
             network.next = Some(now + REFRESH);
             network.rebuild();
-            network.resolve().into_iter().collect()
+            if let Some(pid) = network.revealing.take()
+                && !network.reveal(pid)
+            {
+                let process = state.activity.sample.processes.iter().find(|process| process.key.pid == pid);
+                let name = process.map_or_else(|| pid.to_string(), |process| process.name.clone());
+                state.notice =
+                    Some(tr!(network_process_idle, process = tr!(process_control_subject, name = name, pid = pid)));
+            }
+            state.network.resolve().into_iter().collect()
         }
         Err(error) => {
             network.error = Some(error);

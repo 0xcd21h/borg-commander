@@ -948,9 +948,10 @@ second sample on.
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
 | K | Send a signal or change the priority |
+| Alt-N | Show the selected process's traffic on the network screen |
 | Space | Pause or resume sampling |
 | R | Refresh the current view |
-| Esc | Go back; in the process list, close the monitor |
+| Esc | Go back; in the process list, close the monitor or return to the network screen |
 
 Click a column heading to sort, and double-click a process to open its memory map. The overview
 shows current resident memory, the highest value seen, the change since monitoring started, CPU,
@@ -1170,13 +1171,18 @@ place of the address once it is known.
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
-| Esc | Go back to the list, then clear the filter, then close the screen |
+| Esc | Go back to the list, then clear the filter, then close the screen or return to the activity monitor |
 
 P sorts the pages that have a port, and C the pages that count connections. Click a column
 heading to sort by it, and double-click a row to show its process. Enter on a row without a
 process moves into the details. The activity monitor that Enter and K open has the process
 selected, so its memory, signals and priority are one key away (see
-[Signals and priority](#signals-and-priority)).
+[Signals and priority](#signals-and-priority)). Esc there brings you back to the network screen
+on the row you left, with its charts.
+
+It works the other way too. Alt-N in the activity monitor opens this screen on the selected
+process's row of **2 Processes**, with its traffic and connections in the details, and Esc goes
+back to the monitor. A process without connections or open ports gets a notice that says so.
 
 ### Filtering
 

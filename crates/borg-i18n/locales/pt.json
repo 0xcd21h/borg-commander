@@ -1045,6 +1045,7 @@
   "network_kind_other": "Outra",
   "network_unknown_process": "Processo desconhecido",
   "network_no_process": "O Borg não consegue ver o processo desta linha",
+  "network_process_idle": "{process} não tem ligações nem portas abertas.",
   "network_copied": "Copiado: {text}",
   "alt_n_network": "Alt-N Rede",
   "network_close_for_files": "Feche a Rede para usar as ações de ficheiros",

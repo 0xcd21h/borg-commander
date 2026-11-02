@@ -1057,6 +1057,7 @@ catalog! {
     network_kind_other => "Other",
     network_unknown_process => "Unknown process",
     network_no_process => "Borg cannot see the process of this row",
+    network_process_idle => "{process} has no connections or open ports.",
     network_copied => "Copied {text}",
     alt_n_network => "Alt-N Network",
     network_close_for_files => "Close Network to use file actions",

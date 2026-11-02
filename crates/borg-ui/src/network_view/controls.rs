@@ -29,7 +29,11 @@ fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> 
                 KeyCode::Tab,
             )),
             Some((
-                if network.details_focused { tr!(activity_back_button) } else { tr!(activity_close_button) },
+                if network.details_focused || network.goes_back() {
+                    tr!(activity_back_button)
+                } else {
+                    tr!(activity_close_button)
+                },
                 KeyCode::Esc,
             )),
         ]

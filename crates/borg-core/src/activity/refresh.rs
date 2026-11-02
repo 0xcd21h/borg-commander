@@ -17,6 +17,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     crate::docker::close(state);
     crate::network::close(state);
     state.activity.side = Some(state.active);
+    state.activity.from_network = false;
     state.activity.preview_focused = false;
     state.activity.paused = false;
     state.activity.page = ActivityPage::Memory;

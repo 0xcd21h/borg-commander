@@ -1025,9 +1025,10 @@ total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amo
 | I / O | Ordenar por débito de leitura / escrita |
 | T | Mostrar ou ocultar a árvore de processos |
 | K | Enviar um sinal ou alterar a prioridade |
+| Alt-N | Mostrar o tráfego do processo selecionado no ecrã de rede |
 | Space | Pausar ou retomar a amostragem |
 | R | Atualizar a vista atual |
-| Esc | Voltar; na lista de processos, fechar o monitor |
+| Esc | Voltar; na lista de processos, fechar o monitor ou regressar ao ecrã de rede |
 
 Clique no cabeçalho de uma coluna para ordenar, e faça duplo clique num processo para abrir o seu
 mapa de memória. O resumo mostra a memória residente atual, o valor mais alto observado, a
@@ -1269,13 +1270,18 @@ endereço assim que o conhece.
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
 | Alt-W | Maximizar o painel com o foco |
-| Esc | Voltar à lista, depois limpar o filtro e depois fechar o ecrã |
+| Esc | Voltar à lista, depois limpar o filtro e depois fechar o ecrã ou regressar ao monitor de atividade |
 
 P ordena as páginas que têm porta, e C as que contam ligações. Clique no cabeçalho de uma coluna
 para ordenar por ela, e faça duplo clique numa linha para mostrar o processo. Enter numa linha sem
 processo passa para os detalhes. O monitor de atividade que Enter e K abrem tem o processo
 selecionado, por isso a memória, os sinais e a prioridade ficam à distância de uma tecla (consulte
-[Sinais e prioridade](#signals-and-priority)).
+[Sinais e prioridade](#signals-and-priority)). Esc aí leva-o de volta ao ecrã de rede, à linha
+onde estava e com os gráficos.
+
+Também funciona no sentido inverso. Alt-N no monitor de atividade abre este ecrã na linha do
+processo selecionado em **2 Processos**, com o tráfego e as ligações nos detalhes, e Esc regressa
+ao monitor. Um processo sem ligações nem portas abertas recebe um aviso que o indica.
 
 ### Filtrar
 

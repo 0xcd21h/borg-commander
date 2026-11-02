@@ -1030,9 +1030,10 @@ segunda muestra.
 | I / O | Ordenar por velocidad de lectura / escritura |
 | T | Mostrar u ocultar el árbol de procesos |
 | K | Enviar una señal o cambiar la prioridad |
+| Alt-N | Mostrar el tráfico del proceso seleccionado en la pantalla de red |
 | Space | Pausar o reanudar el muestreo |
 | R | Actualizar la vista actual |
-| Esc | Volver; en la lista de procesos, cerrar el monitor |
+| Esc | Volver; en la lista de procesos, cerrar el monitor o regresar a la pantalla de red |
 
 Haz clic en el encabezado de una columna para ordenar, y doble clic en un proceso para abrir su
 mapa de memoria. El resumen muestra la memoria residente actual, el valor más alto observado, el
@@ -1275,13 +1276,18 @@ en lugar de la dirección en cuanto lo conoce.
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
 | Alt-W | Maximizar el panel con el foco |
-| Esc | Volver a la lista, después borrar el filtro y después cerrar la pantalla |
+| Esc | Volver a la lista, después borrar el filtro y después cerrar la pantalla o regresar al monitor de actividad |
 
 P ordena las páginas que tienen puerto, y C las que cuentan conexiones. Haz clic en el encabezado de
 una columna para ordenar por ella, y doble clic en una fila para mostrar su proceso. Enter en una
 fila sin proceso pasa a los detalles. El monitor de actividad que abren Enter y K tiene el proceso
 seleccionado, así que su memoria, sus señales y su prioridad quedan a una tecla (consulta [Señales y
-prioridad](#signals-and-priority)).
+prioridad](#signals-and-priority)). Esc allí te devuelve a la pantalla de red, a la fila donde
+estabas y con sus gráficos.
+
+También funciona al revés. Alt-N en el monitor de actividad abre esta pantalla en la fila del
+proceso seleccionado de **2 Procesos**, con su tráfico y sus conexiones en los detalles, y Esc
+vuelve al monitor. Si el proceso no tiene conexiones ni puertos abiertos, un aviso te lo dice.
 
 ### Filtrar
 

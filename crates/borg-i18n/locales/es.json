@@ -1045,6 +1045,7 @@
   "network_kind_other": "Otra",
   "network_unknown_process": "Proceso desconocido",
   "network_no_process": "Borg no puede ver el proceso de esta fila",
+  "network_process_idle": "{process} no tiene conexiones ni puertos abiertos.",
   "network_copied": "Copiado: {text}",
   "alt_n_network": "Alt-N Red",
   "network_close_for_files": "Cierra Red para usar las acciones de archivo",

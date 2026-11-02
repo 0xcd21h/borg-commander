@@ -1045,6 +1045,7 @@
   "network_kind_other": "其他",
   "network_unknown_process": "未知进程",
   "network_no_process": "Borg 看不到这一行的进程",
+  "network_process_idle": "{process} 没有连接，也没有打开的端口。",
   "network_copied": "已复制 {text}",
   "alt_n_network": "Alt-N 网络",
   "network_close_for_files": "关闭网络视图后才能使用文件操作",

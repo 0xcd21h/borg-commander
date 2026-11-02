@@ -1045,6 +1045,7 @@
   "network_kind_other": "Другой",
   "network_unknown_process": "Неизвестный процесс",
   "network_no_process": "Borg не видит процесс этой строки",
+  "network_process_idle": "У процесса {process} нет соединений и открытых портов.",
   "network_copied": "Скопировано: {text}",
   "alt_n_network": "Alt-N Сеть",
   "network_close_for_files": "Закройте сетевой монитор, чтобы работать с файлами",
