@@ -38,6 +38,7 @@ mod sessions;
 mod size_cache;
 mod store;
 mod subfolders;
+mod tools;
 mod update;
 
 use std::{env, io::stdout, process::ExitCode};
@@ -105,6 +106,10 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
         }
         "--inspect-process" => {
             activity::helper(&args).await?;
+            ExitCode::SUCCESS
+        }
+        "--capture-traffic" => {
+            network::capture_helper(&args).await?;
             ExitCode::SUCCESS
         }
         "mcp" => return mcp(&args).await,

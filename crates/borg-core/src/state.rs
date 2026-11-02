@@ -128,6 +128,8 @@ pub struct AppState {
     pub appearance: Appearance,
     pub overlay: Option<Overlay>,
     pub operation: Option<Operation>,
+    /// The program the shell is installing, whose end gives a notice.
+    pub(crate) installing: Option<crate::Tool>,
     pub sizing: Option<crate::SizeScan>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
@@ -225,6 +227,7 @@ impl AppState {
             appearance,
             overlay: None,
             operation: None,
+            installing: None,
             sizing: None,
             measured: Default::default(),
             next_size: 0,

@@ -1,9 +1,10 @@
 use super::*;
 use crate::{
-    ActivityData, Appearance, Msg, ProcessInfo, ProcessKey, Settings, Startup, SystemSample, ThemeChoice, update,
+    ActivityData, Appearance, AskKind, Elevation, InstallOffer, Installer, Msg, Overlay, PackageManager, ProcessInfo,
+    ProcessKey, Settings, Startup, SystemSample, ThemeChoice, Tool, update,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 const SSHD: u32 = 301;
 const POSTGRES: u32 = 812;
@@ -500,4 +501,261 @@ fn a_row_without_a_process_has_nothing_to_show() {
     press(&mut state, KeyCode::Char('k'), KeyModifiers::NONE);
     assert!(state.network.is_open());
     assert_eq!(state.notice.as_deref(), Some(tr!(network_no_process)));
+}
+
+fn capture_dialog(state: &AppState) -> &CaptureDialog {
+    match &state.overlay {
+        Some(Overlay::Capture(dialog)) => dialog,
+        _ => panic!("the capture dialog is open"),
+    }
+}
+
+fn started(effects: Vec<Effect>) -> (u64, CaptureRequest) {
+    match effects.into_iter().next() {
+        Some(Effect::Capture { id, request }) => (id, request),
+        _ => panic!("a capture starts"),
+    }
+}
+
+#[test]
+fn r_asks_what_to_capture_with_the_selected_row_first() {
+    let (mut state, _) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let dialog = capture_dialog(&state);
+    assert_eq!(dialog.scopes, [CaptureScope::Port { transport: Transport::Tcp, port: 22 }, CaptureScope::Everything]);
+    assert_eq!(dialog.interfaces.first().map(String::as_str), Some("en0"), "the busiest interface first");
+    assert_eq!(dialog.request().unwrap().filter, "tcp port 22");
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.overlay.is_none() && state.network.recording.is_none());
+
+    press(&mut state, KeyCode::Char('3'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let filter = capture_dialog(&state).request().unwrap().filter;
+    assert_eq!(
+        filter,
+        "tcp and ((src host 192.0.2.10 and src port 50123 and dst host 203.0.113.9 and dst port 443) or \
+         (src host 203.0.113.9 and src port 443 and dst host 192.0.2.10 and dst port 50123))",
+        "the busiest connection, both ways"
+    );
+}
+
+#[test]
+fn the_dialog_changes_its_fields_and_starts_the_capture_in_the_panel_folder() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Left, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char(' '), KeyModifiers::NONE);
+    let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert_eq!(request.seconds, None, "Left from the first length goes round to until stopped");
+    assert!(request.headers_only);
+    assert_eq!(request.folder, state.panel(state.network.side.unwrap()).dir());
+    assert!(state.network.recording.is_some());
+}
+
+#[test]
+fn r_stops_a_capture_and_closing_the_screen_stops_it_too() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureProgress { id, bytes: 4_096, packets: 12 }, now);
+    assert_eq!(state.network.recording.as_ref().map(|recording| recording.packets), Some(12));
+    assert_eq!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE), [Effect::StopCapture { id }]);
+    assert!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE).is_empty(), "it is already stopping");
+
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    let effects = press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!state.network.is_open());
+    assert!(effects.contains(&Effect::StopCapture { id }));
+    let path = PathBuf::from("/work/capture.pcap");
+    update(&mut state, Msg::CaptureDone { id, result: Ok((path, Capture::default())) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Saved 0 packets to /work/capture.pcap"));
+    assert!(state.network.recording.is_none());
+}
+
+#[test]
+fn a_finished_capture_opens_in_the_viewer_on_its_process() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('2'), KeyModifiers::NONE);
+    let browser = state.network.processes.iter().position(|row| row.pid == Some(BROWSER)).unwrap();
+    state.network.select(browser);
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).scopes[0], CaptureScope::Process { pid: BROWSER });
+    let (id, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(request.filter.is_empty(), "a process's capture takes the whole interface");
+    let path = request.folder.join("capture.pcap");
+    let effects = update(&mut state, Msg::CaptureDone { id, result: Ok((path.clone(), Capture::default())) }, now);
+    assert!(
+        effects.iter().any(|effect| matches!(effect, Effect::List { dir, .. } if *dir == request.folder)),
+        "the panel lists the new file: {effects:?}"
+    );
+    let view = state.network.viewer.as_deref().unwrap();
+    assert_eq!((view.filter.as_str(), view.path.as_ref()), ("pid:8239", Some(&path)));
+    assert_eq!(view.interface.as_deref(), Some(request.interface.as_str()));
+
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.network.viewer.as_deref().is_some_and(|view| view.filter.is_empty()), "Esc clears the filter");
+    let effects = press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.network.viewer.is_none() && state.network.is_open(), "then goes back to the live screen");
+    assert!(requested(&effects).is_some() || state.network.pending.is_some(), "which samples again");
+}
+
+#[test]
+fn a_failed_capture_says_why() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    let failure = CaptureFailure::Failed("tcpdump stopped".into());
+    update(&mut state, Msg::CaptureDone { id, result: Err(failure) }, now);
+    assert_eq!(state.notice.as_deref(), Some("tcpdump stopped"));
+    assert!(state.network.viewer.is_none() && state.network.recording.is_none());
+}
+
+const ASKS: CaptureAccess = CaptureAccess { administrator: false, elevate: true, tags: true };
+
+#[test]
+fn run_as_shows_where_borg_can_ask_and_an_administrator_capture_tags_processes_where_it_can() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).fields().len(), 4, "no Run as where Borg cannot ask");
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+
+    state.network.access = ASKS;
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::End, KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).selected(), CaptureField::Access);
+    assert_eq!(capture_dialog(&state).request().unwrap().extension(), "pcap");
+    press(&mut state, KeyCode::Right, KeyModifiers::NONE);
+    let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(request.administrator && request.processes);
+    assert_eq!(request.extension(), "pcapng");
+    assert!(state.network.recording.as_ref().is_some_and(|recording| recording.waiting), "it waits for the password");
+
+    let (mut state, now) = opened();
+    state.network.access = CaptureAccess { administrator: true, elevate: false, tags: true };
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(!request.administrator && request.processes, "Borg running as administrator tags without asking");
+}
+
+#[test]
+fn a_refused_capture_asks_to_run_as_administrator_and_yes_runs_it_so() {
+    let (mut state, now) = opened();
+    state.network.access = ASKS;
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, refused) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, now);
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("Borg asks first: {:?}", state.overlay) };
+    assert!(confirm.message.contains(&refused.interface), "{}", confirm.message);
+    assert!(state.network.recording.is_none());
+
+    let (id, request) = started(press(&mut state, KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(request, CaptureRequest { administrator: true, processes: true, ..refused });
+    let recording = state.network.recording.as_ref().unwrap();
+    assert!(recording.waiting);
+
+    let later = now + Duration::from_secs(20);
+    update(&mut state, Msg::CaptureProgress { id, bytes: 24, packets: 0 }, later);
+    let recording = state.network.recording.as_ref().unwrap();
+    assert!(!recording.waiting);
+    assert_eq!(recording.started, later, "its seconds count from the password");
+
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, later);
+    assert!(state.overlay.is_none(), "an administrator's capture is not asked about again");
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_denied, interface = request.interface).as_str()));
+}
+
+#[test]
+fn a_refusal_where_borg_cannot_ask_says_so_and_a_dismissed_password_says_nothing() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, now);
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_denied, interface = request.interface).as_str()));
+
+    state.notice = None;
+    state.network.access = ASKS;
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, now);
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.overlay.is_none() && state.network.recording.is_none(), "No leaves it");
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Cancelled) }, now);
+    assert!(state.notice.is_none() && state.network.recording.is_none());
+}
+
+#[test]
+fn a_capture_without_tcpdump_offers_to_install_it() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    let installer = Installer { manager: PackageManager::Dnf, elevation: Some(Elevation::Sudo) };
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Missing(Some(installer))) }, now);
+    let offer = InstallOffer { tool: Tool::Tcpdump, installer };
+    assert_eq!(state.overlay, Some(Overlay::Install(offer)));
+    assert!(state.network.recording.is_none() && state.notice.is_none());
+}
+
+#[test]
+fn an_opened_capture_file_shows_its_hosts() {
+    let (mut state, now) = state();
+    let path = PathBuf::from("/work/trace.pcap");
+    let effects = update(&mut state, Msg::CaptureOpened { path: path.clone(), result: Ok(Capture::default()) }, now);
+    assert!(state.network.is_open());
+    assert!(requested(&effects).is_some(), "the screen opens and samples");
+    let view = state.network.viewer.as_deref().unwrap();
+    assert_eq!((view.page, view.path.as_ref()), (TrafficPage::Hosts, Some(&path)));
+    press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!state.network.details_focused, "Enter on an empty list leaves the keys with it");
+}
+
+#[test]
+fn an_agent_capture_takes_the_interface_the_dialog_would() {
+    let network = measured("");
+    let postgres = CaptureScope::Port { transport: Transport::Tcp, port: 5432 };
+    assert_eq!(capture_interfaces(&network, postgres)[0], "lo0", "a port only this machine reaches is on loopback");
+    let ssh = CaptureScope::Connection {
+        transport: Transport::Tcp,
+        local: address("127.0.0.1:50000"),
+        remote: address("127.0.0.1:22"),
+    };
+    assert_eq!(capture_interfaces(&network, ssh)[0], "lo0");
+    assert_eq!(capture_interfaces(&network, CaptureScope::Everything)[0], "en0", "the busiest otherwise");
+}
+
+#[test]
+fn an_agent_capture_asks_with_what_the_dialog_shows() {
+    let request = CaptureRequest {
+        interface: "en0".into(),
+        seconds: Some(10),
+        headers_only: true,
+        filter: String::new(),
+        folder: PathBuf::from("/work"),
+        administrator: false,
+        processes: false,
+    };
+    let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, String::new());
+    assert_eq!((ask.kind, ask.summary.as_str()), (AskKind::Capture, "capture on en0, 10 s"));
+    let lines: Vec<&str> = ask.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(
+        lines[..5],
+        [
+            "Traffic: All traffic, shown for browser · PID 8239",
+            "Interface: en0",
+            "Duration: 10 s",
+            "Keep: Headers, first 128 bytes of each packet",
+            "Saved as a .pcap file in /work",
+        ]
+    );
+    let port = CaptureScope::Port { transport: Transport::Udp, port: 53 };
+    let ask = capture_ask(port, None, &CaptureRequest { headers_only: false, ..request }, String::new());
+    assert_eq!(ask.body[0].text, "Traffic: UDP port 53 and its connections");
+    assert_eq!(ask.body[3].text, "Keep: Whole packets");
 }

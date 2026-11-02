@@ -533,6 +533,28 @@ in a dialog that names the process, its program, and the search. Once you approv
 search that process again until borg quits. It can ask to read as administrator, which opens the
 system's own password prompt.
 
+The agent can also capture traffic as **R** does on the network screen (see
+[Capturing traffic](#capturing-traffic)). It names what to record: a port, one connection, a
+process by its PID, or all traffic on the interface. For a process, Borg records the whole
+interface and sums up that process's conversations. A capture lasts 1 to 60 seconds, 5 unless the
+agent names a length. When the agent names no interface, Borg measures for a second and picks the
+one the **Capture traffic** dialog would. Each capture waits for you in a dialog,
+**Remote wants to capture traffic**, that shows the traffic, the interface, the duration, how much
+of each packet to keep, and the folder. While it runs, the footer shows it, and a notice then says
+where Borg saved it: in the active panel's folder or one the agent names, readable only by you.
+An agent's capture always runs as you and never asks for an administrator's password, so without
+access it ends with **No permission to capture on** and the interface's name.
+
+The agent gets back a summary: the protocols Borg recognized, then each process, host and
+connection with its packets and bytes, with host names from the capture's own DNS answers and TLS
+server names. Borg watches the sockets while the capture runs, so conversations belong to their
+processes even with the network screen closed. The summary leaves out what the packets carry.
+Reading a `.pcap`, `.pcapng` or `.cap` file gives the same summary, narrowed with the words of the
+traffic viewer's filter, and the agent can ask for one packet by its number to get its layers and
+its bytes as a hex dump. Borg remembers the processes of its last 16 agent captures until it
+quits. Other files show their conversations under **Unknown process**, unless their packets
+carry their process.
+
 While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it to
 see a log of what the agent did: what it looked at, read, showed, and typed, and every command and
 change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
@@ -760,10 +782,11 @@ complete.
 
 ### Viewer and quick view
 
-F3 opens the viewer. In text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping
-on or off, and Esc or `q` closes it. In images, Left/Right or `p`/`n` show the previous or next
-image. Borg uses the terminal's image protocol when there is one; other terminals show the image
-as colored blocks.
+F3 opens the viewer. With the System plugin on, F3 on a `.pcap`, `.pcapng` or `.cap` file opens
+the network screen's traffic viewer instead (see [Capturing traffic](#capturing-traffic)). In
+text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping on or off, and Esc or
+`q` closes it. In images, Left/Right or `p`/`n` show the previous or next image. Borg uses the
+terminal's image protocol when there is one; other terminals show the image as colored blocks.
 
 Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys,
 PgUp/PgDn, Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L
@@ -1167,6 +1190,7 @@ place of the address once it is known.
 | T / N / P / C | Sort by traffic / name / port / connections; press again to reverse |
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
+| R | Capture the selected row's traffic, or stop the capture that runs |
 | Ctrl-C | Copy the port's address, the PID, the other end, or the interface's address |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
@@ -1203,6 +1227,114 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
 and `!proc:browser` hides one program. The filter applies to every page, and while you type it
 says how many of the page's rows it keeps.
+
+### Capturing traffic
+
+Press **R** to record the packets behind the selected row with `tcpdump`, which macOS ships and
+Linux installs from the `tcpdump` package. The **Capture traffic** dialog starts from that row:
+
+- **Traffic** is what tcpdump keeps. On **1 Ports** that is the port and the connections that
+  came in through it, and on **3 Connections** the one connection in both directions. On
+  **2 Processes** it is **All traffic, shown for** that process: tcpdump cannot pick packets by
+  process, so Borg records the whole interface and opens the result on the process. **All
+  traffic on the interface** is always there as the second choice.
+- **Interface** starts on the one that carries the row's address, or else the busiest one.
+- **Duration** is 5, 10, 30 or 60 seconds, or **Until stopped**.
+- **Keep** is **Whole packets**, or **Headers, first 128 bytes of each packet** for small files
+  that leave out most of what the packets carry.
+- **Run as** shows where Borg can ask the system for an administrator's password. **You** runs
+  tcpdump as you, and **Administrator** runs it as root once you give your password in the
+  system's dialog. On macOS the choice reads **Administrator, with each packet's process**:
+  tcpdump then listens through macOS's `pktap`, which tags every packet with the process that
+  sent or received it.
+
+↑↓ pick a field, ←→ or Space change it, Enter starts the capture and Esc cancels. With the mouse,
+click a field to pick it and click again to change it. While the capture runs, the footer counts
+its packets and bytes and the seconds left, and **R** stops it early. A capture also stops at
+200,000 packets or 256 MiB. If you close the screen first, the capture stops, and a notice says
+where Borg saved it.
+
+Borg saves each capture as `capture-<date>-<time>.pcap` in the folder of the panel the network
+screen covers, readable only by you, so Wireshark and other tools can open it later. A capture
+that tags each packet with its process is saved as `capture-<date>-<time>.pcapng`, the format
+that can carry the tags. A capture holds whatever the packets carried, so keep it as safe as
+that data.
+
+An agent connected through `borg mcp` can ask for a capture too, and it waits for your approval
+(see [What the agent can do](#what-the-agent-can-do)).
+
+When the capture ends, the traffic viewer takes the place of the live pages, with a page for each
+way to look at it:
+
+- **1 Processes** shows each process with the hosts it talked to, its packets and its bytes.
+  When the packets carry their process, each packet belongs to the process that sent or
+  received it. A process that lived for less than a second still gets its name then, and a
+  process's filter keeps exactly its packets. Otherwise a conversation belongs to the process
+  whose socket held it while the capture ran, and the rest goes to **Unknown process**.
+- **2 Hosts** shows the other machines with the protocols seen. Names come from the capture's
+  own DNS answers and the server names TLS connections asked for, so most hosts have one.
+- **3 Connections** shows each conversation with its process, other end, protocol, packets and
+  bytes. The details show both ends, the server name, the service, the bytes sent and received,
+  and every packet with an arrow for its direction.
+- **4 Packets** shows every packet in order with its time from the start, protocol, length and a
+  summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
+  its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
+  as a hex dump.
+
+| Key | Action |
+| --- | --- |
+| 1 / 2 / 3 / 4 | Show Processes / Hosts / Connections / Packets |
+| Enter | Go down a level: from a process or host to its connections, from a connection to its packets, from a packet into its details |
+| `/` | Filter the rows, as on the live pages |
+| Ctrl-C | Copy the PID, the address, the other end, or the packet's bytes in hex |
+| Tab | Move between the list and the details, where ↑↓ scroll |
+| Esc | Go back to the list, then up a level, then clear the filter, then return to the live screen |
+
+The filter takes the same words as the live pages, and `proto:` also matches what Borg recognized
+in the packets: `proto:dns`, `proto:tls`, `proto:http` and `proto:quic`. A filter applies to every
+page, and Enter sets one to go down a level, which is why Esc can step back out.
+
+F3 on a `.pcap`, `.pcapng` or `.cap` file in a panel opens it in the same viewer, starting on
+**2 Hosts**. A file recorded elsewhere has no sockets to match, so its conversations show
+**Unknown process**. A `.pcapng` whose packets carry their process, as Borg and
+`tcpdump -i pktap` save them on macOS, still names every process. The viewer reads files up to
+256 MiB and their first 200,000 packets.
+
+When Borg cannot find tcpdump, the capture offers to install it. The **Install tcpdump** dialog
+shows the exact command for the package manager Borg found: `apt-get`, `dnf`, `pacman`, `zypper` or
+`apk` on Linux, or Homebrew's `brew` on macOS and on a Linux machine with none of those. The
+system's package managers run under `sudo`, or `doas` where there is no `sudo`, unless Borg runs as
+root. Enter types the command into Borg's shell, where you see what it does and type your password
+yourself, and Esc cancels. When the command ends, a notice says whether it worked, and Ctrl-O shows
+its output. Borg looks for tcpdump again each time a capture starts, on `PATH` and in `/usr/sbin`,
+`/usr/bin`, `/sbin`, `/bin` and Homebrew's `sbin` folders, so R works as soon as the install
+finishes. Without a package manager Borg knows, the capture ends with **Capturing needs tcpdump,
+and Borg cannot find it.**
+
+tcpdump needs access to the capture device. Borg runs it as you, so give yourself access once:
+
+- On macOS, only root can open the `/dev/bpf` devices at first. Install Wireshark with its
+  **ChmodBPF** component once: it gives the devices to an `access_bpf` group and adds you to it,
+  and from then on you can capture on every interface.
+- On Linux, give tcpdump the capture capabilities once with
+  `sudo setcap cap_net_raw,cap_net_admin=eip /usr/sbin/tcpdump`. Some distributions let the
+  members of a `pcap` or `wireshark` group capture instead.
+
+Without access, Borg asks **Capture as administrator** where the system can ask for your
+password: on macOS in its own password dialog, and on Linux through `pkexec`, whose dialog comes
+from your desktop. Choose Yes and type the password in the system's dialog, which Borg never
+sees. While the dialog is up, the footer reads **Waiting for your password to capture on** and
+the interface's name. Borg then runs a copy of itself as root, which checks what it was asked to
+capture and starts tcpdump from the system's own folders. The packets stream back to Borg, which
+saves the file as you. **R** and the duration stop the capture as before, and if Borg exits, the
+capture stops with it. Cancel the system's dialog and the capture ends without a notice. To skip
+the question, pick **Administrator** under **Run as** before you start.
+
+On Linux without `pkexec`, Borg uses `sudo` when it may run tcpdump without a password. Over SSH
+there is no desktop to show the dialog, so the capture ends with **Borg cannot capture as
+administrator** and the system's reason. When Borg itself runs as root, it never asks, and on
+macOS its captures always carry each packet's process. Where Borg cannot ask at all, the capture
+ends with **No permission to capture on** and the interface's name.
 
 ### What the system reports
 

@@ -5,7 +5,7 @@ use crate::{
     Theme,
     activity_view::{body, inner, row, text},
 };
-use borg_core::{AppState, Msg, Network, NetworkPage, Pointer};
+use borg_core::{AppState, Msg, Network, NetworkPage, Pointer, TrafficPage, TrafficView};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
@@ -15,27 +15,37 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
-    let specs: Vec<(&'static str, KeyCode)> = if network.filtering {
+    let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
+    let specs: Vec<(&'static str, KeyCode)> = if filtering {
         vec![(tr!(activity_filter_keep_button), KeyCode::Enter), (tr!(activity_filter_clear_button), KeyCode::Esc)]
+    } else if let Some(view) = network.viewer.as_deref() {
+        let enter = match view.page {
+            _ if view.len(view.page) == 0 => None,
+            TrafficPage::Processes | TrafficPage::Hosts => Some(tr!(traffic_connections_button)),
+            TrafficPage::Connections => Some(tr!(traffic_packets_button)),
+            TrafficPage::Packets => None,
+        };
+        [
+            enter.map(|label| (label, KeyCode::Enter)),
+            Some((tr!(activity_filter_button), KeyCode::Char('/'))),
+            Some(details_button(network)),
+            Some(back_button(true)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     } else {
         let process = network.selected_pid().is_some();
+        let capture =
+            if network.recording.is_some() { tr!(network_stop_capture_button) } else { tr!(network_capture_button) };
         [
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
+            network.loaded.then_some((capture, KeyCode::Char('r'))),
             Some((tr!(activity_filter_button), KeyCode::Char('/'))),
             Some((tr!(activity_pause_button), KeyCode::Char(' '))),
-            Some((
-                if network.details_focused { tr!(docker_list_button) } else { tr!(docker_details_button) },
-                KeyCode::Tab,
-            )),
-            Some((
-                if network.details_focused || network.goes_back() {
-                    tr!(activity_back_button)
-                } else {
-                    tr!(activity_close_button)
-                },
-                KeyCode::Esc,
-            )),
+            Some(details_button(network)),
+            Some(back_button(network.details_focused || network.goes_back())),
         ]
         .into_iter()
         .flatten()
@@ -56,7 +66,33 @@ fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> 
         .collect()
 }
 
+fn details_button(network: &Network) -> (&'static str, KeyCode) {
+    (if network.details_focused { tr!(docker_list_button) } else { tr!(docker_details_button) }, KeyCode::Tab)
+}
+
+/// Esc, which goes back when there is somewhere to go back to, and closes the screen otherwise.
+fn back_button(back: bool) -> (&'static str, KeyCode) {
+    (if back { tr!(activity_back_button) } else { tr!(activity_close_button) }, KeyCode::Esc)
+}
+
+fn traffic_hint(network: &Network, view: &TrafficView) -> &'static str {
+    if view.filtering {
+        return tr!(traffic_filter_hint);
+    }
+    if network.details_focused {
+        return tr!(network_details_hint);
+    }
+    match view.page {
+        TrafficPage::Processes => tr!(traffic_pid_hint),
+        TrafficPage::Hosts | TrafficPage::Connections => tr!(traffic_address_hint),
+        TrafficPage::Packets => tr!(traffic_packets_hint),
+    }
+}
+
 fn hint(network: &Network) -> &'static str {
+    if let Some(view) = network.viewer.as_deref() {
+        return traffic_hint(network, view);
+    }
     if network.filtering {
         return tr!(network_filter_hint);
     }
@@ -82,6 +118,9 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
 
 /// The status line: the selected row's process and where it is reached.
 pub(crate) fn status(network: &Network) -> String {
+    if let Some(view) = network.viewer.as_deref() {
+        return super::traffic::status(view);
+    }
     let process = |pid: Option<u32>| match pid {
         Some(pid) => tr!(process_control_subject, name = network.name(Some(pid)), pid = pid),
         None => network.name(None),
@@ -150,6 +189,9 @@ pub(crate) fn panel_mouse(
             return Some(Msg::Pointer(Pointer::NetworkControl { details: true, code: KeyCode::Null }));
         }
         let inner = inner(rect);
+        if let Some(view) = network.viewer.as_deref() {
+            return Some(Msg::Pointer(traffic_click(view, rect, inner, point, double)));
+        }
         if let Some((_, _, page)) = tabs(row(inner, TABS_ROW)).into_iter().find(|(r, _, _)| r.contains(point)) {
             return Some(Msg::Pointer(Pointer::NetworkPage(page)));
         }
@@ -174,4 +216,21 @@ pub(crate) fn panel_mouse(
         return Some(Msg::Pointer(Pointer::NetworkControl { details: false, code: KeyCode::Null }));
     }
     None
+}
+
+/// A click in the traffic viewer's list pane: on a tab, the filter or a row.
+fn traffic_click(view: &TrafficView, rect: Rect, inner: Rect, point: Position, double: bool) -> Pointer {
+    let tab = super::traffic::tabs(row(inner, TABS_ROW)).into_iter().find(|(r, _, _)| r.contains(point));
+    if let Some((_, _, page)) = tab {
+        return Pointer::TrafficPage(page);
+    }
+    if row(inner, FILTER_ROW).contains(point) {
+        return Pointer::NetworkControl { details: false, code: KeyCode::Char('/') };
+    }
+    let body = body(rect);
+    if body.contains(point) {
+        let index = view.list_start(usize::from(body.height)) + usize::from(point.y - body.y);
+        return Pointer::NetworkRow { index, open: double };
+    }
+    Pointer::NetworkControl { details: false, code: KeyCode::Null }
 }

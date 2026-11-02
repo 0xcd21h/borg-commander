@@ -577,6 +577,29 @@ indica o processo, o programa e a pesquisa. Depois de aprovar, o agente pode vol
 esse processo até o borg terminar. Pode pedir para ler como administrador, o que abre o pedido de
 palavra-passe do próprio sistema.
 
+O agente também pode capturar tráfego como a tecla **R** faz no ecrã de rede (consulte
+[Capturar tráfego](#capturing-traffic)). Indica o que gravar: uma porta, uma ligação, um processo
+pelo PID ou todo o tráfego da interface. Para um processo, o Borg grava a interface inteira e
+resume as conversas desse processo. Uma captura dura de 1 a 60 segundos, ou 5 se o agente não
+indicar a duração. Quando o agente não indica a interface, o Borg mede durante um segundo e escolhe
+a que a caixa de diálogo **Capturar tráfego** escolheria. Cada captura aguarda a sua aprovação
+numa caixa de diálogo, **Pedido remoto para capturar tráfego**, que mostra o tráfego, a interface,
+a duração, quanto de cada pacote guardar e a pasta. Enquanto decorre, o rodapé mostra-a, e no fim
+um aviso indica onde o Borg a guardou: na pasta do painel ativo ou numa pasta que o agente indique,
+legível só por si. A captura de um agente é sempre executada com o seu utilizador e nunca pede a
+palavra-passe de um administrador, por isso sem acesso termina com **Sem permissão para capturar
+em** e o nome da interface.
+
+O agente recebe um resumo: os protocolos que o Borg reconheceu e depois cada processo, host e
+ligação com os seus pacotes e bytes, com os nomes dos hosts tirados das respostas DNS da própria
+captura e dos nomes de servidor TLS. O Borg acompanha os sockets enquanto a captura decorre, por
+isso as conversas ficam atribuídas aos seus processos mesmo com o ecrã de rede fechado. O resumo
+deixa de fora o que os pacotes transportam. Ler um ficheiro `.pcap`, `.pcapng` ou `.cap` dá o mesmo
+resumo, restringido com as palavras do filtro do visualizador de tráfego, e o agente pode pedir um
+pacote pelo número para obter as camadas e os bytes num dump hexadecimal. O Borg lembra-se dos
+processos das últimas 16 capturas do agente até terminar. Os outros ficheiros mostram as conversas
+em **Processo desconhecido**, a menos que os pacotes tragam o seu processo.
+
 Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele
 para ver um registo do que o agente fez: o que viu, leu, mostrou e escreveu, e todos os comandos e
 alterações, aprovados ou recusados. O Borg guarda o registo apenas em memória, até terminar; para
@@ -825,10 +848,12 @@ quando estão completas.
 
 ### Visualizador e pré-visualização
 
-F3 abre o visualizador. Em ficheiros de texto, as setas e PgUp/PgDn percorrem o texto, `w` ativa
-ou desativa a moldagem de linhas e Esc ou `q` fecham-no. Em imagens, Left/Right ou `p`/`n` mostram
-a imagem anterior ou a seguinte. O Borg usa o protocolo de imagens do terminal quando existe; nos
-outros terminais, a imagem aparece como blocos coloridos.
+F3 abre o visualizador. Com o plugin Sistema ativo, F3 num ficheiro `.pcap`, `.pcapng` ou `.cap`
+abre antes o visualizador de tráfego do ecrã de rede (consulte
+[Capturar tráfego](#capturing-traffic)). Em ficheiros de texto, as setas e PgUp/PgDn percorrem o
+texto, `w` ativa ou desativa a moldagem de linhas e Esc ou `q` fecham-no. Em imagens, Left/Right
+ou `p`/`n` mostram a imagem anterior ou a seguinte. O Borg usa o protocolo de imagens do terminal
+quando existe; nos outros terminais, a imagem aparece como blocos coloridos.
 
 Ctrl-Q mostra uma pré-visualização no outro painel. Tab entra nela, onde as setas, PgUp/PgDn,
 Home/End e a roda do rato percorrem o conteúdo; Tab ou Esc voltam à lista de ficheiros. Ctrl-L
@@ -1266,6 +1291,7 @@ endereço assim que o conhece.
 | T / N / P / C | Ordenar por tráfego / nome / porta / ligações; prima de novo para inverter |
 | Enter | Mostrar o processo da linha selecionada no monitor de atividade |
 | K | Mostrar o processo com **Sinal ou prioridade** aberto |
+| R | Capturar o tráfego da linha selecionada ou parar a captura em curso |
 | Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade ou o endereço da interface |
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
@@ -1303,6 +1329,120 @@ funcionam. Uma palavra com nome de campo procura apenas nesse campo:
 Coloque `!` antes de uma palavra para excluir as linhas que lhe correspondem: `!state:time_wait`
 oculta as ligações a fechar, e `!proc:browser` oculta um programa. O filtro aplica-se a todas as
 páginas e, enquanto escreve, indica quantas linhas da página mantém.
+
+### Capturar tráfego
+
+Prima **R** para gravar os pacotes da linha selecionada com o `tcpdump`, que vem com o macOS e que no
+Linux se instala com o pacote `tcpdump`. A caixa de diálogo **Capturar tráfego** parte dessa linha:
+
+- **Tráfego** é o que o tcpdump guarda. Em **1 Portas** é a porta e as ligações que entraram por
+  ela, e em **3 Ligações** essa ligação nos dois sentidos. Em **2 Processos** é **Todo o tráfego,
+  mostrado para** esse processo: o tcpdump não consegue escolher pacotes por processo, por isso o
+  Borg grava a interface inteira e abre o resultado no processo. **Todo o tráfego da interface**
+  está sempre lá como segunda opção.
+- **Interface** começa na que tem o endereço da linha ou, se não houver, na mais ativa.
+- **Duração** é de 5, 10, 30 ou 60 segundos, ou **Até parar**.
+- **Guardar** é **Pacotes inteiros**, ou **Cabeçalhos, os primeiros 128 bytes de cada pacote** para
+  ficheiros pequenos que deixam de fora quase tudo o que os pacotes transportam.
+- **Executar como** aparece onde o Borg pode pedir ao sistema a palavra-passe de um administrador.
+  **Utilizador atual** executa o tcpdump com o seu utilizador, e **Administrador** executa-o como
+  root depois de introduzir a palavra-passe no diálogo do sistema. No macOS a opção chama-se
+  **Administrador, com o processo de cada pacote**: o tcpdump escuta então através do `pktap` do
+  macOS, que marca cada pacote com o processo que o enviou ou recebeu.
+
+↑↓ escolhem um campo, ←→ ou Space mudam-no, Enter inicia a captura e Esc cancela. Com o rato, clique
+num campo para o escolher e clique outra vez para o mudar. Enquanto a captura decorre, o rodapé
+conta os pacotes, os bytes e os segundos que faltam, e **R** para-a mais cedo. Uma captura também
+para aos 200 000 pacotes ou 256 MiB. Se fechar o ecrã antes, a captura para e um aviso diz onde o
+Borg a guardou.
+
+O Borg guarda cada captura como `capture-<date>-<time>.pcap` na pasta do painel que o ecrã de rede
+cobre, legível só por si, para que o Wireshark e outras ferramentas a possam abrir mais tarde. Uma
+captura que marca cada pacote com o seu processo é guardada como `capture-<date>-<time>.pcapng`,
+o formato que consegue guardar essas marcas. Uma captura contém tudo o que os pacotes transportavam, por isso guarde-a com o mesmo cuidado que esses
+dados.
+
+Um agente ligado através de `borg mcp` também pode pedir uma captura, que aguarda igualmente a sua
+aprovação (consulte [O que o agente pode fazer](#what-the-agent-can-do)).
+
+Quando a captura termina, o visualizador de tráfego toma o lugar das páginas ao vivo, com uma página
+para cada forma de a ver:
+
+- **1 Processos** mostra cada processo com os hosts com que comunicou, os seus pacotes e os seus
+  bytes. Quando os pacotes trazem o seu processo, cada pacote pertence ao processo que o enviou ou
+  recebeu. Assim, até um processo que durou menos de um segundo fica com o seu nome, e o filtro de
+  um processo mantém exatamente os seus pacotes. Caso contrário, uma conversa pertence ao processo
+  cujo socket a tinha durante a captura, e o resto vai para **Processo desconhecido**.
+- **2 Hosts** mostra as outras máquinas com os protocolos vistos. Os nomes vêm das respostas DNS da
+  própria captura e dos nomes de servidor que as ligações TLS pediram, por isso a maioria dos hosts
+  tem um.
+- **3 Ligações** mostra cada conversa com o seu processo, a outra ponta, o protocolo, os pacotes e
+  os bytes. Os detalhes mostram as duas pontas, o nome do servidor, o serviço, os bytes enviados e
+  recebidos, e cada pacote com uma seta que indica o sentido.
+- **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
+  e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
+  as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
+  hexadecimal.
+
+| Tecla | Ação |
+| --- | --- |
+| 1 / 2 / 3 / 4 | Mostrar Processos / Hosts / Ligações / Pacotes |
+| Enter | Descer um nível: de um processo ou host para as suas ligações, de uma ligação para os seus pacotes, de um pacote para os seus detalhes |
+| `/` | Filtrar as linhas, como nas páginas ao vivo |
+| Ctrl-C | Copiar o PID, o endereço, a outra ponta ou os bytes do pacote em hex |
+| Tab | Alternar entre a lista e os detalhes, onde ↑↓ percorrem |
+| Esc | Voltar à lista, depois subir um nível, depois limpar o filtro e depois voltar ao ecrã ao vivo |
+
+O filtro aceita as mesmas palavras que as páginas ao vivo, e `proto:` também corresponde ao que o
+Borg reconheceu nos pacotes: `proto:dns`, `proto:tls`, `proto:http` e `proto:quic`. Um filtro
+aplica-se a todas as páginas, e o Enter define um para descer um nível, por isso o Esc consegue
+voltar atrás.
+
+F3 num ficheiro `.pcap`, `.pcapng` ou `.cap` num painel abre-o no mesmo visualizador, a começar em
+**2 Hosts**. Um ficheiro gravado noutro sítio não tem sockets com que corresponder, por isso as suas
+conversas mostram **Processo desconhecido**. Um ficheiro `.pcapng` cujos pacotes trazem o seu
+processo, como os que o Borg e o `tcpdump -i pktap` guardam no macOS, continua a mostrar o nome de
+cada processo. O visualizador lê ficheiros até 256 MiB e os seus primeiros 200 000 pacotes.
+
+Quando o Borg não encontra o tcpdump, a captura propõe instalá-lo. A caixa de diálogo
+**Instalar tcpdump** mostra o comando exato do gestor de pacotes que o Borg encontrou: `apt-get`,
+`dnf`, `pacman`, `zypper` ou `apk` no Linux, ou o `brew` do Homebrew no macOS e num Linux sem
+nenhum deles. Os gestores de pacotes do sistema são executados com `sudo`, ou com `doas` onde não
+houver `sudo`, a menos que o Borg seja executado como root. Enter escreve o comando na shell do
+Borg, onde vê o que ele faz e introduz a sua palavra-passe, e Esc cancela. Quando o comando
+termina, um aviso diz se correu bem, e Ctrl-O mostra a saída. O Borg volta a procurar o tcpdump
+sempre que uma captura começa, no `PATH` e em `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin` e nas pastas
+`sbin` do Homebrew, por isso o R funciona logo que a instalação termina. Sem um gestor de pacotes
+que o Borg conheça, a captura termina com **Para capturar é preciso o tcpdump, e o Borg não o
+encontra.**
+
+O tcpdump precisa de acesso ao dispositivo de captura. O Borg executa-o com o seu utilizador, por
+isso dê a si próprio esse acesso uma vez:
+
+- No macOS, de início só o root consegue abrir os dispositivos `/dev/bpf`. Instale uma vez o
+  Wireshark com o componente **ChmodBPF**: este entrega os dispositivos a um grupo `access_bpf` e
+  acrescenta-o a esse grupo, e a partir daí pode capturar em todas as interfaces.
+- No Linux, dê uma vez ao tcpdump as capacidades de captura com
+  `sudo setcap cap_net_raw,cap_net_admin=eip /usr/sbin/tcpdump`. Algumas distribuições deixam
+  capturar os membros de um grupo `pcap` ou `wireshark`.
+
+Sem acesso, o Borg pergunta **Capturar como administrador** onde o sistema pode pedir a sua
+palavra-passe: no macOS no diálogo de palavra-passe do próprio sistema, e no Linux através do
+`pkexec`, cujo diálogo vem do seu ambiente de trabalho. Escolha Sim e introduza a palavra-passe no
+diálogo do sistema, que o Borg nunca vê. Enquanto o diálogo está aberto, o rodapé mostra **À
+espera da palavra-passe para capturar em** e o nome da interface. O Borg executa então uma cópia
+de si próprio como root, que verifica o que lhe pediram para capturar e inicia o tcpdump a partir
+das pastas do próprio sistema. Os pacotes voltam ao Borg, que guarda o ficheiro com o seu
+utilizador. **R** e a duração param a captura como antes, e se o Borg terminar, a captura para com
+ele. Se cancelar o diálogo do sistema, a captura termina sem aviso. Para evitar a pergunta,
+escolha **Administrador** em **Executar como** antes de começar.
+
+No Linux sem `pkexec`, o Borg usa o `sudo` quando este pode executar o tcpdump sem palavra-passe.
+Por SSH não há ambiente de trabalho que mostre o diálogo, por isso a captura termina com **O Borg
+não consegue capturar como administrador** e o motivo indicado pelo sistema. Quando o próprio Borg
+é executado como root, nunca pergunta, e no macOS as suas capturas trazem sempre o processo de
+cada pacote. Onde o Borg não pode perguntar, a captura termina com **Sem permissão para capturar
+em** e o nome da interface.
 
 ### O que o sistema indica
 

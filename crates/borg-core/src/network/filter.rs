@@ -60,7 +60,7 @@ impl Term {
             Some(Field::Pid) => row.pid.is_some_and(|pid| pid.to_string() == self.value),
             Some(Field::Host) => row.hosts.iter().any(|host| contains(host)),
             Some(Field::State) => row.state.is_some_and(contains),
-            Some(Field::Protocol) => row.protocol.is_some_and(|protocol| protocol.eq_ignore_ascii_case(&self.value)),
+            Some(Field::Protocol) => row.protocols.iter().any(|protocol| protocol.eq_ignore_ascii_case(&self.value)),
             Some(Field::Interface) => row.interface.as_deref().is_some_and(contains),
         };
         found != self.negated
@@ -92,7 +92,7 @@ pub(crate) struct Haystack {
     /// Addresses and the names they resolve to.
     pub(crate) hosts: Vec<String>,
     pub(crate) state: Option<&'static str>,
-    pub(crate) protocol: Option<&'static str>,
+    pub(crate) protocols: Vec<&'static str>,
     pub(crate) interface: Option<String>,
     /// Words a plain search finds that no field holds, such as a label the row shows.
     pub(crate) labels: Vec<String>,
@@ -108,7 +108,7 @@ impl Haystack {
             .chain(self.services.iter().map(|s| (*s).to_owned()))
             .chain(self.hosts.iter().cloned())
             .chain(self.state.map(str::to_owned))
-            .chain(self.protocol.map(str::to_owned))
+            .chain(self.protocols.iter().map(|protocol| (*protocol).to_owned()))
             .chain(self.interface.iter().cloned())
             .chain(self.labels.iter().cloned())
     }

@@ -120,6 +120,7 @@ pub enum Count {
     Item,
     Error,
     Region,
+    Packet,
 }
 
 pub fn count(count: usize, noun: Count) -> String {
@@ -131,6 +132,7 @@ pub fn count(count: usize, noun: Count) -> String {
             Count::Item => tr!(count_item_few, count = count),
             Count::Error => tr!(count_error_few, count = count),
             Count::Region => tr!(count_region_few, count = count),
+            Count::Packet => tr!(count_packet_few, count = count),
         };
     }
     match (noun, singular) {
@@ -144,6 +146,8 @@ pub fn count(count: usize, noun: Count) -> String {
         (Count::Error, false) => tr!(count_error_many, count = count),
         (Count::Region, true) => tr!(count_region_one, count = count),
         (Count::Region, false) => tr!(count_region_many, count = count),
+        (Count::Packet, true) => tr!(count_packet_one, count = count),
+        (Count::Packet, false) => tr!(count_packet_many, count = count),
     }
 }
 

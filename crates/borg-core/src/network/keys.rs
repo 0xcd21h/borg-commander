@@ -35,6 +35,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if let Some(action) = crate::activity::panels_action(key) {
         return crate::actions::perform(state, action, now);
     }
+    if state.network.viewer.is_some() {
+        return super::viewer::route_key(state, key);
+    }
     if state.network.filtering && filter_key(&mut state.network, key) {
         return Vec::new();
     }
@@ -56,6 +59,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             network.details_focused = false;
         }
         KeyCode::Char(' ') => network.paused = !network.paused,
+        KeyCode::Char('r' | 'R') => return super::capture::capture_key(state),
         KeyCode::Char('k' | 'K') => return show_process(state, true),
         KeyCode::Char(digit @ '1'..='4') => show_page(network, NetworkPage::ALL[usize::from(digit as u8 - b'1')]),
         KeyCode::Char(c) => {
@@ -80,6 +84,10 @@ pub(crate) fn show_page(network: &mut Network, page: NetworkPage) {
 /// Pastes into the filter while it is typed.
 pub(crate) fn paste(state: &mut AppState, text: &str) {
     let network = &mut state.network;
+    if let Some(view) = network.viewer.as_deref_mut() {
+        super::viewer::paste(view, text);
+        return;
+    }
     if network.filtering {
         let room = FILTER_LIMIT.saturating_sub(network.filter.chars().count());
         network.filter.extend(text.chars().filter(|c| !c.is_control()).take(room));
@@ -89,6 +97,9 @@ pub(crate) fn paste(state: &mut AppState, text: &str) {
 
 /// A row clicked in the list: the cursor moves to it, and a double click acts as Enter does.
 pub(crate) fn click(state: &mut AppState, index: usize, open: bool) -> Vec<Effect> {
+    if state.network.viewer.is_some() {
+        return super::viewer::click(state, index, open);
+    }
     let network = &mut state.network;
     network.details_focused = false;
     network.select(index);
@@ -99,7 +110,7 @@ pub(crate) fn click(state: &mut AppState, index: usize, open: bool) -> Vec<Effec
 pub(crate) fn sort_by(state: &mut AppState, sort: NetworkSort) {
     let network = &mut state.network;
     let page = network.page;
-    if !sort.fits(page) {
+    if network.viewer.is_some() || !sort.fits(page) {
         return;
     }
     let order = &mut network.orders[page.index()];

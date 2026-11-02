@@ -127,6 +127,10 @@ pub(super) fn network(state: &mut AppState, pointer: Pointer, now: Instant) -> V
             crate::network::show_page(&mut state.network, page);
             Vec::new()
         }
+        Pointer::TrafficPage(page) => {
+            crate::network::show_traffic_page(&mut state.network, page);
+            Vec::new()
+        }
         Pointer::NetworkControl { details, code } => {
             state.network.details_focused = details;
             crate::network::route_key(state, &code.into(), now)

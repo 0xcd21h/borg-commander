@@ -39,6 +39,14 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
                 _ => None,
             })
         }
+        Overlay::Capture(dialog) => {
+            let (rect, at) = crate::network_view::capture_field_at(dialog, &state.network, screen, point);
+            Some(match (click, at) {
+                (true, Some(at)) => Some(Msg::Pointer(Pointer::CaptureField(at))),
+                (true, None) => hinted(rect, tr!(capture_keys), true, point),
+                _ => None,
+            })
+        }
         Overlay::Settings { .. } | Overlay::Plugins { .. } => {
             let rect = crate::settings_view::rect(state, screen);
             (click && crate::settings_view::item_at(state, point, screen).is_none())
@@ -86,6 +94,7 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
             let (rect, hint) = crate::dialog_view::prompt_hint(prompt, screen);
             border_key(mouse, rect, hint, true)
         }
+        Overlay::Install(offer) => border_key(mouse, crate::install_view::rect(offer, screen), tr!(install_keys), true),
         _ => None,
     }
 }
