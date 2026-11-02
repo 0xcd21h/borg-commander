@@ -1721,8 +1721,7 @@ fn open_files_preview_a_regular_file_the_process_holds_and_f3_views_it() -> Resu
     let pid = worker.0.id();
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Activity monitor")?;
-    app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    app.wait_until("worker in the activity list", |s| s.contains(&format!(" {pid} 1 of ")))?;
+    select_process(&mut app, pid)?;
     app.send("2")?;
     app.wait_text("open entries")?;
     // Stop on the worker's descriptor and only then wait: its preview is read in the
