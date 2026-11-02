@@ -209,7 +209,9 @@ fn tick_timers(state: &mut AppState, now: Instant) {
         state.screensaver = true;
         // No randomness in core: the moment it starts is random enough to pick one.
         let tick = now.saturating_duration_since(state.epoch).as_micros();
-        state.saver = if tick.is_multiple_of(2) { crate::Saver::Cube } else { crate::Saver::Glitch };
+        let choices = crate::Saver::ALL;
+        state.saver = choices[usize::try_from(tick % choices.len() as u128).unwrap_or_default()];
+        state.saver_started = now;
     }
 }
 

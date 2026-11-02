@@ -13,6 +13,12 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::Buffer;
 
 const CLOCK: &str = "2026-01-15T12:00:00+00:00[UTC]";
+/// Away from the turn of a minute, when the clock screensaver's digits are calm.
+const MIDMINUTE: &str = "2026-01-15T12:00:30.2+00:00[UTC]";
+const PARTICLES_AT_REST: Duration = Duration::from_secs(1);
+const PARTICLES_ADRIFT: Duration = Duration::from_secs(10);
+const THESEUS_REFITTING: Duration = Duration::from_secs(24);
+const THESEUS_REFITTED: Duration = Duration::from_secs(50);
 const RECENT: u64 = 1_768_037_400;
 const OLD: u64 = 1_717_200_000;
 const SIZE: GridSize = GridSize { cols: 90, rows: 22 };
@@ -393,6 +399,24 @@ fn screensaver_after_idle() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("the glitch screensaver must burst within 12 seconds"))?;
     let buffer = stage.render(burst)?;
     check("screensaver_glitch", &stage, buffer)?;
+
+    stage.state.saver = borg_core::Saver::Clock;
+    stage.clock = MIDMINUTE.parse()?;
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "2026-01-15")?;
+    check("screensaver_clock", &stage, buffer)?;
+
+    stage.state.saver = borg_core::Saver::Particles;
+    let rest = Snapshot::from_buffer(stage.render(later + PARTICLES_AT_REST)?, &stage.palette, None);
+    anyhow::ensure!(rest.contains("c o m m a n d e r"), "the particles start as the logo");
+    let buffer = stage.render(later + PARTICLES_ADRIFT)?;
+    check("screensaver_particles", &stage, buffer)?;
+
+    stage.state.saver = borg_core::Saver::Theseus;
+    let buffer = stage.render(later + THESEUS_REFITTING)?;
+    check("screensaver_theseus", &stage, buffer)?;
+    let buffer = stage.render(later + THESEUS_REFITTED)?;
+    check("screensaver_theseus_refitted", &stage, buffer)?;
 
     borg_core::update(&mut stage.state, key(KeyCode::Char('x')), later);
     anyhow::ensure!(!stage.state.screensaver, "a key must wake the screensaver");

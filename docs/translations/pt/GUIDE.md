@@ -958,7 +958,7 @@ menu-bar = false            # keep the menu bar visible
 show-hidden = false
 return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
-screensaver = true          # a spinning cube or a glitching logo, picked at random
+screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -991,6 +991,13 @@ history = true              # remember the folders the panels open
 Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com
 efeito de falha (glitch); qualquer tecla ou clique a salta. Por SSH, e em terminais sem cor
 verdadeira, abre diretamente nos painéis.
+
+Após `screensaver-after` segundos sem atividade, o Borg mostra um de cinco protetores de ecrã,
+escolhido ao acaso: um cubo a girar num campo de estrelas, o logótipo com efeito de falha, um
+relógio nas letras de blocos do logótipo que se desfaz a cada novo minuto, o logótipo a rodopiar
+até formar uma galáxia em espiral e a regressar, ou o logótipo reconstruído tábua a tábua enquanto
+as tábuas antigas formam um segundo logótipo por baixo. Qualquer tecla ou clique traz os painéis
+de volta, e essa tecla não faz mais nada.
 
 As pastas dos painéis, as posições do cursor, a divisão, os modos de listagem e a ordenação ficam
 guardados em

@@ -122,7 +122,8 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         return (cursor, placements);
     }
     if state.screensaver {
-        art_view::draw_screensaver(&scene.look(theme), state.saver, area, buf);
+        let elapsed = scene.now.saturating_duration_since(state.saver_started).as_secs_f32();
+        art_view::draw_screensaver(&scene.look(theme), state.saver, scene.clock, elapsed, area, buf);
         return (None, Vec::new());
     }
     if let Some(start) = state.intro {

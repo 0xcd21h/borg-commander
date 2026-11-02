@@ -1,5 +1,6 @@
 use borg_core::{KEYMAP, Saver};
 use borg_i18n::tr;
+use jiff::Zoned;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -56,17 +57,21 @@ fn text(buf: &mut Buffer, area: Rect, y: u16, content: &str, gradient: Gradient)
     fx::gradient_text(buf, Rect { x: area.x + (area.width - width) / 2, width, ..row }, gradient);
 }
 
-pub fn draw_screensaver(look: &Look<'_>, saver: Saver, area: Rect, buf: &mut Buffer) {
+/// Draws the screensaver `elapsed` seconds after it started.
+pub fn draw_screensaver(look: &Look<'_>, saver: Saver, clock: &Zoned, elapsed: f32, area: Rect, buf: &mut Buffer) {
     fill(buf, area, look);
-    let background = look.background();
-    if saver == Saver::Glitch {
-        fx::draw_glitch_screen(buf, area, look.t, look.accent(), background, tr!(about_subtitle));
-        return;
+    let (t, accent, background) = (look.t, look.accent(), look.background());
+    match saver {
+        Saver::Cube => {
+            fx::draw_stars(buf, area, t, background);
+            let (width, height) = sized(area, SAVER_CUBE);
+            fx::draw_cube(buf, centered(area, width, height), t * SAVER_SPIN, accent, background);
+        }
+        Saver::Glitch => fx::draw_glitch_screen(buf, area, t, accent, background, tr!(about_subtitle)),
+        Saver::Clock => fx::draw_clock_screen(buf, area, t, clock, accent, background),
+        Saver::Particles => fx::draw_particles(buf, area, elapsed, accent, background, tr!(about_subtitle)),
+        Saver::Theseus => fx::draw_theseus(buf, area, elapsed, accent, background),
     }
-    fx::draw_stars(buf, area, look.t, background);
-    let (width, height) = sized(area, SAVER_CUBE);
-    let cube = centered(area, width, height);
-    fx::draw_cube(buf, cube, look.t * SAVER_SPIN, look.accent(), background);
 }
 
 /// The startup intro: the glitching logo settles over a plain screen.
@@ -110,7 +115,7 @@ pub fn draw_about(look: &Look<'_>, screen: Rect, buf: &mut Buffer) -> Rect {
         Rect { x: cube.right() + PADDING, width: inner.right().saturating_sub(cube.right() + PADDING), ..inner };
     let logo_y = cube.y;
     let heat = fx::burst_heat(look.t, ABOUT_GLITCH_PERIOD, 0.0);
-    fx::draw_glitch(buf, (right.x, logo_y), inner, heat, look.t, accent, background);
+    fx::draw_glitch(buf, fx::Blocks::logo((right.x, logo_y)), inner, heat, look.t, accent, background);
     let info_y = logo_y + GLITCH_HEIGHT + TEXT_GAP;
     let meta = styles.overlay.fg(look.fg(styles.meta).into());
     Line::styled(tr!(about_subtitle), meta).render(Rect { y: info_y, height: 1, ..right }, buf);

@@ -390,7 +390,7 @@ menu-bar = false            # keep the menu bar visible
 show-hidden = false
 return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
-screensaver = true          # a spinning cube or a glitching logo, picked at random
+screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -421,6 +421,8 @@ history = true              # remember the folders the panels open
 ```
 
 在支持真彩色的本地终端中，Borg 启动时会播放一段简短的 logo 故障风格动画；按任意键或单击即可跳过。通过 SSH 连接时，以及在不支持真彩色的终端中，会直接打开面板。
+
+闲置 `screensaver-after` 秒后，Borg 会从五种屏幕保护程序中随机显示一种：在星空中旋转的立方体；故障风格的 logo；用 logo 方块字母组成的时钟，每到新的一分钟就会撕裂开来；logo 旋出成螺旋星系，再旋回原位；或者 logo 被一块块木板重建，换下的旧木板则在下方拼成第二个 logo。按任意键或单击即可回到面板，唤醒用的按键不会执行其他操作。
 
 面板所在的文件夹、光标位置、分栏比例、列表模式和排序方式保存在 `~/.local/state/borg-commander` 中，或保存在由 `$XDG_STATE_HOME` 或 `$BORG_STATE_DIR` 指定的文件夹中。
 
