@@ -240,18 +240,16 @@ mod flows {
         for _ in 0..4 {
             press(&mut state, KeyCode::Down, now);
         }
-        assert_eq!(state.cd_picker.selected, None, "Down steps back to the command line");
+        assert_eq!(state.cd_picker.selected, Some(0), "Down stops at the bottom row");
         assert_eq!(state.active_panel().cursor(), 0, "the panel gets neither key");
 
+        press(&mut state, KeyCode::Esc, now);
+        assert_eq!(state.cd_picker.selected, None);
+        press(&mut state, KeyCode::Down, now);
+        assert_eq!(state.active_panel().cursor(), 1, "after Esc Down moves the panel's cursor");
         let effects = press(&mut state, KeyCode::Enter, now);
         assert_eq!(state.operation.as_ref().map(|op| op.label), Some(CD), "Enter runs the typed cd");
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Write(bytes) if bytes == b"\r")));
-
-        let (mut state, now) = setup();
-        type_line(&mut state, "cd ", now);
-        press(&mut state, KeyCode::Esc, now);
-        press(&mut state, KeyCode::Down, now);
-        assert_eq!(state.active_panel().cursor(), 1, "after Esc Down moves the panel's cursor");
     }
 
     #[test]

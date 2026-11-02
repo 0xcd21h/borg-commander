@@ -373,8 +373,8 @@ saltar: primeiro as favoritas, marcadas com ★, depois as pastas que os painéi
 recentes para as mais antigas. Cada palavra que acrescenta restringe a lista e pode corresponder a
 qualquer parte do caminho, por isso `cd pro bo` encontra `~/Projects/borg`. As pastas cujo nome
 corresponde à última palavra ficam em primeiro lugar, junto à linha de comandos. Prima Up para
-entrar na lista e Down para voltar à linha de comandos. Enquanto a lista está visível, Up e Down
-ficam nela e o cursor do painel mantém a posição. Enter abre a pasta escolhida no painel ativo. Tab
+entrar na lista. Enquanto a lista está visível, Up e Down só se movem nela e param nas duas pontas,
+por isso o cursor do painel mantém a posição. Enter abre a pasta escolhida no painel ativo. Tab
 coloca-a na linha de comandos a seguir a `cd ` sem executar o comando, com escapes nos espaços e
 noutros caracteres que a shell dividiria ou expandiria, e a lista passa para as pastas que ela
 contém. Um clique numa pasta também a abre. Para executar o seu próprio `cd`, continue a escrever e

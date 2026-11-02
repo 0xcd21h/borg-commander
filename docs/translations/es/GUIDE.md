@@ -368,12 +368,12 @@ saltar: primero tus favoritas, marcadas con ★, y después las carpetas que abr
 la más reciente a la más antigua. Cada palabra que añades acota la lista y puede coincidir con
 cualquier parte de la ruta, así que `cd pro bo` encuentra `~/Projects/borg`. Las carpetas cuyo
 nombre coincide con la última palabra aparecen primero, junto a la línea de comandos. Pulsa Up para
-entrar en la lista y Down para volver a la línea de comandos. Mientras la lista está visible, Up y
-Down se quedan en ella y el cursor del panel no se mueve. Enter abre la carpeta elegida en el panel
-activo. Tab la escribe en la línea de comandos detrás de `cd ` sin ejecutar el comando, con escapes
-en los espacios y en otros caracteres que la shell separaría o expandiría, y la lista pasa a las
-carpetas que contiene. Un clic en una carpeta también la abre. Para ejecutar tu propio `cd`, sigue
-escribiendo y pulsa Enter.
+entrar en la lista. Mientras la lista está visible, Up y Down solo se mueven por ella y se detienen
+en los dos extremos, así que el cursor del panel no se mueve. Enter abre la carpeta elegida en el
+panel activo. Tab la escribe en la línea de comandos detrás de `cd ` sin ejecutar el comando, con
+escapes en los espacios y en otros caracteres que la shell separaría o expandiría, y la lista pasa a
+las carpetas que contiene. Un clic en una carpeta también la abre. Para ejecutar tu propio `cd`,
+sigue escribiendo y pulsa Enter.
 
 Escribe una ruta y la lista empieza por las carpetas que contiene. `cd /Volumes` muestra los
 volúmenes montados, y `cd ~/Projects/bo` acota la lista a las carpetas de `~/Projects` con `bo` en

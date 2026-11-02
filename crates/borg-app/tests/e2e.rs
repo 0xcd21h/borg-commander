@@ -2711,7 +2711,7 @@ fn the_folder_picker_keeps_the_arrows_comes_back_after_esc_and_tab_fills_in_a_fo
         ensure!(screen.contains(PICKER), "{} closed the picker on Down", shell.program());
         ensure!(!highlighted(&screen, SPACED), "Down reached the panel in {}", shell.program());
 
-        app.send(keys::up())?.send(keys::tab())?;
+        app.send(keys::up())?.send(keys::down())?.send(keys::tab())?;
         app.wait_until(&format!("{} has the folder filled in with its space escaped", shell.program()), |s| {
             prompt(s).contains("cd ~/two\\ words/") && s.contains("~/two words/inner")
         })?;

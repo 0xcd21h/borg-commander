@@ -340,10 +340,10 @@ pub(crate) fn line_changed(state: &mut AppState) {
     }
 }
 
-/// Up steps from the command line into the picker and on to the folders above, and Down steps
-/// back and stops at the command line, so neither reaches the panel while the picker shows. Tab
-/// types the chosen folder into the command line, Enter opens it or types it into the path, and
-/// Esc hides the picker while the word being typed goes on. Other keys go to the command line.
+/// Up steps from the command line into the picker, and Up and Down then move through it and stop
+/// at its ends, so neither reaches the panel while the picker shows. Tab types the chosen folder
+/// into the command line, Enter opens it or types it into the path, and Esc hides the picker while
+/// the word being typed goes on. Other keys go to the command line.
 pub(crate) fn picker_key(state: &mut AppState, key: &KeyEvent) -> Option<Vec<Effect>> {
     if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
         return None;
@@ -355,7 +355,7 @@ pub(crate) fn picker_key(state: &mut AppState, key: &KeyEvent) -> Option<Vec<Eff
         (KeyCode::Up, None) => picker.selected = Some(0),
         (KeyCode::Up, Some(row)) => picker.selected = Some((row + 1).min(last)),
         (KeyCode::Down, None) => {}
-        (KeyCode::Down, Some(row)) => picker.selected = row.checked_sub(1),
+        (KeyCode::Down, Some(row)) => picker.selected = Some(row.saturating_sub(1)),
         (KeyCode::Esc, _) => {
             picker.selected = None;
             picker.hidden = Some(state.shell.observed.line.before_cursor().to_owned());
