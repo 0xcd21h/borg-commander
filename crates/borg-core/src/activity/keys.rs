@@ -28,6 +28,8 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if state.activity.search_form.is_some() {
         return on_key(state, key);
     }
+    let key = &if state.activity.filtering { *key } else { crate::keyboard::latin(key) };
+    let code = key.code;
     if !state.activity.filtering && modifiers.is_empty() {
         match code {
             KeyCode::Char('1') => return open_regions(&mut state.activity, now),

@@ -3262,3 +3262,38 @@ fn unavailable_hosts_explain_why_files_and_mirror_cannot_open() {
     update(&mut state, Msg::Key(key(KeyCode::Esc)), now);
     assert!(state.overlay.is_none());
 }
+
+#[test]
+fn keys_held_with_ctrl_or_alt_work_in_a_cyrillic_layout() {
+    let (mut state, now) = setup();
+    press(&mut state, now, ctrl('щ'));
+    assert_eq!(state.view, View::Shell);
+    assert_eq!(writes(&press(&mut state, now, ctrl('с'))), "\u{3}");
+    press(&mut state, now, ctrl('щ'));
+    assert_eq!(state.view, View::Panels);
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('ь'), KeyModifiers::ALT));
+    assert!(state.activity.side.is_some());
+}
+
+#[test]
+fn letters_typed_on_the_command_line_stay_as_typed() {
+    let (mut state, now) = setup();
+    assert_eq!(writes(&press(&mut state, now, key(KeyCode::Char('т')))), "т");
+}
+
+#[test]
+fn a_question_answers_to_the_letters_its_buttons_show() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    state.settings.preferences.language = borg_i18n::Locale::Russian;
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::F(8)));
+    assert!(press(&mut state, now, key(KeyCode::Char('н'))).is_empty());
+    assert!(state.overlay.is_none());
+
+    press(&mut state, now, key(KeyCode::F(8)));
+    let effects = press(&mut state, now, key(KeyCode::Char('д')));
+    assert_eq!(
+        effects,
+        vec![Effect::StartJob { id: 0, spec: Spec::Delete { sources: vec![PathBuf::from("/home/a")] } }]
+    );
+}

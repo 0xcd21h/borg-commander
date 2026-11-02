@@ -514,7 +514,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: std::time::Insta
         BackupTab::ALL[index as usize]
     };
     let list = state.backup.window.list_mut();
-    match key.code {
+    match crate::keyboard::latin(key).code {
         KeyCode::Esc => {
             state.overlay = None;
             return vec![Effect::Backup(BackupRequest::Cancel)];

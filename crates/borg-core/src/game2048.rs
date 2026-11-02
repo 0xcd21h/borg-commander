@@ -231,7 +231,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         return vec![Effect::SaveGame2048];
     }
     let Some(game) = state.game2048.as_mut() else { return Vec::new() };
-    let changed = match key.code {
+    let changed = match crate::keyboard::latin(key).code {
         KeyCode::Left => game.slide(GameDirection::Left),
         KeyCode::Right => game.slide(GameDirection::Right),
         KeyCode::Up => game.slide(GameDirection::Up),
