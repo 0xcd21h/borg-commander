@@ -22,6 +22,7 @@ mod folders;
 mod game2048;
 mod history;
 mod input;
+mod install;
 mod jobs;
 mod keyboard;
 mod keymap;
@@ -88,6 +89,7 @@ pub use folders::{
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
+pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};

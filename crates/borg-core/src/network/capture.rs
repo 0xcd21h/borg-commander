@@ -5,7 +5,7 @@ use super::{
     InterfaceKind, NetworkPage, Socket, SocketKey, Transport,
     viewer::{TrafficPage, TrafficView},
 };
-use crate::{AppState, Capture, Confirm, ConfirmPurpose, Effect, Overlay, Side};
+use crate::{AppState, Capture, Confirm, ConfirmPurpose, Effect, Installer, Overlay, Side, Tool};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{
@@ -36,6 +36,8 @@ pub struct CaptureAccess {
 /// Why a capture saved nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaptureFailure {
+    /// tcpdump is not installed, with how Borg installs it when it knows how.
+    Missing(Option<Installer>),
     /// The system lets only an administrator capture on the interface.
     Denied,
     /// The system's password dialog was dismissed, or the capture stopped before it was answered.
@@ -400,13 +402,15 @@ pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize
 }
 
 /// A capture ended: the viewer opens on it while the screen shows, a notice says where it was
-/// saved otherwise, and the panels showing its folder list the new file. A capture the system
-/// refused asks whether to run it as administrator, where Borg can ask for that.
+/// saved otherwise, and the panels showing its folder list the new file. Without tcpdump, Borg
+/// offers to install it, and a capture the system refused asks whether to run it as
+/// administrator, where Borg can ask for that.
 pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
     let access = state.network.access;
     match result {
+        Err(CaptureFailure::Missing(installer)) => crate::install::offer(state, Tool::Tcpdump, installer),
         Err(CaptureFailure::Denied) if access.elevate && !recording.request.administrator => {
             state.overlay = Some(Overlay::Confirm(Confirm {
                 title: tr!(capture_admin_title),

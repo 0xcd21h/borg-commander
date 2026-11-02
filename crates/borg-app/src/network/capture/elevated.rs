@@ -5,9 +5,10 @@
 //! the capture by closing its side of the socket, which it also does when it exits: the helper
 //! then interrupts tcpdump as Ctrl-C would.
 
-use super::{PROGRAM, SYSTEM_DIRS, Tap, Tcpdump, interrupt, read_all};
+use super::{Tap, Tcpdump, interrupt, read_all};
+use crate::tools::SYSTEM_DIRS;
 use anyhow::{Context, Result, bail};
-use borg_core::{CaptureFailure, CaptureRequest};
+use borg_core::{CaptureFailure, CaptureRequest, Tool};
 use borg_i18n::tr;
 use std::{
     io::ErrorKind,
@@ -249,7 +250,7 @@ async fn serve(args: &[String]) -> Result<String> {
     if !socket.is_absolute() {
         bail!(tr!(capture_request_invalid));
     }
-    let program = trusted(PROGRAM).context(tr!(capture_missing))?;
+    let program = trusted(Tool::Tcpdump.program()).context(tr!(capture_missing))?;
     run(socket, &tcpdump, &program).await
 }
 

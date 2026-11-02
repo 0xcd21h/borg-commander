@@ -73,7 +73,7 @@ const OWNER_ONLY: u32 = 0o700;
 #[tokio::test]
 async fn closing_borgs_side_interrupts_tcpdump_and_its_last_bytes_still_arrive() {
     let folder = tempfile::tempdir().unwrap();
-    let program = folder.path().join(PROGRAM);
+    let program = folder.path().join(Tool::Tcpdump.program());
     std::fs::write(&program, STAND_IN).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(OWNER_ONLY)).unwrap();
     let socket = folder.path().join(SOCKET);

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    ActivityData, Appearance, Msg, Overlay, ProcessInfo, ProcessKey, Settings, Startup, SystemSample, ThemeChoice,
-    update,
+    ActivityData, Appearance, Elevation, InstallOffer, Installer, Msg, Overlay, PackageManager, ProcessInfo,
+    ProcessKey, Settings, Startup, SystemSample, ThemeChoice, Tool, update,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::{net::SocketAddr, path::PathBuf};
@@ -689,6 +689,18 @@ fn a_refusal_where_borg_cannot_ask_says_so_and_a_dismissed_password_says_nothing
     let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
     update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Cancelled) }, now);
     assert!(state.notice.is_none() && state.network.recording.is_none());
+}
+
+#[test]
+fn a_capture_without_tcpdump_offers_to_install_it() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    let installer = Installer { manager: PackageManager::Dnf, elevation: Some(Elevation::Sudo) };
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Missing(Some(installer))) }, now);
+    let offer = InstallOffer { tool: Tool::Tcpdump, installer };
+    assert_eq!(state.overlay, Some(Overlay::Install(offer)));
+    assert!(state.network.recording.is_none() && state.notice.is_none());
 }
 
 #[test]

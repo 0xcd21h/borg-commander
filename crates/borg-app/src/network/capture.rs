@@ -2,7 +2,9 @@
 //! screen covers, as you or as administrator through Borg's helper, and reads capture files for
 //! the traffic viewer.
 
-use borg_core::{Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter};
+use borg_core::{
+    Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, Tool,
+};
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
 use std::{
@@ -25,9 +27,6 @@ mod elevated;
 
 pub use elevated::helper;
 
-const PROGRAM: &str = "tcpdump";
-/// Where tcpdump is installed when the folder is not on `PATH`, as `/usr/sbin` often is not.
-const SYSTEM_DIRS: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
 /// Captures stop at this size, as they do at `PACKET_LIMIT` packets.
@@ -64,7 +63,10 @@ impl Recorder {
     pub(super) fn start(id: u64, request: CaptureRequest, messages: UnboundedSender<Msg>) -> Self {
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
-            let result = record(id, &request, &messages, stopped).await;
+            let result = match crate::tools::find(Tool::Tcpdump.program()) {
+                Some(program) => record(id, &program, &request, &messages, stopped).await,
+                None => Err(CaptureFailure::Missing(crate::tools::installer())),
+            };
             let _ = messages.send(Msg::CaptureDone { id, result });
         });
         Self { id, stop: Some(stop), task }
@@ -172,9 +174,8 @@ impl Tap {
 }
 
 /// tcpdump run as you, and its packets.
-fn own(request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + Unpin + Send>, Tap), CaptureFailure> {
-    let program = program().ok_or_else(|| CaptureFailure::Failed(tr!(capture_missing).to_owned()))?;
-    let mut child = command(&program, &Tcpdump::of(request)).spawn().map_err(|error| match error.kind() {
+fn own(program: &Path, request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + Unpin + Send>, Tap), CaptureFailure> {
+    let mut child = command(program, &Tcpdump::of(request)).spawn().map_err(|error| match error.kind() {
         ErrorKind::NotFound => CaptureFailure::Failed(tr!(capture_missing).to_owned()),
         _ => CaptureFailure::Failed(tr!(capture_failed, error = error)),
     })?;
@@ -186,12 +187,13 @@ fn own(request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + Unpin + Send>, T
 
 async fn record(
     id: u64,
+    program: &Path,
     request: &CaptureRequest,
     messages: &UnboundedSender<Msg>,
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), CaptureFailure> {
     let (mut packets, mut tap) =
-        if request.administrator { elevated::start(request, &mut stopped).await? } else { own(request)? };
+        if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
     let mut file = match OpenOptions::new().write(true).create_new(true).mode(FILE_MODE).open(&path) {
         Ok(file) => file,
@@ -262,16 +264,6 @@ async fn record(
         .unwrap_or_else(|error| Err(error.to_string()))
         .map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_read, path = path.display(), error = error)))?;
     Ok((path, capture))
-}
-
-/// The installed tcpdump: the one on `PATH`, or else in a system folder.
-fn program() -> Option<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path)
-        .filter(|dir| dir.is_absolute())
-        .chain(SYSTEM_DIRS.map(PathBuf::from))
-        .map(|dir| dir.join(PROGRAM))
-        .find(|candidate| candidate.is_file())
 }
 
 fn command(program: &Path, tcpdump: &Tcpdump) -> Command {

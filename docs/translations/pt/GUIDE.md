@@ -1378,6 +1378,18 @@ conversas mostram **Processo desconhecido**. Um ficheiro `.pcapng` cujos pacotes
 processo, como os que o Borg e o `tcpdump -i pktap` guardam no macOS, continua a mostrar o nome de
 cada processo. O visualizador lê ficheiros até 256 MiB e os seus primeiros 200 000 pacotes.
 
+Quando o Borg não encontra o tcpdump, a captura propõe instalá-lo. A caixa de diálogo
+**Instalar tcpdump** mostra o comando exato do gestor de pacotes que o Borg encontrou: `apt-get`,
+`dnf`, `pacman`, `zypper` ou `apk` no Linux, ou o `brew` do Homebrew no macOS e num Linux sem
+nenhum deles. Os gestores de pacotes do sistema são executados com `sudo`, ou com `doas` onde não
+houver `sudo`, a menos que o Borg seja executado como root. Enter escreve o comando na shell do
+Borg, onde vê o que ele faz e introduz a sua palavra-passe, e Esc cancela. Quando o comando
+termina, um aviso diz se correu bem, e Ctrl-O mostra a saída. O Borg volta a procurar o tcpdump
+sempre que uma captura começa, no `PATH` e em `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin` e nas pastas
+`sbin` do Homebrew, por isso o R funciona logo que a instalação termina. Sem um gestor de pacotes
+que o Borg conheça, a captura termina com **Para capturar é preciso o tcpdump, e o Borg não o
+encontra.**
+
 O tcpdump precisa de acesso ao dispositivo de captura. O Borg executa-o com o seu utilizador, por
 isso dê a si próprio esse acesso uma vez:
 

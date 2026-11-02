@@ -209,6 +209,17 @@ stream as itself, and stops the capture by shutting down its side of the socket,
 helper turns into SIGINT, as it does when Borg exits. tcpdump's messages come back as the
 helper's JSON result.
 
+Missing programs: `borg-app::tools::find` looks a program up on `PATH`, then in the system folders
+and Homebrew's `sbin` folders, on every call, so a program installed while Borg runs is found.
+When tcpdump is not there, the capture ends with `CaptureFailure::Missing` and the installer
+`borg-app::tools::installer` detects. `borg-core::install` holds the pure part: `Installer::detect`
+picks the package manager from the programs it is told exist (apt, dnf, pacman, zypper and apk,
+then Homebrew, which refuses root) with `sudo` or `doas` when root is needed, and `Installer::command`
+builds the exact command line. The install dialog types it at the host shell's prompt without
+moving the shell to the panel's folder first, so the next command end is the install's, and
+`install::finished` turns its exit code into a notice. Another program joins as a `Tool` variant
+with its package name for each manager and its own dialog text.
+
 ### Editor
 
 F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a
