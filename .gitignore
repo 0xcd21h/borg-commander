@@ -19,3 +19,4 @@ __pycache__/
 /website/src/content/docs/ru/
 /CLAUDE.md
 /.claude
+/.idea/

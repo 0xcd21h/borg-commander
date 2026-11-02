@@ -309,9 +309,10 @@ open (a notice, results, the quick view or Info), the first Esc closes it, and a
 cancels. Alt-1 to Alt-0 work too when the terminal passes Alt through. On macOS, you may need to
 turn on "Use Option as Meta key" in your terminal.
 
-Hotkeys work with a Russian, Ukrainian, or Belarusian keyboard layout too. A Cyrillic letter held
-with Ctrl or Alt counts as the key in the same place on a US keyboard, and so does a letter
-pressed in a screen or dialog that is not waiting for text. With the Russian layout on, Alt-M
+Hotkeys work with non-Latin keyboard layouts too: Russian, Ukrainian, Belarusian, Kazakh, Greek,
+Hebrew, Arabic, Georgian, Korean, and Thai. A letter of such a layout held with Ctrl or Alt counts
+as the key in the same place on a US keyboard, and so does a letter pressed in a screen or dialog
+that is not waiting for text. With the Russian layout on, Alt-M
 opens the activity monitor and Ctrl-C reaches the shell. The command line, the editor, and Borg's
 fields keep the letters you type. Questions with Yes and No buttons answer to Y and N in every
 language and to the first letter of each button in Borg's language, such as S for Sí in Spanish.
