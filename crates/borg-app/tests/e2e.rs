@@ -2686,6 +2686,43 @@ fn a_typed_cd_moves_the_panel_and_the_picker_offers_folders_in_each_shell() -> R
     Ok(())
 }
 
+#[test]
+fn the_folder_picker_keeps_the_arrows_comes_back_after_esc_and_tab_fills_in_a_folder() -> Result<()> {
+    const PICKER: &str = "Esc Hide";
+    const SPACED: &str = "two words";
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fs::create_dir_all(fixture.home().join(SPACED).join("inner"))?;
+        let mut app = start_with(&fixture, &format!("picker-keys-{}", shell.program()), shell)?;
+        app.send("cd ~")?;
+        app.wait_until("typed", |s| prompt(s).contains("cd ~"))?;
+        app.send(keys::enter())?;
+        app.wait_until(&format!("{} is home", shell.program()), |s| s.contains(SPACED) && prompt(s).trim() == "$")?;
+
+        app.send("cd ")?;
+        app.wait_text(PICKER)?;
+        app.send(keys::esc())?;
+        app.wait_gone(PICKER)?;
+        app.send("tw")?;
+        app.wait_text(PICKER)?;
+
+        app.send(keys::down())?;
+        let screen = app.settle()?;
+        ensure!(screen.contains(PICKER), "{} closed the picker on Down", shell.program());
+        ensure!(!highlighted(&screen, SPACED), "Down reached the panel in {}", shell.program());
+
+        app.send(keys::up())?.send(keys::down())?.send(keys::tab())?;
+        app.wait_until(&format!("{} has the folder filled in with its space escaped", shell.program()), |s| {
+            prompt(s).contains("cd ~/two\\ words/") && s.contains("~/two words/inner")
+        })?;
+        app.send(keys::enter())?;
+        app.wait_until(&format!("{} ran the cd that Tab filled in", shell.program()), |s| {
+            s.contains("inner") && prompt(s).trim() == "$" && !s.contains(PICKER)
+        })?;
+    }
+    Ok(())
+}
+
 /// Runs a relay without TLS in this process, on a free port, for the test's lifetime.
 fn relay() -> Result<String> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;

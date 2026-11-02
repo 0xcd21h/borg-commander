@@ -95,6 +95,7 @@ mod flows {
     use super::*;
     use crate::{Appearance, Msg, PanelSetup, Settings, ShellView, Startup, ThemeChoice, state::REVEAL_DELAY, update};
     use borg_term::{Foreground, PromptState, ShellSignal};
+    use borg_vfs::{Entry, EntryKind};
     use std::time::Instant;
 
     const HOME: &str = "/home/me";
@@ -120,9 +121,23 @@ mod flows {
         (state, now)
     }
 
+    fn folder(name: &str) -> Entry {
+        Entry {
+            source: None,
+            missing: false,
+            usage: None,
+            name: name.into(),
+            kind: EntryKind::Dir,
+            size: 0,
+            modified: None,
+            executable: false,
+            permissions: 0o755,
+        }
+    }
+
     fn list(state: &mut AppState, effect: Effect, now: Instant) -> Vec<Effect> {
         let Effect::List { side, generation, .. } = effect else { return Vec::new() };
-        update(state, Msg::Batch { side, generation, entries: Vec::new() }, now);
+        update(state, Msg::Batch { side, generation, entries: vec![folder("alpha"), folder("beta")] }, now);
         update(state, Msg::Listed { side, generation, error: None }, now)
     }
 
@@ -212,29 +227,77 @@ mod flows {
     }
 
     #[test]
-    fn down_from_the_bottom_row_and_esc_give_the_keys_back() {
+    fn up_and_down_stay_in_the_picker_until_esc_gives_them_back() {
         let (mut state, now) = setup();
         type_line(&mut state, "cd ", now);
         assert_eq!(cd_choices(&state).map(|picker| picker.choices.len()), Some(3), "all but the panel's own folder");
-        press(&mut state, KeyCode::Up, now);
-        press(&mut state, KeyCode::Up, now);
-        assert_eq!(state.cd_picker.selected, Some(1));
-        press(&mut state, KeyCode::Down, now);
-        press(&mut state, KeyCode::Down, now);
+        assert!(press(&mut state, KeyCode::Down, now).is_empty());
+        assert_eq!(state.cd_picker.selected, None, "Down at the command line stays there");
+        for _ in 0..4 {
+            press(&mut state, KeyCode::Up, now);
+        }
+        assert_eq!(state.cd_picker.selected, Some(2), "Up stops at the top row");
+        for _ in 0..4 {
+            press(&mut state, KeyCode::Down, now);
+        }
+        assert_eq!(state.cd_picker.selected, Some(0), "Down stops at the bottom row");
+        assert_eq!(state.active_panel().cursor(), 0, "the panel gets neither key");
+
+        press(&mut state, KeyCode::Esc, now);
         assert_eq!(state.cd_picker.selected, None);
+        press(&mut state, KeyCode::Down, now);
+        assert_eq!(state.active_panel().cursor(), 1, "after Esc Down moves the panel's cursor");
         let effects = press(&mut state, KeyCode::Enter, now);
         assert_eq!(state.operation.as_ref().map(|op| op.label), Some(CD), "Enter runs the typed cd");
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Write(bytes) if bytes == b"\r")));
+    }
 
+    #[test]
+    fn esc_hides_the_picker_while_the_word_is_typed() {
         let (mut state, now) = setup();
-        type_line(&mut state, "cd v", now);
+        type_line(&mut state, "cd ", now);
         press(&mut state, KeyCode::Esc, now);
         assert!(cd_choices(&state).is_none());
+        echo(&mut state, "cd ", now);
+        assert!(cd_choices(&state).is_none(), "the same line keeps it hidden");
+        type_line(&mut state, "cd v", now);
+        assert!(cd_choices(&state).is_some(), "Esc after the blank hides it until the next word begins");
+
+        press(&mut state, KeyCode::Esc, now);
         type_line(&mut state, "cd va", now);
-        assert!(cd_choices(&state).is_none(), "Esc hides it for this cd");
+        type_line(&mut state, "cd v", now);
+        assert!(cd_choices(&state).is_none(), "editing the word keeps it hidden");
+        type_line(&mut state, "cd ", now);
+        assert!(cd_choices(&state).is_some(), "erasing the word brings it back");
+
+        type_line(&mut state, "cd v", now);
+        press(&mut state, KeyCode::Esc, now);
+        type_line(&mut state, "cd v l", now);
+        assert_eq!(shown(&state), [PathBuf::from("/var/log")], "another word brings it back");
+
+        press(&mut state, KeyCode::Esc, now);
         type_line(&mut state, "", now);
-        type_line(&mut state, "cd va", now);
-        assert!(cd_choices(&state).is_some(), "the next cd shows it again");
+        type_line(&mut state, "cd v l", now);
+        assert!(cd_choices(&state).is_some(), "the next command line shows it again");
+    }
+
+    #[test]
+    fn tab_types_the_chosen_folder_into_the_command_line_without_running_it() {
+        let (mut state, now) = setup();
+        type_line(&mut state, "cd pro", now);
+        press(&mut state, KeyCode::Up, now);
+        let mut typed = CLEAR_LINE.to_vec();
+        typed.extend(b"cd ~/Projects/");
+        assert_eq!(press(&mut state, KeyCode::Tab, now), [Effect::Write(typed)]);
+        assert_eq!(state.cd_picker.selected, None);
+        assert!(state.operation.is_none(), "nothing runs");
+        assert_eq!((state.view, state.active_panel().dir()), (View::Panels, Path::new(HOME)));
+
+        assert_eq!(echo(&mut state, "cd ~/Projects/", now), [Effect::ReadSubfolders(PROJECTS.into())]);
+        read(&mut state, PROJECTS, &["borg"], now);
+        assert_eq!(shown(&state), [PathBuf::from("/home/me/Projects/borg")], "the list moves on to its subfolders");
+        let effects = press(&mut state, KeyCode::Tab, now);
+        assert_eq!(effects, [Effect::Write(b"\t".to_vec())], "with nothing chosen Tab goes to the shell");
     }
 
     #[test]
@@ -348,7 +411,9 @@ mod flows {
         press(&mut state, KeyCode::Up, now);
         let mut typed = vec![0x7f; 2];
         typed.extend(b"Macintosh\\ HD/");
-        assert_eq!(press(&mut state, KeyCode::Enter, now), [Effect::Write(typed)]);
+        assert_eq!(press(&mut state, KeyCode::Tab, now), [Effect::Write(typed.clone())]);
+        press(&mut state, KeyCode::Up, now);
+        assert_eq!(press(&mut state, KeyCode::Enter, now), [Effect::Write(typed)], "Enter types it too");
         assert_eq!(state.cd_picker.selected, None);
         assert_eq!(state.active_panel().dir(), Path::new(HOME), "the panel stays");
         assert_eq!(
