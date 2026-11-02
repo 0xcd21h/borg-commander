@@ -8,7 +8,7 @@ use borg_term::{Scroll, encode_key, encode_paste};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::shell::prepare_shell;
-use crate::{Action, AppState, Effect, View, actions, keymap, overlays};
+use crate::{Action, AppState, Effect, Operation, View, actions, keymap, overlays, state::REVEAL_DELAY};
 
 pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     state.idle_since = now;
@@ -20,7 +20,7 @@ pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
     }
     // A full-screen program gets the keys, unless a dialog shows over it.
     if state.shell.captured() && state.overlay.is_none() {
-        return forward(state, key);
+        return forward(state, key, now);
     }
     if let Some(scroll) = console_scroll(state, key) {
         return vec![Effect::ScrollConsole(scroll)];
@@ -120,6 +120,9 @@ fn panels_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect>
     let dismissed = state.notice.take().is_some();
     let pending = state.function_prefix(now);
     state.escaped = None;
+    if let Some(effects) = crate::folders::picker_key(state, key) {
+        return effects;
+    }
     if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && state.view == View::Panels {
         return escape(state, !dismissed && !pending, now);
     }
@@ -135,7 +138,7 @@ fn panels_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect>
         keymap::Context { view: state.view, line_empty: state.shell.line_empty(), at_prompt: !state.shell.busy() };
     effects.extend(match keymap::lookup(&key, context) {
         Some(action) => actions::perform(state, action, now),
-        None => forward(state, &key),
+        None => forward(state, &key, now),
     });
     effects
 }
@@ -227,7 +230,7 @@ pub(super) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     effects
 }
 
-pub(super) fn forward(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
+pub(super) fn forward(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if state.active_panel().remote_mount.is_some() && !state.console_owns_panel() {
         state.notice = Some(crate::remote::blocked_console_notice(state));
         return Vec::new();
@@ -254,15 +257,36 @@ pub(super) fn forward(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             return Vec::new();
         }
         KeyCode::Enter => {
+            let in_place = state.view == View::Panels && changes_folder_only(state);
             if !state.shell.busy() && !state.shell.captured() {
                 state.shell.return_view = state.view;
             }
             state.shell.submit();
-            state.view = View::Shell;
+            if in_place {
+                state.operation = Some(Operation {
+                    label: crate::CD,
+                    side: state.active,
+                    reveal_at: now + REVEAL_DELAY,
+                    revealed: false,
+                    focus: None,
+                });
+            } else {
+                state.view = View::Shell;
+            }
         }
         KeyCode::Char('c' | 'u') if key.modifiers == KeyModifiers::CONTROL => state.shell.clear_line(),
         KeyCode::Char(_) if !key.modifiers.contains(KeyModifiers::CONTROL) => state.shell.mark_typed(),
         _ => {}
     }
     effects
+}
+
+/// A `cd` typed at a shell that says when commands end runs while the panels stay, and the
+/// active panel follows the shell to its new folder. The shell shows only when it takes a while.
+fn changes_folder_only(state: &AppState) -> bool {
+    state.shell.integrated
+        && !state.shell.busy()
+        && !state.shell.captured()
+        && !state.shell.unechoed
+        && crate::plain_cd(&state.shell.observed.line)
 }

@@ -14,6 +14,7 @@ const DOT_CONFIG: &str = ".config";
 const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
 const THEMES_DIR: &str = "themes";
+const HOME_PREFIX: &str = "~/";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -71,6 +72,21 @@ pub struct Config {
     pub relay: Option<String>,
     pub search: Option<Search>,
     pub index: Option<Index>,
+    pub folders: Option<Folders>,
+}
+
+/// `[folders]`: the folder hotlist, and whether Borg remembers the folders the panels visit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Folders {
+    pub hotlist: Vec<String>,
+    pub history: bool,
+}
+
+impl Default for Folders {
+    fn default() -> Self {
+        Self { hotlist: Vec::new(), history: borg_core::Settings::default().folder_history }
+    }
 }
 
 /// `[index]`: folders indexed for instant search, and how old an index may grow.
@@ -207,18 +223,20 @@ impl Config {
 
     /// The indexed folders, with `~/` read as the home folder.
     pub fn index_roots(&self) -> Vec<PathBuf> {
-        let home = env::var_os(ENV_HOME).map(PathBuf::from);
-        let index = self.index.clone().unwrap_or_default();
-        index
-            .roots
-            .iter()
-            .filter_map(|root| match (root.strip_prefix("~/"), &home) {
-                (Some(rest), Some(home)) => Some(home.join(rest)),
-                (Some(_), None) => None,
-                (None, _) => Some(PathBuf::from(root)),
-            })
-            .filter(|root| root.is_absolute())
-            .collect()
+        expand_home(&self.index.clone().unwrap_or_default().roots)
+    }
+
+    /// The folder hotlist, with `~/` read as the home folder.
+    pub fn hotlist(&self) -> Vec<PathBuf> {
+        expand_home(&self.folders.clone().unwrap_or_default().hotlist)
+    }
+
+    pub fn folder_history(&self) -> bool {
+        self.folders.clone().unwrap_or_default().history
+    }
+
+    pub fn set_hotlist(&mut self, hotlist: &[PathBuf]) {
+        self.folders = Some(Folders { hotlist: abbreviate_home(hotlist), ..self.folders.clone().unwrap_or_default() });
     }
 
     pub fn index_refresh(&self) -> Duration {
@@ -226,15 +244,7 @@ impl Config {
     }
 
     pub fn set_index_roots(&mut self, roots: &[PathBuf]) {
-        let home = env::var_os(ENV_HOME).map(PathBuf::from);
-        let roots = roots
-            .iter()
-            .map(|root| match home.as_ref().and_then(|home| root.strip_prefix(home).ok()) {
-                Some(rest) if !rest.as_os_str().is_empty() => format!("~/{}", rest.display()),
-                _ => root.display().to_string(),
-            })
-            .collect();
-        self.index = Some(Index { roots, ..self.index.clone().unwrap_or_default() });
+        self.index = Some(Index { roots: abbreviate_home(roots), ..self.index.clone().unwrap_or_default() });
     }
 
     pub fn screensaver_after(&self) -> Option<Duration> {
@@ -287,8 +297,35 @@ impl Config {
             relay: self.relay.clone(),
             search: self.search.clone(),
             index: self.index.clone(),
+            folders: self.folders.clone(),
         }
     }
+}
+
+/// Absolute paths from the configuration, with `~/` read as the home folder.
+fn expand_home(paths: &[String]) -> Vec<PathBuf> {
+    let home = env::var_os(ENV_HOME).map(PathBuf::from);
+    paths
+        .iter()
+        .filter_map(|path| match (path.strip_prefix(HOME_PREFIX), &home) {
+            (Some(rest), Some(home)) => Some(home.join(rest)),
+            (Some(_), None) => None,
+            (None, _) => Some(PathBuf::from(path)),
+        })
+        .filter(|path| path.is_absolute())
+        .collect()
+}
+
+/// Paths as the configuration keeps them, with the home folder written as `~/`.
+fn abbreviate_home(paths: &[PathBuf]) -> Vec<String> {
+    let home = env::var_os(ENV_HOME).map(PathBuf::from);
+    paths
+        .iter()
+        .map(|path| match home.as_ref().and_then(|home| path.strip_prefix(home).ok()) {
+            Some(rest) if !rest.as_os_str().is_empty() => format!("{HOME_PREFIX}{}", rest.display()),
+            _ => path.display().to_string(),
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]

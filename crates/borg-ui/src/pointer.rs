@@ -73,6 +73,9 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if state.activity.side.is_some() || state.docker.is_open() {
         return monitor_mouse(state, &mouse, &layout);
     }
+    if let Some(handled) = cd_picker_mouse(state, &mouse, &layout) {
+        return handled;
+    }
     if let Some(handled) = chrome_mouse(state, &mouse, &layout) {
         return handled;
     }
@@ -94,6 +97,17 @@ fn agent_dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<M
     }
     let (rect, _) = borg_core::log_layout(screen);
     hinted(rect, borg_i18n::tr!(agent_log_hint), true, mouse.point)
+}
+
+/// The picker above the command line takes the mouse over it, and a click opens a folder.
+fn cd_picker_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Option<Option<Msg>> {
+    let choices = borg_core::cd_choices(state)?;
+    let area = crate::folders_view::picker_rect(state, layout, &choices);
+    if !area.contains(mouse.point) {
+        return None;
+    }
+    let row = crate::folders_view::picker_choice_at(area, mouse.point.y).filter(|&row| row < choices.len());
+    Some(row.filter(|_| mouse.click).map(|row| Msg::Pointer(Pointer::CdChoice(row))))
 }
 
 /// The mouse in a window over the panels that takes all of it while it is open.

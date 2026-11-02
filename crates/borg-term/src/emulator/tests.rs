@@ -53,6 +53,17 @@ fn reads_the_typed_command_without_autosuggestions() {
 }
 
 #[test]
+fn keeps_the_blanks_typed_before_the_cursor() {
+    let mut emulator = Emulator::new(SIZE, 0);
+    emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07cd ");
+    assert_eq!(emulator.command_line(), "cd ");
+    emulator.feed(b"\x1b[90m~/src\x1b[0m\x1b[5D");
+    assert_eq!(emulator.command_line(), "cd ");
+    emulator.feed(b"\x1b[K\x08\x08");
+    assert_eq!(emulator.command_line(), "cd", "blanks after the cursor were not typed");
+}
+
+#[test]
 fn forgets_prompt_when_command_runs() {
     let mut emulator = Emulator::new(SIZE, 0);
     emulator.feed(b"$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07");

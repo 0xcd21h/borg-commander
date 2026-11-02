@@ -3532,3 +3532,39 @@ fn time_machine_window_takes_clicks_on_its_tabs_rows_and_keys() -> Result<()> {
     assert!(effects.iter().any(|effect| matches!(effect, borg_core::Effect::Backup(BackupRequest::Cancel))));
     Ok(())
 }
+
+fn folders() -> borg_core::Folders {
+    borg_core::Folders::new(
+        vec!["/home/me/projects/site".into(), "/srv/www".into()],
+        vec!["/home/me/Downloads".into(), "/var/log".into(), "/home/me/projects/borg".into()],
+        Some(HOME.into()),
+    )
+}
+
+#[test]
+fn typing_cd_lists_the_hotlist_and_recent_folders_above_the_command_line() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.folders = folders();
+    stage.shell(b"cd ");
+    stage.send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Enter Open")?;
+    ensure_text(&buffer, "★ ~/projects/site")?;
+    check("cd_picker", &stage, buffer)
+}
+
+#[test]
+fn ctrl_backslash_opens_the_folder_hotlist_on_the_panels_folder() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.folders = folders();
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::CONTROL)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Ins Pin")?;
+    check("folder_hotlist", &stage, buffer)?;
+    for c in "pro".chars() {
+        stage.send(key(KeyCode::Char(c)));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Filter pro")?;
+    check("folder_hotlist_filtered", &stage, buffer)
+}

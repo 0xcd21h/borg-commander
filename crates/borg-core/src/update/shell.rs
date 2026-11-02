@@ -11,9 +11,13 @@ use crate::{AfterCommand, AppState, Effect, ShellView, View, actions, command::C
 /// What the shell shows now. Its output, unlike a fresh look at its screen, means it echoed what
 /// was typed.
 pub(super) fn observe(state: &mut AppState, view: ShellView, echoed: bool) -> Vec<Effect> {
+    let retyped = state.shell.observed.line != view.line;
     state.shell.observe(view);
     if echoed {
         state.shell.unechoed = false;
+    }
+    if retyped {
+        crate::folders::line_changed(state);
     }
     state.refit();
     Vec::new()

@@ -163,16 +163,20 @@ impl Emulator {
         if cursor == start && blank(&self.term.grid()[cursor]) { PromptState::Empty } else { PromptState::Typed }
     }
 
+    /// What is typed at the prompt, without autosuggestions. Blanks before the cursor were typed,
+    /// so they stay.
     pub fn command_line(&self) -> String {
         let Some(start) = self.input_start else { return String::new() };
         let grid = self.term.grid();
         let cursor = grid.cursor.point;
         let bottom = self.input_bottom();
         let mut text = String::new();
+        let mut typed = 0;
         let mut line = start.line;
         loop {
             let first = if line == start.line { start.column.0 } else { 0 };
             let mut row = String::new();
+            let mut before_cursor = 0;
             for column in first..grid.columns() {
                 let point = Point::new(line, Column(column));
                 let cell = &grid[point];
@@ -185,11 +189,21 @@ impl Emulator {
                         row.extend(zero);
                     }
                 }
+                if point < cursor {
+                    before_cursor = row.len();
+                }
             }
             let wrapped = grid[Point::new(line, Column(grid.columns() - 1))].flags.contains(Flags::WRAPLINE);
-            text.push_str(if wrapped { &row } else { row.trim_end() });
+            let mut kept = if wrapped { row.len() } else { row.trim_end().len() };
+            if line == cursor.line {
+                kept = kept.max(before_cursor);
+                typed = text.len() + before_cursor;
+            }
+            text.push_str(&row[..kept]);
             if line >= bottom {
-                return text.trim_end().to_owned();
+                let end = text.trim_end().len().max(typed);
+                text.truncate(end);
+                return text;
             }
             if !wrapped {
                 text.push('\n');

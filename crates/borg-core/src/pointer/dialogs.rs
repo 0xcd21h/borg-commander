@@ -136,6 +136,9 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
             (*selected, crate::menu::checkbox_items(state).len())
         }
         Overlay::Jobs(list) => (list.selected, state.jobs.len()),
+        Overlay::Folders(dialog) => {
+            (dialog.selected, crate::folders::dialog_choices(state, dialog.filter.text()).len())
+        }
         Overlay::Remotes(browser) if browser.show_clients => {
             (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
         }
@@ -168,6 +171,7 @@ fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) 
         Overlay::Settings { .. } => Overlay::Settings { selected: row },
         Overlay::Plugins { .. } => Overlay::Plugins { selected: row },
         Overlay::Jobs(_) => Overlay::Jobs(crate::JobList { selected: row }),
+        Overlay::Folders(dialog) => Overlay::Folders(crate::FoldersDialog { selected: row, ..dialog }),
         Overlay::Remotes(mut browser) => {
             if browser.show_clients {
                 browser.client_selected = row;

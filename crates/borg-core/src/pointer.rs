@@ -110,6 +110,8 @@ pub enum Pointer {
         side: Side,
         delta: isize,
     },
+    /// A folder in the picker above the command line, counted from the bottom.
+    CdChoice(usize),
 }
 
 pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
@@ -190,6 +192,7 @@ fn open_menu(state: &mut AppState, index: usize) -> Vec<Effect> {
 /// their trees and their results.
 fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     match pointer {
+        Pointer::CdChoice(row) => crate::folders::pick(state, row),
         Pointer::ActivityExpand { .. }
         | Pointer::ActivityHide
         | Pointer::ActivitySearchField(_)

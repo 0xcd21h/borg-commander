@@ -30,6 +30,7 @@ pub enum Action {
     ToggleTreeNode,
     Collect,
     OpenCollection,
+    Folders,
     ToggleIndex,
     FilterResults,
     GroupResults(crate::ResultGroup),
@@ -189,6 +190,9 @@ pub const KEYMAP: &[Binding] = &[
     // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.
     bind(KeyCode::Char('k'), ALT, Action::Collect, Scope::Panels),
     bind(KeyCode::Char('v'), ALT, Action::OpenCollection, Scope::Panels),
+    bind(KeyCode::Char('\\'), CTRL, Action::Folders, Scope::Panels),
+    // Without the keyboard protocol, terminals send Ctrl-\ as the byte crossterm reads as Ctrl-4.
+    bind(KeyCode::Char('4'), CTRL, Action::Folders, Scope::Panels),
     bind(KeyCode::Char('w'), ALT, Action::ToggleExpanded, Scope::Panels),
     labeled(bind(KeyCode::F(1), NONE, Action::About, Scope::Panels), tr!(@ help)),
     labeled(bind(KeyCode::F(2), NONE, Action::OpenFileMenu, Scope::Panels), tr!(@ file)),

@@ -117,6 +117,8 @@ pub struct Confirm {
 pub enum Overlay {
     Game2048,
     Collections(crate::CollectionPicker),
+    /// The hotlist and the recent folders.
+    Folders(crate::FoldersDialog),
     Search(crate::SearchForm),
     /// What searches leave out, opened from the search dialog.
     Exclusions(crate::ExclusionEditor),

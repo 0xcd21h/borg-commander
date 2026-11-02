@@ -40,6 +40,11 @@ impl App {
             Effect::CancelSearch(side) => self.search.cancel(side),
             Effect::SetIndexRoots(roots) => self.set_index_roots(roots),
             Effect::SaveSearchHistory => self.save_search_history(),
+            Effect::SaveFolders => self.save_recent_folders(),
+            Effect::SetHotlist(hotlist) => {
+                self.config.set_hotlist(&hotlist);
+                self.save_config();
+            }
             Effect::SaveCollections => self.save_collections(),
             Effect::List { side, generation, dir } => self.list(side, generation, dir),
             Effect::GitScan { side, generation, dir } => self.plugins.scan(side, generation, dir),
@@ -140,6 +145,14 @@ impl App {
             && let Err(error) = dir.save_search_history(&self.state.search_history)
         {
             self.state.notice = Some(tr!(search_history_save_error, error = error));
+        }
+    }
+
+    fn save_recent_folders(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_recent_folders(self.state.folders.recent())
+        {
+            self.state.notice = Some(tr!(recent_folders_save_error, error = error));
         }
     }
 

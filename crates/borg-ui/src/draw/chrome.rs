@@ -57,6 +57,7 @@ fn chrome_with(scene: &Scene<'_>, theme: &Theme, area: Rect) -> Chrome {
     drawing.status();
     drawing.editor_dialog();
     drawing.prompt();
+    crate::folders_view::draw_picker(state, &drawing.layout, theme, &mut drawing.buf);
     drawing.keybar();
     let cursor = draw_overlay(scene, &drawing.look, &drawing.layout, &mut drawing.buf);
     Chrome { cursor: cursor.or(drawing.cursor), buf: drawing.buf, placements: drawing.placements }

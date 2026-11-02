@@ -23,6 +23,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
     match state.overlay.clone() {
         Some(Overlay::Game2048) => crate::game2048::on_key(state, key),
         Some(Overlay::Collections(picker)) => crate::discovery::collections_key(state, picker, key),
+        Some(Overlay::Folders(dialog)) => crate::folders::dialog_key(state, dialog, key),
         Some(Overlay::Search(form)) => crate::discovery::search_key(state, form, key),
         Some(Overlay::Exclusions(editor)) => crate::exclusions::on_key(state, editor, key),
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
@@ -60,6 +61,7 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
             _ => return Vec::new(),
         },
         Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,
+        Some(Overlay::Folders(dialog)) => &mut dialog.filter,
         Some(Overlay::Find(find)) => &mut find.input,
         Some(Overlay::Connect(connect)) => {
             match crate::agent::connect_field(connect, state.agent.connect.ssh.is_some()) {

@@ -68,6 +68,7 @@ impl App {
                     foreground,
                     raw_input,
                     mode: emulator.mode(),
+                    line: emulator.command_line(),
                 };
                 self.dispatch(Msg::RemoteConsoleOutput { echoed, machine: key.0, session: key.1, view, signals })
             }
@@ -199,6 +200,7 @@ impl App {
             foreground,
             raw_input,
             mode: emulator.mode(),
+            line: emulator.command_line(),
         };
         self.dispatch(message(view))
     }

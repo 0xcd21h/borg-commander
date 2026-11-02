@@ -21,6 +21,9 @@ const COLLECTION_FORMAT: u8 = 1;
 const SEARCH_HISTORY_FILE: &str = "search-history.json";
 const SEARCH_HISTORY_FORMAT: u8 = 1;
 const MAX_SEARCH_HISTORY_BYTES: u64 = 1024 * 1024;
+const RECENT_FOLDERS_FILE: &str = "recent-folders.json";
+const RECENT_FOLDERS_FORMAT: u8 = 1;
+const MAX_RECENT_FOLDERS_BYTES: u64 = 1024 * 1024;
 const GAME2048_FILE: &str = "2048.json";
 const MAX_GAME_BYTES: u64 = 4096;
 const SESSION_FILE: &str = "session.toml";
@@ -259,6 +262,39 @@ impl StateDir {
         ))
     }
 
+    pub fn load_recent_folders(&self) -> Result<Vec<PathBuf>> {
+        use std::{io::Read, os::unix::ffi::OsStringExt};
+        let file = match fs::File::open(self.root.join(RECENT_FOLDERS_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_RECENT_FOLDERS_BYTES + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= MAX_RECENT_FOLDERS_BYTES, "recent folders exceed size limit");
+        let saved: SavedRecentFolders = serde_json::from_slice(&bytes)?;
+        anyhow::ensure!(saved.version == RECENT_FOLDERS_FORMAT, "unsupported recent folders format");
+        Ok(saved.folders.into_iter().map(|dir| PathBuf::from(std::ffi::OsString::from_vec(dir))).collect())
+    }
+
+    /// Saves the recent folders only their owner can read; none removes the file.
+    pub fn save_recent_folders(&self, folders: &[PathBuf]) -> Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+        let path = self.root.join(RECENT_FOLDERS_FILE);
+        if folders.is_empty() {
+            return match fs::remove_file(&path) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
+                _ => Ok(()),
+            };
+        }
+        let saved = SavedRecentFolders {
+            version: RECENT_FOLDERS_FORMAT,
+            folders: folders.iter().map(|dir| dir.as_os_str().as_bytes().to_vec()).collect(),
+        };
+        self.ensure()?;
+        write_privately(&path, &serde_json::to_vec(&saved)?)
+    }
+
     /// Saves the history only its owner can read; an empty one removes the file.
     pub fn save_search_history(&self, history: &borg_core::SearchHistory) -> Result<()> {
         use std::os::unix::ffi::OsStrExt;
@@ -391,6 +427,12 @@ struct SavedSearchHistory {
 struct SavedSearch {
     query: String,
     root: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedRecentFolders {
+    version: u8,
+    folders: Vec<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize)]

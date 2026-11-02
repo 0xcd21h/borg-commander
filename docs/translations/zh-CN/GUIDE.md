@@ -117,6 +117,7 @@ Git 和压缩包操作目前只能在真实文件夹面板中使用。要对集�
 | Ctrl-O | 显示 Shell / 返回面板 |
 | Alt-I | 在后台计算文件夹大小 / 停止计算 |
 | Ctrl-S | 在文件夹中快速查找 |
+| Ctrl-\ | 常用文件夹：跳转到已固定或最近的文件夹 |
 | Ctrl-Q | 快速预览：在另一个面板中预览光标所在的文件（文本、图片或文件夹） |
 | Ctrl-L | 信息：在另一个面板中显示大小、权限、所有者、日期和可用空间 |
 | Insert, Ctrl-T, Shift-Up/Down | 标记文件 |
@@ -163,6 +164,16 @@ Git 和压缩包操作目前只能在真实文件夹面板中使用。要对集�
 Ctrl-O 在面板和控制台之间切换。在你输入命令或打开控制台之前，Shell 会切换到当前面板所在的文件夹。在 zsh 中，这一过程是静默的，提示符会重新绘制；在 bash 和 fish 中，则会在控制台中看到一条简短的 `cd` 命令。如果控制台是你自己打开的，执行命令或按 Ctrl-C 后它会保持打开。“执行命令后返回面板”仅适用于从面板运行的命令。在 Shell 提示符下，Option-Left 和 Option-Right（Linux 上为 Alt）可按单词移动光标。
 
 在控制台中，鼠标滚轮可向回滚动查看输出，而不会影响正在输入的命令。Shift-PgUp 和 Shift-PgDn 按页滚动，Shift-Home 跳到最早的输出，Shift-End 回到实时提示符，直接输入也会回到实时提示符。要复制屏幕上的输出，请按终端支持的方式选中（通常是按住 Shift 拖动），然后使用终端的常规复制快捷键。
+
+### 跳转到文件夹
+
+在命令行中输入 `cd `，Borg 会在其正上方列出可以跳转的文件夹：先是标有 ★ 的常用文件夹，然后是面板打开过的文件夹，最新的排在前面。每多输入一个词，列表就会进一步缩小，这些词可以匹配路径中的任意部分，因此 `cd pro bo` 能找到 `~/Projects/borg`。名称与最后一个词相符的文件夹会排到最前面。按 Up 进入列表，按 Down 退出列表，按 Enter 在当前面板中打开所选文件夹，按 Esc 则在这次 `cd` 中隐藏列表。单击某个文件夹也可以打开它。如果要运行你自己输入的 `cd`，继续输入并按 Enter 即可。
+
+只切换文件夹的命令行运行时，面板会一直留在屏幕上，当前面板会跟随 Shell 进入新的文件夹。如果文件夹不存在，会有通知提示，按 Ctrl-O 可查看 Shell 的消息。如果文件夹需要较长时间才能打开（例如位于较慢的网络共享上），控制台会显示出来，直到命令结束。比单个 `cd` 更复杂的命令（例如 `cd src && make`）会照常显示控制台。
+
+按 Ctrl-\ 或选择 **命令 → 常用文件夹** 可打开常用文件夹列表，并选中当前面板所在的文件夹。输入文字可缩小列表，用 Up 和 Down 选择，按 Enter 打开文件夹。Insert 会把所选文件夹固定到常用文件夹中，因此先按 Ctrl-\ 再按 Insert 即可固定你所在的文件夹。F8 或 Delete 可将文件夹从常用文件夹或最近的文件夹中移除。Esc 会清除已输入的内容，再按一次 Esc 关闭窗口。常用文件夹最多可保存 256 个。
+
+常用文件夹保存在 `config.toml` 的 `[folders]` 中。Borg 会在其状态文件夹中记住面板最近打开过的 64 个文件夹，保存它们的文件只有你能读取。设置 `history = false`（位于 `[folders]` 下）即可停止保存。
 
 ## Git 插件
 
@@ -394,6 +405,10 @@ history = true              # remember searches for Ctrl-P and Ctrl-N
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
 refresh-minutes = 15        # rebuild an index once it is this old
+
+[folders]
+hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
+history = true              # remember the folders the panels open
 ```
 
 在支持真彩色的本地终端中，Borg 启动时会播放一段简短的 logo 故障风格动画；按任意键或单击即可跳过。通过 SSH 连接时，以及在不支持真彩色的终端中，会直接打开面板。

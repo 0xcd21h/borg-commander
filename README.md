@@ -107,6 +107,9 @@ Ctrl-O switches between the panels and the console.
   commits, staging, and unstaging in the Git menu. The bundled plugin can be switched off.
 - **Use the mouse or stay on the keys.** Click menus, select files, and scroll previews.
   Familiar function-key actions also work with Esc followed by a digit.
+- **Jump to any folder.** Type `cd ` and pick from your hotlist and recent folders right above
+  the prompt, or press Ctrl-\ for the whole list. A typed `cd` moves the panel without flashing
+  the console.
 
 ## Find what takes space
 

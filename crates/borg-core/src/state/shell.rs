@@ -22,13 +22,15 @@ pub enum Console {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellView {
     pub prompt: PromptState,
     pub command_rows: u16,
     pub foreground: Foreground,
     pub mode: TermMode,
     pub raw_input: bool,
+    /// What is typed at the prompt.
+    pub line: String,
 }
 
 impl Default for ShellView {
@@ -39,6 +41,7 @@ impl Default for ShellView {
             foreground: Foreground::Unknown,
             mode: TermMode::empty(),
             raw_input: false,
+            line: String::new(),
         }
     }
 }

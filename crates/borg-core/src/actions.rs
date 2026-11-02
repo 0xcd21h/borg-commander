@@ -31,6 +31,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             | Action::FolderTree
             | Action::CalculateSizes
             | Action::OpenCollection
+            | Action::Folders
             | Action::BackResults
     ) {
         state.activity.side = None;
@@ -144,6 +145,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ToggleScreensaver => settings::toggle_screensaver(state, now),
         Action::Find if state.active_panel().is_results() => crate::results::filter_prompt(state),
         Action::Find => crate::find::open(state),
+        Action::Folders => crate::folders::open_dialog(state),
         Action::ToggleReturnToPanels => settings::toggle_after_command(state),
         Action::SetListing(target, mode) => panels::set_listing(state, target, mode),
         Action::SetSort(target, key) => panels::set_sort(state, target, key),

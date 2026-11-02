@@ -55,6 +55,7 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
             Some(click.then(|| hinted(rect, tr!(about_keys), true, point)).flatten())
         }
         Overlay::Game2048 => Some(game_mouse(mouse, screen)),
+        Overlay::Folders(dialog) => Some(folders_mouse(state, dialog, mouse, screen)),
         Overlay::Remotes(browser) => Some(remotes_mouse(browser, mouse, screen)),
         Overlay::Connect(connect) => Some(connect_mouse(state, connect, mouse, screen)),
         Overlay::TimeMachine => Some(time_machine_mouse(state, mouse, screen)),
@@ -98,6 +99,7 @@ fn scrolls(overlay: &Overlay) -> bool {
         | Overlay::Settings { .. }
         | Overlay::Plugins { .. }
         | Overlay::Jobs(_)
+        | Overlay::Folders(_)
         | Overlay::Remotes(_)
         | Overlay::TimeMachine => true,
         Overlay::Exclusions(editor) => editor.editing.is_none(),
@@ -182,4 +184,24 @@ fn time_machine_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<M
         Some(BackupSpot::Item(index)) => Some(pick_row(index, window.list().cursor)),
         None => hinted(rect, crate::backup_view::keys(window, rect), true, mouse.point),
     }
+}
+
+/// The folders dialog: a click chooses a folder and a second one opens it, the keys in its
+/// border take clicks, and a click beside it closes it.
+fn folders_mouse(state: &AppState, dialog: &borg_core::FoldersDialog, mouse: &Mouse, screen: Rect) -> Option<Msg> {
+    if !mouse.click {
+        return None;
+    }
+    let point = mouse.point;
+    let list = crate::folders_view::dialog_list(state, screen);
+    if list.contains(point) {
+        let index = crate::folders_view::dialog_start(state, dialog, screen) + usize::from(point.y - list.y);
+        let count = borg_core::folder_choices(state, dialog.filter.text()).len();
+        return (index < count).then(|| pick_row(index, dialog.selected));
+    }
+    let rect = crate::folders_view::dialog_area(state, screen);
+    if !rect.contains(point) {
+        return Some(Msg::Pointer(Pointer::DismissDialog));
+    }
+    crate::hints::bottom(rect, tr!(folders_keys), false, point).map(Msg::Key)
 }
