@@ -3519,6 +3519,7 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         administrator: false,
         processes: false,
         tls_keys: borg_core::TlsKeys::Off,
+        keep_free_mib: None,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
     let ask = borg_core::capture_ask(scope, None, &request, String::new());

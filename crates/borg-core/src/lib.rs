@@ -146,10 +146,10 @@ pub use network::{
     TlsKeys, shell_variables,
 };
 pub use network::{
-    CAPTURE_DISK_RESERVE, CAPTURE_SIZE_LIMIT, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureLimit,
-    CaptureProgress, CaptureRequest, CaptureScope, DURATIONS, Ends, HEADER_BYTES, HostRow, KEEP_CHOICES, Keep,
-    LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView, capture_ask,
-    capture_extension, capture_interfaces, capture_no_room, is_capture,
+    CAPTURE_SIZE_LIMIT, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureLimit, CaptureProgress,
+    CaptureRequest, CaptureScope, DURATIONS, Ends, HEADER_BYTES, HostRow, KEEP_CHOICES, Keep, LONGEST_CAPTURE,
+    Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView, capture_ask, capture_extension,
+    capture_interfaces, capture_no_room, is_capture,
 };
 pub use network::{
     CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,

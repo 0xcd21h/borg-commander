@@ -630,19 +630,44 @@ fn a_capture_a_limit_stopped_says_so_once_it_is_saved() {
     update(&mut state, Msg::CaptureDone { id, result: Ok(("/work/capture.pcap".into(), Capture::default())) }, now);
     assert_eq!(state.notice.as_deref(), Some("The capture stopped at 256 MiB, the most Borg saves."));
 
-    let (mut state, now) = opened();
-    let id = until_stopped(&mut state, now);
-    update(&mut state, Msg::CaptureLimited { id, limit: CaptureLimit::Disk }, now);
-    update(&mut state, Msg::CaptureDone { id, result: Ok(("/work/capture.pcap".into(), Capture::default())) }, now);
-    let folder = state.panel(state.network.side.unwrap()).dir().display().to_string();
-    let stopped = format!("The capture stopped because the disk holding {folder} has less than 512 MiB free.");
-    assert_eq!(state.notice.as_deref(), Some(stopped.as_str()));
+    for (keep_free_mib, stopped, refused) in [
+        (None, "is full.", "is full, so the capture did not start."),
+        (Some(512), "has less than 512 MiB free.", "has less than 512 MiB free, so the capture did not start."),
+    ] {
+        let (mut state, now) = opened();
+        state.network.keep_free_mib = keep_free_mib;
+        let folder = state.panel(state.network.side.unwrap()).dir().display().to_string();
+        let id = until_stopped(&mut state, now);
+        update(&mut state, Msg::CaptureLimited { id, limit: CaptureLimit::Disk }, now);
+        let saved = Ok(("/work/capture.pcap".into(), Capture::default()));
+        update(&mut state, Msg::CaptureDone { id, result: saved }, now);
+        let notice = format!("The capture stopped because the disk holding {folder} {stopped}");
+        assert_eq!(state.notice.as_deref(), Some(notice.as_str()));
 
+        let (mut state, now) = opened();
+        state.network.keep_free_mib = keep_free_mib;
+        let id = until_stopped(&mut state, now);
+        update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::NoRoom) }, now);
+        let notice = format!("The disk holding {folder} {refused}");
+        assert_eq!(state.notice.as_deref(), Some(notice.as_str()));
+    }
+}
+
+#[test]
+fn a_capture_keeps_free_only_the_space_the_settings_ask_for() {
     let (mut state, now) = opened();
     let id = until_stopped(&mut state, now);
-    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::NoRoom) }, now);
-    let refused = format!("The disk holding {folder} has less than 512 MiB free, so the capture did not start.");
-    assert_eq!(state.notice.as_deref(), Some(refused.as_str()));
+    assert_eq!(state.network.recording.as_ref().unwrap().request.keep_free(), 0, "until the disk is full");
+    assert_eq!(CaptureLimit::Disk.label(None), "a full disk");
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Cancelled) }, now);
+
+    state.network.keep_free_mib = Some(512);
+    let id = until_stopped(&mut state, now);
+    let request = &state.network.recording.as_ref().unwrap().request;
+    assert_eq!((request.keep_free_mib, request.keep_free()), (Some(512), 512 * 1024 * 1024));
+    assert_eq!(CaptureLimit::Disk.label(request.keep_free_mib), "512 MiB free");
+    assert_eq!(CaptureLimit::Size.label(request.keep_free_mib), "256 MiB");
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Cancelled) }, now);
 }
 
 #[test]
@@ -1037,6 +1062,7 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
         administrator: false,
         processes: false,
         tls_keys: TlsKeys::Off,
+        keep_free_mib: None,
     };
     let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, String::new());
     assert_eq!((ask.kind, ask.summary.as_str()), (AskKind::Capture, "capture on en0, 10 s"));

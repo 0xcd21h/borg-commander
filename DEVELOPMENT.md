@@ -219,10 +219,12 @@ connection, the output goes through `ConnectionBudget` first: it cuts the stream
 records or pcapng blocks and, once a conversation carried `CONNECTION_BUDGET` bytes of payload,
 rewrites its later packets' captured length to end where their payload starts, with their wire
 length and pcapng options kept. `PcapCounter` counts the whole packets written. Every second the
-footer gets them with the bytes written and the room left above `CAPTURE_DISK_RESERVE`, from
-`statvfs`, and `Recording::limit_ahead` turns the rate so far into the time to the first limit.
-The app sends SIGINT at the deadline, on R or at a limit, which it reports with
-`Msg::CaptureLimited`, and reads the file back on a blocking worker.
+footer gets them with the bytes written and the room left on the disk from `statvfs`, above
+`CaptureRequest::keep_free` (zero unless `keep-free-mib` sets it), and `Recording::limit_ahead`
+turns the rate so far into the time to the first limit. A write that finds the disk full cuts the
+file back to its last whole write and ends the capture like a limit. The app sends SIGINT at the
+deadline, on R or at a limit, which it reports with `Msg::CaptureLimited`, and reads the file back
+on a blocking worker.
 
 TLS: `capture::keylog` reads `SSLKEYLOGFILE` text into secrets by client random, and
 `capture::tls` opens a conversation's stream with them. It splits the stream back into each

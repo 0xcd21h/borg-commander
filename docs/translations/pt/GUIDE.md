@@ -1021,6 +1021,7 @@ history = true              # remember the folders the panels open
 
 [network]
 proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
+keep-free-mib = 1024        # stop captures before the disk has less than this free
 ```
 
 Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com
@@ -1452,12 +1453,14 @@ Linux se instala com o pacote `tcpdump`. A caixa de diálogo **Capturar tráfego
 ↑↓ escolhem um campo, ←→ ou Space mudam-no, Enter inicia a captura e Esc cancela. Com o rato, clique
 num campo para o escolher e clique outra vez para o mudar. Enquanto a captura decorre, o rodapé
 conta os pacotes, os bytes e os segundos que faltam, e **R** para-a mais cedo. Uma captura também
-para aos 200 000 pacotes ou 256 MiB, e antes de o disco encher: não começa quando o disco da pasta
-tem menos de 512 MiB livres e para quando o espaço livre desce abaixo disso. Depois dos primeiros 3
-segundos, o rodapé diz quanto falta para o primeiro destes limites parar a captura ao ritmo atual,
-como **cerca de 30 s até 256 MiB**, quando isso acontece antes do fim da própria captura e dentro de
-uma hora. Quando um limite parou a captura, um aviso diz qual foi. Se fechar o ecrã antes, a captura
-para e um aviso diz onde o Borg a guardou.
+para aos 200 000 pacotes ou 256 MiB, e quando o disco fica cheio, com o que já guardou. Para deixar
+espaço para o resto do sistema, defina `keep-free-mib` na secção `[network]` do ficheiro de
+configuração: a captura deixa então de começar quando o disco da pasta tem menos desses MiB livres e
+para quando o espaço livre desce abaixo disso. Depois dos primeiros 3 segundos, o rodapé diz quanto
+falta para o primeiro destes limites parar a captura ao ritmo atual, como **cerca de 30 s até 256
+MiB** ou **cerca de 2 min até o disco ficar cheio**, quando isso acontece antes do fim da própria
+captura e dentro de uma hora. Quando um limite parou a captura, um aviso diz qual foi. Se fechar o
+ecrã antes, a captura para e um aviso diz onde o Borg a guardou.
 
 O Borg guarda cada captura como `capture-<date>-<time>.pcap` na pasta do painel que o ecrã de rede
 cobre, legível só por si, para que o Wireshark e outras ferramentas a possam abrir mais tarde. Uma

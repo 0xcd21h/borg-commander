@@ -1025,6 +1025,7 @@ history = true              # remember the folders the panels open
 
 [network]
 proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
+keep-free-mib = 1024        # stop captures before the disk has less than this free
 ```
 
 En un terminal local con color verdadero, Borg arranca con una breve animación de su logotipo con
@@ -1460,13 +1461,15 @@ y Linux instala con el paquete `tcpdump`. El diálogo **Capturar tráfico** part
 ↑↓ eligen un campo, ←→ o Space lo cambian, Enter inicia la captura y Esc la cancela. Con el ratón,
 haz clic en un campo para elegirlo y otra vez para cambiarlo. Mientras la captura se ejecuta, el pie
 cuenta sus paquetes, sus bytes y los segundos que quedan, y **R** la detiene antes de tiempo. Una
-captura también se detiene a los 200.000 paquetes o 256 MiB, y antes de que se llene el disco: no
-empieza cuando al disco de la carpeta le quedan menos de 512 MiB libres, y se detiene cuando el
-espacio libre baja de ahí. Pasados sus primeros 3 segundos, el pie dice cuánto falta para que el
-primero de estos límites detenga la captura al ritmo actual, como **unos 30 s hasta 256 MiB**,
-cuando eso llega antes del final de la propia captura y dentro de la hora. Cuando un límite detuvo
-la captura, un aviso dice cuál. Si cierras la pantalla antes, la captura se detiene y un aviso dice
-dónde la guardó Borg.
+captura también se detiene a los 200.000 paquetes o 256 MiB, y cuando se llena el disco, con lo que
+ya guardó. Para dejar espacio al resto del sistema, define `keep-free-mib` en la sección `[network]`
+del archivo de configuración: entonces la captura no empieza cuando al disco de la carpeta le quedan
+menos de esos MiB libres, y se detiene cuando el espacio libre baja de ahí. Pasados sus primeros 3
+segundos, el pie dice cuánto falta para que el primero de estos límites detenga la captura al ritmo
+actual, como **unos 30 s hasta 256 MiB** o **unos 2 min hasta llenar el disco**, cuando eso llega
+antes del final de la propia captura y dentro de la hora. Cuando un límite detuvo la captura, un
+aviso dice cuál. Si cierras la pantalla antes, la captura se detiene y un aviso dice dónde la guardó
+Borg.
 
 Borg guarda cada captura como `capture-<date>-<time>.pcap` en la carpeta del panel que cubre la
 pantalla de red, legible solo por ti, para que Wireshark y otras herramientas puedan abrirla

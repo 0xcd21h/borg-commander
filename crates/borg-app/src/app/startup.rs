@@ -40,6 +40,7 @@ impl App {
             shell_variables().filter_map(|name| std::env::var_os(name).map(|value| (name, value))).collect(),
         );
         state.network.authority = launch.config.proxy_authority();
+        state.network.keep_free_mib = launch.config.capture_keep_free_mib();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone(), launch.runtime_dir.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());

@@ -940,6 +940,7 @@ history = true              # remember the folders the panels open
 
 [network]
 proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
+keep-free-mib = 1024        # stop captures before the disk has less than this free
 ```
 
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any
@@ -1339,14 +1340,16 @@ Linux installs from the `tcpdump` package. The **Capture traffic** dialog starts
   sent or received it.
 
 ↑↓ pick a field, ←→ or Space change it, Enter starts the capture and Esc cancels. With the mouse,
-click a field to pick it and click again to change it. While the capture runs, the footer counts
-its packets and bytes and the seconds left, and **R** stops it early. A capture also stops at
-200,000 packets or 256 MiB, and before the disk fills up: it does not start when the disk that
-holds the folder has less than 512 MiB free, and it stops once the free space drops below that.
-After its first 3 seconds, the footer says how soon the first of these limits stops the capture
-at its rate so far, such as **about 30 s to 256 MiB**, when that comes before the capture's own
-end and within the hour. When a limit stopped the capture, a notice says which one. If you close
-the screen first, the capture stops, and a notice says where Borg saved it.
+click a field to pick it and click again to change it. While the capture runs, the footer counts its
+packets and bytes and the seconds left, and **R** stops it early. A capture also stops at 200,000
+packets or 256 MiB, and when the disk fills up, keeping what it saved so far. To leave room for the
+rest of the system, set `keep-free-mib` in the `[network]` section of the config file: a capture
+then does not start when the disk that holds the folder has less than that many MiB free, and it
+stops once the free space drops below that. After its first 3 seconds, the footer says how soon the
+first of these limits stops the capture at its rate so far, such as **about 30 s to 256 MiB** or
+**about 2 min to a full disk**, when that comes before the capture's own end and within the hour.
+When a limit stopped the capture, a notice says which one. If you close the screen first, the
+capture stops, and a notice says where Borg saved it.
 
 Borg saves each capture as `capture-<date>-<time>.pcap` in the folder of the panel the network
 screen covers, readable only by you, so Wireshark and other tools can open it later. A capture

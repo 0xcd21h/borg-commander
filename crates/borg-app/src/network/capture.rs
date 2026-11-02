@@ -8,9 +8,9 @@ use super::{
     proxy::{Event, Proxy, Report},
 };
 use borg_core::{
-    CAPTURE_DISK_RESERVE, CAPTURE_SIZE_LIMIT, CONNECTION_BUDGET, Capture, CaptureAccess, CaptureFailure, CaptureLimit,
-    CaptureProgress, CaptureRequest, ConnectionBudget, HEADER_BYTES, Keep, Msg, PACKET_LIMIT, PcapCounter, Proxied,
-    ProxyEndpoint, SeenSockets, TlsKeys, Tool, Transport, capture_extension, capture_no_room, with_secrets,
+    CAPTURE_SIZE_LIMIT, CONNECTION_BUDGET, Capture, CaptureAccess, CaptureFailure, CaptureLimit, CaptureProgress,
+    CaptureRequest, ConnectionBudget, HEADER_BYTES, Keep, Msg, PACKET_LIMIT, PcapCounter, Proxied, ProxyEndpoint,
+    SeenSockets, TlsKeys, Tool, Transport, capture_extension, capture_no_room, with_secrets,
 };
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
@@ -182,7 +182,7 @@ pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBu
 fn refused(failure: CaptureFailure, request: &CaptureRequest) -> String {
     match failure {
         CaptureFailure::Failed(error) => error,
-        CaptureFailure::NoRoom => capture_no_room(&request.folder),
+        CaptureFailure::NoRoom => capture_no_room(request),
         CaptureFailure::Missing(_) => tr!(capture_missing).to_owned(),
         CaptureFailure::Denied | CaptureFailure::Cancelled => tr!(capture_denied, interface = request.interface),
     }
@@ -393,7 +393,7 @@ async fn record(
     proxying: Option<Proxying>,
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), CaptureFailure> {
-    if room(&request.folder) == Some(0) {
+    if room(&request.folder, request.keep_free()) == Some(0) {
         return Err(CaptureFailure::NoRoom);
     }
     let (mut packets, mut tap) =
@@ -451,7 +451,9 @@ async fn record(
                         tap.stop();
                         break;
                     }
-                    if saving.written >= CAPTURE_SIZE_LIMIT {
+                    if saving.full {
+                        stop_at(CaptureLimit::Disk, &mut stopping, &mut tap);
+                    } else if saving.written >= CAPTURE_SIZE_LIMIT {
                         stop_at(CaptureLimit::Size, &mut stopping, &mut tap);
                     }
                 }
@@ -461,7 +463,7 @@ async fn record(
                 }
             },
             _ = ticks.tick() => {
-                let room = room(&request.folder);
+                let room = room(&request.folder, request.keep_free());
                 progress(CaptureProgress { bytes: saving.written, packets: saving.counter.packets, room });
                 if room == Some(0) {
                     stop_at(CaptureLimit::Disk, &mut stopping, &mut tap);
@@ -485,7 +487,7 @@ async fn record(
     {
         failure = Some(tr!(capture_cannot_save, error = error));
     }
-    let Saving { file, written, .. } = saving;
+    let Saving { file, written, full, .. } = saving;
     drop(packets);
     drop(proxy);
     let said = tap.finish().await;
@@ -497,7 +499,7 @@ async fn record(
     }
     if written == 0 {
         discard(&path, key_log.as_deref());
-        return Err(explain(&said?));
+        return Err(if full { CaptureFailure::NoRoom } else { explain(&said?) });
     }
     saved.map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_save, error = error)))?;
     let read = path.clone();
@@ -530,12 +532,14 @@ struct Saving {
     budget: Option<ConnectionBudget>,
     counter: PcapCounter,
     written: u64,
+    /// The disk filled up: the file keeps what was written whole before, and takes no more.
+    full: bool,
 }
 
 impl Saving {
     fn new(file: File, keep: Keep) -> Self {
         let budget = (keep == Keep::ConnectionStart).then(|| ConnectionBudget::new(CONNECTION_BUDGET));
-        Self { file, budget, counter: PcapCounter::default(), written: 0 }
+        Self { file, budget, counter: PcapCounter::default(), written: 0, full: false }
     }
 
     fn write(&mut self, read: &[u8]) -> io::Result<()> {
@@ -554,18 +558,30 @@ impl Saving {
     }
 
     fn keep(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.file.write_all(bytes)?;
-        self.counter.feed(bytes);
-        self.written += bytes.len() as u64;
-        Ok(())
+        if self.full {
+            return Ok(());
+        }
+        match self.file.write_all(bytes) {
+            Ok(()) => {
+                self.counter.feed(bytes);
+                self.written += bytes.len() as u64;
+                Ok(())
+            }
+            Err(error) if error.kind() == ErrorKind::StorageFull => {
+                self.full = true;
+                let _ = self.file.set_len(self.written);
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
-/// The bytes a capture in `folder` can still write before its disk keeps only
-/// `CAPTURE_DISK_RESERVE` free, when the system says how much is free.
-fn room(folder: &Path) -> Option<u64> {
+/// The bytes a capture in `folder` can still write before its disk has only `keep_free` bytes
+/// free, when the system says how much is free.
+fn room(folder: &Path, keep_free: u64) -> Option<u64> {
     let stats = rustix::fs::statvfs(folder).ok()?;
-    Some(stats.f_bavail.saturating_mul(stats.f_frsize).saturating_sub(CAPTURE_DISK_RESERVE))
+    Some(stats.f_bavail.saturating_mul(stats.f_frsize).saturating_sub(keep_free))
 }
 
 async fn sleep_until(deadline: Option<Instant>) {

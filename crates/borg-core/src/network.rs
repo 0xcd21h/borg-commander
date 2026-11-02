@@ -22,10 +22,10 @@ mod traffic;
 mod viewer;
 
 pub use capture::{
-    Authority, CAPTURE_DISK_RESERVE, CAPTURE_SIZE_LIMIT, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField,
-    CaptureLimit, CaptureProgress, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES, KEEP_CHOICES, Keep,
-    LONGEST_CAPTURE, Proxied, ProxyEndpoint, Recording, SHORTEST_CAPTURE, SeenSockets, TlsKeys, capture_ask,
-    capture_extension, capture_interfaces, capture_no_room,
+    Authority, CAPTURE_SIZE_LIMIT, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureLimit,
+    CaptureProgress, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES, KEEP_CHOICES, Keep, LONGEST_CAPTURE,
+    Proxied, ProxyEndpoint, Recording, SHORTEST_CAPTURE, SeenSockets, TlsKeys, capture_ask, capture_extension,
+    capture_interfaces, capture_no_room,
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
@@ -180,6 +180,8 @@ pub struct Network {
     pub shell_variables: ShellVariables,
     /// Who signs the certificates of Borg's proxy, from the `[network]` settings.
     pub authority: Authority,
+    /// The MiB captures leave free on their folder's disk, from the `[network]` settings.
+    pub keep_free_mib: Option<u64>,
     /// A capture's traffic, shown in place of the live pages.
     pub viewer: Option<Box<TrafficView>>,
     next_id: u64,
@@ -220,6 +222,7 @@ impl Default for Network {
             access: CaptureAccess::default(),
             shell_variables: ShellVariables::default(),
             authority: Authority::default(),
+            keep_free_mib: None,
             viewer: None,
             next_id: 0,
             next: None,

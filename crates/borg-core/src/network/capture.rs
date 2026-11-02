@@ -29,8 +29,6 @@ pub const DURATIONS: [Option<u64>; 5] = [Some(SHORTEST_CAPTURE), Some(10), Some(
 pub const HEADER_BYTES: u32 = 128;
 /// Captures stop at this size, as they do at `PACKET_LIMIT` packets.
 pub const CAPTURE_SIZE_LIMIT: u64 = 256 * MIB;
-/// What a capture leaves free on its folder's disk: it does not start, or it stops, with less.
-pub const CAPTURE_DISK_RESERVE: u64 = 512 * MIB;
 /// How long a capture runs before Borg guesses when a limit stops it, so that its rate settles.
 const SETTLING: Duration = Duration::from_secs(3);
 /// The furthest ahead Borg says a limit stops a capture.
@@ -79,7 +77,8 @@ impl Keep {
 pub struct CaptureProgress {
     pub bytes: u64,
     pub packets: usize,
-    /// The bytes it can still write before its folder's disk keeps only `CAPTURE_DISK_RESERVE`.
+    /// The bytes it can still write before its folder's disk is full, or has only the space
+    /// the capture keeps free.
     pub room: Option<u64>,
 }
 
@@ -90,27 +89,29 @@ pub enum CaptureLimit {
     Size,
     /// `PACKET_LIMIT` packets.
     Packets,
-    /// The folder's disk has no room left beyond `CAPTURE_DISK_RESERVE`.
+    /// The folder's disk is full, or has only the space the capture keeps free.
     Disk,
 }
 
 impl CaptureLimit {
-    /// What the capture runs up to, as the footer says it.
-    pub fn label(self) -> String {
-        match self {
-            CaptureLimit::Size => tr!(capture_mib, mib = CAPTURE_SIZE_LIMIT / MIB),
-            CaptureLimit::Packets => borg_i18n::count(PACKET_LIMIT, borg_i18n::Count::Packet),
-            CaptureLimit::Disk => tr!(capture_limit_disk).to_owned(),
+    /// What the capture runs up to, as the footer says it, for a capture that keeps
+    /// `keep_free_mib` free on its disk.
+    pub fn label(self, keep_free_mib: Option<u64>) -> String {
+        match (self, keep_free_mib) {
+            (CaptureLimit::Size, _) => tr!(capture_mib, mib = CAPTURE_SIZE_LIMIT / MIB),
+            (CaptureLimit::Packets, _) => borg_i18n::count(PACKET_LIMIT, borg_i18n::Count::Packet),
+            (CaptureLimit::Disk, Some(mib)) => tr!(capture_limit_keep_free, mib = mib),
+            (CaptureLimit::Disk, None) => tr!(capture_limit_disk).to_owned(),
         }
     }
 
-    /// Why the capture it stopped ended early, as a notice.
-    fn notice(self, folder: &Path) -> String {
-        match self {
-            CaptureLimit::Size | CaptureLimit::Packets => tr!(capture_limit_reached, limit = self.label()),
-            CaptureLimit::Disk => {
-                tr!(capture_disk_stopped, folder = folder.display(), mib = CAPTURE_DISK_RESERVE / MIB)
-            }
+    /// Why the capture `request` asked for ended early, as a notice.
+    fn notice(self, request: &CaptureRequest) -> String {
+        let folder = request.folder.display();
+        match (self, request.keep_free_mib) {
+            (CaptureLimit::Size | CaptureLimit::Packets, _) => tr!(capture_limit_reached, limit = self.label(None)),
+            (CaptureLimit::Disk, Some(mib)) => tr!(capture_low_disk_stopped, folder = folder, mib = mib),
+            (CaptureLimit::Disk, None) => tr!(capture_full_disk_stopped, folder = folder),
         }
     }
 }
@@ -124,7 +125,7 @@ pub enum CaptureFailure {
     Denied,
     /// The system's password dialog was dismissed, or the capture stopped before it was answered.
     Cancelled,
-    /// The folder's disk has less than `CAPTURE_DISK_RESERVE` free.
+    /// The folder's disk is full, or has less than the space the capture keeps free.
     NoRoom,
     /// What went wrong, in words to show as they are.
     Failed(String),
@@ -255,9 +256,17 @@ pub struct CaptureRequest {
     pub processes: bool,
     /// Keep a TLS key log beside the capture, and how its programs give their keys away.
     pub tls_keys: TlsKeys,
+    /// The MiB to leave free on the folder's disk: the capture does not start, and it stops,
+    /// with less. Without it the capture runs until the disk is full.
+    pub keep_free_mib: Option<u64>,
 }
 
 impl CaptureRequest {
+    /// The bytes the capture leaves free on its folder's disk.
+    pub fn keep_free(&self) -> u64 {
+        self.keep_free_mib.map_or(0, |mib| mib.saturating_mul(MIB))
+    }
+
     /// The extension of the file the capture is saved in.
     pub fn extension(&self) -> &'static str {
         capture_extension(self.processes)
@@ -307,6 +316,7 @@ pub struct CaptureDialog {
     folder: PathBuf,
     /// Who signs the proxy's certificates, when the capture sends HTTPS through it.
     authority: Authority,
+    keep_free_mib: Option<u64>,
 }
 
 impl CaptureDialog {
@@ -345,6 +355,7 @@ impl CaptureDialog {
             administrator: self.administrator,
             processes: self.tags_processes(),
             tls_keys: self.tls_keys.clone(),
+            keep_free_mib: self.keep_free_mib,
         })
     }
 
@@ -507,6 +518,7 @@ pub(crate) fn capture_key(state: &mut AppState) -> Vec<Effect> {
         field: 0,
         folder,
         authority: network.authority.clone(),
+        keep_free_mib: network.keep_free_mib,
     }));
     Vec::new()
 }
@@ -717,7 +729,7 @@ pub(crate) fn copy_key_log_prefix(state: &mut AppState) -> Vec<Effect> {
 pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
-    let limited = recording.limited.filter(|_| result.is_ok()).map(|limit| limit.notice(&recording.request.folder));
+    let limited = recording.limited.filter(|_| result.is_ok()).map(|limit| limit.notice(&recording.request));
     let access = state.network.access;
     match result {
         Err(CaptureFailure::Missing(installer)) => crate::install::offer(state, Tool::Tcpdump, installer),
@@ -736,7 +748,7 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
             state.notice = Some(tr!(capture_denied, interface = recording.request.interface));
         }
         Err(CaptureFailure::Cancelled) => {}
-        Err(CaptureFailure::NoRoom) => state.notice = Some(capture_no_room(&recording.request.folder)),
+        Err(CaptureFailure::NoRoom) => state.notice = Some(capture_no_room(&recording.request)),
         Err(CaptureFailure::Failed(error)) => state.notice = Some(error),
         Ok((path, capture)) if !state.network.is_open() => {
             let packets = borg_i18n::count(capture.packets.len(), borg_i18n::Count::Packet);
@@ -761,9 +773,14 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
     effects
 }
 
-/// Why a capture in `folder` did not start: its disk has too little room left.
-pub fn capture_no_room(folder: &Path) -> String {
-    tr!(capture_disk_full, folder = folder.display(), mib = CAPTURE_DISK_RESERVE / MIB)
+/// Why the capture `request` asked for did not start: its folder's disk is full, or has less
+/// than it keeps free.
+pub fn capture_no_room(request: &CaptureRequest) -> String {
+    let folder = request.folder.display();
+    match request.keep_free_mib {
+        Some(mib) => tr!(capture_low_disk_refused, folder = folder, mib = mib),
+        None => tr!(capture_full_disk_refused, folder = folder),
+    }
 }
 
 /// Opens the viewer on a capture file read from a panel.

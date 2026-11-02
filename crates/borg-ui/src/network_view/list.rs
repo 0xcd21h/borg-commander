@@ -12,7 +12,8 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    AppState, CaptureLimit, Exposure, Network, NetworkPage, PortRow, Recording, exposure_label, kind_label,
+    AppState, CaptureLimit, CaptureRequest, Exposure, Network, NetworkPage, PortRow, Recording, exposure_label,
+    kind_label,
 };
 use borg_i18n::tr;
 use ratatui::{
@@ -141,14 +142,14 @@ fn recording_note(recording: &Recording, now: Instant) -> String {
         (None, None) => None,
     };
     let left = recording.left(now).map(|seconds| tr!(capture_left, seconds = seconds));
-    let ahead = recording.limit_ahead(now).map(|(limit, seconds)| limit_ahead(limit, seconds));
+    let ahead = recording.limit_ahead(now).map(|(limit, seconds)| limit_ahead(&recording.request, limit, seconds));
     [Some(running), left, ahead, tls_keys].into_iter().flatten().collect::<Vec<_>>().join(SEPARATOR)
 }
 
 /// How soon `limit` stops the capture: in seconds for the last couple of minutes, else in
 /// whole minutes.
-fn limit_ahead(limit: CaptureLimit, seconds: u64) -> String {
-    let limit = limit.label();
+fn limit_ahead(request: &CaptureRequest, limit: CaptureLimit, seconds: u64) -> String {
+    let limit = limit.label(request.keep_free_mib);
     if seconds < SECONDS_SHOWN_UNTIL {
         return tr!(capture_ahead_seconds, seconds = seconds, limit = limit);
     }

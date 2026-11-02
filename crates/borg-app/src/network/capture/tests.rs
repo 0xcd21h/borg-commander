@@ -11,6 +11,7 @@ fn request(filter: &str) -> CaptureRequest {
         administrator: false,
         processes: false,
         tls_keys: borg_core::TlsKeys::Off,
+        keep_free_mib: None,
     }
 }
 
@@ -29,7 +30,7 @@ fn an_agents_refused_capture_says_there_is_no_permission() {
     let request = request("");
     assert_eq!(refused(CaptureFailure::Denied, &request), tr!(capture_denied, interface = "en0"));
     assert_eq!(refused(CaptureFailure::Failed("tcpdump stopped".into()), &request), "tcpdump stopped");
-    assert_eq!(refused(CaptureFailure::NoRoom, &request), capture_no_room(Path::new("/tmp")));
+    assert_eq!(refused(CaptureFailure::NoRoom, &request), capture_no_room(&request));
 }
 
 #[test]
@@ -66,18 +67,34 @@ fn the_file_gets_what_tcpdump_wrote_while_each_connection_is_within_its_budget()
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
-fn the_room_left_is_what_the_disk_has_free_beyond_the_reserve() {
+fn a_full_disk_ends_the_file_without_failing_the_capture() {
+    let pcap = borg_testkit::capture::bytes();
+    let mut saving = Saving::new(OpenOptions::new().write(true).open("/dev/full").unwrap(), Keep::Whole);
+    saving.write(&pcap).unwrap();
+    saving.write(&pcap).unwrap();
+    saving.finish().unwrap();
+    assert!(saving.full);
+    assert_eq!((saving.written, saving.counter.packets), (0, 0), "nothing reached the disk");
+}
+
+#[test]
+fn the_room_left_is_what_the_disk_has_free_beyond_what_the_capture_keeps_free() {
     let folder = tempfile::tempdir().unwrap();
     let free = || {
         let stats = rustix::fs::statvfs(folder.path()).unwrap();
         stats.f_bavail * stats.f_frsize
     };
-    let before = free();
-    let left = room(folder.path()).unwrap();
-    let most = before.max(free()).saturating_sub(CAPTURE_DISK_RESERVE);
-    assert!(left <= most, "{left} left of {before} free");
-    assert_eq!(room(&folder.path().join("missing")), None);
+    let keep_free = CaptureRequest { keep_free_mib: Some(64), ..request("") }.keep_free();
+    for kept in [0, keep_free] {
+        let before = free();
+        let left = room(folder.path(), kept).unwrap();
+        let most = before.max(free()).saturating_sub(kept);
+        assert!(left <= most, "{left} left of {before} free, keeping {kept}");
+    }
+    assert_eq!(room(folder.path(), u64::MAX), Some(0), "no disk has that much free");
+    assert_eq!(room(&folder.path().join("missing"), 0), None);
 }
 
 #[test]

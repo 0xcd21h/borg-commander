@@ -85,6 +85,7 @@ impl App {
             administrator: false,
             processes: false,
             tls_keys: borg_core::TlsKeys::Off,
+            keep_free_mib: self.state.network.keep_free_mib,
         };
         let place = from_origin(String::new(), call.origin.as_deref());
         let ask = borg_core::capture_ask(asked.scope, text(&call, PROCESS).as_deref(), &request, place);
