@@ -53,8 +53,12 @@ fn holds(path: &Path, text: &str) -> bool {
     fs::read_to_string(path).is_ok_and(|found| found == text)
 }
 
+/// A command that runs until Ctrl-C ends it. It makes `marker` itself, once it holds the
+/// terminal, so a Ctrl-C sent after `marker` appears reaches it. A marker made by a command
+/// before it would let the Ctrl-C arrive while the shell still waits for that one, and a shell
+/// whose child exits normally takes the Ctrl-C as handled and goes on.
 fn interruptible(marker: &str) -> String {
-    format!("sh -c 'touch {marker}; exec sleep 30'")
+    format!("tee {marker}")
 }
 
 /// Filters the activity monitor by `pid` and puts the cursor on that process. Other PIDs can
@@ -1897,9 +1901,10 @@ fn console_remembers_its_view_and_option_arrows_edit_words_in_each_shell() -> Re
         app.wait_until("cancelled command returned to prompt", console_prompt)?;
         ensure!(!panels_ready(&app.settle()?), "Ctrl-C at the console prompt changed the view");
         ensure!(!fixture.work().join("cancelled").exists());
-        app.send(interruptible("running"))?.send(keys::enter())?;
+        let running = interruptible("running");
+        app.send(&running)?.send(keys::enter())?;
         app.wait_until("interruptible command started", |s| {
-            fixture.work().join("running").exists() && s.contains("exec sleep 30")
+            fixture.work().join("running").exists() && s.contains(&running)
         })?;
         app.send(keys::ctrl('c'))?;
         app.wait_until("shell prompt returned after Ctrl-C", console_prompt)?;
