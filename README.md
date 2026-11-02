@@ -181,6 +181,8 @@ Ctrl-O switches between the panels and the console.
   administrator after the system's password dialog when it needs to. The viewer sorts the packets
   by process, host and connection, down to each packet's layers and bytes. On macOS an
   administrator capture tags every packet with its process. F3 opens `.pcap` files the same way.
+  With a TLS key log, an encrypted connection's stream shows what it carried, also for programs
+  that pin their certificates.
 
 ## Containers
 
