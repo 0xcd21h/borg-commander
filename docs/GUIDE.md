@@ -949,16 +949,6 @@ that tears apart as each minute turns, the logo swirling out into a spiral galax
 the logo rebuilt plank by plank while the old planks gather into a second logo below it. Any key
 or click brings the panels back, and that key does nothing else.
 
-Panel folders, cursor positions, the split, listing modes, and sorting are saved in
-`~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or `$BORG_STATE_DIR`.
-
-While it runs, Borg keeps its shell integration scripts and files copied out of containers in
-`$XDG_RUNTIME_DIR/borg-commander`, or in `borg-commander-<uid>` in the temporary folder. Only you
-can open this folder; if one already exists that someone else created, or that other users can
-enter, Borg skips it and uses a new name. Its `TTL` file starts with the time until which the
-folder is in use: every running borg pushes that time a day ahead each hour, so once it has
-passed, the folder can be deleted.
-
 Custom themes go in `~/.config/borg-commander/themes/`. A theme can extend a built-in one:
 
 ```toml
@@ -969,6 +959,62 @@ extends = "neon"
 cursor = { fg = "#0b0b16", bg = "#00e5ff", bold = true }
 dir = { fg = "#b388ff", bold = true }
 ```
+
+### Borg's files
+
+Panel folders, cursor positions, the split, listing modes, and sorting are saved in the state
+folder, `~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or
+`$BORG_STATE_DIR`.
+
+While it runs, Borg keeps its shell integration scripts and files copied out of containers in its
+runtime folder, `$XDG_RUNTIME_DIR/borg-commander`, or `borg-commander-<uid>` in the temporary
+folder. Only you can open this folder; if one already exists that someone else created, or that
+other users can enter, Borg skips it and uses a new name. Its `TTL` file starts with the time
+until which the folder is in use: every running borg pushes that time a day ahead each hour, so
+once it has passed, the folder can be deleted.
+
+**F9 → Options → Borg's files…** shows every place Borg keeps files, how much each one holds, and
+where it is:
+
+- **Temporary files**: shell integration scripts, folder requests from the shell, copies out of
+  containers and remote previews, in the runtime folder.
+- **Sockets**: where agents and mirrors reach running sessions, in `/tmp/borg-<uid>-default`, or
+  in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
+- **Caches**: folder sizes and name indexes, in the cache folder (see
+  [Saved size scans](#saved-size-scans)).
+- **Sessions and history**: sessions, shell output, search and folder history, collections, and
+  paired computers with their keys, in the state folder.
+- **Settings**: `config.toml` and your themes.
+- **Captures**: the traffic captures Borg saved, wherever they are.
+
+Up and Down choose a row, and a short note under the list says what the chosen place holds and
+how long it stays. Enter opens the place's folder in the active panel. Esc closes the window.
+
+Borg cleans up after itself 30 seconds after it starts and then every hour. It only removes
+names it makes itself, and never anything that changed in the last 10 minutes, so a Borg that is
+still starting up keeps what it made. This is what goes:
+
+- Folders of other Borg versions in the runtime folder, once no Borg runs from them, and either
+  no Borg was running when this one started or nothing in them changed for 3 days.
+- Folder requests, half-written files and remote console folders of Borg processes that ended.
+- Copies out of containers and remote previews older than a day.
+- Sockets nobody answers on, and socket folders where nothing answers any more.
+- Size scans in the format of Borg 0.4 and 0.5, scans the cache no longer lists, and name indexes
+  of folders that are no longer indexed.
+- Runtime folders that older Borgs left open to other users, once nothing in them changed for
+  3 days.
+
+Sessions, history, settings and captures stay until you delete them. The line under the note says
+how much is left over right now and what the last cleanup removed. F8 removes what is left over
+after asking, and the question lists the folders it comes from.
+
+Each capture Borg saves goes on a list of the 1,000 newest. The window shows the ones still on
+disk under **Captures Borg saved**, with their size and date, and **with keys** when a `.keylog`
+file of the same name sits beside one. Enter on a capture opens its folder with the cursor on the
+file, so F8 there deletes it. Captures saved before Borg started keeping this list are not on it.
+
+`borg storage` prints the same places in the terminal and says what is left over, and
+`borg storage clean` removes it.
 
 To build, test, or contribute, see [Development](../DEVELOPMENT.md).
 
@@ -1293,7 +1339,8 @@ Borg saves each capture as `capture-<date>-<time>.pcap` in the folder of the pan
 screen covers, readable only by you, so Wireshark and other tools can open it later. A capture
 that tags each packet with its process is saved as `capture-<date>-<time>.pcapng`, the format
 that can carry the tags, and so is a capture that recorded TLS keys once Borg puts them inside. A
-capture holds whatever the packets carried, so keep it as safe as that data.
+capture holds whatever the packets carried, so keep it as safe as that data. Each capture also
+goes on the list in [Borg's files](#borgs-files).
 
 An agent connected through `borg mcp` can ask for a capture too, and it waits for your approval
 (see [What the agent can do](#what-the-agent-can-do)).

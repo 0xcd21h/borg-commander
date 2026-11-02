@@ -95,6 +95,7 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
             border_key(mouse, rect, hint, true)
         }
         Overlay::Install(offer) => border_key(mouse, crate::install_view::rect(offer, screen), tr!(install_keys), true),
+        Overlay::Storage(window) => Some(storage_mouse(window, mouse, screen)),
         _ => None,
     }
 }
@@ -119,6 +120,7 @@ fn scrolls(overlay: &Overlay) -> bool {
         | Overlay::Folders(_)
         | Overlay::Remotes(_)
         | Overlay::ProcessControl(_)
+        | Overlay::Storage(_)
         | Overlay::TimeMachine => true,
         Overlay::Exclusions(editor) => editor.editing.is_none(),
         _ => false,
@@ -206,6 +208,21 @@ fn time_machine_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<M
 
 /// The folders dialog: a click chooses a folder and a second one opens it, the keys in its
 /// border take clicks, and a click beside it closes it.
+fn storage_mouse(window: &borg_core::StorageWindow, mouse: &Mouse, screen: Rect) -> Option<Msg> {
+    if !mouse.click {
+        return None;
+    }
+    let point = mouse.point;
+    if let Some(row) = crate::storage_view::row_at(window, screen, point) {
+        return Some(pick_row(row, window.selected));
+    }
+    let rect = crate::storage_view::rect(window, screen);
+    if !rect.contains(point) {
+        return Some(Msg::Pointer(Pointer::DismissDialog));
+    }
+    crate::hints::bottom(rect, tr!(storage_hints), true, point).map(Msg::Key)
+}
+
 fn folders_mouse(state: &AppState, dialog: &borg_core::FoldersDialog, mouse: &Mouse, screen: Rect) -> Option<Msg> {
     if !mouse.click {
         return None;

@@ -49,8 +49,8 @@ pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, w
 pub use location::{DOCKER_SCHEME, Location};
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
-pub(crate) use socket::socket_dir;
-use socket::{SOCKET_PREFIX, SOCKET_SUFFIX};
+use socket::SOCKET_SUFFIX;
+pub(crate) use socket::{SOCKET_PREFIX, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
 use tools::{routing_tools, tools, transfer_tools};
 

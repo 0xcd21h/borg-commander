@@ -113,6 +113,8 @@ pub enum Action {
     Reload,
     /// Opens the Time Machine window for the selection (macOS).
     TimeMachine,
+    /// Opens the window of Borg's own files.
+    Storage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

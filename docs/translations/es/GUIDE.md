@@ -1035,17 +1035,6 @@ espiral hasta formar una galaxia y vuelve, o el logotipo reconstruido tabla a ta
 tablas viejas forman un segundo logotipo debajo. Cualquier tecla o clic devuelve los paneles, y
 esa tecla no hace nada más.
 
-Las carpetas de los paneles, las posiciones del cursor, la división, los modos de listado y la
-ordenación se guardan en `~/.local/state/borg-commander`, o en la carpeta indicada por
-`$XDG_STATE_HOME` o `$BORG_STATE_DIR`.
-
-Mientras se ejecuta, Borg guarda sus scripts de integración con el shell y los archivos copiados
-desde contenedores en `$XDG_RUNTIME_DIR/borg-commander`, o en `borg-commander-<uid>` dentro de la
-carpeta temporal. Solo tú puedes abrir esta carpeta; si ya existe una creada por otra persona, o
-en la que pueden entrar otros usuarios, Borg la ignora y usa otro nombre. Su archivo `TTL` empieza
-con la hora hasta la que la carpeta está en uso: cada borg en ejecución adelanta esa hora un día
-cada hora, así que, una vez pasada, la carpeta se puede eliminar.
-
 Los temas personalizados van en `~/.config/borg-commander/themes/`. Un tema puede extender uno de
 los integrados:
 
@@ -1057,6 +1046,66 @@ extends = "neon"
 cursor = { fg = "#0b0b16", bg = "#00e5ff", bold = true }
 dir = { fg = "#b388ff", bold = true }
 ```
+
+### Archivos de Borg
+
+Las carpetas de los paneles, las posiciones del cursor, la división, los modos de listado y la
+ordenación se guardan en la carpeta de estado, `~/.local/state/borg-commander`, o en la carpeta
+indicada por `$XDG_STATE_HOME` o `$BORG_STATE_DIR`.
+
+Mientras se ejecuta, Borg guarda sus scripts de integración con el shell y los archivos copiados
+desde contenedores en su carpeta de ejecución, `$XDG_RUNTIME_DIR/borg-commander`, o en
+`borg-commander-<uid>` dentro de la carpeta temporal. Solo tú puedes abrir esta carpeta; si ya
+existe una creada por otra persona, o en la que pueden entrar otros usuarios, Borg la ignora y usa
+otro nombre. Su archivo `TTL` empieza con la hora hasta la que la carpeta está en uso: cada borg en
+ejecución adelanta esa hora un día cada hora, así que, una vez pasada, la carpeta se puede eliminar.
+
+**F9 → Opciones → Archivos de Borg…** muestra cada lugar donde Borg guarda archivos, cuánto ocupa
+cada uno y dónde está:
+
+- **Archivos temporales**: scripts de integración con el shell, peticiones de cambio de carpeta
+  desde el shell, copias desde contenedores y vistas previas remotas, en la carpeta de ejecución.
+- **Sockets**: por donde los agentes y los espejos llegan a las sesiones en curso, en
+  `/tmp/borg-<uid>-default`, o en una carpeta `/tmp/borg-<uid>-` con el nombre de la carpeta de
+  ejecución cuando `$XDG_RUNTIME_DIR` está definida.
+- **Cachés**: tamaños de carpeta e índices de nombres, en la carpeta de caché (consulta
+  [Análisis de tamaño guardados](#saved-size-scans)).
+- **Sesiones e historial**: sesiones, salida del shell, historial de búsquedas y carpetas,
+  colecciones y equipos emparejados con sus claves, en la carpeta de estado.
+- **Configuración**: `config.toml` y tus temas.
+- **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.
+
+Up y Down eligen una fila, y una nota breve bajo la lista dice qué guarda el lugar elegido y cuánto
+tiempo se conserva. Enter abre la carpeta de ese lugar en el panel activo. Esc cierra la ventana.
+
+Borg limpia por su cuenta 30 segundos después de arrancar y luego cada hora. Solo elimina nombres
+que crea él mismo, y nunca nada que haya cambiado en los últimos 10 minutos, así que un Borg que
+está arrancando conserva lo que acaba de crear. Esto es lo que se elimina:
+
+- Carpetas de otras versiones de Borg en la carpeta de ejecución, cuando ya ningún Borg se ejecuta
+  desde ellas y, además, ningún Borg estaba en marcha cuando arrancó este o nada en ellas ha
+  cambiado en 3 días.
+- Peticiones de cambio de carpeta, archivos a medio escribir y carpetas de consolas remotas de
+  procesos de Borg que terminaron.
+- Copias desde contenedores y vistas previas remotas de más de un día.
+- Sockets en los que nadie responde, y carpetas de sockets en las que ya no responde nada.
+- Análisis de tamaño en el formato de Borg 0.4 y 0.5, análisis que la caché ya no lista e índices de
+  nombres de carpetas que ya no se indexan.
+- Carpetas de ejecución que versiones antiguas de Borg dejaron abiertas a otros usuarios, cuando
+  nada en ellas ha cambiado en 3 días.
+
+Las sesiones, el historial, la configuración y las capturas se conservan hasta que los elimines. La
+línea bajo la nota dice cuánto sobra ahora mismo y qué eliminó la última limpieza. F8 elimina los
+restos tras preguntar, y la pregunta indica las carpetas de las que vienen.
+
+Cada captura que guarda Borg entra en una lista de las 1000 más recientes. La ventana muestra las
+que siguen en el disco bajo **Capturas guardadas por Borg**, con su tamaño y fecha, y **con claves**
+cuando junto a una hay un archivo `.keylog` con el mismo nombre. Enter sobre una captura abre su
+carpeta con el cursor en el archivo, y ahí F8 la elimina. Las capturas guardadas antes de que Borg
+empezara a llevar esta lista no aparecen en ella.
+
+`borg storage` muestra los mismos lugares en el terminal y dice lo que sobra, y `borg storage clean`
+lo elimina.
 
 Para compilar, probar o contribuir, consulta [Desarrollo](../../../DEVELOPMENT.md).
 
@@ -1409,7 +1458,7 @@ pantalla de red, legible solo por ti, para que Wireshark y otras herramientas pu
 después. Una captura que marca cada paquete con su proceso se guarda como
 `capture-<date>-<time>.pcapng`, el formato que puede llevar esas marcas. Lo mismo pasa con una
 captura que guardó claves TLS, una vez que Borg las pone dentro. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
-cuidado que esos datos.
+cuidado que esos datos. Cada captura queda también en la lista de [Archivos de Borg](#borgs-files).
 
 Un agente conectado mediante `borg mcp` también puede pedir una captura, que también espera tu
 aprobación (consulta [Qué puede hacer el agente](#what-the-agent-can-do)).

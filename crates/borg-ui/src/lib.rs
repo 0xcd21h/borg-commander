@@ -36,6 +36,7 @@ mod settings_view;
 mod shortcuts;
 mod spinner;
 mod status_view;
+mod storage_view;
 mod term_view;
 mod theme;
 mod viewer_view;

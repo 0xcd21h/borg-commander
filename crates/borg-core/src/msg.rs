@@ -200,6 +200,8 @@ pub enum Msg {
         result: Result<Option<Viewer>, String>,
     },
     Backup(crate::BackupEvent),
+    /// What Borg keeps where, for the Borg's files window.
+    Storage(crate::StorageReport),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,5 +418,9 @@ pub enum Effect {
     },
     /// Reads or changes Time Machine exclusions (macOS).
     Backup(crate::BackupRequest),
+    /// Measures Borg's places and finds the leftovers.
+    ScanStorage,
+    /// Removes those of these leftovers that are still left over, then measures again.
+    CleanStorage(Vec<PathBuf>),
     Quit,
 }

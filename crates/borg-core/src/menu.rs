@@ -259,6 +259,8 @@ fn options_menu(_state: &AppState) -> Menu {
             item(tr!(settings), "", Action::Settings),
             item(tr!(plugins), "", Action::Plugins),
             item(tr!(language), "", Action::PickLanguage),
+            MenuEntry::Separator,
+            item(tr!(storage_menu), "", Action::Storage),
         ],
     }
 }

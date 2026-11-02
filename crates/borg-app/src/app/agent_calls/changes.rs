@@ -2,7 +2,7 @@
 
 use super::{App, Flow, fail, text};
 use crate::agent::{self, Call, Location, Reply, Spot, Target, Work};
-use crate::app::{DOCKER_SCRATCH, render::from_origin};
+use crate::app::render::from_origin;
 use anyhow::Result;
 use borg_core::{AgentEvent, Ask, AskKind, DiffLine, Msg};
 use borg_i18n::tr;
@@ -258,7 +258,7 @@ impl App {
             }
             Work::Upload { spot, size } => {
                 let token = borg_link::hex(&borg_link::secret());
-                let scratch = self.runtime_dir.join(DOCKER_SCRATCH);
+                let scratch = self.runtime_dir.join(borg_core::DOCKER_SCRATCH);
                 drop(reply.send(match crate::agent::Upload::begin(spot, size, &scratch, &token) {
                     Ok(upload) => {
                         self.uploads.insert(token.clone(), upload);

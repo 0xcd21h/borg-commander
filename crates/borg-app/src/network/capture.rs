@@ -344,7 +344,11 @@ async fn record(
         if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
     let (mut file, key_log) = match create_files(&path, request.tls_keys) {
-        Ok(created) => created,
+        Ok(created) => {
+            let saved = path.clone();
+            tokio::task::spawn_blocking(move || crate::storage::remember_capture(&saved));
+            created
+        }
         Err(error) => {
             tap.stop();
             let _ = tap.finish().await;

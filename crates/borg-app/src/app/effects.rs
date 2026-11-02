@@ -30,6 +30,8 @@ impl App {
             }
             Effect::Activity { id, request } => self.monitor.request(id, request, self.state.activity.selected),
             Effect::Backup(request) => self.backup.request(request),
+            Effect::ScanStorage => self.storage.scan(),
+            Effect::CleanStorage(paths) => self.storage.clean(paths),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
             Effect::Network { id } => self.network.request(id),

@@ -42,6 +42,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::ProcessControl(dialog)) => crate::activity::on_control_key(state, dialog, key),
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
+        Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
         None => Vec::new(),
     }
 }
@@ -298,6 +299,9 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
                 state.overlay = Some(Overlay::Remotes(*browser));
                 vec![Effect::OpenRemotes]
             }
+        }
+        (answer, ConfirmPurpose::CleanStorage { paths, window }) => {
+            crate::storage::answer(state, answer == Some(true), paths, *window)
         }
         (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
             crate::docker::delete(state, sources)

@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use borg_core::{Motion, Settings, Startup};
+use borg_core::{Motion, Settings, Startup, TTL_FILE};
 use borg_gfx::{Capabilities, Hints, Preference, TerminalColors, probe};
 use borg_ui::ThemeSet;
 
@@ -29,8 +29,6 @@ const OPEN_TO_OTHERS: u32 = 0o077;
 /// How many names `private_dir` tries before giving up.
 const PRIVATE_NAMES: usize = 16;
 const PRIVATE_FILE: u32 = 0o600;
-/// The file in the runtime folder that says until when Borg uses it.
-const TTL_FILE: &str = "TTL";
 /// How long the runtime folder stays in use after a running borg last said so.
 const TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// How often a running borg says it still uses the runtime folder.
@@ -48,6 +46,8 @@ pub struct Launch {
     pub shell: PathBuf,
     pub home: Option<PathBuf>,
     pub runtime_dir: PathBuf,
+    /// No running Borg had said it used the runtime folder within its time to live.
+    pub runtime_idle: bool,
     pub settings: Settings,
     pub config_dir: Option<ConfigDir>,
     pub config: Config,
@@ -114,12 +114,14 @@ impl Launch {
         };
         warnings.extend(errors.iter().map(ToString::to_string));
 
+        let runtime_dir = private_dir(&runtime_dir())?;
         Ok(Self {
             session_id: session_id.map(str::to_owned),
             remote,
             shell,
             home: env::var_os(ENV_HOME).map(PathBuf::from),
-            runtime_dir: private_dir(&runtime_dir())?,
+            runtime_idle: idle(&runtime_dir),
+            runtime_dir,
             settings,
             config_dir,
             config,
@@ -179,10 +181,7 @@ pub(crate) fn runtime_dir() -> PathBuf {
 pub(crate) fn private_dir(dir: &Path) -> Result<PathBuf> {
     let parent = dir.parent().unwrap_or(Path::new("/"));
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    let name = dir.file_name().unwrap_or_default().to_string_lossy();
-    let names =
-        std::iter::once(dir.to_path_buf()).chain((1..PRIVATE_NAMES).map(|n| parent.join(format!("{name}-{n}"))));
-    for candidate in names {
+    for candidate in candidates(dir) {
         match fs::create_dir(&candidate) {
             Ok(()) => {
                 // Set the mode after creating, so no umask widens or narrows it.
@@ -200,6 +199,36 @@ pub(crate) fn private_dir(dir: &Path) -> Result<PathBuf> {
         }
     }
     bail!("{} and the names after it belong to someone else or are open to others", dir.display())
+}
+
+/// `dir` and the names `private_dir` tries after it.
+fn candidates(dir: &Path) -> impl Iterator<Item = PathBuf> {
+    let parent = dir.parent().unwrap_or(Path::new("/")).to_path_buf();
+    let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    std::iter::once(dir.to_path_buf()).chain((1..PRIVATE_NAMES).map(move |n| parent.join(format!("{name}-{n}"))))
+}
+
+/// The runtime folders `private_dir` passes over that are this user's own: made open to
+/// others by a Borg older than 0.6.
+pub(crate) fn abandoned_runtime_dirs(in_use: &Path) -> Vec<PathBuf> {
+    let uid = rustix::process::getuid().as_raw();
+    candidates(&runtime_dir())
+        .filter(|candidate| candidate != in_use)
+        .filter(|candidate| {
+            fs::symlink_metadata(candidate)
+                .is_ok_and(|meta| meta.is_dir() && meta.uid() == uid && meta.mode() & OPEN_TO_OTHERS != 0)
+        })
+        .collect()
+}
+
+/// Whether the time in `dir`'s TTL file has passed, or it has none: no running Borg said
+/// within the time to live that it uses the folder.
+pub(crate) fn idle(dir: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(dir.join(TTL_FILE)) else { return true };
+    text.lines()
+        .next()
+        .and_then(|line| line.parse::<jiff::Timestamp>().ok())
+        .is_none_or(|until| until < jiff::Timestamp::now())
 }
 
 /// Writes the TTL file: until when this folder is in use, then what it is.
