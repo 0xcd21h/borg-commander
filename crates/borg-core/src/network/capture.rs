@@ -5,7 +5,7 @@ use super::{
     InterfaceKind, NetworkPage, Socket, SocketKey, Transport,
     viewer::{TrafficPage, TrafficView},
 };
-use crate::{AppState, Capture, Effect, Installer, Overlay, Side, Tool};
+use crate::{AppState, Ask, AskKind, Capture, DiffLine, Effect, Installer, Overlay, Side, Tool};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{
@@ -15,8 +15,11 @@ use std::{
     time::Instant,
 };
 
+/// The shortest and the longest capture with a length.
+pub const SHORTEST_CAPTURE: u64 = 5;
+pub const LONGEST_CAPTURE: u64 = 60;
 /// How long a capture can run: a few seconds, or until it is stopped.
-pub const DURATIONS: [Option<u64>; 5] = [Some(5), Some(10), Some(30), Some(60), None];
+pub const DURATIONS: [Option<u64>; 5] = [Some(SHORTEST_CAPTURE), Some(10), Some(30), Some(LONGEST_CAPTURE), None];
 /// What a headers-only capture keeps of each packet: Ethernet, IPv6 and TCP with its options.
 pub const HEADER_BYTES: u32 = 128;
 
@@ -61,8 +64,21 @@ impl CaptureScope {
         }
     }
 
+    /// The scope in words, with a process and a connection's other end as `process` and
+    /// `remote` name them.
+    pub fn label(&self, process: impl Fn(u32) -> String, remote: impl Fn(SocketAddr) -> String) -> String {
+        match *self {
+            Self::Port { transport, port } => tr!(capture_scope_port, protocol = transport.name(), port = port),
+            Self::Connection { transport, remote: other, .. } => {
+                tr!(capture_scope_connection, protocol = transport.name(), remote = remote(other))
+            }
+            Self::Process { pid } => tr!(capture_scope_process, process = process(pid)),
+            Self::Everything => tr!(capture_scope_everything).to_owned(),
+        }
+    }
+
     /// What the viewer's filter starts as, so that it shows the scope's traffic.
-    fn view_filter(&self) -> String {
+    pub fn view_filter(&self) -> String {
         match self {
             Self::Process { pid } => format!("pid:{pid}"),
             _ => String::new(),
@@ -148,6 +164,34 @@ impl CaptureDialog {
     }
 }
 
+/// Every socket seen while a capture ran, with the names of the processes that held them, to
+/// tell each conversation's process.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SeenSockets {
+    sockets: HashMap<SocketKey, Socket>,
+    names: HashMap<u32, String>,
+}
+
+impl SeenSockets {
+    pub fn saw(&mut self, sockets: &[Socket], names: &HashMap<u32, String>) {
+        for socket in sockets.iter().filter(|socket| socket.pid.is_some()) {
+            self.sockets.insert(socket.key(), socket.clone());
+        }
+        self.names.extend(names.iter().map(|(pid, name)| (*pid, name.clone())));
+    }
+
+    /// The viewer on `capture`, each conversation with the process whose socket held it.
+    pub fn view(
+        &self,
+        capture: Capture,
+        hosts: &HashMap<IpAddr, Option<String>>,
+        path: Option<PathBuf>,
+    ) -> TrafficView {
+        let sockets: Vec<Socket> = self.sockets.values().cloned().collect();
+        TrafficView::new(capture, &sockets, self.names.clone(), hosts, path)
+    }
+}
+
 /// A capture while it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recording {
@@ -159,9 +203,8 @@ pub struct Recording {
     /// Stop was asked for, and the capture is being saved.
     pub stopping: bool,
     view_filter: String,
-    /// Every socket the screen saw while it ran, to tell each conversation's process.
-    sockets: HashMap<SocketKey, Socket>,
-    names: HashMap<u32, String>,
+    /// Every socket the screen saw while it ran.
+    seen: SeenSockets,
 }
 
 impl Recording {
@@ -184,12 +227,7 @@ pub(crate) fn capture_key(state: &mut AppState) -> Vec<Effect> {
     let Some(folder) = state.network.side.map(|side| state.panel(side).dir().to_path_buf()) else { return Vec::new() };
     let network = &state.network;
     let scope = selected_scope(network);
-    let near = scope.and_then(|scope| match scope {
-        CaptureScope::Connection { local, .. } => Some(local.ip()),
-        CaptureScope::Port { .. } => network.port().and_then(|row| row.addresses.first().copied()),
-        _ => None,
-    });
-    let interfaces = interfaces(network, near);
+    let interfaces = capture_interfaces(network, scope.unwrap_or(CaptureScope::Everything));
     if interfaces.is_empty() {
         state.notice = Some(tr!(capture_no_interface).into());
         return Vec::new();
@@ -216,6 +254,26 @@ fn selected_scope(network: &super::Network) -> Option<CaptureScope> {
             Some(CaptureScope::Connection { transport: socket.transport, local: socket.local, remote: socket.remote? })
         }
         NetworkPage::Interfaces => None,
+    }
+}
+
+/// The interfaces to capture `scope` on, in the order the dialog offers them.
+pub fn capture_interfaces(network: &super::Network, scope: CaptureScope) -> Vec<String> {
+    interfaces(network, near(network, scope))
+}
+
+/// The address on this machine that a scope's traffic goes through, when it has one: a port's
+/// first address, the selected row's when it is that port.
+fn near(network: &super::Network, scope: CaptureScope) -> Option<IpAddr> {
+    match scope {
+        CaptureScope::Connection { local, .. } => Some(local.ip()),
+        CaptureScope::Port { transport, port } => network
+            .port()
+            .into_iter()
+            .chain(&network.ports)
+            .find(|row| row.transport == transport && row.port == port)
+            .and_then(|row| row.addresses.first().copied()),
+        CaptureScope::Process { .. } | CaptureScope::Everything => None,
     }
 }
 
@@ -294,28 +352,18 @@ fn start(state: &mut AppState, dialog: &CaptureDialog, now: Instant) -> Vec<Effe
         packets: 0,
         stopping: false,
         view_filter,
-        sockets: HashMap::new(),
-        names: HashMap::new(),
+        seen: SeenSockets::default(),
     };
-    recording.saw(&network.sample.sockets, &network.sample.names);
+    recording.seen.saw(&network.sample.sockets, &network.sample.names);
     network.recording = Some(recording);
     vec![Effect::Capture { id, request }]
-}
-
-impl Recording {
-    fn saw(&mut self, sockets: &[Socket], names: &HashMap<u32, String>) {
-        for socket in sockets.iter().filter(|socket| socket.pid.is_some()) {
-            self.sockets.insert(socket.key(), socket.clone());
-        }
-        self.names.extend(names.iter().map(|(pid, name)| (*pid, name.clone())));
-    }
 }
 
 /// Keeps the sockets of each sample the screen takes while a capture runs.
 pub(crate) fn sampled(network: &mut super::Network) {
     let (sockets, names) = (&network.sample.sockets, &network.sample.names);
     if let Some(recording) = &mut network.recording {
-        recording.saw(sockets, names);
+        recording.seen.saw(sockets, names);
     }
 }
 
@@ -340,9 +388,7 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
             state.notice = Some(tr!(capture_saved, packets = packets, path = path.display()));
         }
         Ok((path, capture)) => {
-            let sockets: Vec<Socket> = recording.sockets.into_values().collect();
-            let hosts = state.network.hosts.clone();
-            let mut view = TrafficView::new(capture, &sockets, recording.names, &hosts, Some(path));
+            let mut view = recording.seen.view(capture, &state.network.hosts, Some(path));
             view.interface = Some(recording.request.interface);
             view.set_filter(&recording.view_filter);
             state.network.viewer = Some(Box::new(view));
@@ -375,4 +421,34 @@ pub(crate) fn opened(state: &mut AppState, path: PathBuf, result: Result<Capture
     network.filtering = false;
     network.details_focused = false;
     effects
+}
+
+/// What the approval dialog shows when an agent asks to capture: the traffic, with the name
+/// of a process scope's `process`, the interface, how long, how much of each packet, and where
+/// the capture is saved. `place` says who asked.
+pub fn capture_ask(scope: CaptureScope, process: Option<&str>, request: &CaptureRequest, place: String) -> Ask {
+    let field = |label: &str, value: String| DiffLine::plain(tr!(agent_capture_field, label = label, value = value));
+    let traffic = scope.label(
+        |pid| tr!(process_control_subject, name = process.unwrap_or(tr!(network_unknown_process)), pid = pid),
+        |remote| remote.to_string(),
+    );
+    let duration = request
+        .seconds
+        .map_or_else(|| tr!(capture_until_stopped).to_owned(), |seconds| tr!(capture_seconds, seconds = seconds));
+    let content = if request.headers_only {
+        tr!(capture_headers_only, bytes = HEADER_BYTES)
+    } else {
+        tr!(capture_whole_packets).to_owned()
+    };
+    let body = vec![
+        field(tr!(capture_scope_field), traffic),
+        field(tr!(network_interface_column), request.interface.clone()),
+        field(tr!(capture_duration_field), duration.clone()),
+        field(tr!(capture_content_field), content),
+        DiffLine::plain(tr!(capture_saves_to, folder = request.folder.display())),
+        DiffLine::plain(""),
+        DiffLine::plain(tr!(agent_capture_warning)),
+    ];
+    let summary = tr!(agent_capture_summary, interface = request.interface, duration = duration);
+    Ask { kind: AskKind::Capture, summary, place, body }
 }

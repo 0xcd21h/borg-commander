@@ -22,7 +22,7 @@ mod viewer;
 
 pub use capture::{
     CAPTURE_FIELDS, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES,
-    Recording,
+    LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, capture_ask, capture_interfaces,
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
@@ -694,7 +694,7 @@ pub(crate) fn hosts_resolved(state: &mut AppState, names: Vec<(IpAddr, Option<St
 const CAPTURE_EXTENSIONS: [&str; 3] = ["pcap", "pcapng", "cap"];
 
 /// Whether `path` names a capture file the traffic viewer opens.
-pub(crate) fn is_capture(path: &std::path::Path) -> bool {
+pub fn is_capture(path: &std::path::Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| CAPTURE_EXTENSIONS.iter().any(|known| known.eq_ignore_ascii_case(extension)))

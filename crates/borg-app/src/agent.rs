@@ -7,6 +7,7 @@
 //! after the user approves them.
 
 mod answers;
+mod capture;
 mod files;
 mod location;
 mod server;
@@ -43,6 +44,7 @@ pub use answers::{
     ConsoleText, connections, containers, find_container, home_relative, host_dir, interfaces, locate, memory_report,
     place, ports, processes, screen, shell_output, typable,
 };
+pub use capture::{capture_call, packet_number, summary_rows};
 pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};
 pub use location::{DOCKER_SCHEME, Location};
 pub(crate) use server::Session;
@@ -157,6 +159,13 @@ pub enum Work {
     },
     ApprovalMode {
         origin: String,
+    },
+    /// Captures traffic; `filter` narrows the summary to the scope, which lists at most `limit`
+    /// rows of each kind.
+    Capture {
+        request: borg_core::CaptureRequest,
+        filter: String,
+        limit: usize,
     },
 }
 
@@ -273,6 +282,7 @@ impl Agent {
             Work::Forward(call) => format!("declined a {} from {}", call.tool, call.origin.as_deref().unwrap_or("?")),
             Work::Upload { spot, .. } => format!("declined an upload to {}", spot.uri()),
             Work::ApprovalMode { origin } => format!("declined Approve all for {origin}"),
+            Work::Capture { request, .. } => format!("declined capturing on {}", request.interface),
         };
         self.note(&what);
         let _ = reply.send(Reply::error("The user declined this."));

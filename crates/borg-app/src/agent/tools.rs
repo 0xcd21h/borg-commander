@@ -1,11 +1,13 @@
 //! The tools `borg mcp` offers, as MCP describes them.
 
+use super::capture::SUMMARY_ROWS;
+use borg_core::{HEADER_BYTES, LONGEST_CAPTURE, SHORTEST_CAPTURE};
 use serde_json::{Value, json};
 
 /// The tools `borg mcp` offers, as MCP describes them: few and general. The agent looks with
-/// `screen` and `read` without asking, searches a process's memory once the user lets it, puts
-/// things in front of the user with `show`, and changes anything only through `write`, `edit`
-/// and `run`, which wait for the user's approval.
+/// `screen` and `read` without asking, searches a process's memory and captures traffic once
+/// the user lets it, puts things in front of the user with `show`, and changes anything only
+/// through `write`, `edit` and `run`, which wait for the user's approval.
 pub(super) fn tools() -> Value {
     pub(super) const LOCATIONS: &str = "A location is an absolute path on the machine Borg runs on, ~/… for its home folder, docker://CONTAINER/path inside a container (by name, Compose service or id), or a path relative to the active panel's folder, wherever that panel is. `screen` names the panels this way.";
     let read_only = json!({ "readOnlyHint": true });
@@ -18,7 +20,7 @@ pub(super) fn tools() -> Value {
         },
         {
             "name": "read",
-            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. With `source` \"ports\", \"connections\" or \"interfaces\": what the network screen lists, measured over one second: the listening ports with who can reach each and the process behind it, the connections busiest first with their rates and host names, or the interfaces with their addresses and traffic; `find` filters as the screen's filter does (words, port:443, proc:name, host:name, state:listen, !word) and `limit` caps the rows (default 100). {LOCATIONS}"),
+            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. With `source` \"ports\", \"connections\" or \"interfaces\": what the network screen lists, measured over one second: the listening ports with who can reach each and the process behind it, the connections busiest first with their rates and host names, or the interfaces with their addresses and traffic; `find` filters as the screen's filter does (words, port:443, proc:name, host:name, state:listen, !word) and `limit` caps the rows (default 100). A capture file (.pcap, .pcapng or .cap) on the machine Borg runs on reads as the summary `capture` answers with, narrowed by `find` with the same filter words (proto:dns, host:name, pid:4100), and `limit` caps each list (default {SUMMARY_ROWS}); with `packet`, a packet's number as the summary's FIRST column or a packet's neighbours give it, it reads that packet's layers and its bytes in hex. {LOCATIONS}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -27,7 +29,8 @@ pub(super) fn tools() -> Value {
                     "find": { "type": "string" },
                     "source": { "type": "string", "enum": ["processes", "containers", "ports", "connections", "interfaces"] },
                     "limit": { "type": "integer", "minimum": 1 },
-                    "sort": { "type": "string", "enum": ["memory", "cpu"] }
+                    "sort": { "type": "string", "enum": ["memory", "cpu"] },
+                    "packet": { "type": "integer", "minimum": 1 }
                 }
             },
             "annotations": read_only,
@@ -48,6 +51,25 @@ pub(super) fn tools() -> Value {
                 "required": ["pid"]
             },
             "annotations": read_only,
+        },
+        {
+            "name": "capture",
+            "description": format!("Captures traffic on the machine Borg runs on with the installed tcpdump, after the user approves it in Borg, as R on its network screen does, and answers with a summary: the protocols of the packets (DNS, TLS, HTTP and QUIC where Borg recognizes them), then each process, each host (named by the capture's DNS answers and the server names TLS and HTTP ask for) and each connection, with their packets and bytes. The summary leaves out what the packets carry. Without a scope it keeps everything on the interface; `port` keeps one port and the connections through it, over `transport` \"tcp\" (the default) or \"udp\"; `local` and `remote` (address:port, as read with source \"connections\" gives them) keep one connection both ways; `pid` captures everything and sums up that process's traffic. `interface` defaults to the one the network screen would pick: the one with the scope's address, else the busiest. `seconds` is 1 to {LONGEST_CAPTURE} (default {SHORTEST_CAPTURE}). `headers_only` keeps the first {HEADER_BYTES} bytes of each packet. `limit` caps each list (default {SUMMARY_ROWS}). The capture is saved as a .pcap file only the user can read, in `folder` (the active panel's folder when left out), and the answer says where: read that path to see the summary again, narrowed with `find`, or one packet with `packet`. Capturing needs tcpdump and the user's permission to open the capture device; without them the call fails and says so. {LOCATIONS}"),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "interface": { "type": "string" },
+                    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                    "transport": { "type": "string", "enum": ["tcp", "udp"] },
+                    "local": { "type": "string" },
+                    "remote": { "type": "string" },
+                    "pid": { "type": "integer", "minimum": 1 },
+                    "seconds": { "type": "integer", "minimum": 1, "maximum": LONGEST_CAPTURE },
+                    "headers_only": { "type": "boolean" },
+                    "folder": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1 }
+                }
+            },
         },
         {
             "name": "show",

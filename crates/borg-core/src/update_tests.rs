@@ -2708,6 +2708,21 @@ fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
 }
 
 #[test]
+fn an_approved_capture_shows_in_the_footer_until_it_is_done() {
+    use crate::{AgentEvent, Ask, AskKind};
+    let (mut state, now) = setup_with(Vec::new());
+    let summary = "capture on en0, 10 s";
+    let ask = Ask { kind: AskKind::Capture, summary: summary.into(), place: String::new(), body: Vec::new() };
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 4, ask }), now);
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    assert_eq!(effects, vec![Effect::AgentAnswer { id: 4, approved: true }]);
+    assert_eq!(state.agent.running, Some((4, summary.into())));
+    let notice = "Remote saved a capture of 12 packets to /work/capture.pcap".to_owned();
+    update(&mut state, Msg::Agent(AgentEvent::Finished { id: 4, notice: notice.clone() }), now);
+    assert_eq!((state.agent.running.clone(), state.notice.clone()), (None, Some(notice)));
+}
+
+#[test]
 fn the_connect_dialog_offers_borg_cloud_and_copies_the_command_picked() {
     use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());

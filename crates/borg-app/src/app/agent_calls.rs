@@ -11,7 +11,10 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 use tokio::sync::oneshot::Sender;
+mod capture;
 mod changes;
+
+pub(super) use capture::SavedCaptures;
 
 /// A tool call's text argument, unless it is missing or blank.
 fn text(call: &Call, key: &str) -> Option<String> {
@@ -63,6 +66,7 @@ impl App {
             "put" => self.put(call, reply),
             "screen" => self.show_screen(reply),
             "search_memory" => self.search_memory(call, reply),
+            "capture" => self.ask_to_capture(call, reply),
             "read" => self.read_for_agent(call, reply),
             "show" => self.show_spot(call, reply),
             "_show" => self.reveal_spot(call, reply),
@@ -271,9 +275,24 @@ impl App {
                     Err(error) => return fail(reply, error),
                 };
                 let find = call.args["find"].as_str().filter(|find| !find.is_empty()).map(str::to_owned);
+                let packet = match agent::packet_number(&call.args) {
+                    Ok(packet) => packet,
+                    Err(error) => return fail(reply, error),
+                };
                 let location = agent::locate(&self.state, &text(&call, "path").unwrap_or_else(|| ".".into()));
                 let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
                 self.agent.note(&format!("read {}", spot.uri()));
+                if let Spot::Host(path) = &spot
+                    && borg_core::is_capture(path)
+                {
+                    return self.read_capture(path.clone(), find, packet, agent::summary_rows(&call.args), reply);
+                }
+                if packet.is_some() {
+                    return fail(
+                        reply,
+                        format!("{} is not a capture: packet reads .pcap, .pcapng and .cap files", spot.uri()),
+                    );
+                }
                 tokio::spawn(async move { drop(reply.send(agent::read(spot, lines, find).await)) });
             }
         }

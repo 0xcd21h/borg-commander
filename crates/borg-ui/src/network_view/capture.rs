@@ -41,17 +41,10 @@ fn label(field: CaptureField) -> &'static str {
 }
 
 fn scope_label(network: &Network, scope: CaptureScope) -> String {
-    match scope {
-        CaptureScope::Port { transport, port } => tr!(capture_scope_port, protocol = transport.name(), port = port),
-        CaptureScope::Connection { transport, remote, .. } => {
-            tr!(capture_scope_connection, protocol = transport.name(), remote = super::endpoint(network, remote))
-        }
-        CaptureScope::Process { pid } => tr!(
-            capture_scope_process,
-            process = tr!(process_control_subject, name = network.name(Some(pid)), pid = pid)
-        ),
-        CaptureScope::Everything => tr!(capture_scope_everything).to_owned(),
-    }
+    scope.label(
+        |pid| tr!(process_control_subject, name = network.name(Some(pid)), pid = pid),
+        |remote| super::endpoint(network, remote),
+    )
 }
 
 fn duration_label(seconds: Option<u64>) -> String {

@@ -135,7 +135,8 @@ pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
 
 pub use network::{
     CAPTURE_FIELDS, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends,
-    HEADER_BYTES, HostRow, Recording, Talker, TrafficPage, TrafficView,
+    HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
+    capture_ask, capture_interfaces, is_capture,
 };
 pub use network::{
     CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,

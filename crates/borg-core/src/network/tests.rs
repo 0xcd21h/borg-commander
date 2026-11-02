@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ActivityData, Appearance, Elevation, InstallOffer, Installer, Msg, Overlay, PackageManager, ProcessInfo,
+    ActivityData, Appearance, AskKind, Elevation, InstallOffer, Installer, Msg, Overlay, PackageManager, ProcessInfo,
     ProcessKey, Settings, Startup, SystemSample, ThemeChoice, Tool, update,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -637,4 +637,46 @@ fn an_opened_capture_file_shows_its_hosts() {
     assert_eq!((view.page, view.path.as_ref()), (TrafficPage::Hosts, Some(&path)));
     press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
     assert!(!state.network.details_focused, "Enter on an empty list leaves the keys with it");
+}
+
+#[test]
+fn an_agent_capture_takes_the_interface_the_dialog_would() {
+    let network = measured("");
+    let postgres = CaptureScope::Port { transport: Transport::Tcp, port: 5432 };
+    assert_eq!(capture_interfaces(&network, postgres)[0], "lo0", "a port only this machine reaches is on loopback");
+    let ssh = CaptureScope::Connection {
+        transport: Transport::Tcp,
+        local: address("127.0.0.1:50000"),
+        remote: address("127.0.0.1:22"),
+    };
+    assert_eq!(capture_interfaces(&network, ssh)[0], "lo0");
+    assert_eq!(capture_interfaces(&network, CaptureScope::Everything)[0], "en0", "the busiest otherwise");
+}
+
+#[test]
+fn an_agent_capture_asks_with_what_the_dialog_shows() {
+    let request = CaptureRequest {
+        interface: "en0".into(),
+        seconds: Some(10),
+        headers_only: true,
+        filter: String::new(),
+        folder: PathBuf::from("/work"),
+    };
+    let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, String::new());
+    assert_eq!((ask.kind, ask.summary.as_str()), (AskKind::Capture, "capture on en0, 10 s"));
+    let lines: Vec<&str> = ask.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(
+        lines[..5],
+        [
+            "Traffic: All traffic, shown for browser · PID 8239",
+            "Interface: en0",
+            "Duration: 10 s",
+            "Keep: Headers, first 128 bytes of each packet",
+            "Saved as a .pcap file in /work",
+        ]
+    );
+    let port = CaptureScope::Port { transport: Transport::Udp, port: 53 };
+    let ask = capture_ask(port, None, &CaptureRequest { headers_only: false, ..request }, String::new());
+    assert_eq!(ask.body[0].text, "Traffic: UDP port 53 and its connections");
+    assert_eq!(ask.body[3].text, "Keep: Whole packets");
 }
