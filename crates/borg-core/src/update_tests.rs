@@ -3292,6 +3292,16 @@ fn keys_held_with_ctrl_or_alt_work_in_a_cyrillic_layout() {
 }
 
 #[test]
+fn keys_held_with_ctrl_work_in_other_non_latin_layouts() {
+    for (o, c) in [('ο', 'ψ'), ('ם', 'ב'), ('خ', 'ؤ'), ('ო', 'ც'), ('ㅐ', 'ㅊ'), ('น', 'แ')] {
+        let (mut state, now) = setup();
+        press(&mut state, now, ctrl(o));
+        assert_eq!(state.view, View::Shell, "{o}");
+        assert_eq!(writes(&press(&mut state, now, ctrl(c))), "\u{3}", "{c}");
+    }
+}
+
+#[test]
 fn letters_typed_on_the_command_line_stay_as_typed() {
     let (mut state, now) = setup();
     assert_eq!(writes(&press(&mut state, now, key(KeyCode::Char('т')))), "т");
