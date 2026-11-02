@@ -1,12 +1,12 @@
 //! The shell and its command line: showing it, typing the selection's names and the panels'
 //! folders into it or copying the names, and running programs and operations there.
 
-use std::time::Instant;
+use std::{path::Path, time::Instant};
 
 use borg_i18n::tr;
 
 use crate::{
-    AppState, Effect, Operation, PathOf, Side, View,
+    AppState, Effect, Operation, Panel, PathOf, Row, Side, View,
     command::CommandLine,
     state::REVEAL_DELAY,
     update::{prepare_shell, shell_ready},
@@ -40,9 +40,13 @@ pub(super) fn insert_newline(state: &mut AppState) -> Vec<Effect> {
 }
 
 /// Types the selected names into the command line; results come from several folders, so
-/// theirs go in as paths.
+/// theirs go in as paths, and so does the folder `..` stands for.
 pub(super) fn insert_names(state: &mut AppState, side: Side) -> Vec<Effect> {
     let panel = state.panel(side);
+    if let Some(parent) = hovered_parent(panel) {
+        let words = CommandLine::default().path(parent);
+        return type_words(state, words);
+    }
     let selected = panel.selection();
     if selected.is_empty() {
         return Vec::new();
@@ -56,6 +60,11 @@ pub(super) fn insert_names(state: &mut AppState, side: Side) -> Vec<Effect> {
         }
     });
     type_words(state, words)
+}
+
+/// The folder `..` stands for, while the cursor is on it and nothing is marked.
+fn hovered_parent(panel: &Panel) -> Option<&Path> {
+    (panel.marked_count() == 0 && panel.hovered() == Some(Row::Parent)).then(|| panel.dir().parent()).flatten()
 }
 
 /// Types the folder of the active or the other panel into the command line.

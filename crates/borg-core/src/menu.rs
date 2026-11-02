@@ -223,6 +223,7 @@ fn command_menu(state: &AppState) -> Menu {
             check(tr!(info), "C-l", Action::Info, state.aside == Some(crate::Aside::Info)),
             when(item(tr!(jobs), "M-j", Action::Jobs), !state.jobs.is_empty()),
             item(tr!(swap_panels), "C-u", Action::SwapPanels),
+            item(tr!(same_folder_in_other_panel), "M-o", Action::SameFolder),
             item(tr!(equal_panel_widths), "", Action::EqualizePanels),
             item(tr!(widen_left_panel), "M-S-→", Action::NudgeSplit(crate::keymap::SPLIT_STEP)),
             item(tr!(widen_right_panel), "M-S-←", Action::NudgeSplit(-crate::keymap::SPLIT_STEP)),
