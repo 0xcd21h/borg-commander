@@ -3,6 +3,7 @@ use crate::capture::{
     ACK, Capture, PSH,
     tests::{CLIENT, CLIENT_PORT, SERVER, over_tcp, over_udp, pcap, tcp, udp},
 };
+use borg_view::HexLayout;
 
 const SERVER_PORT: u16 = 80;
 const CLIENT_SEQ: u32 = 1000;

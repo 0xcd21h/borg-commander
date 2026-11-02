@@ -100,7 +100,6 @@ pub(crate) fn draw_file(peek: &Peek, look: &Look<'_>, base: Style, body: Rect, b
         Peek::Picture(image) => draw_halfblocks(&image.picture, body, buf),
         Peek::Text(pager) if pager.is_empty() => centered(tr!(empty_file), styles.meta, body, buf),
         Peek::Text(pager) => crate::document_view::draw(pager, base, crate::find_view::match_styles(styles), body, buf),
-        Peek::Binary => centered(tr!(binary_file), styles.meta, body, buf),
         Peek::Unavailable(reason) => {
             centered(&format::truncate_end(reason, usize::from(body.width)), styles.notice, body, buf);
         }
@@ -124,16 +123,22 @@ fn footer(peek: &Peek) -> Option<String> {
             let (width, height) = image.original;
             Some(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes)))
         }
-        Peek::Text(pager) => {
-            let keys = match pager.format() {
-                Some(borg_view::Format::Markdown) => tr!(s_source_render),
-                Some(borg_view::Format::Json) => tr!(s_source_pretty),
-                None => tr!(w_wrap),
-            };
-            Some(tr!(tab_focus, pager.percent(), keys))
-        }
-        Peek::Info(_) | Peek::Binary | Peek::Unavailable(_) => None,
+        Peek::Text(pager) => Some(tr!(tab_focus, pager.percent(), preview_keys(pager))),
+        Peek::Info(_) | Peek::Unavailable(_) => None,
     }
+}
+
+/// The keys the quick view's footer names for its text: hex rows have only `h` back to the text.
+fn preview_keys(pager: &borg_view::Pager) -> String {
+    if pager.hex() {
+        return tr!(h_text).to_owned();
+    }
+    let shown = match pager.format() {
+        Some(borg_view::Format::Markdown) => tr!(s_source_render),
+        Some(borg_view::Format::Json) => tr!(s_source_pretty),
+        None => tr!(w_wrap),
+    };
+    format!("{shown}{}", tr!(h_hex))
 }
 
 fn lines<'a>(rows: impl Iterator<Item = Line<'a>>, body: Rect, buf: &mut Buffer) {

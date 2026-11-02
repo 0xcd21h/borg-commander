@@ -109,7 +109,7 @@ pub use state::{
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
 };
 pub use update::update;
-pub use viewer::{Content, FoundInViewer, Image, Viewer, find_in, viewer_size};
+pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};
 
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
@@ -146,9 +146,8 @@ pub use network::{
 };
 
 pub use capture::{
-    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, HexLayout, Http,
-    Ip, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type,
-    hex_lines,
+    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, Http, Ip,
+    Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type,
 };
 
 pub use measure::SizeScan;

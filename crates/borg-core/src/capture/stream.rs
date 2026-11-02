@@ -3,10 +3,11 @@
 //! side speaking.
 
 use super::{
-    HexLayout, Packet,
+    Packet,
     decode::{Datagram, SYN, Tcp},
     flows::{Flow, FlowKind},
 };
+use borg_view::HexLayout;
 use std::{ops::Range, time::Duration};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -45,7 +46,7 @@ pub enum StreamRow<'a> {
     /// A turn begins.
     Turn(&'a Turn),
     /// A line of a turn's bytes, `offset` bytes into the turn.
-    Bytes { offset: usize, bytes: &'a [u8] },
+    Bytes { offset: u64, bytes: &'a [u8] },
 }
 
 /// Bytes one side sent, whole once the packet at `delivered` came, after `missing` bytes the
@@ -86,7 +87,7 @@ impl Stream {
 
     /// The layout of the widest dump that fits `width` cells.
     pub fn layout(&self, width: usize) -> HexLayout {
-        HexLayout::fitting(width, self.turns.iter().map(Turn::len).max().unwrap_or_default())
+        HexLayout::fitting(width, self.turns.iter().map(Turn::len).max().unwrap_or_default() as u64)
     }
 
     pub fn row_count(&self, layout: HexLayout) -> usize {
@@ -114,8 +115,8 @@ impl Stream {
                 let bytes = &self.bytes[turn.range.clone()];
                 let lines = bytes
                     .chunks(layout.columns)
-                    .enumerate()
-                    .map(move |(row, bytes)| StreamRow::Bytes { offset: row * layout.columns, bytes });
+                    .zip((0..).step_by(layout.columns))
+                    .map(|(bytes, offset)| StreamRow::Bytes { offset, bytes });
                 std::iter::once(StreamRow::Turn(turn)).chain(lines)
             })
             .skip(skip)
@@ -133,7 +134,7 @@ impl Stream {
 }
 
 fn turn_rows(turn: &Turn, layout: HexLayout) -> usize {
-    1 + layout.rows(turn.len())
+    1 + layout.rows(turn.len() as u64) as usize
 }
 
 fn datagram_pieces<'a>(flow: &Flow, packets: &'a [Packet]) -> Vec<Piece<'a>> {
