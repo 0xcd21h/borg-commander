@@ -1,5 +1,10 @@
 use borg_i18n::tr;
-use std::{io, ops::Range, path::PathBuf};
+use std::{
+    io,
+    ops::Range,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use borg_gfx::{Picture, is_picture};
 use borg_view::{Count, Pager, Query, Source};
@@ -12,6 +17,8 @@ use crate::{
 
 pub const STATUS_ROWS: u16 = 1;
 const WRAP_KEY: char = 'w';
+/// Switches between the text and the hex rows of a file, as in the memory monitor's preview.
+const HEX_KEY: char = 'h';
 const QUIT_KEY: char = 'q';
 const PAGE_KEY: char = ' ';
 const LINE: usize = 1;
@@ -37,9 +44,16 @@ pub enum Content {
     Image(Image),
 }
 
+/// What the viewer shows: a file, or bytes another screen hands it, by what they are.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Shown {
+    File(PathBuf),
+    Bytes(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct Viewer {
-    pub path: PathBuf,
+    pub shown: Shown,
     pub content: Content,
     pub find: FindBar,
     /// The search running in the background, by the id its answer comes with.
@@ -50,7 +64,19 @@ pub struct Viewer {
 
 impl Viewer {
     pub fn new(path: PathBuf, content: Content) -> Self {
-        Self { path, content, find: FindBar::default(), searching: None, origin: 0 }
+        Self::showing(Shown::File(path), content)
+    }
+
+    fn showing(shown: Shown, content: Content) -> Self {
+        Self { shown, content, find: FindBar::default(), searching: None, origin: 0 }
+    }
+
+    /// The file shown, when it is one.
+    pub fn path(&self) -> Option<&Path> {
+        match &self.shown {
+            Shown::File(path) => Some(path),
+            Shown::Bytes(_) => None,
+        }
     }
 }
 
@@ -112,6 +138,17 @@ fn is_close(code: KeyCode) -> bool {
     matches!(code, KeyCode::Esc | KeyCode::F(3 | 10) | KeyCode::Char(QUIT_KEY))
 }
 
+pub(crate) fn is_hex_key(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Char(c) if c.eq_ignore_ascii_case(&HEX_KEY))
+}
+
+/// Whether `code` shows the pager another source, which a search running through the one shown
+/// would find nothing on: a formatted document's source, or its file's bytes in hex.
+fn switches_source(content: &Content, code: KeyCode) -> bool {
+    matches!(code, KeyCode::Char('s') | KeyCode::F(4))
+        || is_hex_key(code) && matches!(content, Content::Text(pager) if pager.formatted())
+}
+
 pub(crate) fn open(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
     state.landing = None;
     show(state, path)
@@ -129,12 +166,22 @@ fn show(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
     if let Some(Peeked { aside: Aside::QuickView, path: shown, peek: Peek::Text(pager), .. }) = &state.peeked
         && *shown == path
     {
-        state.viewer = Some(Viewer::new(path, Content::Text(pager.clone())));
-        state.opening = None;
-        resize(state);
-        return land(state);
+        let viewer = Viewer::new(path, Content::Text(pager.clone()));
+        return present(state, viewer);
     }
     vec![request(state, path)]
+}
+
+/// Shows `bytes` another screen hands the viewer, named `name`, as hex rows.
+pub(crate) fn open_bytes(state: &mut AppState, name: String, bytes: Vec<u8>) {
+    let (width, height) = viewer_size(state.cols, state.rows);
+    state.opening = None;
+    state.landing = None;
+    let hex = Pager::new(Arc::new(bytes), width, height).and_then(|mut pager| pager.toggle_hex().map(|()| pager));
+    match hex {
+        Ok(pager) => state.viewer = Some(Viewer::showing(Shown::Bytes(name), Content::Text(pager))),
+        Err(error) => state.notice = Some(tr!(viewer_error, error = error)),
+    }
 }
 
 /// Asks to load `path` for the viewer, on the match it lands on, so that the load colours the
@@ -146,11 +193,29 @@ pub(crate) fn request(state: &mut AppState, path: PathBuf) -> Effect {
     Effect::View { path, at }
 }
 
-/// Shows a loaded file, if the viewer still waits for it.
-pub(crate) fn opened(state: &mut AppState, viewer: Viewer) -> Vec<Effect> {
-    if state.opening.as_ref() != Some(&viewer.path) {
+/// Shows a loaded file, if the viewer still waits for it, a binary file as hex rows.
+pub(crate) fn opened(state: &mut AppState, mut viewer: Viewer) -> Vec<Effect> {
+    if state.opening.as_deref() != viewer.path() {
         return Vec::new();
     }
+    if let Content::Text(pager) = &mut viewer.content
+        && let Err(error) = binary_as_hex(pager)
+    {
+        state.opening = None;
+        state.landing = None;
+        state.notice = Some(tr!(viewer_error, error = error));
+        return Vec::new();
+    }
+    present(state, viewer)
+}
+
+/// Shows a freshly read file as hex rows when it looks binary, with its text a key away.
+pub(crate) fn binary_as_hex(pager: &mut Pager) -> io::Result<()> {
+    if pager.binary() && !pager.hex() { pager.toggle_hex() } else { Ok(()) }
+}
+
+/// Puts `viewer` in front, on the match it lands on.
+fn present(state: &mut AppState, viewer: Viewer) -> Vec<Effect> {
     state.opening = None;
     state.viewer = Some(viewer);
     resize(state);
@@ -169,7 +234,7 @@ pub(crate) fn failed(state: &mut AppState, path: PathBuf, notice: String) {
 /// in the file's source, where the offset was counted.
 fn land(state: &mut AppState) -> Vec<Effect> {
     let Some(landing) = state.landing.take() else { return Vec::new() };
-    let Some(viewer) = state.viewer.as_mut().filter(|viewer| viewer.path == landing.path) else {
+    let Some(viewer) = state.viewer.as_mut().filter(|viewer| viewer.path() == Some(landing.path.as_path())) else {
         return Vec::new();
     };
     let Content::Text(pager) = &mut viewer.content else { return Vec::new() };
@@ -184,7 +249,7 @@ fn land(state: &mut AppState) -> Vec<Effect> {
 
 fn close(state: &mut AppState) {
     state.opening = None;
-    if let Some(Viewer { path, content: Content::Text(mut pager), .. }) = state.viewer.take()
+    if let Some(Viewer { shown: Shown::File(path), content: Content::Text(mut pager), .. }) = state.viewer.take()
         && state.aside == Some(Aside::QuickView)
         && crate::aside::hovered_path(state).as_ref() == Some(&path)
     {
@@ -217,14 +282,18 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     viewer.find.note = None;
     viewer.find.count = None;
     let mut effects = Vec::new();
-    if matches!(key.code, KeyCode::Char('s') | KeyCode::F(4)) && viewer.searching.is_some() {
+    if switches_source(&viewer.content, key.code) && viewer.searching.is_some() {
         effects = stop(viewer);
     }
     if is_close(key.code) {
         effects.extend(stop(viewer));
     }
     let Content::Text(pager) = &mut viewer.content else { return effects };
-    let result = if is_close(key.code) { Ok(false) } else { scroll(pager, key.code).map(|()| true) };
+    let result = match key.code {
+        code if is_close(code) => Ok(false),
+        code if is_hex_key(code) => pager.toggle_hex().map(|()| true),
+        code => scroll(pager, code).map(|()| true),
+    };
     finish(state, result);
     effects
 }
@@ -388,7 +457,7 @@ fn on_image_key(state: &mut AppState, code: KeyCode) -> Vec<Effect> {
 
 fn sibling(state: &mut AppState, step: Step) -> Option<PathBuf> {
     // Stepping again before a picture loads goes on from the one loading.
-    let current = state.opening.clone().or_else(|| state.viewer.as_ref().map(|viewer| viewer.path.clone()))?;
+    let current = state.opening.clone().or_else(|| state.viewer.as_ref()?.path().map(Path::to_path_buf))?;
     let panel = state.panels.get_mut(state.active.index())?;
     let pictures: Vec<PathBuf> = panel
         .visible_entries()

@@ -25,8 +25,6 @@ pub use stream::{Stream, StreamRow, Turn};
 
 /// The most packets Borg reads from one capture; the rest are counted and left out.
 pub const PACKET_LIMIT: usize = 200_000;
-/// Bytes on each line of a full hex dump.
-const HEX_WIDTH: usize = 16;
 /// What a DNS answer code says when the name does not exist.
 const DNS_NO_NAME: u16 = 3;
 const DNS_NO_NAME_LABEL: &str = "NXDOMAIN";
@@ -187,72 +185,6 @@ fn dns_summary(dns: &Dns) -> String {
         })
         .collect();
     if answers.is_empty() { asked } else { format!("{asked} → {}", answers.join(", ")) }
-}
-
-const OFFSET_DIGITS: usize = 4;
-const HEX_GAP: usize = 2;
-/// Cells a byte takes in hex, with the space before the next.
-const HEX_CELLS: usize = 3;
-const HEX_DIGIT_BITS: u32 = 4;
-const FEWEST_BYTES: usize = 1;
-/// Bytes on a line of a dump, from the most to the fewest, for its lines to fit their width.
-const LINE_BYTES: [usize; 5] = [HEX_WIDTH, 8, 4, 2, FEWEST_BYTES];
-
-/// How a hex dump lays out its lines: the bytes on each, and the digits of their offsets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HexLayout {
-    pub columns: usize,
-    pub digits: usize,
-}
-
-impl HexLayout {
-    /// `HEX_WIDTH` bytes a line, for a dump of `len` bytes.
-    pub fn full(len: usize) -> Self {
-        Self { columns: HEX_WIDTH, digits: offset_digits(len) }
-    }
-
-    /// The most bytes a line, up to `HEX_WIDTH`, whose lines fit `width` cells, for a dump of
-    /// `len` bytes.
-    pub fn fitting(width: usize, len: usize) -> Self {
-        let digits = offset_digits(len);
-        let fits = |columns: usize| Self { columns, digits }.width() <= width;
-        Self { columns: LINE_BYTES.into_iter().find(|&columns| fits(columns)).unwrap_or(FEWEST_BYTES), digits }
-    }
-
-    /// Cells a line takes: its offset, its bytes in hex and the bytes that print as text.
-    pub fn width(self) -> usize {
-        self.digits + HEX_GAP + self.hex_cells() + HEX_GAP + self.columns
-    }
-
-    pub fn rows(self, len: usize) -> usize {
-        len.div_ceil(self.columns)
-    }
-
-    /// The line of `bytes`, found `offset` bytes into the dump.
-    pub fn line(self, offset: usize, bytes: &[u8]) -> String {
-        let hex: Vec<String> = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let printed: String = bytes
-            .iter()
-            .map(|&byte| if byte.is_ascii_graphic() || byte == b' ' { char::from(byte) } else { '.' })
-            .collect();
-        let (digits, cells) = (self.digits, self.hex_cells());
-        format!("{offset:0digits$x}{:HEX_GAP$}{:<cells$}{:HEX_GAP$}{printed}", "", hex.join(" "), "")
-    }
-
-    fn hex_cells(self) -> usize {
-        self.columns * HEX_CELLS - 1
-    }
-}
-
-/// Hex digits for the offsets of a dump of `len` bytes, at least `OFFSET_DIGITS`.
-fn offset_digits(len: usize) -> usize {
-    let bits = usize::BITS - len.saturating_sub(1).leading_zeros();
-    (bits.div_ceil(HEX_DIGIT_BITS) as usize).max(OFFSET_DIGITS)
-}
-
-/// Bytes as a hex dump laid out as `layout` says.
-pub fn hex_lines(data: &[u8], layout: HexLayout) -> Vec<String> {
-    data.chunks(layout.columns).enumerate().map(|(row, chunk)| layout.line(row * layout.columns, chunk)).collect()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

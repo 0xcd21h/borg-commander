@@ -54,7 +54,6 @@ pub enum Peek {
     Picture(Image),
     Folder { folders: usize, files: usize, bytes: u64, entries: Vec<Entry> },
     Info(Facts),
-    Binary,
     Unavailable(String),
 }
 
@@ -149,7 +148,7 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
     Some(Effect::Peek { aside, path, at, size })
 }
 
-pub(crate) fn receive(state: &mut AppState, peeked: Peeked) {
+pub(crate) fn receive(state: &mut AppState, mut peeked: Peeked) {
     if peeked.aside == Aside::OpenFile {
         return crate::activity::receive_file_preview(&mut state.activity, peeked);
     }
@@ -157,6 +156,11 @@ pub(crate) fn receive(state: &mut AppState, peeked: Peeked) {
         *aside == peeked.aside && *path == peeked.path && *at == peeked.at
     };
     if state.peeking.as_ref().is_some_and(asked) {
+        if let Peek::Text(pager) = &mut peeked.peek
+            && let Err(error) = crate::viewer::binary_as_hex(pager)
+        {
+            state.notice = Some(tr!(preview_error, error = error));
+        }
         state.peeking = None;
         state.peeked = Some(peeked);
     }
@@ -183,11 +187,17 @@ pub(crate) fn on_key(state: &mut AppState, key: &crossterm::event::KeyEvent, now
         }
         _ => {
             if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
-                && let Err(error) = crate::viewer::scroll(pager, key.code)
+                && let Err(error) = preview_key(pager, crate::keyboard::latin(key).code)
             {
                 state.notice = Some(tr!(preview_error, error = error));
             }
         }
     }
     Vec::new()
+}
+
+/// What a key does to the text the quick view shows: `h` turns hex rows on or off, and the other
+/// keys scroll it as in the viewer.
+fn preview_key(pager: &mut Pager, code: crossterm::event::KeyCode) -> io::Result<()> {
+    if crate::viewer::is_hex_key(code) { pager.toggle_hex() } else { crate::viewer::scroll(pager, code) }
 }

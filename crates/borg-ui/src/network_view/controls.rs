@@ -89,7 +89,8 @@ fn traffic_hint(network: &Network, view: &TrafficView) -> &'static str {
     }
     match view.page {
         TrafficPage::Processes => tr!(traffic_pid_hint),
-        TrafficPage::Hosts | TrafficPage::Connections => tr!(traffic_address_hint),
+        TrafficPage::Hosts => tr!(traffic_address_hint),
+        TrafficPage::Connections => tr!(traffic_connection_hint),
         TrafficPage::Packets => tr!(traffic_packets_hint),
     }
 }

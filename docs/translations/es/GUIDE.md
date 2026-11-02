@@ -883,12 +883,12 @@ del terminal cuando lo hay; los demás terminales muestran la imagen como bloque
 Ctrl-Q muestra una vista previa rápida en el otro panel. Tab entra en ella, donde las flechas,
 PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos. Ctrl-L
 muestra la información del archivo. F3 abre una vista previa de texto en el visor completo, y al
-cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea y el modo de
-código fuente. Ambos leen los archivos de la misma forma limitada, así que abrir un archivo de texto
-grande solo lee aproximadamente la primera página y es rápido sea cual sea su tamaño. En un
-resultado de una búsqueda de texto, la vista previa se abre en cambio en la primera coincidencia del
-archivo, con la consulta marcada como la marca la barra de búsqueda, y solo lee alrededor de esa
-coincidencia.
+cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea, el modo de
+código fuente y las filas hexadecimales. Ambos leen los archivos de la misma forma limitada, así que
+abrir un archivo de texto grande solo lee aproximadamente la primera página y es rápido sea cual sea
+su tamaño. En un resultado de una búsqueda de texto, la vista previa se abre en cambio en la primera
+coincidencia del archivo, con la consulta marcada como la marca la barra de búsqueda, y solo lee
+alrededor de esa coincidencia.
 
 Los dos visores de texto resaltan los lenguajes de programación, de marcado y los archivos de
 configuración más comunes, entre ellos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java,
@@ -903,6 +903,17 @@ exactamente como están escritos, lo que ayuda sobre todo con archivos escritos 
 Pulsa `s` o F4 para ver el archivo tal como está escrito. Los archivos JSON Lines (`.jsonl`,
 `.ndjson`) se organizan registro a registro. El JSON de más de 16 MiB, o que no se puede analizar,
 se abre tal como está escrito.
+
+Pulsa `h` en el visor de texto o en la vista previa para ver los bytes del archivo en filas
+hexadecimales y vuelve a pulsarla para volver al texto. Un archivo binario, que Borg reconoce por un
+byte a cero en sus primeros 4 KiB, se abre en filas hexadecimales en ambos, y `h` muestra su texto.
+Cada fila empieza con su posición en el archivo y luego muestra sus bytes en hexadecimal y los
+mismos bytes como texto, con un punto en cada byte que no se puede imprimir. Las posiciones y los
+bytes a cero se ven atenuados. Una fila tiene 16 bytes, o 8, 4, 2 o 1 cuando no hay espacio para 16.
+Borg lee solo las filas que hay en pantalla, así que las flechas, PgUp/PgDn, Space, Home y End
+recorren al instante un archivo de varios gigabytes. La barra de búsqueda también funciona en las
+filas hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos
+Markdown y JSON muestran los bytes tal como están escritos.
 
 ### Editor
 
@@ -1420,15 +1431,17 @@ para cada forma de mirarla:
   con los bytes retransmitidos contados una sola vez, en un volcado hexadecimal con los bytes que se
   imprimen como texto al lado. El flujo se divide en turnos, cada uno con una flecha que indica su
   sentido, los bytes que contiene y cuándo llegó. Cuando a la captura le faltan bytes antes de un
-  turno, ese turno dice cuántos faltan. **]** y **[** saltan al turno siguiente y al anterior, y
-  Enter muestra los paquetes de la conversación uno a uno. Cuando Borg tiene las claves TLS de la
-  conexión, el flujo muestra lo que llevaban sus registros cifrados (consulta
-  [Descifrar TLS](#decrypting-tls)).
+  turno, ese turno dice cuántos faltan. **]** y **[** saltan al turno siguiente y al anterior. F3
+  muestra el flujo entero como filas hexadecimales en el visor, con sus turnos uno tras otro, para
+  recorrerlo y buscar en él. Enter muestra los paquetes de la conversación uno a uno. Cuando Borg
+  tiene las claves TLS de la conexión, el flujo muestra lo que llevaban sus registros cifrados
+  (consulta [Descifrar TLS](#decrypting-tls)).
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
-  detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y
-  sus bytes en un volcado hexadecimal. Un volcado pone 16 bytes en cada línea, y menos en un panel
-  estrecho, para que el texto siga cabiendo al lado.
+  detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y sus
+  bytes en un volcado hexadecimal. Un volcado pone 16 bytes en cada línea, y menos en un panel
+  estrecho, para que el texto siga cabiendo al lado. F3 muestra los bytes del paquete como filas
+  hexadecimales en el visor.
 
 | Tecla | Acción |
 | --- | --- |
@@ -1437,6 +1450,7 @@ para cada forma de mirarla:
 | ] / [ | En los detalles de una conexión, saltar al turno siguiente o anterior del flujo |
 | `/` | Filtrar las filas, como en las páginas en vivo |
 | Ctrl-C | Copiar el PID, la dirección, el otro extremo o los bytes del paquete en hex |
+| F3 | Mostrar el flujo de la conexión o los bytes del paquete como filas hexadecimales en el visor |
 | Tab | Pasar entre la lista y los detalles, donde ↑↓ desplazan |
 | Esc | Volver a la lista, luego subir un nivel, luego borrar el filtro y luego volver a la pantalla en vivo |
 

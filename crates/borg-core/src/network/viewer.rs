@@ -3,8 +3,9 @@
 //! other.
 
 use super::{NetworkFilter, Socket, Transport, filter::Haystack, service};
-use crate::{Capture, Flow, FlowKind, HexLayout, Packet, Stream};
+use crate::{Capture, Flow, FlowKind, Packet, Stream};
 use borg_i18n::tr;
+use borg_view::HexLayout;
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, HashMap},
@@ -463,8 +464,8 @@ impl TrafficView {
             TrafficPage::Hosts => self.host_row().map_or(0, |row| row.flows.len()),
             TrafficPage::Connections => self.stream().map_or(0, |stream| stream.row_count(stream.layout(width))),
             TrafficPage::Packets => self.packet().map_or(0, |(_, packet)| {
-                let length = packet.data.len();
-                HexLayout::fitting(width, length).rows(length)
+                let length = packet.data.len() as u64;
+                HexLayout::fitting(width, length).rows(length) as usize
             }),
         }
     }

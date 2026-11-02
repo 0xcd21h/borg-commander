@@ -289,6 +289,48 @@ fn viewer_marks_matches_and_steps_through_them() -> Result<()> {
     check("viewer_find_closed", &stage, buffer)
 }
 
+/// A small made-up binary: a header, zeros, a table of offsets and the text of its help.
+fn binary_sample() -> Vec<u8> {
+    let mut bytes = b"BORGIMG\0\x01\x02\x00\x00\x10\x00\x00\x00".to_vec();
+    bytes.extend([0; 40]);
+    bytes.extend((0..24u8).flat_map(|i| [i.wrapping_mul(37), 0x80 | i, 0, 0]));
+    bytes.extend(b"usage: tool [--verbose] <file>\n\tprints the image's header\n");
+    bytes.extend((0..=255u8).rev());
+    bytes
+}
+
+#[test]
+fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
+    use std::sync::Arc;
+
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow")] {
+        let mut stage = stage(size, Motion::STILL)?;
+        let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+        let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+        opened(
+            &mut stage,
+            borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)),
+        );
+        stage.send(key(KeyCode::Char('h')));
+        let buffer = stage.render(stage.started)?;
+        ensure_text(&buffer, "0000  42 4f 52 47")?;
+        check(name, &stage, buffer)?;
+    }
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+    opened(&mut stage, borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)));
+    stage.send(key(KeyCode::Char('h'))).send(key(KeyCode::F(7)));
+    for msg in chars("verbose") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 1 · n next · N previous")?;
+    check("viewer_hex_find", &stage, buffer)
+}
+
 #[test]
 fn viewer_lays_out_json_written_on_one_line() -> Result<()> {
     use std::sync::Arc;
@@ -696,7 +738,7 @@ fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
 
 /// Shows `viewer` as if the file it holds had been asked for and loaded.
 fn opened(stage: &mut Stage, viewer: borg_core::Viewer) {
-    stage.state.opening = Some(viewer.path.clone());
+    stage.state.opening = viewer.path().map(PathBuf::from);
     stage.send(Msg::Opened(viewer));
 }
 
@@ -921,6 +963,30 @@ fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
     stage.send(key(KeyCode::F(8)));
     let (_, placements) = stage.compose(stage.started)?;
     anyhow::ensure!(placements.is_empty(), "a dialog hides the picture when cells cannot cover it");
+    Ok(())
+}
+
+#[test]
+fn quick_view_shows_a_binary_as_hex_rows_and_h_shows_its_text() -> Result<()> {
+    let files = vec![
+        entry("bin", EntryKind::Dir, 4096, RECENT, false),
+        entry("image.bin", EntryKind::File, binary_sample().len() as u64, RECENT, false),
+        entry("notes.txt", EntryKind::File, 310, OLD, false),
+    ];
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, files, CLOCK)?;
+    hover(&mut stage, "image.bin");
+    stage.send(ctrl('q'));
+    let path = std::path::Path::new("image.bin");
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(binary_sample()), path, 43, 15)?;
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0000  42 4f 52 47 49 4d 47 00  BORGIMG.")?;
+    ensure_text(&buffer, "Tab focus · h text")?;
+    check("quick_view_hex", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('h'))).send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Tab focus · w wrap · h hex")?;
     Ok(())
 }
 
@@ -3061,8 +3127,8 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
 
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
 /// the browser, where Enter goes from the process to its connections, whose bytes ] steps
-/// through by turn, and on to one connection's packets, and Esc comes back the same way to
-/// every process and the hosts.
+/// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes
+/// back the same way to every process and the hosts.
 #[test]
 fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
     use borg_core::{Capture, Effect, TrafficPage};
@@ -3100,6 +3166,13 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     ensure_text(&buffer, "← Received ")?;
     ensure_text(&buffer, "[ ] Turn")?;
     check("traffic_stream_turn", &stage, buffer)?;
+
+    stage.send(key(KeyCode::F(3)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "h text")?;
+    check("traffic_stream_viewer", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.viewer.is_none(), "Esc goes back to the stream");
 
     stage
         .send(key(KeyCode::Tab))

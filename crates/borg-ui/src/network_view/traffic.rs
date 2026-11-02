@@ -12,8 +12,9 @@ use crate::{
     format,
     look::Look,
 };
-use borg_core::{HexLayout, Network, StreamRow, TrafficPage, TrafficView, Turn, hex_lines, service};
+use borg_core::{Network, StreamRow, TrafficPage, TrafficView, Turn, service};
 use borg_i18n::{Count, count, tr};
+use borg_view::HexLayout;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use std::{fmt::Write, net::IpAddr, time::Duration};
 use unicode_width::UnicodeWidthStr;
@@ -641,8 +642,8 @@ fn packet_lines(view: &TrafficView, width: usize) -> Vec<Detail> {
     lines.extend(packet.layer_rows().into_iter().map(|(label, value)| scrolling(label, value, Tone::Plain)));
     lines.push(scrolling("", "", Tone::Plain));
     lines.push(scrolling("", tr!(traffic_bytes_column), Tone::Heading));
-    let layout = HexLayout::fitting(width, packet.data.len());
-    lines.extend(hex_lines(&packet.data, layout).into_iter().map(|line| scrolling("", line, Tone::Code)));
+    let layout = HexLayout::fitting(width, packet.data.len() as u64);
+    lines.extend(layout.lines(&packet.data).into_iter().map(|line| scrolling("", line, Tone::Code)));
     lines
 }
 

@@ -533,38 +533,6 @@ fn dns_names_follow_pointers_and_stop_at_loops() {
     assert_eq!(apps::dns(&message, false).map(|dns| dns.questions), None);
 }
 
-#[test]
-fn a_hex_dump_gives_offsets_bytes_and_their_text() {
-    let data: Vec<u8> = b"GET / HTTP/1.1\r\nHost".to_vec();
-    let layout = HexLayout::full(data.len());
-    let lines = hex_lines(&data, layout);
-    assert_eq!(lines.len(), 2);
-    assert_eq!(lines[0], "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
-    assert_eq!(lines[1], format!("0010  {:<47}  Host", "48 6f 73 74"));
-    assert_eq!(lines[0].len(), layout.width());
-}
-
-#[test]
-fn a_narrow_dump_puts_fewer_bytes_on_a_line_and_keeps_their_text() {
-    assert_eq!(HexLayout::fitting(80, 100).columns, 16);
-    assert_eq!(HexLayout::fitting(64, 100).columns, 8);
-    assert_eq!(HexLayout::fitting(30, 100).columns, 4);
-    assert_eq!(HexLayout::fitting(0, 100).columns, 1);
-    let layout = HexLayout::fitting(64, 100);
-    assert_eq!(
-        hex_lines(b"GET / HTTP/1.1", layout),
-        ["0000  47 45 54 20 2f 20 48 54  GET / HT", "0008  54 50 2f 31 2e 31        TP/1.1"]
-    );
-}
-
-#[test]
-fn offsets_of_a_long_dump_get_the_digits_they_need() {
-    assert_eq!(HexLayout::full(0).digits, 4);
-    assert_eq!(HexLayout::full(0x1_0000).digits, 4);
-    assert_eq!(HexLayout::full(0x1_0001).digits, 5);
-    assert_eq!(HexLayout::full(0x1_0001).line(0x1_0000, b"A"), format!("10000  41{:45}  A", ""));
-}
-
 /// Key log lines for the connection `client_hello` begins, and for one the captures lack.
 fn key_log() -> String {
     format!("# keys\nCLIENT_RANDOM {} {}\nCLIENT_RANDOM {} 02\n", "07".repeat(32), "01".repeat(48), "08".repeat(32))
