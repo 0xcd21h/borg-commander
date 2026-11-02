@@ -84,7 +84,7 @@ impl App {
             Effect::SetRelay(text) => self.set_relay(&text),
             Effect::ForgetComputers => self.forget_computers(),
             Effect::AgentAnswer { id, approved } => return self.agent_answer(id, approved),
-            Effect::View(path) => self.open_viewer(path),
+            Effect::View { path, at } => self.open_viewer(path, at),
             Effect::FindInViewer { id, query, from, direction, count } => {
                 self.find_in_viewer(id, query, from, direction, count)
             }

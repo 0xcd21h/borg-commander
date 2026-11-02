@@ -308,7 +308,7 @@ fn a_regular_open_file_previews_under_its_details_scrolls_and_opens_in_the_viewe
     send(&mut state, KeyCode::Down);
     assert!(offset(&state) > 0, "the focused preview scrolls");
     assert_eq!(state.activity.file_cursor, 1, "the selection stays");
-    assert!(matches!(&send(&mut state, KeyCode::F(3))[..], [Effect::View(shown)] if *shown == path));
+    assert!(matches!(&send(&mut state, KeyCode::F(3))[..], [Effect::View { path: shown, at: None }] if *shown == path));
     send(&mut state, KeyCode::Tab);
     send(&mut state, KeyCode::Up);
     assert!(state.activity.file_preview.is_none());

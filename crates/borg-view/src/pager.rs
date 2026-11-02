@@ -70,6 +70,15 @@ struct Formatted {
     rendered: Option<Arc<RichText>>,
     raw_top: Position,
     formatted_top: Position,
+    /// The colours of the view not shown, kept for when it shows again.
+    hidden: Colours,
+}
+
+/// A view's colours and the places colouring it can carry on from.
+#[derive(Clone, Default)]
+struct Colours {
+    decoration: Option<Arc<RichText>>,
+    resumes: Vec<(u64, paint::Resume)>,
 }
 
 /// The language a document is coloured as, and the places colouring can carry on from, by
@@ -205,8 +214,10 @@ impl Pager {
                     rendered,
                     raw_top: top,
                     formatted_top: top,
+                    hidden: Colours::default(),
                 }));
                 pager.formatted = true;
+                pager.colour_source()?;
             }
         }
         pager.refresh()?;
@@ -241,13 +252,28 @@ impl Pager {
             self.top = document.formatted_top;
             self.source = document.text.clone();
         }
-        self.formatted = !self.formatted;
-        self.decoration = None;
-        self.current = None;
+        let shown = Colours {
+            decoration: self.decoration.take(),
+            resumes: self.syntax.as_mut().map(|syntax| std::mem::take(&mut syntax.resumes)).unwrap_or_default(),
+        };
+        let Colours { decoration, resumes } = std::mem::replace(&mut document.hidden, shown);
+        self.decoration = decoration;
         if let Some(syntax) = self.syntax.as_mut() {
-            syntax.resumes.clear();
+            syntax.resumes = resumes;
         }
+        self.formatted = !self.formatted;
+        self.current = None;
         self.refresh()
+    }
+
+    /// Colours the first page of a formatted document's source as the document opens, so that
+    /// showing the source later finds its colours ready and the patterns of its syntax built.
+    fn colour_source(&mut self) -> io::Result<()> {
+        if self.syntax.is_none() {
+            return Ok(());
+        }
+        self.toggle_source()?;
+        self.toggle_source()
     }
 
     pub fn rows(&self) -> &[String] {

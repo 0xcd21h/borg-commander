@@ -1007,7 +1007,7 @@ fn enter_on_regular_file_opens_viewer() {
     let (mut state, now) = setup_with(vec![file("log.txt")]);
     press(&mut state, now, key(KeyCode::Down));
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    assert_eq!(effects, vec![Effect::View(PathBuf::from("/home/log.txt"))]);
+    assert_eq!(effects, vec![Effect::View { path: PathBuf::from("/home/log.txt"), at: None }]);
 }
 
 #[test]
@@ -1173,7 +1173,8 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
     assert_eq!(results.line(Path::new("/home/log")), Some(&line));
     assert_eq!(state.active_panel().hovered_entry().map(|entry| entry.identity()), Some(Path::new("/home/log")));
 
-    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View(PathBuf::from("/home/log"))]);
+    let at = Some(crate::FirstMatch { query: query.clone(), offset: 24 });
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View { path: PathBuf::from("/home/log"), at }]);
     let content: Vec<u8> = (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
@@ -1244,7 +1245,8 @@ fn a_contents_match_the_editor_leaves_to_the_viewer_opens_there_on_the_match() {
     let slot = crate::EditorSlot::Screen;
     crate::editor::open_at(&mut state, path.clone(), slot, query.clone(), 9);
     let effects = update(&mut state, Msg::EditorOpened(slot, Err(crate::OpenError::TooLarge(path.clone()))), now);
-    assert_eq!(effects, [Effect::View(path.clone())]);
+    let at = Some(crate::FirstMatch { query: query.clone(), offset: 9 });
+    assert_eq!(effects, [Effect::View { path: path.clone(), at }]);
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(b"haystack\nneedle\n".to_vec()), width, height).unwrap();
     let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
@@ -1431,8 +1433,9 @@ fn landing_on_a_contents_match_in_markdown_shows_the_source_where_the_offset_was
     let (mut state, now) = setup();
     let path = PathBuf::from("/home/plan.md");
     let query = borg_view::Query { text: "release".into(), words: true, ..Default::default() };
-    let effects = crate::viewer::open_at(&mut state, path.clone(), query, 17);
-    assert_eq!(effects, [Effect::View(path.clone())]);
+    let effects = crate::viewer::open_at(&mut state, path.clone(), query.clone(), 17);
+    let at = Some(crate::FirstMatch { query, offset: 17 });
+    assert_eq!(effects, [Effect::View { path: path.clone(), at }], "the load lands on the match");
     let source = b"# Plan\n\nShip the release.\nThen send the Release notes.\n".to_vec();
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::for_path(std::sync::Arc::new(source), &path, width, height).unwrap();
@@ -1593,12 +1596,15 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
     image_viewer(&mut state, "a.png", now);
 
     let next = press(&mut state, now, key(KeyCode::Right));
-    assert_eq!(next, vec![Effect::View(PathBuf::from("/home/c.jpg"))]);
+    assert_eq!(next, vec![Effect::View { path: PathBuf::from("/home/c.jpg"), at: None }]);
     assert!(matches!(state.active_panel().hovered(), Some(crate::Row::Entry(entry)) if entry.name == "c.jpg"));
 
     image_viewer(&mut state, "d.gif", now);
     assert!(press(&mut state, now, key(KeyCode::Right)).is_empty());
-    assert_eq!(press(&mut state, now, key(KeyCode::Left)), vec![Effect::View(PathBuf::from("/home/c.jpg"))]);
+    assert_eq!(
+        press(&mut state, now, key(KeyCode::Left)),
+        vec![Effect::View { path: PathBuf::from("/home/c.jpg"), at: None }]
+    );
 
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.viewer.is_none());
@@ -1627,7 +1633,7 @@ fn a_picture_loaded_after_the_viewer_gave_it_up_stays_away() {
     assert_eq!(shown(&state), Some(path("c.gif")), "an earlier load that arrives late is dropped");
     press(&mut state, now, key(KeyCode::Esc));
 
-    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), vec![Effect::View(path("c.gif"))]);
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), vec![Effect::View { path: path("c.gif"), at: None }]);
     press(&mut state, now, key(KeyCode::Esc));
     update(&mut state, loaded(path("c.gif")), now);
     assert_eq!(shown(&state), None, "Esc in the panels gives up a file still opening");
@@ -2008,7 +2014,10 @@ fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
             press(&mut state, now, key(KeyCode::Tab));
         }
         let effects = press(&mut state, now, key(KeyCode::F(3)));
-        assert!(!effects.iter().any(|effect| matches!(effect, Effect::View(_))), "F3 must reuse the loaded document");
+        assert!(
+            !effects.iter().any(|effect| matches!(effect, Effect::View { .. })),
+            "F3 must reuse the loaded document"
+        );
         let pager = text(state.viewer.as_ref().unwrap());
         assert_eq!(pager.offset(), offset);
         assert!(!pager.formatted());
@@ -2476,7 +2485,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     let id = state.docker.files.last().unwrap().id;
     let effects =
         update(&mut state, Msg::Docker { id, result: Ok(crate::DockerData::Fetched("/run/motd".into())) }, now);
-    assert_eq!(effects, [Effect::View("/run/motd".into())]);
+    assert_eq!(effects, [Effect::View { path: "/run/motd".into(), at: None }]);
 
     crate::actions::perform(&mut state, Action::Delete, now);
     let effects = press(&mut state, now, key(KeyCode::Enter));

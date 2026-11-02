@@ -179,3 +179,26 @@ fn paging_down_far_into_a_file_carries_colouring_on_instead_of_starting_again_ab
     }
     assert_eq!(view.decoration.as_ref().unwrap().base, base, "moving down colours only the new text");
 }
+
+#[test]
+fn a_formatted_documents_source_is_coloured_as_it_opens_and_each_view_keeps_its_colours() {
+    for (name, text) in [
+        ("guide.md", "# Guide\n\nSome `code` and a [link](https://example.com).\n"),
+        ("data.json", "{\"name\":\"borg\",\"tags\":[\"one\",\"two\"],\"size\":42}\n"),
+    ] {
+        let source: Arc<dyn Source> = Arc::new(text.as_bytes().to_vec());
+        let mut view = Pager::for_path(source, Path::new(name), 40, 8).unwrap_or_else(|e| panic!("{e}"));
+        assert!(view.formatted(), "{name}");
+        let formatted = view.decoration.clone().unwrap_or_else(|| panic!("{name}: the formatted view is coloured"));
+        let coloured = view.document.as_ref().and_then(|document| document.hidden.decoration.clone());
+        let source = coloured.unwrap_or_else(|| panic!("{name}: the source is coloured as the document opens"));
+        ok(view.toggle_source());
+        let shown = view.decoration.clone().unwrap_or_else(|| panic!("{name}: the source shows coloured"));
+        assert!(Arc::ptr_eq(&shown, &source), "{name}: showing the source paints nothing new");
+        assert!(view.rich_rows()[0].iter().any(|run| run.paint != Paint::default()), "{name}");
+        ok(view.toggle_source());
+        assert!(view.decoration.as_ref().is_some_and(|shown| Arc::ptr_eq(shown, &formatted)), "{name}");
+        ok(view.toggle_source());
+        assert!(view.decoration.as_ref().is_some_and(|shown| Arc::ptr_eq(shown, &source)), "{name}");
+    }
+}
