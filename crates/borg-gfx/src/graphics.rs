@@ -49,6 +49,7 @@ struct Shown {
 #[derive(Debug)]
 pub struct Graphics {
     capabilities: Capabilities,
+    screen: Rect,
     shown: Vec<Shown>,
     images: HashMap<u64, u32>,
     next_image: u32,
@@ -68,6 +69,7 @@ impl Graphics {
     pub fn new(capabilities: Capabilities) -> Self {
         Self {
             capabilities,
+            screen: Rect::default(),
             shown: Vec::new(),
             images: HashMap::new(),
             next_image: 1,
@@ -90,11 +92,20 @@ impl Graphics {
     }
 
     pub fn frame(&mut self, placements: &[Placement], buffer: &Buffer) -> Output {
-        match self.capabilities.protocol {
+        let forgotten = self.forget_if_resized(buffer.area);
+        let output = match self.capabilities.protocol {
             Protocol::Cells => Output::default(),
             Protocol::Kitty => self.kitty(placements),
             Protocol::Sixel | Protocol::Iterm => self.inline(placements, buffer),
+        };
+        Output { bytes: [forgotten, output.bytes].concat(), repaint: output.repaint }
+    }
+
+    fn forget_if_resized(&mut self, screen: Rect) -> Vec<u8> {
+        if std::mem::replace(&mut self.screen, screen) == screen {
+            return Vec::new();
         }
+        self.reset()
     }
 
     pub fn reset(&mut self) -> Vec<u8> {
@@ -232,6 +243,37 @@ mod tests {
 
         let leaving = gfx.frame(&[], &buffer);
         assert!(leaving.repaint && leaving.bytes.is_empty());
+    }
+
+    #[test]
+    fn a_resized_screen_gets_its_pictures_again() {
+        let one = Placement::fitted(picture(9), Rect::new(0, 0, 10, 4), 0);
+        let before = Buffer::empty(Rect::new(0, 0, 20, 5));
+        let after = Buffer::empty(Rect::new(0, 0, 30, 8));
+
+        let mut kitty = graphics(Protocol::Kitty);
+        kitty.frame(std::slice::from_ref(&one), &before);
+        let resized = text(&kitty.frame(std::slice::from_ref(&one), &after));
+        let forget = resized.find("a=d,d=I").unwrap_or_else(|| panic!("old images forgotten: {resized:?}"));
+        let transmit = resized.find("a=t,").unwrap_or_else(|| panic!("image sent again: {resized:?}"));
+        assert!(forget < transmit && resized.contains("a=p,"));
+
+        let mut sixel = graphics(Protocol::Sixel);
+        sixel.frame(std::slice::from_ref(&one), &before);
+        let resized = sixel.frame(std::slice::from_ref(&one), &after);
+        assert!(text(&resized).contains("\x1bP") && !resized.repaint);
+    }
+
+    #[test]
+    fn after_a_reset_pictures_are_sent_again() {
+        let mut gfx = graphics(Protocol::Kitty);
+        let buffer = Buffer::empty(Rect::new(0, 0, 20, 5));
+        let one = Placement::fitted(picture(9), Rect::new(0, 0, 10, 4), 0);
+        gfx.frame(std::slice::from_ref(&one), &buffer);
+
+        assert!(String::from_utf8_lossy(&gfx.reset()).contains("a=d,d=I"));
+        let again = text(&gfx.frame(std::slice::from_ref(&one), &buffer));
+        assert!(again.contains("a=t,") && again.contains("a=p,"));
     }
 
     #[test]
