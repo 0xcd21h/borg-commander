@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
+      "source": "447bf384e5646641ff737877b4ca260aeb591aacf9dec6075458cff5b1f37abd",
       "protected": {
-        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
+        "code blocks": "7ab5a4ce7f9321224c3cb693c3ad13fa2336ce0737c5b13634294c73282727f8",
+        "inline code": "4dda049d8d09c10e95b612993724fa1abd3d0bfe5e9edf925f209df80eccee22",
+        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
+        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
       },
       "headings": [
         {
@@ -196,6 +196,10 @@
         {
           "level": 3,
           "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
         },
         {
           "level": 3,
@@ -204,12 +208,12 @@
       ]
     },
     "pt": {
-      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
+      "source": "447bf384e5646641ff737877b4ca260aeb591aacf9dec6075458cff5b1f37abd",
       "protected": {
-        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
+        "code blocks": "7ab5a4ce7f9321224c3cb693c3ad13fa2336ce0737c5b13634294c73282727f8",
+        "inline code": "4dda049d8d09c10e95b612993724fa1abd3d0bfe5e9edf925f209df80eccee22",
+        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
+        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
       },
       "headings": [
         {
@@ -399,6 +403,10 @@
         {
           "level": 3,
           "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
         },
         {
           "level": 3,
@@ -407,12 +415,12 @@
       ]
     },
     "es": {
-      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
+      "source": "447bf384e5646641ff737877b4ca260aeb591aacf9dec6075458cff5b1f37abd",
       "protected": {
-        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
+        "code blocks": "7ab5a4ce7f9321224c3cb693c3ad13fa2336ce0737c5b13634294c73282727f8",
+        "inline code": "4dda049d8d09c10e95b612993724fa1abd3d0bfe5e9edf925f209df80eccee22",
+        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
+        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
       },
       "headings": [
         {
@@ -602,6 +610,10 @@
         {
           "level": 3,
           "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
         },
         {
           "level": 3,
@@ -610,12 +622,12 @@
       ]
     },
     "ru": {
-      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
+      "source": "447bf384e5646641ff737877b4ca260aeb591aacf9dec6075458cff5b1f37abd",
       "protected": {
-        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
+        "code blocks": "7ab5a4ce7f9321224c3cb693c3ad13fa2336ce0737c5b13634294c73282727f8",
+        "inline code": "4dda049d8d09c10e95b612993724fa1abd3d0bfe5e9edf925f209df80eccee22",
+        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
+        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
       },
       "headings": [
         {
@@ -805,6 +817,10 @@
         {
           "level": 3,
           "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
         },
         {
           "level": 3,

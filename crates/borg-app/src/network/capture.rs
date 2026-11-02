@@ -298,11 +298,6 @@ fn discard(path: &Path, key_log: Option<&Path>) {
     }
 }
 
-/// The certificates a capture's proxy has programs trust, in Borg's runtime folder: this
-/// prefix, Borg's process and the capture.
-pub(crate) const TRUST_PREFIX: &str = "trust-";
-const TRUST_EXTENSION: &str = "pem";
-
 /// What tcpdump is asked to capture, the same whether Borg runs it or its helper does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Tcpdump {

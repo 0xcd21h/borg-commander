@@ -25,6 +25,10 @@ pub const DOCKER_SCRATCH: &str = "docker";
 pub const REMOTE_PREVIEWS: &str = "remote-preview";
 /// The start of a remote console's folder in the runtime folder, followed by its process.
 pub const CONSOLE_PREFIX: &str = "console-";
+/// The start of the certificates a capture's proxy has programs trust, in the runtime folder,
+/// followed by its process and the capture.
+pub const TRUST_PREFIX: &str = "trust-";
+pub const TRUST_EXTENSION: &str = "pem";
 /// The start of a size scan's file in the cache folder.
 pub const SIZES_PREFIX: &str = "sizes-";
 /// The list of size scans the cache keeps.
@@ -141,8 +145,8 @@ fn children(found: &Found) -> &[Found] {
 }
 
 /// What is left over in a runtime folder: the folders of other Borg versions nobody uses,
-/// folder requests and staged files of ended processes, remote consoles that ended, and old
-/// copies out of containers and remote previews.
+/// folder requests, staged files and capture proxy certificates of ended processes, remote
+/// consoles that ended, and old copies out of containers and remote previews.
 pub fn runtime_leftovers(root: &Path, entries: &[Found], judge: &Judge) -> Vec<Leftover> {
     entries.iter().flat_map(|found| runtime_entry(root, found, judge)).collect()
 }
@@ -163,9 +167,19 @@ fn runtime_entry(root: &Path, found: &Found, judge: &Judge) -> Vec<Leftover> {
             };
             if ended { vec![whole(path, found)] } else { Vec::new() }
         }
-        FoundKind::File if judge.settled(found) && judge.ended(found, TTL_STAGING, nothing) => vec![whole(path, found)],
+        FoundKind::File if judge.settled(found) && runtime_file_ended(found, judge) => vec![whole(path, found)],
         _ => Vec::new(),
     }
+}
+
+fn runtime_file_ended(found: &Found, judge: &Judge) -> bool {
+    judge.ended(found, TTL_STAGING, nothing) || judge.ended(found, TRUST_PREFIX, trust_bundle)
+}
+
+fn trust_bundle(rest: &str) -> bool {
+    rest.strip_prefix(PROCESS_SEPARATOR)
+        .and_then(|rest| Path::new(rest).extension())
+        .is_some_and(|extension| extension == TRUST_EXTENSION)
 }
 
 fn version_folder(path: PathBuf, found: &Found, inside: &[Found], judge: &Judge) -> Vec<Leftover> {

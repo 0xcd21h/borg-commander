@@ -230,15 +230,35 @@ first. The vectors in `capture/tls/vectors` are RFC 8448's simple handshake and 
 two OpenSSL endpoints in one process. F3 adds the key log named after the capture
 (`borg-app::network::capture::key_log_beside`).
 
-Recording keys: the dialog's **TLS keys** sets `CaptureRequest::tls_keys`. Once tcpdump runs, the
-app creates the empty `.keylog` beside the capture and sends `Msg::CaptureKeys`, and
-`network::key_log` types `export SSLKEYLOGFILE=...` (fish: `set -gx`) at the host shell's prompt
-through the same visible path as the tcpdump install command. `ShellKeyLog` remembers that Borg
-set it, and the end of the capture types the line that restores the value Borg inherited, or
-waits in `sync_key_log` until the shell is free. The app then embeds the key log's lines for the
+Recording keys: the dialog's **TLS keys** sets `CaptureRequest::tls_keys` to a `TlsKeys`:
+`Shell`, or `Proxy` with the `Authority` from `[network] proxy-ca`. Once tcpdump runs, the app
+creates the empty `.keylog` beside the capture and sends `Msg::CaptureKeys`, with the proxy's
+`ProxyEndpoint` in proxy mode. `network::shell_variables` types the assignments
+(`export A='…' B='…'`, fish: `set -gx A '…'; …`) at the host shell's prompt through the same
+visible path as the tcpdump install command: `SSLKEYLOGFILE`, or `HTTPS_PROXY`, `https_proxy` and
+the four CA bundle variables. `ShellVariables` keeps the values Borg inherited and which names it
+set, and the end of the capture types the line that restores them, or waits in
+`sync_shell_variables` until the shell is free. The app then embeds the key log's lines for the
 capture's ClientHellos with `with_secrets` (`embed_keys`), turning a pcap into pcapng, and keeps
 the key log. The decryption itself only reads key log text, so any source of standard key log
 lines works the same way.
+
+The proxy (`borg-app::network::proxy`) listens on `127.0.0.1:0` for the length of the capture. It
+reads a `CONNECT` head with httparse, connects to the target, and peeks at the first byte of the
+tunnel: anything other than a TLS handshake is copied as it is. For TLS, `LazyConfigAcceptor`
+reads the ClientHello, the upstream connection offers the client's ALPN and is checked with
+rustls-platform-verifier (with the folder CA as an extra root), and only then does the proxy
+answer the client with a leaf for the SNI that `proxy::authority` signs and caches, speaking the
+protocol upstream chose. Both legs share one rustls `KeyLog` that appends to the capture's key
+log. The temporary CA's key never leaves memory; the trust bundle (the CA, then
+rustls-native-certs' system roots) is written 0600 as `trust-<pid>-<capture>.pem` in the runtime
+folder and removed when the proxy drops, and `runtime_leftovers` removes the bundles of ended
+processes. Each tunnel reports `Event::Opened`; the app finds the client socket's process with the
+sampler and sends `Msg::CaptureProxied`, and `SeenSockets::view` gives the upstream conversation
+that process in place of Borg's own socket. Leaves last 30 days and are backdated an hour, inside
+the 825 days macOS allows for TLS server certificates. `proxy/tests.rs` runs a service signed by
+a generated development CA and checks the echo, ALPN, both sessions' key log lines, a client that
+refuses the CA, an upstream that fails verification, a plain tunnel and the 502 answer.
 
 A capture as administrator goes through `network::capture::elevated`. Borg listens on a Unix
 socket in a 0700 temporary folder and asks osascript (macOS), or pkexec or else `sudo -n`
