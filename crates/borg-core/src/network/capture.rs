@@ -1,5 +1,6 @@
 //! Capturing traffic from the network screen: the dialog R opens on the selected row, the capture
-//! while `tcpdump` runs, as you or as administrator, and the viewer it opens on what it caught.
+//! while `tcpdump` runs, as you or as administrator, with the TLS keys of the programs started
+//! meanwhile, and the viewer it opens on what it caught.
 
 use super::{
     InterfaceKind, NetworkPage, Socket, SocketKey, Transport,
@@ -129,6 +130,9 @@ pub struct CaptureRequest {
     pub administrator: bool,
     /// Capture on macOS's `pktap`, which tags each packet with its process and saves pcapng.
     pub processes: bool,
+    /// Keep a TLS key log beside the capture, which Borg's shell points `SSLKEYLOGFILE` at while
+    /// it runs.
+    pub tls_keys: bool,
 }
 
 impl CaptureRequest {
@@ -149,12 +153,19 @@ pub enum CaptureField {
     Interface,
     Duration,
     Content,
+    TlsKeys,
     Access,
 }
 
 /// Every field, **Run as** last since it shows only where Borg can capture as administrator.
-const CAPTURE_FIELDS: [CaptureField; 5] =
-    [CaptureField::Scope, CaptureField::Interface, CaptureField::Duration, CaptureField::Content, CaptureField::Access];
+const CAPTURE_FIELDS: [CaptureField; 6] = [
+    CaptureField::Scope,
+    CaptureField::Interface,
+    CaptureField::Duration,
+    CaptureField::Content,
+    CaptureField::TlsKeys,
+    CaptureField::Access,
+];
 
 /// The dialog R opens: what to capture, where, for how long and how much of each packet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +177,7 @@ pub struct CaptureDialog {
     pub interface: usize,
     pub duration: usize,
     pub headers_only: bool,
+    pub tls_keys: bool,
     /// Capture as administrator.
     pub administrator: bool,
     pub access: CaptureAccess,
@@ -203,6 +215,7 @@ impl CaptureDialog {
             folder: self.folder.clone(),
             administrator: self.administrator,
             processes: self.tags_processes(),
+            tls_keys: self.tls_keys,
         })
     }
 
@@ -214,6 +227,7 @@ impl CaptureDialog {
             CaptureField::Interface => self.interface = turn(self.interface, self.interfaces.len()),
             CaptureField::Duration => self.duration = turn(self.duration, DURATIONS.len()),
             CaptureField::Content => self.headers_only = !self.headers_only,
+            CaptureField::TlsKeys => self.tls_keys = !self.tls_keys,
             CaptureField::Access => self.administrator = !self.administrator,
         }
     }
@@ -259,6 +273,8 @@ pub struct Recording {
     pub waiting: bool,
     /// Stop was asked for, and the capture is being saved.
     pub stopping: bool,
+    /// The TLS key log beside the capture, once it is there.
+    pub key_log: Option<PathBuf>,
     view_filter: String,
     /// Every socket the screen saw while it ran.
     seen: SeenSockets,
@@ -296,6 +312,7 @@ pub(crate) fn capture_key(state: &mut AppState) -> Vec<Effect> {
         interface: 0,
         duration: 0,
         headers_only: false,
+        tls_keys: false,
         administrator: false,
         access: network.access,
         field: 0,
@@ -422,6 +439,7 @@ fn record(state: &mut AppState, request: CaptureRequest, view_filter: String, no
         packets: 0,
         waiting: request.administrator,
         stopping: false,
+        key_log: None,
         view_filter,
         seen: SeenSockets::default(),
     };
@@ -451,10 +469,31 @@ pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize
     }
 }
 
+/// The capture keeps a TLS key log at `path`: Borg's shell points `SSLKEYLOGFILE` at it.
+pub(crate) fn keys_ready(state: &mut AppState, id: u64, path: PathBuf) -> Vec<Effect> {
+    let Some(recording) = state.network.recording.as_mut().filter(|recording| recording.id == id) else {
+        return Vec::new();
+    };
+    recording.key_log = Some(path.clone());
+    super::key_log::started(state, &path)
+}
+
+/// L while a capture keeps TLS keys: copies what goes in front of a program started in another
+/// terminal for it to write its keys there.
+pub(crate) fn copy_key_log_prefix(state: &mut AppState) -> Vec<Effect> {
+    let Some(key_log) = state.network.recording.as_ref().and_then(|recording| recording.key_log.as_deref()) else {
+        return Vec::new();
+    };
+    let text = super::key_log::key_log_prefix(key_log);
+    state.notice = Some(tr!(network_copied, text = text.trim_end()));
+    crate::clipboard::copy(state, text)
+}
+
 /// A capture ended: the viewer opens on it while the screen shows, a notice says where it was
 /// saved otherwise, and the panels showing its folder list the new file. Without tcpdump, Borg
 /// offers to install it, and a capture the system refused asks whether to run it as
-/// administrator, where Borg can ask for that.
+/// administrator, where Borg can ask for that. A shell that pointed `SSLKEYLOGFILE` at the
+/// capture's key log gets back what it had.
 pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
@@ -490,9 +529,11 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
             state.network.details_focused = false;
         }
     }
-    let Some(folder) = saved_in else { return Vec::new() };
+    let mut effects = super::key_log::ended(state);
+    let Some(folder) = saved_in else { return effects };
     let showing: Vec<Side> = Side::ALL.into_iter().filter(|&side| state.panel(side).destination() == folder).collect();
-    showing.into_iter().map(|side| state.reload(side)).collect()
+    effects.extend(showing.into_iter().map(|side| state.reload(side)));
+    effects
 }
 
 /// Opens the viewer on a capture file read from a panel.

@@ -1278,6 +1278,128 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
     assert!(state.viewer.is_none());
 }
 
+#[test]
+fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_keeps_them() {
+    use borg_view::Mark;
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("log")]);
+    let content: Vec<u8> = (1..=200).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap();
+    let peeked = crate::Peeked { aside: crate::Aside::QuickView, path, at, peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    press(&mut state, now, key(KeyCode::F(3)));
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(shown(&state).hex());
+    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f 77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(shown(&state).offset(), 16, "a row is 16 bytes in 80 columns");
+    press(&mut state, now, key(KeyCode::PageDown));
+    assert_eq!(shown(&state).offset(), 16 * height as u64);
+    press(&mut state, now, key(KeyCode::End));
+    assert_eq!(shown(&state).percent(), 100);
+    press(&mut state, now, key(KeyCode::Home));
+    press(&mut state, now, key(KeyCode::Char('w')));
+    assert!(shown(&state).hex() && shown(&state).offset() == 0, "w leaves the hex rows");
+
+    press(&mut state, now, key(KeyCode::Char('/')));
+    let mut effects = Vec::new();
+    for c in "row 150".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    run_viewer_search(&mut state, now, &effects);
+    let found = shown(&state);
+    assert_eq!(found.current_match(), Some(1084..1091));
+    assert_eq!(found.offset(), 1072 - 16 * (height as u64 / 3), "a third of the page shows above the match's row");
+    let current: String = found
+        .rich_rows()
+        .iter()
+        .flatten()
+        .filter(|run| run.mark == Mark::Current)
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(current, "72 6f 77 20row 31 35 30150", "the match is marked in hex and in text, over two rows");
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find).as_deref(), Some("1 of 1"));
+    press(&mut state, now, key(KeyCode::Esc));
+
+    press(&mut state, now, shift(KeyCode::Char('H')));
+    assert!(!shown(&state).hex());
+    assert_eq!(shown(&state).rows()[0], "row 134", "the line the top row starts in, at byte 960");
+    press(&mut state, now, key(KeyCode::Char('р')));
+    assert!(shown(&state).hex(), "the key in the same place on a Russian keyboard");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    let Some(crate::Peeked { peek: crate::Peek::Text(preview), .. }) = &state.peeked else { panic!("preview") };
+    assert!(preview.hex(), "the quick view keeps the hex rows");
+    assert_eq!(preview.offset(), 944);
+}
+
+#[test]
+fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let path = PathBuf::from("/home/app.bin");
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let bytes = b"\x7fELF\x02\x01\x01\x00\x00\x00text\n".to_vec();
+    let pager = borg_view::Pager::for_path(Arc::new(bytes), &path, width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(path.clone());
+    update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+
+    assert!(shown(&state).hex(), "a zero byte near the start opens the file as hex rows");
+    let row = format!("0000  7f 45 4c 46 02 01 01 00 00 00 74 65 78 74 0a{:5}.ELF......text.", "");
+    assert_eq!(shown(&state).rows()[0], row);
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(!shown(&state).hex(), "h shows the text");
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert_eq!(shown(&state).rows()[0], row);
+}
+
+#[test]
+fn a_binary_file_previews_as_hex_rows_and_h_switches_the_quick_view_and_the_viewer_it_opens() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("app.bin")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let Some(Effect::Peek { size: (width, height), .. }) = effects.iter().find(|e| matches!(e, Effect::Peek { .. }))
+    else {
+        panic!("{effects:?}")
+    };
+    let bytes = b"\x7fELF\x02\x01\x01\x00\x00\x00text\n".to_vec();
+    let pager = borg_view::Pager::for_path(Arc::new(bytes), &path, *width, *height).unwrap_or_else(|e| panic!("{e}"));
+    let peeked = crate::Peeked { aside: crate::Aside::QuickView, path, at, peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    let preview = |state: &AppState| match &state.peeked {
+        Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) => pager.clone(),
+        peeked => panic!("{peeked:?}"),
+    };
+
+    assert!(preview(&state).hex(), "a zero byte near the start previews the file as hex rows");
+    assert!(preview(&state).rows()[0].starts_with("0000  7f 45 4c 46"));
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(!preview(&state).hex(), "h in the quick view shows the text");
+    press(&mut state, now, key(KeyCode::Char('р')));
+    assert!(preview(&state).hex(), "the key in the same place on a Russian keyboard");
+    press(&mut state, now, key(KeyCode::Char('h')));
+
+    press(&mut state, now, key(KeyCode::F(3)));
+    assert!(!text(state.viewer.as_ref().unwrap()).hex(), "the viewer opens on the text the quick view showed");
+    press(&mut state, now, key(KeyCode::Char('h')));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    assert!(preview(&state).hex(), "the quick view gets the hex rows the viewer showed");
+}
+
 /// A contents search for `query` that found its first match in `/home/log` at `line`.
 fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, line: crate::LineMatch) {
     found_in(state, now, query, vec![("log", line)]);
@@ -1765,7 +1887,7 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
 fn a_picture_loaded_after_the_viewer_gave_it_up_stays_away() {
     let (mut state, now) = setup_with(vec![file("a.png"), file("b.jpg"), file("c.gif")]);
     let path = |name: &str| PathBuf::from("/home").join(name);
-    let shown = |state: &AppState| state.viewer.as_ref().map(|viewer| viewer.path.clone());
+    let shown = |state: &AppState| state.viewer.as_ref().and_then(|viewer| viewer.path().map(PathBuf::from));
     image_viewer(&mut state, "a.png", now);
 
     press(&mut state, now, key(KeyCode::Down));

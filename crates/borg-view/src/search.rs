@@ -16,6 +16,8 @@ const LONG_LINE: u64 = 16 * 1024 * 1024;
 /// Bytes read before where a search starts, so a word boundary or a line start there is seen.
 const CONTEXT: u64 = 4;
 const NEWLINE: u8 = b'\n';
+/// How far around a window the lines it is on are looked for first, before reading further.
+const NEAR: u64 = 1024;
 /// Counting stops here, as a count past it says little more.
 pub const MAX_COUNT: usize = 10_000;
 
@@ -152,6 +154,41 @@ impl Search {
             (end, limit) = (start, start);
         }
         Ok(None)
+    }
+
+    /// The matches that overlap `window`, in order, found line by line in the lines it is on,
+    /// each read no further than `reach` bytes past the window, as highlighting finds them.
+    pub fn around(&self, source: &dyn Source, window: Range<u64>, reach: u64) -> io::Result<Vec<Range<u64>>> {
+        let mut extra = NEAR.min(reach);
+        loop {
+            let start = window.start.saturating_sub(extra);
+            let end = window.end.saturating_add(extra).min(source.len());
+            let bytes = read(source, start, end)?;
+            let index = |at: u64| usize::try_from(at.saturating_sub(start)).unwrap_or(usize::MAX).min(bytes.len());
+            let (first, last) = (index(window.start), index(window.end));
+            let from = bytes[..first].iter().rposition(|&b| b == NEWLINE).map(|i| i + 1);
+            let to = bytes[last..].iter().position(|&b| b == NEWLINE).map(|i| last + i);
+            let whole = (from.is_some() || start == 0) && (to.is_some() || end == source.len());
+            if whole || extra >= reach {
+                let from = from.unwrap_or_default();
+                let lines = &bytes[from..to.unwrap_or(bytes.len())];
+                return Ok(self.in_lines(start + from as u64, lines, &window));
+            }
+            extra = reach;
+        }
+    }
+
+    /// The matches in `lines`, found `base` bytes into the source, that overlap `window`.
+    fn in_lines(&self, base: u64, lines: &[u8], window: &Range<u64>) -> Vec<Range<u64>> {
+        let mut found = Vec::new();
+        let mut line_start = base;
+        for line in lines.split(|&b| b == NEWLINE) {
+            let ranges = self.in_line(line).into_iter();
+            found.extend(ranges.map(|range| line_start + range.start as u64..line_start + range.end as u64));
+            line_start += line.len() as u64 + 1;
+        }
+        found.retain(|range| range.end > window.start && range.start < window.end);
+        found
     }
 
     /// Hands `found` each match from `from` on, in order, while it answers true.

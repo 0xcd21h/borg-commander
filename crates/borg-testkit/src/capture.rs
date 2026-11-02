@@ -12,6 +12,7 @@ const API: [u8; 4] = [203, 0, 113, 81];
 const MEDIA: [u8; 4] = [203, 0, 113, 82];
 const BACKUP: [u8; 4] = [203, 0, 113, 200];
 const VISITOR: [u8; 4] = [198, 51, 100, 24];
+const SHOP: [u8; 4] = [203, 0, 113, 90];
 const PCAP_MAGIC: u32 = 0xa1b2_c3d4;
 const PCAP_VERSION: [u16; 2] = [2, 4];
 const SNAPSHOT: u32 = 65_535;
@@ -74,6 +75,17 @@ const OWNERS: [(u16, u32, &str); 7] = [
     (53_001, UPDATER, "updater"),
 ];
 
+/// A TLS 1.3 conversation between two OpenSSL endpoints in one process, with its key log: the
+/// browser asks the shop's API for an order. Each line is a line of the key log, or what one
+/// side sent, in hex.
+const TLS_SESSION: &str = include_str!("tls_session.txt");
+const TLS_CLIENT: &str = "client ";
+const TLS_SERVER: &str = "server ";
+/// The browser's port for its connection to the shop.
+const SHOP_PORT: u16 = 50_700;
+/// Bytes of the record the shop sends last, which no key in the log opens.
+const UNOPENED: usize = 32;
+
 /// One packet: microseconds into the capture and the Ethernet frame.
 type Frame = (u32, Vec<u8>);
 
@@ -105,6 +117,62 @@ pub fn tagged() -> Vec<u8> {
         bytes.extend(block(PACKET_BLOCK, &packet(at, &frame, &options)));
     }
     bytes
+}
+
+/// The browser's TLS connection to the shop's API as a pcap file, and the key log that decrypts
+/// it. The shop's last record is one no key opens.
+pub fn shop_session() -> (Vec<u8>, String) {
+    let mut key_log = String::new();
+    let mut turns: Vec<(bool, Vec<u8>)> = Vec::new();
+    for line in TLS_SESSION.lines() {
+        match (line.strip_prefix(TLS_CLIENT), line.strip_prefix(TLS_SERVER)) {
+            (Some(bytes), _) => turns.push((true, hex(bytes))),
+            (_, Some(bytes)) => turns.push((false, hex(bytes))),
+            _ => key_log.push_str(&format!("{line}\n")),
+        }
+    }
+    turns.push((false, record(TLS_DATA, &[0xa5; UNOPENED])));
+    let frames = conversation(((MACHINE, SHOP_PORT), (SHOP, 443)), &turns);
+    (pcap(&frames), key_log)
+}
+
+/// The TLS session saved as pcapng with its key log in it, as Borg saves a capture that kept
+/// TLS keys.
+pub fn decryptable() -> Vec<u8> {
+    let (pcap, key_log) = shop_session();
+    borg_core::with_secrets(&pcap, &key_log).expect("a pcap file")
+}
+
+fn hex(text: &str) -> Vec<u8> {
+    (0..text.len()).step_by(2).map(|at| u8::from_str_radix(&text[at..at + 2], 16).expect("hex")).collect()
+}
+
+/// A TCP connection from `ends.0` to `ends.1` that carries `turns`, each the bytes one side
+/// sent, the other side acknowledging each.
+fn conversation(ends: (([u8; 4], u16), ([u8; 4], u16)), turns: &[(bool, Vec<u8>)]) -> Vec<Frame> {
+    const RTT: u32 = 30_000;
+    let (client, server) = ends;
+    let (mut seq, mut ack) = (5_000_u32, 80_000_u32);
+    let mut at = 0;
+    let mut frames = vec![
+        (at, tcp(Segment { from: client, to: server, seq, ack: 0, flags: SYN, payload: &[] })),
+        (at + RTT, tcp(Segment { from: server, to: client, seq: ack, ack: seq + 1, flags: SYN_ACK, payload: &[] })),
+    ];
+    (seq, ack) = (seq + 1, ack + 1);
+    at += RTT;
+    for (from_client, bytes) in turns {
+        at += RTT;
+        let (from, to, sent, other) =
+            if *from_client { (client, server, &mut seq, ack) } else { (server, client, &mut ack, seq) };
+        for piece in bytes.chunks(SEGMENT) {
+            frames.push((at, tcp(Segment { from, to, seq: *sent, ack: other, flags: PSH_ACK, payload: piece })));
+            *sent += piece.len() as u32;
+        }
+        let (own, acked) = if *from_client { (ack, seq) } else { (seq, ack) };
+        frames
+            .push((at + RTT / 2, tcp(Segment { from: to, to: from, seq: own, ack: acked, flags: ACK, payload: &[] })));
+    }
+    frames
 }
 
 fn frames() -> Vec<Frame> {

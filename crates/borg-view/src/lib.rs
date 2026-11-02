@@ -1,3 +1,4 @@
+mod hex;
 mod markdown;
 mod pager;
 mod paint;
@@ -6,6 +7,7 @@ mod search;
 mod source;
 mod text;
 
+pub use hex::HexLayout;
 pub use pager::{Format, MAX_LINE, Pager};
 pub use paint::{Mark, Paint, Run};
 pub use search::{Count, MAX_COUNT, Query, Search};

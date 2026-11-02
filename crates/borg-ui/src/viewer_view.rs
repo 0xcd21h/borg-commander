@@ -1,7 +1,6 @@
 use borg_i18n::tr;
-use std::path::Path;
 
-use borg_core::{Content, Image, Viewer};
+use borg_core::{Content, Image, Shown, Viewer};
 use borg_gfx::{Placement, draw_halfblocks};
 use borg_view::{Format, Pager};
 use ratatui::{
@@ -49,7 +48,7 @@ pub fn draw_viewer(
             draw_text(viewer, pager, theme, status, buf);
             (Vec::new(), None)
         }
-        Content::Image(image) => (draw_image(image, &viewer.path, theme, pixels, body, status, buf), None),
+        Content::Image(image) => (draw_image(image, &name(viewer), theme, pixels, body, status, buf), None),
     }
 }
 
@@ -65,7 +64,7 @@ pub(crate) fn click(viewer: &Viewer, area: Rect, point: Position) -> Option<cros
 
 fn draw_image(
     image: &Image,
-    path: &Path,
+    name: &str,
     theme: &Theme,
     pixels: bool,
     body: Rect,
@@ -77,7 +76,7 @@ fn draw_image(
     let details = format!(" · {width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes));
     let room = usize::from(status.width)
         .saturating_sub(details.chars().count() + tr!(previous_next_esc_close).chars().count() + 1);
-    Line::styled(format!(" {}{details}", title(path, room)), style).render(status, buf);
+    Line::styled(format!(" {}{details}", title(name, room)), style).render(status, buf);
     Line::styled(tr!(previous_next_esc_close), style).right_aligned().render(status, buf);
     if pixels {
         return vec![Placement::fitted(image.picture.clone(), body, PICTURE_LAYER)];
@@ -88,11 +87,12 @@ fn draw_image(
 
 fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &mut Buffer) {
     let styles = &theme.styles;
-    let path = &viewer.path;
+    let name = name(viewer);
     // After a step with the bar closed, where the match stands takes the keys' place.
     let found = borg_core::find_bar_summary(&viewer.find);
     let hints = match &found {
         Some(found) => format!("{found} · {} ", tr!(viewer_find_keys)),
+        None if pager.hex() => tr!(viewer_hex_keys).to_owned(),
         None => match pager.format() {
             Some(Format::Markdown) => tr!(viewer_markdown_keys).to_owned(),
             Some(Format::Json) => tr!(viewer_json_keys).to_owned(),
@@ -100,25 +100,35 @@ fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &
         },
     };
 
-    let mode = if pager.wrapped() { tr!(wrap) } else { tr!(nowrap) };
+    let position = format!(
+        " {}/{} · {}% · {}",
+        format::size(pager.offset()),
+        format::size(pager.len()),
+        pager.percent(),
+        mode(pager),
+    );
+    let width = usize::from(status.width);
+    let hints = fit(&hints, width.saturating_sub(position.width() + TITLE_MIN + GAP));
+    let room = width.saturating_sub(position.width() + hints.width() + GAP);
+    Line::styled(format!(" {}{position}", title(&name, room)), styles.viewer_status).render(status, buf);
+    Line::styled(hints, styles.viewer_status).right_aligned().render(status, buf);
+}
+
+/// How the page shows the file: as hex rows, or as text wrapped or not, with how a formatted
+/// document shows and the column an unwrapped page starts at.
+fn mode(pager: &Pager) -> String {
+    if pager.hex() {
+        return tr!(hex_rows).to_owned();
+    }
+    let wrap = if pager.wrapped() { tr!(wrap) } else { tr!(nowrap) };
     let presentation = match pager.format() {
         Some(_) if !pager.formatted() => tr!(source),
         Some(Format::Markdown) => tr!(rendered),
         Some(Format::Json) => tr!(pretty),
         None => "",
     };
-    let position = format!(
-        " {}/{} · {}% · {mode}{presentation}{}",
-        format::size(pager.offset()),
-        format::size(pager.len()),
-        pager.percent(),
-        if pager.wrapped() { String::new() } else { tr!(col, pager.column()) },
-    );
-    let width = usize::from(status.width);
-    let hints = fit(&hints, width.saturating_sub(position.width() + TITLE_MIN + GAP));
-    let room = width.saturating_sub(position.width() + hints.width() + GAP);
-    Line::styled(format!(" {}{position}", title(path, room)), styles.viewer_status).render(status, buf);
-    Line::styled(hints, styles.viewer_status).right_aligned().render(status, buf);
+    let column = if pager.wrapped() { String::new() } else { tr!(col, pager.column()) };
+    format!("{wrap}{presentation}{column}")
 }
 
 /// The parts of `hints` that fit in `room` columns: those between the first and the last go
@@ -138,6 +148,14 @@ fn fit(hints: &str, room: usize) -> String {
     if hints.ends_with(' ') && !shown.ends_with(' ') { format!("{shown} ") } else { shown }
 }
 
-fn title(path: &Path, room: usize) -> String {
-    format::truncate_start(&path.display().to_string(), room)
+/// What the status line calls what the viewer shows: a file's path, or what the bytes are.
+fn name(viewer: &Viewer) -> String {
+    match &viewer.shown {
+        Shown::File(path) => path.display().to_string(),
+        Shown::Bytes(name) => name.clone(),
+    }
+}
+
+fn title(name: &str, room: usize) -> String {
+    format::truncate_start(name, room)
 }

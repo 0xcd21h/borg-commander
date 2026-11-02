@@ -2,7 +2,7 @@
 //! to whom and how much, and one packet's layers and bytes when asked for.
 
 use super::TrafficView;
-use crate::{HexLayout, hex_lines};
+use borg_view::HexLayout;
 use std::{cmp::Reverse, collections::HashMap, fmt::Write, time::Duration};
 use unicode_width::UnicodeWidthStr;
 
@@ -94,7 +94,7 @@ impl TrafficView {
             let _ = writeln!(text, "{label:<width$}{COLUMN_GAP}{value}");
         }
         let _ = writeln!(text, "Bytes:");
-        for line in hex_lines(&packet.data, HexLayout::full(packet.data.len())) {
+        for line in HexLayout::full(packet.data.len() as u64).lines(&packet.data) {
             let _ = writeln!(text, "{line}");
         }
         Some(text)

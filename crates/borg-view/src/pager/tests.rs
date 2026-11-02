@@ -202,3 +202,91 @@ fn a_formatted_documents_source_is_coloured_as_it_opens_and_each_view_keeps_its_
         assert!(view.decoration.as_ref().is_some_and(|shown| Arc::ptr_eq(shown, &source)), "{name}");
     }
 }
+
+fn bytes(count: usize) -> Vec<u8> {
+    (0..count).map(|i| i as u8).collect()
+}
+
+#[test]
+fn hex_rows_scroll_by_row_and_page_and_stop_at_either_end() {
+    let mut view = Pager::new(Arc::new(bytes(100)), 40, 3).unwrap_or_else(|e| panic!("{e}"));
+    ok(view.toggle_hex());
+    assert!(view.hex());
+    assert_eq!(
+        view.rows(),
+        [
+            "0000  00 01 02 03 04 05 06 07  ........",
+            "0008  08 09 0a 0b 0c 0d 0e 0f  ........",
+            "0010  10 11 12 13 14 15 16 17  ........",
+        ]
+    );
+    ok(view.scroll_down(1));
+    assert_eq!(view.offset(), 8);
+    ok(view.page_down());
+    assert_eq!(view.offset(), 24);
+    ok(view.end());
+    assert_eq!(view.rows().last().map(String::as_str), Some("0060  60 61 62 63              `abc"));
+    assert_eq!((view.offset(), view.percent()), (80, 100));
+    ok(view.scroll_down(5));
+    assert_eq!(view.offset(), 80);
+    ok(view.page_up());
+    assert_eq!(view.offset(), 64);
+    ok(view.scroll_up(20));
+    assert_eq!(view.offset(), 0);
+    ok(view.end());
+    ok(view.home());
+    assert_eq!(view.offset(), 0);
+}
+
+#[test]
+fn hex_rows_keep_their_place_through_resizes_and_back_to_text() {
+    let mut view = pager(&numbered(40), 80, 4);
+    ok(view.scroll_down(10));
+    assert_eq!(view.rows()[0], "line 11");
+    let line = view.offset();
+    ok(view.toggle_hex());
+    assert_eq!((line, view.offset()), (71, 64), "the row the page's first line starts on");
+    ok(view.toggle_wrap());
+    ok(view.scroll_right());
+    ok(view.resize(40, 4));
+    assert_eq!(view.rows()[0], "0040  69 6e 65 20 31 30 0a 6c  ine 10.l", "fewer bytes a row in less room");
+    ok(view.end());
+    ok(view.resize(80, 4));
+    assert_eq!(view.percent(), 100, "the end stays on the last row");
+    ok(view.toggle_hex());
+    assert!(!view.hex() && view.wrapped() && view.column() == 0, "w and the arrows leave hex rows alone");
+    assert_eq!(view.rows()[0], "line 34", "the line the top row's first byte is on, at byte 256");
+
+    let mut document = Pager::for_path(Arc::new(b"# Title\n\nText\n".to_vec()), Path::new("notes.md"), 80, 4)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(document.formatted());
+    ok(document.toggle_hex());
+    assert!(!document.formatted(), "hex rows show the document's source");
+    assert_eq!(document.rows()[0], format!("0000  23 20 54 69 74 6c 65 0a 0a 54 65 78 74 0a{:8}# Title..Text.", ""));
+    ok(document.toggle_source());
+    assert!(!document.formatted() && document.hex(), "s leaves hex rows alone");
+}
+
+#[test]
+fn hex_rows_mark_matches_on_the_page_and_scroll_to_one_off_it() {
+    let text: String =
+        (0..64).map(|i| if i == 40 { "needle!\n".to_owned() } else { format!("row {i:03}\n") }).collect();
+    let mut view = pager(&text, 80, 4);
+    ok(view.toggle_hex());
+    let search = crate::Query { text: "needle".into(), ..crate::Query::default() }.compile().unwrap().unwrap();
+    ok(view.show_matches(Some(search.clone())));
+    assert!(view.rich_rows().iter().flatten().all(|run| run.mark == Mark::None));
+    let found = search.next(&*view.source(), 0, &|_| true).unwrap().unwrap();
+    assert_eq!(found, 320..326);
+    ok(view.reveal(found));
+    assert_eq!(view.offset(), 320 - 16, "a third of the page shows above the match");
+    let current: String =
+        view.rich_rows()[1].iter().filter(|run| run.mark == Mark::Current).map(|run| run.text.as_str()).collect();
+    assert_eq!(current, "6e 65 65 64 6c 65needle");
+    ok(view.forget_match());
+    let marked: String =
+        view.rich_rows()[1].iter().filter(|run| run.mark == Mark::Match).map(|run| run.text.as_str()).collect();
+    assert_eq!(marked, "6e 65 65 64 6c 65needle");
+    ok(view.reveal(330..331));
+    assert_eq!(view.offset(), 320 - 16, "a match on the page leaves it where it is");
+}

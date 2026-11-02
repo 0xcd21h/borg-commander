@@ -191,6 +191,9 @@ impl Pager {
     }
 
     pub(super) fn next_position(&self, position: Position) -> io::Result<Option<Position>> {
+        if let Some(layout) = self.hex_layout() {
+            return Ok(self.next_hex_row(layout, position));
+        }
         let line = self.line_at(position.line)?;
         if position.row + 1 < self.row_count(line)? {
             return Ok(Some(Position { row: position.row + 1, ..position }));
@@ -199,6 +202,9 @@ impl Pager {
     }
 
     pub(super) fn previous_position(&self, position: Position) -> io::Result<Option<Position>> {
+        if let Some(layout) = self.hex_layout() {
+            return Ok(position.line.checked_sub(layout.step()).map(|line| Position { line, row: 0 }));
+        }
         if position.row > 0 {
             return Ok(Some(Position { row: position.row - 1, ..position }));
         }

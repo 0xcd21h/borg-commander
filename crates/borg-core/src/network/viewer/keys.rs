@@ -1,5 +1,5 @@
 //! The traffic viewer's keys and clicks: pages, the filter, moving, Enter into a row and Esc
-//! back out of it.
+//! back out of it, and F3 for the selected bytes in the viewer.
 
 use super::{TrafficPage, TrafficView};
 use crate::{AppState, Effect, network::FILTER_LIMIT, network::Network, network::PAGE};
@@ -26,6 +26,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     }
     if !(modifiers.is_empty() || modifiers == KeyModifiers::SHIFT) {
         return Vec::new();
+    }
+    if code == KeyCode::F(3) {
+        return view_bytes(state);
     }
     match code {
         KeyCode::Tab => network.details_focused = !network.details_focused,
@@ -152,6 +155,33 @@ fn scroll_details(view: &mut TrafficView, code: KeyCode, width: usize) {
     .min(last);
 }
 
+/// F3 shows the selected conversation's stream, or the selected packet's bytes, in the viewer
+/// as hex rows.
+fn view_bytes(state: &mut AppState) -> Vec<Effect> {
+    if let Some((name, bytes)) = state.network.viewer.as_deref().and_then(selected_bytes) {
+        crate::viewer::open_bytes(state, name, bytes);
+    }
+    Vec::new()
+}
+
+/// The bytes F3 shows, named for where they come from: a conversation by its ends, a packet
+/// by its number.
+fn selected_bytes(view: &TrafficView) -> Option<(String, Vec<u8>)> {
+    let (name, bytes) = match view.page {
+        TrafficPage::Connections => {
+            let ends = view.ends[view.flow()?.0];
+            let name = format!("{} → {}", view.endpoint(ends.local), view.endpoint(ends.remote));
+            (name, view.stream()?.bytes.clone())
+        }
+        TrafficPage::Packets => {
+            let (index, packet) = view.packet()?;
+            (tr!(traffic_packet_title, number = index + 1), packet.data.clone())
+        }
+        TrafficPage::Processes | TrafficPage::Hosts => return None,
+    };
+    (!bytes.is_empty()).then_some((name, bytes))
+}
+
 /// Ctrl-C copies what the selected row is reached by: a PID, a host's address, a
 /// conversation's other end, or a packet's bytes in hex.
 fn copy(state: &mut AppState) -> Vec<Effect> {
@@ -169,6 +199,6 @@ fn copied_text(view: &TrafficView) -> Option<String> {
         TrafficPage::Connections => view.flow().map(|(index, _)| view.ends[index].remote.to_string()),
         TrafficPage::Packets => view
             .packet()
-            .map(|(_, packet)| crate::hex_lines(&packet.data, crate::HexLayout::full(packet.data.len())).join("\n")),
+            .map(|(_, packet)| borg_view::HexLayout::full(packet.data.len() as u64).lines(&packet.data).join("\n")),
     }
 }

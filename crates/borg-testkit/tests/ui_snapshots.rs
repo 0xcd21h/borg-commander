@@ -289,6 +289,48 @@ fn viewer_marks_matches_and_steps_through_them() -> Result<()> {
     check("viewer_find_closed", &stage, buffer)
 }
 
+/// A small made-up binary: a header, zeros, a table of offsets and the text of its help.
+fn binary_sample() -> Vec<u8> {
+    let mut bytes = b"BORGIMG\0\x01\x02\x00\x00\x10\x00\x00\x00".to_vec();
+    bytes.extend([0; 40]);
+    bytes.extend((0..24u8).flat_map(|i| [i.wrapping_mul(37), 0x80 | i, 0, 0]));
+    bytes.extend(b"usage: tool [--verbose] <file>\n\tprints the image's header\n");
+    bytes.extend((0..=255u8).rev());
+    bytes
+}
+
+#[test]
+fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
+    use std::sync::Arc;
+
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow")] {
+        let mut stage = stage(size, Motion::STILL)?;
+        let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+        let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+        opened(
+            &mut stage,
+            borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)),
+        );
+        stage.send(key(KeyCode::Char('h')));
+        let buffer = stage.render(stage.started)?;
+        ensure_text(&buffer, "0000  42 4f 52 47")?;
+        check(name, &stage, buffer)?;
+    }
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+    opened(&mut stage, borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)));
+    stage.send(key(KeyCode::Char('h'))).send(key(KeyCode::F(7)));
+    for msg in chars("verbose") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 1 · n next · N previous")?;
+    check("viewer_hex_find", &stage, buffer)
+}
+
 #[test]
 fn viewer_lays_out_json_written_on_one_line() -> Result<()> {
     use std::sync::Arc;
@@ -696,7 +738,7 @@ fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
 
 /// Shows `viewer` as if the file it holds had been asked for and loaded.
 fn opened(stage: &mut Stage, viewer: borg_core::Viewer) {
-    stage.state.opening = Some(viewer.path.clone());
+    stage.state.opening = viewer.path().map(PathBuf::from);
     stage.send(Msg::Opened(viewer));
 }
 
@@ -921,6 +963,30 @@ fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
     stage.send(key(KeyCode::F(8)));
     let (_, placements) = stage.compose(stage.started)?;
     anyhow::ensure!(placements.is_empty(), "a dialog hides the picture when cells cannot cover it");
+    Ok(())
+}
+
+#[test]
+fn quick_view_shows_a_binary_as_hex_rows_and_h_shows_its_text() -> Result<()> {
+    let files = vec![
+        entry("bin", EntryKind::Dir, 4096, RECENT, false),
+        entry("image.bin", EntryKind::File, binary_sample().len() as u64, RECENT, false),
+        entry("notes.txt", EntryKind::File, 310, OLD, false),
+    ];
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, files, CLOCK)?;
+    hover(&mut stage, "image.bin");
+    stage.send(ctrl('q'));
+    let path = std::path::Path::new("image.bin");
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(binary_sample()), path, 43, 15)?;
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0000  42 4f 52 47 49 4d 47 00  BORGIMG.")?;
+    ensure_text(&buffer, "Tab focus · h text")?;
+    check("quick_view_hex", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('h'))).send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Tab focus · w wrap · h hex")?;
     Ok(())
 }
 
@@ -3061,8 +3127,8 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
 
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
 /// the browser, where Enter goes from the process to its connections, whose bytes ] steps
-/// through by turn, and on to one connection's packets, and Esc comes back the same way to
-/// every process and the hosts.
+/// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes
+/// back the same way to every process and the hosts.
 #[test]
 fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
     use borg_core::{Capture, Effect, TrafficPage};
@@ -3101,6 +3167,13 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     ensure_text(&buffer, "[ ] Turn")?;
     check("traffic_stream_turn", &stage, buffer)?;
 
+    stage.send(key(KeyCode::F(3)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "h text")?;
+    check("traffic_stream_viewer", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.viewer.is_none(), "Esc goes back to the stream");
+
     stage
         .send(key(KeyCode::Tab))
         .send(key(KeyCode::Enter))
@@ -3123,6 +3196,26 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     stage.send(key(KeyCode::Esc));
     assert!(stage.state.network.viewer.is_none() && stage.state.network.is_open(), "Esc goes back to the live screen");
     Ok(())
+}
+
+/// A capture that holds the TLS keys of its connections opens decrypted: the connection's
+/// stream shows the request and the answer the records carried, and marks the record no key
+/// opens.
+#[test]
+fn traffic_shows_a_tls_connection_decrypted_with_its_keys() -> Result<()> {
+    use borg_core::Capture;
+    let mut stage = stage(GridSize { cols: 132, rows: 58 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    let capture =
+        Capture::read(&borg_testkit::capture::decryptable()).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcapng");
+    stage.send(Msg::CaptureOpened { path, result: Ok(capture) }).send(key(KeyCode::Char('3')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, " · decrypted")?;
+    ensure_text(&buffer, "GET /api")?;
+    ensure_text(&buffer, "HTTP/1.1")?;
+    ensure_text(&buffer, " · still encrypted")?;
+    check("traffic_decrypted_stream", &stage, buffer)
 }
 
 /// Where Borg can ask the system for an administrator, the capture dialog offers **Run as**. A
@@ -3166,6 +3259,42 @@ fn network_captures_as_administrator_and_names_every_packets_process() -> Result
     let buffer = stage.render(now)?;
     ensure_text(&buffer, &format!("updater · PID {}", borg_testkit::capture::UPDATER))?;
     check("traffic_tagged_processes", &stage, buffer)?;
+    Ok(())
+}
+
+/// A capture that keeps TLS keys sets `SSLKEYLOGFILE` at Borg's shell prompt, says so while it
+/// records, and offers the line for programs started in another terminal.
+#[test]
+fn network_records_tls_keys_through_borgs_shell() -> Result<()> {
+    use borg_core::{CaptureField, Effect, Overlay, View};
+    use borg_term::ShellSignal;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.shell.integrated = true;
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    while !matches!(&stage.state.overlay, Some(Overlay::Capture(dialog)) if dialog.selected() == CaptureField::TlsKeys)
+    {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "TLS keys   ‹ Set SSLKEYLOGFILE in Borg's shell ›")?;
+    check("network_capture_dialog_tls_keys", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert!(request.tls_keys);
+    let key_log = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.keylog");
+    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log }, now);
+    let export = b"export SSLKEYLOGFILE='/home/me/projects/borg/capture-20260101-120000.keylog'\r".to_vec();
+    assert!(effects.contains(&Effect::Write(export)), "the line is typed at the prompt: {effects:?}");
+    assert_eq!(stage.state.view, View::Shell, "where it shows");
+    stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
+    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "61 packets · 51K · TLS keys · 5 s left")?;
+    ensure_text(&buffer, "L Copy SSLKEYLOGFILE")?;
+    check("network_capture_tls_keys", &stage, buffer)?;
     Ok(())
 }
 
@@ -3315,6 +3444,7 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         folder: "/home/dev/work".into(),
         administrator: false,
         processes: false,
+        tls_keys: false,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
     let ask = borg_core::capture_ask(scope, None, &request, String::new());

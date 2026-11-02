@@ -533,34 +533,46 @@ fn dns_names_follow_pointers_and_stop_at_loops() {
     assert_eq!(apps::dns(&message, false).map(|dns| dns.questions), None);
 }
 
-#[test]
-fn a_hex_dump_gives_offsets_bytes_and_their_text() {
-    let data: Vec<u8> = b"GET / HTTP/1.1\r\nHost".to_vec();
-    let layout = HexLayout::full(data.len());
-    let lines = hex_lines(&data, layout);
-    assert_eq!(lines.len(), 2);
-    assert_eq!(lines[0], "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
-    assert_eq!(lines[1], format!("0010  {:<47}  Host", "48 6f 73 74"));
-    assert_eq!(lines[0].len(), layout.width());
+/// Key log lines for the connection `client_hello` begins, and for one the captures lack.
+fn key_log() -> String {
+    format!("# keys\nCLIENT_RANDOM {} {}\nCLIENT_RANDOM {} 02\n", "07".repeat(32), "01".repeat(48), "08".repeat(32))
 }
 
 #[test]
-fn a_narrow_dump_puts_fewer_bytes_on_a_line_and_keeps_their_text() {
-    assert_eq!(HexLayout::fitting(80, 100).columns, 16);
-    assert_eq!(HexLayout::fitting(64, 100).columns, 8);
-    assert_eq!(HexLayout::fitting(30, 100).columns, 4);
-    assert_eq!(HexLayout::fitting(0, 100).columns, 1);
-    let layout = HexLayout::fitting(64, 100);
-    assert_eq!(
-        hex_lines(b"GET / HTTP/1.1", layout),
-        ["0000  47 45 54 20 2f 20 48 54  GET / HT", "0008  54 50 2f 31 2e 31        TP/1.1"]
-    );
+fn a_pcap_with_secrets_turns_pcapng_and_keeps_its_packets() {
+    let hello = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &client_hello("example.com", 0)));
+    let question = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let records = [(100, 250, hello.clone()), (101, 999_999_999, question.clone())];
+    for big in [false, true] {
+        let pcap = pcap_with(ETHERNET, big, true, &records);
+        let before = Capture::read(&pcap).unwrap();
+        let with = with_secrets(&pcap, &key_log()).unwrap();
+        assert_eq!(&with[..4], SECTION.to_le_bytes(), "pcapng");
+        let after = Capture::read(&with).unwrap();
+        assert_eq!(after.packets, before.packets);
+        assert_eq!(after.keys, KeyLog::parse(&key_log()));
+    }
 }
 
 #[test]
-fn offsets_of_a_long_dump_get_the_digits_they_need() {
-    assert_eq!(HexLayout::full(0).digits, 4);
-    assert_eq!(HexLayout::full(0x1_0000).digits, 4);
-    assert_eq!(HexLayout::full(0x1_0001).digits, 5);
-    assert_eq!(HexLayout::full(0x1_0001).line(0x1_0000, b"A"), format!("10000  41{:45}  A", ""));
+fn secrets_go_right_after_a_pcapng_section_header() {
+    let capture = pktap();
+    let with = with_secrets(&capture, &key_log()).unwrap();
+    let header = u32::from_le_bytes(capture[4..8].try_into().unwrap()) as usize;
+    assert_eq!(with[..header], capture[..header]);
+    assert_eq!(&with[header..header + 4], 0x0000_000a_u32.to_le_bytes(), "a decryption secrets block");
+    let (before, after) = (Capture::read(&capture).unwrap(), Capture::read(&with).unwrap());
+    assert_eq!((after.packets, after.processes), (before.packets, before.processes));
+    assert_eq!(after.keys.len(), 2);
+    assert_eq!(with_secrets(b"not a capture at all", &key_log()), None);
+}
+
+#[test]
+fn a_capture_keeps_the_key_log_lines_of_its_connections() {
+    let hello = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &client_hello("example.com", 0)));
+    let capture = Capture::read(&pcap(&[hello])).unwrap();
+    assert_eq!(capture.keys_for(&key_log()), format!("CLIENT_RANDOM {} {}\n", "07".repeat(32), "01".repeat(48)));
+    let mut added = capture.clone();
+    added.add_keys(&key_log());
+    assert_eq!(added.keys.len(), 2);
 }

@@ -107,7 +107,8 @@ Ctrl-O switches between the panels and the console.
   with progress, pause, and conflict handling. Mark a few files or select a whole pattern.
 - **Look inside without leaving the folder.** Preview highlighted code, formatted Markdown,
   and images. Scroll a document in quick preview, expand it into the viewer, and keep your place.
-  Large text files load around the visible page.
+  Large text files load around the visible page. Binary files open as hex rows, and H switches any
+  file between hex and text.
 - **See Git beside your files.** Branch names and file status in the panels; diffs, recent
   commits, staging, and unstaging in the Git menu. The bundled plugin can be switched off.
 - **Edit in a panel.** F4 opens Borg's editor with highlighting, find and replace, undo, and
@@ -181,6 +182,9 @@ Ctrl-O switches between the panels and the console.
   administrator after the system's password dialog when it needs to. The viewer sorts the packets
   by process, host and connection, down to each packet's layers and bytes. On macOS an
   administrator capture tags every packet with its process. F3 opens `.pcap` files the same way.
+  A capture can set `SSLKEYLOGFILE` in Borg's shell and keep the TLS keys of the programs you
+  start, and an encrypted connection's stream then shows what it carried, also for programs that
+  pin their certificates.
 
 ## Containers
 

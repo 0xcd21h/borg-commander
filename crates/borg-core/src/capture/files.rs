@@ -1,6 +1,6 @@
 //! The two file formats captures come in: pcap, as `tcpdump -w` writes it, and pcapng, as
 //! Wireshark saves it and macOS's tcpdump does on its `pktap` interface, with the process
-//! behind each packet.
+//! behind each packet, and with the TLS secrets that decrypt its connections.
 
 use super::CaptureError;
 use std::{collections::HashMap, time::Duration};
@@ -10,7 +10,10 @@ const PCAP_NANOS: u32 = 0xa1b2_3c4d;
 const PCAP_HEADER: usize = 24;
 /// The magic number that opens either format.
 const PCAP_MAGIC: usize = 4;
+const PCAP_SNAP_AT: usize = 16;
 const PCAP_LINK_AT: usize = 20;
+/// The bits of a pcap header's link field that give the link type.
+const PCAP_LINK_TYPE: u32 = 0xffff;
 const RECORD_HEADER: usize = 16;
 const RECORD_CAPTURED_AT: usize = 8;
 const PCAPNG_SECTION: u32 = 0x0a0d_0d0a;
@@ -18,6 +21,14 @@ const PCAPNG_BYTE_ORDER: u32 = 0x1a2b_3c4d;
 const PCAPNG_INTERFACE: u32 = 1;
 const PCAPNG_SIMPLE: u32 = 3;
 const PCAPNG_ENHANCED: u32 = 6;
+const PCAPNG_VERSION: [u16; 2] = [1, 0];
+/// What a section header says when it does not tell its length.
+const UNKNOWN_SECTION_LENGTH: i64 = -1;
+/// A decryption secrets block, and the type of secrets in a TLS key log.
+const PCAPNG_SECRETS: u32 = 0x0000_000a;
+const TLS_KEY_LOG: u32 = 0x544c_534b;
+/// Where a secrets block's type, length and secrets start.
+const SECRETS_AT: usize = BLOCK_HEADER + 8;
 /// The process information block macOS adds: a process's PID and name, which the packets that
 /// follow point at by its place among the section's process blocks.
 const PCAPNG_PROCESS: u32 = 0x8000_0001;
@@ -38,6 +49,8 @@ const POWER_OF_TWO: u8 = 0x80;
 const MICROS_PER_SECOND: u64 = 1_000_000;
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 const DEFAULT_RESOLUTION: u8 = 6;
+/// The `if_tsresol` of an interface whose timestamps count nanoseconds.
+const NANO_RESOLUTION: u8 = 9;
 /// Records no packet comes near, which only a damaged file claims.
 const LARGEST_RECORD: usize = 1 << 24;
 
@@ -58,6 +71,8 @@ pub(super) struct Frames {
     pub frames: Vec<Frame>,
     /// The names of the processes the file records, by PID.
     pub processes: HashMap<u32, String>,
+    /// The TLS key logs the file holds.
+    pub secrets: Vec<String>,
     /// Packets past the limit, left out.
     pub skipped: usize,
     /// The file ends inside a packet.
@@ -82,6 +97,19 @@ impl Order {
 
     fn size(self, bytes: &[u8], at: usize) -> Option<usize> {
         self.u32(bytes, at).and_then(|value| usize::try_from(value).ok())
+    }
+
+    fn put_u16(self, out: &mut Vec<u8>, value: u16) {
+        out.extend(if self.big { value.to_be_bytes() } else { value.to_le_bytes() });
+    }
+
+    fn put_u32(self, out: &mut Vec<u8>, value: u32) {
+        out.extend(if self.big { value.to_be_bytes() } else { value.to_le_bytes() });
+    }
+
+    fn put_size(self, out: &mut Vec<u8>, value: usize) -> Option<()> {
+        self.put_u32(out, u32::try_from(value).ok()?);
+        Some(())
     }
 }
 
@@ -193,6 +221,7 @@ fn pcapng(bytes: &[u8], limit: usize) -> Result<Frames, CaptureError> {
                     keep(&mut frames, frame, limit);
                 }
             }
+            PCAPNG_SECRETS => frames.secrets.extend(key_log(block, order)),
             _ => {}
         }
         at += total;
@@ -297,6 +326,91 @@ fn simple(block: &[u8], order: Order, interfaces: &[Interface]) -> Option<Frame>
         interface: interface.name.clone(),
         pid: None,
     })
+}
+
+/// The TLS key log a decryption secrets block holds.
+fn key_log(block: &[u8], order: Order) -> Option<String> {
+    let length = order.size(block, BLOCK_HEADER + 4)?;
+    let text = block.get(SECRETS_AT..SECRETS_AT.checked_add(length)?)?;
+    (order.u32(block, BLOCK_HEADER)? == TLS_KEY_LOG).then(|| String::from_utf8_lossy(text).into_owned())
+}
+
+/// The capture in `bytes` as pcapng, with the TLS key log `key_log` in a decryption secrets
+/// block after its section header, where Wireshark finds it before the packets. A pcap file is
+/// written out as pcapng first. `None` when `bytes` are neither.
+pub fn with_secrets(bytes: &[u8], key_log: &str) -> Option<Vec<u8>> {
+    let little = Order { big: false };
+    if little.u32(bytes, 0)? == PCAPNG_SECTION {
+        let order = section_order(bytes, 0)?;
+        let header = order.size(bytes, 4).filter(|length| *length <= bytes.len())?;
+        return Some([&bytes[..header], &secrets_block(order, key_log)?, &bytes[header..]].concat());
+    }
+    let (order, _) = pcap_header(bytes).ok()?;
+    let found = pcap(bytes, usize::MAX).ok()?;
+    let mut out = section_block(little)?;
+    let link = u16::try_from(order.u32(bytes, PCAP_LINK_AT)? & PCAP_LINK_TYPE).ok()?;
+    out.extend(nano_interface_block(little, link, order.u32(bytes, PCAP_SNAP_AT)?)?);
+    out.extend(secrets_block(little, key_log)?);
+    for frame in &found.frames {
+        out.extend(packet_block(little, frame)?);
+    }
+    Some(out)
+}
+
+/// A pcapng block of type `kind` around `body`, padded to whole words.
+fn block(order: Order, kind: u32, body: &[u8]) -> Option<Vec<u8>> {
+    let total = BLOCK_HEADER + padded(body.len()) + BLOCK_TRAILER;
+    let mut out = Vec::with_capacity(total);
+    order.put_u32(&mut out, kind);
+    order.put_size(&mut out, total)?;
+    out.extend(body);
+    out.resize(total - BLOCK_TRAILER, 0);
+    order.put_size(&mut out, total)?;
+    Some(out)
+}
+
+fn section_block(order: Order) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    order.put_u32(&mut body, PCAPNG_BYTE_ORDER);
+    PCAPNG_VERSION.into_iter().for_each(|part| order.put_u16(&mut body, part));
+    body.extend(if order.big { UNKNOWN_SECTION_LENGTH.to_be_bytes() } else { UNKNOWN_SECTION_LENGTH.to_le_bytes() });
+    block(order, PCAPNG_SECTION, &body)
+}
+
+/// An interface whose packets have link type `link`, at most `snap` bytes of each kept, and
+/// timestamps in nanoseconds.
+fn nano_interface_block(order: Order, link: u16, snap: u32) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    order.put_u16(&mut body, link);
+    order.put_u16(&mut body, 0);
+    order.put_u32(&mut body, snap);
+    order.put_u16(&mut body, OPTION_RESOLUTION);
+    order.put_u16(&mut body, 1);
+    body.extend([NANO_RESOLUTION, 0, 0, 0]);
+    order.put_u16(&mut body, OPTION_END);
+    order.put_u16(&mut body, 0);
+    block(order, PCAPNG_INTERFACE, &body)
+}
+
+fn secrets_block(order: Order, key_log: &str) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    order.put_u32(&mut body, TLS_KEY_LOG);
+    order.put_size(&mut body, key_log.len())?;
+    body.extend(key_log.as_bytes());
+    block(order, PCAPNG_SECRETS, &body)
+}
+
+/// An enhanced packet block on the first interface, its timestamp in nanoseconds.
+fn packet_block(order: Order, frame: &Frame) -> Option<Vec<u8>> {
+    let nanos = u64::try_from(frame.stamp.as_nanos()).ok()?;
+    let mut body = Vec::new();
+    order.put_u32(&mut body, 0);
+    order.put_u32(&mut body, (nanos >> u32::BITS) as u32);
+    order.put_u32(&mut body, nanos as u32);
+    order.put_size(&mut body, frame.data.len())?;
+    order.put_u32(&mut body, frame.length);
+    body.extend(&frame.data);
+    block(order, PCAPNG_ENHANCED, &body)
 }
 
 /// The format a stream turned out to be, once its first bytes came.

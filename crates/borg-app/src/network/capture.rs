@@ -1,17 +1,18 @@
 //! Captures packets with the installed tcpdump into a pcap file in the folder the network
 //! screen covers, or the one an agent names, as you or as administrator through Borg's helper,
-//! and reads capture files for the traffic viewer.
+//! with a TLS key log beside it when asked, and reads capture files for the traffic viewer,
+//! with the key log beside them.
 
 use super::Sampler;
 use borg_core::{
     Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, SeenSockets,
-    Tool,
+    Tool, capture_extension, with_secrets,
 };
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
 use std::{
-    fs::OpenOptions,
-    io::{ErrorKind, Write},
+    fs::{File, OpenOptions},
+    io::{self, ErrorKind, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Stdio,
@@ -40,6 +41,10 @@ pub(crate) const SIZE_LIMIT: u64 = 256 * 1024 * 1024;
 const READ_LIMIT: u64 = SIZE_LIMIT;
 const FILE_MODE: u32 = 0o600;
 const FILE_PREFIX: &str = "capture-";
+/// The extension of the TLS key log beside a capture, named after it.
+const KEY_LOG_EXTENSION: &str = "keylog";
+/// What a capture file is written as before it replaces itself with its TLS keys in it.
+const STAGED_EXTENSION: &str = "new";
 const STAMP_FORMAT: &str = "%Y%m%d-%H%M%S";
 /// What tcpdump's own messages start with.
 const MESSAGE_PREFIX: &str = "tcpdump: ";
@@ -71,8 +76,11 @@ impl Recorder {
             let progress = |bytes, packets| {
                 let _ = messages.send(Msg::CaptureProgress { id, bytes, packets });
             };
+            let keys = |path| {
+                let _ = messages.send(Msg::CaptureKeys { id, path });
+            };
             let result = match crate::tools::find(Tool::Tcpdump.program()) {
-                Some(program) => record(&program, &request, progress, stopped).await,
+                Some(program) => record(&program, &request, progress, keys, stopped).await,
                 None => Err(CaptureFailure::Missing(crate::tools::installer())),
             };
             let _ = messages.send(Msg::CaptureDone { id, result });
@@ -113,7 +121,8 @@ pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBu
     let (done, watching) = channel::<()>();
     let watcher = tokio::task::spawn_blocking(move || watch_sockets(&watching));
     let (_stop, stopped) = oneshot::channel();
-    let recorded = record(&program, request, |_, _| {}, stopped).await.map_err(|failure| refused(failure, request));
+    let recorded =
+        record(&program, request, |_, _| {}, |_| {}, stopped).await.map_err(|failure| refused(failure, request));
     drop(done);
     let seen = watcher.await.unwrap_or_default();
     recorded.map(|(path, capture)| (path, capture, seen))
@@ -157,7 +166,89 @@ fn read_file(path: &Path) -> Result<Capture, String> {
         return Err(tr!(capture_too_large, limit = borg_ui::size_text(READ_LIMIT)));
     }
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
-    Capture::read(&bytes).map_err(|error| error.describe().to_owned())
+    let mut capture = Capture::read(&bytes).map_err(|error| error.describe().to_owned())?;
+    if let Some(text) = key_log_beside(path) {
+        capture.add_keys(&text);
+    }
+    Ok(capture)
+}
+
+/// The TLS key log beside a capture and named after it, when there is one Borg can read.
+fn key_log_beside(path: &Path) -> Option<String> {
+    let keys = path.with_extension(KEY_LOG_EXTENSION);
+    let small = std::fs::metadata(&keys).ok()?.len() <= READ_LIMIT;
+    small.then(|| std::fs::read_to_string(&keys).ok()).flatten()
+}
+
+/// Reads a capture just saved, after putting the TLS keys of its connections into it when it
+/// kept a key log.
+fn read_saved(path: PathBuf, tls_keys: bool) -> Result<(PathBuf, Capture), CaptureFailure> {
+    let capture = read_file(&path)
+        .map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_read, path = path.display(), error = error)))?;
+    if !tls_keys {
+        return Ok((path, capture));
+    }
+    let saved =
+        embed_keys(&path, &capture).map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_save, error = error)))?;
+    Ok((saved, capture))
+}
+
+/// Puts the lines of the key log beside `path` that belong to the capture's connections into
+/// the capture as a decryption secrets block, which Wireshark reads too, and gives where the
+/// capture is now. A pcap is saved again as pcapng under the same name and removed. The file
+/// stays as it is when no line belongs to it.
+fn embed_keys(path: &Path, capture: &Capture) -> io::Result<PathBuf> {
+    let lines = key_log_beside(path).map(|text| capture.keys_for(&text)).unwrap_or_default();
+    if lines.is_empty() {
+        return Ok(path.to_path_buf());
+    }
+    let Some(embedded) = with_secrets(&std::fs::read(path)?, &lines) else { return Ok(path.to_path_buf()) };
+    let target = path.with_extension(capture_extension(true));
+    let staged = if target == path { path.with_added_extension(STAGED_EXTENSION) } else { target.clone() };
+    write_new(&staged, &embedded)?;
+    if staged == target {
+        std::fs::remove_file(path)?
+    } else {
+        std::fs::rename(&staged, &target)?
+    }
+    Ok(target)
+}
+
+/// Writes `bytes` to a new file only you can read, and removes what it wrote when it fails.
+fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let written = open_new(path).and_then(|mut file| {
+        file.write_all(bytes)?;
+        file.sync_all()
+    });
+    if written.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    written
+}
+
+/// A new file only you can read, which fails when one is there already.
+fn open_new(path: &Path) -> io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).mode(FILE_MODE).open(path)
+}
+
+/// Creates the capture file, and the empty TLS key log beside it when the capture keeps one.
+fn create_files(path: &Path, tls_keys: bool) -> io::Result<(File, Option<PathBuf>)> {
+    let file = open_new(path)?;
+    let key_log = tls_keys.then(|| path.with_extension(KEY_LOG_EXTENSION));
+    if let Some(Err(error)) = key_log.as_deref().map(open_new) {
+        let _ = std::fs::remove_file(path);
+        return Err(error);
+    }
+    Ok((file, key_log))
+}
+
+/// Removes a capture that saved nothing, and its key log while no program has written to it.
+fn discard(path: &Path, key_log: Option<&Path>) {
+    let _ = std::fs::remove_file(path);
+    let unused = key_log.filter(|key_log| std::fs::metadata(key_log).is_ok_and(|found| found.len() == 0));
+    if let Some(key_log) = unused {
+        let _ = std::fs::remove_file(key_log);
+    }
 }
 
 /// What tcpdump is asked to capture, the same whether Borg runs it or its helper does.
@@ -240,21 +331,23 @@ fn own(program: &Path, request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + 
 }
 
 /// Runs tcpdump as `request` asks and saves what it writes, telling `progress` the bytes and
-/// packets so far every second, until the deadline, `stopped`, or a limit.
+/// packets so far every second, until the deadline, `stopped`, or a limit. A capture that keeps
+/// TLS keys tells `keys` where its key log is once tcpdump runs.
 async fn record(
     program: &Path,
     request: &CaptureRequest,
     progress: impl Fn(u64, usize),
+    keys: impl FnOnce(PathBuf),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), CaptureFailure> {
     let (mut packets, mut tap) =
         if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
-    let mut file = match OpenOptions::new().write(true).create_new(true).mode(FILE_MODE).open(&path) {
-        Ok(file) => {
+    let (mut file, key_log) = match create_files(&path, request.tls_keys) {
+        Ok(created) => {
             let saved = path.clone();
             tokio::task::spawn_blocking(move || crate::storage::remember_capture(&saved));
-            file
+            created
         }
         Err(error) => {
             tap.stop();
@@ -262,6 +355,9 @@ async fn record(
             return Err(CaptureFailure::Failed(tr!(capture_cannot_save, error = error)));
         }
     };
+    if let Some(key_log) = &key_log {
+        keys(key_log.clone());
+    }
     let deadline = request.seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     let mut counter = PcapCounter::default();
     let mut written: u64 = 0;
@@ -307,20 +403,18 @@ async fn record(
     let saved = file.sync_all();
     drop(file);
     if let Some(failure) = failure {
-        let _ = std::fs::remove_file(&path);
+        discard(&path, key_log.as_deref());
         return Err(CaptureFailure::Failed(failure));
     }
     if written == 0 {
-        let _ = std::fs::remove_file(&path);
+        discard(&path, key_log.as_deref());
         return Err(explain(&said?));
     }
     saved.map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_save, error = error)))?;
     let read = path.clone();
-    let capture = tokio::task::spawn_blocking(move || read_file(&read))
-        .await
-        .unwrap_or_else(|error| Err(error.to_string()))
-        .map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_read, path = path.display(), error = error)))?;
-    Ok((path, capture))
+    tokio::task::spawn_blocking(move || read_saved(read, key_log.is_some())).await.unwrap_or_else(|error| {
+        Err(CaptureFailure::Failed(tr!(capture_cannot_read, path = path.display(), error = error)))
+    })
 }
 
 fn command(program: &Path, tcpdump: &Tcpdump) -> Command {

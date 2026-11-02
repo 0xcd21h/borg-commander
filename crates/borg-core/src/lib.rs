@@ -116,7 +116,7 @@ pub use storage::{
     TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
-pub use viewer::{Content, FoundInViewer, Image, Viewer, find_in, viewer_size};
+pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};
 
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
@@ -151,11 +151,12 @@ pub use network::{
     HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
     capture_ask, capture_extension, capture_interfaces, is_capture,
 };
+pub use network::{Dialect, KEY_LOG_VARIABLE, ShellKeyLog, key_log_prefix};
 
 pub use capture::{
-    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, HexLayout, Http,
-    Ip, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type,
-    hex_lines,
+    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, Http, Ip,
+    KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG,
+    dns_type, with_secrets,
 };
 
 pub use measure::SizeScan;

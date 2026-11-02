@@ -3,8 +3,9 @@
 //! other.
 
 use super::{NetworkFilter, Socket, Transport, filter::Haystack, service};
-use crate::{Capture, Flow, FlowKind, HexLayout, Packet, Stream};
+use crate::{Capture, Flow, FlowKind, Packet, Stream};
 use borg_i18n::tr;
+use borg_view::HexLayout;
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, HashMap},
@@ -230,11 +231,14 @@ impl TrafficView {
     }
 
     /// Puts together the bytes of the conversation under the connections' cursor, when it moved
-    /// to another.
+    /// to another, opening its TLS records when the capture has their keys.
     fn follow(&mut self) {
         let selected = self.flows.get(self.cursors[TrafficPage::Connections.index()]).copied();
         if self.stream.as_ref().map(|(index, _)| *index) != selected {
-            self.stream = selected.map(|index| (index, Stream::of(&self.capture.flows[index], &self.capture.packets)));
+            self.stream = selected.map(|index| {
+                let stream = Stream::of(&self.capture.flows[index], &self.capture.packets);
+                (index, stream.decrypted(&self.capture.keys).unwrap_or(stream))
+            });
         }
     }
 
@@ -460,8 +464,8 @@ impl TrafficView {
             TrafficPage::Hosts => self.host_row().map_or(0, |row| row.flows.len()),
             TrafficPage::Connections => self.stream().map_or(0, |stream| stream.row_count(stream.layout(width))),
             TrafficPage::Packets => self.packet().map_or(0, |(_, packet)| {
-                let length = packet.data.len();
-                HexLayout::fitting(width, length).rows(length)
+                let length = packet.data.len() as u64;
+                HexLayout::fitting(width, length).rows(length) as usize
             }),
         }
     }

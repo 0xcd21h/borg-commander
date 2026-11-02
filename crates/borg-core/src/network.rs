@@ -14,6 +14,7 @@ use crate::{AppState, Capture, Effect, Side, View};
 
 mod capture;
 mod filter;
+mod key_log;
 mod keys;
 mod model;
 mod rows;
@@ -26,6 +27,7 @@ pub use capture::{
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
+pub use key_log::{Dialect, KEY_LOG_VARIABLE, ShellKeyLog, key_log_prefix};
 pub(crate) use keys::{click, paste, route_key, show_page, sort_by};
 pub use model::{Interface, InterfaceKind, NetworkSample, PortKey, Socket, SocketKey, TcpState, Transport, service};
 use rows::Source;
@@ -170,6 +172,8 @@ pub struct Network {
     pub recording: Option<Recording>,
     /// What capturing as administrator can do here.
     pub access: CaptureAccess,
+    /// `SSLKEYLOGFILE` in Borg's shell around captures that keep TLS keys.
+    pub shell_key_log: ShellKeyLog,
     /// A capture's traffic, shown in place of the live pages.
     pub viewer: Option<Box<TrafficView>>,
     next_id: u64,
@@ -208,6 +212,7 @@ impl Default for Network {
             revealing: None,
             recording: None,
             access: CaptureAccess::default(),
+            shell_key_log: ShellKeyLog::default(),
             viewer: None,
             next_id: 0,
             next: None,
@@ -718,6 +723,16 @@ pub(crate) fn pick_capture_field(state: &mut AppState, dialog: CaptureDialog, ro
 
 pub(crate) fn capture_progress(state: &mut AppState, id: u64, bytes: u64, packets: usize, now: Instant) {
     capture::progress(state, id, bytes, packets, now);
+}
+
+pub(crate) fn capture_keys(state: &mut AppState, id: u64, path: std::path::PathBuf) -> Vec<Effect> {
+    capture::keys_ready(state, id, path)
+}
+
+/// Puts `SSLKEYLOGFILE` back in Borg's shell once the shell that was busy when a capture ended
+/// is free.
+pub(crate) fn sync_key_log(state: &mut AppState) -> Vec<Effect> {
+    key_log::sync(state)
 }
 
 pub(crate) fn capture_done(

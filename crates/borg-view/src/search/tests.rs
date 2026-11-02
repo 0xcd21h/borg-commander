@@ -121,3 +121,20 @@ proptest! {
         prop_assert_eq!(back, expected);
     }
 }
+
+#[test]
+fn matches_around_a_window_are_found_in_whole_lines_and_cut_to_those_touching_it() {
+    let around = |search: &Search, text: &[u8], window: Range<u64>, reach: u64| -> Vec<(u64, u64)> {
+        let found = search.around(&text.to_vec(), window, reach).unwrap();
+        found.into_iter().map(|range| (range.start, range.end)).collect()
+    };
+    let text = b"one needle\nneedle two needle\nlast\n";
+    let needle = query("needle");
+    assert_eq!(around(&needle, text, 14..16, 1024), [(11, 17)], "a match starting before the window");
+    assert_eq!(around(&needle, text, 0..text.len() as u64, 1024), [(4, 10), (11, 17), (22, 28)]);
+    assert_eq!(around(&needle, text, 29..33, 1024), []);
+    let start = Query { text: "^needle".into(), regex: true, ..Query::default() }.compile().unwrap().unwrap();
+    assert_eq!(around(&start, text, 20..30, 1024), [], "lines start where they do, not at the window");
+    let long: Vec<u8> = [b"x".repeat(3000), b"needle".to_vec(), b"x".repeat(3000)].concat();
+    assert_eq!(around(&needle, &long, 3002..3004, 8192), [(3000, 3006)], "a line past the first read");
+}
