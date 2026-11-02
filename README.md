@@ -98,6 +98,10 @@ Keep two folders side by side and type commands at the prompt below. Borg runs y
 Bash, zsh, or fish session, with its history, completion, and multiline editing.
 Ctrl-O switches between the panels and the console.
 
+<p align="center">
+  <img src="docs/showcase/editor.png" alt="Contents search results for TODO on the left, and Borg's editor in the right panel open at the selected match with the find bar" width="1100">
+</p>
+
 - **Move files while you keep browsing.** Copy, move, and delete in background jobs,
   with progress, pause, and conflict handling. Mark a few files or select a whole pattern.
 - **Look inside without leaving the folder.** Preview highlighted code, formatted Markdown,
@@ -105,8 +109,19 @@ Ctrl-O switches between the panels and the console.
   Large text files load around the visible page.
 - **See Git beside your files.** Branch names and file status in the panels; diffs, recent
   commits, staging, and unstaging in the Git menu. The bundled plugin can be switched off.
+- **Edit in a panel.** F4 opens Borg's editor with highlighting, find and replace, undo, and
+  mouse selection. Alt-E puts it inside a panel, beside its folder or another file. From search
+  results it opens in the other panel at the match, and the list stays in view.
 - **Use the mouse or stay on the keys.** Click menus, select files, and scroll previews.
   Familiar function-key actions also work with Esc followed by a digit.
+- **Jump to any folder.** Type `cd ` and pick from your hotlist and recent folders right above
+  the prompt. Type a path and its subfolders appear, narrowing as you type, in `cd` and in any
+  other command. Ctrl-\ opens the whole list, and a typed `cd` moves the panel without flashing
+  the console.
+
+<p align="center">
+  <img src="docs/showcase/folder-picker.png" alt="Typing cd ~/projects/ lists its subfolders, recent folders and a pinned folder above the command line" width="1100">
+</p>
 
 ## Find what takes space
 

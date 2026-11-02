@@ -164,6 +164,9 @@ pub struct AppState {
     /// What was copied in Borg, for pasting into its own fields.
     pub clipboard: crate::Clipboard,
     pub search_history: crate::SearchHistory,
+    /// The hotlist and the folders the panels visited.
+    pub folders: crate::Folders,
+    pub cd_picker: crate::CdPicker,
     /// Queries looked for in the editor and the viewer, the latest first.
     pub find_recent: Vec<String>,
     /// The id of the viewer's latest search.
@@ -249,6 +252,8 @@ impl AppState {
             rain_until: None,
             clipboard: crate::Clipboard::default(),
             search_history: crate::SearchHistory::default(),
+            folders: crate::Folders::default(),
+            cd_picker: crate::CdPicker::default(),
             find_recent: Vec::new(),
             next_find: 0,
             indexing: None,

@@ -281,10 +281,11 @@ fn shell_cd_moves_active_panel() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "shell-cd")?;
 
-    app.send("cd alpha")?.send(keys::enter())?;
-    app.wait_gone(READY)?;
-    app.send(keys::ctrl('o'))?;
+    app.send("cd alpha")?;
+    app.wait_until("typed", |s| prompt(s).contains("cd alpha"))?;
+    app.send(keys::enter())?;
     app.wait_until("panel followed shell", |s| s.contains("one.txt") && s.contains("/ inner"))?;
+    ensure!(!app.settle()?.contains("Borg console"), "a typed cd keeps the panels in view");
     Ok(())
 }
 
@@ -2552,6 +2553,40 @@ fn option_left_and_right_move_by_words_on_the_command_line() -> Result<()> {
     app.send("Y")?;
     app.wait_until("and a word right", |s| prompt(s).contains("echo oneY Xtwo"))?;
     ensure!(!app.snapshot().contains("Collection"), "no collections panel opened");
+    Ok(())
+}
+
+#[test]
+fn a_typed_cd_moves_the_panel_and_the_picker_offers_folders_in_each_shell() -> Result<()> {
+    for (shell, _) in Shell::available() {
+        let fixture = fixture()?;
+        fixture.dir("beta/two words")?;
+        let mut app = start_with(&fixture, &format!("typed-cd-{}", shell.program()), shell)?;
+        app.send("cd alpha")?;
+        app.wait_until("typed", |s| prompt(s).contains("cd alpha"))?;
+        let console = std::cell::Cell::new(false);
+        app.send(keys::enter())?;
+        app.wait_until(&format!("the panel follows {} into alpha", shell.program()), |s| {
+            console.set(console.get() || s.contains("Borg console"));
+            s.contains("one.txt") && prompt(s).trim() == "$"
+        })?;
+        ensure!(!console.get(), "{} showed the console for a cd", shell.program());
+
+        app.send("cd ")?;
+        app.wait_text("Enter Open")?;
+        app.send(keys::up())?.send(keys::enter())?;
+        app.wait_until(&format!("{} is back in the first folder with the line cleared", shell.program()), |s| {
+            s.contains(READY) && prompt(s).trim() == "$"
+        })?;
+
+        app.send("ls beta/tw")?;
+        app.wait_text("Enter Complete")?;
+        app.send(keys::up())?.send(keys::enter())?;
+        app.wait_until(&format!("{} takes the folder with its space escaped", shell.program()), |s| {
+            prompt(s).contains("ls beta/two\\ words/")
+        })?;
+        app.send(keys::ctrl('u'))?;
+    }
     Ok(())
 }
 

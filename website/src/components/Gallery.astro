@@ -3,10 +3,12 @@ import { dictionary } from '../../locales/index.mjs';
 const { items } = Astro.props;
 const t = dictionary(Astro.locals.starlightRoute.locale);
 const base = import.meta.env.BASE_URL;
+const themes = new Set(['paper', 'classic', 'midnight', 'aurora', 'ember', 'neon']);
+const size = image => themes.has(image) ? { width: 828, height: 388 } : { width: 1228, height: 604 };
 ---
 <div class="gallery">
   {items.map(({ image, title, description }) => <figure>
-    <a href={`${base}screenshots/${image}.png`} aria-label={`${t.viewScreenshot}: ${title}`}><img src={`${base}screenshots/${image}.png`} alt={description} loading="lazy" width={image === 'docker' || image === 'activity' || image === 'size-tree' ? 1228 : 828} height={image === 'docker' || image === 'activity' || image === 'size-tree' ? 604 : 388} /></a>
+    <a href={`${base}screenshots/${image}.png`} aria-label={`${t.viewScreenshot}: ${title}`}><img src={`${base}screenshots/${image}.png`} alt={description} loading="lazy" {...size(image)} /></a>
     <figcaption>{title}</figcaption>
   </figure>)}
 </div>

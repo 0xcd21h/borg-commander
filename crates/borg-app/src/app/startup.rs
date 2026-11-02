@@ -125,6 +125,8 @@ fn initial_state(launch: &Launch, size: Size, now: Instant) -> (AppState, Vec<Ef
     if state.settings.motion == borg_core::Motion::LOCAL {
         state.intro = Some(now);
     }
+    let recent = launch.state_dir.as_ref().map_or_else(Vec::new, |dir| recent_folders(&state.settings, dir));
+    state.folders = borg_core::Folders::new(launch.config.hotlist(), recent, launch.home.clone());
     let collections_writable = launch.state_dir.as_ref().is_none_or(|dir| load_saved(&mut state, dir));
     (state, pending, collections_writable)
 }
@@ -158,6 +160,15 @@ fn load_saved(state: &mut AppState, dir: &StateDir) -> bool {
         let _ = dir.save_search_history(&borg_core::SearchHistory::default());
     }
     loaded
+}
+
+/// The folders the panels visited before, which are forgotten while folder history is off.
+fn recent_folders(settings: &borg_core::Settings, dir: &StateDir) -> Vec<PathBuf> {
+    if settings.folder_history {
+        return dir.load_recent_folders().unwrap_or_default();
+    }
+    let _ = dir.save_recent_folders(&[]);
+    Vec::new()
 }
 
 /// The console's screen, showing what the last session left on it, marked as restored.

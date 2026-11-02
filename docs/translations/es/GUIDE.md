@@ -272,6 +272,7 @@ momento.
 | Ctrl-O | Mostrar el shell / volver a los paneles |
 | Alt-I | Contar tamaños de carpetas en segundo plano / dejar de contar |
 | Ctrl-S | Búsqueda rápida en la carpeta |
+| Ctrl-\ | Carpetas favoritas: saltar a una carpeta fijada o reciente |
 | Ctrl-Q | Vista rápida: previsualiza en el otro panel el archivo bajo el cursor (texto, imagen o carpeta) |
 | Ctrl-L | Información: muestra en el otro panel el tamaño, los permisos, el propietario, las fechas y el espacio libre |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar archivos |
@@ -350,6 +351,44 @@ escribiendo. Shift-PgUp y Shift-PgDn desplazan una página, Shift-Home salta a l
 antigua y Shift-End vuelve al prompt activo, igual que si empiezas a escribir. Para copiar la
 salida visible, selecciónala como permita tu terminal, normalmente arrastrando con Shift pulsado,
 y usa su atajo de copiar habitual.
+
+### Saltar a carpetas
+
+Escribe `cd ` en la línea de comandos y Borg muestra justo encima las carpetas a las que puedes
+saltar: primero tus favoritas, marcadas con ★, y después las carpetas que abrieron los paneles, de
+la más reciente a la más antigua. Cada palabra que añades acota la lista y puede coincidir con
+cualquier parte de la ruta, así que `cd pro bo` encuentra `~/Projects/borg`. Las carpetas cuyo
+nombre coincide con la última palabra aparecen primero, junto a la línea de comandos. Pulsa Up para
+entrar en la lista y Down para volver a salir, Enter para abrir la carpeta elegida en el panel
+activo, o Esc para ocultar la lista en este `cd`. Un clic en una carpeta también la abre. Para
+ejecutar tu propio `cd`, sigue escribiendo y pulsa Enter.
+
+Escribe una ruta y la lista empieza por las carpetas que contiene. `cd /Volumes` muestra los
+volúmenes montados, y `cd ~/Projects/bo` acota la lista a las carpetas de `~/Projects` con `bo` en
+el nombre, primero las que empiezan por esas letras. Cualquier otro comando muestra la misma lista
+para una ruta con `/`, como `cp notes.txt ~/Documents/`. Ahí Enter escribe el nombre de la carpeta
+elegida en la ruta, con escapes o dentro de tus comillas, según lo necesite la shell, y la lista
+pasa a las carpetas que contiene. Esc oculta la lista hasta que empiezas otra palabra. Las carpetas
+ocultas aparecen al escribir un punto, o cuando los paneles muestran archivos ocultos. Borg lee
+hasta 10 000 subcarpetas de una carpeta, y solo en la línea de comandos de esta máquina; la consola
+de un contenedor o de una máquina remota conserva el autocompletado de su shell.
+
+Una línea de comandos que solo cambia de carpeta se ejecuta sin que los paneles salgan de la
+pantalla, y el panel activo sigue al shell hasta su nueva carpeta. Si la carpeta no existe, un
+aviso lo indica y Ctrl-O muestra el mensaje del shell. Una carpeta que tarda en abrirse, como una
+en un recurso de red lento, muestra la consola hasta que termina el comando. Cualquier cosa que
+vaya más allá de un `cd`, como `cd src && make`, muestra la consola como siempre.
+
+Ctrl-\ o **Comando → Carpetas favoritas** abre las favoritas con la carpeta del panel activo
+elegida. Escribe para acotar la lista, elige con Up y Down y pulsa Enter para abrir la carpeta.
+Insert fija la carpeta elegida en las favoritas, así que Ctrl-\ seguido de Insert fija la carpeta
+en la que estás. F8 o Delete quita una carpeta de las favoritas o de las carpetas recientes. Esc
+borra lo que escribiste y un segundo Esc cierra la ventana. Las favoritas admiten hasta 256
+carpetas.
+
+Las favoritas se guardan en `config.toml`, en la sección `[folders]`. Borg recuerda las últimas 64
+carpetas que abrieron los paneles en su carpeta de estado, en un archivo que solo tú puedes leer.
+Define `history = false` en `[folders]` para dejar de guardarlas.
 
 ## Complemento Git
 
@@ -911,6 +950,10 @@ history = true              # remember searches for Ctrl-P and Ctrl-N
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
 refresh-minutes = 15        # rebuild an index once it is this old
+
+[folders]
+hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
+history = true              # remember the folders the panels open
 ```
 
 En un terminal local con color verdadero, Borg arranca con una breve animación de su logotipo con

@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "b3311c2226a65256ada30bc7c1072416d7479b71761bc699cf727327f70421c3",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
-        "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "fc61366be606426c7e7dbeee96bf558b3ab2426ab7236b010fb81fe49396a991",
+        "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
+        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "37607b43adf3d4f3341f6b5af7ad7774fcb119e2ede6f36881eeffb1e3c2fb1a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -60,6 +60,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Jumping to folders"
         },
         {
           "level": 2,
@@ -176,12 +180,12 @@
       ]
     },
     "pt": {
-      "source": "b3311c2226a65256ada30bc7c1072416d7479b71761bc699cf727327f70421c3",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
-        "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "fc61366be606426c7e7dbeee96bf558b3ab2426ab7236b010fb81fe49396a991",
+        "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
+        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "37607b43adf3d4f3341f6b5af7ad7774fcb119e2ede6f36881eeffb1e3c2fb1a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -235,6 +239,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Jumping to folders"
         },
         {
           "level": 2,
@@ -351,12 +359,12 @@
       ]
     },
     "es": {
-      "source": "b3311c2226a65256ada30bc7c1072416d7479b71761bc699cf727327f70421c3",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
-        "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "fc61366be606426c7e7dbeee96bf558b3ab2426ab7236b010fb81fe49396a991",
+        "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
+        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "37607b43adf3d4f3341f6b5af7ad7774fcb119e2ede6f36881eeffb1e3c2fb1a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -410,6 +418,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Jumping to folders"
         },
         {
           "level": 2,
@@ -526,12 +538,12 @@
       ]
     },
     "ru": {
-      "source": "b3311c2226a65256ada30bc7c1072416d7479b71761bc699cf727327f70421c3",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
-        "code blocks": "6917e4fface75df40f016fc4fed97794eb2c24624a1915ae044451ab157a5b06",
-        "inline code": "fc61366be606426c7e7dbeee96bf558b3ab2426ab7236b010fb81fe49396a991",
+        "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
+        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "37607b43adf3d4f3341f6b5af7ad7774fcb119e2ede6f36881eeffb1e3c2fb1a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -585,6 +597,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Jumping to folders"
         },
         {
           "level": 2,

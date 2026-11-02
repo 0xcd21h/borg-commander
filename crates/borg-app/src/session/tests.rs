@@ -22,6 +22,21 @@ fn game2048_round_trips_and_rejects_corrupt_or_oversized_saves() {
 }
 
 #[test]
+fn recent_folders_round_trip_privately_and_none_removes_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let dir = StateDir::at(temp.path().join("state"));
+    assert!(dir.load_recent_folders().unwrap().is_empty());
+    let odd = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff name".to_vec()));
+    dir.save_recent_folders(&[odd.clone(), "/srv".into()]).unwrap();
+    assert_eq!(dir.load_recent_folders().unwrap(), [odd, "/srv".into()]);
+    let file = dir.path().join(RECENT_FOLDERS_FILE);
+    assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    dir.save_recent_folders(&[]).unwrap();
+    assert!(!file.exists());
+}
+
+#[test]
 fn update_checks_are_due_once_a_day() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
     let state = StateDir::at(dir.path().join("state"));

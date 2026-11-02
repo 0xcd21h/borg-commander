@@ -17,6 +17,7 @@ mod exclude;
 mod exclusions;
 mod find;
 mod find_bar;
+mod folders;
 mod game2048;
 mod history;
 mod input;
@@ -77,6 +78,10 @@ pub use exclude::{ARTIFACTS, CACHEDIR_SIGNATURE, CACHEDIR_TAG, Marker, is_artifa
 pub use exclusions::{EXCLUSION_SWITCHES, ExclusionEditor};
 pub use find::{Find, Query, summary as find_summary};
 pub use find_bar::{Direction, FindBar, FindNote, summary as find_bar_summary};
+pub use folders::{
+    CD, CdPicker, FolderChoice, Folders, FoldersDialog, HOTLIST_LIMIT, PICKER_ROWS, PickerChoices, RECENT_LIMIT,
+    cd_argument, cd_choices, dialog_choices as folder_choices, plain_cd,
+};
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;

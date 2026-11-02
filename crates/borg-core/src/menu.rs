@@ -218,6 +218,7 @@ fn command_menu(state: &AppState) -> Menu {
         .chain(time_machine)
         .chain([
             item(tr!(find_in_folder), "C-s", Action::Find),
+            item(tr!(folder_hotlist), "C-\\", Action::Folders),
             when(item(tr!(insert_new_line), "S-Enter", Action::InsertNewline), !state.shell.busy()),
             check(tr!(quick_view), "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
             check(tr!(info), "C-l", Action::Info, state.aside == Some(crate::Aside::Info)),

@@ -304,6 +304,10 @@ fn paint_overlay(
         Overlay::Collections(picker) => {
             (crate::discovery_view::collections(state, picker, theme, screen, buf), None, Unfold::FromCenter)
         }
+        Overlay::Folders(dialog) => {
+            let (rect, cursor) = crate::folders_view::draw_dialog(state, dialog, theme, screen, buf);
+            (rect, Some(cursor), Unfold::FromCenter)
+        }
         Overlay::Search(form) => {
             (crate::discovery_view::search(form, state, scene.home, theme, screen, buf), None, Unfold::FromCenter)
         }

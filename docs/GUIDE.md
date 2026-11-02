@@ -250,6 +250,7 @@ click both rows. Notices replace the second row for a moment.
 | Ctrl-O | Show the shell / return to the panels |
 | Alt-I | Count folder sizes in the background / stop counting |
 | Ctrl-S | Quick find in the folder |
+| Ctrl-\ | Folder hotlist: jump to a pinned or recent folder |
 | Ctrl-Q | Quick view: preview the file under the cursor (text, picture or folder) in the other panel |
 | Ctrl-L | Info: show size, permissions, owner, dates and free space in the other panel |
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
@@ -324,6 +325,40 @@ In the console, the mouse wheel scrolls back through the output without touching
 you are typing. Shift-PgUp and Shift-PgDn scroll by a page, Shift-Home jumps to the oldest
 output, and Shift-End returns to the live prompt, as does typing. To copy visible output, select
 it the way your terminal allows, usually by Shift-dragging, then use its normal copy shortcut.
+
+### Jumping to folders
+
+Type `cd ` on the command line and Borg lists folders to jump to right above it: your hotlist first,
+marked ★, then the folders the panels opened, newest first. Each word you add narrows the list and
+can match anywhere in the path, so `cd pro bo` finds `~/Projects/borg`. Folders whose name matches
+the last word come first, next to the command line. Press Up to step into the list and Down to step
+back out, Enter to open the chosen folder in the active panel, or Esc to hide the list for this
+`cd`. A click on a folder opens it too. To run your own `cd`, keep typing and press Enter.
+
+Type a path and the list starts with the folders inside it. `cd /Volumes` lists the mounted volumes,
+and `cd ~/Projects/bo` narrows to the folders in `~/Projects` with `bo` in their names, those that
+start with it first. Any other command gets the same list for a path with a `/`, such as
+`cp notes.txt ~/Documents/`. There Enter types the chosen folder's name into the path, escaped or
+inside your quotes as the shell needs, and the list moves on to the folders inside it. Esc hides the
+list until you start another word. Hidden folders show once you type a dot, or when the panels show
+hidden files. Borg reads up to 10,000 subfolders of a folder, and only at this machine's command
+line; a container's or a remote machine's console keeps the shell's own completion.
+
+A command line that only changes folder runs while the panels stay on screen, and the active
+panel follows the shell to its new folder. When the folder does not exist, a notice says so and
+Ctrl-O shows the shell's message. A folder that takes a while to open, such as one on a slow
+network share, brings up the console until the command finishes. Anything more than a `cd`, such
+as `cd src && make`, shows the console as usual.
+
+Ctrl-\ or **Command → Folder hotlist** opens the hotlist with the active panel's folder chosen.
+Type to narrow it, choose with Up and Down, and press Enter to open the folder. Insert pins the
+chosen folder to the hotlist, so Ctrl-\ followed by Insert pins the folder you are in. F8 or
+Delete takes a folder off the hotlist, or out of the recent folders. Esc clears what you typed,
+and a second Esc closes the window. The hotlist holds up to 256 folders.
+
+The hotlist is saved in `config.toml` under `[folders]`. Borg remembers the last 64 folders the
+panels opened in its state folder, in a file only you can read. Set `history = false` under
+`[folders]` to stop keeping them.
 
 ## Git plugin
 
@@ -838,6 +873,10 @@ history = true              # remember searches for Ctrl-P and Ctrl-N
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
 refresh-minutes = 15        # rebuild an index once it is this old
+
+[folders]
+hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
+history = true              # remember the folders the panels open
 ```
 
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any

@@ -132,3 +132,17 @@ fn saved_language_survives_other_preference_changes() {
         assert!(restored.preferences().menu_bar);
     }
 }
+
+#[test]
+fn the_hotlist_keeps_home_as_a_tilde_and_survives_saving_preferences() {
+    let home = PathBuf::from(env::var_os(ENV_HOME).expect("a home folder"));
+    let mut config: Config = toml::from_str("[folders]\nhotlist = [\"/srv/www\"]\n").unwrap();
+    assert!(config.folder_history());
+    config.set_hotlist(&[PathBuf::from("/srv/www"), home.join("Projects")]);
+    let saved = config.capture(None, &Preferences::default(), &[]);
+    let text = toml::to_string(&saved).unwrap();
+    assert!(text.contains("hotlist = [\"/srv/www\", \"~/Projects\"]"), "{text}");
+    assert_eq!(toml::from_str::<Config>(&text).unwrap().hotlist(), [PathBuf::from("/srv/www"), home.join("Projects")]);
+    let off: Config = toml::from_str("[folders]\nhistory = false\n").unwrap();
+    assert!(!off.folder_history() && off.hotlist().is_empty());
+}

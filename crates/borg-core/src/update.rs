@@ -79,6 +79,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 
         Msg::Observe(view) => shell::observe(state, view, false),
         Msg::ShellOutput(view) => shell::observe(state, view, true),
+        Msg::Subfolders { dir, names } => crate::folders::subfolders_read(state, dir, names),
         Msg::Signal(signal) => {
             state.idle_since = now;
             shell::on_signal(state, signal, now)
@@ -213,6 +214,7 @@ fn batch(state: &mut AppState, side: crate::Side, generation: u64, entries: Vec<
 /// show again.
 fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Option<String>) -> Vec<Effect> {
     let visible = state.panel(side).generation() == generation;
+    let failed = error.is_some();
     if let Some(panel) = state.receiving_panel(side, generation) {
         let notice = panel.finish(generation, error);
         panel.settle();
@@ -227,10 +229,11 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
         }
         state.notice = notice.or(state.notice.take());
     }
-    if visible {
-        crate::measure::reapply(state, side);
+    if !visible {
+        return Vec::new();
     }
-    Vec::new()
+    crate::measure::reapply(state, side);
+    if failed { Vec::new() } else { crate::folders::listed(state, side) }
 }
 
 /// A folder indexed for searching, which says so when Borg was asked to index it.

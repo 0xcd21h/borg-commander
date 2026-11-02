@@ -276,6 +276,7 @@ instantes.
 | Ctrl-O | Mostrar a shell / voltar aos painéis |
 | Alt-I | Contar tamanhos de pastas em segundo plano / parar a contagem |
 | Ctrl-S | Localização rápida na pasta |
+| Ctrl-\ | Pastas favoritas: saltar para uma pasta fixada ou recente |
 | Ctrl-Q | Pré-visualização: mostra o ficheiro sob o cursor (texto, imagem ou pasta) no outro painel |
 | Ctrl-L | Informações: mostra tamanho, permissões, proprietário, datas e espaço livre no outro painel |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar ficheiros |
@@ -355,6 +356,43 @@ Shift-PgUp e Shift-PgDn percorrem uma página de cada vez, Shift-Home salta para
 Shift-End volta ao prompt ativo, tal como começar a escrever. Para copiar a saída visível,
 selecione-a da forma que o terminal permitir, normalmente arrastando com Shift, e use o atalho de
 copiar habitual.
+
+### Saltar para pastas
+
+Escreva `cd ` na linha de comandos e o Borg mostra, logo acima dela, as pastas para onde pode
+saltar: primeiro as favoritas, marcadas com ★, depois as pastas que os painéis abriram, das mais
+recentes para as mais antigas. Cada palavra que acrescenta restringe a lista e pode corresponder a
+qualquer parte do caminho, por isso `cd pro bo` encontra `~/Projects/borg`. As pastas cujo nome
+corresponde à última palavra ficam em primeiro lugar, junto à linha de comandos. Prima Up para
+entrar na lista e Down para voltar a sair, Enter para abrir a pasta escolhida no painel ativo, ou
+Esc para ocultar a lista neste `cd`. Um clique numa pasta também a abre. Para executar o seu próprio
+`cd`, continue a escrever e prima Enter.
+
+Escreva um caminho e a lista começa pelas pastas que ele contém. `cd /Volumes` mostra os volumes
+montados, e `cd ~/Projects/bo` restringe a lista às pastas de `~/Projects` com `bo` no nome,
+primeiro as que começam por essas letras. Qualquer outro comando mostra a mesma lista para um
+caminho com `/`, como `cp notes.txt ~/Documents/`. Aí, Enter escreve o nome da pasta escolhida no
+caminho, com escapes ou dentro das suas aspas, como a shell precisa, e a lista passa para as pastas
+que ela contém. Esc oculta a lista até começar outra palavra. As pastas ocultas aparecem quando
+escreve um ponto, ou quando os painéis mostram ficheiros ocultos. O Borg lê até 10 000 subpastas de
+uma pasta, e só na linha de comandos desta máquina; a consola de um contentor ou de uma máquina
+remota mantém a conclusão da própria shell.
+
+Uma linha de comandos que apenas muda de pasta é executada sem que os painéis saiam do ecrã, e o
+painel ativo acompanha a shell até à nova pasta. Quando a pasta não existe, um aviso indica-o e
+Ctrl-O mostra a mensagem da shell. Uma pasta que demora a abrir, como uma numa partilha de rede
+lenta, faz aparecer a consola até o comando terminar. Tudo o que vá além de um `cd`, como
+`cd src && make`, mostra a consola como habitualmente.
+
+Ctrl-\ ou **Comando → Pastas favoritas** abre as favoritas com a pasta do painel ativo escolhida.
+Escreva para restringir a lista, escolha com Up e Down e prima Enter para abrir a pasta. Insert
+fixa a pasta escolhida nas favoritas, por isso Ctrl-\ seguido de Insert fixa a pasta onde está.
+F8 ou Delete retira uma pasta das favoritas ou das pastas recentes. Esc limpa o que escreveu e um
+segundo Esc fecha a janela. As favoritas guardam até 256 pastas.
+
+As favoritas ficam guardadas em `config.toml`, na secção `[folders]`. O Borg lembra-se das últimas
+64 pastas que os painéis abriram, na sua pasta de estado, num ficheiro que só o utilizador pode
+ler. Defina `history = false` em `[folders]` para deixar de as guardar.
 
 ## Plugin Git
 
@@ -908,6 +946,10 @@ history = true              # remember searches for Ctrl-P and Ctrl-N
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
 refresh-minutes = 15        # rebuild an index once it is this old
+
+[folders]
+hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
+history = true              # remember the folders the panels open
 ```
 
 Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com

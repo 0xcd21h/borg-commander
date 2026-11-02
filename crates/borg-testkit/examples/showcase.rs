@@ -1,6 +1,6 @@
-//! Renders the README showcase of folder sizes, the activity monitor, and Docker from
-//! fictional folders, processes and containers, so no screenshot shows the machine it was
-//! made on.
+//! Renders the README showcase of the editor beside search results, the folder picker, folder
+//! sizes, the activity monitor, and Docker from fictional files, folders, processes and
+//! containers, so no screenshot shows the machine it was made on.
 
 use std::{
     env,
@@ -12,8 +12,9 @@ use std::{
 
 use anyhow::{Result, ensure};
 use borg_core::{
-    ActivityData, ActivityRequest, MemoryRegion, Motion, Msg, Preferences, ProcessInfo, ProcessKey, ResultSource,
-    SearchKind, SearchOptions, SearchProgress, SearchRequest, Settings, Sort, SortKey, SystemSample,
+    ActivityData, ActivityRequest, EditorFile, EditorSlot, FileStamp, Folders, LineMatch, MemoryRegion, Motion, Msg,
+    Preferences, ProcessInfo, ProcessKey, ResultSource, Row, SearchKind, SearchOptions, SearchProgress, SearchRequest,
+    Settings, Side, Sort, SortKey, SystemSample,
 };
 use borg_core::{DockerData, DockerRequest};
 use borg_docker::{Container, Details, Mount, Network, State, Stats};
@@ -29,6 +30,8 @@ const MEASURED: u64 = NOW - 7 * 60;
 const HOME: &str = "/home/demo";
 const PROJECTS: &str = "/home/demo/projects";
 const ATLAS: &str = "/home/demo/projects/atlas";
+const EDITOR_THEME: &str = "midnight";
+const FOLDERS_THEME: &str = "classic";
 const SIZES_THEME: &str = "neon";
 const ACTIVITY_THEME: &str = "ember";
 const DOCKER_THEME: &str = "aurora";
@@ -113,6 +116,120 @@ fn projects() -> Vec<Entry> {
     .map(|(name, bytes, files, folders)| listed(folder(&format!("{PROJECTS}/{name}"), bytes, files, folders)))
     .chain([file("README.md", 4_812), file("todo.txt", 920)])
     .collect()
+}
+
+fn atlas() -> Vec<Entry> {
+    ["src", "web", "docs", "scripts", "target"]
+        .into_iter()
+        .map(|name| listed(folder(&format!("{ATLAS}/{name}"), 0, 0, 0)))
+        .map(|entry| Entry { usage: None, size: 0, ..entry })
+        .chain([file("Cargo.toml", 1_204), file("Cargo.lock", 48_310), file("README.md", 6_120)])
+        .collect()
+}
+
+const QUEUE: &str = "use std::collections::VecDeque;
+use std::time::Duration;
+
+use crate::remote::Remote;
+
+const PAUSE: Duration = Duration::from_secs(2);
+
+/// Changes waiting for the remote, oldest first.
+pub struct Queue {
+    items: VecDeque<Change>,
+    wait: Option<Duration>,
+}
+
+impl Queue {
+    pub fn push(&mut self, change: Change) {
+        self.items.push_back(change);
+    }
+
+    /// Sends what it can and keeps the rest.
+    pub fn flush(&mut self, remote: &mut Remote) {
+        while let Some(item) = self.items.front() {
+            if remote.send(item).is_err() {
+                // TODO: back off longer each time
+                self.wait = Some(PAUSE);
+                return;
+            }
+            self.items.pop_front();
+        }
+        self.wait = None;
+    }
+}
+";
+
+fn editor(output: &Path) -> Result<()> {
+    let mut stage = stage(ATLAS, ATLAS, [atlas(), atlas()])?;
+    theme(&mut stage, EDITOR_THEME);
+    let queue = format!("{ATLAS}/src/sync/queue.rs");
+    let offset = QUEUE.find("TODO").expect("the match in the sample") as u64;
+    let line = QUEUE[..offset as usize].matches('\n').count() as u64 + 1;
+    let found = [
+        (queue.as_str(), 812, line, "                // ", ": back off longer each time"),
+        ("src/sync/remote.rs", 4_806, 88, "    // ", ": stream large bodies instead of buffering"),
+        ("src/cli/args.rs", 2_114, 12, "/// ", ": accept --since as a date"),
+        ("web/src/upload.ts", 3_920, 57, "  // ", ": show progress for each file"),
+        ("docs/roadmap.md", 1_380, 5, "- [ ] ", ": publish the sync protocol"),
+        ("scripts/release.sh", 960, 19, "# ", ": sign the archives on CI"),
+        ("src/sync/merge.rs", 6_212, 140, "        // ", ": keep both sides of a rename"),
+        ("src/store/index.rs", 3_455, 61, "    // ", ": compact once a week"),
+        ("web/src/api.ts", 2_870, 23, "// ", ": retry once on 503"),
+        ("web/src/App.tsx", 5_102, 102, "      {/* ", ": empty state */}"),
+        ("docs/sync.md", 7_940, 44, "> ", ": explain conflict markers"),
+        ("tests/sync.rs", 4_410, 7, "// ", ": cover a dropped connection"),
+    ]
+    .map(|(path, size, line, before, after)| {
+        let path = if path.starts_with('/') { path.to_owned() } else { format!("{ATLAS}/{path}") };
+        let name = path.rsplit('/').next().unwrap_or_default().to_owned();
+        let entry = Entry { source: Some(path.into()), ..file(&name, size) };
+        (entry, LineMatch { line, offset, before: before.into(), found: "TODO".into(), after: after.into() })
+    });
+    let contents = borg_view::Query { text: "TODO".into(), case: true, ..Default::default() };
+    let request = SearchRequest {
+        skip: None,
+        root: ATLAS.into(),
+        query: "*".into(),
+        hidden: false,
+        options: SearchOptions { kind: SearchKind::Files, contents: Some(Box::new(contents)), ..Default::default() },
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(
+        ResultSource::Search { request, progress: SearchProgress::default() },
+        Vec::new(),
+        90,
+    );
+    stage.state.panels[0].begin_search(90);
+    stage.send(Msg::Found { side: Side::Left, generation: 90, found: found.into() });
+    let progress = SearchProgress { visited: 1_284, read: 1_206, unread: 41, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 90, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 90, error: None });
+    while !matches!(stage.state.panels[0].row(stage.state.panels[0].cursor()), Some(Row::Entry(entry)) if entry.name == "queue.rs")
+    {
+        ensure!(stage.state.panels[0].cursor() + 1 < stage.state.panels[0].len(), "queue.rs is among the results");
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT)));
+    let stamp = FileStamp { len: QUEUE.len() as u64, modified: None, inode: 1 };
+    let file = EditorFile { path: queue.into(), text: QUEUE.into(), stamp };
+    stage.send(Msg::EditorOpened(EditorSlot::Panel(Side::Right), Ok(file)));
+    save(&mut stage, output, "editor")
+}
+
+fn folder_picker(output: &Path) -> Result<()> {
+    let mut stage = stage(ATLAS, PROJECTS, [atlas(), projects()])?;
+    theme(&mut stage, FOLDERS_THEME);
+    stage.state.folders = Folders::new(
+        vec![format!("{PROJECTS}/website").into(), "/srv/www".into()],
+        vec![format!("{ATLAS}/src/sync").into(), format!("{PROJECTS}/notes").into(), "/var/log".into()],
+        Some(HOME.into()),
+    );
+    stage.shell(b"cd ~/projects/");
+    let names = projects().into_iter().filter(|entry| entry.kind == EntryKind::Dir).map(|entry| entry.name).collect();
+    stage.send(Msg::Subfolders { dir: PROJECTS.into(), names });
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
+    save(&mut stage, output, "folder-picker")
 }
 
 fn size_tree(output: &Path) -> Result<()> {
@@ -595,6 +712,8 @@ fn docker(output: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let output = PathBuf::from(env::args().nth(1).unwrap_or_else(|| "docs/showcase".into()));
     fs::create_dir_all(&output)?;
+    editor(&output)?;
+    folder_picker(&output)?;
     size_tree(&output)?;
     folder_totals(&output)?;
     activity(&output)?;

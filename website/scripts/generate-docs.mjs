@@ -86,7 +86,7 @@ for (const locale of codes) {
 }
 const screenshots = [
   ...['paper', 'classic', 'midnight', 'aurora', 'ember', 'neon'].map(name => ['themes', name]),
-  ...['docker', 'activity', 'memory-map', 'size-tree', 'folder-totals'].map(name => ['showcase', name]),
+  ...['editor', 'folder-picker', 'docker', 'activity', 'memory-map', 'size-tree', 'folder-totals'].map(name => ['showcase', name]),
 ];
 await mkdir(join(site, 'public/screenshots'), { recursive: true });
 for (const [directory, name] of screenshots) {
