@@ -132,14 +132,14 @@ pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchRe
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
 
 pub use network::{
-    CAPTURE_FIELDS, CaptureDialog, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends, HEADER_BYTES, HostRow,
-    Recording, Talker, TrafficPage, TrafficView,
-};
-pub use network::{
     CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
     Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
     RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
     service,
+};
+pub use network::{
+    CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends,
+    HEADER_BYTES, HostRow, Recording, Talker, TrafficPage, TrafficView, capture_extension,
 };
 
 pub use capture::{

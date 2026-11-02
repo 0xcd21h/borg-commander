@@ -21,7 +21,8 @@ mod traffic;
 mod viewer;
 
 pub use capture::{
-    CAPTURE_FIELDS, CaptureDialog, CaptureField, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES, Recording,
+    CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES,
+    Recording, capture_extension,
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
@@ -167,6 +168,8 @@ pub struct Network {
     revealing: Option<u32>,
     /// The capture `tcpdump` is taking.
     pub recording: Option<Recording>,
+    /// What capturing as administrator can do here.
+    pub access: CaptureAccess,
     /// A capture's traffic, shown in place of the live pages.
     pub viewer: Option<Box<TrafficView>>,
     next_id: u64,
@@ -204,6 +207,7 @@ impl Default for Network {
             back: None,
             revealing: None,
             recording: None,
+            access: CaptureAccess::default(),
             viewer: None,
             next_id: 0,
             next: None,
@@ -712,16 +716,25 @@ pub(crate) fn pick_capture_field(state: &mut AppState, dialog: CaptureDialog, ro
     capture::pick(state, dialog, row);
 }
 
-pub(crate) fn capture_progress(state: &mut AppState, id: u64, bytes: u64, packets: usize) {
-    capture::progress(state, id, bytes, packets);
+pub(crate) fn capture_progress(state: &mut AppState, id: u64, bytes: u64, packets: usize, now: Instant) {
+    capture::progress(state, id, bytes, packets, now);
 }
 
 pub(crate) fn capture_done(
     state: &mut AppState,
     id: u64,
-    result: Result<(std::path::PathBuf, Capture), String>,
+    result: Result<(std::path::PathBuf, Capture), CaptureFailure>,
 ) -> Vec<Effect> {
     capture::done(state, id, result)
+}
+
+pub(crate) fn capture_as_administrator(
+    state: &mut AppState,
+    request: CaptureRequest,
+    view_filter: String,
+    now: Instant,
+) -> Vec<Effect> {
+    capture::elevate(state, request, view_filter, now)
 }
 
 pub(crate) fn capture_opened(

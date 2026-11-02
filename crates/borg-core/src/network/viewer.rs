@@ -94,16 +94,20 @@ pub struct TrafficView {
 }
 
 impl TrafficView {
-    /// The viewer on `capture`, with each conversation's process found among `sockets`, and
-    /// the names known for processes and addresses.
+    /// The viewer on `capture`, with each conversation's process the one its packets carry, or
+    /// else the one whose socket among `sockets` held it, and the names known for processes and
+    /// addresses. The screen's names come before the capture's, which the system cuts short.
     pub fn new(
         capture: Capture,
         sockets: &[Socket],
-        names: HashMap<u32, String>,
+        mut names: HashMap<u32, String>,
         resolved: &HashMap<IpAddr, Option<String>>,
         path: Option<PathBuf>,
     ) -> Self {
-        let ends: Vec<Ends> = capture.flows.iter().map(|flow| ends(flow, sockets)).collect();
+        for (pid, name) in &capture.processes {
+            names.entry(*pid).or_insert_with(|| name.clone());
+        }
+        let ends: Vec<Ends> = capture.flows.iter().map(|flow| ends(flow, &capture.packets, sockets)).collect();
         let mut hosts: HashMap<IpAddr, String> =
             resolved.iter().filter_map(|(address, name)| Some((*address, name.clone()?))).collect();
         for (flow, end) in capture.flows.iter().zip(&ends) {
@@ -214,9 +218,9 @@ impl TrafficView {
         (self.page == TrafficPage::Packets).then(|| (index, &self.capture.packets[index]))
     }
 
-    /// The packet's conversation's process, when the capture tells it.
+    /// The packet's own process, or else its conversation's, when the capture tells it.
     pub fn packet_pid(&self, packet: &Packet) -> Option<u32> {
-        packet.flow.and_then(|flow| self.ends[flow].pid)
+        packet.pid.or_else(|| packet.flow.and_then(|flow| self.ends[flow].pid))
     }
 
     /// What a conversation carries: the protocol Borg recognized in it, or its transport.
@@ -240,9 +244,13 @@ impl TrafficView {
         let mut flows: Vec<usize> = (0..self.capture.flows.len()).filter(|&flow| kept[flow]).collect();
         flows.sort_by_key(|&flow| (Reverse(self.capture.flows[flow].bytes()), flow));
         self.packets = (0..self.capture.packets.len())
-            .filter(|&packet| match self.capture.packets[packet].flow {
-                Some(flow) => kept[flow],
-                None => everything || filter.matches(&self.loose_haystack(&self.capture.packets[packet])),
+            .filter(|&index| {
+                let packet = &self.capture.packets[index];
+                match packet.flow {
+                    Some(flow) if packet.pid.is_none_or(|pid| self.ends[flow].pid == Some(pid)) => kept[flow],
+                    Some(flow) => everything || filter.matches(&self.packet_haystack(flow, packet.pid)),
+                    None => everything || filter.matches(&self.loose_haystack(packet)),
+                }
             })
             .collect();
         talkers.sort_by_key(|talker| (Reverse(talker.bytes), self.name(talker.pid).to_lowercase(), talker.pid));
@@ -315,6 +323,11 @@ impl TrafficView {
         }
     }
 
+    /// The haystack of a packet whose own process is not its conversation's.
+    fn packet_haystack(&self, flow: usize, pid: Option<u32>) -> Haystack {
+        Haystack { process: Some(self.name(pid)), pid, ..self.flow_haystack(flow) }
+    }
+
     fn talker_haystack(&self, talker: &Talker) -> Haystack {
         let mut haystack = Haystack { process: Some(self.name(talker.pid)), pid: talker.pid, ..Haystack::default() };
         for &flow in &talker.flows {
@@ -349,7 +362,13 @@ impl TrafficView {
         let hosts = packet.layers.ip.map_or_else(Vec::new, |ip| {
             self.host_words(ip.source).into_iter().chain(self.host_words(ip.destination)).collect()
         });
-        Haystack { hosts, protocols: vec![packet.layers.protocol()], ..Haystack::default() }
+        Haystack {
+            process: packet.pid.map(|pid| self.name(Some(pid))),
+            pid: packet.pid,
+            hosts,
+            protocols: vec![packet.layers.protocol()],
+            ..Haystack::default()
+        }
     }
 
     /// Enter: from a process or host to its conversations, from a conversation to its packets.
@@ -401,9 +420,19 @@ impl TrafficView {
     }
 }
 
-/// The ends of a conversation as this machine sees them, with the process whose socket holds
-/// it. A conversation no socket holds counts its server as the other end.
-fn ends(flow: &Flow, sockets: &[Socket]) -> Ends {
+/// The process most of a conversation's packets carry, when the capture tags them with one.
+fn tagged(flow: &Flow, packets: &[Packet]) -> Option<u32> {
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for pid in flow.packets.iter().filter_map(|&index| packets.get(index)?.pid) {
+        *counts.entry(pid).or_default() += 1;
+    }
+    counts.into_iter().max_by_key(|&(pid, count)| (count, Reverse(pid))).map(|(pid, _)| pid)
+}
+
+/// The ends of a conversation as this machine sees them, with the process its packets carry or
+/// else the one whose socket holds it. A conversation no socket holds counts its server as the
+/// other end.
+fn ends(flow: &Flow, packets: &[Packet], sockets: &[Socket]) -> Ends {
     let transport = match flow.kind {
         FlowKind::Tcp => Some(Transport::Tcp),
         FlowKind::Udp => Some(Transport::Udp),
@@ -429,7 +458,9 @@ fn ends(flow: &Flow, sockets: &[Socket]) -> Ends {
                 .map(|socket| Ends { pid: socket.pid, local, remote })
         })
     };
-    held(true).or_else(|| held(false)).unwrap_or(Ends { pid: None, local: flow.client, remote: flow.server })
+    let found =
+        held(true).or_else(|| held(false)).unwrap_or(Ends { pid: None, local: flow.client, remote: flow.server });
+    Ends { pid: tagged(flow, packets).or(found.pid), ..found }
 }
 
 #[cfg(test)]

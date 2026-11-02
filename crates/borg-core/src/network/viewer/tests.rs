@@ -1,7 +1,9 @@
 use super::*;
 use crate::{
     ACK, PSH, SYN,
-    capture::tests::{CLIENT, CLIENT_PORT, RESOLVER, SERVER, client_hello, dns, over_tcp, over_udp, pcap, tcp, udp},
+    capture::tests::{
+        CLIENT, CLIENT_PORT, RESOLVER, SERVER, client_hello, dns, over_tcp, over_udp, pcap, pktap_of, tcp, udp,
+    },
 };
 
 const BROWSER: u32 = 8239;
@@ -21,9 +23,9 @@ fn socket(local: SocketAddr, remote: Option<SocketAddr>, pid: u32) -> Socket {
 
 /// The browser asks for a name and opens a TLS connection, and a visitor reaches the web app
 /// listening on every address.
-fn capture() -> Capture {
+fn pcap_frames() -> Vec<Vec<u8>> {
     let (browser, web) = (CLIENT_PORT, WEB_PORT);
-    let frames = [
+    vec![
         over_udp(CLIENT, RESOLVER, udp(RESOLVER_PORT, 53, &dns("example.com", None))),
         over_udp(RESOLVER, CLIENT, udp(53, RESOLVER_PORT, &dns("example.com", Some(&[SERVER])))),
         over_tcp(CLIENT, SERVER, tcp(browser, 443, 1000, SYN, &[])),
@@ -31,8 +33,11 @@ fn capture() -> Capture {
         over_tcp(CLIENT, SERVER, tcp(browser, 443, 1001, PSH | ACK, &client_hello("example.com", 0))),
         over_tcp(VISITOR, CLIENT, tcp(VISITOR_PORT, web, 9000, SYN, &[])),
         over_tcp(CLIENT, VISITOR, tcp(web, VISITOR_PORT, 7000, SYN | ACK, &[])),
-    ];
-    Capture::read(&pcap(&frames)).unwrap()
+    ]
+}
+
+fn capture() -> Capture {
+    Capture::read(&pcap(&pcap_frames())).unwrap()
 }
 
 fn view() -> TrafficView {
@@ -96,4 +101,57 @@ fn enter_goes_from_a_process_to_its_connections_and_packets_and_back() {
     assert!(view.back());
     assert_eq!((view.page, view.cursor()), (TrafficPage::Processes, browser));
     assert!(!view.back());
+}
+
+const SHORT_LIVED: u32 = 9001;
+
+/// The same traffic caught on macOS's `pktap`: a process the screen never saw made the TLS
+/// connection, and the name lookup's question and answer carry different processes.
+fn tagged_view() -> TrafficView {
+    let frames: Vec<(Vec<u8>, Option<u32>)> = pcap_frames()
+        .into_iter()
+        .enumerate()
+        .map(|(index, frame)| {
+            let pid = match index {
+                0 => Some(WEB),
+                1 => Some(BROWSER),
+                2..=4 => Some(SHORT_LIVED),
+                _ => None,
+            };
+            (frame, pid)
+        })
+        .collect();
+    let processes = [(WEB, "web"), (BROWSER, "brows"), (SHORT_LIVED, "fetch")];
+    let capture = Capture::read(&pktap_of(&frames, &processes)).unwrap();
+    let sockets = [
+        socket(address(CLIENT, CLIENT_PORT), Some(address(SERVER, 443)), BROWSER),
+        socket(address([0; 4], WEB_PORT), None, WEB),
+    ];
+    let names = [(BROWSER, "browser".to_owned()), (WEB, "web".to_owned())].into();
+    TrafficView::new(capture, &sockets, names, &HashMap::new(), None)
+}
+
+#[test]
+fn a_packets_own_process_wins_over_the_socket_that_held_its_conversation() {
+    let view = tagged_view();
+    let tls = view.capture.flows.iter().position(|flow| flow.server.port() == 443).unwrap();
+    assert_eq!(view.ends[tls].pid, Some(SHORT_LIVED), "the packets say who sent them");
+    assert_eq!(view.ends[tls].local, address(CLIENT, CLIENT_PORT), "the socket still tells which end is here");
+    assert_eq!(view.name(Some(SHORT_LIVED)), "fetch", "a process the screen never saw is named by the capture");
+    assert_eq!(view.name(Some(BROWSER)), "browser", "the screen's name comes before the capture's shorter one");
+    let web = view.capture.flows.iter().position(|flow| flow.server.port() == WEB_PORT).unwrap();
+    assert_eq!(view.ends[web].pid, Some(WEB), "untagged packets keep the socket's process");
+}
+
+#[test]
+fn a_process_filter_keeps_exactly_the_packets_that_process_sent_or_received() {
+    let mut view = tagged_view();
+    view.set_filter(&format!("pid:{BROWSER}"));
+    assert_eq!(view.packets, [1], "only the answer the browser received");
+    view.set_filter(&format!("pid:{WEB}"));
+    assert_eq!(view.packets, [0, 5, 6], "the question, and the visitor's packets through the web socket");
+    view.set_filter("fetch");
+    assert_eq!(view.packets, [2, 3, 4]);
+    let packet = view.capture.packets[1].clone();
+    assert_eq!(view.packet_pid(&packet), Some(BROWSER));
 }

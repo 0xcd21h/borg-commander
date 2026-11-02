@@ -1327,6 +1327,11 @@ y Linux instala con el paquete `tcpdump`. El diálogo **Capturar tráfico** part
 - **Duración** es de 5, 10, 30 o 60 segundos, o **Hasta detenerla**.
 - **Guardar** es **Paquetes completos**, o **Cabeceras, los primeros 128 bytes de cada paquete**
   para archivos pequeños que dejan fuera casi todo lo que llevan los paquetes.
+- **Ejecutar como** aparece donde Borg puede pedir al sistema la contraseña de un administrador.
+  **Tu usuario** ejecuta tcpdump como tú, y **Administrador** lo ejecuta como root después de que
+  escribas tu contraseña en el diálogo del sistema. En macOS la opción se llama **Administrador,
+  con el proceso de cada paquete**: tcpdump escucha entonces a través de `pktap` de macOS, que marca
+  cada paquete con el proceso que lo envió o recibió.
 
 ↑↓ eligen un campo, ←→ o Space lo cambian, Enter inicia la captura y Esc la cancela. Con el ratón,
 haz clic en un campo para elegirlo y otra vez para cambiarlo. Mientras la captura se ejecuta, el pie
@@ -1336,15 +1341,18 @@ captura se detiene y un aviso dice dónde la guardó Borg.
 
 Borg guarda cada captura como `capture-<date>-<time>.pcap` en la carpeta del panel que cubre la
 pantalla de red, legible solo por ti, para que Wireshark y otras herramientas puedan abrirla
-después. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
+después. Una captura que marca cada paquete con su proceso se guarda como
+`capture-<date>-<time>.pcapng`, el formato que puede llevar esas marcas. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
 cuidado que esos datos.
 
 Cuando la captura termina, el visor de tráfico ocupa el lugar de las páginas en vivo, con una página
 para cada forma de mirarla:
 
 - **1 Procesos** muestra cada proceso con los hosts con los que habló, sus paquetes y sus bytes.
-  Una conversación pertenece al proceso cuyo socket la tenía durante la captura, y el resto va a
-  **Proceso desconocido**.
+  Cuando los paquetes llevan su proceso, cada paquete pertenece al proceso que lo envió o recibió.
+  Así, hasta un proceso que duró menos de un segundo recibe su nombre, y el filtro de un proceso
+  conserva exactamente sus paquetes. Si no, una conversación pertenece al proceso cuyo socket la
+  tenía durante la captura, y el resto va a **Proceso desconocido**.
 - **2 Hosts** muestra las demás máquinas con los protocolos vistos. Los nombres salen de las
   respuestas DNS de la propia captura y de los nombres de servidor que pidieron las conexiones TLS,
   así que la mayoría de los hosts tienen uno.
@@ -1371,10 +1379,12 @@ aplica a todas las páginas, y Enter pone uno para bajar un nivel, por eso Esc p
 
 F3 sobre un archivo `.pcap`, `.pcapng` o `.cap` en un panel lo abre en el mismo visor, empezando
 por **2 Hosts**. Un archivo grabado en otro sitio no tiene sockets con los que emparejarse, así que
-sus conversaciones muestran **Proceso desconocido**. El visor lee archivos de hasta 256 MiB y sus
-primeros 200.000 paquetes.
+sus conversaciones muestran **Proceso desconocido**. Un archivo `.pcapng` cuyos paquetes llevan su
+proceso, como los que guardan Borg y `tcpdump -i pktap` en macOS, sigue nombrando cada proceso. El
+visor lee archivos de hasta 256 MiB y sus primeros 200.000 paquetes.
 
-tcpdump necesita acceso al dispositivo de captura, y Borg lo ejecuta como tú:
+tcpdump necesita acceso al dispositivo de captura. Borg lo ejecuta como tú, así que date acceso una
+vez:
 
 - En macOS, al principio solo root puede abrir los dispositivos `/dev/bpf`. Instala una vez
   Wireshark con su componente **ChmodBPF**: entrega los dispositivos a un grupo `access_bpf` y te
@@ -1383,7 +1393,22 @@ tcpdump necesita acceso al dispositivo de captura, y Borg lo ejecuta como tú:
   `sudo setcap cap_net_raw,cap_net_admin=eip /usr/sbin/tcpdump`. Algunas distribuciones permiten
   capturar a los miembros de un grupo `pcap` o `wireshark`.
 
-Sin acceso, la captura termina con **No tienes permiso para capturar en** y el nombre de la
+Sin acceso, Borg pregunta **Capturar como administrador** donde el sistema puede pedir tu
+contraseña: en macOS en el diálogo de contraseña del propio sistema, y en Linux a través de
+`pkexec`, cuyo diálogo viene de tu escritorio. Elige Sí y escribe la contraseña en el diálogo del
+sistema, que Borg nunca ve. Mientras el diálogo está abierto, el pie dice **Esperando tu
+contraseña para capturar en** y el nombre de la interfaz. Después Borg ejecuta una copia de sí
+mismo como root, que comprueba qué se le pidió capturar e inicia tcpdump desde las carpetas del
+propio sistema. Los paquetes vuelven a Borg, que guarda el archivo como tú. **R** y la duración
+detienen la captura como antes, y si Borg termina, la captura se detiene con él. Si cancelas el
+diálogo del sistema, la captura termina sin aviso. Para saltarte la pregunta, elige
+**Administrador** en **Ejecutar como** antes de empezar.
+
+En Linux sin `pkexec`, Borg usa `sudo` cuando puede ejecutar tcpdump sin contraseña. Por SSH no hay
+escritorio que muestre el diálogo, así que la captura termina con **Borg no puede capturar como
+administrador** y el motivo del sistema. Cuando el propio Borg se ejecuta como root, nunca
+pregunta, y en macOS sus capturas siempre llevan el proceso de cada paquete. Donde Borg no puede
+preguntar, la captura termina con **No tienes permiso para capturar en** y el nombre de la
 interfaz.
 
 ### Lo que informa el sistema

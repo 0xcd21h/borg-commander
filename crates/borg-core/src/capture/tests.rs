@@ -188,38 +188,152 @@ fn block(kind: u32, body: &[u8]) -> Vec<u8> {
     block
 }
 
+const SECTION: u32 = 0x0a0d_0d0a;
+const INTERFACE: u32 = 1;
+const ENHANCED: u32 = 6;
+const PROCESS: u32 = 0x8000_0001;
+const IF_NAME: u16 = 2;
+const IF_RESOLUTION: u16 = 9;
+const PROCESS_NAME: u16 = 2;
+const PROCESS_INDEX: u16 = 0x8001;
+const EFFECTIVE_PROCESS_INDEX: u16 = 0x8003;
+const PACKET_FLAGS: u16 = 2;
+const OUTBOUND: u32 = 2;
+
+/// An option with its value, padded to whole words.
+fn option(code: u16, value: &[u8]) -> Vec<u8> {
+    let mut option = Vec::new();
+    option.extend(code.to_le_bytes());
+    option.extend((value.len() as u16).to_le_bytes());
+    option.extend(value);
+    option.resize(4 + value.len().div_ceil(4) * 4, 0);
+    option
+}
+
+/// Options followed by the end of options.
+fn options(options: &[Vec<u8>]) -> Vec<u8> {
+    let mut bytes = options.concat();
+    bytes.extend([0; 4]);
+    bytes
+}
+
+fn section() -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(0x1a2b_3c4du32.to_le_bytes());
+    body.extend([1, 0, 0, 0]);
+    body.extend((-1i64).to_le_bytes());
+    block(SECTION, &body)
+}
+
+fn interface(extra: &[Vec<u8>]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend((ETHERNET as u16).to_le_bytes());
+    body.extend([0, 0]);
+    body.extend(0u32.to_le_bytes());
+    let named = [option(IF_NAME, b"en0")].into_iter().chain(extra.iter().cloned()).collect::<Vec<_>>();
+    body.extend(options(&named));
+    block(INTERFACE, &body)
+}
+
+fn process(pid: u32, name: &str) -> Vec<u8> {
+    let mut body = pid.to_le_bytes().to_vec();
+    body.extend(options(&[option(PROCESS_NAME, name.as_bytes())]));
+    block(PROCESS, &body)
+}
+
+fn enhanced(ticks: u64, frame: &[u8], extra: &[Vec<u8>]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(0u32.to_le_bytes());
+    body.extend(((ticks >> 32) as u32).to_le_bytes());
+    body.extend((ticks as u32).to_le_bytes());
+    body.extend((frame.len() as u32).to_le_bytes());
+    body.extend((frame.len() as u32).to_le_bytes());
+    body.extend(frame);
+    body.resize(body.len().div_ceil(4) * 4, 0);
+    if !extra.is_empty() {
+        body.extend(options(extra));
+    }
+    block(ENHANCED, &body)
+}
+
+/// An enhanced packet that points at the section's process block `index`, as macOS's
+/// tcpdump writes it on its `pktap` interface.
+fn tagged(frame: &[u8], index: u32) -> Vec<u8> {
+    let tags = [
+        option(PROCESS_INDEX, &index.to_le_bytes()),
+        option(EFFECTIVE_PROCESS_INDEX, &index.to_le_bytes()),
+        option(PACKET_FLAGS, &OUTBOUND.to_le_bytes()),
+    ];
+    enhanced(0, frame, &tags)
+}
+
+/// A `pktap` capture of `frames`, each tagged with the PID beside it, after a process block for
+/// each of `processes`.
+pub(crate) fn pktap_of(frames: &[(Vec<u8>, Option<u32>)], processes: &[(u32, &str)]) -> Vec<u8> {
+    let mut bytes = [section(), interface(&[])].concat();
+    bytes.extend(processes.iter().flat_map(|(pid, name)| process(*pid, name)));
+    for (frame, pid) in frames {
+        let index = pid.and_then(|pid| processes.iter().position(|(known, _)| *known == pid));
+        bytes.extend(match index {
+            Some(index) => tagged(frame, index as u32),
+            None => enhanced(0, frame, &[]),
+        });
+    }
+    bytes
+}
+
 #[test]
 fn reads_pcapng_with_the_interface_name_and_unit() {
     let frame = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
-    let mut section = Vec::new();
-    section.extend(0x1a2b_3c4du32.to_le_bytes());
-    section.extend([1, 0, 0, 0]);
-    section.extend((-1i64).to_le_bytes());
-    let mut interface = Vec::new();
-    interface.extend(1u16.to_le_bytes());
-    interface.extend([0, 0]);
-    interface.extend(0u32.to_le_bytes());
-    interface.extend(2u16.to_le_bytes());
-    interface.extend(3u16.to_le_bytes());
-    interface.extend(b"en0\0");
-    interface.extend(9u16.to_le_bytes());
-    interface.extend(1u16.to_le_bytes());
-    interface.extend([9, 0, 0, 0]);
-    interface.extend([0, 0, 0, 0]);
-    let ticks: u64 = 3_500_000_000;
-    let mut packet = Vec::new();
-    packet.extend(0u32.to_le_bytes());
-    packet.extend(((ticks >> 32) as u32).to_le_bytes());
-    packet.extend((ticks as u32).to_le_bytes());
-    packet.extend((frame.len() as u32).to_le_bytes());
-    packet.extend((frame.len() as u32).to_le_bytes());
-    packet.extend(&frame);
-    let bytes = [block(0x0a0d_0d0a, &section), block(1, &interface), block(6, &packet)].concat();
+    let nanos = option(IF_RESOLUTION, &[9]);
+    let bytes = [section(), interface(&[nanos]), enhanced(3_500_000_000, &frame, &[])].concat();
     let capture = Capture::read(&bytes).unwrap();
     assert_eq!(capture.packets.len(), 1);
     assert_eq!(capture.packets[0].interface.as_deref(), Some("en0"));
     assert_eq!(capture.packets[0].stamp, Duration::from_millis(3500));
     assert_eq!(capture.packets[0].data, frame);
+    assert_eq!(capture.packets[0].pid, None, "a plain pcapng file tells no process");
+}
+
+const WEB: u32 = 4100;
+const BROWSER: u32 = 8239;
+const LATER: u32 = 77;
+
+/// macOS's `pktap` capture: each process's block comes before its first packet, and a new
+/// section numbers its process blocks again.
+fn pktap() -> Vec<u8> {
+    let question = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let hello = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &client_hello("example.com", 0)));
+    [
+        section(),
+        interface(&[]),
+        process(WEB, "web"),
+        tagged(&question, 0),
+        process(BROWSER, "browser"),
+        tagged(&hello, 1),
+        tagged(&question, 0),
+        process(u32::MAX, ""),
+        tagged(&question, 2),
+        tagged(&question, 9),
+        enhanced(0, &question, &[]),
+        section(),
+        interface(&[]),
+        process(LATER, "later"),
+        tagged(&question, 0),
+    ]
+    .concat()
+}
+
+#[test]
+fn pktap_packets_carry_the_process_that_sent_or_received_them() {
+    let capture = Capture::read(&pktap()).unwrap();
+    let pids: Vec<Option<u32>> = capture.packets.iter().map(|packet| packet.pid).collect();
+    assert_eq!(pids, [Some(WEB), Some(BROWSER), Some(WEB), None, None, None, Some(LATER)]);
+    assert_eq!(
+        capture.processes,
+        [(WEB, "web".to_owned()), (BROWSER, "browser".to_owned()), (LATER, "later".to_owned())].into()
+    );
+    assert_eq!(capture.packets[1].layers.protocol(), "TLS", "the options after the data leave the packet whole");
 }
 
 #[test]
@@ -387,6 +501,27 @@ fn the_counter_counts_whole_packets_from_the_chunks_of_a_stream() {
     let mut whole = PcapCounter::default();
     whole.feed(&bytes);
     assert_eq!(whole.packets, 2);
+}
+
+#[test]
+fn the_counter_counts_pcapng_packets_and_not_the_blocks_around_them() {
+    let bytes = pktap();
+    let mut whole = PcapCounter::default();
+    whole.feed(&bytes);
+    assert_eq!(whole.packets, 7);
+    let mut trickle = PcapCounter::default();
+    bytes.chunks(3).for_each(|chunk| trickle.feed(chunk));
+    assert_eq!(trickle.packets, 7);
+    let mut cut = PcapCounter::default();
+    cut.feed(&bytes[..bytes.len() - 1]);
+    assert_eq!(cut.packets, 6, "the last packet is counted once it is whole");
+}
+
+#[test]
+fn the_counter_stops_at_bytes_that_are_no_capture() {
+    let mut counter = PcapCounter::default();
+    counter.feed(b"not a capture at all, nothing to count here");
+    assert_eq!(counter.packets, 0);
 }
 
 #[test]

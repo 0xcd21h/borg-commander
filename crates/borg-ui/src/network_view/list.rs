@@ -119,6 +119,9 @@ fn recording_note(recording: &Recording, now: Instant) -> String {
     if recording.stopping {
         return tr!(capture_stopping).into();
     }
+    if recording.waiting {
+        return tr!(capture_waiting, interface = recording.request.interface);
+    }
     let running = tr!(
         capture_running,
         interface = recording.request.interface,

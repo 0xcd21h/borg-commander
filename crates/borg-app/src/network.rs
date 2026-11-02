@@ -16,6 +16,8 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod capture;
 mod kinds;
+
+pub(crate) use capture::{access as capture_access, helper as capture_helper};
 #[cfg(any(target_os = "macos", test))]
 mod netstat;
 #[cfg(any(target_os = "linux", test))]

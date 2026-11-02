@@ -1,12 +1,15 @@
 //! The two file formats captures come in: pcap, as `tcpdump -w` writes it, and pcapng, as
-//! Wireshark saves it.
+//! Wireshark saves it and macOS's tcpdump does on its `pktap` interface, with the process
+//! behind each packet.
 
 use super::CaptureError;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 const PCAP_MICROS: u32 = 0xa1b2_c3d4;
 const PCAP_NANOS: u32 = 0xa1b2_3c4d;
 const PCAP_HEADER: usize = 24;
+/// The magic number that opens either format.
+const PCAP_MAGIC: usize = 4;
 const PCAP_LINK_AT: usize = 20;
 const RECORD_HEADER: usize = 16;
 const RECORD_CAPTURED_AT: usize = 8;
@@ -15,11 +18,22 @@ const PCAPNG_BYTE_ORDER: u32 = 0x1a2b_3c4d;
 const PCAPNG_INTERFACE: u32 = 1;
 const PCAPNG_SIMPLE: u32 = 3;
 const PCAPNG_ENHANCED: u32 = 6;
+/// The process information block macOS adds: a process's PID and name, which the packets that
+/// follow point at by its place among the section's process blocks.
+const PCAPNG_PROCESS: u32 = 0x8000_0001;
+/// What the first bytes of each pcapng block tell: its type, its length, and for a section
+/// header the byte order.
+const BLOCK_START: usize = 12;
 const BLOCK_HEADER: usize = 8;
 const BLOCK_TRAILER: usize = 4;
 const OPTION_END: u16 = 0;
 const OPTION_NAME: u16 = 2;
 const OPTION_RESOLUTION: u16 = 9;
+const OPTION_PROCESS_NAME: u16 = 2;
+/// An enhanced packet's option giving its process block's place in the section.
+const OPTION_PROCESS: u16 = 0x8001;
+/// The PID a process block holds when the system could not tell one.
+const NO_PROCESS: u32 = u32::MAX;
 const POWER_OF_TWO: u8 = 0x80;
 const MICROS_PER_SECOND: u64 = 1_000_000;
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
@@ -35,11 +49,15 @@ pub(super) struct Frame {
     pub data: Vec<u8>,
     pub link: u32,
     pub interface: Option<String>,
+    /// The PID of the process that sent or received it, when the file records one.
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Frames {
     pub frames: Vec<Frame>,
+    /// The names of the processes the file records, by PID.
+    pub processes: HashMap<u32, String>,
     /// Packets past the limit, left out.
     pub skipped: usize,
     /// The file ends inside a packet.
@@ -113,7 +131,7 @@ fn pcap_record(bytes: &[u8], at: usize, order: Order, units: u64, link: u32) -> 
     let start = at + RECORD_HEADER;
     let data = bytes.get(start..start.checked_add(captured.min(LARGEST_RECORD))?)?;
     let stamp = Duration::from_secs(seconds) + Duration::from_nanos(fraction * (NANOS_PER_SECOND / units));
-    Some((Frame { stamp, length, data: data.to_vec(), link, interface: None }, start + data.len()))
+    Some((Frame { stamp, length, data: data.to_vec(), link, interface: None, pid: None }, start + data.len()))
 }
 
 fn keep(frames: &mut Frames, frame: Frame, limit: usize) {
@@ -135,6 +153,7 @@ struct Interface {
 fn pcapng(bytes: &[u8], limit: usize) -> Result<Frames, CaptureError> {
     let mut frames = Frames::default();
     let mut interfaces: Vec<Interface> = Vec::new();
+    let mut processes: Vec<Option<u32>> = Vec::new();
     let mut order = Order { big: false };
     let mut at = 0;
     while at < bytes.len() {
@@ -145,6 +164,7 @@ fn pcapng(bytes: &[u8], limit: usize) -> Result<Frames, CaptureError> {
         if kind == PCAPNG_SECTION {
             order = section_order(bytes, at).ok_or(CaptureError::Unknown)?;
             interfaces.clear();
+            processes.clear();
         }
         let Some(total) = order.size(bytes, at + 4).filter(|total| *total >= BLOCK_HEADER + BLOCK_TRAILER) else {
             frames.cut = true;
@@ -156,8 +176,15 @@ fn pcapng(bytes: &[u8], limit: usize) -> Result<Frames, CaptureError> {
         };
         match kind {
             PCAPNG_INTERFACE => interfaces.extend(interface(block, order)),
+            PCAPNG_PROCESS => {
+                let (pid, name) = process(block, order);
+                if let (Some(pid), Some(name)) = (pid, name) {
+                    frames.processes.insert(pid, name);
+                }
+                processes.push(pid);
+            }
             PCAPNG_ENHANCED => {
-                if let Some(frame) = enhanced(block, order, &interfaces) {
+                if let Some(frame) = enhanced(block, order, &interfaces, &processes) {
                     keep(&mut frames, frame, limit);
                 }
             }
@@ -226,7 +253,19 @@ fn resolution(code: u8) -> u64 {
     if code & POWER_OF_TWO == 0 { 10u64.pow(exponent) } else { 1u64 << exponent.min(63) }
 }
 
-fn enhanced(block: &[u8], order: Order, interfaces: &[Interface]) -> Option<Frame> {
+/// A process block's PID, unless the system could not tell it, and the name it gives.
+fn process(block: &[u8], order: Order) -> (Option<u32>, Option<String>) {
+    const OPTIONS_AT: usize = BLOCK_HEADER + 4;
+    let pid = order.u32(block, BLOCK_HEADER).filter(|pid| *pid != NO_PROCESS);
+    let name = options(block, OPTIONS_AT, order)
+        .into_iter()
+        .find(|(code, _)| *code == OPTION_PROCESS_NAME)
+        .map(|(_, value)| String::from_utf8_lossy(value).trim_end_matches('\0').to_owned())
+        .filter(|name| !name.is_empty());
+    (pid, name)
+}
+
+fn enhanced(block: &[u8], order: Order, interfaces: &[Interface], processes: &[Option<u32>]) -> Option<Frame> {
     const DATA_AT: usize = 28;
     let interface = interfaces.get(order.size(block, BLOCK_HEADER)?)?;
     let high = u64::from(order.u32(block, BLOCK_HEADER + 4)?);
@@ -237,7 +276,11 @@ fn enhanced(block: &[u8], order: Order, interfaces: &[Interface]) -> Option<Fram
     let ticks = (high << 32) | low;
     let stamp = Duration::from_secs(ticks / interface.units)
         + Duration::from_nanos((ticks % interface.units).saturating_mul(NANOS_PER_SECOND) / interface.units);
-    Some(Frame { stamp, length, data: data.to_vec(), link: interface.link, interface: interface.name.clone() })
+    let pid = options(block, DATA_AT + padded(captured), order)
+        .into_iter()
+        .find(|(code, value)| *code == OPTION_PROCESS && value.len() == 4)
+        .and_then(|(_, value)| *processes.get(order.size(value, 0)?)?);
+    Some(Frame { stamp, length, data: data.to_vec(), link: interface.link, interface: interface.name.clone(), pid })
 }
 
 fn simple(block: &[u8], order: Order, interfaces: &[Interface]) -> Option<Frame> {
@@ -252,15 +295,29 @@ fn simple(block: &[u8], order: Order, interfaces: &[Interface]) -> Option<Frame>
         data: data.to_vec(),
         link: interface.link,
         interface: interface.name.clone(),
+        pid: None,
     })
 }
 
-/// Counts the packets of a pcap stream as it grows, for a capture that is still running.
+/// The format a stream turned out to be, once its first bytes came.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stream {
+    Pcap(Order),
+    Pcapng(Order),
+    /// Neither pcap nor pcapng, or damaged: nothing more is counted.
+    Unknown,
+}
+
+/// Counts the packets of a pcap or pcapng stream as it grows, for a capture that is still
+/// running.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PcapCounter {
-    order: Option<Order>,
+    stream: Option<Stream>,
     header: Vec<u8>,
+    /// Bytes still to pass before the next header.
     left: usize,
+    /// Whether what is being passed is a packet.
+    packet: bool,
     pub packets: usize,
 }
 
@@ -272,30 +329,59 @@ impl PcapCounter {
                 let skipped = self.left.min(chunk.len());
                 self.left -= skipped;
                 chunk = &chunk[skipped..];
-                if self.left == 0 {
+                if self.left == 0 && self.packet {
                     self.packets += 1;
                 }
                 continue;
             }
-            let wanted = if self.order.is_some() { RECORD_HEADER } else { PCAP_HEADER };
+            let wanted = match self.stream {
+                None => PCAP_MAGIC,
+                Some(Stream::Pcap(_)) => RECORD_HEADER,
+                Some(Stream::Pcapng(_)) => BLOCK_START,
+                Some(Stream::Unknown) => return,
+            };
             let taken = wanted.saturating_sub(self.header.len()).min(chunk.len());
             self.header.extend_from_slice(&chunk[..taken]);
             chunk = &chunk[taken..];
             if self.header.len() < wanted {
                 return;
             }
-            match self.order {
-                None => {
-                    let Ok((order, _)) = pcap_header(&self.header) else { return };
-                    self.order = Some(order);
-                }
-                Some(order) => match order.size(&self.header, RECORD_CAPTURED_AT) {
-                    Some(0) => self.packets += 1,
-                    Some(captured) => self.left = captured,
-                    None => return,
-                },
-            }
-            self.header.clear();
+            self.read_header();
         }
+    }
+
+    /// Takes in a whole header: the stream's magic number, a pcap record's or a pcapng block's.
+    fn read_header(&mut self) {
+        let magic = Order { big: false }.u32(&self.header, 0);
+        let next = match self.stream {
+            None => match magic {
+                Some(PCAPNG_SECTION) => {
+                    self.stream = Some(Stream::Pcapng(Order { big: false }));
+                    return;
+                }
+                _ => pcap_header(&self.header).ok().map(|(order, _)| {
+                    self.stream = Some(Stream::Pcap(order));
+                    (PCAP_HEADER - PCAP_MAGIC, false)
+                }),
+            },
+            Some(Stream::Pcap(order)) => order.size(&self.header, RECORD_CAPTURED_AT).map(|captured| (captured, true)),
+            Some(Stream::Pcapng(order)) => self.block(order),
+            Some(Stream::Unknown) => None,
+        };
+        self.header.clear();
+        match next {
+            Some((0, true)) => self.packets += 1,
+            Some((left, packet)) => (self.left, self.packet) = (left, packet),
+            None => self.stream = Some(Stream::Unknown),
+        }
+    }
+
+    /// The rest of a pcapng block to pass, and whether it holds a packet.
+    fn block(&mut self, order: Order) -> Option<(usize, bool)> {
+        let kind = order.u32(&self.header, 0)?;
+        let order = if kind == PCAPNG_SECTION { section_order(&self.header, 0)? } else { order };
+        self.stream = Some(Stream::Pcapng(order));
+        let total = order.size(&self.header, 4).filter(|total| *total >= BLOCK_START)?;
+        Some((total - BLOCK_START, matches!(kind, PCAPNG_ENHANCED | PCAPNG_SIMPLE)))
     }
 }

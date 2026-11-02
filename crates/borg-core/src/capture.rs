@@ -48,6 +48,8 @@ pub struct Packet {
     pub data: Vec<u8>,
     /// The interface it was captured on, when the file names it.
     pub interface: Option<String>,
+    /// The PID of the process that sent or received it, when the capture records one.
+    pub pid: Option<u32>,
     pub layers: Layers,
     /// Its conversation's place in `Capture::flows`.
     pub flow: Option<usize>,
@@ -139,6 +141,8 @@ pub struct Capture {
     pub flows: Vec<Flow>,
     /// The names the capture's DNS answers gave addresses.
     pub names: HashMap<IpAddr, String>,
+    /// The names of the processes the capture records, by PID.
+    pub processes: HashMap<u32, String>,
     /// Packets past `PACKET_LIMIT`, left out.
     pub skipped: usize,
     /// The file ends inside a packet.
@@ -158,12 +162,13 @@ impl Capture {
                 length: frame.length,
                 data: frame.data,
                 interface: frame.interface,
+                pid: frame.pid,
                 flow: None,
             })
             .collect();
         let flows = flows::group(&mut packets);
         let names = flows::names(&packets);
-        Ok(Self { packets, flows, names, skipped: found.skipped, cut: found.cut })
+        Ok(Self { packets, flows, names, processes: found.processes, skipped: found.skipped, cut: found.cut })
     }
 
     /// When the first packet was captured.

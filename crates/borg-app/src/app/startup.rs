@@ -34,6 +34,7 @@ impl App {
         let monitor = crate::activity::Monitor::new(messages.clone());
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
+        state.network.access = crate::network::capture_access();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());

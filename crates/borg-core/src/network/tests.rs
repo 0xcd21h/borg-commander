@@ -609,9 +609,86 @@ fn a_failed_capture_says_why() {
     let (mut state, now) = opened();
     press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
     let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
-    update(&mut state, Msg::CaptureDone { id, result: Err("tcpdump stopped".into()) }, now);
+    let failure = CaptureFailure::Failed("tcpdump stopped".into());
+    update(&mut state, Msg::CaptureDone { id, result: Err(failure) }, now);
     assert_eq!(state.notice.as_deref(), Some("tcpdump stopped"));
     assert!(state.network.viewer.is_none() && state.network.recording.is_none());
+}
+
+const ASKS: CaptureAccess = CaptureAccess { administrator: false, elevate: true, tags: true };
+
+#[test]
+fn run_as_shows_where_borg_can_ask_and_an_administrator_capture_tags_processes_where_it_can() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).fields().len(), 4, "no Run as where Borg cannot ask");
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+
+    state.network.access = ASKS;
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::End, KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).selected(), CaptureField::Access);
+    assert_eq!(capture_dialog(&state).request().unwrap().extension(), "pcap");
+    press(&mut state, KeyCode::Right, KeyModifiers::NONE);
+    let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(request.administrator && request.processes);
+    assert_eq!(request.extension(), "pcapng");
+    assert!(state.network.recording.as_ref().is_some_and(|recording| recording.waiting), "it waits for the password");
+
+    let (mut state, now) = opened();
+    state.network.access = CaptureAccess { administrator: true, elevate: false, tags: true };
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(!request.administrator && request.processes, "Borg running as administrator tags without asking");
+}
+
+#[test]
+fn a_refused_capture_asks_to_run_as_administrator_and_yes_runs_it_so() {
+    let (mut state, now) = opened();
+    state.network.access = ASKS;
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, refused) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, now);
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("Borg asks first: {:?}", state.overlay) };
+    assert!(confirm.message.contains(&refused.interface), "{}", confirm.message);
+    assert!(state.network.recording.is_none());
+
+    let (id, request) = started(press(&mut state, KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(request, CaptureRequest { administrator: true, processes: true, ..refused });
+    let recording = state.network.recording.as_ref().unwrap();
+    assert!(recording.waiting);
+
+    let later = now + Duration::from_secs(20);
+    update(&mut state, Msg::CaptureProgress { id, bytes: 24, packets: 0 }, later);
+    let recording = state.network.recording.as_ref().unwrap();
+    assert!(!recording.waiting);
+    assert_eq!(recording.started, later, "its seconds count from the password");
+
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, later);
+    assert!(state.overlay.is_none(), "an administrator's capture is not asked about again");
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_denied, interface = request.interface).as_str()));
+}
+
+#[test]
+fn a_refusal_where_borg_cannot_ask_says_so_and_a_dismissed_password_says_nothing() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, now);
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_denied, interface = request.interface).as_str()));
+
+    state.notice = None;
+    state.network.access = ASKS;
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) }, now);
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.overlay.is_none() && state.network.recording.is_none(), "No leaves it");
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::Cancelled) }, now);
+    assert!(state.notice.is_none() && state.network.recording.is_none());
 }
 
 #[test]

@@ -103,6 +103,11 @@ pub enum ConfirmPurpose {
         action: borg_docker::Action,
         ids: Vec<String>,
     },
+    /// A capture the system refused: Yes runs it again as administrator.
+    Capture {
+        request: Box<crate::CaptureRequest>,
+        view_filter: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
