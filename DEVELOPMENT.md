@@ -215,6 +215,31 @@ by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w
 output to a 0600 file in the panel's folder while `PcapCounter` counts whole packets for the
 footer, sends SIGINT at the deadline or on R, and reads the file back on a blocking worker.
 
+TLS: `capture::keylog` reads `SSLKEYLOGFILE` text into secrets by client random, and
+`capture::tls` opens a conversation's stream with them. It splits the stream back into each
+side's bytes, reads their records, and takes the client random and the ServerHello's random,
+suite and version from the handshake in the clear. TLS 1.3 records open by trial: a side tries
+its key in use, then the keys it moves on to (early, handshake, traffic), then the next key
+update, so a lost Finished or KeyUpdate message does not matter. TLS 1.2 keys come from the
+master secret through the PRF, and records count from each side's ChangeCipherSpec. The AEADs,
+HKDF-Expand-Label and P_hash live in `tls::cipher` on RustCrypto's `aes-gcm`,
+`chacha20poly1305`, `hkdf` and `hmac`. Records after a hole in a side's bytes stay sealed,
+because nothing tells where the next record starts. `files` reads pcapng decryption secrets
+blocks, and `with_secrets` writes one after the section header, turning a pcap into pcapng
+first. The vectors in `capture/tls/vectors` are RFC 8448's simple handshake and sessions between
+two OpenSSL endpoints in one process. F3 adds the key log named after the capture
+(`borg-app::network::capture::key_log_beside`).
+
+Recording keys: the dialog's **TLS keys** sets `CaptureRequest::tls_keys`. Once tcpdump runs, the
+app creates the empty `.keylog` beside the capture and sends `Msg::CaptureKeys`, and
+`network::key_log` types `export SSLKEYLOGFILE=...` (fish: `set -gx`) at the host shell's prompt
+through the same visible path as the tcpdump install command. `ShellKeyLog` remembers that Borg
+set it, and the end of the capture types the line that restores the value Borg inherited, or
+waits in `sync_key_log` until the shell is free. The app then embeds the key log's lines for the
+capture's ClientHellos with `with_secrets` (`embed_keys`), turning a pcap into pcapng, and keeps
+the key log. The decryption itself only reads key log text, so any source of standard key log
+lines works the same way.
+
 A capture as administrator goes through `network::capture::elevated`. Borg listens on a Unix
 socket in a 0700 temporary folder and asks osascript (macOS), or pkexec or else `sudo -n`
 (Linux), to run `borg --capture-traffic` as root. The helper checks its interface and filter

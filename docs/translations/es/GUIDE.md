@@ -1389,6 +1389,9 @@ y Linux instala con el paquete `tcpdump`. El diálogo **Capturar tráfico** part
 - **Duración** es de 5, 10, 30 o 60 segundos, o **Hasta detenerla**.
 - **Guardar** es **Paquetes completos**, o **Cabeceras, los primeros 128 bytes de cada paquete**
   para archivos pequeños que dejan fuera casi todo lo que llevan los paquetes.
+- **Claves TLS** es **No**, o **Definir SSLKEYLOGFILE en el shell de Borg** para guardar las
+  claves TLS de los programas que inicies mientras la captura se ejecuta (consulta
+  [Descifrar TLS](#decrypting-tls)).
 - **Ejecutar como** aparece donde Borg puede pedir al sistema la contraseña de un administrador.
   **Tu usuario** ejecuta tcpdump como tú, y **Administrador** lo ejecuta como root después de que
   escribas tu contraseña en el diálogo del sistema. En macOS la opción se llama **Administrador,
@@ -1404,7 +1407,8 @@ captura se detiene y un aviso dice dónde la guardó Borg.
 Borg guarda cada captura como `capture-<date>-<time>.pcap` en la carpeta del panel que cubre la
 pantalla de red, legible solo por ti, para que Wireshark y otras herramientas puedan abrirla
 después. Una captura que marca cada paquete con su proceso se guarda como
-`capture-<date>-<time>.pcapng`, el formato que puede llevar esas marcas. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
+`capture-<date>-<time>.pcapng`, el formato que puede llevar esas marcas. Lo mismo pasa con una
+captura que guardó claves TLS, una vez que Borg las pone dentro. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
 cuidado que esos datos.
 
 Un agente conectado mediante `borg mcp` también puede pedir una captura, que también espera tu
@@ -1429,7 +1433,9 @@ para cada forma de mirarla:
   sentido, los bytes que contiene y cuándo llegó. Cuando a la captura le faltan bytes antes de un
   turno, ese turno dice cuántos faltan. **]** y **[** saltan al turno siguiente y al anterior. F3
   muestra el flujo entero como filas hexadecimales en el visor, con sus turnos uno tras otro, para
-  recorrerlo y buscar en él. Enter muestra los paquetes de la conversación uno a uno.
+  recorrerlo y buscar en él. Enter muestra los paquetes de la conversación uno a uno. Cuando Borg
+  tiene las claves TLS de la conexión, el flujo muestra lo que llevaban sus registros cifrados
+  (consulta [Descifrar TLS](#decrypting-tls)).
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
   detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y sus
@@ -1496,6 +1502,91 @@ administrador** y el motivo del sistema. Cuando el propio Borg se ejecuta como r
 pregunta, y en macOS sus capturas siempre llevan el proceso de cada paquete. Donde Borg no puede
 preguntar, la captura termina con **No tienes permiso para capturar en** y el nombre de la
 interfaz.
+
+### Descifrar TLS
+
+Cuando Borg tiene las claves de una conexión TLS, su flujo en **3 Conexiones** muestra lo que
+llevaban los registros cifrados, como una petición HTTP y su respuesta, y el encabezado del flujo
+termina en **descifrado**. Nada se interpone entre el programa y el servidor, así que esto también
+funciona con programas que fijan sus certificados.
+
+Las claves salen de un archivo de claves TLS, el que escriben los navegadores, curl, Python y muchos
+otros programas cuando la variable de entorno `SSLKEYLOGFILE` nombra uno.
+
+Para guardarlas con una captura, pon **Claves TLS** en **Definir SSLKEYLOGFILE en el shell de
+Borg** en el diálogo **Capturar tráfico**. Cuando la captura empieza, Borg crea
+`capture-<date>-<time>.keylog` junto a la captura, legible solo por ti, y escribe una línea como
+esta en el prompt de su shell, donde la ves ejecutarse y la encuentras después en el historial del
+shell:
+
+```sh
+export SSLKEYLOGFILE='/home/me/projects/capture-20260101-120000.keylog'
+```
+
+En fish la línea empieza con `set -gx`. Después Borg vuelve a la pantalla de red, donde el pie dice
+**Claves TLS** mientras la captura se ejecuta.
+
+Ahora inicia el programa desde la línea de comandos de Borg, o pulsa Ctrl-O e inícialo en el shell.
+Hereda la variable y escribe sus claves en el archivo. Para un programa en otra terminal, pulsa
+**L** en la pantalla de red para copiar `SSLKEYLOGFILE='…'` con la ruta del archivo de claves,
+pégalo allí y escribe el programa detrás. Un programa que ya estaba en marcha conserva el ajuste con
+el que empezó, así que ciérralo e inícialo de nuevo. Eso vale sobre todo para los navegadores, que
+pasan un segundo inicio a la ventana que ya está abierta. En macOS, `open` inicia las aplicaciones
+sin las variables del shell, así que inicia el propio programa de la aplicación, como
+`/Applications/Firefox.app/Contents/MacOS/firefox`.
+
+Si el shell de Borg está ocupado, o la línea de comandos pertenece a un contenedor o a otra máquina,
+Borg no escribe nada y un aviso lo dice. **L** sigue copiando la línea.
+
+Cuando la captura termina, Borg escribe `unset SSLKEYLOGFILE` en el prompt (`set -e SSLKEYLOGFILE`
+en fish), o restablece el valor con el que arrancó el propio Borg, y un aviso nombra la línea. Si un
+programa que iniciaste sigue ejecutándose en el shell, la línea espera a que termine. Luego Borg pone
+las claves de las conexiones de la captura dentro de la captura como un bloque de secretos de
+descifrado, así que un `.pcap` pasa a ser un `.pcapng` con el mismo nombre, que Wireshark abre ya
+descifrado. El archivo de claves se queda a su lado, porque los programas iniciados durante la
+captura siguen escribiendo en él hasta que terminan. Las capturas que pide un agente no guardan
+claves.
+
+Leen `SSLKEYLOGFILE` Firefox, Chrome y otros navegadores basados en Chromium, la mayoría de las
+compilaciones de curl y los programas de Python que usan el contexto predeterminado del módulo
+`ssl`. Otros necesitan su propia opción:
+
+- Node.js escribe sus claves con `--tls-keylog`, así que inícialo como
+  `node --tls-keylog="$SSLKEYLOGFILE" app.js`.
+- Los programas de Go las escriben solo cuando el programa define `KeyLogWriter` en su configuración
+  TLS.
+- Los programas de Rust con rustls las escriben solo cuando usan su `KeyLogFile`.
+- Java necesita un agente que se enganche a su código TLS.
+
+Safari y otras aplicaciones creadas sobre las bibliotecas TLS propias de Apple nunca escriben un
+archivo de claves, y su tráfico sigue cifrado.
+
+F3 busca claves en dos sitios:
+
+- Un bloque de secretos de descifrado dentro de un archivo `.pcapng`, donde Wireshark también las
+  guarda.
+- Un archivo de claves junto a la captura, con el mismo nombre y la extensión `.keylog`, como
+  `capture-20260101-120000.keylog` junto a `capture-20260101-120000.pcap`.
+
+Para descifrar una captura que hiciste de otra forma, ejecuta el programa con la variable definida
+durante la captura y, cuando la captura se haya guardado, cambia el nombre del archivo de claves
+para que coincida con el de la captura:
+
+```sh
+SSLKEYLOGFILE=~/tls.keylog curl https://example.com
+```
+
+Borg abre registros de TLS 1.3 y TLS 1.2 cifrados con AES-128-GCM, AES-256-GCM o
+ChaCha20-Poly1305, los cifrados que acuerdan los navegadores y los servidores actuales. Un registro
+que ninguna clave abre conserva sus bytes cifrados, y su turno dice **aún cifrado**. Eso pasa cuando
+al archivo de claves le faltan algunas claves de la conexión, y después de bytes que faltan en la
+captura, porque Borg no puede saber dónde empieza el registro siguiente. El tráfico QUIC sigue
+cifrado.
+
+Un archivo de claves descifra todas las conexiones de las que tiene claves, con contraseñas, cookies
+y tokens incluidos, y lo mismo hace una captura con las claves dentro. Borg hace que solo tú puedas
+leer ambos. Haz lo mismo con un archivo de claves que escribas tú con `chmod 600`, guarda los
+archivos de claves con el mismo cuidado que las capturas y borra ambos cuando termines.
 
 ### Lo que informa el sistema
 

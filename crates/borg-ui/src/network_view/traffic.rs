@@ -567,7 +567,11 @@ fn flow_lines(view: &TrafficView) -> Vec<Detail> {
     lines.push(steady("", "", Tone::Plain));
     let stream = view.stream();
     let size = stream.map_or(0, |stream| stream.bytes.len() as u64);
-    lines.push(steady("", format!("{}{SEPARATOR}{}", tr!(traffic_stream_heading), format::size(size)), Tone::Heading));
+    let mut heading = format!("{}{SEPARATOR}{}", tr!(traffic_stream_heading), format::size(size));
+    if stream.is_some_and(|stream| stream.decrypted) {
+        let _ = write!(heading, "{SEPARATOR}{}", tr!(traffic_decrypted));
+    }
+    lines.push(steady("", heading, Tone::Heading));
     if stream.is_none_or(|stream| stream.turns.is_empty()) {
         lines.push(steady("", tr!(traffic_no_data), Tone::Quiet));
     }
@@ -592,8 +596,8 @@ fn stream_lines(view: &TrafficView, width: usize, height: usize) -> Vec<Detail> 
         .collect()
 }
 
-/// A turn's first line: whether this machine sent it, how much, when, and what the capture
-/// lacks before it.
+/// A turn's first line: whether this machine sent it, how much, when, what the capture lacks
+/// before it, and whether its TLS records stayed encrypted.
 fn turn_line(view: &TrafficView, turn: &Turn, outgoing: bool) -> String {
     let (arrow, said) =
         if outgoing { (OUTGOING, tr!(network_sent_tile)) } else { (INCOMING, tr!(network_received_tile)) };
@@ -604,6 +608,9 @@ fn turn_line(view: &TrafficView, turn: &Turn, outgoing: bool) -> String {
     );
     if turn.missing > 0 {
         let _ = write!(line, "{SEPARATOR}{}", tr!(traffic_missing, size = format::size(turn.missing)));
+    }
+    if turn.sealed {
+        let _ = write!(line, "{SEPARATOR}{}", tr!(traffic_still_encrypted));
     }
     line
 }

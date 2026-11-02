@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "99634c1d58175f8613dcdac6732e9c7c8b600af61d1bdd634760a9dd77a06d83",
+      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
       "protected": {
-        "code blocks": "1cdf2ea08e933adb4c2c85d08c4fc54315796a15edaea267c7399f6d171fc140",
-        "inline code": "a4302c366519d94e1796735879d3fbddfe5cc88573840910d0794d8096b84ecd",
+        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
+        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
       },
       "headings": [
         {
@@ -188,6 +188,10 @@
         {
           "level": 3,
           "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "Decrypting TLS"
         },
         {
           "level": 3,
@@ -196,12 +200,12 @@
       ]
     },
     "pt": {
-      "source": "99634c1d58175f8613dcdac6732e9c7c8b600af61d1bdd634760a9dd77a06d83",
+      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
       "protected": {
-        "code blocks": "1cdf2ea08e933adb4c2c85d08c4fc54315796a15edaea267c7399f6d171fc140",
-        "inline code": "a4302c366519d94e1796735879d3fbddfe5cc88573840910d0794d8096b84ecd",
+        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
+        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
       },
       "headings": [
         {
@@ -383,6 +387,10 @@
         {
           "level": 3,
           "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "Decrypting TLS"
         },
         {
           "level": 3,
@@ -391,12 +399,12 @@
       ]
     },
     "es": {
-      "source": "99634c1d58175f8613dcdac6732e9c7c8b600af61d1bdd634760a9dd77a06d83",
+      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
       "protected": {
-        "code blocks": "1cdf2ea08e933adb4c2c85d08c4fc54315796a15edaea267c7399f6d171fc140",
-        "inline code": "a4302c366519d94e1796735879d3fbddfe5cc88573840910d0794d8096b84ecd",
+        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
+        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
       },
       "headings": [
         {
@@ -578,6 +586,10 @@
         {
           "level": 3,
           "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "Decrypting TLS"
         },
         {
           "level": 3,
@@ -586,12 +598,12 @@
       ]
     },
     "ru": {
-      "source": "99634c1d58175f8613dcdac6732e9c7c8b600af61d1bdd634760a9dd77a06d83",
+      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
       "protected": {
-        "code blocks": "1cdf2ea08e933adb4c2c85d08c4fc54315796a15edaea267c7399f6d171fc140",
-        "inline code": "a4302c366519d94e1796735879d3fbddfe5cc88573840910d0794d8096b84ecd",
+        "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
+        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
       },
       "headings": [
         {
@@ -773,6 +785,10 @@
         {
           "level": 3,
           "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "Decrypting TLS"
         },
         {
           "level": 3,

@@ -144,10 +144,12 @@ pub use network::{
     HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
     capture_ask, capture_extension, capture_interfaces, is_capture,
 };
+pub use network::{Dialect, KEY_LOG_VARIABLE, ShellKeyLog, key_log_prefix};
 
 pub use capture::{
     ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, Http, Ip,
-    Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type,
+    KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG,
+    dns_type, with_secrets,
 };
 
 pub use measure::SizeScan;

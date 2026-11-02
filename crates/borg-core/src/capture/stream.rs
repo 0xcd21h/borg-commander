@@ -3,7 +3,7 @@
 //! side speaking.
 
 use super::{
-    Packet,
+    KeyLog, Packet,
     decode::{Datagram, SYN, Tcp},
     flows::{Flow, FlowKind},
 };
@@ -15,6 +15,8 @@ pub struct Stream {
     /// Every turn's bytes, one turn after another.
     pub bytes: Vec<u8>,
     pub turns: Vec<Turn>,
+    /// A key log opened its TLS records, and the bytes are what they carried.
+    pub decrypted: bool,
 }
 
 /// One side's bytes up to the other side's answer, or up to bytes the capture lacks.
@@ -28,6 +30,8 @@ pub struct Turn {
     pub range: Range<usize>,
     /// Bytes its side sent right before it that the capture lacks.
     pub missing: u64,
+    /// Its bytes are TLS records that no key opened.
+    pub sealed: bool,
 }
 
 impl Turn {
@@ -79,10 +83,17 @@ impl Stream {
                     stamp: packets[piece.delivered].stamp,
                     range: start..stream.bytes.len(),
                     missing: piece.missing,
+                    sealed: false,
                 }),
             }
         }
         stream
+    }
+
+    /// The stream with its TLS records opened by `keys`, when it is TLS and they hold its
+    /// connection's secrets.
+    pub fn decrypted(&self, keys: &KeyLog) -> Option<Self> {
+        super::tls::decrypt(self, keys)
     }
 
     /// The layout of the widest dump that fits `width` cells.

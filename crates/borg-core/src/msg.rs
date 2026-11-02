@@ -54,6 +54,11 @@ pub enum Msg {
         bytes: u64,
         packets: usize,
     },
+    /// The running capture keeps the TLS key log at `path`, empty for now.
+    CaptureKeys {
+        id: u64,
+        path: PathBuf,
+    },
     /// A capture ended: the file it was saved to and what it caught, or why it has none.
     CaptureDone {
         id: u64,
