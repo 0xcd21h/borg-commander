@@ -94,6 +94,8 @@ pub enum Action {
     ExtractHere,
     ExtractToOther,
     SwapPanels,
+    /// Opens the active panel's folder in the other panel.
+    SameFolder,
     EqualizePanels,
     NudgeSplit(i16),
     ToggleStatusLine,
@@ -235,6 +237,7 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('-'), NONE, Action::UnselectGroup, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('*'), NONE, Action::InvertSelection, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('u'), CTRL, Action::SwapPanels, Scope::PanelsEmptyLine),
+    bind(KeyCode::Char('o'), ALT, Action::SameFolder, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('s'), CTRL, Action::Find, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('q'), CTRL, Action::QuickView, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('l'), CTRL, Action::Info, Scope::PanelsEmptyLine),

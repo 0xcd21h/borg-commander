@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::{Result, ensure};
-use borg_core::Content;
+use borg_core::{Content, FirstMatch};
 use borg_gfx::{holds_picture, is_picture};
 use borg_view::{FileSource, Pager, Source};
 
@@ -26,6 +26,22 @@ pub fn open(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<
     let pager = Pager::for_path(source.clone(), path, size.0, size.1)?;
     source.loading.store(false, Ordering::Relaxed);
     Ok(Content::Text(pager))
+}
+
+/// Opens `path` as `open` does, a text on the match a contents search found at `at`, marked
+/// and in the source the search read.
+pub fn open_on(
+    path: &Path,
+    at: Option<&FirstMatch>,
+    size: (usize, usize),
+    cell: (u16, u16),
+    cancelled: Arc<AtomicBool>,
+) -> Result<Content> {
+    let mut content = open(path, size, cell, cancelled.clone())?;
+    if let (Content::Text(pager), Some(at)) = (&mut content, at) {
+        borg_core::land_on_match(pager, at, &|_| !cancelled.load(Ordering::Relaxed))?;
+    }
+    Ok(content)
 }
 
 struct LoadingSource {
@@ -107,6 +123,24 @@ mod tests {
             assert!(pager.shows_matches() && !pager.formatted(), "{name}: marked, in the source the search read");
             assert!(pager.rows().iter().any(|row| row.contains("needle")), "{name}");
         }
+    }
+
+    #[test]
+    fn the_viewer_loads_a_markdown_result_on_its_match_coloured_in_the_source() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("plan.md");
+        let text = "# Plan\n\nShip the release.\nThen send the Release notes.\n";
+        fs::write(&path, text).unwrap();
+        let query = borg_view::Query { text: "release".into(), words: true, ..Default::default() };
+        let offset = text.find("release").unwrap() as u64;
+        let at = borg_core::FirstMatch { query, offset };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let Content::Text(pager) = open_on(&path, Some(&at), (132, 35), (8, 16), cancelled).unwrap() else {
+            panic!("expected text viewer")
+        };
+        assert!(!pager.formatted(), "the viewer shows the source the search read");
+        assert_eq!(pager.current_match(), Some(offset..offset + 7));
+        assert!(pager.rich_rows().iter().flatten().any(|run| run.paint != borg_view::Paint::default()));
     }
 
     #[test]

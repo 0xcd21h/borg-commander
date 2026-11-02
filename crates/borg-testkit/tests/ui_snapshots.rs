@@ -171,6 +171,16 @@ fn shell_switch_is_immediate() -> Result<()> {
 }
 
 #[test]
+fn command_menu_open() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Command").unwrap();
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(index)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Same folder in other panel")?;
+    check("command_menu", &stage, buffer)
+}
+
+#[test]
 fn narrow_terminal_drops_columns() -> Result<()> {
     let mut stage = stage(NARROW, Motion::STILL)?;
     let buffer = stage.render(stage.started)?;

@@ -83,6 +83,15 @@ all = { level = "warn", priority = -1 }
 [profile.dev]
 debug         = "line-tables-only"
 
+[profile.dev.package.regex-automata]
+opt-level     = 3
+
+[profile.dev.package.regex-syntax]
+opt-level     = 3
+
+[profile.dev.package.fancy-regex]
+opt-level     = 3
+
 [profile.release]
 lto           = true
 codegen-units = 1

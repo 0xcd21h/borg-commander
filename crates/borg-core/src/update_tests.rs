@@ -1002,12 +1002,127 @@ fn swap_panels_exchanges_directories() {
     assert_eq!(state.panel(Side::Right).dir(), Path::new("/home"));
 }
 
+fn alt_o() -> KeyEvent {
+    KeyEvent::new(KeyCode::Char('o'), KeyModifiers::ALT)
+}
+
+fn listings(effects: &[Effect]) -> Vec<(Side, PathBuf)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::List { side, dir, .. } => Some((*side, dir.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn alt_o_opens_this_panels_folder_in_the_other_panel_in_place_of_the_preview() {
+    let (mut state, now) = setup();
+    press(&mut state, now, ctrl('q'));
+    let effects = press(&mut state, now, alt_o());
+    assert_eq!(listings(&effects), [(Side::Right, PathBuf::from("/home"))]);
+    assert_eq!((state.active, state.aside), (Side::Left, None));
+    list(&mut state, now, &effects, vec![dir("me")]);
+    assert_eq!(state.panel(Side::Right).dir(), Path::new("/home"));
+}
+
+#[test]
+fn alt_o_goes_to_the_shell_while_a_command_is_typed() {
+    let (mut state, now) = setup();
+    type_text(&mut state, now, "ls");
+    let effects = press(&mut state, now, alt_o());
+    assert_eq!((listings(&effects), writes(&effects)), (Vec::new(), "\x1bo".to_owned()));
+}
+
+#[test]
+fn alt_o_from_search_results_opens_the_folder_the_search_started_from() {
+    let (mut state, now) = setup();
+    let request = crate::SearchRequest {
+        root: "/var/log".into(),
+        query: "*.log".into(),
+        hidden: false,
+        options: crate::SearchOptions::default(),
+        skip: None,
+    };
+    crate::results::start_search(&mut state, request);
+    assert_eq!(listings(&press(&mut state, now, alt_o())), [(Side::Right, PathBuf::from("/var/log"))]);
+    assert!(state.panel(Side::Left).is_results(), "the results stay");
+}
+
+#[test]
+fn alt_o_from_a_collection_or_a_container_explains_why_nothing_opens() {
+    let (mut state, now) = setup();
+    crate::results::collection(&mut state, "Bundle", Side::Left);
+    assert!(listings(&press(&mut state, now, alt_o())).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("A collection has no folder to open in the other panel."));
+
+    let (mut state, now) = setup();
+    let host = PathBuf::from("/home");
+    state.panel_mut(Side::Left).mount = Some(crate::Mount { id: "c0ffee".into(), name: "web".into(), host });
+    assert!(listings(&press(&mut state, now, alt_o())).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("Container and remote folders open in one panel only."));
+
+    let (mut state, now) = setup();
+    crate::mount_remote(&mut state, Side::Left, "prod".into(), "remote-id".into(), "Deploy".into());
+    assert!(listings(&press(&mut state, now, alt_o())).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("Container and remote folders open in one panel only."));
+}
+
+#[test]
+fn alt_o_leaves_a_container_or_a_remote_machine_in_the_other_panel() {
+    let (mut state, now) = setup();
+    let host = PathBuf::from("/tmp");
+    state.panel_mut(Side::Right).mount = Some(crate::Mount { id: "c0ffee".into(), name: "web".into(), host });
+    assert_eq!(listings(&press(&mut state, now, alt_o())), [(Side::Right, PathBuf::from("/home"))]);
+    assert!(state.panel(Side::Right).mount.is_none());
+
+    let (mut state, now) = setup();
+    crate::mount_remote(&mut state, Side::Right, "prod".into(), "remote-id".into(), "Deploy".into());
+    assert_eq!(listings(&press(&mut state, now, alt_o())).last(), Some(&(Side::Right, PathBuf::from("/home"))));
+    assert!(state.panel(Side::Right).remote_mount.is_none());
+    assert_eq!(state.panel(Side::Right).destination(), Path::new("/home"));
+}
+
+#[test]
+fn results_in_the_other_panel_come_back_with_alt_shift_r_after_alt_o() {
+    let (mut state, now) = setup();
+    state.active = Side::Right;
+    crate::results::collection(&mut state, "Bundle", Side::Right);
+    press(&mut state, now, key(KeyCode::Tab));
+    let effects = press(&mut state, now, alt_o());
+    list(&mut state, now, &effects, vec![dir("me")]);
+    assert!(!state.panel(Side::Right).is_results());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, KeyEvent::new(KeyCode::Char('R'), KeyModifiers::ALT | KeyModifiers::SHIFT));
+    assert!(state.panel(Side::Right).is_results());
+}
+
+#[test]
+fn alt_o_leaves_an_editor_in_the_other_panel_alone() {
+    let (mut state, now) = setup_with(vec![file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Down));
+    let path = PathBuf::from("/tmp/notes.txt");
+    let slot = crate::EditorSlot::Panel(Side::Right);
+    let alt_e = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT);
+    assert_eq!(press(&mut state, now, alt_e), [Effect::OpenEditor { path: path.clone(), slot }]);
+    let text = String::from("hello");
+    let stamp = crate::FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    update(&mut state, Msg::EditorOpened(slot, Ok(crate::EditorFile { path, text, stamp })), now);
+    press(&mut state, now, key(KeyCode::F(6)));
+    assert_eq!(state.active, Side::Left);
+    assert!(listings(&press(&mut state, now, alt_o())).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("The other panel holds an editor. Close it to open the folder there."));
+    assert_eq!(state.panel(Side::Right).dir(), Path::new("/tmp"));
+}
+
 #[test]
 fn enter_on_regular_file_opens_viewer() {
     let (mut state, now) = setup_with(vec![file("log.txt")]);
     press(&mut state, now, key(KeyCode::Down));
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    assert_eq!(effects, vec![Effect::View(PathBuf::from("/home/log.txt"))]);
+    assert_eq!(effects, vec![Effect::View { path: PathBuf::from("/home/log.txt"), at: None }]);
 }
 
 #[test]
@@ -1030,6 +1145,42 @@ fn alt_enter_inserts_every_marked_name() {
     press(&mut state, now, key(KeyCode::Insert));
     let effects = press(&mut state, now, KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT));
     assert_eq!(writes(&effects), "'a b' 'c' ");
+}
+
+/// Lists `entries` into the folder `effects` asked to list.
+fn list(state: &mut AppState, now: Instant, effects: &[Effect], entries: Vec<Entry>) {
+    let Some(&Effect::List { side, generation, .. }) = effects.iter().find(|e| matches!(e, Effect::List { .. })) else {
+        panic!("expected a listing in {effects:?}")
+    };
+    update(state, Msg::Batch { side, generation, entries }, now);
+    update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+#[test]
+fn alt_enter_on_the_parent_row_types_the_parent_folders_path() {
+    let (mut state, now) = setup_with(vec![dir("my notes")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    list(&mut state, now, &effects, vec![file("a b")]);
+    press(&mut state, now, key(KeyCode::Home));
+    let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
+    assert_eq!(writes(&press(&mut state, now, alt_enter)), " cd '/home/my notes'\r'/home' ");
+
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, key(KeyCode::Up));
+    assert_eq!(writes(&press(&mut state, now, alt_enter)), "'a b' ", "marked names win over the parent row");
+}
+
+#[test]
+fn alt_enter_on_the_parent_row_of_a_containers_root_types_nothing() {
+    let (mut state, now) = setup();
+    let host = PathBuf::from("/home");
+    state.panel_mut(Side::Left).mount = Some(crate::Mount { id: "c0ffee".into(), name: "web".into(), host });
+    let effect = state.navigate(Side::Left, PathBuf::from("/"), None);
+    list(&mut state, now, &[effect], vec![dir("etc")]);
+    press(&mut state, now, key(KeyCode::Home));
+    assert_eq!(writes(&press(&mut state, now, KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT))), "");
 }
 
 #[test]
@@ -1173,7 +1324,8 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
     assert_eq!(results.line(Path::new("/home/log")), Some(&line));
     assert_eq!(state.active_panel().hovered_entry().map(|entry| entry.identity()), Some(Path::new("/home/log")));
 
-    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View(PathBuf::from("/home/log"))]);
+    let at = Some(crate::FirstMatch { query: query.clone(), offset: 24 });
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View { path: PathBuf::from("/home/log"), at }]);
     let content: Vec<u8> = (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap_or_else(|e| panic!("{e}"));
@@ -1244,7 +1396,8 @@ fn a_contents_match_the_editor_leaves_to_the_viewer_opens_there_on_the_match() {
     let slot = crate::EditorSlot::Screen;
     crate::editor::open_at(&mut state, path.clone(), slot, query.clone(), 9);
     let effects = update(&mut state, Msg::EditorOpened(slot, Err(crate::OpenError::TooLarge(path.clone()))), now);
-    assert_eq!(effects, [Effect::View(path.clone())]);
+    let at = Some(crate::FirstMatch { query: query.clone(), offset: 9 });
+    assert_eq!(effects, [Effect::View { path: path.clone(), at }]);
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(b"haystack\nneedle\n".to_vec()), width, height).unwrap();
     let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
@@ -1431,8 +1584,9 @@ fn landing_on_a_contents_match_in_markdown_shows_the_source_where_the_offset_was
     let (mut state, now) = setup();
     let path = PathBuf::from("/home/plan.md");
     let query = borg_view::Query { text: "release".into(), words: true, ..Default::default() };
-    let effects = crate::viewer::open_at(&mut state, path.clone(), query, 17);
-    assert_eq!(effects, [Effect::View(path.clone())]);
+    let effects = crate::viewer::open_at(&mut state, path.clone(), query.clone(), 17);
+    let at = Some(crate::FirstMatch { query, offset: 17 });
+    assert_eq!(effects, [Effect::View { path: path.clone(), at }], "the load lands on the match");
     let source = b"# Plan\n\nShip the release.\nThen send the Release notes.\n".to_vec();
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::for_path(std::sync::Arc::new(source), &path, width, height).unwrap();
@@ -1593,12 +1747,15 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
     image_viewer(&mut state, "a.png", now);
 
     let next = press(&mut state, now, key(KeyCode::Right));
-    assert_eq!(next, vec![Effect::View(PathBuf::from("/home/c.jpg"))]);
+    assert_eq!(next, vec![Effect::View { path: PathBuf::from("/home/c.jpg"), at: None }]);
     assert!(matches!(state.active_panel().hovered(), Some(crate::Row::Entry(entry)) if entry.name == "c.jpg"));
 
     image_viewer(&mut state, "d.gif", now);
     assert!(press(&mut state, now, key(KeyCode::Right)).is_empty());
-    assert_eq!(press(&mut state, now, key(KeyCode::Left)), vec![Effect::View(PathBuf::from("/home/c.jpg"))]);
+    assert_eq!(
+        press(&mut state, now, key(KeyCode::Left)),
+        vec![Effect::View { path: PathBuf::from("/home/c.jpg"), at: None }]
+    );
 
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.viewer.is_none());
@@ -1627,7 +1784,7 @@ fn a_picture_loaded_after_the_viewer_gave_it_up_stays_away() {
     assert_eq!(shown(&state), Some(path("c.gif")), "an earlier load that arrives late is dropped");
     press(&mut state, now, key(KeyCode::Esc));
 
-    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), vec![Effect::View(path("c.gif"))]);
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), vec![Effect::View { path: path("c.gif"), at: None }]);
     press(&mut state, now, key(KeyCode::Esc));
     update(&mut state, loaded(path("c.gif")), now);
     assert_eq!(shown(&state), None, "Esc in the panels gives up a file still opening");
@@ -2008,7 +2165,10 @@ fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
             press(&mut state, now, key(KeyCode::Tab));
         }
         let effects = press(&mut state, now, key(KeyCode::F(3)));
-        assert!(!effects.iter().any(|effect| matches!(effect, Effect::View(_))), "F3 must reuse the loaded document");
+        assert!(
+            !effects.iter().any(|effect| matches!(effect, Effect::View { .. })),
+            "F3 must reuse the loaded document"
+        );
         let pager = text(state.viewer.as_ref().unwrap());
         assert_eq!(pager.offset(), offset);
         assert!(!pager.formatted());
@@ -2476,7 +2636,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     let id = state.docker.files.last().unwrap().id;
     let effects =
         update(&mut state, Msg::Docker { id, result: Ok(crate::DockerData::Fetched("/run/motd".into())) }, now);
-    assert_eq!(effects, [Effect::View("/run/motd".into())]);
+    assert_eq!(effects, [Effect::View { path: "/run/motd".into(), at: None }]);
 
     crate::actions::perform(&mut state, Action::Delete, now);
     let effects = press(&mut state, now, key(KeyCode::Enter));

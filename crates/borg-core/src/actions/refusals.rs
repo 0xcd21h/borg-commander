@@ -54,6 +54,7 @@ fn on_files(action: Action) -> bool {
             | Action::ExtractToOther
             | Action::Collect
             | Action::Git(_)
+            | Action::SameFolder
     )
 }
 

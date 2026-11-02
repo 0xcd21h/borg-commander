@@ -277,7 +277,7 @@ momento.
 | Ctrl-L | Información: muestra en el otro panel el tamaño, los permisos, el propietario, las fechas y el espacio libre |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar archivos |
 | `+` `-` `*` | Seleccionar, deseleccionar o invertir por patrón (`*.rs`, `build/`) |
-| Alt-Enter | Poner los nombres marcados (o el actual) en la línea de comandos |
+| Alt-Enter | Poner los nombres marcados (o el actual) en la línea de comandos; en `..`, la ruta de la carpeta superior |
 | Ctrl-Insert / Alt-Shift-Insert | Copiar los nombres marcados / sus rutas completas |
 | Shift-Enter, Ctrl-J | Insertar un salto de línea en el cursor de la línea de comandos; Enter ejecuta el comando, Ctrl-C lo borra |
 | Alt-A / Alt-Shift-A | Poner en la línea de comandos la ruta de la carpeta de este panel / del otro panel |
@@ -289,6 +289,7 @@ momento.
 | Alt-H | Hosts remotos: máquinas emparejadas y sus sesiones |
 | Alt-Shift-Left/Right | Cambiar el tamaño de los paneles |
 | Ctrl-U | Intercambiar los paneles |
+| Alt-O | Abrir la carpeta de este panel en el otro panel |
 | Alt-J | Tareas: pausar o cancelar copias, movimientos y eliminaciones en curso |
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
@@ -311,6 +312,11 @@ Ctrl-R usan el historial de comandos de tu shell. Shift-Enter (o Ctrl-J) inserta
 sin ejecutar el comando. Los comandos de varias líneas, escritos o recuperados del historial,
 agrandan la zona del prompt y acortan los paneles, para que el cursor siempre quede visible. Todas
 las teclas habituales de edición y autocompletado de tu shell siguen funcionando.
+
+Alt-Enter escribe los nombres tal como los ve el shell desde la carpeta del panel. En `..` escribe
+la ruta completa de la carpeta superior, porque su nombre solo apuntaría dentro de la carpeta
+actual. En los resultados de búsqueda y en las colecciones escribe rutas completas, ya que sus
+archivos vienen de carpetas distintas.
 
 Lo que copias llega al portapapeles de tu computadora a través del terminal, incluso por SSH y en
 un espejo que controlas. Borg también recuerda tus últimas 20 copias: Ctrl-V o Shift-Insert pega
@@ -400,6 +406,15 @@ Insert fija la carpeta elegida en las favoritas, así que Ctrl-\ seguido de Inse
 en la que estás. F8 o Delete quita una carpeta de las favoritas o de las carpetas recientes. Esc
 borra lo que escribiste y un segundo Esc cierra la ventana. Las favoritas admiten hasta 256
 carpetas.
+
+Alt-O o **Comando → Misma carpeta en el otro panel** abre la carpeta del panel activo en el otro
+panel, para que ambos muestren el mismo lugar. La carpeta ocupa el lugar de la vista rápida, de
+Información o de los archivos de un contenedor o de una máquina remota en ese panel. Si el otro
+panel mostraba resultados de búsqueda o una colección, Alt-Shift-R en ese panel los recupera. Desde
+resultados de búsqueda, Alt-O abre la carpeta donde empezó la búsqueda. Una colección no tiene
+carpeta propia, y las carpetas de contenedores y las remotas se abren en un solo panel, así que en
+esos casos Alt-O muestra un aviso, igual que cuando el otro panel tiene un editor. Mientras escribes
+un comando, Alt-O pasa al shell.
 
 Las favoritas se guardan en `config.toml`, en la sección `[folders]`. Borg recuerda las últimas 64
 carpetas que abrieron los paneles en su carpeta de estado, en un archivo que solo tú puedes leer.
