@@ -23,7 +23,7 @@ expression: describe(&buffer)
     }
   ],
   "retries": 3,
- …rv/api/config.json 0/328 · 0% · wrap · pretty  s source/pretty  ◈ Borg Commander v0.9.2
+ …rv/api/config.json 0/328 · 0% · wrap · pretty  s source/pretty  ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-0 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 1-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
   1: 0-1 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 2-10 Rgb(163, 190, 140) Rgb(30, 30, 30) NONE | 11-11 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 12-12 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 13-17 Rgb(163, 190, 140) Rgb(30, 30, 30) NONE | 18-18 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 19-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE

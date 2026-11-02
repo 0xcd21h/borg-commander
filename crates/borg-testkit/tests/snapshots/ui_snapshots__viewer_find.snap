@@ -23,7 +23,7 @@ expression: describe(&buffer)
  19 GET /api/items/3 took 33 ms
  20 GET /api/items/40 took 40 ms
  21 GET /api/items/77 took 47 ms
- Find  took 4                Aa  ab  .*   2 of 13                 ◈ Borg Commander v0.9.2
+ Find  took 4                Aa  ab  .*   2 of 13                 ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
   1: 0-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE

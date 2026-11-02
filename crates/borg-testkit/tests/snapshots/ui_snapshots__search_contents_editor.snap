@@ -31,7 +31,7 @@ expression: describe(&buffer)
 58      handle(request, 58);
 59      handle(request, 59);
 60      handle(request, 60);
- Find  todo                         Aa  ab  .*   1 of 2                               ◈ Borg Commander v0.9.2
+ Find  todo                         Aa  ab  .*   1 of 2                               ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-109 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
   1: 0-2 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 3-3 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 4-7 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 8-13 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 14-21 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 22-22 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 23-23 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 24-25 Rgb(180, 142, 173) Rgb(30, 30, 30) NONE | 26-26 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 27-27 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 28-109 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE

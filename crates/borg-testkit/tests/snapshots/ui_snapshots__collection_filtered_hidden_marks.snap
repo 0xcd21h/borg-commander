@@ -29,7 +29,7 @@ expression: describe(&buffer)
  /workspace/web/config.toml
 $
 F1Help      F2File      F3View      F4Edit      F5Copy      F6Move      F7Mkdir     F8Remove    F9Menu      F10Quit     ^OShell
-Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hide  Alt-W Restore            ◈ Borg Commander v0.9.2
+Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hide  Alt-W Restore            ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-123 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-130 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE

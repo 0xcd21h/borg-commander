@@ -12,7 +12,7 @@ expression: describe(&buffer)
 │ @ latest.log│     ⠘⣌⢿⣷⡽⣦⡺⢧⣼⣸⡗⠹⡀    ██████   ██████  ██   ██  ██████      │             │
 │ · README.md │      ⠸⣙⡾⢗⣹⠵⡺⣎⡜⣏⠭⠃                                          │             │
 │ ? socket    │       ⠉⠺⢞⣍⡿⠮⣣⠜⠁      c o m m a n d e r                     │             │
-│ · 日本語メモ│          ⠉⠾⠔⠁        version 0.9.2                         │             │
+│ · 日本語メモ│          ⠉⠾⠔⠁        version 0.9.3                         │             │
 │             │                                                            │             │
 │             │  F1 Help      F2 File      F3 View      F4 Edit            │             │
 │             │  F5 Copy      F6 Move      F7 Mkdir     F8 Delete          │             │
@@ -23,7 +23,7 @@ expression: describe(&buffer)
  Up to the par│                                                            │
 $             │                   Resistance is futile.                    │
 F1Help  F2File│                                                            │uit ^OShell
-Alt-H Remote h╰─────────── Esc then 1–9/0 = F1–F10 · Esc close ── ◈ Borg Commander v0.9.2
+Alt-H Remote h╰─────────── Esc then 1–9/0 = F1–F10 · Esc close ── ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 2-2 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 3-5 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 6-13 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 14-16 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 17-21 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 22-44 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 45-45 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 46-47 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 48-50 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 51-53 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 54-56 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 57-60 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 61-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(14, 66, 88) Rgb(30, 30, 30) NONE | 2-5 Rgb(140, 183, 201) Rgb(0, 95, 135) BOLD | 6-13 Rgb(140, 183, 201) Rgb(0, 95, 135) NONE | 14-75 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 76-87 Rgb(108, 108, 108) Rgb(48, 48, 48) NONE | 88-88 Rgb(37, 37, 37) Rgb(30, 30, 30) NONE | 89-89 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
