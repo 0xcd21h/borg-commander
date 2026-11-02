@@ -95,7 +95,8 @@ is revealed, and the panels come back when it finishes.
 
 - `panel_view` draws panels: breadcrumbs, rows, icons, the cursor, Git status and spinners.
 - `fx/` holds the effects engine: gradients, glow, dimming, shadows, the braille canvas and
-  cube, the starfield, glyph rain, spinners, and 256-colour quantising.
+  cube, the particle galaxy, the plank-by-plank Theseus logo, the glitch engine behind the logo
+  and the clock, the starfield, glyph rain, spinners, and 256-colour quantising.
 - Themes are TOML files in `crates/borg-ui/themes/`. `ThemeSet` loads them, resolves
   `extends` and merges styles and effects.
 

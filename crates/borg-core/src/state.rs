@@ -158,6 +158,8 @@ pub struct AppState {
     pub screensaver: bool,
     /// Which screensaver shows; picked again each time it starts.
     pub saver: Saver,
+    /// When the screensaver started, so one that tells a story begins at its start.
+    pub saver_started: Instant,
     /// When the startup intro began. Any input, or its end, clears it.
     pub intro: Option<Instant>,
     pub rain_until: Option<Instant>,
@@ -248,6 +250,7 @@ impl AppState {
             idle_since: now,
             screensaver: false,
             saver: Saver::default(),
+            saver_started: now,
             intro: None,
             rain_until: None,
             clipboard: crate::Clipboard::default(),
@@ -403,4 +406,14 @@ pub enum Saver {
     Cube,
     /// The glitching logo.
     Glitch,
+    /// The time in the logo's letters, glitching as each minute turns.
+    Clock,
+    /// The logo as dots that scatter and come back.
+    Particles,
+    /// The logo rebuilt plank by plank, with the old planks forming a second logo.
+    Theseus,
+}
+
+impl Saver {
+    pub const ALL: [Self; 5] = [Self::Cube, Self::Glitch, Self::Clock, Self::Particles, Self::Theseus];
 }

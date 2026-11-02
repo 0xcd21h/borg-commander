@@ -849,7 +849,7 @@ menu-bar = false            # keep the menu bar visible
 show-hidden = false
 return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
-screensaver = true          # a spinning cube or a glitching logo, picked at random
+screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -882,6 +882,12 @@ history = true              # remember the folders the panels open
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any
 key or click skips it. Over SSH, and in terminals without true color, it opens straight to the
 panels.
+
+After `screensaver-after` seconds without input, Borg shows one of five screensavers, picked at
+random: a cube spinning in a starfield, the glitching logo, a clock in the logo's block letters
+that tears apart as each minute turns, the logo swirling out into a spiral galaxy and back, or
+the logo rebuilt plank by plank while the old planks gather into a second logo below it. Any key
+or click brings the panels back, and that key does nothing else.
 
 Panel folders, cursor positions, the split, listing modes, and sorting are saved in
 `~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or `$BORG_STATE_DIR`.

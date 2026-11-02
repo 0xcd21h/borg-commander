@@ -898,7 +898,7 @@ menu-bar = false            # keep the menu bar visible
 show-hidden = false
 return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
-screensaver = true          # a spinning cube or a glitching logo, picked at random
+screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -931,6 +931,13 @@ history = true              # remember the folders the panels open
 В локальном терминале с поддержкой true color Borg запускается с короткой анимацией логотипа
 с эффектом помех; любая клавиша или щелчок её пропускает. По SSH и в терминалах без true color
 программа сразу открывает панели.
+
+Через `screensaver-after` секунд бездействия Borg показывает одну из пяти заставок, выбранную
+случайно: куб, вращающийся среди звёзд; логотип с эффектом помех; часы из блочных букв логотипа,
+которые рвутся на части с каждой новой минутой; логотип, который закручивается в спиральную
+галактику и возвращается обратно; или логотип, который заново собирается доска за доской, пока
+старые доски складываются внизу во второй логотип. Любая клавиша или щелчок возвращают панели,
+и эта клавиша больше ничего не делает.
 
 Папки панелей, положение курсора, соотношение панелей, режимы списка и сортировка сохраняются в
 `~/.local/state/borg-commander` или в папке, заданной `$XDG_STATE_HOME` или `$BORG_STATE_DIR`.

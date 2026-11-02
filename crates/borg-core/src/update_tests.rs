@@ -1559,6 +1559,7 @@ fn screensaver_starts_after_idle_and_wakes_on_a_key() {
     assert_eq!(state.wake_at(), Some(due));
     update(&mut state, Msg::Tick, due);
     assert!(state.screensaver);
+    assert_eq!(state.saver_started, due);
     assert!(press(&mut state, due, key(KeyCode::Down)).is_empty());
     assert!(!state.screensaver);
     assert_eq!(state.active_panel().cursor(), 0);
