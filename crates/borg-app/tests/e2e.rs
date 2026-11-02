@@ -281,10 +281,11 @@ fn shell_cd_moves_active_panel() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "shell-cd")?;
 
-    app.send("cd alpha")?.send(keys::enter())?;
-    app.wait_gone(READY)?;
-    app.send(keys::ctrl('o'))?;
+    app.send("cd alpha")?;
+    app.wait_until("typed", |s| prompt(s).contains("cd alpha"))?;
+    app.send(keys::enter())?;
     app.wait_until("panel followed shell", |s| s.contains("one.txt") && s.contains("/ inner"))?;
+    ensure!(!app.settle()?.contains("Borg console"), "a typed cd keeps the panels in view");
     Ok(())
 }
 
