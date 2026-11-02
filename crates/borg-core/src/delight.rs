@@ -30,6 +30,7 @@ pub struct About {
 }
 
 pub(crate) fn on_about_key(state: &mut AppState, mut about: About, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let key = &crate::keyboard::latin(key);
     if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::F(1 | 10)) {
         state.overlay = None;
         return Vec::new();

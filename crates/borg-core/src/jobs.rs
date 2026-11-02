@@ -190,7 +190,7 @@ pub(crate) fn on_question_key(state: &mut AppState, question: Question, key: &Ke
     };
     let choices = job.choices();
     let last = choices.len().saturating_sub(1);
-    let decision = match key.code {
+    let decision = match crate::keyboard::latin(key).code {
         KeyCode::Esc => Some(Decision::Cancel),
         KeyCode::Enter => choices.get(question.choice).map(|(decision, _, _)| *decision),
         KeyCode::Char(c) => choices.iter().find(|(_, hotkey, _)| *hotkey == c).map(|(decision, _, _)| *decision),
@@ -227,7 +227,7 @@ pub(crate) fn on_list_key(state: &mut AppState, list: JobList, key: &KeyEvent) -
     let last = state.jobs.len().saturating_sub(1);
     let selected = list.selected.min(last);
     let mut effects = Vec::new();
-    match key.code {
+    match crate::keyboard::latin(key).code {
         KeyCode::Esc | KeyCode::Enter => {
             state.overlay = None;
             return effects;

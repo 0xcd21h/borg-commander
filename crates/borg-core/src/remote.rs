@@ -122,6 +122,7 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
         browser.show_clients = !browser.show_clients;
         return show(state, browser);
     }
+    let key = &crate::keyboard::latin(key);
     if browser.show_clients { clients_key(state, browser, key.code) } else { sessions_key(state, browser, key) }
 }
 
