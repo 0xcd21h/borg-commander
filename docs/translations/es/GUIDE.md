@@ -328,11 +328,10 @@ Esc cancela. Alt-1 a Alt-0 también funcionan cuando el terminal deja pasar Alt.
 tengas que activar "Usar Opción como tecla Meta" en tu terminal.
 
 Los atajos también funcionan con distribuciones de teclado no latinas: rusa, ucraniana,
-bielorrusa, kazaja, serbia, macedonia, griega, hebrea, árabe, persa, georgiana, coreana y
-tailandesa. Una letra de esas distribuciones pulsada con Ctrl o Alt cuenta como la tecla que ocupa
-el mismo lugar en un teclado estadounidense, y lo mismo ocurre con una letra pulsada en una
-pantalla o un diálogo que no espera texto. Con la distribución rusa activa, Alt-M abre el monitor
-de actividad y Ctrl-C llega al shell.
+bielorrusa, kazaja, griega, hebrea, árabe, georgiana, coreana y tailandesa. Una letra de esas
+distribuciones pulsada con Ctrl o Alt cuenta como la tecla que ocupa el mismo lugar en un teclado
+estadounidense, y lo mismo ocurre con una letra pulsada en una pantalla o un diálogo que no espera
+texto. Con la distribución rusa activa, Alt-M abre el monitor de actividad y Ctrl-C llega al shell.
 La línea de comandos, el editor y los campos de Borg conservan las letras que escribes. Las
 preguntas con botones **[ Sí ]** y **[ No ]** aceptan Y y N en cualquier idioma, y también la
 primera letra de cada botón en el idioma de Borg, como S para Sí en español.

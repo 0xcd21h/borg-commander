@@ -333,13 +333,13 @@ tecla Alt. No macOS, pode ser necessário ativar "Use Option as Meta key" (usar 
 Meta) no terminal.
 
 Os atalhos também funcionam com esquemas de teclado não latinos: russo, ucraniano, bielorrusso,
-cazaque, sérvio, macedónio, grego, hebraico, árabe, persa, georgiano, coreano e tailandês. Uma
-letra de um destes esquemas premida com Ctrl ou Alt conta como a tecla que ocupa o mesmo lugar num
-teclado americano, tal como uma letra premida num ecrã ou numa caixa de diálogo que não está à
-espera de texto. Com o esquema russo ativo, Alt-M abre o monitor de atividade e Ctrl-C chega à shell. A
-linha de comandos, o editor e os campos do Borg mantêm as letras que escreve. As perguntas com os
-botões **[ Sim ]** e **[ Não ]** aceitam Y e N em qualquer idioma e também a primeira letra de
-cada botão no idioma do Borg, como S para Sim e N para Não em português.
+cazaque, grego, hebraico, árabe, georgiano, coreano e tailandês. Uma letra de um destes esquemas
+premida com Ctrl ou Alt conta como a tecla que ocupa o mesmo lugar num teclado americano, tal como
+uma letra premida num ecrã ou numa caixa de diálogo que não está à espera de texto. Com o esquema
+russo ativo, Alt-M abre o monitor de atividade e Ctrl-C chega à shell. A linha de comandos, o
+editor e os campos do Borg mantêm as letras que escreve. As perguntas com os botões **[ Sim ]** e
+**[ Não ]** aceitam Y e N em qualquer idioma e também a primeira letra de cada botão no idioma do
+Borg, como S para Sim e N para Não em português.
 
 ## Rato e consola
 
