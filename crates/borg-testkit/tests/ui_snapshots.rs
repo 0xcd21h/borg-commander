@@ -3102,8 +3102,9 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
 }
 
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
-/// the browser, where Enter goes from the process to its connections and on to one
-/// connection's packets, and Esc comes back the same way to every process and the hosts.
+/// the browser, where Enter goes from the process to its connections, whose bytes ] steps
+/// through by turn, and on to one connection's packets, and Esc comes back the same way to
+/// every process and the hosts.
 #[test]
 fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
     use borg_core::{Capture, Effect, TrafficPage};
@@ -3132,10 +3133,22 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
 
     stage.send(key(KeyCode::Enter));
     let buffer = stage.render(now)?;
-    ensure_text(&buffer, "ClientHello cdn.example.net")?;
+    ensure_text(&buffer, "Stream · ")?;
+    ensure_text(&buffer, "→ Sent ")?;
     check("traffic_connections", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Enter)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char(']')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "← Received ")?;
+    ensure_text(&buffer, "[ ] Turn")?;
+    check("traffic_stream_turn", &stage, buffer)?;
+
+    stage
+        .send(key(KeyCode::Tab))
+        .send(key(KeyCode::Enter))
+        .send(key(KeyCode::Down))
+        .send(key(KeyCode::Down))
+        .send(key(KeyCode::Down));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "ClientHello · cdn.example.net")?;

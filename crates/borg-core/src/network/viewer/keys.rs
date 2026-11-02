@@ -5,8 +5,15 @@ use super::{TrafficPage, TrafficView};
 use crate::{AppState, Effect, network::FILTER_LIMIT, network::Network, network::PAGE};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::time::Instant;
 
-pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
+/// Cells the frame takes from a pane's width, one on each side.
+const FRAME_CELLS: u16 = 2;
+const NEXT_TURN_KEY: char = ']';
+const PREVIOUS_TURN_KEY: char = '[';
+
+pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let width = details_width(state, now);
     let network = &mut state.network;
     let Some(view) = network.viewer.as_deref_mut() else { return Vec::new() };
     if view.filtering && filter_key(view, key) {
@@ -33,10 +40,16 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             network.details_focused = false;
         }
         KeyCode::Char(digit @ '1'..='4') => show_page(network, TrafficPage::ALL[usize::from(digit as u8 - b'1')]),
-        code if network.details_focused => scroll_details(view, code),
+        code if network.details_focused => scroll_details(view, code, width),
         code => move_cursor(view, code),
     }
     Vec::new()
+}
+
+/// How many cells wide the details are inside their frame.
+fn details_width(state: &AppState, now: Instant) -> usize {
+    let side = state.network.side.unwrap_or(state.active);
+    usize::from(state.layout(now).panels[side.other().index()].width.saturating_sub(FRAME_CELLS))
 }
 
 /// Shows another page, with the list taking the keys.
@@ -121,8 +134,12 @@ fn move_cursor(view: &mut TrafficView, code: KeyCode) {
     }
 }
 
-fn scroll_details(view: &mut TrafficView, code: KeyCode) {
-    let last = view.detail_rows().saturating_sub(1);
+fn scroll_details(view: &mut TrafficView, code: KeyCode, width: usize) {
+    if let KeyCode::Char(key @ (NEXT_TURN_KEY | PREVIOUS_TURN_KEY)) = code {
+        view.step_turn(width, key == NEXT_TURN_KEY);
+        return;
+    }
+    let last = view.detail_rows(width).saturating_sub(1);
     view.details_top = match code {
         KeyCode::Up => view.details_top.saturating_sub(1),
         KeyCode::Down => view.details_top + 1,
@@ -150,6 +167,8 @@ fn copied_text(view: &TrafficView) -> Option<String> {
         TrafficPage::Processes => view.talker()?.pid.map(|pid| pid.to_string()),
         TrafficPage::Hosts => Some(view.host_row()?.address.to_string()),
         TrafficPage::Connections => view.flow().map(|(index, _)| view.ends[index].remote.to_string()),
-        TrafficPage::Packets => view.packet().map(|(_, packet)| crate::hex_lines(&packet.data, true).join("\n")),
+        TrafficPage::Packets => view
+            .packet()
+            .map(|(_, packet)| crate::hex_lines(&packet.data, crate::HexLayout::full(packet.data.len())).join("\n")),
     }
 }

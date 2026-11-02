@@ -1422,16 +1422,23 @@ para cada forma de mirarla:
   así que la mayoría de los hosts tienen uno.
 - **3 Conexiones** muestra cada conversación con su proceso, el otro extremo, el protocolo, los
   paquetes y los bytes. Los detalles muestran ambos extremos, el nombre del servidor, el servicio,
-  los bytes enviados y recibidos, y cada paquete con una flecha que indica su sentido.
+  los bytes enviados y recibidos, y el flujo de la conversación: lo que envió cada lado, en orden y
+  con los bytes retransmitidos contados una sola vez, en un volcado hexadecimal con los bytes que se
+  imprimen como texto al lado. El flujo se divide en turnos, cada uno con una flecha que indica su
+  sentido, los bytes que contiene y cuándo llegó. Cuando a la captura le faltan bytes antes de un
+  turno, ese turno dice cuántos faltan. **]** y **[** saltan al turno siguiente y al anterior, y
+  Enter muestra los paquetes de la conversación uno a uno.
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
   detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y
-  sus bytes en un volcado hexadecimal.
+  sus bytes en un volcado hexadecimal. Un volcado pone 16 bytes en cada línea, y menos en un panel
+  estrecho, para que el texto siga cabiendo al lado.
 
 | Tecla | Acción |
 | --- | --- |
 | 1 / 2 / 3 / 4 | Mostrar Procesos / Hosts / Conexiones / Paquetes |
 | Enter | Bajar un nivel: de un proceso o host a sus conexiones, de una conexión a sus paquetes, de un paquete a sus detalles |
+| ] / [ | En los detalles de una conexión, saltar al turno siguiente o anterior del flujo |
 | `/` | Filtrar las filas, como en las páginas en vivo |
 | Ctrl-C | Copiar el PID, la dirección, el otro extremo o los bytes del paquete en hex |
 | Tab | Pasar entre la lista y los detalles, donde ↑↓ desplazan |

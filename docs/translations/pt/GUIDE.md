@@ -1416,16 +1416,22 @@ para cada forma de a ver:
   tem um.
 - **3 Ligações** mostra cada conversa com o seu processo, a outra ponta, o protocolo, os pacotes e
   os bytes. Os detalhes mostram as duas pontas, o nome do servidor, o serviço, os bytes enviados e
-  recebidos, e cada pacote com uma seta que indica o sentido.
+  recebidos, e o fluxo da conversa: o que cada lado enviou, por ordem e com os bytes retransmitidos
+  contados uma só vez, num dump hexadecimal com os bytes que se imprimem como texto ao lado. O fluxo
+  divide-se em vezes, cada uma com uma seta que indica o sentido, os bytes que contém e a hora a que
+  chegou. Quando faltam na captura bytes antes de uma vez, essa vez indica quantos faltam. **]** e
+  **[** saltam para a vez seguinte e para a anterior, e Enter mostra os pacotes da conversa um a um.
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
-  hexadecimal.
+  hexadecimal. Um dump põe 16 bytes em cada linha, e menos num painel estreito, para que o texto
+  continue a caber ao lado.
 
 | Tecla | Ação |
 | --- | --- |
 | 1 / 2 / 3 / 4 | Mostrar Processos / Hosts / Ligações / Pacotes |
 | Enter | Descer um nível: de um processo ou host para as suas ligações, de uma ligação para os seus pacotes, de um pacote para os seus detalhes |
+| ] / [ | Nos detalhes de uma ligação, saltar para a vez seguinte ou anterior do fluxo |
 | `/` | Filtrar as linhas, como nas páginas ao vivo |
 | Ctrl-C | Copiar o PID, o endereço, a outra ponta ou os bytes do pacote em hex |
 | Tab | Alternar entre a lista e os detalhes, onde ↑↓ percorrem |
