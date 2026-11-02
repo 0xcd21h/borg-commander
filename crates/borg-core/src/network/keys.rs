@@ -38,6 +38,8 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if state.network.filtering && filter_key(&mut state.network, key) {
         return Vec::new();
     }
+    let key = &crate::keyboard::latin(key);
+    let code = key.code;
     if code == KeyCode::Char('c') && modifiers == KeyModifiers::CONTROL {
         return copy(state);
     }

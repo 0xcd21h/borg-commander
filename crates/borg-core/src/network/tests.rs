@@ -321,6 +321,20 @@ fn digits_switch_pages_and_letters_sort() {
 }
 
 #[test]
+fn a_cyrillic_layout_sorts_and_closes_the_screen_and_types_into_the_filter() {
+    let (mut state, _) = opened();
+    press(&mut state, KeyCode::Char('т'), KeyModifiers::NONE);
+    let names: Vec<String> = state.network.ports.iter().map(|row| state.network.name(row.pid)).collect();
+    assert_eq!(names, ["devserver", "mdns", "postgres", "sshd"]);
+    press(&mut state, KeyCode::Char('/'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char('т'), KeyModifiers::NONE);
+    assert_eq!(state.network.filter, "т");
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char('т'), KeyModifiers::ALT);
+    assert!(!state.network.is_open());
+}
+
+#[test]
 fn the_cursor_stays_on_its_row_when_the_order_changes() {
     let (mut state, _) = opened();
     press(&mut state, KeyCode::Down, KeyModifiers::NONE);
