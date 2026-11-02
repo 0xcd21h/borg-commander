@@ -171,6 +171,20 @@ pub(crate) fn keys(word: &Word, target: &Target, name: &str) -> Vec<u8> {
     keys
 }
 
+/// `dir` as a word the shell reads back as that folder, ending in a `/`: under `home` it starts
+/// with `~/`, and the rest is escaped. `None` for a path that is not UTF-8.
+pub(crate) fn folder_word(dir: &Path, home: Option<&Path>) -> Option<String> {
+    let (lead, rest) = match home.and_then(|home| dir.strip_prefix(home).ok()) {
+        Some(rest) => (HOME_PREFIX, rest),
+        None => ("", dir),
+    };
+    let mut word = format!("{lead}{}", escaped(rest.to_str()?, SPECIAL));
+    if !word.ends_with(SEPARATOR) {
+        word.push(SEPARATOR);
+    }
+    Some(word)
+}
+
 fn quoted(name: &str, quote: Option<char>) -> String {
     match quote {
         Some(SINGLE_QUOTE) => name.replace(SINGLE_QUOTE, SINGLE_QUOTE_INSIDE),

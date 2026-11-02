@@ -3772,7 +3772,7 @@ fn typing_cd_lists_the_hotlist_and_recent_folders_above_the_command_line() -> Re
     stage.shell(b"cd ");
     stage.send(key(KeyCode::Up));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Enter Open")?;
+    ensure_text(&buffer, "Tab Complete · Enter Open")?;
     ensure_text(&buffer, "★ ~/projects/site")?;
     check("cd_picker", &stage, buffer)
 }
@@ -3801,7 +3801,7 @@ fn a_path_in_any_command_lists_its_subfolders_to_complete() -> Result<()> {
     stage.send(subfolders("/Volumes", &["Macintosh HD", "Backup", "Photos", ".Trashes"]));
     stage.send(key(KeyCode::Up));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Enter Complete")?;
+    ensure_text(&buffer, "Tab/Enter Complete")?;
     ensure_text(&buffer, "/Volumes/Backup")?;
     check("path_picker", &stage, buffer)
 }

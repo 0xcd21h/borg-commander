@@ -170,13 +170,14 @@ fn plain(line: &str) -> bool {
     !line.contains(COMPOUND) && !line.contains(SUBSTITUTION)
 }
 
-/// The picker above the command line: which folder is chosen, whether Esc hid it for the `cd `
-/// or path being typed, and the subfolders read for that path.
+/// The picker above the command line: which folder is chosen, whether Esc hid it for the word
+/// being typed, and the subfolders read for that path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CdPicker {
     /// Counted from the row nearest the command line.
     pub selected: Option<usize>,
-    pub hidden: bool,
+    /// The command line up to the cursor when Esc hid the picker.
+    hidden: Option<String>,
     subfolders: Vec<Subfolders>,
     asked: Option<PathBuf>,
 }
@@ -195,6 +196,17 @@ impl CdPicker {
 
     fn holds(&self, dir: &Path, name: &str) -> bool {
         self.names(dir).is_some_and(|names| names.iter().any(|held| held == name))
+    }
+
+    /// Whether `line` is still on the word Esc hid the picker for: the same line, or that word
+    /// edited without erasing it or adding a blank. Esc right after a blank hides it until the
+    /// next word begins.
+    fn hides(&self, line: &TypedLine) -> bool {
+        let Some(typed) = self.hidden.as_deref() else { return false };
+        let now = line.before_cursor();
+        let lead = typed.trim_end_matches(|c: char| !c.is_whitespace());
+        let on_word = |word: &str| !word.is_empty() && !word.contains(char::is_whitespace);
+        now == typed || (on_word(&typed[lead.len()..]) && now.strip_prefix(lead).is_some_and(on_word))
     }
 }
 
@@ -229,7 +241,7 @@ fn at_host_command_line(state: &AppState) -> bool {
 /// The folders the picker shows for the `cd ` or path being typed: the subfolders of the folder
 /// typed, then for a `cd ` the hotlist and the recent folders that match.
 pub fn cd_choices(state: &AppState) -> Option<PickerChoices> {
-    if !at_host_command_line(state) || state.cd_picker.hidden {
+    if !at_host_command_line(state) || state.cd_picker.hidden.is_some() {
         return None;
     }
     let here = state.active_panel().dir();
@@ -262,7 +274,7 @@ fn typed_path(state: &AppState) -> Option<completion::Word> {
 }
 
 fn typed_target(state: &AppState) -> Option<(completion::Word, completion::Target)> {
-    if !at_host_command_line(state) || state.cd_picker.hidden {
+    if !at_host_command_line(state) || state.cd_picker.hidden.is_some() {
         return None;
     }
     let word = typed_path(state)?;
@@ -318,17 +330,20 @@ pub(crate) fn subfolders_read(state: &mut AppState, dir: PathBuf, names: Vec<Str
     read_subfolders(state)
 }
 
-/// A new command line lets go of the picker's choice, and once it holds no `cd ` or path the
-/// picker shows again for the next one.
+/// A new command line lets go of the picker's choice, and once it stops going on with the word
+/// Esc hid the picker for, the picker shows again.
 pub(crate) fn line_changed(state: &mut AppState) {
-    state.cd_picker.selected = None;
-    if cd_argument(&state.shell.observed.line.text).is_none() && typed_path(state).is_none() {
-        state.cd_picker.hidden = false;
+    let picker = &mut state.cd_picker;
+    picker.selected = None;
+    if !picker.hides(&state.shell.observed.line) {
+        picker.hidden = None;
     }
 }
 
-/// Up and Down move through the picker, Enter opens the chosen folder or types it into the path,
-/// and Esc hides the picker for this `cd ` or path. Other keys go to the command line.
+/// Up steps from the command line into the picker and on to the folders above, and Down steps
+/// back and stops at the command line, so neither reaches the panel while the picker shows. Tab
+/// types the chosen folder into the command line, Enter opens it or types it into the path, and
+/// Esc hides the picker while the word being typed goes on. Other keys go to the command line.
 pub(crate) fn picker_key(state: &mut AppState, key: &KeyEvent) -> Option<Vec<Effect>> {
     if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
         return None;
@@ -339,12 +354,13 @@ pub(crate) fn picker_key(state: &mut AppState, key: &KeyEvent) -> Option<Vec<Eff
     match (key.code, picker.selected) {
         (KeyCode::Up, None) => picker.selected = Some(0),
         (KeyCode::Up, Some(row)) => picker.selected = Some((row + 1).min(last)),
-        (KeyCode::Down, Some(0)) => picker.selected = None,
-        (KeyCode::Down, Some(row)) => picker.selected = Some(row - 1),
+        (KeyCode::Down, None) => {}
+        (KeyCode::Down, Some(row)) => picker.selected = row.checked_sub(1),
         (KeyCode::Esc, _) => {
             picker.selected = None;
-            picker.hidden = true;
+            picker.hidden = Some(state.shell.observed.line.before_cursor().to_owned());
         }
+        (KeyCode::Tab, Some(row)) => return Some(fill(state, &choices, row)),
         (KeyCode::Enter, Some(row)) => return Some(take(state, &choices, row)),
         _ => return None,
     }
@@ -362,6 +378,20 @@ pub(crate) fn pick(state: &mut AppState, row: usize) -> Vec<Effect> {
 fn take(state: &mut AppState, choices: &PickerChoices, row: usize) -> Vec<Effect> {
     let Some(choice) = choices.choices.get(row) else { return Vec::new() };
     if choices.completes { complete(state, &choice.path) } else { take_folder(state, choice.path.clone()) }
+}
+
+fn fill(state: &mut AppState, choices: &PickerChoices, row: usize) -> Vec<Effect> {
+    let Some(choice) = choices.choices.get(row) else { return Vec::new() };
+    if choices.completes { complete(state, &choice.path) } else { fill_cd(state, &choice.path) }
+}
+
+/// Types `cd ` and `dir` in place of the command line without running it, escaped the way the
+/// shell reads it and ending in a `/`, so the picker moves on to its subfolders.
+fn fill_cd(state: &mut AppState, dir: &Path) -> Vec<Effect> {
+    let Some(word) = completion::folder_word(dir, state.folders.home.as_deref()) else { return Vec::new() };
+    state.cd_picker.selected = None;
+    state.shell.mark_typed();
+    vec![Effect::Write([CLEAR_LINE, format!("{CD} {word}").as_bytes()].concat())]
 }
 
 /// Clears the typed `cd ` and opens `dir` in the active panel; the shell follows the panel as

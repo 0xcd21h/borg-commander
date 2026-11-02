@@ -84,3 +84,15 @@ fn picking_types_the_rest_of_the_name_quoted_like_the_word() {
     assert_eq!(keys_for("ls '/tmp/", &[], "it's"), erased(0, "it'\\''s/"));
     assert_eq!(keys_for("ls /tmp/", &[], "a$b (1)"), erased(0, "a\\$b\\ \\(1\\)/"));
 }
+
+#[test]
+fn a_folder_word_starts_at_home_and_escapes_what_the_shell_would_split() {
+    let home = Some(Path::new(HOME_DIR));
+    let word_for = |dir: &str| folder_word(Path::new(dir), home);
+    assert_eq!(word_for("/home/me/projects/landing").as_deref(), Some("~/projects/landing/"));
+    assert_eq!(word_for("/home/me/My Projects/it's (old)").as_deref(), Some("~/My\\ Projects/it\\'s\\ \\(old\\)/"));
+    assert_eq!(word_for(HOME_DIR).as_deref(), Some("~/"));
+    assert_eq!(word_for("/srv/$www").as_deref(), Some("/srv/\\$www/"));
+    assert_eq!(word_for("/").as_deref(), Some("/"));
+    assert_eq!(folder_word(Path::new("/home/me/x"), None).as_deref(), Some("/home/me/x/"));
+}
