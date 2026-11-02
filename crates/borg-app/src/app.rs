@@ -122,6 +122,7 @@ pub struct App {
     /// Processes an agent may search the memory of without asking again, by the computer it
     /// asks from (`None` for this one), once the user approved the first search.
     memory_readers: std::collections::HashSet<(Option<String>, borg_core::ProcessKey)>,
+    saved_captures: agent_calls::SavedCaptures,
     runtime_dir: PathBuf,
     mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
     mirror_ready: Option<crate::mirror::Connection>,

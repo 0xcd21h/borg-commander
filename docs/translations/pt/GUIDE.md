@@ -577,6 +577,27 @@ indica o processo, o programa e a pesquisa. Depois de aprovar, o agente pode vol
 esse processo até o borg terminar. Pode pedir para ler como administrador, o que abre o pedido de
 palavra-passe do próprio sistema.
 
+O agente também pode capturar tráfego como a tecla **R** faz no ecrã de rede (consulte
+[Capturar tráfego](#capturing-traffic)). Indica o que gravar: uma porta, uma ligação, um processo
+pelo PID ou todo o tráfego da interface. Para um processo, o Borg grava a interface inteira e
+resume as conversas desse processo. Uma captura dura de 1 a 60 segundos, ou 5 se o agente não
+indicar a duração. Quando o agente não indica a interface, o Borg mede durante um segundo e escolhe
+a que a caixa de diálogo **Capturar tráfego** escolheria. Cada captura aguarda a sua aprovação
+numa caixa de diálogo, **Pedido remoto para capturar tráfego**, que mostra o tráfego, a interface,
+a duração, quanto de cada pacote guardar e a pasta. Enquanto decorre, o rodapé mostra-a, e no fim
+um aviso indica onde o Borg a guardou: na pasta do painel ativo ou numa pasta que o agente indique,
+legível só por si.
+
+O agente recebe um resumo: os protocolos que o Borg reconheceu e depois cada processo, host e
+ligação com os seus pacotes e bytes, com os nomes dos hosts tirados das respostas DNS da própria
+captura e dos nomes de servidor TLS. O Borg acompanha os sockets enquanto a captura decorre, por
+isso as conversas ficam atribuídas aos seus processos mesmo com o ecrã de rede fechado. O resumo
+deixa de fora o que os pacotes transportam. Ler um ficheiro `.pcap`, `.pcapng` ou `.cap` dá o mesmo
+resumo, restringido com as palavras do filtro do visualizador de tráfego, e o agente pode pedir um
+pacote pelo número para obter as camadas e os bytes num dump hexadecimal. O Borg lembra-se dos
+processos das últimas 16 capturas do agente até terminar, e os outros ficheiros mostram as
+conversas em **Processo desconhecido**.
+
 Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele
 para ver um registo do que o agente fez: o que viu, leu, mostrou e escreveu, e todos os comandos e
 alterações, aprovados ou recusados. O Borg guarda o registo apenas em memória, até terminar; para
@@ -1332,6 +1353,9 @@ O Borg guarda cada captura como `capture-<date>-<time>.pcap` na pasta do painel 
 cobre, legível só por si, para que o Wireshark e outras ferramentas a possam abrir mais tarde. Uma
 captura contém tudo o que os pacotes transportavam, por isso guarde-a com o mesmo cuidado que esses
 dados.
+
+Um agente ligado através de `borg mcp` também pode pedir uma captura, que aguarda igualmente a sua
+aprovação (consulte [O que o agente pode fazer](#what-the-agent-can-do)).
 
 Quando a captura termina, o visualizador de tráfego toma o lugar das páginas ao vivo, com uma página
 para cada forma de a ver:

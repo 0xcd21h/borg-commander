@@ -12,10 +12,7 @@ use crate::{
     format,
     look::Look,
 };
-use borg_core::{
-    App, Datagram, DnsData, HEX_LINE_WIDTH, Http, Network, Packet, TrafficPage, TrafficView, dns_type, hex_lines,
-    service,
-};
+use borg_core::{HEX_LINE_WIDTH, Network, Packet, TrafficPage, TrafficView, hex_lines, service};
 use borg_i18n::{Count, count, tr};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use std::{fmt::Write, net::IpAddr, time::Duration};
@@ -425,11 +422,7 @@ fn tiles_of(view: &TrafficView) -> Option<Vec<(&'static str, String)>> {
             tiles
         }),
         TrafficPage::Connections => view.flow().map(|(index, flow)| {
-            let (sent, received) = if view.ends[index].local == flow.client {
-                (flow.to_server, flow.to_client)
-            } else {
-                (flow.to_client, flow.to_server)
-            };
+            let (sent, received) = view.sent_received(index);
             vec![
                 (tr!(traffic_packets_tab), flow.packets.len().to_string()),
                 (tr!(network_sent_tile), format::size(sent)),
@@ -551,10 +544,6 @@ fn sender(packet: &Packet) -> Option<IpAddr> {
     packet.layers.ip.map(|ip| ip.source)
 }
 
-fn mac(address: [u8; 6]) -> String {
-    address.iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(":")
-}
-
 /// A packet's layers and its bytes, with the bytes as text beside them when `with_text`.
 fn packet_lines(view: &TrafficView, with_text: bool) -> Vec<Detail> {
     let Some((_, packet)) = view.packet() else { return Vec::new() };
@@ -579,78 +568,11 @@ fn packet_lines(view: &TrafficView, with_text: bool) -> Vec<Detail> {
     if let Some(interface) = &packet.interface {
         lines.push(scrolling(tr!(network_interface_column), interface.clone(), Tone::Plain));
     }
-    if let (Some(source), Some(destination)) = (layers.link.source, layers.link.destination) {
-        let kind = layers.link.ether_type.map_or_else(String::new, |kind| format!("{SEPARATOR}0x{kind:04x}"));
-        lines.push(scrolling("Ethernet", format!("{} → {}{kind}", mac(source), mac(destination)), Tone::Plain));
-    }
-    if let Some(ip) = layers.ip {
-        let version = if ip.source.is_ipv6() { "IPv6" } else { "IPv4" };
-        let fragment = if ip.fragment { format!("{SEPARATOR}{}", tr!(traffic_fragment)) } else { String::new() };
-        let value = format!("{} → {}{SEPARATOR}TTL {}{fragment}", ip.source, ip.destination, ip.ttl);
-        lines.push(scrolling(version, value, Tone::Plain));
-    }
-    match layers.datagram {
-        Some(Datagram::Tcp(tcp)) => {
-            let value = format!(
-                "{} → {}{SEPARATOR}[{}]{SEPARATOR}seq={} ack={} win={}",
-                tcp.source,
-                tcp.destination,
-                tcp.flag_names().join(", "),
-                tcp.seq,
-                tcp.ack,
-                tcp.window
-            );
-            lines.push(scrolling("TCP", value, Tone::Plain));
-        }
-        Some(Datagram::Udp { source, destination }) => {
-            lines.push(scrolling("UDP", format!("{source} → {destination}"), Tone::Plain));
-        }
-        Some(Datagram::Icmp { kind, code }) => {
-            lines.push(scrolling(layers.protocol(), format!("type={kind} code={code}"), Tone::Plain));
-        }
-        None => {}
-    }
-    lines.extend(app_lines(layers.app.as_ref()));
+    lines.extend(packet.layer_rows().into_iter().map(|(label, value)| scrolling(label, value, Tone::Plain)));
     lines.push(scrolling("", "", Tone::Plain));
     lines.push(scrolling("", tr!(traffic_bytes_column), Tone::Heading));
     lines.extend(hex_lines(&packet.data, with_text).into_iter().map(|line| scrolling("", line, Tone::Code)));
     lines
-}
-
-fn app_lines(app: Option<&App>) -> Vec<Detail> {
-    let Some(app) = app else { return Vec::new() };
-    let name = app.name();
-    match app {
-        App::Dns(dns) => {
-            let mut lines: Vec<Detail> = dns
-                .questions
-                .iter()
-                .map(|(asked, kind)| scrolling(name, format!("{} {asked}", dns_type(*kind)), Tone::Plain))
-                .collect();
-            lines.extend(dns.answers.iter().map(|answer| {
-                let data = match &answer.data {
-                    DnsData::Address(address) => address.to_string(),
-                    DnsData::Name(name) => name.clone(),
-                    DnsData::Other => String::new(),
-                };
-                scrolling("", format!("→ {} {} {data}", answer.name, dns_type(answer.kind)), Tone::Plain)
-            }));
-            lines
-        }
-        App::TlsHello { server } => {
-            vec![scrolling(name, format!("ClientHello{SEPARATOR}{}", server.clone().unwrap_or_default()), Tone::Plain)]
-        }
-        App::TlsServerHello => vec![scrolling(name, "ServerHello", Tone::Plain)],
-        App::Tls | App::Quic => Vec::new(),
-        App::Http(Http::Request { method, target, host }) => {
-            let mut lines = vec![scrolling(name, format!("{method} {target}"), Tone::Plain)];
-            lines.extend(host.iter().map(|host| scrolling("Host", host.clone(), Tone::Plain)));
-            lines
-        }
-        App::Http(Http::Response { status, reason }) => {
-            vec![scrolling(name, format!("{status} {reason}"), Tone::Plain)]
-        }
-    }
 }
 
 /// The status line: who the selected row belongs to and where it goes.

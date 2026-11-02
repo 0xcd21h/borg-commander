@@ -198,6 +198,13 @@ process of the socket that held it: the exact ends first, then a socket listenin
 panel's folder while `PcapCounter` counts whole packets for the footer, sends SIGINT at the
 deadline or on R, and reads the file back on a blocking worker.
 
+An agent's `capture` call asks with `network::capture_ask`, picks its interface with the dialog's
+`capture_interfaces`, and once approved runs the same tcpdump runner through
+`record_for_agent`, while a blocking worker samples sockets every second into `SeenSockets`.
+`network::viewer::report` turns the `TrafficView` into the text the agent gets: the summary by
+process, host and connection without packet contents, or one packet's layers and hex bytes when a
+`read` of a capture file names it.
+
 ### Editor
 
 F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a
