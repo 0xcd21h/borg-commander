@@ -205,8 +205,9 @@ Six built-in themes, from Classic blue to Paper. Pick one from the menu or make 
 | **Paper** | **Ember** |
 | <img src="docs/themes/paper.png" alt="Paper: light panels with muted accents" width="440"> | <img src="docs/themes/ember.png" alt="Ember: dark panels with warm orange accents" width="440"> |
 
-Every download includes **Borg Mono**, a font with file icons. Ghostty uses rich icons
-automatically; other terminals start with portable symbols. [Font setup](fonts/README.md).
+Every download includes **Borg Mono**, a font with file icons. Ghostty, kitty and WezTerm use
+rich icons automatically, and so do Konsole, Alacritty, foot and GNOME Terminal once a Nerd Font
+is installed; other terminals start with portable symbols. [Font setup](fonts/README.md).
 
 ## License
 

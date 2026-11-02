@@ -38,6 +38,7 @@ mod sessions;
 mod size_cache;
 mod store;
 mod subfolders;
+mod terminal_icons;
 mod tools;
 mod update;
 
