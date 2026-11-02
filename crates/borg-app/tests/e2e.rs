@@ -2764,24 +2764,39 @@ fn relay_with_connection_gate() -> Result<(String, std::sync::Arc<ConnectionGate
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
         runtime.block_on(async move {
             use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+            /// Carries bytes one way and hands each on `transit_ms` after it was read, as a link
+            /// with that latency would. Bytes read while others are in transit follow close behind
+            /// them, so a frame that arrives in many reads lands `transit_ms` late as a whole.
             async fn forward(
                 mut read: impl AsyncRead + Unpin,
                 mut write: impl AsyncWrite + Unpin,
                 gate: Arc<ConnectionGate>,
             ) -> std::io::Result<()> {
                 const TRANSIT_BUFFER: usize = 16 * 1024;
-                let mut bytes = [0; TRANSIT_BUFFER];
-                loop {
-                    let count = read.read(&mut bytes).await?;
-                    if count == 0 {
-                        return write.shutdown().await;
+                let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+                let carry = async move {
+                    let mut bytes = [0; TRANSIT_BUFFER];
+                    loop {
+                        let count = read.read(&mut bytes).await?;
+                        let transit = std::time::Duration::from_millis(gate.transit_ms.load(Ordering::SeqCst));
+                        if sender.send((tokio::time::Instant::now() + transit, bytes[..count].to_vec())).is_err()
+                            || count == 0
+                        {
+                            return Ok::<_, std::io::Error>(());
+                        }
                     }
-                    let delay = gate.transit_ms.load(Ordering::SeqCst);
-                    if delay != 0 {
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                };
+                let land = async move {
+                    while let Some((arrival, bytes)) = receiver.recv().await {
+                        tokio::time::sleep_until(arrival).await;
+                        if bytes.is_empty() {
+                            return write.shutdown().await;
+                        }
+                        write.write_all(&bytes).await?;
                     }
-                    write.write_all(&bytes[..count]).await?;
-                }
+                    Ok(())
+                };
+                tokio::try_join!(carry, land).map(|_| ())
             }
             let listener = tokio::net::TcpListener::from_std(listener).expect("the gated listener");
             while let Ok((client, _)) = listener.accept().await {
