@@ -33,7 +33,7 @@ expression: describe(&buffer)
  Up to the parent directory
 $
 F1Help   F2File   F3View   F4Edit   F5Copy   F6Move   F7Mkdir  F8Delete F9Menu   F10Quit  ^OShell
-Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity        ◈ Borg Commander v0.9.2
+Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity        ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-0 Rgb(161, 180, 199) Rgb(247, 245, 239) NONE | 1-1 Rgb(135, 133, 129) Rgb(247, 245, 239) BOLD | 2-2 Rgb(135, 133, 129) Rgb(247, 245, 239) NONE | 3-5 Rgb(222, 218, 209) Rgb(247, 245, 239) NONE | 6-13 Rgb(135, 133, 129) Rgb(247, 245, 239) NONE | 14-16 Rgb(222, 218, 209) Rgb(247, 245, 239) NONE | 17-21 Rgb(135, 133, 129) Rgb(247, 245, 239) BOLD | 22-49 Rgb(161, 180, 199) Rgb(247, 245, 239) NONE | 50-50 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 51-52 Rgb(202, 199, 191) Rgb(247, 245, 239) NONE | 53-55 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 56-58 Rgb(202, 199, 191) Rgb(247, 245, 239) NONE | 59-61 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 62-65 Rgb(202, 199, 191) Rgb(247, 245, 239) NONE | 66-99 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE
   1: 0-1 Rgb(161, 180, 199) Rgb(247, 245, 239) NONE | 2-5 Rgb(181, 197, 215) Rgb(90, 127, 166) BOLD | 6-47 Rgb(181, 197, 215) Rgb(90, 127, 166) NONE | 48-49 Rgb(161, 180, 199) Rgb(247, 245, 239) NONE | 50-50 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 51-51 Rgb(240, 237, 229) Rgb(247, 245, 239) NONE | 52-55 Rgb(155, 171, 183) Rgb(230, 225, 214) BOLD | 56-78 Rgb(160, 156, 148) Rgb(230, 225, 214) NONE | 79-84 Rgb(203, 198, 186) Rgb(230, 225, 214) NONE | 85-97 Rgb(160, 156, 148) Rgb(230, 225, 214) NONE | 98-98 Rgb(240, 237, 229) Rgb(247, 245, 239) NONE | 99-99 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE

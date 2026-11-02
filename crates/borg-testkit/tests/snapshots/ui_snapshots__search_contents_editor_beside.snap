@@ -31,7 +31,7 @@ expression: describe(&buffer)
  /workspace/api/src/handlers.rs
 $
 F2Save       F3Next       F4Replace    F6Switch     F7Find       F9Menu       F10Close     ^OShell
-Ctrl-C Copy  Ctrl-V Paste  Ctrl-X Cut  Ctrl-Z Undo  Ctrl-Y Redo  Ctrl-G Line          ◈ Borg Commander v0.9.2
+Ctrl-C Copy  Ctrl-V Paste  Ctrl-X Cut  Ctrl-Z Undo  Ctrl-Y Redo  Ctrl-G Line          ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-46 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 47-49 Rgb(5, 50, 62) Rgb(17, 168, 205) NONE | 50-50 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 51-53 Rgb(5, 50, 62) Rgb(17, 168, 205) NONE | 54-54 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-87 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 88-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
   1: 0-54 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-58 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 59-59 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 60-63 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 64-69 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 70-77 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 78-78 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 79-79 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 80-81 Rgb(180, 142, 173) Rgb(30, 30, 30) NONE | 82-82 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 83-83 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 84-108 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 109-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE

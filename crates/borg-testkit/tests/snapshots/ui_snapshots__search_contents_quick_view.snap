@@ -31,7 +31,7 @@ expression: describe(&buffer)
  /workspace/api/src/handlers.rs:42
 $
 F1Help    F2File    F3View    F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
-Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hide     ◈ Borg Commander v0.9.2
+Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hide     ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-46 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 47-49 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 50-50 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 51-53 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 56-81 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 82-109 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 56-56 Reset Rgb(30, 30, 30) NONE | 57-60 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 61-66 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 67-74 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 75-75 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 76-76 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 77-78 Rgb(180, 142, 173) Rgb(30, 30, 30) NONE | 79-79 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 80-80 Rgb(236, 239, 244) Rgb(30, 30, 30) NONE | 81-108 Reset Rgb(30, 30, 30) NONE | 109-109 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE

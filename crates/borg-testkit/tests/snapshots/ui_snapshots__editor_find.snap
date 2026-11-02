@@ -23,7 +23,7 @@ expression: describe(&buffer)
 
 
 
- Find  name                  Aa  ab  .*   1 of 2                  ◈ Borg Commander v0.9.2
+ Find  name                  Aa  ab  .*   1 of 2                  ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
   1: 0-1 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 2-2 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 3-4 Rgb(129, 161, 193) Rgb(30, 30, 30) NONE | 5-5 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 6-9 Rgb(136, 192, 208) Rgb(30, 30, 30) NONE | 10-13 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 14-89 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE

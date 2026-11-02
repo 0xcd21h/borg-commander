@@ -35,7 +35,7 @@ expression: describe(&buffer)
 sshd · PID 301 · TCP 22
 $
 Enter Show process  K Signal  / Filter  Space Pause  Tab Details  Esc Close
-P Port · N Name · C Connections · Ctrl-C Copy address · Alt-W Maximize                                      ◈ Borg Commander v0.9.2
+P Port · N Name · C Connections · Ctrl-C Copy address · Alt-W Maximize                                      ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-21 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 22-57 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 58-60 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 61-61 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 62-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-74 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 75-123 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-9 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 10-51 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 52-64 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-130 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
