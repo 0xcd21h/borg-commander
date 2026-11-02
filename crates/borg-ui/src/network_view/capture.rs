@@ -8,7 +8,9 @@ use crate::{
     dialog_view::centered,
     format,
 };
-use borg_core::{CaptureDialog, CaptureField, CaptureScope, DURATIONS, HEADER_BYTES, Network, capture_extension};
+use borg_core::{
+    Authority, CaptureDialog, CaptureField, CaptureScope, DURATIONS, HEADER_BYTES, Network, TlsKeys, capture_extension,
+};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -51,8 +53,13 @@ fn access_label(dialog: &CaptureDialog, administrator: bool) -> &'static str {
     }
 }
 
-fn tls_label(tls_keys: bool) -> &'static str {
-    if tls_keys { tr!(capture_tls_on) } else { tr!(capture_tls_off) }
+fn tls_label(tls_keys: &TlsKeys) -> String {
+    match tls_keys {
+        TlsKeys::Off => tr!(capture_tls_off).to_owned(),
+        TlsKeys::Shell => tr!(capture_tls_on).to_owned(),
+        TlsKeys::Proxy(Authority::Temporary) => tr!(capture_tls_proxy).to_owned(),
+        TlsKeys::Proxy(Authority::Folder(folder)) => tr!(capture_tls_proxy_folder, folder = folder.display()),
+    }
 }
 
 fn scope_label(network: &Network, scope: CaptureScope) -> String {
@@ -73,7 +80,7 @@ fn value(dialog: &CaptureDialog, network: &Network, field: CaptureField) -> Stri
         CaptureField::Duration => duration_label(DURATIONS[dialog.duration]),
         CaptureField::Content if dialog.headers_only => tr!(capture_headers_only, bytes = HEADER_BYTES),
         CaptureField::Content => tr!(capture_whole_packets).to_owned(),
-        CaptureField::TlsKeys => tls_label(dialog.tls_keys).to_owned(),
+        CaptureField::TlsKeys => tls_label(&dialog.tls_keys),
         CaptureField::Access => access_label(dialog, dialog.administrator).to_owned(),
     }
 }
@@ -84,7 +91,7 @@ fn widest_value(dialog: &CaptureDialog, network: &Network) -> usize {
     let interfaces = dialog.interfaces.iter().map(|name| name.width());
     let durations = DURATIONS.iter().map(|seconds| duration_label(*seconds).width());
     let contents = [tr!(capture_headers_only, bytes = HEADER_BYTES).width(), tr!(capture_whole_packets).width()];
-    let tls_keys = [false, true].map(|tls_keys| tls_label(tls_keys).width());
+    let tls_keys = dialog.tls_choices().map(|tls_keys| tls_label(&tls_keys).width());
     let shown = dialog.fields().contains(&CaptureField::Access);
     let access =
         [false, true].into_iter().filter(|_| shown).map(|administrator| access_label(dialog, administrator).width());

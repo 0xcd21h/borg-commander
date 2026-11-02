@@ -16,6 +16,7 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod capture;
 mod kinds;
+mod proxy;
 
 pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
 #[cfg(any(target_os = "macos", test))]
@@ -43,11 +44,13 @@ pub struct Network {
     sampler: Arc<Mutex<Sampler>>,
     task: Option<JoinHandle<()>>,
     recorder: Option<capture::Recorder>,
+    /// Borg's runtime folder, where a capture's proxy keeps the certificates programs trust.
+    runtime: PathBuf,
 }
 
 impl Network {
-    pub fn new(messages: UnboundedSender<Msg>) -> Self {
-        Self { messages, sampler: Arc::default(), task: None, recorder: None }
+    pub fn new(messages: UnboundedSender<Msg>, runtime: PathBuf) -> Self {
+        Self { messages, sampler: Arc::default(), task: None, recorder: None, runtime }
     }
 
     /// Captures packets as `request` asks, in place of a capture still running.
@@ -55,7 +58,7 @@ impl Network {
         if let Some(recorder) = self.recorder.take() {
             recorder.abort();
         }
-        self.recorder = Some(capture::Recorder::start(id, request, self.messages.clone()));
+        self.recorder = Some(capture::Recorder::start(id, request, self.messages.clone(), &self.runtime));
     }
 
     pub fn stop_capture(&mut self, id: u64) {

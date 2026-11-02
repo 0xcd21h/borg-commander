@@ -73,6 +73,15 @@ pub struct Config {
     pub search: Option<Search>,
     pub index: Option<Index>,
     pub folders: Option<Folders>,
+    pub network: Option<Network>,
+}
+
+/// `[network]`: the development CA that signs the certificates of Borg's capture proxy.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Network {
+    /// A folder with a CA certificate and its key, such as mkcert's.
+    pub proxy_ca: Option<String>,
 }
 
 /// `[folders]`: the folder hotlist, and whether Borg remembers the folders the panels visit.
@@ -231,6 +240,13 @@ impl Config {
         expand_home(&self.folders.clone().unwrap_or_default().hotlist)
     }
 
+    /// Who signs the certificates of Borg's capture proxy: the CA in `proxy-ca`, with `~/` read
+    /// as the home folder, or a temporary one.
+    pub fn proxy_authority(&self) -> borg_core::Authority {
+        let folder = self.network.as_ref().and_then(|network| network.proxy_ca.clone());
+        expand_home(folder.as_slice()).pop().map_or(borg_core::Authority::Temporary, borg_core::Authority::Folder)
+    }
+
     pub fn folder_history(&self) -> bool {
         self.folders.clone().unwrap_or_default().history
     }
@@ -298,6 +314,7 @@ impl Config {
             search: self.search.clone(),
             index: self.index.clone(),
             folders: self.folders.clone(),
+            network: self.network.clone(),
         }
     }
 }

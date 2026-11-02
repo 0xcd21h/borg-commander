@@ -3266,7 +3266,7 @@ fn network_captures_as_administrator_and_names_every_packets_process() -> Result
 /// records, and offers the line for programs started in another terminal.
 #[test]
 fn network_records_tls_keys_through_borgs_shell() -> Result<()> {
-    use borg_core::{CaptureField, Effect, Overlay, View};
+    use borg_core::{CaptureField, Effect, Overlay, TlsKeys, View};
     use borg_term::ShellSignal;
     let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
     let now = borg_testkit::network::open(&mut stage)?;
@@ -3283,18 +3283,60 @@ fn network_records_tls_keys_through_borgs_shell() -> Result<()> {
 
     let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
     let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
-    assert!(request.tls_keys);
+    assert_eq!(request.tls_keys, TlsKeys::Shell);
     let key_log = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.keylog");
-    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log }, now);
+    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log, proxy: None }, now);
     let export = b"export SSLKEYLOGFILE='/home/me/projects/borg/capture-20260101-120000.keylog'\r".to_vec();
     assert!(effects.contains(&Effect::Write(export)), "the line is typed at the prompt: {effects:?}");
     assert_eq!(stage.state.view, View::Shell, "where it shows");
     stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
     stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
     let buffer = stage.render(now)?;
-    ensure_text(&buffer, "61 packets · 51K · TLS keys · 5 s left")?;
+    ensure_text(&buffer, "61 packets · 51K · 5 s left · TLS keys")?;
     ensure_text(&buffer, "L Copy SSLKEYLOGFILE")?;
     check("network_capture_tls_keys", &stage, buffer)?;
+    Ok(())
+}
+
+/// A capture through Borg's proxy names the CA that signs for it in the dialog, points HTTPS at
+/// the proxy in Borg's shell, and says where the proxy listens while it records.
+#[test]
+fn network_records_https_through_borgs_proxy() -> Result<()> {
+    use borg_core::{Authority, CaptureField, Effect, Overlay, ProxyEndpoint, TlsKeys};
+    use borg_term::ShellSignal;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.shell.integrated = true;
+    let folder = PathBuf::from("/home/me/.local/share/mkcert");
+    stage.state.network.authority = Authority::Folder(folder.clone());
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    while !matches!(&stage.state.overlay, Some(Overlay::Capture(dialog)) if dialog.selected() == CaptureField::TlsKeys)
+    {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "‹ Proxy HTTPS through Borg with the CA in /home/me/.local/share/mkcert ›")?;
+    check("network_capture_dialog_proxy", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!(request.tls_keys, TlsKeys::Proxy(Authority::Folder(folder)));
+    let key_log = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.keylog");
+    let proxy = ProxyEndpoint {
+        address: "127.0.0.1:54321".parse()?,
+        trust: PathBuf::from("/run/user/1000/borg/trust-4242-1.pem"),
+    };
+    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log, proxy: Some(proxy) }, now);
+    let typed = |effect: &Effect| matches!(effect, Effect::Write(line) if line.starts_with(b"export HTTPS_PROXY='http://127.0.0.1:54321' "));
+    assert!(effects.iter().any(typed), "the line is typed at the prompt: {effects:?}");
+    stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
+    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "61 packets · 51K · 5 s left · Proxy on 127.0.0.1:54321")?;
+    ensure_text(&buffer, "L Copy proxy settings")?;
+    check("network_capture_proxy", &stage, buffer)?;
     Ok(())
 }
 
@@ -3444,7 +3486,7 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         folder: "/home/dev/work".into(),
         administrator: false,
         processes: false,
-        tls_keys: false,
+        tls_keys: borg_core::TlsKeys::Off,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
     let ask = borg_core::capture_ask(scope, None, &request, String::new());

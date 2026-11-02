@@ -4,6 +4,7 @@
 
 use super::{
     InterfaceKind, NetworkPage, Socket, SocketKey, Transport,
+    shell_variables::{Assignments, key_log_assignments, prefix, proxy_assignments},
     viewer::{TrafficPage, TrafficView},
 };
 use crate::{
@@ -115,6 +116,52 @@ impl CaptureScope {
     }
 }
 
+/// Who signs the certificates Borg's proxy shows the programs that go through it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Authority {
+    /// A certificate authority Borg makes for the capture, whose key never leaves memory.
+    #[default]
+    Temporary,
+    /// Your own development authority, from a folder with its certificate and key.
+    Folder(PathBuf),
+}
+
+/// What a capture does to read the TLS its programs send.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum TlsKeys {
+    #[default]
+    Off,
+    /// Borg's shell points `SSLKEYLOGFILE` at a key log beside the capture.
+    Shell,
+    /// Borg's shell sends HTTPS through a proxy in Borg, which writes the keys of the
+    /// connections it makes to the key log.
+    Proxy(Authority),
+}
+
+impl TlsKeys {
+    /// Whether the capture keeps a key log beside it.
+    pub fn keeps_keys(&self) -> bool {
+        *self != Self::Off
+    }
+}
+
+/// Where Borg's proxy listens while a capture runs, and the certificates the programs that use
+/// it trust.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEndpoint {
+    pub address: SocketAddr,
+    pub trust: PathBuf,
+}
+
+/// A connection Borg's proxy opened in place of a program, with the program it opened it for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proxied {
+    pub local: SocketAddr,
+    pub remote: SocketAddr,
+    pub pid: u32,
+    pub name: String,
+}
+
 /// What a capture asks `tcpdump` for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureRequest {
@@ -130,9 +177,8 @@ pub struct CaptureRequest {
     pub administrator: bool,
     /// Capture on macOS's `pktap`, which tags each packet with its process and saves pcapng.
     pub processes: bool,
-    /// Keep a TLS key log beside the capture, which Borg's shell points `SSLKEYLOGFILE` at while
-    /// it runs.
-    pub tls_keys: bool,
+    /// Keep a TLS key log beside the capture, and how its programs give their keys away.
+    pub tls_keys: TlsKeys,
 }
 
 impl CaptureRequest {
@@ -177,12 +223,14 @@ pub struct CaptureDialog {
     pub interface: usize,
     pub duration: usize,
     pub headers_only: bool,
-    pub tls_keys: bool,
+    pub tls_keys: TlsKeys,
     /// Capture as administrator.
     pub administrator: bool,
     pub access: CaptureAccess,
     pub field: usize,
     folder: PathBuf,
+    /// Who signs the proxy's certificates, when the capture sends HTTPS through it.
+    authority: Authority,
 }
 
 impl CaptureDialog {
@@ -206,6 +254,11 @@ impl CaptureDialog {
         &self.folder
     }
 
+    /// What **TLS keys** offers, in the order Left and Right go through them.
+    pub fn tls_choices(&self) -> [TlsKeys; 3] {
+        [TlsKeys::Off, TlsKeys::Shell, TlsKeys::Proxy(self.authority.clone())]
+    }
+
     pub fn request(&self) -> Option<CaptureRequest> {
         Some(CaptureRequest {
             interface: self.interfaces.get(self.interface)?.clone(),
@@ -215,7 +268,7 @@ impl CaptureDialog {
             folder: self.folder.clone(),
             administrator: self.administrator,
             processes: self.tags_processes(),
-            tls_keys: self.tls_keys,
+            tls_keys: self.tls_keys.clone(),
         })
     }
 
@@ -227,18 +280,23 @@ impl CaptureDialog {
             CaptureField::Interface => self.interface = turn(self.interface, self.interfaces.len()),
             CaptureField::Duration => self.duration = turn(self.duration, DURATIONS.len()),
             CaptureField::Content => self.headers_only = !self.headers_only,
-            CaptureField::TlsKeys => self.tls_keys = !self.tls_keys,
+            CaptureField::TlsKeys => {
+                let choices = self.tls_choices();
+                let chosen = choices.iter().position(|choice| *choice == self.tls_keys).unwrap_or_default();
+                self.tls_keys = choices[turn(chosen, choices.len())].clone();
+            }
             CaptureField::Access => self.administrator = !self.administrator,
         }
     }
 }
 
 /// Every socket seen while a capture ran, with the names of the processes that held them, to
-/// tell each conversation's process.
+/// tell each conversation's process, and the connections Borg's proxy opened for a program.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SeenSockets {
     sockets: HashMap<SocketKey, Socket>,
     names: HashMap<u32, String>,
+    proxied: Vec<Proxied>,
 }
 
 impl SeenSockets {
@@ -249,15 +307,37 @@ impl SeenSockets {
         self.names.extend(names.iter().map(|(pid, name)| (*pid, name.clone())));
     }
 
-    /// The viewer on `capture`, each conversation with the process whose socket held it.
+    /// A connection Borg's proxy opened for a program, which its conversation belongs to.
+    pub fn proxied(&mut self, proxied: Proxied) {
+        self.names.insert(proxied.pid, proxied.name.clone());
+        self.proxied.push(proxied);
+    }
+
+    /// The viewer on `capture`, each conversation with the process whose socket held it, or
+    /// the program Borg's proxy held it for.
     pub fn view(
         &self,
         capture: Capture,
         hosts: &HashMap<IpAddr, Option<String>>,
         path: Option<PathBuf>,
     ) -> TrafficView {
-        let sockets: Vec<Socket> = self.sockets.values().cloned().collect();
-        TrafficView::new(capture, &sockets, self.names.clone(), hosts, path)
+        TrafficView::new(capture, &self.sockets(), self.names.clone(), hosts, path)
+    }
+
+    fn sockets(&self) -> Vec<Socket> {
+        let opened =
+            |socket: &Socket, proxied: &Proxied| socket.local == proxied.local && socket.remote == Some(proxied.remote);
+        let held = self.sockets.values().filter(|socket| !self.proxied.iter().any(|proxied| opened(socket, proxied)));
+        let proxied = self.proxied.iter().map(|proxied| Socket {
+            transport: Transport::Tcp,
+            local: proxied.local,
+            remote: Some(proxied.remote),
+            state: None,
+            pid: Some(proxied.pid),
+            received: None,
+            sent: None,
+        });
+        held.cloned().chain(proxied).collect()
     }
 }
 
@@ -275,6 +355,8 @@ pub struct Recording {
     pub stopping: bool,
     /// The TLS key log beside the capture, once it is there.
     pub key_log: Option<PathBuf>,
+    /// Where Borg's proxy listens, once it does.
+    pub proxy: Option<ProxyEndpoint>,
     view_filter: String,
     /// Every socket the screen saw while it ran.
     seen: SeenSockets,
@@ -312,11 +394,12 @@ pub(crate) fn capture_key(state: &mut AppState) -> Vec<Effect> {
         interface: 0,
         duration: 0,
         headers_only: false,
-        tls_keys: false,
+        tls_keys: TlsKeys::Off,
         administrator: false,
         access: network.access,
         field: 0,
         folder,
+        authority: network.authority.clone(),
     }));
     Vec::new()
 }
@@ -440,6 +523,7 @@ fn record(state: &mut AppState, request: CaptureRequest, view_filter: String, no
         waiting: request.administrator,
         stopping: false,
         key_log: None,
+        proxy: None,
         view_filter,
         seen: SeenSockets::default(),
     };
@@ -469,22 +553,40 @@ pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize
     }
 }
 
-/// The capture keeps a TLS key log at `path`: Borg's shell points `SSLKEYLOGFILE` at it.
-pub(crate) fn keys_ready(state: &mut AppState, id: u64, path: PathBuf) -> Vec<Effect> {
+/// The capture keeps a TLS key log at `path`, and Borg's proxy listens as `proxy` says when the
+/// capture sends HTTPS through it: Borg's shell points `SSLKEYLOGFILE` at the key log, or its
+/// HTTPS at the proxy.
+pub(crate) fn keys_ready(state: &mut AppState, id: u64, path: PathBuf, proxy: Option<ProxyEndpoint>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.as_mut().filter(|recording| recording.id == id) else {
         return Vec::new();
     };
-    recording.key_log = Some(path.clone());
-    super::key_log::started(state, &path)
+    recording.key_log = Some(path);
+    recording.proxy = proxy;
+    let Some(assignments) = assignments(recording) else { return Vec::new() };
+    super::shell_variables::started(state, &assignments)
+}
+
+/// The variables a capture that keeps TLS keys sets in Borg's shell.
+fn assignments(recording: &Recording) -> Option<Assignments> {
+    match (&recording.proxy, &recording.key_log) {
+        (Some(proxy), _) => Some(proxy_assignments(proxy)),
+        (None, Some(key_log)) => Some(key_log_assignments(key_log)),
+        (None, None) => None,
+    }
+}
+
+/// Borg's proxy opened a connection for a program during the capture `id`.
+pub(crate) fn proxied(state: &mut AppState, id: u64, proxied: Proxied) {
+    if let Some(recording) = state.network.recording.as_mut().filter(|recording| recording.id == id) {
+        recording.seen.proxied(proxied);
+    }
 }
 
 /// L while a capture keeps TLS keys: copies what goes in front of a program started in another
-/// terminal for it to write its keys there.
+/// terminal for it to write its keys there, or to go through Borg's proxy.
 pub(crate) fn copy_key_log_prefix(state: &mut AppState) -> Vec<Effect> {
-    let Some(key_log) = state.network.recording.as_ref().and_then(|recording| recording.key_log.as_deref()) else {
-        return Vec::new();
-    };
-    let text = super::key_log::key_log_prefix(key_log);
+    let Some(assignments) = state.network.recording.as_ref().and_then(assignments) else { return Vec::new() };
+    let text = prefix(&assignments);
     state.notice = Some(tr!(network_copied, text = text.trim_end()));
     crate::clipboard::copy(state, text)
 }
@@ -493,7 +595,7 @@ pub(crate) fn copy_key_log_prefix(state: &mut AppState) -> Vec<Effect> {
 /// saved otherwise, and the panels showing its folder list the new file. Without tcpdump, Borg
 /// offers to install it, and a capture the system refused asks whether to run it as
 /// administrator, where Borg can ask for that. A shell that pointed `SSLKEYLOGFILE` at the
-/// capture's key log gets back what it had.
+/// capture's key log, or its HTTPS at Borg's proxy, gets back what it had.
 pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
@@ -529,7 +631,7 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
             state.network.details_focused = false;
         }
     }
-    let mut effects = super::key_log::ended(state);
+    let mut effects = super::shell_variables::ended(state);
     let Some(folder) = saved_in else { return effects };
     let showing: Vec<Side> = Side::ALL.into_iter().filter(|&side| state.panel(side).destination() == folder).collect();
     effects.extend(showing.into_iter().map(|side| state.reload(side)));

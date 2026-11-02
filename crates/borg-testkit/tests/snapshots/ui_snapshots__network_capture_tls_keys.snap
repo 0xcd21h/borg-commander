@@ -30,7 +30,7 @@ expression: describe(&buffer)
 │                                                                ││                                                                │
 │                                                                ││                                                                │
 │                                                                ││                                                                │
-│Capturing on en0 · 61 packets · 51K · TLS keys · 5 s left       ││                                                                │
+│Capturing on en0 · 61 packets · 51K · 5 s left · TLS keys       ││                                                                │
 ╰────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────────────────────────────╯
 browser · PID 8239
 $
