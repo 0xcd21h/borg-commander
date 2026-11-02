@@ -29,6 +29,11 @@ cargo test --workspace
 
 CI runs the same tests with [cargo-nextest](https://nexte.st), as [On CI](#on-ci) describes.
 
+Dev builds carry line tables only: panics and backtraces still name the file and line, and
+`target/` grows much more slowly. Build with `CARGO_PROFILE_DEV_DEBUG=full` when you need
+variables in lldb. Cargo keeps every old build in `target/`, so run `cargo clean` from time to
+time.
+
 ## How the code is organised
 
 ```
