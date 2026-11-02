@@ -42,6 +42,12 @@ pub enum Msg {
         id: u64,
         result: Result<crate::DockerData, String>,
     },
+    Network {
+        id: u64,
+        result: Result<crate::NetworkSample, String>,
+    },
+    /// Names for addresses the network screen asked about; `None` where there is none.
+    HostNames(Vec<(std::net::IpAddr, Option<String>)>),
     /// One `docker stats` sample: each running container's id and resource use.
     DockerStats(Vec<(String, borg_docker::Stats)>),
     /// A container shell printed something; `mode` is its terminal's input mode now.
@@ -201,6 +207,12 @@ pub enum Effect {
         id: u64,
         request: crate::DockerRequest,
     },
+    /// Samples the machine's sockets and interfaces for the network screen.
+    Network {
+        id: u64,
+    },
+    /// Looks up the names of addresses, in the background.
+    ResolveHosts(Vec<std::net::IpAddr>),
     /// Starts or stops streaming container stats.
     DockerWatch(bool),
     DockerShell(crate::ShellRequest),

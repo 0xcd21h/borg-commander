@@ -1,5 +1,6 @@
 mod fixture;
 pub mod keys;
+pub mod network;
 mod recorder;
 mod render;
 mod scene;

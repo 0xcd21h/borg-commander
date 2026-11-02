@@ -23,7 +23,7 @@ pub use strings::{
 mod request;
 pub use request::{ActivityData, ActivityRequest};
 mod keys;
-pub(crate) use keys::{on_key, paste, route_key};
+pub(crate) use keys::{on_key, panels_action, paste, route_key};
 mod refresh;
 pub(crate) use refresh::{open, receive, receive_file_preview, sync, sync_file_preview, wake_at};
 mod capture;
@@ -167,6 +167,8 @@ pub struct Activity {
     pub pending: Option<(u64, ActivityRequest)>,
     next_id: u64,
     next: Option<Instant>,
+    /// A process to select once a sample lists it, and whether to offer its signals then.
+    revealing: Option<(u32, bool)>,
 }
 impl Default for Activity {
     fn default() -> Self {
@@ -226,6 +228,7 @@ impl Default for Activity {
             pending: None,
             next_id: 0,
             next: None,
+            revealing: None,
         }
     }
 }
@@ -361,6 +364,21 @@ impl Activity {
         if self.list == ActivityPage::Processes || self.selected.is_none() {
             self.select();
         }
+    }
+    /// Selects the process with `pid` once the next sample lists it, clearing a filter that
+    /// would hide it, and with `control` offers its signals and priority then.
+    pub(crate) fn reveal(&mut self, pid: u32, control: bool) {
+        self.filter.clear();
+        self.filtering = false;
+        self.revealing = Some((pid, control));
+    }
+    fn select_pid(&mut self, pid: u32) -> bool {
+        let Some(cursor) = self.rows.iter().position(|&(i, _)| self.sample.processes[i].key.pid == pid) else {
+            return false;
+        };
+        self.cursor = cursor;
+        self.select();
+        true
     }
     fn select(&mut self) {
         let selected = self.rows.get(self.cursor).map(|&(i, _)| self.sample.processes[i].key);

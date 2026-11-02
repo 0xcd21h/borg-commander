@@ -2986,6 +2986,45 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     Ok(())
 }
 
+/// The network screen over a made-up machine after half a minute of samples: the ports and
+/// who can reach them, the processes, the connections with their host names and traffic, and
+/// the interfaces.
+#[test]
+fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "1 Ports")?;
+    ensure_text(&buffer, "sshd · PID 301")?;
+    check("network_ports", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('2')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "browser · PID 8239")?;
+    check("network_processes", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('3')));
+    assert_eq!(stage.state.network.connection().and_then(|(socket, _)| socket.pid), Some(8239), "the busiest leads");
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "cdn.example.net:443")?;
+    check("network_connections", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('4')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "192.0.2.20/24")?;
+    check("network_interfaces", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('1'))).send(key(KeyCode::Char('/'))).send(Msg::Paste("port:ssh".into()));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "port:ssh")?;
+    assert_eq!(stage.state.network.ports.len(), 1, "the filter keeps the SSH port");
+    check("network_filter", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    assert!(!stage.state.network.is_open(), "Esc clears the filter, then closes the screen");
+    Ok(())
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]

@@ -21,6 +21,7 @@ mod memory_search;
 mod memory_strings;
 mod mirror;
 mod native_mirror;
+mod network;
 mod peek;
 mod plugins;
 mod preview;

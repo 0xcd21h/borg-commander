@@ -115,10 +115,8 @@ fn docker_menu(state: &AppState) -> Menu {
 
 fn git_menu(state: &AppState) -> Menu {
     use borg_git::Tool;
-    let available = state.activity.side.is_none()
-        && !state.docker.is_open()
-        && state.active_panel().git_repository().is_some()
-        && state.plugins.git_task.is_none();
+    let available =
+        !state.monitor_open() && state.active_panel().git_repository().is_some() && state.plugins.git_task.is_none();
     let selected = available && !state.active_panel().selection().is_empty();
     Menu {
         title: tr!(git),
@@ -212,6 +210,7 @@ fn command_menu(state: &AppState) -> Menu {
         title: tr!(command),
         entries: [
             when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
+            when(item(tr!(network_title), "M-n", Action::Network), state.settings.preferences.system_plugin),
             when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
         ]
         .into_iter()
@@ -358,7 +357,7 @@ fn results_menu(state: &AppState) -> Menu {
                     "M-i",
                     Action::MeasureSizes,
                 ),
-                state.sizing.is_some() || !result && state.activity.side.is_none() && !state.docker.is_open(),
+                state.sizing.is_some() || !result && !state.monitor_open(),
             ),
             when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
             when(

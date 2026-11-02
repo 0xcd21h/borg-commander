@@ -96,6 +96,7 @@ pub struct App {
     monitor: crate::activity::Monitor,
     backup: crate::backup::Backup,
     docker: crate::docker::Docker,
+    network: crate::network::Network,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,
@@ -275,6 +276,9 @@ impl App {
         }
         if self.state.docker.pending.is_none() {
             self.docker.cancel();
+        }
+        if self.state.network.pending.is_none() {
+            self.network.cancel();
         }
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();

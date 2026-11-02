@@ -35,7 +35,7 @@ for (const path of htmlFiles) {
     }
   }
 }
-if (htmlFiles.length !== 12 * codes.length) failures.push(`Expected ${12 * codes.length} HTML pages including 404; found ${htmlFiles.length}`);
+if (htmlFiles.length !== 13 * codes.length) failures.push(`Expected ${13 * codes.length} HTML pages including 404; found ${htmlFiles.length}`);
 const englishKeys = Object.keys(dictionary('en')).sort();
 for (const code of codes) {
   const messages = dictionary(code);

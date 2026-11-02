@@ -296,6 +296,7 @@ instantes.
 | Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
+| Alt-N | Rede: portas, ligações e tráfego |
 | Alt-T | Time Machine: o que as cópias de segurança deixam de fora, no macOS |
 | Alt-E | Editar o ficheiro selecionado neste painel, em vez dos seus ficheiros, ou no outro painel ao lado dos resultados |
 | F1 | Sobre |
@@ -537,7 +538,9 @@ comando e o que está escrito nela. Refere-se a sítios como localizações: um 
 `~/…` na máquina onde o borg corre, `docker://web/etc/nginx` dentro de um contentor, ou um caminho
 relativo ao painel ativo. Sem pedir autorização, pode ler pastas e ficheiros (por intervalo de
 linhas, ou apenas as linhas que contêm determinado texto), ver os processos mais ativos e os
-contentores, e mostrar um ficheiro ou uma pasta no seu outro painel.
+contentores, e mostrar um ficheiro ou uma pasta no seu outro painel. Também pode listar as portas
+abertas, as ligações e as interfaces de rede com o respetivo tráfego, medido durante um segundo e
+filtrado com as mesmas palavras que o filtro do ecrã de rede (consulte [Filtrar](#filtering)).
 
 Tudo o que altera a máquina fica à sua espera numa caixa de diálogo que mostra a alteração
 completa: um comando e o sítio onde vai ser executado, um ficheiro novo ou uma edição sob a forma
@@ -1213,3 +1216,89 @@ reutilize um PID não herda o histórico de outro processo. Os mapas de memória
 inspeção, as capturas e o histórico têm todos limites de tamanho. O nome Borg Commander fica
 visível no canto inferior direito em todo o lado, incluindo a consola, o visualizador, o monitor,
 as caixas de diálogo e a proteção de ecrã.
+
+## Rede
+
+**Alt-N** ou **Comando → Rede** mostra o que esta máquina faz na rede: as portas abertas e quem lhes
+consegue chegar, os processos que comunicam e a que velocidade, cada ligação e as interfaces de
+rede. Faz parte do plugin Sistema incluído, tal como o monitor de atividade. A lista ocupa o painel
+ativo, e o outro painel mostra a linha selecionada em pormenor, com gráficos dos últimos 60
+segundos. O Borg recolhe uma amostra por segundo enquanto o ecrã está aberto e para quando o fecha.
+As velocidades aparecem a partir da segunda amostra, e cada uma é a média dos últimos 3 segundos,
+para que uma lista ordenada por tráfego fique parada o tempo suficiente para a ler.
+
+Prima de **1** a **4**, ou clique num separador, para mudar de página:
+
+- **1 Portas** lista cada porta em que um processo escuta, ordenadas por número. **Alcance** indica
+  quem se pode ligar: **Todas as redes** para uma porta aberta em todos os endereços, o endereço
+  para uma porta associada a endereços específicos, e **Esta máquina** para uma porta a que só os
+  programas desta máquina chegam. As portas abertas a todas as redes destacam-se, porque outras
+  máquinas as podem encontrar. **Lig.** conta as ligações que entraram pela porta, e os detalhes
+  listam-nas com o respetivo tráfego.
+- **2 Processos** lista os processos que usam a rede, os mais ativos primeiro, com as velocidades de
+  receção e envio e o número de ligações. Os detalhes acrescentam o que o processo transferiu desde
+  que o ecrã foi aberto e cada ligação que mantém.
+- **3 Ligações** lista cada ligação com o processo, a outra extremidade e as velocidades. Um painel
+  largo acrescenta o protocolo e o estado TCP. Os detalhes mostram as duas extremidades, o nome do
+  host, o serviço e os bytes recebidos e enviados.
+- **4 Interfaces** lista as interfaces de rede com o tipo (**Wi-Fi**, **Ethernet**, **Loopback**,
+  **Túnel**, **Ponte** ou **Virtual**), o primeiro endereço e as velocidades. ● marca uma interface
+  ativa. Os detalhes acrescentam todos os endereços, a MTU, os bytes e pacotes que a interface
+  recebeu e enviou até agora, e os erros.
+
+O rodapé mostra a velocidade total de receção e envio da máquina em todas as interfaces exceto a de
+loopback. O Borg procura em segundo plano os nomes dos endereços remotos e mostra o nome em vez do
+endereço assim que o conhece.
+
+| Tecla | Ação |
+| --- | --- |
+| 1 / 2 / 3 / 4 | Mostrar Portas / Processos / Ligações / Interfaces |
+| `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
+| T / N / P / C | Ordenar por tráfego / nome / porta / ligações; prima de novo para inverter |
+| Enter | Mostrar o processo da linha selecionada no monitor de atividade |
+| K | Mostrar o processo com **Sinal ou prioridade** aberto |
+| Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade ou o endereço da interface |
+| Tab | Alternar entre a lista e os detalhes |
+| Space | Pausar ou retomar a amostragem |
+| Alt-W | Maximizar o painel com o foco |
+| Esc | Voltar à lista, depois limpar o filtro e depois fechar o ecrã |
+
+P ordena as páginas que têm porta, e C as que contam ligações. Clique no cabeçalho de uma coluna
+para ordenar por ela, e faça duplo clique numa linha para mostrar o processo. Enter numa linha sem
+processo passa para os detalhes. O monitor de atividade que Enter e K abrem tem o processo
+selecionado, por isso a memória, os sinais e a prioridade ficam à distância de uma tecla (consulte
+[Sinais e prioridade](#signals-and-priority)).
+
+### Filtrar
+
+O filtro mantém as linhas que correspondem a todas as palavras que escreve. Uma palavra simples
+corresponde ao processo, ao PID, à porta, ao serviço, ao endereço, ao nome do host, ao estado, ao
+protocolo ou a uma etiqueta que a linha mostra, por isso `postgres`, `5432`, `https` e `example.com`
+funcionam. Uma palavra com nome de campo procura apenas nesse campo:
+
+| Palavra | Mantém |
+| --- | --- |
+| `port:443`, `port:ssh` | Linhas com esse número de porta ou serviço |
+| `proc:node`, `process:node` | Linhas cujo nome de processo contém o texto |
+| `pid:4100` | Linhas desse PID |
+| `host:example` | Linhas cujo endereço ou nome do host contém o texto |
+| `state:listen`, `state:time` | Linhas TCP num estado que contém o texto |
+| `proto:udp`, `proto:tcp` | Linhas desse protocolo |
+| `if:en0`, `interface:en0` | Interfaces cujo nome contém o texto |
+
+Coloque `!` antes de uma palavra para excluir as linhas que lhe correspondem: `!state:time_wait`
+oculta as ligações a fechar, e `!proc:browser` oculta um programa. O filtro aplica-se a todas as
+páginas e, enquanto escreve, indica quantas linhas da página mantém.
+
+### O que o sistema indica
+
+No macOS, o Borg lê cada socket com as contagens de bytes e o processo a partir do `netstat`, por
+isso o tráfego aparece tanto para TCP como para UDP. Os sockets dos processos de outros utilizadores
+também são listados.
+
+No Linux, o Borg lê os sockets de `/proc/net` e encontra o processo de cada socket através dos
+ficheiros abertos dos processos. Sem direitos de administrador só consegue ver os seus próprios
+processos, por isso os sockets de outros utilizadores mostram **Processo desconhecido**. As
+contagens de bytes de TCP vêm do `ss` quando está instalado; os sockets UDP e as máquinas sem `ss`
+mostram **—** nas velocidades, e os detalhes indicam **O sistema não indica contagens de bytes
+aqui**. Os totais e as velocidades das interfaces funcionam sempre.

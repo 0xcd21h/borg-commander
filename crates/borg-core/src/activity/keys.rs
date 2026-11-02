@@ -52,6 +52,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         state.activity.side = None;
         return Vec::new();
     }
+    if code == KeyCode::Char('n') && modifiers == KeyModifiers::ALT {
+        return crate::actions::perform(state, Action::Network, now);
+    }
     if code == KeyCode::Tab {
         state.activity.filtering = false;
         state.activity.preview_focused = !state.activity.preview_focused;
@@ -88,7 +91,7 @@ pub(crate) fn paste(activity: &mut Activity, text: &str) {
 }
 
 /// The panels' keys that work in the monitor too: the shell, the menu bar, About and quitting.
-fn panels_action(key: &KeyEvent) -> Option<Action> {
+pub(crate) fn panels_action(key: &KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('o') if key.modifiers == KeyModifiers::CONTROL => Some(Action::ToggleShell),
         KeyCode::F(9) => Some(Action::OpenMenuBar),

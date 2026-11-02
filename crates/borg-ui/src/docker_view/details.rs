@@ -23,30 +23,32 @@ use ratatui::{
     widgets::Widget,
 };
 
-/// Labelled values, one per row: the label dimmed in a fixed column, the value after it.
-pub(super) struct Facts<'a> {
-    pub(super) area: Rect,
-    pub(super) y: u16,
-    pub(super) theme: &'a Theme,
+/// Labelled values, one per row: the label dimmed in a column `label` cells wide, the value
+/// after it.
+pub(crate) struct Facts<'a> {
+    pub(crate) area: Rect,
+    pub(crate) y: u16,
+    pub(crate) label: u16,
+    pub(crate) theme: &'a Theme,
 }
 
 impl Facts<'_> {
-    pub(super) fn add(&mut self, buf: &mut Buffer, label: &str, value: impl Into<String>) {
+    pub(crate) fn add(&mut self, buf: &mut Buffer, label: &str, value: impl Into<String>) {
         let value = value.into();
         if value.is_empty() || self.y >= self.area.height {
             return;
         }
         let line = row(self.area, self.y);
-        text(buf, Rect { width: LABEL_WIDTH.min(line.width), ..line }, label, dim(self.theme));
+        text(buf, Rect { width: self.label.min(line.width), ..line }, label, dim(self.theme));
         let rest =
-            Rect { x: line.x + LABEL_WIDTH.min(line.width), width: line.width.saturating_sub(LABEL_WIDTH), ..line };
+            Rect { x: line.x + self.label.min(line.width), width: line.width.saturating_sub(self.label), ..line };
         text(buf, rest, format::truncate_end(&value, usize::from(rest.width)), self.theme.styles.overlay);
         self.y += 1;
     }
 }
 
 /// Labelled values in a row of tiles, as in the activity monitor. Returns the rows used.
-pub(super) fn tiles(buf: &mut Buffer, area: Rect, tiles: &[(&str, String)], theme: &Theme) -> u16 {
+pub(crate) fn tiles(buf: &mut Buffer, area: Rect, tiles: &[(&str, String)], theme: &Theme) -> u16 {
     if tiles.is_empty() || area.width < DOCKER_TILE_WIDTH {
         return 0;
     }
@@ -67,39 +69,44 @@ pub(super) fn tiles(buf: &mut Buffer, area: Rect, tiles: &[(&str, String)], them
     y
 }
 
-/// CPU and memory charts in what is left of the pane: side by side when wide, stacked when
-/// tall, otherwise CPU alone.
-pub(super) fn charts(buf: &mut Buffer, area: Rect, cpu: &[u64], memory: &[u64], look: &Look<'_>) {
+/// One chart's values, a second apart, with its title and what they measure.
+pub(crate) struct Series<'a> {
+    pub(crate) title: &'a str,
+    pub(crate) values: &'a [u64],
+    pub(crate) unit: Unit,
+}
+
+impl Series<'_> {
+    fn draw(&self, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+        chart(self.title, self.values, self.unit, look, area, buf);
+    }
+}
+
+/// Two charts in what is left of the pane: side by side when wide, stacked when tall,
+/// otherwise the first alone.
+pub(crate) fn charts(buf: &mut Buffer, area: Rect, [first, second]: [Series<'_>; 2], look: &Look<'_>) {
     if area.height < CHART_MIN_ROWS {
         return;
     }
-    let cpu_title = tr!(docker_cpu_chart);
-    let memory_title = tr!(docker_memory_chart);
     if area.width >= SIDE_BY_SIDE_FROM {
         let half = area.width / 2;
-        chart(cpu_title, cpu, Unit::Percent, look, Rect { width: half - 1, ..area }, buf);
-        chart(
-            memory_title,
-            memory,
-            Unit::Bytes,
-            look,
-            Rect { x: area.x + half + 1, width: area.width - half - 1, ..area },
-            buf,
-        );
+        first.draw(look, Rect { width: half - 1, ..area }, buf);
+        second.draw(look, Rect { x: area.x + half + 1, width: area.width - half - 1, ..area }, buf);
     } else if area.height > CHART_MIN_ROWS * 2 {
         let half = area.height / 2;
-        chart(cpu_title, cpu, Unit::Percent, look, Rect { height: half - 1, ..area }, buf);
-        chart(
-            memory_title,
-            memory,
-            Unit::Bytes,
-            look,
-            Rect { y: area.y + half, height: area.height - half, ..area },
-            buf,
-        );
+        first.draw(look, Rect { height: half - 1, ..area }, buf);
+        second.draw(look, Rect { y: area.y + half, height: area.height - half, ..area }, buf);
     } else {
-        chart(cpu_title, cpu, Unit::Percent, look, area, buf);
+        first.draw(look, area, buf);
     }
+}
+
+/// A container's or project's CPU and memory charts.
+fn usage<'a>(cpu: &'a [u64], memory: &'a [u64]) -> [Series<'a>; 2] {
+    [
+        Series { title: tr!(docker_cpu_chart), values: cpu, unit: Unit::Percent },
+        Series { title: tr!(docker_memory_chart), values: memory, unit: Unit::Bytes },
+    ]
 }
 
 /// The sum of several histories, aligned so that their latest samples line up.
@@ -175,7 +182,7 @@ pub(super) fn container_details(
         )
     });
     let rest = Rect { y: body.y + used.min(body.height), height: body.height.saturating_sub(used), ..body };
-    let mut facts = Facts { area: rest, y: 0, theme };
+    let mut facts = Facts { area: rest, y: 0, label: LABEL_WIDTH, theme };
     let details = docker.selected_details();
     facts.add(buf, tr!(docker_image), container.image.clone());
     if let (Some(project), Some(service)) = (&container.project, &container.service) {
@@ -231,7 +238,7 @@ pub(super) fn container_details(
     facts.add(buf, tr!(docker_created), container.created.get(..16).unwrap_or(&container.created).to_owned());
     let left = Rect { y: rest.y + facts.y + 1, height: rest.height.saturating_sub(facts.y + 1), ..rest };
     match usage {
-        Some(usage) => charts(buf, left, &usage.cpu, &usage.memory, look),
+        Some(usage) => charts(buf, left, self::usage(&usage.cpu, &usage.memory), look),
         None if !container.state.is_up() => text(buf, row(left, 0), tr!(docker_not_running), dim(theme)),
         None => {}
     }
@@ -287,7 +294,7 @@ pub(super) fn group_details(
         text(buf, status, format::truncate_end(&note, usize::from(status.width)), dim(theme));
         y += 1;
     }
-    let mut facts = Facts { area: rest, y: y + u16::from(y > 0), theme };
+    let mut facts = Facts { area: rest, y: y + u16::from(y > 0), label: LABEL_WIDTH, theme };
     let files = containers.iter().find(|c| !c.config_files.is_empty()).map(|c| c.config_files.join(", "));
     facts.add(buf, tr!(docker_files), files.unwrap_or_default());
     let usages: Vec<_> = containers.iter().filter_map(|c| docker.usage.get(&c.id)).collect();
@@ -295,6 +302,6 @@ pub(super) fn group_details(
     let memory_history = summed(&usages.iter().map(|u| &u.memory[..]).collect::<Vec<_>>());
     let left = Rect { y: rest.y + facts.y + 1, height: rest.height.saturating_sub(facts.y + 1), ..rest };
     if group.running > 0 {
-        charts(buf, left, &cpu_history, &memory_history, look);
+        charts(buf, left, usage(&cpu_history, &memory_history), look);
     }
 }

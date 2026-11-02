@@ -1,5 +1,5 @@
-//! Clicks in the monitors that show beside the panels: the activity monitor and the container
-//! view.
+//! Clicks in the monitors that show beside the panels: the activity monitor, the container
+//! view and the network screen.
 
 use std::time::Instant;
 
@@ -100,6 +100,36 @@ pub(super) fn containers(state: &mut AppState, pointer: Pointer, now: Instant) -
         Pointer::DockerControl { details, code } => {
             state.docker.details_focused = details;
             crate::docker::route_key(state, &code.into(), now)
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A click in the network screen: on its frame, a row, a column's title or a control.
+pub(super) fn network(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
+    match pointer {
+        Pointer::NetworkExpand { details, expand } => {
+            state.network.details_focused = details;
+            state.network.expanded = expand;
+            Vec::new()
+        }
+        Pointer::NetworkHide => {
+            crate::network::close(state);
+            Vec::new()
+        }
+        Pointer::NetworkRow { index, open } => crate::network::click(state, index, open),
+        Pointer::NetworkSort(sort) => {
+            state.network.details_focused = false;
+            crate::network::sort_by(state, sort);
+            Vec::new()
+        }
+        Pointer::NetworkPage(page) => {
+            crate::network::show_page(&mut state.network, page);
+            Vec::new()
+        }
+        Pointer::NetworkControl { details, code } => {
+            state.network.details_focused = details;
+            crate::network::route_key(state, &code.into(), now)
         }
         _ => Vec::new(),
     }

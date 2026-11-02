@@ -40,6 +40,21 @@ pub enum Pointer {
         code: crossterm::event::KeyCode,
     },
     DockerShellScroll(isize),
+    NetworkExpand {
+        details: bool,
+        expand: bool,
+    },
+    NetworkHide,
+    NetworkRow {
+        index: usize,
+        open: bool,
+    },
+    NetworkSort(crate::NetworkSort),
+    NetworkPage(crate::NetworkPage),
+    NetworkControl {
+        details: bool,
+        code: crossterm::event::KeyCode,
+    },
     TreeNode {
         side: Side,
         index: usize,
@@ -211,6 +226,16 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
             if state.docker.is_open() =>
         {
             monitors::containers(state, pointer, now)
+        }
+        Pointer::NetworkExpand { .. }
+        | Pointer::NetworkHide
+        | Pointer::NetworkRow { .. }
+        | Pointer::NetworkSort(_)
+        | Pointer::NetworkPage(_)
+        | Pointer::NetworkControl { .. }
+            if state.network.is_open() =>
+        {
+            monitors::network(state, pointer, now)
         }
         Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),
         Pointer::ResultControl { side, action }
