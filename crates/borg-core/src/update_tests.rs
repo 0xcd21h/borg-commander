@@ -1278,6 +1278,68 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
     assert!(state.viewer.is_none());
 }
 
+#[test]
+fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_gets_text_back() {
+    use borg_view::Mark;
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("log")]);
+    let content: Vec<u8> = (1..=200).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap();
+    let peeked = crate::Peeked { aside: crate::Aside::QuickView, path, at, peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    press(&mut state, now, key(KeyCode::F(3)));
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(shown(&state).hex());
+    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f 77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(shown(&state).offset(), 16, "a row is 16 bytes in 80 columns");
+    press(&mut state, now, key(KeyCode::PageDown));
+    assert_eq!(shown(&state).offset(), 16 * height as u64);
+    press(&mut state, now, key(KeyCode::End));
+    assert_eq!(shown(&state).percent(), 100);
+    press(&mut state, now, key(KeyCode::Home));
+    press(&mut state, now, key(KeyCode::Char('w')));
+    assert!(shown(&state).hex() && shown(&state).offset() == 0, "w leaves the hex rows");
+
+    press(&mut state, now, key(KeyCode::Char('/')));
+    let mut effects = Vec::new();
+    for c in "row 150".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    run_viewer_search(&mut state, now, &effects);
+    let found = shown(&state);
+    assert_eq!(found.current_match(), Some(1084..1091));
+    assert_eq!(found.offset(), 1072 - 16 * (height as u64 / 3), "a third of the page shows above the match's row");
+    let current: String = found
+        .rich_rows()
+        .iter()
+        .flatten()
+        .filter(|run| run.mark == Mark::Current)
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(current, "72 6f 77 20row 31 35 30150", "the match is marked in hex and in text, over two rows");
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find).as_deref(), Some("1 of 1"));
+    press(&mut state, now, key(KeyCode::Esc));
+
+    press(&mut state, now, shift(KeyCode::Char('H')));
+    assert!(!shown(&state).hex());
+    assert_eq!(shown(&state).rows()[0], "row 134", "the line the top row starts in, at byte 960");
+    press(&mut state, now, key(KeyCode::Char('р')));
+    assert!(shown(&state).hex(), "the key in the same place on a Russian keyboard");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    let Some(crate::Peeked { peek: crate::Peek::Text(preview), .. }) = &state.peeked else { panic!("preview") };
+    assert!(!preview.hex(), "the quick view gets its text back");
+    assert_eq!(preview.rows()[0], "row 132", "the line the hex row from byte 944 starts in");
+}
+
 /// A contents search for `query` that found its first match in `/home/log` at `line`.
 fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, line: crate::LineMatch) {
     found_in(state, now, query, vec![("log", line)]);

@@ -900,6 +900,16 @@ exatamente como estão escritos, o que ajuda sobretudo com ficheiros escritos nu
 são organizados um registo de cada vez. O JSON com mais de 16 MiB, ou que não pode ser analisado,
 abre tal como está escrito.
 
+Prima `h` no visualizador de texto para ver os bytes do ficheiro em linhas hexadecimais e prima-o
+de novo para voltar ao texto. Cada linha começa com a sua posição no ficheiro e mostra depois os
+seus bytes em hexadecimal e os mesmos bytes como texto, com um ponto em cada byte que não é
+imprimível. As posições e os bytes a zero aparecem esbatidos. Uma linha tem 16 bytes, ou 8, 4, 2 ou
+1 quando o terminal é demasiado estreito para 16. O Borg lê apenas as linhas que estão no ecrã, pelo
+que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato um ficheiro de vários gigabytes. A
+barra de pesquisa também funciona nas linhas hexadecimais e marca cada correspondência nas duas
+colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes tal como estão escritos.
+Fechar o visualizador devolve o texto à pré-visualização.
+
 ### Editor
 
 F4 abre o ficheiro selecionado no editor do Borg, e Shift-F4 abre-o em `$VISUAL` ou `$EDITOR`. O

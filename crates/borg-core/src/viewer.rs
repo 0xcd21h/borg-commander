@@ -12,6 +12,8 @@ use crate::{
 
 pub const STATUS_ROWS: u16 = 1;
 const WRAP_KEY: char = 'w';
+/// Switches between the text and the hex rows of a file, as in the memory monitor's preview.
+const HEX_KEY: char = 'h';
 const QUIT_KEY: char = 'q';
 const PAGE_KEY: char = ' ';
 const LINE: usize = 1;
@@ -112,6 +114,17 @@ fn is_close(code: KeyCode) -> bool {
     matches!(code, KeyCode::Esc | KeyCode::F(3 | 10) | KeyCode::Char(QUIT_KEY))
 }
 
+fn is_hex_key(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Char(c) if c.eq_ignore_ascii_case(&HEX_KEY))
+}
+
+/// Whether `code` shows the pager another source, which a search running through the one shown
+/// would find nothing on: a formatted document's source, or its file's bytes in hex.
+fn switches_source(content: &Content, code: KeyCode) -> bool {
+    matches!(code, KeyCode::Char('s') | KeyCode::F(4))
+        || is_hex_key(code) && matches!(content, Content::Text(pager) if pager.formatted())
+}
+
 pub(crate) fn open(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
     state.landing = None;
     show(state, path)
@@ -188,10 +201,11 @@ fn close(state: &mut AppState) {
         && state.aside == Some(Aside::QuickView)
         && crate::aside::hovered_path(state).as_ref() == Some(&path)
     {
-        // The quick view marks a contents search's matches, and not the viewer's.
+        // The quick view shows text, and marks a contents search's matches, not the viewer's.
         let at = crate::aside::opens_on(state, Aside::QuickView, &path);
         let marks = at.as_ref().and_then(|at| at.query.compile().ok().flatten());
-        let _ = pager.show_matches(marks).and_then(|()| pager.forget_match());
+        let text = if pager.hex() { pager.toggle_hex() } else { Ok(()) };
+        let _ = text.and_then(|()| pager.show_matches(marks)).and_then(|()| pager.forget_match());
         state.peeked = Some(Peeked { aside: Aside::QuickView, path, at, peek: Peek::Text(pager) });
         state.peeking = None;
     }
@@ -217,14 +231,18 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     viewer.find.note = None;
     viewer.find.count = None;
     let mut effects = Vec::new();
-    if matches!(key.code, KeyCode::Char('s') | KeyCode::F(4)) && viewer.searching.is_some() {
+    if switches_source(&viewer.content, key.code) && viewer.searching.is_some() {
         effects = stop(viewer);
     }
     if is_close(key.code) {
         effects.extend(stop(viewer));
     }
     let Content::Text(pager) = &mut viewer.content else { return effects };
-    let result = if is_close(key.code) { Ok(false) } else { scroll(pager, key.code).map(|()| true) };
+    let result = match key.code {
+        code if is_close(code) => Ok(false),
+        code if is_hex_key(code) => pager.toggle_hex().map(|()| true),
+        code => scroll(pager, code).map(|()| true),
+    };
     finish(state, result);
     effects
 }

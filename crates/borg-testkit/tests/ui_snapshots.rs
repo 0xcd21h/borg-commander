@@ -289,6 +289,48 @@ fn viewer_marks_matches_and_steps_through_them() -> Result<()> {
     check("viewer_find_closed", &stage, buffer)
 }
 
+/// A small made-up binary: a header, zeros, a table of offsets and the text of its help.
+fn binary_sample() -> Vec<u8> {
+    let mut bytes = b"BORGIMG\0\x01\x02\x00\x00\x10\x00\x00\x00".to_vec();
+    bytes.extend([0; 40]);
+    bytes.extend((0..24u8).flat_map(|i| [i.wrapping_mul(37), 0x80 | i, 0, 0]));
+    bytes.extend(b"usage: tool [--verbose] <file>\n\tprints the image's header\n");
+    bytes.extend((0..=255u8).rev());
+    bytes
+}
+
+#[test]
+fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
+    use std::sync::Arc;
+
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow")] {
+        let mut stage = stage(size, Motion::STILL)?;
+        let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+        let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+        opened(
+            &mut stage,
+            borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)),
+        );
+        stage.send(key(KeyCode::Char('h')));
+        let buffer = stage.render(stage.started)?;
+        ensure_text(&buffer, "0000  42 4f 52 47")?;
+        check(name, &stage, buffer)?;
+    }
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+    opened(&mut stage, borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)));
+    stage.send(key(KeyCode::Char('h'))).send(key(KeyCode::F(7)));
+    for msg in chars("verbose") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 1 · n next · N previous")?;
+    check("viewer_hex_find", &stage, buffer)
+}
+
 #[test]
 fn viewer_lays_out_json_written_on_one_line() -> Result<()> {
     use std::sync::Arc;

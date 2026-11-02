@@ -904,6 +904,16 @@ Pulsa `s` o F4 para ver el archivo tal como está escrito. Los archivos JSON Lin
 `.ndjson`) se organizan registro a registro. El JSON de más de 16 MiB, o que no se puede analizar,
 se abre tal como está escrito.
 
+Pulsa `h` en el visor de texto para ver los bytes del archivo en filas hexadecimales y vuelve a
+pulsarla para volver al texto. Cada fila empieza con su posición en el archivo y luego muestra sus
+bytes en hexadecimal y los mismos bytes como texto, con un punto en cada byte que no se puede
+imprimir. Las posiciones y los bytes a cero se ven atenuados. Una fila tiene 16 bytes, o 8, 4, 2 o 1
+cuando el terminal es demasiado estrecho para 16. Borg lee solo las filas que hay en pantalla, así
+que las flechas, PgUp/PgDn, Space, Home y End recorren al instante un archivo de varios gigabytes.
+La barra de búsqueda también funciona en las filas hexadecimales y marca cada coincidencia en las
+dos columnas. En hexadecimal, los archivos Markdown y JSON muestran los bytes tal como están
+escritos. Al cerrar el visor, la vista previa vuelve a mostrar el texto.
+
 ### Editor
 
 F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 lo abre en `$VISUAL` o `$EDITOR`.

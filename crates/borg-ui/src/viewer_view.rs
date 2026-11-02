@@ -93,6 +93,7 @@ fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &
     let found = borg_core::find_bar_summary(&viewer.find);
     let hints = match &found {
         Some(found) => format!("{found} · {} ", tr!(viewer_find_keys)),
+        None if pager.hex() => tr!(viewer_hex_keys).to_owned(),
         None => match pager.format() {
             Some(Format::Markdown) => tr!(viewer_markdown_keys).to_owned(),
             Some(Format::Json) => tr!(viewer_json_keys).to_owned(),
@@ -100,25 +101,35 @@ fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &
         },
     };
 
-    let mode = if pager.wrapped() { tr!(wrap) } else { tr!(nowrap) };
-    let presentation = match pager.format() {
-        Some(_) if !pager.formatted() => tr!(source),
-        Some(Format::Markdown) => tr!(rendered),
-        Some(Format::Json) => tr!(pretty),
-        None => "",
-    };
     let position = format!(
-        " {}/{} · {}% · {mode}{presentation}{}",
+        " {}/{} · {}% · {}",
         format::size(pager.offset()),
         format::size(pager.len()),
         pager.percent(),
-        if pager.wrapped() { String::new() } else { tr!(col, pager.column()) },
+        mode(pager),
     );
     let width = usize::from(status.width);
     let hints = fit(&hints, width.saturating_sub(position.width() + TITLE_MIN + GAP));
     let room = width.saturating_sub(position.width() + hints.width() + GAP);
     Line::styled(format!(" {}{position}", title(path, room)), styles.viewer_status).render(status, buf);
     Line::styled(hints, styles.viewer_status).right_aligned().render(status, buf);
+}
+
+/// How the page shows the file: as hex rows, or as text wrapped or not, with how a formatted
+/// document shows and the column an unwrapped page starts at.
+fn mode(pager: &Pager) -> String {
+    if pager.hex() {
+        return tr!(hex_rows).to_owned();
+    }
+    let wrap = if pager.wrapped() { tr!(wrap) } else { tr!(nowrap) };
+    let presentation = match pager.format() {
+        Some(_) if !pager.formatted() => tr!(source),
+        Some(Format::Markdown) => tr!(rendered),
+        Some(Format::Json) => tr!(pretty),
+        None => "",
+    };
+    let column = if pager.wrapped() { String::new() } else { tr!(col, pager.column()) };
+    format!("{wrap}{presentation}{column}")
 }
 
 /// The parts of `hints` that fit in `room` columns: those between the first and the last go

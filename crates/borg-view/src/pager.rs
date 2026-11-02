@@ -5,6 +5,7 @@ use crate::{
     paint::{self, RichText},
 };
 
+mod hex;
 mod layout;
 mod scroll;
 
@@ -110,6 +111,8 @@ pub struct Pager {
     /// The search whose matches the page marks, and the match stepped to, marked on its own.
     matches: Option<Search>,
     current: Option<Range<u64>>,
+    /// Whether the page shows the source as hex rows.
+    hex: bool,
 }
 
 impl fmt::Debug for Pager {
@@ -119,6 +122,7 @@ impl fmt::Debug for Pager {
             .field("top", &self.top)
             .field("wrap", &self.wrap)
             .field("column", &self.column)
+            .field("hex", &self.hex)
             .finish_non_exhaustive()
     }
 }
@@ -159,6 +163,7 @@ impl Pager {
             after_page: None,
             matches: None,
             current: None,
+            hex: false,
         }
     }
 
@@ -242,7 +247,7 @@ impl Pager {
     }
 
     pub fn toggle_source(&mut self) -> io::Result<()> {
-        let Some(document) = self.document.as_mut() else { return Ok(()) };
+        let Some(document) = self.document.as_mut().filter(|_| !self.hex) else { return Ok(()) };
         if self.formatted {
             document.formatted_top = self.top;
             self.top = document.raw_top;
@@ -318,6 +323,9 @@ impl Pager {
         if self.width == width && self.height == height {
             return Ok(());
         }
+        if self.hex {
+            return self.resize_hex(width, height);
+        }
         let bottom = self.at_end() && self.top != (Position { line: 0, row: 0 });
         let anchor = if self.wrap && self.top.row > 0 && self.width != width {
             Some(
@@ -348,6 +356,9 @@ impl Pager {
     }
 
     pub fn toggle_wrap(&mut self) -> io::Result<()> {
+        if self.hex {
+            return Ok(());
+        }
         self.wrap = !self.wrap;
         self.column = 0;
         self.top.row = 0;
@@ -355,6 +366,9 @@ impl Pager {
     }
 
     fn refresh(&mut self) -> io::Result<()> {
+        if let Some(layout) = self.hex_layout() {
+            return self.refresh_hex(layout);
+        }
         self.decorate()?;
         let mut rows = Vec::with_capacity(self.height);
         let mut rich_rows = Vec::with_capacity(self.height);

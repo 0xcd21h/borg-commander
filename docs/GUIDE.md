@@ -828,6 +828,15 @@ exactly as written, which helps most with files written on a single line. Press 
 the file as written. JSON Lines files (`.jsonl`, `.ndjson`) are laid out one record at a time.
 JSON larger than 16 MiB, or JSON that does not parse, opens as written.
 
+Press `h` in the text viewer to see the file's bytes as hex rows, and press it again to go back to
+the text. Each row starts with its offset in the file, then shows its bytes in hex and the same
+bytes as text, with a dot for each byte that does not print. Offsets and zero bytes are dimmed. A
+row holds 16 bytes, or 8, 4, 2 or 1 when the terminal is too narrow for 16. Borg reads only the rows
+on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a file of several
+gigabytes at once. The find bar works in hex rows too and marks each match in both columns. In hex,
+Markdown and JSON files show their bytes as written. Closing the viewer gives the quick view the
+text again.
+
 ### Editor
 
 F4 opens the selected file in Borg's editor, and Shift-F4 opens it in `$VISUAL` or `$EDITOR`. The
