@@ -120,7 +120,7 @@ pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Bu
 
 /// Wraps a message between words; only a word wider than the dialog, such as a long
 /// path, is broken inside.
-fn message_lines(message: &str, width: u16) -> Vec<Line<'static>> {
+pub(crate) fn message_lines(message: &str, width: u16) -> Vec<Line<'static>> {
     use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     let width = usize::from(width.max(1));
     let mut lines = Vec::new();

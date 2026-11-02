@@ -70,7 +70,7 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if let Some(handled) = menu_mouse(state, &mouse, &layout) {
         return handled;
     }
-    if state.activity.side.is_some() || state.docker.is_open() {
+    if state.monitor_open() {
         return monitor_mouse(state, &mouse, &layout);
     }
     if let Some(handled) = cd_picker_mouse(state, &mouse, &layout) {
@@ -238,11 +238,17 @@ fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Op
     Some(dropdown().map(Msg::Pointer))
 }
 
-/// The activity monitor and the container view take the mouse in the panels; a click on the
-/// top row opens the menus, unless it is on a pane's controls.
+/// The activity monitor, the container view and the network screen take the mouse in the
+/// panels; a click on the top row opens the menus, unless it is on a pane's controls.
 fn monitor_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Option<Msg> {
     let activity = state.activity.side.is_some();
-    let expanded = if activity { state.activity.expanded } else { state.docker.expanded };
+    let expanded = if activity {
+        state.activity.expanded
+    } else if state.network.is_open() {
+        state.network.expanded
+    } else {
+        state.docker.expanded
+    };
     let control = layout
         .panels
         .iter()
@@ -252,6 +258,8 @@ fn monitor_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) ->
     }
     if activity {
         crate::activity_view::panel_mouse(state, mouse.event, mouse.double, layout)
+    } else if state.network.is_open() {
+        crate::network_view::panel_mouse(state, mouse.event, mouse.double, layout)
     } else {
         crate::docker_view::panel_mouse(state, mouse.event, mouse.double, layout)
     }

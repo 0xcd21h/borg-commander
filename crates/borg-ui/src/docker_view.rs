@@ -28,6 +28,7 @@ mod list;
 
 pub(crate) use controls::{file_work_label, keybar, panel_mouse, status};
 use details::draw_details;
+pub(crate) use details::{Facts, Series, charts, tiles};
 use list::{columns, cpu, dot, draw_list, project_name, running_of, tone, working_label};
 
 const CPU_WIDTH: u16 = 7;

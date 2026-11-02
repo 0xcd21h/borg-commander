@@ -213,8 +213,7 @@ fn at_host_command_line(state: &AppState) -> bool {
     let panel = state.active_panel();
     state.view == View::Panels
         && state.overlay.is_none()
-        && state.activity.side.is_none()
-        && !state.docker.is_open()
+        && !state.monitor_open()
         && state.viewer.is_none()
         && state.editor.is_none()
         && !state.preview_focused

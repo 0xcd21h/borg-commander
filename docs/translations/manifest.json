@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "918d7da0179e0ff420b62b333730862ddc24434410b2e6c2d339a0b9d9e9dc9f",
+      "source": "cfe4a34a8cc0caa75f4f4c6b4f21ff2562003d148d41c301dd2896cb07783d80",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "09fa9ca895b644845b1989451bb80649d0ba69ffbbb04227b54ceea5cceabd23",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
       },
       "headings": [
         {
@@ -176,16 +176,32 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     },
     "pt": {
-      "source": "918d7da0179e0ff420b62b333730862ddc24434410b2e6c2d339a0b9d9e9dc9f",
+      "source": "cfe4a34a8cc0caa75f4f4c6b4f21ff2562003d148d41c301dd2896cb07783d80",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "09fa9ca895b644845b1989451bb80649d0ba69ffbbb04227b54ceea5cceabd23",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
       },
       "headings": [
         {
@@ -355,16 +371,32 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     },
     "es": {
-      "source": "918d7da0179e0ff420b62b333730862ddc24434410b2e6c2d339a0b9d9e9dc9f",
+      "source": "cfe4a34a8cc0caa75f4f4c6b4f21ff2562003d148d41c301dd2896cb07783d80",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "09fa9ca895b644845b1989451bb80649d0ba69ffbbb04227b54ceea5cceabd23",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
       },
       "headings": [
         {
@@ -534,16 +566,32 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     },
     "ru": {
-      "source": "918d7da0179e0ff420b62b333730862ddc24434410b2e6c2d339a0b9d9e9dc9f",
+      "source": "cfe4a34a8cc0caa75f4f4c6b4f21ff2562003d148d41c301dd2896cb07783d80",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "09fa9ca895b644845b1989451bb80649d0ba69ffbbb04227b54ceea5cceabd23",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
       },
       "headings": [
         {
@@ -713,6 +761,22 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "Capturing traffic"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     }

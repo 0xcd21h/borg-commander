@@ -29,7 +29,10 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 (tr!(activity_filter_button), KeyCode::Char('/')),
                 (tr!(activity_signal_button), KeyCode::Char('k')),
                 (tr!(activity_pause_button), KeyCode::Char(' ')),
-                (tr!(activity_close_button), KeyCode::Esc),
+                (
+                    if activity.from_network { tr!(activity_back_button) } else { tr!(activity_close_button) },
+                    KeyCode::Esc,
+                ),
             ],
             ActivityPage::Memory => {
                 vec![

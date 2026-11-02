@@ -2986,6 +2986,164 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     Ok(())
 }
 
+/// The network screen over a made-up machine after half a minute of samples: the ports and
+/// who can reach them, the processes, the connections with their host names and traffic, and
+/// the interfaces.
+#[test]
+fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "1 Ports")?;
+    ensure_text(&buffer, "sshd · PID 301")?;
+    check("network_ports", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('2')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "browser · PID 8239")?;
+    check("network_processes", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('3')));
+    assert_eq!(stage.state.network.connection().and_then(|(socket, _)| socket.pid), Some(8239), "the busiest leads");
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "cdn.example.net:443")?;
+    check("network_connections", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('4')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "192.0.2.20/24")?;
+    check("network_interfaces", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('1'))).send(key(KeyCode::Char('/'))).send(Msg::Paste("port:ssh".into()));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "port:ssh")?;
+    assert_eq!(stage.state.network.ports.len(), 1, "the filter keeps the SSH port");
+    check("network_filter", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    assert!(!stage.state.network.is_open(), "Esc clears the filter, then closes the screen");
+    Ok(())
+}
+
+/// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
+/// the browser, where Enter goes from the process to its connections and on to one
+/// connection's packets, and Esc comes back the same way to every process and the hosts.
+#[test]
+fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
+    use borg_core::{Capture, Effect, TrafficPage};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "All traffic, shown for browser · PID 8239")?;
+    check("network_capture_dialog", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!((request.interface.as_str(), request.filter.as_str()), ("en0", ""), "all of the busiest interface");
+    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Capturing on en0 · 61 packets")?;
+    ensure_text(&buffer, "R Stop capture")?;
+
+    let capture = Capture::read(&borg_testkit::capture::bytes()).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcap");
+    stage.send(Msg::CaptureDone { id, result: Ok((path, capture)) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "pid:8239")?;
+    ensure_text(&buffer, "cdn.example.net:443")?;
+    check("traffic_processes", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "ClientHello cdn.example.net")?;
+    check("traffic_connections", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "ClientHello · cdn.example.net")?;
+    check("traffic_packet", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    let view = stage.state.network.viewer.as_deref().context("the viewer stays open")?;
+    assert_eq!((view.page, view.filter.as_str()), (TrafficPage::Processes, "pid:8239"), "back to the browser");
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Char('2')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "api.example.com")?;
+    check("traffic_hosts", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.network.viewer.is_none() && stage.state.network.is_open(), "Esc goes back to the live screen");
+    Ok(())
+}
+
+/// Where Borg can ask the system for an administrator, the capture dialog offers **Run as**. A
+/// capture refused as the user asks to run as administrator; yes waits for the system's
+/// password dialog, and the pcapng it saves names each packet's process, even a process that
+/// ended before the screen saw it.
+#[test]
+fn network_captures_as_administrator_and_names_every_packets_process() -> Result<()> {
+    use borg_core::{Capture, CaptureAccess, CaptureFailure, Effect, Overlay};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.network.access = CaptureAccess { administrator: false, elevate: true, tags: true };
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r'))).send(key(KeyCode::End));
+    stage.send(key(KeyCode::Right));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Administrator, with each packet's process")?;
+    ensure_text(&buffer, "Saved as a .pcapng file")?;
+    check("network_capture_dialog_run_as", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Left));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert!(!request.administrator, "the first capture runs as the user");
+    stage.send(Msg::CaptureDone { id, result: Err(CaptureFailure::Denied) });
+    let Some(Overlay::Confirm(_)) = &stage.state.overlay else { panic!("a refusal asks to run as administrator") };
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Capture as administrator")?;
+    check("network_capture_admin_question", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("yes captures again") };
+    assert!(request.administrator && request.processes, "as administrator, with each packet's process");
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Waiting for your password to capture on en0")?;
+    check("network_capture_waiting", &stage, buffer)?;
+
+    let capture = Capture::read(&borg_testkit::capture::tagged()).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcapng");
+    stage.send(Msg::CaptureDone { id, result: Ok((path, capture)) });
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::End));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, &format!("updater · PID {}", borg_testkit::capture::UPDATER))?;
+    check("traffic_tagged_processes", &stage, buffer)?;
+    Ok(())
+}
+
+/// A capture without tcpdump offers to install it with the package manager Borg found, and
+/// Enter types the command into the shell.
+#[test]
+fn network_offers_to_install_a_missing_tcpdump() -> Result<()> {
+    use borg_core::{CaptureFailure, Effect, Elevation, Installer, PackageManager, View};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('r')));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, .. }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    let installer = Installer { manager: PackageManager::Apt, elevation: Some(Elevation::Sudo) };
+    stage.send(Msg::CaptureDone { id, result: Err(CaptureFailure::Missing(Some(installer))) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "sudo apt-get install tcpdump")?;
+    check("network_install_tcpdump", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    assert!(effects.contains(&Effect::Write(b"sudo apt-get install tcpdump\r".to_vec())), "Enter types the command");
+    assert_eq!(stage.state.view, View::Shell, "and shows the shell");
+    Ok(())
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]
@@ -3096,6 +3254,27 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
     check("pairing_code", &stage, buffer)
+}
+
+#[test]
+fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
+    use borg_core::{AgentEvent, CaptureRequest, CaptureScope, Transport};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let request = CaptureRequest {
+        interface: "en0".into(),
+        seconds: Some(10),
+        headers_only: false,
+        filter: "udp port 53".into(),
+        folder: "/home/dev/work".into(),
+        administrator: false,
+        processes: false,
+    };
+    let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
+    let ask = borg_core::capture_ask(scope, None, &request, String::new());
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote wants to capture traffic")?;
+    check("agent_capture_approval", &stage, buffer)
 }
 
 #[test]

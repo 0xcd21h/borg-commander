@@ -54,6 +54,12 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         state.activity.side = None;
         return Vec::new();
     }
+    if code == KeyCode::Char('n') && modifiers == KeyModifiers::ALT {
+        return match state.activity.process().map(|process| process.key.pid) {
+            Some(pid) => crate::network::show_traffic(state, pid),
+            None => crate::actions::perform(state, Action::Network, now),
+        };
+    }
     if code == KeyCode::Tab {
         state.activity.filtering = false;
         state.activity.preview_focused = !state.activity.preview_focused;
@@ -70,7 +76,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         }
     }
     match code {
-        KeyCode::Esc => escape(&mut state.activity, now),
+        KeyCode::Esc => escape(state, now),
         KeyCode::Enter if !state.activity.filtering => enter(state, key, now),
         _ => match list_key(&mut state.activity, key, now) {
             Some(effects) => effects,
@@ -90,7 +96,7 @@ pub(crate) fn paste(activity: &mut Activity, text: &str) {
 }
 
 /// The panels' keys that work in the monitor too: the shell, the menu bar, About and quitting.
-fn panels_action(key: &KeyEvent) -> Option<Action> {
+pub(crate) fn panels_action(key: &KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('o') if key.modifiers == KeyModifiers::CONTROL => Some(Action::ToggleShell),
         KeyCode::F(9) => Some(Action::OpenMenuBar),
@@ -170,8 +176,10 @@ fn scroll_preview(activity: &mut Activity, code: KeyCode) {
 }
 
 /// Esc takes the focus back from the preview, or else steps back a page. On the processes it
-/// stops and clears a filter before it closes the monitor.
-fn escape(activity: &mut Activity, now: Instant) -> Vec<Effect> {
+/// stops and clears a filter before it closes the monitor, or goes back to the network screen
+/// the monitor was opened from.
+fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    let activity = &mut state.activity;
     activity.error = None;
     activity.retry = None;
     if activity.preview_focused {
@@ -184,6 +192,9 @@ fn escape(activity: &mut Activity, now: Instant) -> Vec<Effect> {
         activity.rebuild();
     } else {
         activity.side = None;
+        if activity.from_network {
+            return crate::network::resume(state);
+        }
     }
     Vec::new()
 }

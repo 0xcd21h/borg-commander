@@ -96,6 +96,7 @@ pub struct App {
     monitor: crate::activity::Monitor,
     backup: crate::backup::Backup,
     docker: crate::docker::Docker,
+    network: crate::network::Network,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,
@@ -121,6 +122,7 @@ pub struct App {
     /// Processes an agent may search the memory of without asking again, by the computer it
     /// asks from (`None` for this one), once the user approved the first search.
     memory_readers: std::collections::HashSet<(Option<String>, borg_core::ProcessKey)>,
+    saved_captures: agent_calls::SavedCaptures,
     runtime_dir: PathBuf,
     mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
     mirror_ready: Option<crate::mirror::Connection>,
@@ -275,6 +277,9 @@ impl App {
         }
         if self.state.docker.pending.is_none() {
             self.docker.cancel();
+        }
+        if self.state.network.pending.is_none() {
+            self.network.cancel();
         }
         if !self.state.settings.preferences.git_plugin {
             self.plugins.cancel();

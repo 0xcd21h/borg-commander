@@ -42,6 +42,28 @@ pub enum Msg {
         id: u64,
         result: Result<crate::DockerData, String>,
     },
+    Network {
+        id: u64,
+        result: Result<crate::NetworkSample, String>,
+    },
+    /// Names for addresses the network screen asked about; `None` where there is none.
+    HostNames(Vec<(std::net::IpAddr, Option<String>)>),
+    /// How far the running capture got.
+    CaptureProgress {
+        id: u64,
+        bytes: u64,
+        packets: usize,
+    },
+    /// A capture ended: the file it was saved to and what it caught, or why it has none.
+    CaptureDone {
+        id: u64,
+        result: Result<(PathBuf, crate::Capture), crate::CaptureFailure>,
+    },
+    /// A capture file opened from a panel, read.
+    CaptureOpened {
+        path: PathBuf,
+        result: Result<crate::Capture, String>,
+    },
     /// One `docker stats` sample: each running container's id and resource use.
     DockerStats(Vec<(String, borg_docker::Stats)>),
     /// A container shell printed something; `mode` is its terminal's input mode now.
@@ -201,6 +223,23 @@ pub enum Effect {
         id: u64,
         request: crate::DockerRequest,
     },
+    /// Samples the machine's sockets and interfaces for the network screen.
+    Network {
+        id: u64,
+    },
+    /// Looks up the names of addresses, in the background.
+    ResolveHosts(Vec<std::net::IpAddr>),
+    /// Runs `tcpdump` for the network screen's capture.
+    Capture {
+        id: u64,
+        request: crate::CaptureRequest,
+    },
+    /// Stops the running capture, which then saves what it caught.
+    StopCapture {
+        id: u64,
+    },
+    /// Reads a pcap or pcapng file for the traffic viewer.
+    OpenCapture(PathBuf),
     /// Starts or stops streaming container stats.
     DockerWatch(bool),
     DockerShell(crate::ShellRequest),

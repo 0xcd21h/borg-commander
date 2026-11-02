@@ -103,6 +103,11 @@ pub enum ConfirmPurpose {
         action: borg_docker::Action,
         ids: Vec<String>,
     },
+    /// A capture the system refused: Yes runs it again as administrator.
+    Capture {
+        request: Box<crate::CaptureRequest>,
+        view_filter: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,4 +156,8 @@ pub enum Overlay {
     TimeMachine,
     /// The signals and priority changes for a process in the monitor.
     ProcessControl(crate::ControlDialog),
+    /// What to capture from the network screen, where and for how long.
+    Capture(crate::CaptureDialog),
+    /// The command that installs a missing program, before it runs in the shell.
+    Install(crate::InstallOffer),
 }

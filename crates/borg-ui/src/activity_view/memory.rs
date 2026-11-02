@@ -162,6 +162,8 @@ pub(super) fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Unit {
     Bytes,
+    /// Bytes a second.
+    Rate,
     /// Hundredths of a percent.
     Percent,
 }
@@ -170,6 +172,7 @@ impl Unit {
     pub(super) fn format(self, value: u64) -> String {
         match self {
             Self::Bytes => format::size(value),
+            Self::Rate => format::rate(value),
             Self::Percent => format!("{:.1}%", value as f64 / 100.0),
         }
     }
@@ -180,7 +183,7 @@ pub(super) fn scale(values: &[u64], unit: Unit) -> (f64, f64, [String; 3]) {
     let min = values.iter().copied().min().unwrap_or(0) as f64;
     let max = values.iter().copied().max().unwrap_or(0) as f64;
     let (base, suffix, least) = match unit {
-        Unit::Bytes => {
+        Unit::Bytes | Unit::Rate => {
             let mut base = 1024.0;
             let mut suffix = 0;
             while max / base >= 1024.0 && suffix + 1 < BYTE_UNITS.len() {

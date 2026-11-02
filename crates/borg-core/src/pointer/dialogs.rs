@@ -26,6 +26,10 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             select_row(state, overlay, row, now);
             Vec::new()
         }
+        (Pointer::CaptureField(row), Overlay::Capture(dialog)) => {
+            crate::network::pick_capture_field(state, dialog, row);
+            Vec::new()
+        }
         (Pointer::DialogMark(row), Overlay::TimeMachine) => {
             state.backup.window.point(row, true);
             Vec::new()
