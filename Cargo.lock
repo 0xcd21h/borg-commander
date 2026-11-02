@@ -417,7 +417,7 @@ dependencies = [
 
 [[package]]
 name = "borg-app"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "borg-core"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "borg-docker",
  "borg-edit",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "borg-docker"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "borg-i18n",
@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "borg-edit"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "proptest",
  "ropey",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "borg-gfx"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "base64 0.22.1",
  "icy_sixel",
@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "borg-git"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "borg-i18n",
@@ -528,21 +528,21 @@ dependencies = [
 
 [[package]]
 name = "borg-i18n"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "borg-jobs"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "borg-link"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "futures",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "borg-relay"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "anyhow",
  "borg-link",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "borg-term"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "borg-testkit"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "borg-ui"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "borg-core",
  "borg-docker",
@@ -635,7 +635,7 @@ dependencies = [
 
 [[package]]
 name = "borg-update"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "flate2",
  "serde",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "borg-vfs"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "futures",
  "serde",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "borg-view"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "proptest",
  "pulldown-cmark",

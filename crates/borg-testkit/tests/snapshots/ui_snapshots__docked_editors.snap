@@ -23,7 +23,7 @@ expression: describe(&buffer)
  /home/me/projects/borg/Cargo.toml
 $
 F2Save     F3Next     F4Replace  F6Switch   F7Find     F9Menu     F10Close   ^OShell
-Ctrl-C Copy  Ctrl-V Paste  Ctrl-X Cut  Ctrl-Z Undo  Ctrl-Y Redo   ◈ Borg Commander v0.9.2
+Ctrl-C Copy  Ctrl-V Paste  Ctrl-X Cut  Ctrl-Z Undo  Ctrl-Y Redo   ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-0 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 1-26 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 27-44 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 45-45 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 46-71 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 72-89 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
   1: 0-2 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 3-3 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 4-5 Rgb(99, 122, 144) Rgb(30, 30, 30) NONE | 6-6 Rgb(160, 164, 172) Rgb(30, 30, 30) NONE | 7-10 Rgb(104, 143, 155) Rgb(30, 30, 30) NONE | 11-14 Rgb(160, 164, 172) Rgb(30, 30, 30) NONE | 15-43 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 44-44 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 45-45 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 46-47 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 48-48 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 49-57 Rgb(216, 222, 233) Rgb(30, 30, 30) NONE | 58-88 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE | 89-89 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE

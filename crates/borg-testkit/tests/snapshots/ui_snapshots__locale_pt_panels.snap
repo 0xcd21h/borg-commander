@@ -29,7 +29,7 @@ expression: describe(&buffer)
  Subir para a pasta superior
 $
 F1Ajuda   F2FicheiroF3Ver     F4Editar  F5Copiar  F6Mover   F7Criar p…F8EliminarF9Menu    F10Sair   ^OShell
-Alt-H Hosts remotos  Alt-I Contar tamanhos  Ctrl-F Pesquisar  Alt-M Atividade         ◈ Borg Commander v0.9.2
+Alt-H Hosts remotos  Alt-I Contar tamanhos  Ctrl-F Pesquisar  Alt-M Atividade         ◈ Borg Commander v0.9.3
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 2-2 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 3-5 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 6-13 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 14-16 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 17-21 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 22-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-57 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 58-60 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 61-63 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 64-66 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 67-70 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 71-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(0, 95, 135) Rgb(30, 30, 30) NONE | 2-5 Rgb(255, 255, 255) Rgb(0, 95, 135) BOLD | 6-52 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 53-53 Rgb(0, 95, 135) Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-56 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 57-60 Rgb(56, 114, 178) Rgb(48, 48, 48) BOLD | 61-88 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 89-94 Rgb(86, 86, 86) Rgb(48, 48, 48) NONE | 95-107 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 108-108 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
