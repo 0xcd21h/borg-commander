@@ -5,7 +5,7 @@ use borg_core::{Installer, Platform};
 use std::path::PathBuf;
 
 /// Where programs are installed when the folder is not on `PATH`, as `/usr/sbin` often is not.
-const SYSTEM_DIRS: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
+pub(crate) const SYSTEM_DIRS: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 /// Where Homebrew links the system programs it installs, which `PATH` often leaves out.
 const HOMEBREW_DIRS: [&str; 3] = ["/opt/homebrew/sbin", "/usr/local/sbin", "/home/linuxbrew/.linuxbrew/sbin"];
 const PLATFORM: Platform = if cfg!(target_os = "macos") { Platform::MacOs } else { Platform::Linux };

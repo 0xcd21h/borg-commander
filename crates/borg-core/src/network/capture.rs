@@ -1,11 +1,13 @@
 //! Capturing traffic from the network screen: the dialog R opens on the selected row, the capture
-//! while `tcpdump` runs, and the viewer it opens on what it caught.
+//! while `tcpdump` runs, as you or as administrator, and the viewer it opens on what it caught.
 
 use super::{
     InterfaceKind, NetworkPage, Socket, SocketKey, Transport,
     viewer::{TrafficPage, TrafficView},
 };
-use crate::{AppState, Ask, AskKind, Capture, DiffLine, Effect, Installer, Overlay, Side, Tool};
+use crate::{
+    AppState, Ask, AskKind, Capture, Confirm, ConfirmPurpose, DiffLine, Effect, Installer, Overlay, Side, Tool,
+};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{
@@ -22,6 +24,32 @@ pub const LONGEST_CAPTURE: u64 = 60;
 pub const DURATIONS: [Option<u64>; 5] = [Some(SHORTEST_CAPTURE), Some(10), Some(30), Some(LONGEST_CAPTURE), None];
 /// What a headers-only capture keeps of each packet: Ethernet, IPv6 and TCP with its options.
 pub const HEADER_BYTES: u32 = 128;
+const PCAP_EXTENSION: &str = "pcap";
+const PCAPNG_EXTENSION: &str = "pcapng";
+
+/// What capturing as administrator can do here, as the app finds it at startup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CaptureAccess {
+    /// Borg already runs as administrator.
+    pub administrator: bool,
+    /// Borg can ask the system for your password to capture as administrator.
+    pub elevate: bool,
+    /// A capture as administrator tags each packet with its process, as macOS's `pktap` does.
+    pub tags: bool,
+}
+
+/// Why a capture saved nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureFailure {
+    /// tcpdump is not installed, with how Borg installs it when it knows how.
+    Missing(Option<Installer>),
+    /// The system lets only an administrator capture on the interface.
+    Denied,
+    /// The system's password dialog was dismissed, or the capture stopped before it was answered.
+    Cancelled,
+    /// What went wrong, in words to show as they are.
+    Failed(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureScope {
@@ -86,14 +114,6 @@ impl CaptureScope {
     }
 }
 
-/// Why a capture has no file to show.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CaptureFailure {
-    /// tcpdump is not installed, with how Borg installs it when it knows how.
-    Missing(Option<Installer>),
-    Failed(String),
-}
-
 /// What a capture asks `tcpdump` for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureRequest {
@@ -105,6 +125,22 @@ pub struct CaptureRequest {
     pub filter: String,
     /// The folder the capture file is saved in.
     pub folder: PathBuf,
+    /// Run `tcpdump` as administrator, after the system asks for your password.
+    pub administrator: bool,
+    /// Capture on macOS's `pktap`, which tags each packet with its process and saves pcapng.
+    pub processes: bool,
+}
+
+impl CaptureRequest {
+    /// The extension of the file the capture is saved in.
+    pub fn extension(&self) -> &'static str {
+        capture_extension(self.processes)
+    }
+}
+
+/// The extension of a capture's file: pcapng when each packet carries its process.
+pub fn capture_extension(processes: bool) -> &'static str {
+    if processes { PCAPNG_EXTENSION } else { PCAP_EXTENSION }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,10 +149,12 @@ pub enum CaptureField {
     Interface,
     Duration,
     Content,
+    Access,
 }
 
-pub const CAPTURE_FIELDS: [CaptureField; 4] =
-    [CaptureField::Scope, CaptureField::Interface, CaptureField::Duration, CaptureField::Content];
+/// Every field, **Run as** last since it shows only where Borg can capture as administrator.
+const CAPTURE_FIELDS: [CaptureField; 5] =
+    [CaptureField::Scope, CaptureField::Interface, CaptureField::Duration, CaptureField::Content, CaptureField::Access];
 
 /// The dialog R opens: what to capture, where, for how long and how much of each packet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,13 +166,27 @@ pub struct CaptureDialog {
     pub interface: usize,
     pub duration: usize,
     pub headers_only: bool,
+    /// Capture as administrator.
+    pub administrator: bool,
+    pub access: CaptureAccess,
     pub field: usize,
     folder: PathBuf,
 }
 
 impl CaptureDialog {
+    /// The fields the dialog shows.
+    pub fn fields(&self) -> &'static [CaptureField] {
+        let shown = if self.access.elevate { CAPTURE_FIELDS.len() } else { CAPTURE_FIELDS.len() - 1 };
+        &CAPTURE_FIELDS[..shown]
+    }
+
     pub fn selected(&self) -> CaptureField {
-        CAPTURE_FIELDS[self.field]
+        self.fields()[self.field]
+    }
+
+    /// Whether the capture tags each packet with its process.
+    pub fn tags_processes(&self) -> bool {
+        self.access.tags && (self.access.administrator || self.administrator)
     }
 
     /// The folder the capture is saved in.
@@ -149,6 +201,8 @@ impl CaptureDialog {
             headers_only: self.headers_only,
             filter: self.scopes.get(self.scope)?.filter(),
             folder: self.folder.clone(),
+            administrator: self.administrator,
+            processes: self.tags_processes(),
         })
     }
 
@@ -160,6 +214,7 @@ impl CaptureDialog {
             CaptureField::Interface => self.interface = turn(self.interface, self.interfaces.len()),
             CaptureField::Duration => self.duration = turn(self.duration, DURATIONS.len()),
             CaptureField::Content => self.headers_only = !self.headers_only,
+            CaptureField::Access => self.administrator = !self.administrator,
         }
     }
 }
@@ -200,6 +255,8 @@ pub struct Recording {
     pub started: Instant,
     pub bytes: u64,
     pub packets: usize,
+    /// The system is asking for the administrator's password, and `tcpdump` has not started.
+    pub waiting: bool,
     /// Stop was asked for, and the capture is being saved.
     pub stopping: bool,
     view_filter: String,
@@ -239,6 +296,8 @@ pub(crate) fn capture_key(state: &mut AppState) -> Vec<Effect> {
         interface: 0,
         duration: 0,
         headers_only: false,
+        administrator: false,
+        access: network.access,
         field: 0,
         folder,
     }));
@@ -307,7 +366,7 @@ pub(crate) fn on_dialog_key(
     key: &KeyEvent,
     now: Instant,
 ) -> Vec<Effect> {
-    let last = CAPTURE_FIELDS.len() - 1;
+    let last = dialog.fields().len() - 1;
     match crate::keyboard::latin(key).code {
         KeyCode::Esc | KeyCode::F(10) => {
             state.overlay = None;
@@ -334,22 +393,34 @@ pub(crate) fn pick(state: &mut AppState, mut dialog: CaptureDialog, row: usize) 
     if dialog.field == row {
         dialog.change(1);
     }
-    dialog.field = row.min(CAPTURE_FIELDS.len() - 1);
+    dialog.field = row.min(dialog.fields().len() - 1);
     state.overlay = Some(Overlay::Capture(dialog));
 }
 
 fn start(state: &mut AppState, dialog: &CaptureDialog, now: Instant) -> Vec<Effect> {
     let Some(request) = dialog.request() else { return Vec::new() };
+    let view_filter = dialog.scopes.get(dialog.scope).map(CaptureScope::view_filter).unwrap_or_default();
+    record(state, request, view_filter, now)
+}
+
+/// The answer to whether a refused capture should run as administrator: yes runs it again so.
+pub(crate) fn elevate(state: &mut AppState, request: CaptureRequest, view_filter: String, now: Instant) -> Vec<Effect> {
+    let access = state.network.access;
+    let request = CaptureRequest { administrator: true, processes: access.tags, ..request };
+    record(state, request, view_filter, now)
+}
+
+fn record(state: &mut AppState, request: CaptureRequest, view_filter: String, now: Instant) -> Vec<Effect> {
     let network = &mut state.network;
     network.next_id += 1;
     let id = network.next_id;
-    let view_filter = dialog.scopes.get(dialog.scope).map(CaptureScope::view_filter).unwrap_or_default();
     let mut recording = Recording {
         id,
         request: request.clone(),
         started: now,
         bytes: 0,
         packets: 0,
+        waiting: request.administrator,
         stopping: false,
         view_filter,
         seen: SeenSockets::default(),
@@ -367,8 +438,14 @@ pub(crate) fn sampled(network: &mut super::Network) {
     }
 }
 
-pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize) {
+/// The capture's bytes and packets so far; the first report of a capture as administrator
+/// also says the password was given, so its seconds count from then.
+pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize, now: Instant) {
     if let Some(recording) = state.network.recording.as_mut().filter(|recording| recording.id == id) {
+        if recording.waiting {
+            recording.waiting = false;
+            recording.started = now;
+        }
         recording.bytes = bytes;
         recording.packets = packets;
     }
@@ -376,12 +453,29 @@ pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize
 
 /// A capture ended: the viewer opens on it while the screen shows, a notice says where it was
 /// saved otherwise, and the panels showing its folder list the new file. Without tcpdump, Borg
-/// offers to install it.
+/// offers to install it, and a capture the system refused asks whether to run it as
+/// administrator, where Borg can ask for that.
 pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
+    let access = state.network.access;
     match result {
         Err(CaptureFailure::Missing(installer)) => crate::install::offer(state, Tool::Tcpdump, installer),
+        Err(CaptureFailure::Denied) if access.elevate && !recording.request.administrator => {
+            state.overlay = Some(Overlay::Confirm(Confirm {
+                title: tr!(capture_admin_title),
+                message: tr!(capture_admin_question, interface = recording.request.interface),
+                purpose: ConfirmPurpose::Capture {
+                    request: Box::new(recording.request),
+                    view_filter: recording.view_filter,
+                },
+                accept: true,
+            }));
+        }
+        Err(CaptureFailure::Denied) => {
+            state.notice = Some(tr!(capture_denied, interface = recording.request.interface));
+        }
+        Err(CaptureFailure::Cancelled) => {}
         Err(CaptureFailure::Failed(error)) => state.notice = Some(error),
         Ok((path, capture)) if !state.network.is_open() => {
             let packets = borg_i18n::count(capture.packets.len(), borg_i18n::Count::Packet);
@@ -445,7 +539,7 @@ pub fn capture_ask(scope: CaptureScope, process: Option<&str>, request: &Capture
         field(tr!(network_interface_column), request.interface.clone()),
         field(tr!(capture_duration_field), duration.clone()),
         field(tr!(capture_content_field), content),
-        DiffLine::plain(tr!(capture_saves_to, folder = request.folder.display())),
+        DiffLine::plain(tr!(capture_saves_to, extension = request.extension(), folder = request.folder.display())),
         DiffLine::plain(""),
         DiffLine::plain(tr!(agent_capture_warning)),
     ];

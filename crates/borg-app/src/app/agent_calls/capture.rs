@@ -82,6 +82,8 @@ impl App {
             headers_only: asked.headers_only,
             filter: asked.scope.filter(),
             folder: PathBuf::from(folder),
+            administrator: false,
+            processes: false,
         };
         let place = from_origin(String::new(), call.origin.as_deref());
         let ask = borg_core::capture_ask(asked.scope, text(&call, PROCESS).as_deref(), &request, place);

@@ -193,10 +193,21 @@ transport and their two ends in either order, takes the client as the side that 
 spoke first, and puts the client's first bytes back together to read a TLS server name split over
 segments. `network::capture` holds the dialog and the running `Recording`, which keeps every
 socket the screen samples while it runs, and `network::viewer` gives each conversation the
-process of the socket that held it: the exact ends first, then a socket listening on its port.
-`borg-app::network::capture` runs `tcpdump -U -n -w -`, writes its output to a 0600 file in the
-panel's folder while `PcapCounter` counts whole packets for the footer, sends SIGINT at the
-deadline or on R, and reads the file back on a blocking worker.
+process its packets were tagged with, by majority, or else the process of the socket that held
+it: the exact ends first, then a socket listening on its port. The tags come from macOS's
+`pktap`, whose pcapng carries Apple's process information blocks, each packet pointing at one
+by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w -`, writes its
+output to a 0600 file in the panel's folder while `PcapCounter` counts whole packets for the
+footer, sends SIGINT at the deadline or on R, and reads the file back on a blocking worker.
+
+A capture as administrator goes through `network::capture::elevated`. Borg listens on a Unix
+socket in a 0700 temporary folder and asks osascript (macOS), or pkexec or else `sudo -n`
+(Linux), to run `borg --capture-traffic` as root. The helper checks its interface and filter
+against what the screen can make, runs tcpdump only from root-owned system folders, and hands
+the socket to tcpdump as its standard output. Borg checks that the peer is root, saves the
+stream as itself, and stops the capture by shutting down its side of the socket, which the
+helper turns into SIGINT, as it does when Borg exits. tcpdump's messages come back as the
+helper's JSON result.
 
 An agent's `capture` call asks with `network::capture_ask`, picks its interface with the dialog's
 `capture_interfaces`, and once approved runs the same tcpdump runner through

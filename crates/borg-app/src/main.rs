@@ -108,6 +108,10 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
             activity::helper(&args).await?;
             ExitCode::SUCCESS
         }
+        "--capture-traffic" => {
+            network::capture_helper(&args).await?;
+            ExitCode::SUCCESS
+        }
         "mcp" => return mcp(&args).await,
         "pair" => finished("borg pair", link::pair_command(&args).await),
         "get" => finished("borg get", link::get_command(&args).await),

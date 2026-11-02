@@ -1,6 +1,7 @@
-//! A made-up capture on the network screen's made-up machine, a few seconds long: the browser
-//! looks up a name, opens two TLS connections and a QUIC stream, the web app answers a health
-//! check, an SSH session types, and the backup agent uploads.
+//! A made-up capture on the network screen's made-up machine, a few seconds long: a name lookup,
+//! the browser's two TLS connections and QUIC stream, the web app answering a health check, an
+//! SSH session typing, and the backup agent uploading. Saved as tcpdump writes it, or as macOS's
+//! `pktap` does, with the process behind each packet.
 
 /// When the capture starts, in seconds since the Unix epoch.
 pub const START: u32 = 1_767_268_800;
@@ -38,11 +39,75 @@ const DATAGRAM: usize = 1_200;
 const MAC_MACHINE: [u8; 6] = [0x02, 0x00, 0x5e, 0x10, 0x00, 0x20];
 const MAC_ROUTER: [u8; 6] = [0x02, 0x00, 0x5e, 0x10, 0x00, 0x01];
 
+const PCAPNG_SECTION: u32 = 0x0a0d_0d0a;
+const PCAPNG_BYTE_ORDER: u32 = 0x1a2b_3c4d;
+const PCAPNG_VERSION: [u16; 2] = [1, 0];
+const INTERFACE_BLOCK: u32 = 1;
+const PACKET_BLOCK: u32 = 6;
+const PROCESS_BLOCK: u32 = 0x8000_0001;
+const NAME_OPTION: u16 = 2;
+const PROCESS_OPTION: u16 = 0x8001;
+const END_OF_OPTIONS: u16 = 0;
+/// pcapng pads every block and option to whole 4-byte words.
+const WORD: usize = 4;
+/// A block's type and its length before the body, and the length again after it.
+const BLOCK_FRAMING: usize = 12;
+/// An option's code and length before its value.
+const OPTION_HEADER: usize = 4;
+/// A section header's length when it does not say how long the section is.
+const UNKNOWN_LENGTH: i64 = -1;
+const INTERFACE: &str = "en0";
+const MICROS: u64 = 1_000_000;
+/// Where a frame's source address starts, inside the IPv4 header, and its ports, after it.
+const ADDRESSES_AT: usize = 26;
+const PORTS_AT: usize = 34;
+/// The updater that looked up a name and exited before the network screen saw it.
+pub const UPDATER: u32 = 9120;
+/// Each process on the made-up machine, by the local port its traffic uses.
+const OWNERS: [(u16, u32, &str); 7] = [
+    (22, 301, "sshd"),
+    (3_000, 4100, "node"),
+    (50_412, 8239, "browser"),
+    (50_413, 8239, "browser"),
+    (62_556, 8239, "browser"),
+    (50_600, 7001, "backup-agent"),
+    (53_001, UPDATER, "updater"),
+];
+
 /// One packet: microseconds into the capture and the Ethernet frame.
 type Frame = (u32, Vec<u8>);
 
 /// The capture as a pcap file.
 pub fn bytes() -> Vec<u8> {
+    pcap(&frames())
+}
+
+/// The capture as macOS's `pktap` saves it: pcapng, each packet tagged with its process.
+pub fn tagged() -> Vec<u8> {
+    let mut bytes = block(PCAPNG_SECTION, &section());
+    bytes.extend(block(INTERFACE_BLOCK, &interface()));
+    let mut written: Vec<u32> = Vec::new();
+    for (at, frame) in frames() {
+        let owner = OWNERS.iter().find(|(port, ..)| *port == local_port(&frame));
+        let mut options = Vec::new();
+        if let Some(&(_, pid, name)) = owner {
+            let index = written.iter().position(|known| *known == pid).unwrap_or_else(|| {
+                let mut body = pid.to_le_bytes().to_vec();
+                body.extend(option(NAME_OPTION, name.as_bytes()));
+                body.extend(option(END_OF_OPTIONS, &[]));
+                bytes.extend(block(PROCESS_BLOCK, &body));
+                written.push(pid);
+                written.len() - 1
+            });
+            options.extend(option(PROCESS_OPTION, &(index as u32).to_le_bytes()));
+            options.extend(option(END_OF_OPTIONS, &[]));
+        }
+        bytes.extend(block(PACKET_BLOCK, &packet(at, &frame, &options)));
+    }
+    bytes
+}
+
+fn frames() -> Vec<Frame> {
     let mut frames = Vec::new();
     frames.extend(lookup());
     frames.extend(tls_session(TlsSession {
@@ -66,7 +131,64 @@ pub fn bytes() -> Vec<u8> {
     frames.extend(ssh());
     frames.extend(backup());
     frames.sort_by_key(|(at, _)| *at);
-    pcap(&frames)
+    frames
+}
+
+/// The port a frame uses on the made-up machine.
+fn local_port(frame: &[u8]) -> u16 {
+    let outgoing = frame[ADDRESSES_AT..ADDRESSES_AT + 4] == MACHINE;
+    let at = if outgoing { PORTS_AT } else { PORTS_AT + 2 };
+    u16::from_be_bytes([frame[at], frame[at + 1]])
+}
+
+/// A pcapng block: its type, its length before and after, and its body padded to whole words.
+fn block(kind: u32, body: &[u8]) -> Vec<u8> {
+    let length = BLOCK_FRAMING + padded(body.len());
+    let mut bytes = kind.to_le_bytes().to_vec();
+    bytes.extend((length as u32).to_le_bytes());
+    bytes.extend(body);
+    bytes.resize(length - WORD, 0);
+    bytes.extend((length as u32).to_le_bytes());
+    bytes
+}
+
+fn padded(length: usize) -> usize {
+    length.div_ceil(WORD) * WORD
+}
+
+fn option(code: u16, value: &[u8]) -> Vec<u8> {
+    let mut bytes = code.to_le_bytes().to_vec();
+    bytes.extend((value.len() as u16).to_le_bytes());
+    bytes.extend(value);
+    bytes.resize(OPTION_HEADER + padded(value.len()), 0);
+    bytes
+}
+
+fn section() -> Vec<u8> {
+    let mut body = PCAPNG_BYTE_ORDER.to_le_bytes().to_vec();
+    PCAPNG_VERSION.iter().for_each(|part| body.extend(part.to_le_bytes()));
+    body.extend(UNKNOWN_LENGTH.to_le_bytes());
+    body
+}
+
+fn interface() -> Vec<u8> {
+    let mut body = (ETHERNET as u16).to_le_bytes().to_vec();
+    body.extend([0; 2]);
+    body.extend(SNAPSHOT.to_le_bytes());
+    body.extend(option(NAME_OPTION, INTERFACE.as_bytes()));
+    body.extend(option(END_OF_OPTIONS, &[]));
+    body
+}
+
+fn packet(at: u32, frame: &[u8], options: &[u8]) -> Vec<u8> {
+    let ticks = u64::from(START) * MICROS + u64::from(at);
+    let length = frame.len() as u32;
+    let mut body = 0u32.to_le_bytes().to_vec();
+    [(ticks >> 32) as u32, ticks as u32, length, length].iter().for_each(|word| body.extend(word.to_le_bytes()));
+    body.extend(frame);
+    body.resize(padded(body.len()), 0);
+    body.extend(options);
+    body
 }
 
 fn pcap(frames: &[Frame]) -> Vec<u8> {
@@ -142,7 +264,7 @@ fn dns_name(name: &str) -> Vec<u8> {
     bytes
 }
 
-/// The browser asks the router for api.example.com and gets its address.
+/// A short-lived updater asks the router for api.example.com and gets its address.
 fn lookup() -> Vec<Frame> {
     const ID: [u8; 2] = [0x5e, 0x11];
     const QUESTION: [u8; 4] = [0, 1, 0, 1];

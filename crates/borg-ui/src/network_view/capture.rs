@@ -1,5 +1,5 @@
 //! The dialog R opens on the network screen: what to capture, on which interface, for how
-//! long, and how much of each packet to keep.
+//! long, how much of each packet to keep, and whether to run as administrator.
 
 use crate::{
     Theme,
@@ -7,7 +7,7 @@ use crate::{
     dialog_view::centered,
     format,
 };
-use borg_core::{CAPTURE_FIELDS, CaptureDialog, CaptureField, CaptureScope, DURATIONS, HEADER_BYTES, Network};
+use borg_core::{CaptureDialog, CaptureField, CaptureScope, DURATIONS, HEADER_BYTES, Network, capture_extension};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -37,6 +37,15 @@ fn label(field: CaptureField) -> &'static str {
         CaptureField::Interface => tr!(network_interface_column),
         CaptureField::Duration => tr!(capture_duration_field),
         CaptureField::Content => tr!(capture_content_field),
+        CaptureField::Access => tr!(capture_access_field),
+    }
+}
+
+fn access_label(dialog: &CaptureDialog, administrator: bool) -> &'static str {
+    match (administrator, dialog.access.tags) {
+        (false, _) => tr!(capture_as_you),
+        (true, false) => tr!(capture_as_administrator),
+        (true, true) => tr!(capture_as_administrator_tagged),
     }
 }
 
@@ -58,6 +67,7 @@ fn value(dialog: &CaptureDialog, network: &Network, field: CaptureField) -> Stri
         CaptureField::Duration => duration_label(DURATIONS[dialog.duration]),
         CaptureField::Content if dialog.headers_only => tr!(capture_headers_only, bytes = HEADER_BYTES),
         CaptureField::Content => tr!(capture_whole_packets).to_owned(),
+        CaptureField::Access => access_label(dialog, dialog.administrator).to_owned(),
     }
 }
 
@@ -67,29 +77,36 @@ fn widest_value(dialog: &CaptureDialog, network: &Network) -> usize {
     let interfaces = dialog.interfaces.iter().map(|name| name.width());
     let durations = DURATIONS.iter().map(|seconds| duration_label(*seconds).width());
     let contents = [tr!(capture_headers_only, bytes = HEADER_BYTES).width(), tr!(capture_whole_packets).width()];
-    scopes.chain(interfaces).chain(durations).chain(contents).max().unwrap_or_default()
+    let shown = dialog.fields().contains(&CaptureField::Access);
+    let access =
+        [false, true].into_iter().filter(|_| shown).map(|administrator| access_label(dialog, administrator).width());
+    scopes.chain(interfaces).chain(durations).chain(contents).chain(access).max().unwrap_or_default()
 }
 
-fn label_width() -> usize {
-    CAPTURE_FIELDS.iter().map(|&field| label(field).width()).max().unwrap_or_default() + LABEL_GAP
+fn label_width(dialog: &CaptureDialog) -> usize {
+    dialog.fields().iter().map(|&field| label(field).width()).max().unwrap_or_default() + LABEL_GAP
 }
 
 /// Where the capture goes, in at most `width` columns: a long folder loses its start first.
-fn note(folder: &Path, width: usize) -> String {
-    let around = tr!(capture_saves_to, folder = "").width();
+fn note(folder: &Path, extension: &str, width: usize) -> String {
+    let around = tr!(capture_saves_to, extension = extension, folder = "").width();
     let folder = format::truncate_start(&folder.display().to_string(), width.saturating_sub(around));
-    format::truncate_end(&tr!(capture_saves_to, folder = folder), width)
+    format::truncate_end(&tr!(capture_saves_to, extension = extension, folder = folder), width)
 }
 
 fn dialog_rect(dialog: &CaptureDialog, network: &Network, area: Rect) -> Rect {
-    let fields = label_width() + PREVIOUS.width() + widest_value(dialog, network) + NEXT.width();
-    let widest =
-        [fields, note(dialog.folder(), WIDEST_NOTE).width(), tr!(capture_keys).width(), tr!(capture_title).width()]
-            .into_iter()
-            .max()
-            .unwrap_or_default();
+    let fields = label_width(dialog) + PREVIOUS.width() + widest_value(dialog, network) + NEXT.width();
+    let notes = [false, true]
+        .into_iter()
+        .filter(|&tags| !tags || dialog.access.tags)
+        .map(|tags| note(dialog.folder(), capture_extension(tags), WIDEST_NOTE).width());
+    let widest = [fields, tr!(capture_keys).width(), tr!(capture_title).width()]
+        .into_iter()
+        .chain(notes)
+        .max()
+        .unwrap_or_default();
     let width = u16::try_from(widest).unwrap_or(u16::MAX).saturating_add(BORDER + SIDE_PADDING * 2);
-    let rows = u16::try_from(CAPTURE_FIELDS.len()).unwrap_or(u16::MAX);
+    let rows = u16::try_from(dialog.fields().len()).unwrap_or(u16::MAX);
     let height = rows.saturating_add(BORDER + TOP_ROWS + NOTE_ROWS);
     centered(area, width.min(area.width), height.min(area.height))
 }
@@ -104,7 +121,7 @@ pub(crate) fn field_at(
     let rect = dialog_rect(dialog, network, area);
     let top = rect.y + 1 + TOP_ROWS;
     let inside = point.x > rect.x && point.x < rect.right().saturating_sub(1) && point.y >= top;
-    let row = inside.then(|| usize::from(point.y - top)).filter(|row| *row < CAPTURE_FIELDS.len());
+    let row = inside.then(|| usize::from(point.y - top)).filter(|row| *row < dialog.fields().len());
     (rect, row)
 }
 
@@ -128,8 +145,8 @@ pub(crate) fn draw_dialog(
     block.render(rect, buf);
     let padded = Rect { x: inner.x + SIDE_PADDING, width: inner.width.saturating_sub(SIDE_PADDING * 2), ..inner };
     let line = |offset: u16| Rect { y: inner.y + offset, height: u16::from(offset < inner.height), ..padded };
-    let labels = u16::try_from(label_width()).unwrap_or(u16::MAX);
-    for (index, &field) in CAPTURE_FIELDS.iter().enumerate() {
+    let labels = u16::try_from(label_width(dialog)).unwrap_or(u16::MAX);
+    for (index, &field) in dialog.fields().iter().enumerate() {
         let Ok(offset) = u16::try_from(index) else { break };
         let area = line(TOP_ROWS + offset);
         if area.is_empty() {
@@ -145,9 +162,10 @@ pub(crate) fn draw_dialog(
         let rest = Rect { x: area.x + labels.min(area.width), width: area.width.saturating_sub(labels), ..area };
         text(buf, rest, format::truncate_end(&shown, usize::from(rest.width)), style);
     }
-    let rows = u16::try_from(CAPTURE_FIELDS.len()).unwrap_or(u16::MAX);
+    let rows = u16::try_from(dialog.fields().len()).unwrap_or(u16::MAX);
     let below = line(TOP_ROWS + rows + 1);
-    text(buf, below, note(dialog.folder(), usize::from(below.width)), dim(theme));
+    let extension = capture_extension(dialog.tags_processes());
+    text(buf, below, note(dialog.folder(), extension, usize::from(below.width)), dim(theme));
     rect
 }
 
@@ -158,8 +176,9 @@ mod tests {
     #[test]
     fn a_long_folder_loses_its_start_and_keeps_the_sentence() {
         let folder = Path::new("/home/me/projects/borg/captures/today");
-        assert_eq!(note(folder, 80), "Saved as a .pcap file in /home/me/projects/borg/captures/today");
-        assert_eq!(note(folder, 40), "Saved as a .pcap file in …captures/today");
-        assert_eq!(note(folder, 40).width(), 40);
+        assert_eq!(note(folder, "pcap", 80), "Saved as a .pcap file in /home/me/projects/borg/captures/today");
+        assert_eq!(note(folder, "pcap", 40), "Saved as a .pcap file in …captures/today");
+        assert_eq!(note(folder, "pcapng", 40), "Saved as a .pcapng file in …ptures/today");
+        assert_eq!(note(folder, "pcap", 40).width(), 40);
     }
 }
