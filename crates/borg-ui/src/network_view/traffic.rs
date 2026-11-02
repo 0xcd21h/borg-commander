@@ -12,7 +12,7 @@ use crate::{
     format,
     look::Look,
 };
-use borg_core::{HEX_LINE_WIDTH, Network, Packet, TrafficPage, TrafficView, hex_lines, service};
+use borg_core::{HexLayout, Network, StreamRow, TrafficPage, TrafficView, Turn, hex_lines, service};
 use borg_i18n::{Count, count, tr};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use std::{fmt::Write, net::IpAddr, time::Duration};
@@ -255,7 +255,7 @@ fn seconds(span: Duration, digits: usize) -> String {
 
 /// Seconds since the capture's first packet.
 fn elapsed(view: &TrafficView, stamp: Duration) -> String {
-    format!("{:.TIME_DIGITS$}", stamp.saturating_sub(view.capture.start()).as_secs_f64())
+    format!("{:.TIME_DIGITS$}", view.elapsed(stamp).as_secs_f64())
 }
 
 fn pid(pid: Option<u32>) -> String {
@@ -326,34 +326,57 @@ fn draw_details(network: &Network, view: &TrafficView, look: &Look<'_>, rect: Re
     if inner.is_empty() || title.is_none() {
         return;
     }
+    let width = usize::from(inner.width);
     let lines = match view.page {
         TrafficPage::Processes => talker_lines(view),
         TrafficPage::Hosts => host_lines(view),
         TrafficPage::Connections => flow_lines(view),
-        TrafficPage::Packets => packet_lines(view, usize::from(inner.width) >= HEX_LINE_WIDTH),
+        TrafficPage::Packets => packet_lines(view, width),
     };
     let labels = lines.iter().map(|line| line.label.width()).max().unwrap_or_default() + LABEL_GAP;
-    let theme = look.theme;
-    let mut top = 0;
-    let (summary, rest) = lines.split_at(lines.iter().position(|line| line.scrolls).unwrap_or(lines.len()));
-    for line in summary {
-        if top >= inner.height {
-            return;
-        }
-        draw_line(line, labels, look, row(inner, top), buf);
-        top += 1;
+    let placed = |place: Place| lines.iter().filter(move |line| line.place == place);
+    let mut area = draw_fixed(placed(Place::Head), labels, look, inner, buf);
+    if let Some(tiles_row) = tiles_of(view) {
+        let tiles_row: Vec<(&str, String)> = tiles_row.iter().map(|(label, value)| (*label, value.clone())).collect();
+        area = below(area, tiles(buf, area, &tiles_row, look.theme));
     }
-    let area = Rect { y: inner.y + top, height: inner.height.saturating_sub(top), ..inner };
-    let used = if let Some(tiles_row) = tiles_of(view) {
-        tiles(buf, area, &tiles_row.iter().map(|(label, value)| (*label, value.clone())).collect::<Vec<_>>(), theme)
-    } else {
-        0
+    let area = draw_fixed(placed(Place::Body), labels, look, area, buf);
+    let height = usize::from(area.height);
+    let streamed = match view.page {
+        TrafficPage::Connections => stream_lines(view, width, height),
+        _ => Vec::new(),
     };
-    let area = Rect { y: area.y + used.min(area.height), height: area.height.saturating_sub(used), ..area };
+    let rest: Vec<&Detail> = placed(Place::Scroll).collect();
     let skip = view.details_top.min(rest.len().saturating_sub(1));
-    for (offset, line) in rest.iter().skip(skip).take(usize::from(area.height)).enumerate() {
+    let shown = rest.into_iter().skip(skip).chain(&streamed).take(height);
+    for (offset, line) in shown.enumerate() {
         draw_line(line, labels, look, row(area, offset as u16), buf);
     }
+}
+
+/// Lines that stay in place, one under the other from the top of `area`, and what is left of
+/// it under them.
+fn draw_fixed<'a>(
+    lines: impl Iterator<Item = &'a Detail>,
+    labels: usize,
+    look: &Look<'_>,
+    mut area: Rect,
+    buf: &mut Buffer,
+) -> Rect {
+    for line in lines {
+        if area.is_empty() {
+            break;
+        }
+        draw_line(line, labels, look, row(area, 0), buf);
+        area = below(area, 1);
+    }
+    area
+}
+
+/// What is left of `area` under its first `rows` rows.
+fn below(area: Rect, rows: u16) -> Rect {
+    let rows = rows.min(area.height);
+    Rect { y: area.y + rows, height: area.height - rows, ..area }
 }
 
 /// A line of the details: an optional label column and a value, in one of a few tones.
@@ -361,8 +384,18 @@ struct Detail {
     label: String,
     value: String,
     tone: Tone,
-    /// Lines from here on scroll with the details.
-    scrolls: bool,
+    place: Place,
+}
+
+/// Where a line of the details goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// Above the figures.
+    Head,
+    /// Under the figures, staying in place.
+    Body,
+    /// Under the figures, scrolling with the details.
+    Scroll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,11 +408,15 @@ enum Tone {
 }
 
 fn detail(label: impl Into<String>, value: impl Into<String>, tone: Tone) -> Detail {
-    Detail { label: label.into(), value: value.into(), tone, scrolls: false }
+    Detail { label: label.into(), value: value.into(), tone, place: Place::Head }
+}
+
+fn steady(label: impl Into<String>, value: impl Into<String>, tone: Tone) -> Detail {
+    Detail { place: Place::Body, ..detail(label, value, tone) }
 }
 
 fn scrolling(label: impl Into<String>, value: impl Into<String>, tone: Tone) -> Detail {
-    Detail { scrolls: true, ..detail(label, value, tone) }
+    Detail { place: Place::Scroll, ..detail(label, value, tone) }
 }
 
 fn style(tone: Tone, look: &Look<'_>) -> Style {
@@ -501,6 +538,7 @@ fn host_lines(view: &TrafficView) -> Vec<Detail> {
     lines
 }
 
+/// A conversation's ends and what is known of it, staying in place over its bytes.
 fn flow_lines(view: &TrafficView) -> Vec<Detail> {
     let Some((index, flow)) = view.flow() else { return Vec::new() };
     let ends = view.ends[index];
@@ -509,43 +547,68 @@ fn flow_lines(view: &TrafficView) -> Vec<Detail> {
         detail("", format!("{}{SEPARATOR}{}", flow.kind.name(), TrafficView::protocol(flow)), Tone::Strong),
         detail("", subject(view, ends.pid), Tone::Plain),
     ];
-    lines.push(scrolling(label(tr!(network_local_label)), ends.local.to_string(), Tone::Plain));
-    lines.push(scrolling(label(tr!(network_remote_label)), ends.remote.to_string(), Tone::Plain));
+    lines.push(steady(label(tr!(network_local_label)), ends.local.to_string(), Tone::Plain));
+    lines.push(steady(label(tr!(network_remote_label)), ends.remote.to_string(), Tone::Plain));
     if let Some(host) = view.host(ends.remote.ip()) {
-        lines.push(scrolling(label(tr!(network_host_label)), host, Tone::Plain));
+        lines.push(steady(label(tr!(network_host_label)), host, Tone::Plain));
     }
     if let Some(name) = &flow.server_name {
-        lines.push(scrolling(label(tr!(traffic_asked_label)), name.clone(), Tone::Plain));
+        lines.push(steady(label(tr!(traffic_asked_label)), name.clone(), Tone::Plain));
     }
     if let Some(known) = service(ends.remote.port()).or(service(ends.local.port())) {
-        lines.push(scrolling(label(tr!(network_service_label)), known, Tone::Plain));
+        lines.push(steady(label(tr!(network_service_label)), known, Tone::Plain));
     }
-    lines.push(scrolling(
+    lines.push(steady(
         label(tr!(traffic_started_label)),
         tr!(capture_seconds, seconds = elapsed(view, flow.first)),
         Tone::Plain,
     ));
-    lines.push(scrolling("", "", Tone::Plain));
-    lines.push(scrolling("", format!("{}{SEPARATOR}{}", tr!(traffic_packets_tab), flow.packets.len()), Tone::Heading));
-    lines.extend(flow.packets.iter().map(|&number| {
-        let packet = &view.capture.packets[number];
-        let outgoing = sender(packet).is_some_and(|source| source == ends.local.ip());
-        let arrow = if outgoing { OUTGOING } else { INCOMING };
-        scrolling(
-            "",
-            format!("{}  {arrow} {:>5}  {}", elapsed(view, packet.stamp), packet.length, packet.summary()),
-            Tone::Plain,
-        )
-    }));
+    lines.push(steady("", "", Tone::Plain));
+    let stream = view.stream();
+    let size = stream.map_or(0, |stream| stream.bytes.len() as u64);
+    lines.push(steady("", format!("{}{SEPARATOR}{}", tr!(traffic_stream_heading), format::size(size)), Tone::Heading));
+    if stream.is_none_or(|stream| stream.turns.is_empty()) {
+        lines.push(steady("", tr!(traffic_no_data), Tone::Quiet));
+    }
     lines
 }
 
-fn sender(packet: &Packet) -> Option<IpAddr> {
-    packet.layers.ip.map(|ip| ip.source)
+/// The rows of the selected conversation's bytes that fit `height` rows `width` cells wide,
+/// from where the details are scrolled to.
+fn stream_lines(view: &TrafficView, width: usize, height: usize) -> Vec<Detail> {
+    let (Some((index, flow)), Some(stream)) = (view.flow(), view.stream()) else { return Vec::new() };
+    let client_here = view.ends[index].local == flow.client;
+    let layout = stream.layout(width);
+    stream
+        .rows_from(layout, view.details_top)
+        .take(height)
+        .map(|row| match row {
+            StreamRow::Turn(turn) => {
+                scrolling("", turn_line(view, turn, turn.from_client == client_here), Tone::Strong)
+            }
+            StreamRow::Bytes { offset, bytes } => scrolling("", layout.line(offset, bytes), Tone::Code),
+        })
+        .collect()
 }
 
-/// A packet's layers and its bytes, with the bytes as text beside them when `with_text`.
-fn packet_lines(view: &TrafficView, with_text: bool) -> Vec<Detail> {
+/// A turn's first line: whether this machine sent it, how much, when, and what the capture
+/// lacks before it.
+fn turn_line(view: &TrafficView, turn: &Turn, outgoing: bool) -> String {
+    let (arrow, said) =
+        if outgoing { (OUTGOING, tr!(network_sent_tile)) } else { (INCOMING, tr!(network_received_tile)) };
+    let mut line = format!(
+        "{arrow} {said} {}{SEPARATOR}{}",
+        format::size(turn.len() as u64),
+        tr!(capture_seconds, seconds = elapsed(view, turn.stamp))
+    );
+    if turn.missing > 0 {
+        let _ = write!(line, "{SEPARATOR}{}", tr!(traffic_missing, size = format::size(turn.missing)));
+    }
+    line
+}
+
+/// A packet's layers and its bytes, in a dump that fits `width` cells.
+fn packet_lines(view: &TrafficView, width: usize) -> Vec<Detail> {
     let Some((_, packet)) = view.packet() else { return Vec::new() };
     let layers = &packet.layers;
     let mut lines = vec![
@@ -571,7 +634,8 @@ fn packet_lines(view: &TrafficView, with_text: bool) -> Vec<Detail> {
     lines.extend(packet.layer_rows().into_iter().map(|(label, value)| scrolling(label, value, Tone::Plain)));
     lines.push(scrolling("", "", Tone::Plain));
     lines.push(scrolling("", tr!(traffic_bytes_column), Tone::Heading));
-    lines.extend(hex_lines(&packet.data, with_text).into_iter().map(|line| scrolling("", line, Tone::Code)));
+    let layout = HexLayout::fitting(width, packet.data.len());
+    lines.extend(hex_lines(&packet.data, layout).into_iter().map(|line| scrolling("", line, Tone::Code)));
     lines
 }
 

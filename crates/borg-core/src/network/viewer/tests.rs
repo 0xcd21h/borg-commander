@@ -215,3 +215,54 @@ fn a_packet_report_gives_its_connection_layers_and_bytes() {
     assert_eq!(view.packet_report(0), None);
     assert_eq!(view.packet_report(8), None);
 }
+
+/// A conversation where the client asks twice and the server answers in between.
+fn talk_view() -> TrafficView {
+    let (port, request, answer) = (CLIENT_PORT, [b'q'; 20], [b'a'; 3]);
+    let frames = [
+        over_tcp(CLIENT, SERVER, tcp(port, 80, 1000, SYN, &[])),
+        over_tcp(SERVER, CLIENT, tcp(80, port, 5000, SYN | ACK, &[])),
+        over_tcp(CLIENT, SERVER, tcp(port, 80, 1001, PSH | ACK, &request)),
+        over_tcp(SERVER, CLIENT, tcp(80, port, 5001, PSH | ACK, &answer)),
+        over_tcp(CLIENT, SERVER, tcp(port, 80, 1021, PSH | ACK, &request)),
+        over_udp(CLIENT, RESOLVER, udp(RESOLVER_PORT, 53, &dns("example.com", None))),
+    ];
+    let capture = Capture::read(&pcap(&frames)).unwrap();
+    let mut view = TrafficView::new(capture, &[], HashMap::new(), &HashMap::new(), None);
+    view.page = TrafficPage::Connections;
+    view
+}
+
+#[test]
+fn the_stream_follows_the_cursor_on_the_connections() {
+    let mut view = talk_view();
+    let turns: Vec<bool> = view.stream().unwrap().turns.iter().map(|turn| turn.from_client).collect();
+    assert_eq!(turns, [true, false, true]);
+    view.move_by(1);
+    assert_eq!(view.stream().unwrap().turns.len(), 1, "the DNS question");
+    view.page = TrafficPage::Packets;
+    assert_eq!(view.stream(), None, "only the connections show a stream");
+}
+
+#[test]
+fn the_details_scroll_over_the_stream_and_step_from_turn_to_turn() {
+    const WIDE: usize = 80;
+    let mut view = talk_view();
+    assert_eq!(view.detail_rows(WIDE), 8, "2 rows for each question, 1 for the answer, and a line for each turn");
+    view.step_turn(WIDE, true);
+    assert_eq!(view.details_top, 3);
+    view.step_turn(WIDE, true);
+    assert_eq!(view.details_top, 5);
+    view.step_turn(WIDE, true);
+    assert_eq!(view.details_top, 5, "no turn after the last");
+    view.step_turn(WIDE, false);
+    assert_eq!(view.details_top, 3);
+    assert_eq!(view.detail_rows(30), 14, "4 bytes a line in a narrow pane");
+}
+
+#[test]
+fn times_count_from_the_first_packet() {
+    let view = talk_view();
+    let last = view.capture.packets.last().unwrap().stamp;
+    assert_eq!(view.elapsed(last), std::time::Duration::from_millis(5));
+}

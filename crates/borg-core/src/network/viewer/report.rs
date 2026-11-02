@@ -2,7 +2,7 @@
 //! to whom and how much, and one packet's layers and bytes when asked for.
 
 use super::TrafficView;
-use crate::hex_lines;
+use crate::{HexLayout, hex_lines};
 use std::{cmp::Reverse, collections::HashMap, fmt::Write, time::Duration};
 use unicode_width::UnicodeWidthStr;
 
@@ -94,14 +94,14 @@ impl TrafficView {
             let _ = writeln!(text, "{label:<width$}{COLUMN_GAP}{value}");
         }
         let _ = writeln!(text, "Bytes:");
-        for line in hex_lines(&packet.data, true) {
+        for line in hex_lines(&packet.data, HexLayout::full(packet.data.len())) {
             let _ = writeln!(text, "{line}");
         }
         Some(text)
     }
 
     fn since_start(&self, stamp: Duration) -> String {
-        format!("{:.TIME_DIGITS$}", stamp.saturating_sub(self.capture.start()).as_secs_f64())
+        format!("{:.TIME_DIGITS$}", self.elapsed(stamp).as_secs_f64())
     }
 
     /// A process by name and PID, or what the screen calls one it cannot tell.
