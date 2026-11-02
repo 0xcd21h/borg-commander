@@ -1,9 +1,10 @@
 use super::*;
 use crate::{
-    ActivityData, Appearance, Msg, ProcessInfo, ProcessKey, Settings, Startup, SystemSample, ThemeChoice, update,
+    ActivityData, Appearance, Msg, Overlay, ProcessInfo, ProcessKey, Settings, Startup, SystemSample, ThemeChoice,
+    update,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 const SSHD: u32 = 301;
 const POSTGRES: u32 = 812;
@@ -500,4 +501,128 @@ fn a_row_without_a_process_has_nothing_to_show() {
     press(&mut state, KeyCode::Char('k'), KeyModifiers::NONE);
     assert!(state.network.is_open());
     assert_eq!(state.notice.as_deref(), Some(tr!(network_no_process)));
+}
+
+fn capture_dialog(state: &AppState) -> &CaptureDialog {
+    match &state.overlay {
+        Some(Overlay::Capture(dialog)) => dialog,
+        _ => panic!("the capture dialog is open"),
+    }
+}
+
+fn started(effects: Vec<Effect>) -> (u64, CaptureRequest) {
+    match effects.into_iter().next() {
+        Some(Effect::Capture { id, request }) => (id, request),
+        _ => panic!("a capture starts"),
+    }
+}
+
+#[test]
+fn r_asks_what_to_capture_with_the_selected_row_first() {
+    let (mut state, _) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let dialog = capture_dialog(&state);
+    assert_eq!(dialog.scopes, [CaptureScope::Port { transport: Transport::Tcp, port: 22 }, CaptureScope::Everything]);
+    assert_eq!(dialog.interfaces.first().map(String::as_str), Some("en0"), "the busiest interface first");
+    assert_eq!(dialog.request().unwrap().filter, "tcp port 22");
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.overlay.is_none() && state.network.recording.is_none());
+
+    press(&mut state, KeyCode::Char('3'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let filter = capture_dialog(&state).request().unwrap().filter;
+    assert_eq!(
+        filter,
+        "tcp and ((src host 192.0.2.10 and src port 50123 and dst host 203.0.113.9 and dst port 443) or \
+         (src host 203.0.113.9 and src port 443 and dst host 192.0.2.10 and dst port 50123))",
+        "the busiest connection, both ways"
+    );
+}
+
+#[test]
+fn the_dialog_changes_its_fields_and_starts_the_capture_in_the_panel_folder() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Left, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char(' '), KeyModifiers::NONE);
+    let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert_eq!(request.seconds, None, "Left from the first length goes round to until stopped");
+    assert!(request.headers_only);
+    assert_eq!(request.folder, state.panel(state.network.side.unwrap()).dir());
+    assert!(state.network.recording.is_some());
+}
+
+#[test]
+fn r_stops_a_capture_and_closing_the_screen_stops_it_too() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureProgress { id, bytes: 4_096, packets: 12 }, now);
+    assert_eq!(state.network.recording.as_ref().map(|recording| recording.packets), Some(12));
+    assert_eq!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE), [Effect::StopCapture { id }]);
+    assert!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE).is_empty(), "it is already stopping");
+
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    let effects = press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!state.network.is_open());
+    assert!(effects.contains(&Effect::StopCapture { id }));
+    let path = PathBuf::from("/work/capture.pcap");
+    update(&mut state, Msg::CaptureDone { id, result: Ok((path, Capture::default())) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Saved 0 packets to /work/capture.pcap"));
+    assert!(state.network.recording.is_none());
+}
+
+#[test]
+fn a_finished_capture_opens_in_the_viewer_on_its_process() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('2'), KeyModifiers::NONE);
+    let browser = state.network.processes.iter().position(|row| row.pid == Some(BROWSER)).unwrap();
+    state.network.select(browser);
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).scopes[0], CaptureScope::Process { pid: BROWSER });
+    let (id, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(request.filter.is_empty(), "a process's capture takes the whole interface");
+    let path = request.folder.join("capture.pcap");
+    let effects = update(&mut state, Msg::CaptureDone { id, result: Ok((path.clone(), Capture::default())) }, now);
+    assert!(
+        effects.iter().any(|effect| matches!(effect, Effect::List { dir, .. } if *dir == request.folder)),
+        "the panel lists the new file: {effects:?}"
+    );
+    let view = state.network.viewer.as_deref().unwrap();
+    assert_eq!((view.filter.as_str(), view.path.as_ref()), ("pid:8239", Some(&path)));
+    assert_eq!(view.interface.as_deref(), Some(request.interface.as_str()));
+
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.network.viewer.as_deref().is_some_and(|view| view.filter.is_empty()), "Esc clears the filter");
+    let effects = press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.network.viewer.is_none() && state.network.is_open(), "then goes back to the live screen");
+    assert!(requested(&effects).is_some() || state.network.pending.is_some(), "which samples again");
+}
+
+#[test]
+fn a_failed_capture_says_why() {
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    update(&mut state, Msg::CaptureDone { id, result: Err("tcpdump stopped".into()) }, now);
+    assert_eq!(state.notice.as_deref(), Some("tcpdump stopped"));
+    assert!(state.network.viewer.is_none() && state.network.recording.is_none());
+}
+
+#[test]
+fn an_opened_capture_file_shows_its_hosts() {
+    let (mut state, now) = state();
+    let path = PathBuf::from("/work/trace.pcap");
+    let effects = update(&mut state, Msg::CaptureOpened { path: path.clone(), result: Ok(Capture::default()) }, now);
+    assert!(state.network.is_open());
+    assert!(requested(&effects).is_some(), "the screen opens and samples");
+    let view = state.network.viewer.as_deref().unwrap();
+    assert_eq!((view.page, view.path.as_ref()), (TrafficPage::Hosts, Some(&path)));
+    press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!state.network.details_focused, "Enter on an empty list leaves the keys with it");
 }

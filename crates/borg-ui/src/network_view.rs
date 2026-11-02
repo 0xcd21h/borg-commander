@@ -13,10 +13,13 @@ use ratatui::{
 use std::net::{IpAddr, SocketAddr};
 use unicode_width::UnicodeWidthStr;
 
+mod capture;
 mod controls;
 mod details;
 mod list;
+mod traffic;
 
+pub(crate) use capture::{draw_dialog as draw_capture_dialog, field_at as capture_field_at};
 pub(crate) use controls::{keybar, panel_mouse, status};
 
 const TABS_ROW: u16 = 0;
@@ -47,8 +50,12 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: st
     let spinner = Spinner::of(&state.busy, borg_core::Task::Network, now);
     let list = panels[side.index()];
     let details = panels[side.other().index()];
+    if let Some(view) = network.viewer.as_deref() {
+        traffic::draw(network, view, look, state.notice.as_deref(), [list, details], buf);
+        return;
+    }
     if !list.is_empty() {
-        list::draw_list(state, look, list, spinner, buf);
+        list::draw_list(state, look, list, spinner, now, buf);
     }
     if !details.is_empty() {
         details::draw_details(network, look, details, buf);
@@ -88,11 +95,16 @@ fn page_label(page: NetworkPage) -> &'static str {
 
 /// The page tabs on the list pane's first row, each with the digit that opens it.
 fn tabs(area: Rect) -> Vec<(Rect, String, NetworkPage)> {
+    let labels = NetworkPage::ALL.map(|page| (format!("{} {}", page.key(), page_label(page)), page));
+    tab_cells(labels, area)
+}
+
+/// Tabs side by side from the row's start, each as wide as its label and a cell either side.
+fn tab_cells<T>(labels: impl IntoIterator<Item = (String, T)>, area: Rect) -> Vec<(Rect, String, T)> {
     let mut x = area.x;
-    NetworkPage::ALL
+    labels
         .into_iter()
-        .map(|page| {
-            let label = format!("{} {}", page.key(), page_label(page));
+        .map(|(label, page)| {
             let width = (label.width() as u16 + 2).min(area.right().saturating_sub(x));
             let rect = Rect { x, width, ..area };
             x += width;
@@ -193,15 +205,22 @@ fn columns(page: NetworkPage, width: u16) -> Vec<Column> {
     all.into_iter().flatten().collect()
 }
 
-/// Each column's cell in a row, one cell apart, with the open column taking what is left.
+/// Each column's cell in a row.
 fn cells(columns: &[Column], area: Rect) -> Vec<Rect> {
-    let fixed: u16 = columns.iter().filter_map(|c| c.width).sum::<u16>() + columns.len().saturating_sub(1) as u16;
-    let open = area.width.saturating_sub(fixed);
+    spread(&columns.iter().map(|column| column.width).collect::<Vec<_>>(), area)
+}
+
+/// Cells of these widths side by side, one cell apart, with the open ones (no width) sharing
+/// what is left.
+fn spread(widths: &[Option<u16>], area: Rect) -> Vec<Rect> {
+    let fixed: u16 = widths.iter().flatten().sum::<u16>() + widths.len().saturating_sub(1) as u16;
+    let opened = widths.iter().filter(|width| width.is_none()).count().max(1) as u16;
+    let share = area.width.saturating_sub(fixed) / opened;
     let mut x = area.x;
-    columns
+    widths
         .iter()
-        .map(|column| {
-            let width = column.width.unwrap_or(open);
+        .map(|width| {
+            let width = width.unwrap_or(share);
             let cell = Rect { x, width: width.min(area.right().saturating_sub(x)), ..area };
             x = x.saturating_add(width + 1);
             cell

@@ -79,7 +79,7 @@ fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Ef
         || (state.activity.side.is_some()
             && state.view == View::Panels
             && (state.activity.search_form.is_some() || state.activity.filtering))
-        || (state.network.filtering && state.network.is_open() && state.view == View::Panels);
+        || (state.network.typing() && state.network.is_open() && state.view == View::Panels);
     if field
         && crate::clipboard::is_paste(key)
         && let Some(text) = state.clipboard.latest().map(str::to_owned)

@@ -3297,3 +3297,16 @@ fn a_question_answers_to_the_letters_its_buttons_show() {
         vec![Effect::StartJob { id: 0, spec: Spec::Delete { sources: vec![PathBuf::from("/home/a")] } }]
     );
 }
+
+#[test]
+fn f3_on_a_capture_file_opens_the_traffic_viewer() {
+    let (mut state, now) = setup_with(vec![file("notes.txt"), file("trace.pcapng")]);
+    while hovered(&state) != Some("trace.pcapng") {
+        state.panel_mut(Side::Left).move_by(1);
+    }
+    let effects = press(&mut state, now, key(KeyCode::F(3)));
+    assert_eq!(effects, [Effect::OpenCapture(PathBuf::from("/home/trace.pcapng"))]);
+    state.settings.preferences.system_plugin = false;
+    let effects = press(&mut state, now, key(KeyCode::F(3)));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::OpenCapture(_))), "without the plugin it is a file");
+}

@@ -829,10 +829,12 @@ y se renombran cuando están completas.
 
 ### Visor y vista rápida
 
-F3 abre el visor. En los archivos de texto, las flechas y PgUp/PgDn desplazan, `w` activa o
-desactiva el ajuste de línea, y Esc o `q` lo cierran. En las imágenes, Left/Right o `p`/`n`
-muestran la imagen anterior o la siguiente. Borg usa el protocolo de imágenes del terminal cuando
-lo hay; los demás terminales muestran la imagen como bloques de colores.
+F3 abre el visor. Con el complemento Sistema activado, F3 sobre un archivo `.pcap`, `.pcapng` o
+`.cap` abre en su lugar el visor de tráfico de la pantalla de red (consulta
+[Capturar tráfico](#capturing-traffic)). En los archivos de texto, las flechas y PgUp/PgDn
+desplazan, `w` activa o desactiva el ajuste de línea, y Esc o `q` lo cierran. En las imágenes,
+Left/Right o `p`/`n` muestran la imagen anterior o la siguiente. Borg usa el protocolo de imágenes
+del terminal cuando lo hay; los demás terminales muestran la imagen como bloques de colores.
 
 Ctrl-Q muestra una vista previa rápida en el otro panel. Tab entra en ella, donde las flechas,
 PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos. Ctrl-L
@@ -1272,6 +1274,7 @@ en lugar de la dirección en cuanto lo conoce.
 | T / N / P / C | Ordenar por tráfico / nombre / puerto / conexiones; pulsa de nuevo para invertir |
 | Enter | Mostrar el proceso de la fila seleccionada en el monitor de actividad |
 | K | Mostrar el proceso con **Señal o prioridad** abierto |
+| R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
 | Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo o la dirección de la interfaz |
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
@@ -1309,6 +1312,79 @@ estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5
 Pon `!` delante de una palabra para descartar las filas que coinciden con ella: `!state:time_wait`
 oculta las conexiones que se están cerrando, y `!proc:browser` oculta un programa. El filtro se
 aplica a todas las páginas y, mientras escribes, indica cuántas filas de la página conserva.
+
+### Capturar tráfico
+
+Pulsa **R** para grabar los paquetes de la fila seleccionada con `tcpdump`, que macOS trae de serie
+y Linux instala con el paquete `tcpdump`. El diálogo **Capturar tráfico** parte de esa fila:
+
+- **Tráfico** es lo que guarda tcpdump. En **1 Puertos** es el puerto y las conexiones que entraron
+  por él, y en **3 Conexiones** esa conexión en ambos sentidos. En **2 Procesos** es **Todo el
+  tráfico, mostrado para** ese proceso: tcpdump no puede elegir paquetes por proceso, así que Borg
+  graba toda la interfaz y abre el resultado en el proceso. **Todo el tráfico de la interfaz**
+  está siempre como segunda opción.
+- **Interfaz** empieza en la que tiene la dirección de la fila o, si no la hay, en la más activa.
+- **Duración** es de 5, 10, 30 o 60 segundos, o **Hasta detenerla**.
+- **Guardar** es **Paquetes completos**, o **Cabeceras, los primeros 128 bytes de cada paquete**
+  para archivos pequeños que dejan fuera casi todo lo que llevan los paquetes.
+
+↑↓ eligen un campo, ←→ o Space lo cambian, Enter inicia la captura y Esc la cancela. Con el ratón,
+haz clic en un campo para elegirlo y otra vez para cambiarlo. Mientras la captura se ejecuta, el pie
+cuenta sus paquetes, sus bytes y los segundos que quedan, y **R** la detiene antes de tiempo. Una
+captura también se detiene a los 200.000 paquetes o 256 MiB. Si cierras la pantalla antes, la
+captura se detiene y un aviso dice dónde la guardó Borg.
+
+Borg guarda cada captura como `capture-<date>-<time>.pcap` en la carpeta del panel que cubre la
+pantalla de red, legible solo por ti, para que Wireshark y otras herramientas puedan abrirla
+después. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
+cuidado que esos datos.
+
+Cuando la captura termina, el visor de tráfico ocupa el lugar de las páginas en vivo, con una página
+para cada forma de mirarla:
+
+- **1 Procesos** muestra cada proceso con los hosts con los que habló, sus paquetes y sus bytes.
+  Una conversación pertenece al proceso cuyo socket la tenía durante la captura, y el resto va a
+  **Proceso desconocido**.
+- **2 Hosts** muestra las demás máquinas con los protocolos vistos. Los nombres salen de las
+  respuestas DNS de la propia captura y de los nombres de servidor que pidieron las conexiones TLS,
+  así que la mayoría de los hosts tienen uno.
+- **3 Conexiones** muestra cada conversación con su proceso, el otro extremo, el protocolo, los
+  paquetes y los bytes. Los detalles muestran ambos extremos, el nombre del servidor, el servicio,
+  los bytes enviados y recibidos, y cada paquete con una flecha que indica su sentido.
+- **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
+  longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
+  detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y
+  sus bytes en un volcado hexadecimal.
+
+| Tecla | Acción |
+| --- | --- |
+| 1 / 2 / 3 / 4 | Mostrar Procesos / Hosts / Conexiones / Paquetes |
+| Enter | Bajar un nivel: de un proceso o host a sus conexiones, de una conexión a sus paquetes, de un paquete a sus detalles |
+| `/` | Filtrar las filas, como en las páginas en vivo |
+| Ctrl-C | Copiar el PID, la dirección, el otro extremo o los bytes del paquete en hex |
+| Tab | Pasar entre la lista y los detalles, donde ↑↓ desplazan |
+| Esc | Volver a la lista, luego subir un nivel, luego borrar el filtro y luego volver a la pantalla en vivo |
+
+El filtro acepta las mismas palabras que las páginas en vivo, y `proto:` además coincide con lo que
+Borg reconoció en los paquetes: `proto:dns`, `proto:tls`, `proto:http` y `proto:quic`. Un filtro se
+aplica a todas las páginas, y Enter pone uno para bajar un nivel, por eso Esc puede volver atrás.
+
+F3 sobre un archivo `.pcap`, `.pcapng` o `.cap` en un panel lo abre en el mismo visor, empezando
+por **2 Hosts**. Un archivo grabado en otro sitio no tiene sockets con los que emparejarse, así que
+sus conversaciones muestran **Proceso desconocido**. El visor lee archivos de hasta 256 MiB y sus
+primeros 200.000 paquetes.
+
+tcpdump necesita acceso al dispositivo de captura, y Borg lo ejecuta como tú:
+
+- En macOS, al principio solo root puede abrir los dispositivos `/dev/bpf`. Instala una vez
+  Wireshark con su componente **ChmodBPF**: entrega los dispositivos a un grupo `access_bpf` y te
+  añade a él, y a partir de entonces puedes capturar en todas las interfaces.
+- En Linux, da una vez a tcpdump las capacidades de captura con
+  `sudo setcap cap_net_raw,cap_net_admin=eip /usr/sbin/tcpdump`. Algunas distribuciones permiten
+  capturar a los miembros de un grupo `pcap` o `wireshark`.
+
+Sin acceso, la captura termina con **No tienes permiso para capturar en** y el nombre de la
+interfaz.
 
 ### Lo que informa el sistema
 

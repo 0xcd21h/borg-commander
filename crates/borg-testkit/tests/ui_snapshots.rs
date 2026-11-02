@@ -3025,6 +3025,59 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
     Ok(())
 }
 
+/// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
+/// the browser, where Enter goes from the process to its connections and on to one
+/// connection's packets, and Esc comes back the same way to every process and the hosts.
+#[test]
+fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
+    use borg_core::{Capture, Effect, TrafficPage};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "All traffic, shown for browser · PID 8239")?;
+    check("network_capture_dialog", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!((request.interface.as_str(), request.filter.as_str()), ("en0", ""), "all of the busiest interface");
+    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Capturing on en0 · 61 packets")?;
+    ensure_text(&buffer, "R Stop capture")?;
+
+    let capture = Capture::read(&borg_testkit::capture::bytes()).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcap");
+    stage.send(Msg::CaptureDone { id, result: Ok((path, capture)) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "pid:8239")?;
+    ensure_text(&buffer, "cdn.example.net:443")?;
+    check("traffic_processes", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "ClientHello cdn.example.net")?;
+    check("traffic_connections", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "ClientHello · cdn.example.net")?;
+    check("traffic_packet", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    let view = stage.state.network.viewer.as_deref().context("the viewer stays open")?;
+    assert_eq!((view.page, view.filter.as_str()), (TrafficPage::Processes, "pid:8239"), "back to the browser");
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Char('2')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "api.example.com")?;
+    check("traffic_hosts", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.network.viewer.is_none() && stage.state.network.is_open(), "Esc goes back to the live screen");
+    Ok(())
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]

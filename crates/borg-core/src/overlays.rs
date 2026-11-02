@@ -40,6 +40,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Remotes(browser)) => crate::remote::on_key(state, browser, key),
         Some(Overlay::TimeMachine) => crate::backup::on_key(state, key, now),
         Some(Overlay::ProcessControl(dialog)) => crate::activity::on_control_key(state, dialog, key),
+        Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         None => Vec::new(),
     }
 }

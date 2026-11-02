@@ -1,0 +1,409 @@
+use super::*;
+use std::net::{Ipv6Addr, SocketAddr};
+
+const ETHERNET: u32 = 1;
+const NULL: u32 = 0;
+pub(crate) const CLIENT: [u8; 4] = [192, 168, 1, 20];
+pub(crate) const SERVER: [u8; 4] = [93, 184, 216, 34];
+pub(crate) const RESOLVER: [u8; 4] = [192, 168, 1, 1];
+pub(crate) const CLIENT_PORT: u16 = 51000;
+
+fn pcap_with(link: u32, big: bool, nanos: bool, records: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
+    let word = |value: u32| if big { value.to_be_bytes() } else { value.to_le_bytes() };
+    let half = |value: u16| if big { value.to_be_bytes() } else { value.to_le_bytes() };
+    let mut bytes = Vec::new();
+    bytes.extend(word(if nanos { 0xa1b2_3c4d } else { 0xa1b2_c3d4 }));
+    bytes.extend(half(2));
+    bytes.extend(half(4));
+    bytes.extend(word(0));
+    bytes.extend(word(0));
+    bytes.extend(word(65535));
+    bytes.extend(word(link));
+    for (seconds, fraction, data) in records {
+        bytes.extend(word(*seconds));
+        bytes.extend(word(*fraction));
+        bytes.extend(word(data.len() as u32));
+        bytes.extend(word(data.len() as u32));
+        bytes.extend(data);
+    }
+    bytes
+}
+
+pub(crate) fn pcap(frames: &[Vec<u8>]) -> Vec<u8> {
+    let records: Vec<_> = frames.iter().enumerate().map(|(i, frame)| (100, i as u32 * 1000, frame.clone())).collect();
+    pcap_with(ETHERNET, false, false, &records)
+}
+
+fn ethernet(ether_type: u16, payload: &[u8]) -> Vec<u8> {
+    let mut frame = vec![0xaa, 0xbb, 0xcc, 0, 0, 1, 0xaa, 0xbb, 0xcc, 0, 0, 2];
+    frame.extend(ether_type.to_be_bytes());
+    frame.extend(payload);
+    frame
+}
+
+fn ipv4(protocol: u8, source: [u8; 4], destination: [u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut packet = vec![0x45, 0];
+    packet.extend((20 + payload.len() as u16).to_be_bytes());
+    packet.extend([0, 1, 0x40, 0, 64, protocol, 0, 0]);
+    packet.extend(source);
+    packet.extend(destination);
+    packet.extend(payload);
+    packet
+}
+
+pub(crate) fn tcp(source: u16, destination: u16, seq: u32, flags: u16, payload: &[u8]) -> Vec<u8> {
+    let mut segment = Vec::new();
+    segment.extend(source.to_be_bytes());
+    segment.extend(destination.to_be_bytes());
+    segment.extend(seq.to_be_bytes());
+    segment.extend(1u32.to_be_bytes());
+    segment.extend((0x5000 | flags).to_be_bytes());
+    segment.extend(65535u16.to_be_bytes());
+    segment.extend([0, 0, 0, 0]);
+    segment.extend(payload);
+    segment
+}
+
+pub(crate) fn udp(source: u16, destination: u16, payload: &[u8]) -> Vec<u8> {
+    let mut datagram = Vec::new();
+    datagram.extend(source.to_be_bytes());
+    datagram.extend(destination.to_be_bytes());
+    datagram.extend((8 + payload.len() as u16).to_be_bytes());
+    datagram.extend([0, 0]);
+    datagram.extend(payload);
+    datagram
+}
+
+pub(crate) fn over_tcp(source: [u8; 4], destination: [u8; 4], segment: Vec<u8>) -> Vec<u8> {
+    ethernet(0x0800, &ipv4(6, source, destination, &segment))
+}
+
+pub(crate) fn over_udp(source: [u8; 4], destination: [u8; 4], datagram: Vec<u8>) -> Vec<u8> {
+    ethernet(0x0800, &ipv4(17, source, destination, &datagram))
+}
+
+fn name(text: &str) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    for label in text.split('.') {
+        encoded.push(label.len() as u8);
+        encoded.extend(label.as_bytes());
+    }
+    encoded.push(0);
+    encoded
+}
+
+/// A DNS message asking for `asked`'s A record, answered with `answers` when given.
+pub(crate) fn dns(asked: &str, answers: Option<&[[u8; 4]]>) -> Vec<u8> {
+    let mut message = vec![0x12, 0x34];
+    message.extend(if answers.is_some() { [0x81, 0x80] } else { [0x01, 0x00] });
+    message.extend(1u16.to_be_bytes());
+    message.extend((answers.map_or(0, <[_]>::len) as u16).to_be_bytes());
+    message.extend([0, 0, 0, 0]);
+    message.extend(name(asked));
+    message.extend([0, 1, 0, 1]);
+    for address in answers.unwrap_or_default() {
+        message.extend([0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4]);
+        message.extend(address);
+    }
+    message
+}
+
+/// A TLS client hello asking for `server`, with padding to make it span segments.
+pub(crate) fn client_hello(server: &str, padding: usize) -> Vec<u8> {
+    let mut sni = Vec::new();
+    sni.extend((server.len() as u16 + 3).to_be_bytes());
+    sni.push(0);
+    sni.extend((server.len() as u16).to_be_bytes());
+    sni.extend(server.as_bytes());
+    let mut extensions = Vec::new();
+    extensions.extend(21u16.to_be_bytes());
+    extensions.extend((padding as u16).to_be_bytes());
+    extensions.extend(vec![0; padding]);
+    extensions.extend(0u16.to_be_bytes());
+    extensions.extend((sni.len() as u16).to_be_bytes());
+    extensions.extend(sni);
+    let mut hello = vec![3, 3];
+    hello.extend([7; 32]);
+    hello.push(0);
+    hello.extend([0, 2, 0x13, 0x01]);
+    hello.extend([1, 0]);
+    hello.extend((extensions.len() as u16).to_be_bytes());
+    hello.extend(extensions);
+    let mut handshake = vec![1];
+    handshake.extend(&(hello.len() as u32).to_be_bytes()[1..]);
+    handshake.extend(hello);
+    let mut record = vec![0x16, 3, 1];
+    record.extend((handshake.len() as u16).to_be_bytes());
+    record.extend(handshake);
+    record
+}
+
+#[test]
+fn reads_pcap_in_either_byte_order_and_unit() {
+    let frame = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    for (big, nanos, fraction, expected) in [
+        (false, false, 250_000, Duration::from_millis(1250)),
+        (true, false, 250_000, Duration::from_millis(1250)),
+        (false, true, 250_000_000, Duration::from_millis(1250)),
+    ] {
+        let capture = Capture::read(&pcap_with(ETHERNET, big, nanos, &[(1, fraction, frame.clone())])).unwrap();
+        assert_eq!(capture.packets.len(), 1);
+        assert_eq!(capture.packets[0].stamp, expected);
+        assert_eq!(capture.packets[0].layers.protocol(), "DNS");
+        assert!(!capture.cut);
+    }
+}
+
+#[test]
+fn a_file_that_ends_inside_a_packet_keeps_the_whole_ones() {
+    let frame = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let mut bytes = pcap(&[frame.clone(), frame]);
+    bytes.truncate(bytes.len() - 5);
+    let capture = Capture::read(&bytes).unwrap();
+    assert_eq!(capture.packets.len(), 1);
+    assert!(capture.cut);
+}
+
+#[test]
+fn other_files_are_not_captures() {
+    assert_eq!(Capture::read(b"hello world, this is text").unwrap_err(), CaptureError::Unknown);
+    assert_eq!(Capture::read(b"ab").unwrap_err(), CaptureError::Short);
+}
+
+#[test]
+fn packets_past_the_limit_are_counted_and_left_out() {
+    let frame = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let found = files::frames(&pcap(&[frame.clone(), frame.clone(), frame]), 2).unwrap();
+    assert_eq!((found.frames.len(), found.skipped), (2, 1));
+}
+
+fn block(kind: u32, body: &[u8]) -> Vec<u8> {
+    let total = (12 + body.len().div_ceil(4) * 4) as u32;
+    let mut block = Vec::new();
+    block.extend(kind.to_le_bytes());
+    block.extend(total.to_le_bytes());
+    block.extend(body);
+    block.resize(total as usize - 4, 0);
+    block.extend(total.to_le_bytes());
+    block
+}
+
+#[test]
+fn reads_pcapng_with_the_interface_name_and_unit() {
+    let frame = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let mut section = Vec::new();
+    section.extend(0x1a2b_3c4du32.to_le_bytes());
+    section.extend([1, 0, 0, 0]);
+    section.extend((-1i64).to_le_bytes());
+    let mut interface = Vec::new();
+    interface.extend(1u16.to_le_bytes());
+    interface.extend([0, 0]);
+    interface.extend(0u32.to_le_bytes());
+    interface.extend(2u16.to_le_bytes());
+    interface.extend(3u16.to_le_bytes());
+    interface.extend(b"en0\0");
+    interface.extend(9u16.to_le_bytes());
+    interface.extend(1u16.to_le_bytes());
+    interface.extend([9, 0, 0, 0]);
+    interface.extend([0, 0, 0, 0]);
+    let ticks: u64 = 3_500_000_000;
+    let mut packet = Vec::new();
+    packet.extend(0u32.to_le_bytes());
+    packet.extend(((ticks >> 32) as u32).to_le_bytes());
+    packet.extend((ticks as u32).to_le_bytes());
+    packet.extend((frame.len() as u32).to_le_bytes());
+    packet.extend((frame.len() as u32).to_le_bytes());
+    packet.extend(&frame);
+    let bytes = [block(0x0a0d_0d0a, &section), block(1, &interface), block(6, &packet)].concat();
+    let capture = Capture::read(&bytes).unwrap();
+    assert_eq!(capture.packets.len(), 1);
+    assert_eq!(capture.packets[0].interface.as_deref(), Some("en0"));
+    assert_eq!(capture.packets[0].stamp, Duration::from_millis(3500));
+    assert_eq!(capture.packets[0].data, frame);
+}
+
+#[test]
+fn ethernet_tcp_gives_ports_flags_and_the_payload_without_padding() {
+    let mut frame = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 80, 7, PSH | ACK, b"hi"));
+    frame.extend([0; 6]);
+    let capture = Capture::read(&pcap(&[frame])).unwrap();
+    let packet = &capture.packets[0];
+    let Some(Datagram::Tcp(segment)) = packet.layers.datagram else { panic!("not TCP") };
+    assert_eq!((segment.source, segment.destination, segment.seq), (CLIENT_PORT, 80, 7));
+    assert_eq!(segment.flag_names(), ["PSH", "ACK"]);
+    assert_eq!(packet.payload(), b"hi");
+    assert_eq!(packet.layers.ip.map(|ip| ip.source), Some(IpAddr::from(CLIENT)));
+}
+
+#[test]
+fn vlan_tags_are_stepped_over() {
+    let inner = ipv4(17, CLIENT, RESOLVER, &udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let mut tagged = vec![0x00, 0x2a];
+    tagged.extend(0x0800u16.to_be_bytes());
+    tagged.extend(inner);
+    let capture = Capture::read(&pcap(&[ethernet(0x8100, &tagged)])).unwrap();
+    assert_eq!(capture.packets[0].layers.protocol(), "DNS");
+}
+
+#[test]
+fn loopback_captures_name_the_family_in_either_order() {
+    let inner = ipv4(17, [127, 0, 0, 1], [127, 0, 0, 1], &udp(CLIENT_PORT, 9999, b"x"));
+    let mut frame = 2u32.to_le_bytes().to_vec();
+    frame.extend(&inner);
+    let mut v6 = 30u32.to_le_bytes().to_vec();
+    let mut packet = vec![0x60, 0, 0, 0];
+    let datagram = udp(CLIENT_PORT, 9999, b"x");
+    packet.extend((datagram.len() as u16).to_be_bytes());
+    packet.extend([17, 64]);
+    packet.extend(Ipv6Addr::LOCALHOST.octets());
+    packet.extend(Ipv6Addr::LOCALHOST.octets());
+    packet.extend(datagram);
+    v6.extend(packet);
+    let capture = Capture::read(&pcap_with(NULL, false, false, &[(1, 0, frame), (1, 0, v6)])).unwrap();
+    assert_eq!(capture.packets[0].layers.protocol(), "UDP");
+    assert_eq!(capture.packets[1].layers.ip.map(|ip| ip.source), Some(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+}
+
+#[test]
+fn ipv6_extension_headers_lead_to_the_datagram() {
+    let datagram = udp(CLIENT_PORT, 53, &dns("example.com", None));
+    let mut packet = vec![0x60, 0, 0, 0];
+    packet.extend((datagram.len() as u16 + 8).to_be_bytes());
+    packet.extend([0, 64]);
+    packet.extend(Ipv6Addr::LOCALHOST.octets());
+    packet.extend(Ipv6Addr::LOCALHOST.octets());
+    packet.extend([17, 0, 0, 0, 0, 0, 0, 0]);
+    packet.extend(datagram);
+    let capture = Capture::read(&pcap(&[ethernet(0x86dd, &packet)])).unwrap();
+    assert_eq!(capture.packets[0].layers.protocol(), "DNS");
+}
+
+#[test]
+fn a_later_fragment_has_no_datagram() {
+    let mut packet = ipv4(17, CLIENT, SERVER, &[1, 2, 3, 4, 5, 6, 7, 8]);
+    packet[6] = 0;
+    packet[7] = 0x10;
+    let capture = Capture::read(&pcap(&[ethernet(0x0800, &packet)])).unwrap();
+    assert!(capture.packets[0].layers.ip.is_some_and(|ip| ip.fragment));
+    assert_eq!(capture.packets[0].layers.datagram, None);
+    assert_eq!(capture.packets[0].layers.protocol(), "IPv4");
+}
+
+#[test]
+fn dns_answers_name_the_addresses_they_give() {
+    let query = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let answer = over_udp(RESOLVER, CLIENT, udp(53, CLIENT_PORT, &dns("example.com", Some(&[SERVER]))));
+    let capture = Capture::read(&pcap(&[query, answer])).unwrap();
+    let Some(App::Dns(reply)) = &capture.packets[1].layers.app else { panic!("not DNS") };
+    assert!(reply.response);
+    assert_eq!(reply.questions, [("example.com".to_owned(), 1)]);
+    assert_eq!(reply.answers[0].data, DnsData::Address(IpAddr::from(SERVER)));
+    assert_eq!(reply.answers[0].name, "example.com");
+    assert_eq!(capture.names.get(&IpAddr::from(SERVER)).map(String::as_str), Some("example.com"));
+    assert_eq!(capture.flows.len(), 1);
+    assert_eq!(capture.flows[0].server_name.as_deref(), Some("example.com"));
+    assert_eq!(capture.flows[0].client, SocketAddr::new(IpAddr::from(CLIENT), CLIENT_PORT));
+}
+
+#[test]
+fn a_client_hello_split_over_segments_still_names_the_server() {
+    let hello = client_hello("borg.example", 1500);
+    let (first, second) = hello.split_at(1200);
+    let frames = [
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 100, SYN, b"")),
+        over_tcp(SERVER, CLIENT, tcp(443, CLIENT_PORT, 900, SYN | ACK, b"")),
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1301, PSH | ACK, second)),
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 101, ACK, first)),
+    ];
+    let capture = Capture::read(&pcap(&frames)).unwrap();
+    assert_eq!(capture.packets[3].layers.app, Some(App::TlsHello { server: None }));
+    let flow = &capture.flows[0];
+    assert_eq!(flow.server_name.as_deref(), Some("borg.example"));
+    assert_eq!(flow.app, Some("TLS"));
+    assert_eq!(flow.server, SocketAddr::new(IpAddr::from(SERVER), 443));
+    assert_eq!(flow.packets, [0, 1, 2, 3]);
+}
+
+#[test]
+fn a_whole_client_hello_names_the_server_in_its_packet() {
+    let frame = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &client_hello("one.example", 0)));
+    let capture = Capture::read(&pcap(&[frame])).unwrap();
+    assert_eq!(capture.packets[0].layers.app, Some(App::TlsHello { server: Some("one.example".into()) }));
+}
+
+#[test]
+fn http_gives_the_request_line_the_host_and_the_status() {
+    let request = b"GET /index.html HTTP/1.1\r\nHost: plain.example\r\nAccept: */*\r\n\r\n";
+    let frames = [
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 80, 1, PSH | ACK, request)),
+        over_tcp(SERVER, CLIENT, tcp(80, CLIENT_PORT, 1, PSH | ACK, b"HTTP/1.1 404 Not Found\r\n\r\n")),
+    ];
+    let capture = Capture::read(&pcap(&frames)).unwrap();
+    let request =
+        Http::Request { method: "GET".into(), target: "/index.html".into(), host: Some("plain.example".into()) };
+    assert_eq!(capture.packets[0].layers.app, Some(App::Http(request)));
+    assert_eq!(
+        capture.packets[1].layers.app,
+        Some(App::Http(Http::Response { status: 404, reason: "Not Found".into() }))
+    );
+    assert_eq!(capture.flows[0].server_name.as_deref(), Some("plain.example"));
+}
+
+#[test]
+fn a_conversation_caught_after_its_start_still_knows_its_client() {
+    let frames = [
+        over_tcp(SERVER, CLIENT, tcp(443, CLIENT_PORT, 1, SYN | ACK, b"")),
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, ACK, b"abcd")),
+        over_udp(SERVER, CLIENT, udp(123, CLIENT_PORT, b"time")),
+    ];
+    let capture = Capture::read(&pcap(&frames)).unwrap();
+    let client = SocketAddr::new(IpAddr::from(CLIENT), CLIENT_PORT);
+    assert_eq!(capture.flows[0].client, client);
+    assert_eq!(capture.flows[1].client, client);
+    let flow = &capture.flows[0];
+    assert_eq!((flow.to_client, flow.to_server), (54, 58));
+    assert_eq!(flow.bytes(), capture.packets[..2].iter().map(|packet| u64::from(packet.length)).sum::<u64>());
+}
+
+#[test]
+fn udp_on_port_443_is_quic() {
+    let frame = over_udp(CLIENT, SERVER, udp(CLIENT_PORT, 443, &[0xc3, 0, 0, 0, 1]));
+    let capture = Capture::read(&pcap(&[frame])).unwrap();
+    assert_eq!(capture.packets[0].layers.protocol(), "QUIC");
+}
+
+#[test]
+fn the_counter_counts_whole_packets_from_the_chunks_of_a_stream() {
+    let frame = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let bytes = pcap(&[frame.clone(), frame]);
+    let mut counter = PcapCounter::default();
+    counter.feed(&bytes[..10]);
+    counter.feed(&bytes[10..30]);
+    assert_eq!(counter.packets, 0);
+    counter.feed(&bytes[30..bytes.len() - 1]);
+    assert_eq!(counter.packets, 1);
+    counter.feed(&bytes[bytes.len() - 1..]);
+    assert_eq!(counter.packets, 2);
+    let mut whole = PcapCounter::default();
+    whole.feed(&bytes);
+    assert_eq!(whole.packets, 2);
+}
+
+#[test]
+fn dns_names_follow_pointers_and_stop_at_loops() {
+    let mut message = dns("a.example", None);
+    message[5] = 1;
+    message.truncate(12);
+    message.extend([0xc0, 12, 0, 1, 0, 1]);
+    assert_eq!(apps::dns(&message, false).map(|dns| dns.questions), None);
+}
+
+#[test]
+fn a_hex_dump_gives_offsets_bytes_and_their_text() {
+    let data: Vec<u8> = b"GET / HTTP/1.1\r\nHost".to_vec();
+    let lines = hex_lines(&data, true);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
+    assert_eq!(lines[1].len(), HEX_LINE_WIDTH - (HEX_WIDTH - 4));
+    assert_eq!(hex_lines(&data, false)[1], "0010  48 6f 73 74");
+}

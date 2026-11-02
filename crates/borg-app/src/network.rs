@@ -2,17 +2,19 @@
 //! interface with its counters, and the names of the hosts connections go to.
 
 use anyhow::{Result, anyhow};
-use borg_core::{Interface, InterfaceKind, Msg, NetworkSample, Socket};
+use borg_core::{CaptureRequest, Interface, InterfaceKind, Msg, NetworkSample, Socket};
 use borg_i18n::tr;
 use std::{
     collections::{HashMap, HashSet},
     net::IpAddr,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use sysinfo::{InterfaceOperationalState, Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
+mod capture;
 mod kinds;
 #[cfg(any(target_os = "macos", test))]
 mod netstat;
@@ -38,11 +40,30 @@ pub struct Network {
     messages: UnboundedSender<Msg>,
     sampler: Arc<Mutex<Sampler>>,
     task: Option<JoinHandle<()>>,
+    recorder: Option<capture::Recorder>,
 }
 
 impl Network {
     pub fn new(messages: UnboundedSender<Msg>) -> Self {
-        Self { messages, sampler: Arc::default(), task: None }
+        Self { messages, sampler: Arc::default(), task: None, recorder: None }
+    }
+
+    /// Captures packets as `request` asks, in place of a capture still running.
+    pub fn capture(&mut self, id: u64, request: CaptureRequest) {
+        if let Some(recorder) = self.recorder.take() {
+            recorder.abort();
+        }
+        self.recorder = Some(capture::Recorder::start(id, request, self.messages.clone()));
+    }
+
+    pub fn stop_capture(&mut self, id: u64) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.stop(id);
+        }
+    }
+
+    pub fn open_capture(&self, path: PathBuf) {
+        capture::open(path, self.messages.clone());
     }
 
     pub fn request(&mut self, id: u64) {
@@ -85,6 +106,9 @@ impl Network {
 impl Drop for Network {
     fn drop(&mut self) {
         self.cancel();
+        if let Some(recorder) = &self.recorder {
+            recorder.abort();
+        }
     }
 }
 

@@ -6,6 +6,7 @@ mod appearance;
 mod aside;
 mod backup;
 mod busy;
+mod capture;
 mod clipboard;
 mod command;
 mod contents;
@@ -131,10 +132,19 @@ pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchRe
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
 
 pub use network::{
+    CAPTURE_FIELDS, CaptureDialog, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends, HEADER_BYTES, HostRow,
+    Recording, Talker, TrafficPage, TrafficView,
+};
+pub use network::{
     CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
     Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
     RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
     service,
+};
+
+pub use capture::{
+    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, HEX_LINE_WIDTH,
+    HEX_WIDTH, Http, Ip, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Tcp, URG, dns_type, hex_lines,
 };
 
 pub use measure::SizeScan;

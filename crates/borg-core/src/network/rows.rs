@@ -137,7 +137,7 @@ impl Source<'_> {
             services: service(row.port).into_iter().collect(),
             hosts: row.addresses.iter().map(IpAddr::to_string).collect(),
             state: (row.transport == Transport::Tcp).then(|| TcpState::Listen.name()),
-            protocol: Some(row.transport.name()),
+            protocols: vec![row.transport.name()],
             interface: None,
             labels: vec![super::exposure_label(row.exposure).to_owned()],
         }
@@ -208,7 +208,7 @@ impl Source<'_> {
                 .chain([socket.local.ip().to_string()])
                 .collect(),
             state: socket.state.map(TcpState::name),
-            protocol: Some(socket.transport.name()),
+            protocols: vec![socket.transport.name()],
             interface: None,
             labels: Vec::new(),
         }

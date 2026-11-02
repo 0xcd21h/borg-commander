@@ -151,4 +151,6 @@ pub enum Overlay {
     TimeMachine,
     /// The signals and priority changes for a process in the monitor.
     ProcessControl(crate::ControlDialog),
+    /// What to capture from the network screen, where and for how long.
+    Capture(crate::CaptureDialog),
 }

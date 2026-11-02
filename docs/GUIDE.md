@@ -760,10 +760,11 @@ complete.
 
 ### Viewer and quick view
 
-F3 opens the viewer. In text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping
-on or off, and Esc or `q` closes it. In images, Left/Right or `p`/`n` show the previous or next
-image. Borg uses the terminal's image protocol when there is one; other terminals show the image
-as colored blocks.
+F3 opens the viewer. With the System plugin on, F3 on a `.pcap`, `.pcapng` or `.cap` file opens
+the network screen's traffic viewer instead (see [Capturing traffic](#capturing-traffic)). In
+text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping on or off, and Esc or
+`q` closes it. In images, Left/Right or `p`/`n` show the previous or next image. Borg uses the
+terminal's image protocol when there is one; other terminals show the image as colored blocks.
 
 Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys,
 PgUp/PgDn, Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L
@@ -1167,6 +1168,7 @@ place of the address once it is known.
 | T / N / P / C | Sort by traffic / name / port / connections; press again to reverse |
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
+| R | Capture the selected row's traffic, or stop the capture that runs |
 | Ctrl-C | Copy the port's address, the PID, the other end, or the interface's address |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
@@ -1203,6 +1205,75 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
 and `!proc:browser` hides one program. The filter applies to every page, and while you type it
 says how many of the page's rows it keeps.
+
+### Capturing traffic
+
+Press **R** to record the packets behind the selected row with `tcpdump`, which macOS ships and
+Linux installs from the `tcpdump` package. The **Capture traffic** dialog starts from that row:
+
+- **Traffic** is what tcpdump keeps. On **1 Ports** that is the port and the connections that
+  came in through it, and on **3 Connections** the one connection in both directions. On
+  **2 Processes** it is **All traffic, shown for** that process: tcpdump cannot pick packets by
+  process, so Borg records the whole interface and opens the result on the process. **All
+  traffic on the interface** is always there as the second choice.
+- **Interface** starts on the one that carries the row's address, or else the busiest one.
+- **Duration** is 5, 10, 30 or 60 seconds, or **Until stopped**.
+- **Keep** is **Whole packets**, or **Headers, first 128 bytes of each packet** for small files
+  that leave out most of what the packets carry.
+
+↑↓ pick a field, ←→ or Space change it, Enter starts the capture and Esc cancels. With the mouse,
+click a field to pick it and click again to change it. While the capture runs, the footer counts
+its packets and bytes and the seconds left, and **R** stops it early. A capture also stops at
+200,000 packets or 256 MiB. If you close the screen first, the capture stops, and a notice says
+where Borg saved it.
+
+Borg saves each capture as `capture-<date>-<time>.pcap` in the folder of the panel the network
+screen covers, readable only by you, so Wireshark and other tools can open it later. A capture
+holds whatever the packets carried, so keep it as safe as that data.
+
+When the capture ends, the traffic viewer takes the place of the live pages, with a page for each
+way to look at it:
+
+- **1 Processes** shows each process with the hosts it talked to, its packets and its bytes. A
+  conversation belongs to the process whose socket held it while the capture ran, and the rest
+  goes to **Unknown process**.
+- **2 Hosts** shows the other machines with the protocols seen. Names come from the capture's
+  own DNS answers and the server names TLS connections asked for, so most hosts have one.
+- **3 Connections** shows each conversation with its process, other end, protocol, packets and
+  bytes. The details show both ends, the server name, the service, the bytes sent and received,
+  and every packet with an arrow for its direction.
+- **4 Packets** shows every packet in order with its time from the start, protocol, length and a
+  summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
+  its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
+  as a hex dump.
+
+| Key | Action |
+| --- | --- |
+| 1 / 2 / 3 / 4 | Show Processes / Hosts / Connections / Packets |
+| Enter | Go down a level: from a process or host to its connections, from a connection to its packets, from a packet into its details |
+| `/` | Filter the rows, as on the live pages |
+| Ctrl-C | Copy the PID, the address, the other end, or the packet's bytes in hex |
+| Tab | Move between the list and the details, where ↑↓ scroll |
+| Esc | Go back to the list, then up a level, then clear the filter, then return to the live screen |
+
+The filter takes the same words as the live pages, and `proto:` also matches what Borg recognized
+in the packets: `proto:dns`, `proto:tls`, `proto:http` and `proto:quic`. A filter applies to every
+page, and Enter sets one to go down a level, which is why Esc can step back out.
+
+F3 on a `.pcap`, `.pcapng` or `.cap` file in a panel opens it in the same viewer, starting on
+**2 Hosts**. A file recorded elsewhere has no sockets to match, so its conversations show
+**Unknown process**. The viewer reads files up to 256 MiB and their first 200,000 packets.
+
+tcpdump needs access to the capture device, and Borg runs it as you:
+
+- On macOS, only root can open the `/dev/bpf` devices at first. Install Wireshark with its
+  **ChmodBPF** component once: it gives the devices to an `access_bpf` group and adds you to it,
+  and from then on you can capture on every interface.
+- On Linux, give tcpdump the capture capabilities once with
+  `sudo setcap cap_net_raw,cap_net_admin=eip /usr/sbin/tcpdump`. Some distributions let the
+  members of a `pcap` or `wireshark` group capture instead.
+
+Without access, the capture ends with **No permission to capture on** and the interface's name.
 
 ### What the system reports
 

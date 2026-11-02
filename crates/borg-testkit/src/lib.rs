@@ -1,3 +1,4 @@
+pub mod capture;
 mod fixture;
 pub mod keys;
 pub mod network;

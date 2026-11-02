@@ -11,7 +11,7 @@ use crate::{
     look::Look,
     spinner::Spinner,
 };
-use borg_core::{AppState, Exposure, Network, NetworkPage, PortRow, exposure_label, kind_label};
+use borg_core::{AppState, Exposure, Network, NetworkPage, PortRow, Recording, exposure_label, kind_label};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -20,12 +20,20 @@ use ratatui::{
     text::{Line, Span},
     widgets::Widget,
 };
+use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
 const SORTED_DOWN: &str = " ↓";
 const SORTED_UP: &str = " ↑";
 
-pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: Option<Spinner>, buf: &mut Buffer) {
+pub(super) fn draw_list(
+    state: &AppState,
+    look: &Look<'_>,
+    rect: Rect,
+    spinner: Option<Spinner>,
+    now: Instant,
+    buf: &mut Buffer,
+) {
     let network = &state.network;
     let theme = look.theme;
     let styles = &theme.styles;
@@ -40,7 +48,14 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
         buf.set_style(cell, style);
         text(buf, Rect { x: cell.x + 1, width: cell.width.saturating_sub(1), ..cell }, label, style);
     }
-    filter_row(network, look, row(inner, FILTER_ROW), buf);
+    let line = FilterLine {
+        filter: &network.filter,
+        filtering: network.filtering,
+        shown: network.len(network.page),
+        total: network.totals[network.page.index()],
+        placeholder: tr!(network_filter_placeholder),
+    };
+    filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);
     let columns = columns(network.page, header.width);
     let order = network.order();
@@ -91,8 +106,29 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
     };
     let total = network.total();
     let summary = tr!(network_total, down = format::rate(total.down), up = format::rate(total.up));
-    let note = state.notice.clone().filter(|_| network.loaded).unwrap_or(summary);
-    text(buf, row(footer, 0), note, dim(theme));
+    let note = state.notice.clone().filter(|_| network.loaded);
+    match (note, &network.recording) {
+        (Some(note), _) => text(buf, row(footer, 0), note, dim(theme)),
+        (None, Some(recording)) => text(buf, row(footer, 0), recording_note(recording, now), styles.notice),
+        (None, None) => text(buf, row(footer, 0), summary, dim(theme)),
+    }
+}
+
+/// How a capture is going: where it runs, what it has so far, and the time it has left.
+fn recording_note(recording: &Recording, now: Instant) -> String {
+    if recording.stopping {
+        return tr!(capture_stopping).into();
+    }
+    let running = tr!(
+        capture_running,
+        interface = recording.request.interface,
+        packets = format::count(recording.packets, format::Count::Packet),
+        size = format::size(recording.bytes)
+    );
+    match recording.left(now) {
+        Some(seconds) => format!("{running} · {}", tr!(capture_left, seconds = seconds)),
+        None => running,
+    }
 }
 
 fn empty_note(page: NetworkPage) -> &'static str {
@@ -185,17 +221,25 @@ fn value(
     }
 }
 
+/// What the filter row shows: the filter, whether it is typed, and the rows it keeps.
+pub(super) struct FilterLine<'a> {
+    pub(super) filter: &'a str,
+    pub(super) filtering: bool,
+    pub(super) shown: usize,
+    pub(super) total: usize,
+    pub(super) placeholder: &'a str,
+}
+
 /// The filter: an input with a cursor while typing, a badge while a filter applies, and a
 /// hint otherwise.
-fn filter_row(network: &Network, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+pub(super) fn filter_line(line: &FilterLine<'_>, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let styles = &theme.styles;
     let label = tr!(activity_filter_label);
-    let shown = network.len(network.page);
-    let total = network.totals[network.page.index()];
-    if network.filtering {
+    let (shown, total) = (line.shown, line.total);
+    if line.filtering {
         buf.set_style(area, styles.input);
-        let typed = format!(" {}", network.filter);
+        let typed = format!(" {}", line.filter);
         Line::from(vec![Span::styled(label, styles.cursor), Span::styled(typed.clone(), styles.input)])
             .render(area, buf);
         let x = area.x.saturating_add((label.width() + typed.width()) as u16);
@@ -205,15 +249,15 @@ fn filter_row(network: &Network, look: &Look<'_>, area: Rect, buf: &mut Buffer) 
         let hint = tr!(activity_filter_typing, shown = shown, total = total);
         let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
         text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
-    } else if !network.filter.is_empty() {
+    } else if !line.filter.is_empty() {
         let hint = tr!(activity_filter_applied, shown = shown, total = total);
         Line::from(vec![
             Span::styled(label, styles.cursor),
-            Span::styled(format!(" {} ", network.filter), heading(theme)),
+            Span::styled(format!(" {} ", line.filter), heading(theme)),
             Span::styled(hint, dim(theme)),
         ])
         .render(area, buf);
     } else {
-        text(buf, area, tr!(network_filter_placeholder), dim(theme));
+        text(buf, area, line.placeholder, dim(theme));
     }
 }

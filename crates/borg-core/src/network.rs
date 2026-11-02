@@ -10,14 +10,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{AppState, Effect, Side, View};
+use crate::{AppState, Capture, Effect, Side, View};
 
+mod capture;
 mod filter;
 mod keys;
 mod model;
 mod rows;
 mod traffic;
+mod viewer;
 
+pub use capture::{
+    CAPTURE_FIELDS, CaptureDialog, CaptureField, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES, Recording,
+};
 use filter::Haystack;
 pub use filter::NetworkFilter;
 pub(crate) use keys::{click, paste, route_key, show_page, sort_by};
@@ -25,6 +30,7 @@ pub use model::{Interface, InterfaceKind, NetworkSample, PortKey, Socket, Socket
 use rows::Source;
 pub use rows::{ConnectionRow, Exposure, InterfaceRow, PortRow, ProcessRow};
 pub use traffic::{Meter, Rate, SMOOTHING, Traffic};
+pub use viewer::{Ends, HostRow, Talker, TrafficPage, TrafficView};
 
 const REFRESH: Duration = Duration::from_secs(1);
 /// After an error, ask again less often.
@@ -159,6 +165,10 @@ pub struct Network {
     back: Option<u32>,
     /// A process to select once a sample lists it.
     revealing: Option<u32>,
+    /// The capture `tcpdump` is taking.
+    pub recording: Option<Recording>,
+    /// A capture's traffic, shown in place of the live pages.
+    pub viewer: Option<Box<TrafficView>>,
     next_id: u64,
     next: Option<Instant>,
     sampled: Option<Instant>,
@@ -193,6 +203,8 @@ impl Default for Network {
             pending: None,
             back: None,
             revealing: None,
+            recording: None,
+            viewer: None,
             next_id: 0,
             next: None,
             sampled: None,
@@ -246,6 +258,11 @@ impl Network {
     /// Whether Esc on the list goes back to the activity monitor.
     pub fn goes_back(&self) -> bool {
         self.back.is_some()
+    }
+
+    /// Whether a filter takes the typing.
+    pub fn typing(&self) -> bool {
+        self.filtering || self.viewer.as_ref().is_some_and(|view| view.filtering)
     }
 
     pub fn order(&self) -> Order {
@@ -506,6 +523,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     network.error = None;
     network.back = None;
     network.revealing = None;
+    network.viewer = None;
     network.loaded = false;
     network.traffic = Traffic::default();
     network.sampled = None;
@@ -585,8 +603,15 @@ pub(crate) fn wake_at(state: &AppState) -> Option<Instant> {
     network.next
 }
 
-/// Samples once a second while the screen shows, and keeps the cursor in sight.
+/// Samples once a second while the screen shows the live pages, keeps the cursor in sight, and
+/// stops a capture once the screen closes.
 pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    if let Some(recording) = state.network.recording.as_mut().filter(|recording| !recording.stopping)
+        && state.network.side.is_none()
+    {
+        recording.stopping = true;
+        return vec![Effect::StopCapture { id: recording.id }];
+    }
     if !state.network.is_open() || state.view != View::Panels {
         state.network.pending = None;
         state.network.next = None;
@@ -598,8 +623,13 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let side = state.network.side.unwrap_or(state.active);
     let list = state.layout(now).panels[side.index()];
     let network = &mut state.network;
+    let height = usize::from(list.height.saturating_sub(CHROME_ROWS));
+    if let Some(view) = network.viewer.as_deref_mut() {
+        view.keep_visible(height);
+        return Vec::new();
+    }
     if !list.is_empty() {
-        network.keep_visible(usize::from(list.height.saturating_sub(CHROME_ROWS)));
+        network.keep_visible(height);
     }
     if !network.paused && network.pending.is_none() && network.next.is_none_or(|next| now >= next) {
         return network.request();
@@ -623,6 +653,7 @@ pub(crate) fn receive(
             let seconds = network.sampled.map_or(0.0, |before| now.duration_since(before).as_secs_f64());
             network.traffic.take(&sample, seconds);
             network.sample = sample;
+            capture::sampled(network);
             network.sampled = Some(now);
             network.loaded = true;
             network.error = None;
@@ -656,6 +687,53 @@ pub(crate) fn hosts_resolved(state: &mut AppState, names: Vec<(IpAddr, Option<St
     if network.is_open() && !network.filter.is_empty() {
         network.rebuild();
     }
+}
+
+/// The file names the traffic viewer opens.
+const CAPTURE_EXTENSIONS: [&str; 3] = ["pcap", "pcapng", "cap"];
+
+/// Whether `path` names a capture file the traffic viewer opens.
+pub(crate) fn is_capture(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| CAPTURE_EXTENSIONS.iter().any(|known| known.eq_ignore_ascii_case(extension)))
+}
+
+pub(crate) fn on_capture_key(
+    state: &mut AppState,
+    dialog: CaptureDialog,
+    key: &crossterm::event::KeyEvent,
+    now: Instant,
+) -> Vec<Effect> {
+    capture::on_dialog_key(state, dialog, key, now)
+}
+
+pub(crate) fn pick_capture_field(state: &mut AppState, dialog: CaptureDialog, row: usize) {
+    capture::pick(state, dialog, row);
+}
+
+pub(crate) fn capture_progress(state: &mut AppState, id: u64, bytes: u64, packets: usize) {
+    capture::progress(state, id, bytes, packets);
+}
+
+pub(crate) fn capture_done(
+    state: &mut AppState,
+    id: u64,
+    result: Result<(std::path::PathBuf, Capture), String>,
+) -> Vec<Effect> {
+    capture::done(state, id, result)
+}
+
+pub(crate) fn capture_opened(
+    state: &mut AppState,
+    path: std::path::PathBuf,
+    result: Result<Capture, String>,
+) -> Vec<Effect> {
+    capture::opened(state, path, result)
+}
+
+pub(crate) fn show_traffic_page(network: &mut Network, page: TrafficPage) {
+    viewer::show_page(network, page);
 }
 
 #[cfg(test)]
