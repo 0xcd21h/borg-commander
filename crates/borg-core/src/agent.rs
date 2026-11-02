@@ -65,6 +65,8 @@ pub enum AskKind {
     ApprovalMode,
     /// An agent asks to search a process's memory.
     Memory,
+    /// An agent asks to capture traffic.
+    Capture,
 }
 
 /// What an agent asks to do, as the approval dialog shows it.
@@ -278,9 +280,9 @@ pub(crate) fn on_approval_key(
     }
     if let Some(approved) = decided {
         state.overlay = None;
-        // The footer shows a command or a write until borg reports it done; a pairing, a read
-        // or an upload is answered at once, and nothing would clear it.
-        if approved && matches!(approval.ask.kind, AskKind::Run | AskKind::Create | AskKind::Edit) {
+        // The footer shows a command, a write or a capture until borg reports it done; a pairing,
+        // a read or an upload is answered at once, and nothing would clear it.
+        if approved && matches!(approval.ask.kind, AskKind::Run | AskKind::Create | AskKind::Edit | AskKind::Capture) {
             state.agent.running = Some((approval.id, approval.ask.summary.clone()));
         }
         return vec![Effect::AgentAnswer { id: approval.id, approved }];

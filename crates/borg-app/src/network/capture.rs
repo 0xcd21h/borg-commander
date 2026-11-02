@@ -1,9 +1,11 @@
 //! Captures packets with the installed tcpdump into a pcap file in the folder the network
-//! screen covers, as you or as administrator through Borg's helper, and reads capture files for
-//! the traffic viewer.
+//! screen covers, or the one an agent names, as you or as administrator through Borg's helper,
+//! and reads capture files for the traffic viewer.
 
+use super::Sampler;
 use borg_core::{
-    Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, Tool,
+    Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, SeenSockets,
+    Tool,
 };
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
@@ -13,6 +15,7 @@ use std::{
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::mpsc::{Receiver, RecvTimeoutError, channel},
     time::Duration,
 };
 use tokio::{
@@ -28,6 +31,8 @@ mod elevated;
 pub use elevated::helper;
 
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
+/// How often an agent's capture looks at the sockets, as the network screen samples them.
+const SOCKETS_EVERY: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
 /// Captures stop at this size, as they do at `PACKET_LIMIT` packets.
 pub(crate) const SIZE_LIMIT: u64 = 256 * 1024 * 1024;
@@ -63,8 +68,11 @@ impl Recorder {
     pub(super) fn start(id: u64, request: CaptureRequest, messages: UnboundedSender<Msg>) -> Self {
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
+            let progress = |bytes, packets| {
+                let _ = messages.send(Msg::CaptureProgress { id, bytes, packets });
+            };
             let result = match crate::tools::find(Tool::Tcpdump.program()) {
-                Some(program) => record(id, &program, &request, &messages, stopped).await,
+                Some(program) => record(&program, &request, progress, stopped).await,
                 None => Err(CaptureFailure::Missing(crate::tools::installer())),
             };
             let _ = messages.send(Msg::CaptureDone { id, result });
@@ -96,6 +104,52 @@ pub(super) fn open(path: PathBuf, messages: UnboundedSender<Msg>) {
             .map_err(|error| tr!(capture_cannot_read, path = path.display(), error = error));
         let _ = messages.send(Msg::CaptureOpened { path, result });
     });
+}
+
+/// Captures for an agent as the network screen does, for as long as `request` says, and looks
+/// at the sockets every second meanwhile to tell each conversation's process.
+pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBuf, Capture, SeenSockets), String> {
+    let program = crate::tools::find(Tool::Tcpdump.program()).ok_or_else(|| tr!(capture_missing).to_owned())?;
+    let (done, watching) = channel::<()>();
+    let watcher = tokio::task::spawn_blocking(move || watch_sockets(&watching));
+    let (_stop, stopped) = oneshot::channel();
+    let recorded = record(&program, request, |_, _| {}, stopped).await.map_err(|failure| refused(failure, request));
+    drop(done);
+    let seen = watcher.await.unwrap_or_default();
+    recorded.map(|(path, capture)| (path, capture, seen))
+}
+
+/// Why an agent's capture saved nothing. Agents never capture as administrator, so a capture
+/// the system refused says so, as it does where Borg cannot ask.
+fn refused(failure: CaptureFailure, request: &CaptureRequest) -> String {
+    match failure {
+        CaptureFailure::Failed(error) => error,
+        CaptureFailure::Missing(_) => tr!(capture_missing).to_owned(),
+        CaptureFailure::Denied | CaptureFailure::Cancelled => tr!(capture_denied, interface = request.interface),
+    }
+}
+
+/// The sockets seen from now until `done` closes, sampled every `SOCKETS_EVERY`.
+fn watch_sockets(done: &Receiver<()>) -> SeenSockets {
+    let mut sampler = Sampler::default();
+    let mut seen = SeenSockets::default();
+    loop {
+        if let Ok((sockets, names)) = sampler.sockets() {
+            seen.saw(&sockets, &names);
+        }
+        if done.recv_timeout(SOCKETS_EVERY) != Err(RecvTimeoutError::Timeout) {
+            break;
+        }
+    }
+    if let Ok((sockets, names)) = sampler.sockets() {
+        seen.saw(&sockets, &names);
+    }
+    seen
+}
+
+/// Reads a capture file, saying what went wrong as the viewer does.
+pub(crate) fn read_capture(path: &Path) -> Result<Capture, String> {
+    read_file(path).map_err(|error| tr!(capture_cannot_read, path = path.display(), error = error))
 }
 
 fn read_file(path: &Path) -> Result<Capture, String> {
@@ -185,11 +239,12 @@ fn own(program: &Path, request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + 
     Ok((Box::new(stdout), Tap::Own { child, errors: tokio::spawn(read_all(stderr)) }))
 }
 
+/// Runs tcpdump as `request` asks and saves what it writes, telling `progress` the bytes and
+/// packets so far every second, until the deadline, `stopped`, or a limit.
 async fn record(
-    id: u64,
     program: &Path,
     request: &CaptureRequest,
-    messages: &UnboundedSender<Msg>,
+    progress: impl Fn(u64, usize),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), CaptureFailure> {
     let (mut packets, mut tap) =
@@ -207,7 +262,7 @@ async fn record(
     let mut counter = PcapCounter::default();
     let mut written: u64 = 0;
     let mut chunk = vec![0; READ_CHUNK];
-    let mut progress = tokio::time::interval(PROGRESS_EVERY);
+    let mut ticks = tokio::time::interval(PROGRESS_EVERY);
     let mut stopping = false;
     let mut failure = None;
     loop {
@@ -232,9 +287,7 @@ async fn record(
                     break;
                 }
             },
-            _ = progress.tick() => {
-                let _ = messages.send(Msg::CaptureProgress { id, bytes: written, packets: counter.packets });
-            }
+            _ = ticks.tick() => progress(written, counter.packets),
             _ = sleep_until(deadline), if !stopping => {
                 stopping = true;
                 tap.stop();

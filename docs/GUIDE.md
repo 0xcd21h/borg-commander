@@ -533,6 +533,28 @@ in a dialog that names the process, its program, and the search. Once you approv
 search that process again until borg quits. It can ask to read as administrator, which opens the
 system's own password prompt.
 
+The agent can also capture traffic as **R** does on the network screen (see
+[Capturing traffic](#capturing-traffic)). It names what to record: a port, one connection, a
+process by its PID, or all traffic on the interface. For a process, Borg records the whole
+interface and sums up that process's conversations. A capture lasts 1 to 60 seconds, 5 unless the
+agent names a length. When the agent names no interface, Borg measures for a second and picks the
+one the **Capture traffic** dialog would. Each capture waits for you in a dialog,
+**Remote wants to capture traffic**, that shows the traffic, the interface, the duration, how much
+of each packet to keep, and the folder. While it runs, the footer shows it, and a notice then says
+where Borg saved it: in the active panel's folder or one the agent names, readable only by you.
+An agent's capture always runs as you and never asks for an administrator's password, so without
+access it ends with **No permission to capture on** and the interface's name.
+
+The agent gets back a summary: the protocols Borg recognized, then each process, host and
+connection with its packets and bytes, with host names from the capture's own DNS answers and TLS
+server names. Borg watches the sockets while the capture runs, so conversations belong to their
+processes even with the network screen closed. The summary leaves out what the packets carry.
+Reading a `.pcap`, `.pcapng` or `.cap` file gives the same summary, narrowed with the words of the
+traffic viewer's filter, and the agent can ask for one packet by its number to get its layers and
+its bytes as a hex dump. Borg remembers the processes of its last 16 agent captures until it
+quits. Other files show their conversations under **Unknown process**, unless their packets
+carry their process.
+
 While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it to
 see a log of what the agent did: what it looked at, read, showed, and typed, and every command and
 change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
@@ -1237,6 +1259,9 @@ screen covers, readable only by you, so Wireshark and other tools can open it la
 that tags each packet with its process is saved as `capture-<date>-<time>.pcapng`, the format
 that can carry the tags. A capture holds whatever the packets carried, so keep it as safe as
 that data.
+
+An agent connected through `borg mcp` can ask for a capture too, and it waits for your approval
+(see [What the agent can do](#what-the-agent-can-do)).
 
 When the capture ends, the traffic viewer takes the place of the live pages, with a page for each
 way to look at it:

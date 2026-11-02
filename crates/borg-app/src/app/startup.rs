@@ -88,6 +88,7 @@ impl App {
             downloads: std::collections::HashSet::new(),
             approve_all: std::collections::HashSet::new(),
             memory_readers: std::collections::HashSet::new(),
+            saved_captures: super::agent_calls::SavedCaptures::default(),
             runtime_dir: launch.runtime_dir.clone(),
             mirror_connect: None,
             mirror_ready: None,

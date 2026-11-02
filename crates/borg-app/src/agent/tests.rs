@@ -83,3 +83,54 @@ fn socket_folders_are_short_and_owner_only() {
     assert!(one.join("session-4294967295.sock").as_os_str().len() < 100);
     assert_eq!(std::fs::metadata(&one).unwrap().mode() & 0o777, 0o700);
 }
+
+#[test]
+fn a_capture_call_names_one_scope_and_a_bounded_length() {
+    use borg_core::{CaptureScope, LONGEST_CAPTURE, SHORTEST_CAPTURE, Transport};
+    let everything = capture_call(&json!({})).unwrap();
+    assert_eq!(
+        everything,
+        capture::CaptureCall {
+            scope: CaptureScope::Everything,
+            interface: None,
+            seconds: SHORTEST_CAPTURE,
+            headers_only: false,
+            limit: capture::SUMMARY_ROWS,
+        }
+    );
+    let port = capture_call(&json!({ "port": 53, "transport": "udp", "interface": "en0", "seconds": 30 })).unwrap();
+    assert_eq!(port.scope, CaptureScope::Port { transport: Transport::Udp, port: 53 });
+    assert_eq!((port.interface.as_deref(), port.seconds), (Some("en0"), 30));
+    let connection = capture_call(&json!({ "local": "192.0.2.10:50123", "remote": "203.0.113.9:443" })).unwrap();
+    assert_eq!(
+        connection.scope,
+        CaptureScope::Connection {
+            transport: Transport::Tcp,
+            local: "192.0.2.10:50123".parse().unwrap(),
+            remote: "203.0.113.9:443".parse().unwrap(),
+        }
+    );
+    let process = capture_call(&json!({ "pid": 4100, "headers_only": true, "limit": 5 })).unwrap();
+    assert_eq!((process.scope, process.headers_only, process.limit), (CaptureScope::Process { pid: 4100 }, true, 5));
+
+    for (args, error) in [
+        (json!({ "port": 53, "pid": 4100 }), "one scope"),
+        (json!({ "port": 70000 }), "from 1 to 65535"),
+        (json!({ "transport": "sctp" }), "no transport sctp"),
+        (json!({ "local": "192.0.2.10:50123" }), "both be addresses"),
+        (json!({ "pid": 0 }), "PID of a running process"),
+        (json!({ "seconds": LONGEST_CAPTURE + 1 }), "from 1 to 60"),
+        (json!({ "seconds": 0 }), "from 1 to 60"),
+    ] {
+        let refused = capture_call(&args).unwrap_err();
+        assert!(refused.contains(error), "{args}: {refused}");
+    }
+}
+
+#[test]
+fn a_read_names_a_packet_from_1() {
+    assert_eq!(packet_number(&json!({})), Ok(None));
+    assert_eq!(packet_number(&json!({ "packet": 12 })), Ok(Some(12)));
+    assert!(packet_number(&json!({ "packet": 0 })).is_err());
+    assert!(packet_number(&json!({ "packet": "first" })).is_err());
+}

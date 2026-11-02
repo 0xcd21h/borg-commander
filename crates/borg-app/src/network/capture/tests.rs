@@ -23,6 +23,13 @@ fn a_denied_interface_says_so() {
 }
 
 #[test]
+fn an_agents_refused_capture_says_there_is_no_permission() {
+    let request = request("");
+    assert_eq!(refused(CaptureFailure::Denied, &request), tr!(capture_denied, interface = "en0"));
+    assert_eq!(refused(CaptureFailure::Failed("tcpdump stopped".into()), &request), "tcpdump stopped");
+}
+
+#[test]
 fn another_failure_gives_tcpdump_reason() {
     let errors = "tcpdump: listening on en0, link-type EN10MB (Ethernet)\ntcpdump: syntax error in filter\n";
     assert_eq!(explain(errors), CaptureFailure::Failed(tr!(capture_failed, error = "syntax error in filter")));

@@ -141,7 +141,8 @@ pub use network::{
 };
 pub use network::{
     CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends,
-    HEADER_BYTES, HostRow, Recording, Talker, TrafficPage, TrafficView, capture_extension,
+    HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
+    capture_ask, capture_extension, capture_interfaces, is_capture,
 };
 
 pub use capture::{

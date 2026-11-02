@@ -155,3 +155,63 @@ fn a_process_filter_keeps_exactly_the_packets_that_process_sent_or_received() {
     let packet = view.capture.packets[1].clone();
     assert_eq!(view.packet_pid(&packet), Some(BROWSER));
 }
+
+#[test]
+fn the_report_sums_up_who_talked_to_whom() {
+    let mut view = view();
+    view.interface = Some("en0".into());
+    let expected = "\
+Capture on en0 · packets: 7 · bytes: 504 · seconds: 0.0
+Protocols by packet: TCP 4, DNS 2, TLS 1
+
+Processes: 3
+PID   PROCESS          PACKETS  BYTES  HOSTS  CONNECTIONS
+8239  browser          3        238    1      1
+-     Unknown process  2        158    1      1
+4100  web              2        108    1      1
+
+Hosts: 3
+ADDRESS        NAME         PACKETS  BYTES  PROTOCOLS  PROCESSES
+93.184.216.34  example.com  3        238    TLS        browser (PID 8239)
+192.168.1.1    -            2        158    DNS        Unknown process
+198.51.100.7   -            2        108    TCP        web (PID 4100)
+
+Connections: 3, busiest first
+PROTOCOL  PID   PROCESS          LOCAL               REMOTE              HOST         ASKED        PACKETS  SENT  RECEIVED  FIRST
+TLS       8239  browser          192.168.1.20:51000  93.184.216.34:443   example.com  example.com  3        184   54        3
+DNS       -     Unknown process  192.168.1.20:53001  192.168.1.1:53      -            example.com  2        71    87        1
+TCP       4100  web              192.168.1.20:8080   198.51.100.7:50000  -            -            2        54    54        6
+";
+    assert_eq!(view.report(10), expected);
+}
+
+#[test]
+fn the_report_follows_the_filter_and_the_limit() {
+    let mut view = view();
+    view.set_filter("proto:dns");
+    let report = view.report(10);
+    assert!(report.contains("Filter proto:dns keeps 2 of the packets\nProtocols by packet: DNS 2\n"), "{report}");
+    assert!(report.contains("\nConnections: 1, busiest first\n"), "{report}");
+    view.set_filter("");
+    let report = view.report(1);
+    assert_eq!(report.matches("… 2 more").count(), 3, "{report}");
+}
+
+#[test]
+fn a_packet_report_gives_its_connection_layers_and_bytes() {
+    let view = view();
+    let report = view.packet_report(5).unwrap();
+    assert!(report.starts_with("Packet 5 of 7: TLS ClientHello example.com\n"), "{report}");
+    assert!(
+        report.contains(&format!(
+            "Connection: TLS {} → {} · browser (PID {BROWSER}) · packet 3 of 3 in it · previous 4 · next -\n",
+            address(CLIENT, CLIENT_PORT),
+            address(SERVER, 443)
+        )),
+        "{report}"
+    );
+    assert!(report.contains("\nTLS       ClientHello · example.com\n"), "{report}");
+    assert!(report.contains("\nBytes:\n0000  "), "{report}");
+    assert_eq!(view.packet_report(0), None);
+    assert_eq!(view.packet_report(8), None);
+}

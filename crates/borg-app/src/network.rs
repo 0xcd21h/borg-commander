@@ -17,7 +17,7 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 mod capture;
 mod kinds;
 
-pub(crate) use capture::{access as capture_access, helper as capture_helper};
+pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
 #[cfg(any(target_os = "macos", test))]
 mod netstat;
 #[cfg(any(target_os = "linux", test))]
@@ -129,9 +129,15 @@ struct Sampler {
 
 impl Sampler {
     fn sample(&mut self) -> Result<NetworkSample> {
+        let (sockets, names) = self.sockets()?;
+        Ok(NetworkSample { sockets, interfaces: self.interfaces(), names })
+    }
+
+    /// Every socket, with the names of the processes that hold them.
+    fn sockets(&mut self) -> Result<(Vec<Socket>, HashMap<u32, String>)> {
         let (sockets, reported) = sockets()?;
         let names = self.names(&sockets, reported);
-        Ok(NetworkSample { sockets, interfaces: self.interfaces(), names })
+        Ok((sockets, names))
     }
 
     /// The name of each process that holds a socket, as the activity monitor shows it, or as

@@ -576,6 +576,29 @@ búsqueda. Una vez que lo apruebas, el agente puede volver a buscar en ese proce
 sale. Puede pedir leer como administrador, lo que abre la petición de contraseña del propio
 sistema.
 
+El agente también puede capturar tráfico como lo hace **R** en la pantalla de red (consulta
+[Capturar tráfico](#capturing-traffic)). Indica qué grabar: un puerto, una conexión, un proceso por
+su PID o todo el tráfico de la interfaz. Para un proceso, Borg graba la interfaz entera y resume
+las conversaciones de ese proceso. Una captura dura de 1 a 60 segundos, o 5 si el agente no indica
+la duración. Cuando el agente no indica la interfaz, Borg mide durante un segundo y elige la que
+elegiría el diálogo **Capturar tráfico**. Cada captura espera tu aprobación en un diálogo,
+**El agente remoto quiere capturar tráfico**, que muestra el tráfico, la interfaz, la duración,
+cuánto guardar de cada paquete y la carpeta. Mientras dura, el pie de pantalla la muestra, y al
+terminar un aviso dice dónde la guardó Borg: en la carpeta del panel activo o en la que indique el
+agente, legible solo por ti. La captura de un agente siempre se ejecuta como tú y nunca pide la
+contraseña de un administrador, así que sin acceso termina con **No tienes permiso para capturar
+en** y el nombre de la interfaz.
+
+El agente recibe un resumen: los protocolos que Borg reconoció y luego cada proceso, host y
+conexión con sus paquetes y bytes, con los nombres de host sacados de las propias respuestas DNS de
+la captura y de los nombres de servidor TLS. Borg vigila los sockets mientras dura la captura, así
+que las conversaciones quedan asignadas a sus procesos aunque la pantalla de red esté cerrada. El
+resumen deja fuera lo que llevan los paquetes. Leer un archivo `.pcap`, `.pcapng` o `.cap` da el
+mismo resumen, acotado con las palabras del filtro del visor de tráfico, y el agente puede pedir un
+paquete por su número para obtener sus capas y sus bytes en un volcado hexadecimal. Borg recuerda
+los procesos de las últimas 16 capturas del agente hasta que sale. Los demás archivos muestran sus
+conversaciones en **Proceso desconocido**, salvo que sus paquetes lleven su proceso.
+
 Mientras hay un agente conectado, **◈ Remoto** aparece al principio de la barra de atajos. Haz
 clic en él para ver un registro de lo que ha hecho el agente: lo que ha mirado, leído, mostrado y
 escrito, y cada comando y cambio, aprobado o rechazado. Borg guarda el registro solo en memoria,
@@ -1344,6 +1367,9 @@ pantalla de red, legible solo por ti, para que Wireshark y otras herramientas pu
 después. Una captura que marca cada paquete con su proceso se guarda como
 `capture-<date>-<time>.pcapng`, el formato que puede llevar esas marcas. Una captura contiene todo lo que llevaban los paquetes, así que guárdala con el mismo
 cuidado que esos datos.
+
+Un agente conectado mediante `borg mcp` también puede pedir una captura, que también espera tu
+aprobación (consulta [Qué puede hacer el agente](#what-the-agent-can-do)).
 
 Cuando la captura termina, el visor de tráfico ocupa el lugar de las páginas en vivo, con una página
 para cada forma de mirarla:

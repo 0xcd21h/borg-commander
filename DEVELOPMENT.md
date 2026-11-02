@@ -209,6 +209,13 @@ stream as itself, and stops the capture by shutting down its side of the socket,
 helper turns into SIGINT, as it does when Borg exits. tcpdump's messages come back as the
 helper's JSON result.
 
+An agent's `capture` call asks with `network::capture_ask`, picks its interface with the dialog's
+`capture_interfaces`, and once approved runs the same tcpdump runner through
+`record_for_agent`, while a blocking worker samples sockets every second into `SeenSockets`.
+`network::viewer::report` turns the `TrafficView` into the text the agent gets: the summary by
+process, host and connection without packet contents, or one packet's layers and hex bytes when a
+`read` of a capture file names it.
+
 Missing programs: `borg-app::tools::find` looks a program up on `PATH`, then in the system folders
 and Homebrew's `sbin` folders, on every call, so a program installed while Borg runs is found.
 When tcpdump is not there, the capture ends with `CaptureFailure::Missing` and the installer

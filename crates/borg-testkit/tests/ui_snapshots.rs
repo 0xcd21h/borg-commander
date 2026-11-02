@@ -3257,6 +3257,27 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
 }
 
 #[test]
+fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
+    use borg_core::{AgentEvent, CaptureRequest, CaptureScope, Transport};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let request = CaptureRequest {
+        interface: "en0".into(),
+        seconds: Some(10),
+        headers_only: false,
+        filter: "udp port 53".into(),
+        folder: "/home/dev/work".into(),
+        administrator: false,
+        processes: false,
+    };
+    let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
+    let ask = borg_core::capture_ask(scope, None, &request, String::new());
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote wants to capture traffic")?;
+    check("agent_capture_approval", &stage, buffer)
+}
+
+#[test]
 fn remote_console_names_the_host_and_session_and_mounts_the_right_panel() -> Result<()> {
     use borg_core::Side;
     let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;

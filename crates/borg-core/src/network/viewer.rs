@@ -13,6 +13,7 @@ use std::{
 };
 
 mod keys;
+mod report;
 
 pub(crate) use keys::{click, paste, route_key, show_page};
 
@@ -141,7 +142,8 @@ impl TrafficView {
         view
     }
 
-    pub(crate) fn set_filter(&mut self, text: &str) {
+    /// Keeps the rows that match `text`, as the screen's filter does.
+    pub fn set_filter(&mut self, text: &str) {
         text.clone_into(&mut self.filter);
         self.rebuild();
     }
@@ -221,6 +223,17 @@ impl TrafficView {
     /// The packet's own process, or else its conversation's, when the capture tells it.
     pub fn packet_pid(&self, packet: &Packet) -> Option<u32> {
         packet.pid.or_else(|| packet.flow.and_then(|flow| self.ends[flow].pid))
+    }
+
+    /// What a conversation sent from this machine and what it received, by its place in the
+    /// capture.
+    pub fn sent_received(&self, flow: usize) -> (u64, u64) {
+        let conversation = &self.capture.flows[flow];
+        if self.ends[flow].local == conversation.client {
+            (conversation.to_server, conversation.to_client)
+        } else {
+            (conversation.to_client, conversation.to_server)
+        }
     }
 
     /// What a conversation carries: the protocol Borg recognized in it, or its transport.

@@ -2309,6 +2309,77 @@ fn an_agent_searches_process_memory_only_after_the_user_approves() -> Result<()>
     Ok(())
 }
 
+/// A capture file holding one DNS question for example.com, from a documentation address to
+/// its resolver.
+fn dns_capture() -> Vec<u8> {
+    let mut question = vec![0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
+    question.extend(b"\x07example\x03com\x00");
+    question.extend([0, 1, 0, 1]);
+    let mut udp = Vec::new();
+    udp.extend(53_001u16.to_be_bytes());
+    udp.extend(53u16.to_be_bytes());
+    udp.extend((8 + question.len() as u16).to_be_bytes());
+    udp.extend([0, 0]);
+    udp.extend(question);
+    let mut ip = vec![0x45, 0];
+    ip.extend((20 + udp.len() as u16).to_be_bytes());
+    ip.extend([0, 1, 0x40, 0, 64, 17, 0, 0, 192, 0, 2, 10, 192, 0, 2, 1]);
+    ip.extend(udp);
+    let mut frame = vec![0x02, 0, 0, 0, 0, 1, 0x02, 0, 0, 0, 0, 2, 0x08, 0];
+    frame.extend(ip);
+    let mut file = Vec::new();
+    for word in [0xa1b2_c3d4u32, 0x0004_0002, 0, 0, 65_535, 1, 100, 0, frame.len() as u32, frame.len() as u32] {
+        file.extend(word.to_le_bytes());
+    }
+    file.extend(frame);
+    file
+}
+
+#[test]
+fn an_agent_captures_only_after_the_user_approves_and_reads_saved_captures() -> Result<()> {
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "agent-capture")?;
+    fs::write(fixture.work().join("dns.pcap"), dns_capture())?;
+    let mut mcp = Mcp::start(&fixture)?;
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "1" } }))?;
+    let tools = mcp.request("tools/list", serde_json::json!({}))?;
+    ensure!(tools.to_string().contains("\"capture\""), "{tools}");
+    let (error, text) = mcp.call("capture", serde_json::json!({ "port": 53, "pid": 1 }))?;
+    ensure!(error && text.contains("one scope"), "{text}");
+    let (error, text) = mcp.call("capture", serde_json::json!({ "folder": "missing" }))?;
+    ensure!(error && text.contains("is not a folder"), "{text}");
+
+    let asking = std::thread::spawn(move || {
+        let capture = serde_json::json!({ "interface": "lo0", "port": 53, "transport": "udp", "seconds": 10 });
+        let declined = mcp.call("capture", capture);
+        (mcp, declined)
+    });
+    app.wait_text("Remote wants to capture traffic")?;
+    app.wait_text("UDP port 53 and its connections")?;
+    app.wait_text("Duration: 10 s")?;
+    decline(&mut app)?;
+    let (mut mcp, declined) = asking.join().unwrap();
+    let (error, text) = declined?;
+    ensure!(error && text.contains("declined"), "{text}");
+
+    let (error, text) = mcp.call("read", serde_json::json!({ "path": "dns.pcap" }))?;
+    ensure!(
+        !error && text.starts_with("Capture · packets: 1 · ") && text.contains("Protocols by packet: DNS 1\n"),
+        "{text}"
+    );
+    ensure!(text.contains("192.0.2.1:53") && text.contains("example.com"), "the connection and what it asked: {text}");
+    let (error, text) = mcp.call("read", serde_json::json!({ "path": "dns.pcap", "packet": 1 }))?;
+    ensure!(
+        !error && text.starts_with("Packet 1 of 1: DNS A example.com\n") && text.contains("\nBytes:\n0000  "),
+        "{text}"
+    );
+    let (error, text) = mcp.call("read", serde_json::json!({ "path": "dns.pcap", "packet": 2 }))?;
+    ensure!(error && text.contains("no packet 2"), "{text}");
+    let (error, text) = mcp.call("read", serde_json::json!({ "path": "notes.txt", "packet": 1 }))?;
+    ensure!(error && text.contains("is not a capture"), "{text}");
+    Ok(())
+}
+
 #[test]
 fn an_agent_sees_reads_shows_and_changes_only_what_the_user_approves() -> Result<()> {
     let fixture = fixture()?;

@@ -21,6 +21,8 @@ pub const HEX_WIDTH: usize = 16;
 /// What a DNS answer code says when the name does not exist.
 const DNS_NO_NAME: u16 = 3;
 const DNS_NO_NAME_LABEL: &str = "NXDOMAIN";
+/// What separates the parts of a layer's description.
+const SEPARATOR: &str = " · ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureError {
@@ -85,6 +87,75 @@ impl Packet {
             (_, Some(Datagram::Icmp { kind, code })) => format!("type={kind} code={code}"),
             (_, None) => String::new(),
         }
+    }
+
+    /// Each layer Borg read, by its protocol's name, with what it says: the link, IP, TCP, UDP
+    /// or ICMP, and DNS, TLS or HTTP. A layer on several rows names itself on the first.
+    pub fn layer_rows(&self) -> Vec<(&'static str, String)> {
+        let layers = &self.layers;
+        let mut rows = Vec::new();
+        if let (Some(source), Some(destination)) = (layers.link.source, layers.link.destination) {
+            let kind = layers.link.ether_type.map_or_else(String::new, |kind| format!("{SEPARATOR}0x{kind:04x}"));
+            rows.push(("Ethernet", format!("{} → {}{kind}", mac(source), mac(destination))));
+        }
+        if let Some(ip) = layers.ip {
+            let version = if ip.source.is_ipv6() { "IPv6" } else { "IPv4" };
+            let fragment = if ip.fragment { format!("{SEPARATOR}{}", tr!(traffic_fragment)) } else { String::new() };
+            rows.push((version, format!("{} → {}{SEPARATOR}TTL {}{fragment}", ip.source, ip.destination, ip.ttl)));
+        }
+        match layers.datagram {
+            Some(Datagram::Tcp(tcp)) => rows.push((
+                "TCP",
+                format!(
+                    "{} → {}{SEPARATOR}[{}]{SEPARATOR}seq={} ack={} win={}",
+                    tcp.source,
+                    tcp.destination,
+                    tcp.flag_names().join(", "),
+                    tcp.seq,
+                    tcp.ack,
+                    tcp.window
+                ),
+            )),
+            Some(Datagram::Udp { source, destination }) => rows.push(("UDP", format!("{source} → {destination}"))),
+            Some(Datagram::Icmp { kind, code }) => rows.push((layers.protocol(), format!("type={kind} code={code}"))),
+            None => {}
+        }
+        rows.extend(layers.app.as_ref().map(app_rows).unwrap_or_default());
+        rows
+    }
+}
+
+fn mac(address: [u8; 6]) -> String {
+    address.iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(":")
+}
+
+fn app_rows(app: &App) -> Vec<(&'static str, String)> {
+    let name = app.name();
+    match app {
+        App::Dns(dns) => {
+            let mut rows: Vec<(&'static str, String)> =
+                dns.questions.iter().map(|(asked, kind)| (name, format!("{} {asked}", dns_type(*kind)))).collect();
+            rows.extend(dns.answers.iter().map(|answer| {
+                let data = match &answer.data {
+                    DnsData::Address(address) => address.to_string(),
+                    DnsData::Name(name) => name.clone(),
+                    DnsData::Other => String::new(),
+                };
+                ("", format!("→ {} {} {data}", answer.name, dns_type(answer.kind)))
+            }));
+            rows
+        }
+        App::TlsHello { server } => {
+            vec![(name, format!("ClientHello{SEPARATOR}{}", server.clone().unwrap_or_default()))]
+        }
+        App::TlsServerHello => vec![(name, "ServerHello".to_owned())],
+        App::Tls | App::Quic => Vec::new(),
+        App::Http(Http::Request { method, target, host }) => {
+            let mut rows = vec![(name, format!("{method} {target}"))];
+            rows.extend(host.iter().map(|host| ("Host", host.clone())));
+            rows
+        }
+        App::Http(Http::Response { status, reason }) => vec![(name, format!("{status} {reason}"))],
     }
 }
 
