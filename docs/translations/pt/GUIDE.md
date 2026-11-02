@@ -900,15 +900,16 @@ exatamente como estão escritos, o que ajuda sobretudo com ficheiros escritos nu
 são organizados um registo de cada vez. O JSON com mais de 16 MiB, ou que não pode ser analisado,
 abre tal como está escrito.
 
-Prima `h` no visualizador de texto para ver os bytes do ficheiro em linhas hexadecimais e prima-o
-de novo para voltar ao texto. Cada linha começa com a sua posição no ficheiro e mostra depois os
-seus bytes em hexadecimal e os mesmos bytes como texto, com um ponto em cada byte que não é
-imprimível. As posições e os bytes a zero aparecem esbatidos. Uma linha tem 16 bytes, ou 8, 4, 2 ou
-1 quando o terminal é demasiado estreito para 16. O Borg lê apenas as linhas que estão no ecrã, pelo
-que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato um ficheiro de vários gigabytes. A
-barra de pesquisa também funciona nas linhas hexadecimais e marca cada correspondência nas duas
-colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes tal como estão escritos.
-Fechar o visualizador devolve o texto à pré-visualização.
+Prima `h` no visualizador de texto para ver os bytes do ficheiro em linhas hexadecimais e prima-o de
+novo para voltar ao texto. Um ficheiro binário, que o Borg reconhece por um byte a zero nos
+primeiros 4 KiB, abre em linhas hexadecimais, e `h` mostra o seu texto. Cada linha começa com a sua
+posição no ficheiro e mostra depois os seus bytes em hexadecimal e os mesmos bytes como texto, com
+um ponto em cada byte que não é imprimível. As posições e os bytes a zero aparecem esbatidos. Uma
+linha tem 16 bytes, ou 8, 4, 2 ou 1 quando o terminal é demasiado estreito para 16. O Borg lê apenas
+as linhas que estão no ecrã, pelo que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato
+um ficheiro de vários gigabytes. A barra de pesquisa também funciona nas linhas hexadecimais e marca
+cada correspondência nas duas colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes
+tal como estão escritos. Fechar o visualizador devolve o texto à pré-visualização.
 
 ### Editor
 
@@ -1420,12 +1421,14 @@ para cada forma de a ver:
   contados uma só vez, num dump hexadecimal com os bytes que se imprimem como texto ao lado. O fluxo
   divide-se em vezes, cada uma com uma seta que indica o sentido, os bytes que contém e a hora a que
   chegou. Quando faltam na captura bytes antes de uma vez, essa vez indica quantos faltam. **]** e
-  **[** saltam para a vez seguinte e para a anterior, e Enter mostra os pacotes da conversa um a um.
+  **[** saltam para a vez seguinte e para a anterior. F3 mostra o fluxo inteiro em linhas
+  hexadecimais no visualizador, com as vezes umas a seguir às outras, para o percorrer e pesquisar
+  lá. Enter mostra os pacotes da conversa um a um.
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
   hexadecimal. Um dump põe 16 bytes em cada linha, e menos num painel estreito, para que o texto
-  continue a caber ao lado.
+  continue a caber ao lado. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
 
 | Tecla | Ação |
 | --- | --- |
@@ -1434,6 +1437,7 @@ para cada forma de a ver:
 | ] / [ | Nos detalhes de uma ligação, saltar para a vez seguinte ou anterior do fluxo |
 | `/` | Filtrar as linhas, como nas páginas ao vivo |
 | Ctrl-C | Copiar o PID, o endereço, a outra ponta ou os bytes do pacote em hex |
+| F3 | Mostrar o fluxo da ligação ou os bytes do pacote em linhas hexadecimais no visualizador |
 | Tab | Alternar entre a lista e os detalhes, onde ↑↓ percorrem |
 | Esc | Voltar à lista, depois subir um nível, depois limpar o filtro e depois voltar ao ecrã ao vivo |
 

@@ -717,6 +717,51 @@ fn an_opened_capture_file_shows_its_hosts() {
 }
 
 #[test]
+fn f3_shows_a_conversations_stream_or_a_packets_bytes_as_hex_rows() {
+    use crate::{
+        ACK, Content, PSH, SYN, Shown,
+        capture::tests::{CLIENT, CLIENT_PORT, SERVER, over_tcp, pcap, tcp},
+    };
+
+    let (request, answer) = (b"GET / HTTP/1.1\r\n", b"HTTP/1.1 200 OK\r\n");
+    let frames = [
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 80, 1000, SYN, &[])),
+        over_tcp(SERVER, CLIENT, tcp(80, CLIENT_PORT, 5000, SYN | ACK, &[])),
+        over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 80, 1001, PSH | ACK, request)),
+        over_tcp(SERVER, CLIENT, tcp(80, CLIENT_PORT, 5001, PSH | ACK, answer)),
+    ];
+    let capture = Capture::read(&pcap(&frames)).unwrap();
+    let (mut state, now) = state();
+    update(&mut state, Msg::CaptureOpened { path: PathBuf::from("/work/web.pcap"), result: Ok(capture) }, now);
+    let f3 = |state: &mut AppState| press(state, KeyCode::F(3), KeyModifiers::NONE);
+    let shown = |state: &AppState| state.viewer.as_ref().map(|viewer| viewer.shown.clone());
+    let pager = |state: &AppState| match &state.viewer.as_ref().unwrap().content {
+        Content::Text(pager) => pager.clone(),
+        Content::Image(_) => panic!("expected bytes"),
+    };
+
+    f3(&mut state);
+    assert_eq!(shown(&state), None, "a host has no bytes of its own");
+    press(&mut state, KeyCode::Char('3'), KeyModifiers::NONE);
+    f3(&mut state);
+    assert_eq!(shown(&state), Some(Shown::Bytes("192.168.1.20:51000 → 93.184.216.34:80".into())));
+    assert!(pager(&state).hex());
+    assert_eq!(pager(&state).len(), (request.len() + answer.len()) as u64, "both sides' turns, one after another");
+    assert_eq!(pager(&state).rows()[0], "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(state.viewer.is_none() && state.network.viewer.is_some(), "Esc goes back to the traffic");
+
+    press(&mut state, KeyCode::Char('4'), KeyModifiers::NONE);
+    f3(&mut state);
+    assert_eq!(shown(&state), Some(Shown::Bytes("Packet 1".into())));
+    assert!(pager(&state).hex());
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    press(&mut state, KeyCode::Char('1'), KeyModifiers::NONE);
+    f3(&mut state);
+    assert_eq!(shown(&state), None, "a process has no bytes of its own");
+}
+
+#[test]
 fn an_agent_capture_takes_the_interface_the_dialog_would() {
     let network = measured("");
     let postgres = CaptureScope::Port { transport: Transport::Tcp, port: 5432 };

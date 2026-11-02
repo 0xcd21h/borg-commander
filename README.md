@@ -107,7 +107,8 @@ Ctrl-O switches between the panels and the console.
   with progress, pause, and conflict handling. Mark a few files or select a whole pattern.
 - **Look inside without leaving the folder.** Preview highlighted code, formatted Markdown,
   and images. Scroll a document in quick preview, expand it into the viewer, and keep your place.
-  Large text files load around the visible page.
+  Large text files load around the visible page. Binary files open as hex rows, and H switches any
+  file between hex and text.
 - **See Git beside your files.** Branch names and file status in the panels; diffs, recent
   commits, staging, and unstaging in the Git menu. The bundled plugin can be switched off.
 - **Edit in a panel.** F4 opens Borg's editor with highlighting, find and replace, undo, and

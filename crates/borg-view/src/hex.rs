@@ -58,6 +58,11 @@ impl HexLayout {
         self.columns as u64
     }
 
+    /// `data` as the rows of a dump laid out this way.
+    pub fn lines(self, data: &[u8]) -> Vec<String> {
+        data.chunks(self.columns).zip((0..).step_by(self.columns)).map(|(row, at)| self.line(at, row)).collect()
+    }
+
     /// The row of `bytes`, found `offset` bytes into the dump.
     pub fn line(self, offset: u64, bytes: &[u8]) -> String {
         self.runs(offset, bytes, &|_| Mark::None).iter().map(|run| run.text.as_str()).collect()

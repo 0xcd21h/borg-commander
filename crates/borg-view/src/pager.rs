@@ -113,6 +113,8 @@ pub struct Pager {
     current: Option<Range<u64>>,
     /// Whether the page shows the source as hex rows.
     hex: bool,
+    /// The source holds a zero byte near its start, which text does not.
+    binary: bool,
 }
 
 impl fmt::Debug for Pager {
@@ -164,6 +166,7 @@ impl Pager {
             matches: None,
             current: None,
             hex: false,
+            binary: false,
         }
     }
 
@@ -171,6 +174,7 @@ impl Pager {
         let mut pager = Self::blank(source.clone(), width, height, MAX_LINE, BACK_SCAN_LIMIT);
         let head = pager.read(0, FIRST_READ)?;
         let binary = head.contains(&0);
+        pager.binary = binary;
         pager.syntax = if binary {
             None
         } else {
@@ -240,6 +244,11 @@ impl Pager {
 
     pub fn formatted(&self) -> bool {
         self.formatted
+    }
+
+    /// Whether the file looked binary as it opened: a zero byte in its first 4 KiB.
+    pub fn binary(&self) -> bool {
+        self.binary
     }
 
     pub fn language(&self) -> Option<&str> {

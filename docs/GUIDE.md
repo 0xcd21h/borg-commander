@@ -829,10 +829,11 @@ the file as written. JSON Lines files (`.jsonl`, `.ndjson`) are laid out one rec
 JSON larger than 16 MiB, or JSON that does not parse, opens as written.
 
 Press `h` in the text viewer to see the file's bytes as hex rows, and press it again to go back to
-the text. Each row starts with its offset in the file, then shows its bytes in hex and the same
-bytes as text, with a dot for each byte that does not print. Offsets and zero bytes are dimmed. A
-row holds 16 bytes, or 8, 4, 2 or 1 when the terminal is too narrow for 16. Borg reads only the rows
-on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a file of several
+the text. A binary file, which Borg spots by a zero byte in its first 4 KiB, opens as hex rows, and
+`h` shows its text. Each row starts with its offset in the file, then shows its bytes in hex and the
+same bytes as text, with a dot for each byte that does not print. Offsets and zero bytes are dimmed.
+A row holds 16 bytes, or 8, 4, 2 or 1 when the terminal is too narrow for 16. Borg reads only the
+rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a file of several
 gigabytes at once. The find bar works in hex rows too and marks each match in both columns. In hex,
 Markdown and JSON files show their bytes as written. Closing the viewer gives the quick view the
 text again.
@@ -1313,12 +1314,14 @@ way to look at it:
   counted once, as a hex dump with the bytes that print as text beside them. The stream comes in
   turns, each with an arrow for its direction, the bytes it holds and when it came. When the
   capture lacks bytes before a turn, the turn says how many are missing. **]** and **[** jump to
-  the next and previous turn, and Enter shows the conversation's packets one by one.
+  the next and previous turn. F3 opens the whole stream in the viewer as hex rows, with its turns
+  one after another, so you can page through it and search it there. Enter shows the
+  conversation's packets one by one.
 - **4 Packets** shows every packet in order with its time from the start, protocol, length and a
   summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
   its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
   as a hex dump. A dump puts 16 bytes on each line, and fewer in a narrow pane so their text still
-  fits beside them.
+  fits beside them. F3 opens the packet's bytes in the viewer as hex rows.
 
 | Key | Action |
 | --- | --- |
@@ -1327,6 +1330,7 @@ way to look at it:
 | ] / [ | In a connection's details, jump to the next or previous turn of its stream |
 | `/` | Filter the rows, as on the live pages |
 | Ctrl-C | Copy the PID, the address, the other end, or the packet's bytes in hex |
+| F3 | Open the connection's stream or the packet's bytes in the viewer as hex rows |
 | Tab | Move between the list and the details, where ↑↓ scroll |
 | Esc | Go back to the list, then up a level, then clear the filter, then return to the live screen |
 

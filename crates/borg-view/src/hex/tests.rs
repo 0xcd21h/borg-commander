@@ -54,3 +54,22 @@ fn offsets_and_zero_bytes_are_faint_and_a_match_is_marked_in_both_columns() {
         ]
     );
 }
+
+#[test]
+fn a_dump_gives_every_row_and_a_narrow_one_keeps_the_text_beside_fewer_bytes() {
+    let data = b"GET / HTTP/1.1\r\nHost";
+    let layout = HexLayout::full(data.len() as u64);
+    let lines = layout.lines(data);
+    assert_eq!(
+        lines,
+        [
+            "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..",
+            &format!("0010  {:<47}  Host", "48 6f 73 74")
+        ]
+    );
+    assert_eq!(lines[0].len(), layout.width());
+    assert_eq!(
+        HexLayout::fitting(64, 100).lines(b"GET / HTTP/1.1"),
+        ["0000  47 45 54 20 2f 20 48 54  GET / HT", "0008  54 50 2f 31 2e 31        TP/1.1"]
+    );
+}

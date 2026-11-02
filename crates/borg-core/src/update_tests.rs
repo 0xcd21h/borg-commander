@@ -1340,6 +1340,28 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_get
     assert_eq!(preview.rows()[0], "row 132", "the line the hex row from byte 944 starts in");
 }
 
+#[test]
+fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let path = PathBuf::from("/home/app.bin");
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let bytes = b"\x7fELF\x02\x01\x01\x00\x00\x00text\n".to_vec();
+    let pager = borg_view::Pager::for_path(Arc::new(bytes), &path, width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(path.clone());
+    update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+
+    assert!(shown(&state).hex(), "a zero byte near the start opens the file as hex rows");
+    let row = format!("0000  7f 45 4c 46 02 01 01 00 00 00 74 65 78 74 0a{:5}.ELF......text.", "");
+    assert_eq!(shown(&state).rows()[0], row);
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(!shown(&state).hex(), "h shows the text");
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert_eq!(shown(&state).rows()[0], row);
+}
+
 /// A contents search for `query` that found its first match in `/home/log` at `line`.
 fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, line: crate::LineMatch) {
     found_in(state, now, query, vec![("log", line)]);
@@ -1827,7 +1849,7 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
 fn a_picture_loaded_after_the_viewer_gave_it_up_stays_away() {
     let (mut state, now) = setup_with(vec![file("a.png"), file("b.jpg"), file("c.gif")]);
     let path = |name: &str| PathBuf::from("/home").join(name);
-    let shown = |state: &AppState| state.viewer.as_ref().map(|viewer| viewer.path.clone());
+    let shown = |state: &AppState| state.viewer.as_ref().and_then(|viewer| viewer.path().map(PathBuf::from));
     image_viewer(&mut state, "a.png", now);
 
     press(&mut state, now, key(KeyCode::Down));

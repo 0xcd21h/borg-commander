@@ -738,7 +738,7 @@ fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
 
 /// Shows `viewer` as if the file it holds had been asked for and loaded.
 fn opened(stage: &mut Stage, viewer: borg_core::Viewer) {
-    stage.state.opening = Some(viewer.path.clone());
+    stage.state.opening = viewer.path().map(PathBuf::from);
     stage.send(Msg::Opened(viewer));
 }
 
@@ -3103,8 +3103,8 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
 
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
 /// the browser, where Enter goes from the process to its connections, whose bytes ] steps
-/// through by turn, and on to one connection's packets, and Esc comes back the same way to
-/// every process and the hosts.
+/// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes
+/// back the same way to every process and the hosts.
 #[test]
 fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
     use borg_core::{Capture, Effect, TrafficPage};
@@ -3142,6 +3142,13 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     ensure_text(&buffer, "← Received ")?;
     ensure_text(&buffer, "[ ] Turn")?;
     check("traffic_stream_turn", &stage, buffer)?;
+
+    stage.send(key(KeyCode::F(3)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "h text")?;
+    check("traffic_stream_viewer", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.viewer.is_none(), "Esc goes back to the stream");
 
     stage
         .send(key(KeyCode::Tab))
