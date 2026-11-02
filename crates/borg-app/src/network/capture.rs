@@ -2,7 +2,9 @@
 //! screen covers, or the one an agent names, and reads capture files for the traffic viewer.
 
 use super::Sampler;
-use borg_core::{Capture, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, SeenSockets};
+use borg_core::{
+    Capture, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, SeenSockets, Tool,
+};
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
 use std::{
@@ -22,9 +24,6 @@ use tokio::{
     time::Instant,
 };
 
-const PROGRAM: &str = "tcpdump";
-/// Where tcpdump is installed when the folder is not on `PATH`, as `/usr/sbin` often is not.
-const SYSTEM_DIRS: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 /// How often an agent's capture looks at the sockets, as the network screen samples them.
 const SOCKETS_EVERY: Duration = Duration::from_secs(1);
@@ -57,7 +56,10 @@ impl Recorder {
             let progress = |bytes, packets| {
                 let _ = messages.send(Msg::CaptureProgress { id, bytes, packets });
             };
-            let result = record(&request, progress, stopped).await;
+            let result = match crate::tools::find(Tool::Tcpdump.program()) {
+                Some(program) => record(&program, &request, progress, stopped).await.map_err(CaptureFailure::Failed),
+                None => Err(CaptureFailure::Missing(crate::tools::installer())),
+            };
             let _ = messages.send(Msg::CaptureDone { id, result });
         });
         Self { id, stop: Some(stop), task }
@@ -92,10 +94,11 @@ pub(super) fn open(path: PathBuf, messages: UnboundedSender<Msg>) {
 /// Captures for an agent as the network screen does, for as long as `request` says, and looks
 /// at the sockets every second meanwhile to tell each conversation's process.
 pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBuf, Capture, SeenSockets), String> {
+    let program = crate::tools::find(Tool::Tcpdump.program()).ok_or_else(|| tr!(capture_missing).to_owned())?;
     let (done, watching) = channel::<()>();
     let watcher = tokio::task::spawn_blocking(move || watch_sockets(&watching));
     let (_stop, stopped) = oneshot::channel();
-    let recorded = record(request, |_, _| {}, stopped).await;
+    let recorded = record(&program, request, |_, _| {}, stopped).await;
     drop(done);
     let seen = watcher.await.unwrap_or_default();
     recorded.map(|(path, capture)| (path, capture, seen))
@@ -135,12 +138,12 @@ fn read_file(path: &Path) -> Result<Capture, String> {
 /// Runs tcpdump as `request` asks and saves what it writes, telling `progress` the bytes and
 /// packets so far every second, until the deadline, `stopped`, or a limit.
 async fn record(
+    program: &Path,
     request: &CaptureRequest,
     progress: impl Fn(u64, usize),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), String> {
-    let program = program().ok_or_else(|| tr!(capture_missing).to_owned())?;
-    let mut child = command(&program, request).spawn().map_err(|error| match error.kind() {
+    let mut child = command(program, request).spawn().map_err(|error| match error.kind() {
         ErrorKind::NotFound => tr!(capture_missing).to_owned(),
         _ => tr!(capture_failed, error = error),
     })?;
@@ -214,16 +217,6 @@ async fn record(
         .unwrap_or_else(|error| Err(error.to_string()))
         .map_err(|error| tr!(capture_cannot_read, path = path.display(), error = error))?;
     Ok((path, capture))
-}
-
-/// The installed tcpdump: the one on `PATH`, or else in a system folder.
-fn program() -> Option<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path)
-        .filter(|dir| dir.is_absolute())
-        .chain(SYSTEM_DIRS.map(PathBuf::from))
-        .map(|dir| dir.join(PROGRAM))
-        .find(|candidate| candidate.is_file())
 }
 
 /// tcpdump writing raw packets to its output as each one arrives, without looking up names,

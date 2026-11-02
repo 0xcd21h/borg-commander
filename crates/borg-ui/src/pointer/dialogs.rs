@@ -94,6 +94,7 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
             let (rect, hint) = crate::dialog_view::prompt_hint(prompt, screen);
             border_key(mouse, rect, hint, true)
         }
+        Overlay::Install(offer) => border_key(mouse, crate::install_view::rect(offer, screen), tr!(install_keys), true),
         _ => None,
     }
 }

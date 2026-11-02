@@ -3078,6 +3078,28 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     Ok(())
 }
 
+/// A capture without tcpdump offers to install it with the package manager Borg found, and
+/// Enter types the command into the shell.
+#[test]
+fn network_offers_to_install_a_missing_tcpdump() -> Result<()> {
+    use borg_core::{CaptureFailure, Effect, Elevation, Installer, PackageManager, View};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('r')));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, .. }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    let installer = Installer { manager: PackageManager::Apt, elevation: Some(Elevation::Sudo) };
+    stage.send(Msg::CaptureDone { id, result: Err(CaptureFailure::Missing(Some(installer))) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "sudo apt-get install tcpdump")?;
+    check("network_install_tcpdump", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    assert!(effects.contains(&Effect::Write(b"sudo apt-get install tcpdump\r".to_vec())), "Enter types the command");
+    assert_eq!(stage.state.view, View::Shell, "and shows the shell");
+    Ok(())
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]

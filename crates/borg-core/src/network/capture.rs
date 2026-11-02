@@ -5,7 +5,7 @@ use super::{
     InterfaceKind, NetworkPage, Socket, SocketKey, Transport,
     viewer::{TrafficPage, TrafficView},
 };
-use crate::{AppState, Ask, AskKind, Capture, DiffLine, Effect, Overlay, Side};
+use crate::{AppState, Ask, AskKind, Capture, DiffLine, Effect, Installer, Overlay, Side, Tool};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{
@@ -84,6 +84,14 @@ impl CaptureScope {
             _ => String::new(),
         }
     }
+}
+
+/// Why a capture has no file to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureFailure {
+    /// tcpdump is not installed, with how Borg installs it when it knows how.
+    Missing(Option<Installer>),
+    Failed(String),
 }
 
 /// What a capture asks `tcpdump` for.
@@ -367,12 +375,14 @@ pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize
 }
 
 /// A capture ended: the viewer opens on it while the screen shows, a notice says where it was
-/// saved otherwise, and the panels showing its folder list the new file.
-pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), String>) -> Vec<Effect> {
+/// saved otherwise, and the panels showing its folder list the new file. Without tcpdump, Borg
+/// offers to install it.
+pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
     match result {
-        Err(error) => state.notice = Some(error),
+        Err(CaptureFailure::Missing(installer)) => crate::install::offer(state, Tool::Tcpdump, installer),
+        Err(CaptureFailure::Failed(error)) => state.notice = Some(error),
         Ok((path, capture)) if !state.network.is_open() => {
             let packets = borg_i18n::count(capture.packets.len(), borg_i18n::Count::Packet);
             state.notice = Some(tr!(capture_saved, packets = packets, path = path.display()));
