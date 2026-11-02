@@ -38,6 +38,7 @@ mod sessions;
 mod size_cache;
 mod store;
 mod subfolders;
+mod tools;
 mod update;
 
 use std::{env, io::stdout, process::ExitCode};

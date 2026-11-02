@@ -54,10 +54,10 @@ pub enum Msg {
         bytes: u64,
         packets: usize,
     },
-    /// A capture ended: the file it was saved to and what it caught, or why it failed.
+    /// A capture ended: the file it was saved to and what it caught, or why it has none.
     CaptureDone {
         id: u64,
-        result: Result<(PathBuf, crate::Capture), String>,
+        result: Result<(PathBuf, crate::Capture), crate::CaptureFailure>,
     },
     /// A capture file opened from a panel, read.
     CaptureOpened {

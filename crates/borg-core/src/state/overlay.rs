@@ -153,4 +153,6 @@ pub enum Overlay {
     ProcessControl(crate::ControlDialog),
     /// What to capture from the network screen, where and for how long.
     Capture(crate::CaptureDialog),
+    /// The command that installs a missing program, before it runs in the shell.
+    Install(crate::InstallOffer),
 }

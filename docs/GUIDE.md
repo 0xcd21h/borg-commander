@@ -1264,6 +1264,17 @@ F3 on a `.pcap`, `.pcapng` or `.cap` file in a panel opens it in the same viewer
 **2 Hosts**. A file recorded elsewhere has no sockets to match, so its conversations show
 **Unknown process**. The viewer reads files up to 256 MiB and their first 200,000 packets.
 
+When Borg cannot find tcpdump, the capture offers to install it. The **Install tcpdump** dialog
+shows the exact command for the package manager Borg found: `apt-get`, `dnf`, `pacman`, `zypper` or
+`apk` on Linux, or Homebrew's `brew` on macOS and on a Linux machine with none of those. The
+system's package managers run under `sudo`, or `doas` where there is no `sudo`, unless Borg runs as
+root. Enter types the command into Borg's shell, where you see what it does and type your password
+yourself, and Esc cancels. When the command ends, a notice says whether it worked, and Ctrl-O shows
+its output. Borg looks for tcpdump again each time a capture starts, on `PATH` and in `/usr/sbin`,
+`/usr/bin`, `/sbin`, `/bin` and Homebrew's `sbin` folders, so R works as soon as the install
+finishes. Without a package manager Borg knows, the capture ends with **Capturing needs tcpdump,
+and Borg cannot find it.**
+
 tcpdump needs access to the capture device, and Borg runs it as you:
 
 - On macOS, only root can open the `/dev/bpf` devices at first. Install Wireshark with its
