@@ -36,7 +36,7 @@ impl App {
                 // Cleared here and drawn whole: Terminal::clear would ask the terminal where
                 // its cursor is, and not every terminal answers.
                 execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
-                clear_screen(terminal)?;
+                self.clear_screen(terminal)?;
             }
             None => {}
         }
@@ -45,7 +45,7 @@ impl App {
         queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
         let mut output = self.draw_frame(terminal, &clock, now)?;
         if output.repaint {
-            clear_screen(terminal)?;
+            self.clear_screen(terminal)?;
             output = self.draw_frame(terminal, &clock, now)?;
         }
         let backend = terminal.backend_mut();
@@ -125,13 +125,16 @@ impl App {
         self.last_click = None;
         self.dispatch(Msg::Resize { cols, rows })
     }
-}
 
-pub(super) fn clear_screen(terminal: &mut DefaultTerminal) -> Result<()> {
-    execute!(terminal.backend_mut(), Clear(ClearType::All))?;
-    terminal.swap_buffers();
-    terminal.swap_buffers();
-    Ok(())
+    pub(super) fn clear_screen(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        let backend = terminal.backend_mut();
+        queue!(backend, Clear(ClearType::All))?;
+        backend.write_all(&self.graphics.reset())?;
+        backend.flush()?;
+        terminal.swap_buffers();
+        terminal.swap_buffers();
+        Ok(())
+    }
 }
 
 /// Where an ask happens, with the computer that asked when it came through borg cloud.
