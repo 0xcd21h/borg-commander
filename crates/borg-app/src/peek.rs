@@ -40,13 +40,8 @@ fn quick_view(
     if fs::metadata(path)?.is_dir() {
         return folder(path, size.1, &cancelled);
     }
-    match crate::document::open(path, size, cell, cancelled.clone())? {
-        Content::Text(mut pager) => {
-            if let Some(at) = at {
-                borg_core::land_on_match(&mut pager, at, &|_| !cancelled.load(Ordering::Relaxed))?;
-            }
-            Ok(Peek::Text(pager))
-        }
+    match crate::document::open_on(path, at, size, cell, cancelled)? {
+        Content::Text(pager) => Ok(Peek::Text(pager)),
         Content::Image(image) => Ok(Peek::Picture(image)),
     }
 }

@@ -333,7 +333,11 @@ pub enum Effect {
         typed: Vec<u8>,
     },
     ScrollConsole(Scroll),
-    View(PathBuf),
+    /// Loads `path` for the viewer, on the match a contents search found at `at`.
+    View {
+        path: PathBuf,
+        at: Option<crate::FirstMatch>,
+    },
     /// Looks for `query` in the viewer's file in the background, stopping any search before.
     FindInViewer {
         id: u64,

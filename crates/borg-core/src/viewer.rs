@@ -6,7 +6,7 @@ use borg_view::{Count, Pager, Query, Source};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    AppState, Aside, Effect, Peek, Peeked,
+    AppState, Aside, Effect, FirstMatch, Peek, Peeked,
     find_bar::{BarKey, Direction, FindBar, FindNote},
 };
 
@@ -137,11 +137,13 @@ fn show(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
     vec![request(state, path)]
 }
 
-/// Asks to load `path` for the viewer; of the loads asked for, only the latest is shown.
+/// Asks to load `path` for the viewer, on the match it lands on, so that the load colours the
+/// page around it; of the loads asked for, only the latest is shown.
 pub(crate) fn request(state: &mut AppState, path: PathBuf) -> Effect {
     state.landing = state.landing.take().filter(|landing| landing.path == path);
     state.opening = Some(path.clone());
-    Effect::View(path)
+    let at = state.landing.as_ref().map(|landing| FirstMatch { query: landing.query.clone(), offset: landing.offset });
+    Effect::View { path, at }
 }
 
 /// Shows a loaded file, if the viewer still waits for it.
