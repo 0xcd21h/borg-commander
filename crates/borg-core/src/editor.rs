@@ -343,10 +343,7 @@ pub fn focused(state: &AppState) -> Option<EditorSlot> {
     if state.editor.is_some() {
         return Some(EditorSlot::Screen);
     }
-    let shown = state.effective_view() == View::Panels
-        && state.viewer.is_none()
-        && state.activity.side.is_none()
-        && !state.docker.is_open();
+    let shown = state.effective_view() == View::Panels && state.viewer.is_none() && !state.monitor_open();
     (shown && state.docked[state.active.index()].is_some()).then_some(EditorSlot::Panel(state.active))
 }
 

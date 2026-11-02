@@ -31,8 +31,7 @@ impl AppState {
             && self.jobs.is_empty()
             && self.overlay.is_none()
             && self.viewer.is_none()
-            && self.activity.side.is_none()
-            && !self.docker.is_open()
+            && !self.monitor_open()
             && self.sizing.is_none()
     }
 
@@ -54,6 +53,7 @@ impl AppState {
             crate::plugins::wake_at(self),
             crate::activity::wake_at(self),
             crate::docker::wake_at(self),
+            crate::network::wake_at(self),
         ]
         .into_iter()
         .flatten()

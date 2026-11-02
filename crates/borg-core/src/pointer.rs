@@ -40,6 +40,23 @@ pub enum Pointer {
         code: crossterm::event::KeyCode,
     },
     DockerShellScroll(isize),
+    NetworkExpand {
+        details: bool,
+        expand: bool,
+    },
+    NetworkHide,
+    NetworkRow {
+        index: usize,
+        open: bool,
+    },
+    NetworkSort(crate::NetworkSort),
+    NetworkPage(crate::NetworkPage),
+    /// A page tab of the traffic viewer.
+    TrafficPage(crate::TrafficPage),
+    NetworkControl {
+        details: bool,
+        code: crossterm::event::KeyCode,
+    },
     TreeNode {
         side: Side,
         index: usize,
@@ -80,6 +97,8 @@ pub enum Pointer {
     DialogRow(usize),
     /// A right-click on a row of the Time Machine window, which marks it as in the panels.
     DialogMark(usize),
+    /// A field of the capture dialog: picked by the first click, changed by the next.
+    CaptureField(usize),
     /// A click beside a dialog that closes on one, as Esc does.
     DismissDialog,
     /// A row of that list: a switch, a pattern or the row for adding one.
@@ -211,6 +230,17 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
             if state.docker.is_open() =>
         {
             monitors::containers(state, pointer, now)
+        }
+        Pointer::NetworkExpand { .. }
+        | Pointer::NetworkHide
+        | Pointer::NetworkRow { .. }
+        | Pointer::NetworkSort(_)
+        | Pointer::NetworkPage(_)
+        | Pointer::TrafficPage(_)
+        | Pointer::NetworkControl { .. }
+            if state.network.is_open() =>
+        {
+            monitors::network(state, pointer, now)
         }
         Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),
         Pointer::ResultControl { side, action }

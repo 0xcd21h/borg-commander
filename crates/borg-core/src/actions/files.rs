@@ -24,6 +24,9 @@ pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
         return remote_view(state, side);
     }
     let Some(path) = hovered_file(state) else { return Vec::new() };
+    if crate::network::is_capture(&path) && state.settings.preferences.system_plugin {
+        return vec![Effect::OpenCapture(path)];
+    }
     match first_match(state.panel(side), &path) {
         Some(FirstMatch { query, offset }) => crate::viewer::open_at(state, path, query, offset),
         None => crate::viewer::open(state, path),

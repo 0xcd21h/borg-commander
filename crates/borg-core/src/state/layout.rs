@@ -40,6 +40,17 @@ impl AppState {
             }
             return layout;
         }
+        if let Some(side) = self.network.side
+            && self.network.expanded
+        {
+            let left = layout.panels[0];
+            let right = layout.panels[1];
+            let focus = if self.network.details_focused { side.other() } else { side };
+            layout.panels[focus.index()] =
+                ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+            layout.panels[focus.other().index()] = Default::default();
+            return layout;
+        }
         if let Some(side) = self.docker.side
             && self.docker.expanded
         {

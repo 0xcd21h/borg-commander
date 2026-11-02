@@ -40,6 +40,8 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Remotes(browser)) => crate::remote::on_key(state, browser, key),
         Some(Overlay::TimeMachine) => crate::backup::on_key(state, key, now),
         Some(Overlay::ProcessControl(dialog)) => crate::activity::on_control_key(state, dialog, key),
+        Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
+        Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
         None => Vec::new(),
     }
 }
@@ -304,6 +306,9 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
+        (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
+            crate::network::capture_as_administrator(state, *request, view_filter, now)
+        }
         (Some(true), ConfirmPurpose::Quit | ConfirmPurpose::ShellExit { .. }) => {
             let mut effects = jobs::cancel_all(state);
             effects.push(Effect::Quit);

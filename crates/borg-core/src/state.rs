@@ -94,6 +94,7 @@ impl Startup {
 pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
+    pub network: crate::Network,
     pub agent: crate::Agent,
     pub backup: crate::Backup,
     /// When background work started, for spinners that wait before appearing.
@@ -127,6 +128,8 @@ pub struct AppState {
     pub appearance: Appearance,
     pub overlay: Option<Overlay>,
     pub operation: Option<Operation>,
+    /// The program the shell is installing, whose end gives a notice.
+    pub(crate) installing: Option<crate::Tool>,
     pub sizing: Option<crate::SizeScan>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
@@ -196,6 +199,7 @@ impl AppState {
         let mut state = Self {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
+            network: crate::Network::default(),
             agent: crate::Agent::default(),
             backup: crate::Backup::default(),
             console: Console::Host,
@@ -225,6 +229,7 @@ impl AppState {
             appearance,
             overlay: None,
             operation: None,
+            installing: None,
             sizing: None,
             measured: Default::default(),
             next_size: 0,
@@ -279,6 +284,11 @@ impl AppState {
 
     pub fn active_panel(&self) -> &Panel {
         self.panel(self.active)
+    }
+
+    /// Whether a monitor covers the panels: the activity monitor, Docker or the network screen.
+    pub fn monitor_open(&self) -> bool {
+        self.activity.side.is_some() || self.docker.is_open() || self.network.is_open()
     }
 
     pub fn effective_view(&self) -> View {

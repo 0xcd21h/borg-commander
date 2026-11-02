@@ -1,4 +1,5 @@
-//! What the session tells an agent: the screen, processes, memory searches, containers and command output.
+//! What the session tells an agent: the screen, processes, the network, memory searches, containers and command
+//! output.
 
 use super::{LIST_LIMIT, Location, OUTPUT_LIMIT, Reply, Target, hostname};
 use borg_core::{AppState, Console, Row, Side, View};
@@ -138,6 +139,8 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         "Borg's console, which hides the panels (Ctrl-O switches)"
     } else if state.docker.is_open() {
         "the Docker view"
+    } else if state.network.is_open() {
+        "the network screen"
     } else if state.activity.side.is_some() {
         "the activity monitor"
     } else {
@@ -184,6 +187,9 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
     if state.docker.is_open() {
         let selected = state.docker.container().map_or_else(String::new, |c| format!(", on {} ({})", c.name, c.status));
         let _ = writeln!(text, "Docker view open{selected}");
+    }
+    if state.network.is_open() {
+        let _ = writeln!(text, "Network screen open, on its {:?} page", state.network.page);
     }
     if let Some(process) = state.activity.process().filter(|_| state.activity.side.is_some()) {
         let _ = writeln!(text, "Activity monitor open, on {} (PID {})", process.name, process.key.pid);
@@ -353,4 +359,105 @@ pub(super) fn indicator_name(kind: borg_core::Indicator) -> &'static str {
         Indicator::Secret => "secret",
         Indicator::Encoded => "base64",
     }
+}
+
+/// What the system does not count, in a network answer.
+const UNCOUNTED: &str = "—";
+
+fn per_second(bytes: Option<u64>) -> String {
+    bytes.map_or_else(|| UNCOUNTED.into(), |bytes| format!("{}/s", borg_ui::size_text(bytes)))
+}
+
+fn shown_of(total: usize, shown: usize, filter: &str) -> String {
+    let filtered = if filter.is_empty() { String::new() } else { format!(" matching {filter:?}") };
+    if shown < total { format!("{total}{filtered}, showing {shown}") } else { format!("{total}{filtered}") }
+}
+
+/// The listening ports, who can reach each and the process behind it.
+pub fn ports(network: &borg_core::Network, shown: usize) -> Reply {
+    use borg_core::Exposure;
+    let rows = &network.ports;
+    let reachable = rows.iter().filter(|row| row.exposure != Exposure::ThisMachine).count();
+    let mut text = format!(
+        "Listening ports: {} · {reachable} reachable from other machines\nPROTO  PORT   CONNS  PID      PROCESS  REACH\n",
+        shown_of(rows.len(), shown.min(rows.len()), &network.filter)
+    );
+    for row in rows.iter().take(shown) {
+        let reach = match row.exposure {
+            Exposure::Everywhere => "all addresses".to_owned(),
+            Exposure::ThisMachine => "this machine only".to_owned(),
+            Exposure::Addresses => row.addresses.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "),
+        };
+        let pid = row.pid.map_or_else(|| UNCOUNTED.into(), |pid| pid.to_string());
+        let service = borg_core::service(row.port).map_or_else(String::new, |service| format!(" ({service})"));
+        let _ = writeln!(
+            text,
+            "{:<6} {:<6} {:<6} {pid:<8} {}  {reach}{service}",
+            row.transport.name(),
+            row.port,
+            row.connections,
+            network.name(row.pid)
+        );
+    }
+    Reply::ok(text)
+}
+
+/// The connections, busiest first, with their rates over the last second.
+pub fn connections(network: &borg_core::Network, shown: usize) -> Reply {
+    let rows = &network.connections;
+    let total = network.total();
+    let mut text = format!(
+        "Connections: {} · machine total ↓ {} ↑ {}\nPROTO  STATE         DOWN        UP          PID      PROCESS  LOCAL → REMOTE\n",
+        shown_of(rows.len(), shown.min(rows.len()), &network.filter),
+        per_second(Some(total.down)),
+        per_second(Some(total.up))
+    );
+    for row in rows.iter().take(shown) {
+        let socket = &network.sample.sockets[row.socket];
+        let counted = |value: u64| per_second(socket.received.map(|_| value));
+        let remote = socket.remote.map_or_else(String::new, |remote| {
+            let host = network.host(remote.ip()).map_or_else(String::new, |host| format!(" ({host})"));
+            format!("{remote}{host}")
+        });
+        let _ = writeln!(
+            text,
+            "{:<6} {:<13} {:<11} {:<11} {:<8} {}  {} → {remote}",
+            socket.transport.name(),
+            socket.state.map_or("", |state| state.name()),
+            counted(row.rate.down),
+            counted(row.rate.up),
+            socket.pid.map_or_else(|| UNCOUNTED.into(), |pid| pid.to_string()),
+            network.name(socket.pid),
+            socket.local
+        );
+    }
+    Reply::ok(text)
+}
+
+/// The interfaces, busiest first, with their addresses and traffic.
+pub fn interfaces(network: &borg_core::Network, shown: usize) -> Reply {
+    use borg_ui::size_text;
+    let rows = &network.interfaces;
+    let mut text = format!(
+        "Interfaces: {}\nNAME         KIND       STATE  DOWN        UP          RECEIVED  SENT      ADDRESSES\n",
+        shown_of(rows.len(), shown.min(rows.len()), &network.filter)
+    );
+    for row in rows.iter().take(shown) {
+        let interface = &network.sample.interfaces[row.interface];
+        let addresses: Vec<String> =
+            interface.addresses.iter().map(|(address, prefix)| format!("{address}/{prefix}")).collect();
+        let _ = writeln!(
+            text,
+            "{:<12} {:<10} {:<6} {:<11} {:<11} {:<9} {:<9} {}",
+            interface.name,
+            format!("{:?}", interface.kind),
+            if interface.up { "up" } else { "down" },
+            per_second(Some(row.rate.down)),
+            per_second(Some(row.rate.up)),
+            size_text(interface.received),
+            size_text(interface.sent),
+            addresses.join(", ")
+        );
+    }
+    Reply::ok(text)
 }

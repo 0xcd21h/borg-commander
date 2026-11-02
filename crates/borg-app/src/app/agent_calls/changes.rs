@@ -268,6 +268,10 @@ impl App {
                 }));
                 return Ok(Flow::Continue);
             }
+            Work::Capture { request, filter, limit } => {
+                self.capture_for_agent(id, reply, request, filter, limit);
+                return Ok(Flow::Continue);
+            }
             Work::Run { command, target } => (command, target),
         };
         let place = crate::agent::place(&target);

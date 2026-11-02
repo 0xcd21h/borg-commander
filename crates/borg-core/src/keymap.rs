@@ -8,6 +8,7 @@ pub const SPLIT_STEP: i16 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Activity,
+    Network,
     ToggleSystemPlugin,
     Docker,
     ToggleDockerPlugin,
@@ -171,6 +172,7 @@ pub enum PathOf {
 pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('i'), ALT, Action::MeasureSizes, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('m'), ALT, Action::Activity, Scope::Panels),
+    bind(KeyCode::Char('n'), ALT, Action::Network, Scope::Panels),
     bind(KeyCode::Char('M'), ALT, Action::MirrorRemote, Scope::Panels),
     bind(KeyCode::Char('h'), ALT, Action::BrowseRemotes, Scope::Panels),
     bind(KeyCode::Char('r'), ALT, Action::Reload, Scope::Panels),

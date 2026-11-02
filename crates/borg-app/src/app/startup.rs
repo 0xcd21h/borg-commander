@@ -34,7 +34,9 @@ impl App {
         let monitor = crate::activity::Monitor::new(messages.clone());
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
+        state.network.access = crate::network::capture_access();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
+        let network = crate::network::Network::new(messages.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
@@ -76,6 +78,7 @@ impl App {
             monitor,
             backup,
             docker,
+            network,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
             agent,
@@ -85,6 +88,7 @@ impl App {
             downloads: std::collections::HashSet::new(),
             approve_all: std::collections::HashSet::new(),
             memory_readers: std::collections::HashSet::new(),
+            saved_captures: super::agent_calls::SavedCaptures::default(),
             runtime_dir: launch.runtime_dir.clone(),
             mirror_connect: None,
             mirror_ready: None,

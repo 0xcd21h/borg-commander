@@ -117,6 +117,17 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Docker { id, result } => crate::docker::receive(state, id, result, now),
+        Msg::Network { id, result } => crate::network::receive(state, id, result, now),
+        Msg::CaptureProgress { id, bytes, packets } => {
+            crate::network::capture_progress(state, id, bytes, packets, now);
+            Vec::new()
+        }
+        Msg::CaptureDone { id, result } => crate::network::capture_done(state, id, result),
+        Msg::CaptureOpened { path, result } => crate::network::capture_opened(state, path, result),
+        Msg::HostNames(names) => {
+            crate::network::hosts_resolved(state, names);
+            Vec::new()
+        }
         Msg::DockerStats(frame) => {
             crate::docker::stats(state, frame);
             Vec::new()
@@ -164,6 +175,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::backup::sync(state));
     effects.extend(crate::activity::sync(state, now));
+    effects.extend(crate::network::sync(state, now));
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::docker::sync_console(state, now));

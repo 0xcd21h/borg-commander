@@ -101,7 +101,10 @@ impl Drawing<'_, '_> {
                 &mut self.buf,
             );
         }
-        if state.activity.side.is_some() || state.docker.is_open() {
+        if state.network.is_open() {
+            crate::network_view::draw(state, &self.look, self.layout.panels, now, &mut self.buf);
+        }
+        if state.monitor_open() {
             return;
         }
         let activities = Side::ALL.map(|side| activity(self.scene, side));
@@ -207,6 +210,8 @@ impl Drawing<'_, '_> {
             Line::styled(value, styles.status).render(status, &mut self.buf);
         } else if state.docker.is_open() {
             Line::styled(crate::docker_view::status(&state.docker), styles.status).render(status, &mut self.buf);
+        } else if state.network.is_open() {
+            Line::styled(crate::network_view::status(&state.network), styles.status).render(status, &mut self.buf);
         } else if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| self.focused.is_some()) {
             // The panel's files are out of sight; the status line names the file being edited.
             Line::styled(format!(" {}", editor.path.display()), styles.status).render(status, &mut self.buf);
@@ -218,7 +223,7 @@ impl Drawing<'_, '_> {
     /// The dialog of the active panel's editor may reach over the other panel, so it goes on top.
     fn editor_dialog(&mut self) {
         let state = self.scene.state;
-        let shown = state.activity.side.is_none() && !state.docker.is_open();
+        let shown = !state.monitor_open();
         if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| shown)
             && let Some(field) = crate::editor_view::draw_dialog(
                 editor,
@@ -260,6 +265,8 @@ impl Drawing<'_, '_> {
             crate::activity_view::keybar(state, area, self.theme, &mut self.buf);
         } else if state.docker.is_open() {
             crate::docker_view::keybar(state, area, self.theme, &mut self.buf);
+        } else if state.network.is_open() {
+            crate::network_view::keybar(state, area, self.theme, &mut self.buf);
         } else if self.focused.is_some() {
             crate::editor_view::keybar(state, area, self.theme, &mut self.buf);
         } else {

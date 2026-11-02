@@ -12,6 +12,12 @@ pub fn apple_script<'a>(words: impl IntoIterator<Item = &'a str>) -> anyhow::Res
     Ok(format!("do shell script {} with administrator privileges", serde_json::to_string(&line)?))
 }
 
+/// Like [`apple_script`], with `prompt` as the password dialog's text.
+#[cfg(target_os = "macos")]
+pub fn apple_script_prompting<'a>(words: impl IntoIterator<Item = &'a str>, prompt: &str) -> anyhow::Result<String> {
+    Ok(format!("{} with prompt {}", apple_script(words)?, serde_json::to_string(prompt)?))
+}
+
 /// Like [`apple_script`], for several command lines run one after another until one fails.
 #[cfg(target_os = "macos")]
 pub fn apple_script_all(lines: &[Vec<String>]) -> anyhow::Result<String> {
@@ -36,5 +42,7 @@ mod tests {
         );
         let lines = vec![vec!["a".to_owned()], vec!["b".to_owned(), "c d".to_owned()]];
         assert!(apple_script_all(&lines).unwrap().contains(r"'a' && 'b' 'c d'"));
+        let asking = apple_script_prompting(["/usr/bin/true"], "Borg wants \"this\".").unwrap();
+        assert!(asking.ends_with(r#"with administrator privileges with prompt "Borg wants \"this\".""#), "{asking}");
     }
 }

@@ -29,6 +29,11 @@ cargo test --workspace
 
 CI runs the same tests with [cargo-nextest](https://nexte.st), as [On CI](#on-ci) describes.
 
+Dev builds carry line tables only: panics and backtraces still name the file and line, and
+`target/` grows much more slowly. Build with `CARGO_PROFILE_DEV_DEBUG=full` when you need
+variables in lldb. Cargo keeps every old build in `target/`, so run `cargo clean` from time to
+time.
+
 ## How the code is organised
 
 ```
@@ -173,6 +178,60 @@ copies or swapped, on macOS regions with dirty pages. Unbacked memory is searche
 headers at page starts, executable regions first. The report counts compared, uncompared,
 scanned and unreadable bytes and says whether a byte, time or finding limit stopped it; findings
 carry a severity, the evidence's address and length, and a caveat. The renderer shares a reserved branding area across UI modes.
+
+### Network screen
+
+`borg-core::network` owns the network screen: pages, cursors, sort orders, the filter, and
+`Traffic`, which turns two samples' byte counts into per-second rates for each socket, listening
+port, process and interface, with 60 seconds of history and a mean over the last 3 samples. A
+count lower than the one before counts as new in full, since the socket took another's place.
+`Network::measured` builds the same rows from two samples for the agent's `read` sources, so the
+screen and the agent agree on every number. `borg-app::network` samples on a blocking worker:
+sockets come from `netstat -anvbW` on macOS, and from `/proc/net`, `/proc/PID/fd` and `ss -tinHe`
+on Linux; interfaces come from sysinfo, with kinds from `networksetup` or `/sys/class/net`.
+Reverse lookups run in batches of 32 with a 2 second timeout each, and only for addresses the
+screen has not asked about before. Closing the screen cancels the sampler.
+
+Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
+Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes
+DNS, TLS client and server hellos, HTTP/1 and QUIC. `flows` groups packets into conversations by
+transport and their two ends in either order, takes the client as the side that sent the SYN or
+spoke first, and puts the client's first bytes back together to read a TLS server name split over
+segments. `network::capture` holds the dialog and the running `Recording`, which keeps every
+socket the screen samples while it runs, and `network::viewer` gives each conversation the
+process its packets were tagged with, by majority, or else the process of the socket that held
+it: the exact ends first, then a socket listening on its port. The tags come from macOS's
+`pktap`, whose pcapng carries Apple's process information blocks, each packet pointing at one
+by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w -`, writes its
+output to a 0600 file in the panel's folder while `PcapCounter` counts whole packets for the
+footer, sends SIGINT at the deadline or on R, and reads the file back on a blocking worker.
+
+A capture as administrator goes through `network::capture::elevated`. Borg listens on a Unix
+socket in a 0700 temporary folder and asks osascript (macOS), or pkexec or else `sudo -n`
+(Linux), to run `borg --capture-traffic` as root. The helper checks its interface and filter
+against what the screen can make, runs tcpdump only from root-owned system folders, and hands
+the socket to tcpdump as its standard output. Borg checks that the peer is root, saves the
+stream as itself, and stops the capture by shutting down its side of the socket, which the
+helper turns into SIGINT, as it does when Borg exits. tcpdump's messages come back as the
+helper's JSON result.
+
+An agent's `capture` call asks with `network::capture_ask`, picks its interface with the dialog's
+`capture_interfaces`, and once approved runs the same tcpdump runner through
+`record_for_agent`, while a blocking worker samples sockets every second into `SeenSockets`.
+`network::viewer::report` turns the `TrafficView` into the text the agent gets: the summary by
+process, host and connection without packet contents, or one packet's layers and hex bytes when a
+`read` of a capture file names it.
+
+Missing programs: `borg-app::tools::find` looks a program up on `PATH`, then in the system folders
+and Homebrew's `sbin` folders, on every call, so a program installed while Borg runs is found.
+When tcpdump is not there, the capture ends with `CaptureFailure::Missing` and the installer
+`borg-app::tools::installer` detects. `borg-core::install` holds the pure part: `Installer::detect`
+picks the package manager from the programs it is told exist (apt, dnf, pacman, zypper and apk,
+then Homebrew, which refuses root) with `sudo` or `doas` when root is needed, and `Installer::command`
+builds the exact command line. The install dialog types it at the host shell's prompt without
+moving the shell to the panel's folder first, so the next command end is the install's, and
+`install::finished` turns its exit code into a notice. Another program joins as a `Tool` variant
+with its package name for each manager and its own dialog text.
 
 ### Editor
 
@@ -388,9 +447,9 @@ an artifact.
 
 ### README screenshots
 
-The theme gallery and the editor, folder picker, size, activity and Docker showcase are rendered
-from fictional files, folders, processes and containers, so they never show the machine they were
-made on:
+The theme gallery and the editor, folder picker, size, activity, network and Docker showcase are
+rendered from fictional files, folders, processes, sockets and containers, so they never show the
+machine they were made on:
 
 ```sh
 export BORG_SCREENSHOT_FONT=fonts/BorgMono-Regular.ttf BORG_SCREENSHOT_FONT_BOLD=fonts/BorgMono-Bold.ttf

@@ -6,6 +6,7 @@ mod appearance;
 mod aside;
 mod backup;
 mod busy;
+mod capture;
 mod clipboard;
 mod command;
 mod contents;
@@ -21,6 +22,7 @@ mod folders;
 mod game2048;
 mod history;
 mod input;
+mod install;
 mod jobs;
 mod keyboard;
 mod keymap;
@@ -29,6 +31,7 @@ mod measure;
 mod menu;
 mod motion;
 mod msg;
+mod network;
 mod ops;
 mod overlays;
 mod panel;
@@ -86,6 +89,7 @@ pub use folders::{
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
+pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
 pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};
@@ -128,5 +132,22 @@ pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, Integri
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport, StringsTally};
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
+
+pub use network::{
+    CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
+    Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
+    RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
+    service,
+};
+pub use network::{
+    CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends,
+    HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
+    capture_ask, capture_extension, capture_interfaces, is_capture,
+};
+
+pub use capture::{
+    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, HEX_LINE_WIDTH,
+    HEX_WIDTH, Http, Ip, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Tcp, URG, dns_type, hex_lines,
+};
 
 pub use measure::SizeScan;
