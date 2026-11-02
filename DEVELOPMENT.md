@@ -204,16 +204,25 @@ transport and their two ends in either order, takes the client as the side that 
 spoke first, and puts the client's first bytes back together to read a TLS server name split over
 segments. `stream` puts a whole conversation back together for the viewer: each side's TCP
 segments in sequence order with repeated bytes dropped, each piece counted as delivered once every
-byte before it came, and the two sides interleaved by that moment into turns. The viewer keeps the
+byte before it came, and the two sides interleaved by that moment into turns. `Stream::left_out`
+counts what the packets' IP lengths say each side sent beyond the bytes the capture kept. The
+viewer keeps the
 selected conversation's stream and the capture's first time, so a frame formats only the rows it
 shows. `network::capture` holds the dialog and the running `Recording`, which keeps every
 socket the screen samples while it runs, and `network::viewer` gives each conversation the
 process its packets were tagged with, by majority, or else the process of the socket that held
 it: the exact ends first, then a socket listening on its port. The tags come from macOS's
 `pktap`, whose pcapng carries Apple's process information blocks, each packet pointing at one
-by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w -`, writes its
-output to a 0600 file in the panel's folder while `PcapCounter` counts whole packets for the
-footer, sends SIGINT at the deadline or on R, and reads the file back on a blocking worker.
+by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w -` and writes
+its output to a 0600 file in the panel's folder. When the capture keeps the start of each
+connection, the output goes through `ConnectionBudget` first: it cuts the stream into whole pcap
+records or pcapng blocks and, once a conversation carried `CONNECTION_BUDGET` bytes of payload,
+rewrites its later packets' captured length to end where their payload starts, with their wire
+length and pcapng options kept. `PcapCounter` counts the whole packets written. Every second the
+footer gets them with the bytes written and the room left above `CAPTURE_DISK_RESERVE`, from
+`statvfs`, and `Recording::limit_ahead` turns the rate so far into the time to the first limit.
+The app sends SIGINT at the deadline, on R or at a limit, which it reports with
+`Msg::CaptureLimited`, and reads the file back on a blocking worker.
 
 TLS: `capture::keylog` reads `SSLKEYLOGFILE` text into secrets by client random, and
 `capture::tls` opens a conversation's stream with them. It splits the stream back into each

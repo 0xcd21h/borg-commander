@@ -11,7 +11,9 @@ use crate::{
     look::Look,
     spinner::Spinner,
 };
-use borg_core::{AppState, Exposure, Network, NetworkPage, PortRow, Recording, exposure_label, kind_label};
+use borg_core::{
+    AppState, CaptureLimit, Exposure, Network, NetworkPage, PortRow, Recording, exposure_label, kind_label,
+};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -26,6 +28,9 @@ use unicode_width::UnicodeWidthStr;
 const SORTED_DOWN: &str = " ↓";
 const SORTED_UP: &str = " ↑";
 const SEPARATOR: &str = " · ";
+/// How far ahead a capture's limit is told in seconds; further ahead it is told in minutes.
+const SECONDS_SHOWN_UNTIL: u64 = 120;
+const SECONDS_PER_MINUTE: u64 = 60;
 
 pub(super) fn draw_list(
     state: &AppState,
@@ -136,7 +141,18 @@ fn recording_note(recording: &Recording, now: Instant) -> String {
         (None, None) => None,
     };
     let left = recording.left(now).map(|seconds| tr!(capture_left, seconds = seconds));
-    [Some(running), left, tls_keys].into_iter().flatten().collect::<Vec<_>>().join(SEPARATOR)
+    let ahead = recording.limit_ahead(now).map(|(limit, seconds)| limit_ahead(limit, seconds));
+    [Some(running), left, ahead, tls_keys].into_iter().flatten().collect::<Vec<_>>().join(SEPARATOR)
+}
+
+/// How soon `limit` stops the capture: in seconds for the last couple of minutes, else in
+/// whole minutes.
+fn limit_ahead(limit: CaptureLimit, seconds: u64) -> String {
+    let limit = limit.label();
+    if seconds < SECONDS_SHOWN_UNTIL {
+        return tr!(capture_ahead_seconds, seconds = seconds, limit = limit);
+    }
+    tr!(capture_ahead_minutes, minutes = seconds.div_ceil(SECONDS_PER_MINUTE), limit = limit)
 }
 
 fn empty_note(page: NetworkPage) -> &'static str {

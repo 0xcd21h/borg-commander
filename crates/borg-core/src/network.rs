@@ -22,9 +22,10 @@ mod traffic;
 mod viewer;
 
 pub use capture::{
-    Authority, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS,
-    HEADER_BYTES, LONGEST_CAPTURE, Proxied, ProxyEndpoint, Recording, SHORTEST_CAPTURE, SeenSockets, TlsKeys,
-    capture_ask, capture_extension, capture_interfaces,
+    Authority, CAPTURE_DISK_RESERVE, CAPTURE_SIZE_LIMIT, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField,
+    CaptureLimit, CaptureProgress, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES, KEEP_CHOICES, Keep,
+    LONGEST_CAPTURE, Proxied, ProxyEndpoint, Recording, SHORTEST_CAPTURE, SeenSockets, TlsKeys, capture_ask,
+    capture_extension, capture_interfaces, capture_no_room,
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
@@ -727,8 +728,12 @@ pub(crate) fn pick_capture_field(state: &mut AppState, dialog: CaptureDialog, ro
     capture::pick(state, dialog, row);
 }
 
-pub(crate) fn capture_progress(state: &mut AppState, id: u64, bytes: u64, packets: usize, now: Instant) {
-    capture::progress(state, id, bytes, packets, now);
+pub(crate) fn capture_progress(state: &mut AppState, id: u64, progress: CaptureProgress, now: Instant) {
+    capture::progress(state, id, progress, now);
+}
+
+pub(crate) fn capture_limited(state: &mut AppState, id: u64, limit: CaptureLimit) {
+    capture::limited(state, id, limit);
 }
 
 pub(crate) fn capture_keys(

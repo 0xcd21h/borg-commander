@@ -5,7 +5,7 @@ fn request(filter: &str) -> CaptureRequest {
     CaptureRequest {
         interface: "en0".into(),
         seconds: Some(5),
-        headers_only: true,
+        keep: Keep::Headers,
         filter: filter.into(),
         folder: PathBuf::from("/tmp"),
         administrator: false,
@@ -29,6 +29,7 @@ fn an_agents_refused_capture_says_there_is_no_permission() {
     let request = request("");
     assert_eq!(refused(CaptureFailure::Denied, &request), tr!(capture_denied, interface = "en0"));
     assert_eq!(refused(CaptureFailure::Failed("tcpdump stopped".into()), &request), "tcpdump stopped");
+    assert_eq!(refused(CaptureFailure::NoRoom, &request), capture_no_room(Path::new("/tmp")));
 }
 
 #[test]
@@ -44,6 +45,39 @@ fn the_command_keeps_headers_only_when_asked_and_ends_the_options_before_the_fil
     let snap = HEADER_BYTES.to_string();
     let limit = PACKET_LIMIT.to_string();
     assert_eq!(args, ["-i", "en0", "-U", "-n", "-s", &snap, "-c", &limit, "-w", "-", "--", "tcp port 443"]);
+    for keep in [Keep::Whole, Keep::ConnectionStart] {
+        let whole = Tcpdump::of(&CaptureRequest { keep, ..request("") }).args();
+        assert_eq!(whole[4..6], ["-s", "0"], "{keep:?} takes whole packets from tcpdump");
+    }
+}
+
+#[test]
+fn the_file_gets_what_tcpdump_wrote_while_each_connection_is_within_its_budget() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("capture-20260101-120000.pcap");
+    let pcap = borg_testkit::capture::bytes();
+    let packets = Capture::read(&pcap).unwrap().packets.len();
+    for keep in borg_core::KEEP_CHOICES {
+        let mut saving = Saving::new(File::create(&path).unwrap(), keep);
+        pcap.chunks(100).for_each(|chunk| saving.write(chunk).unwrap());
+        saving.finish().unwrap();
+        assert_eq!((saving.written, saving.counter.packets), (pcap.len() as u64, packets), "{keep:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), pcap, "{keep:?}");
+    }
+}
+
+#[test]
+fn the_room_left_is_what_the_disk_has_free_beyond_the_reserve() {
+    let folder = tempfile::tempdir().unwrap();
+    let free = || {
+        let stats = rustix::fs::statvfs(folder.path()).unwrap();
+        stats.f_bavail * stats.f_frsize
+    };
+    let before = free();
+    let left = room(folder.path()).unwrap();
+    let most = before.max(free()).saturating_sub(CAPTURE_DISK_RESERVE);
+    assert!(left <= most, "{left} left of {before} free");
+    assert_eq!(room(&folder.path().join("missing")), None);
 }
 
 #[test]

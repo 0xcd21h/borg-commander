@@ -317,7 +317,7 @@ pub(super) fn decrypt(stream: &Stream, keys: &KeyLog) -> Option<Stream> {
         .chain(pieces(&server, server_opener).into_iter().map(|(turn, piece)| (turn, piece, &server)))
         .collect();
     all.sort_by_key(|(turn, ..)| *turn);
-    let mut opened = Stream { decrypted: true, ..Stream::default() };
+    let mut opened = Stream { decrypted: true, left_out: stream.left_out, ..Stream::default() };
     let mut last = None;
     for (index, piece, side) in all {
         let turn = &stream.turns[index];

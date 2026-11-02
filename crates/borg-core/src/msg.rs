@@ -51,8 +51,12 @@ pub enum Msg {
     /// How far the running capture got.
     CaptureProgress {
         id: u64,
-        bytes: u64,
-        packets: usize,
+        progress: crate::CaptureProgress,
+    },
+    /// The running capture reached a limit, and is being saved.
+    CaptureLimited {
+        id: u64,
+        limit: crate::CaptureLimit,
     },
     /// The running capture keeps the TLS key log at `path`, empty for now, and Borg's proxy
     /// listens as `proxy` says when the capture sends HTTPS through it.

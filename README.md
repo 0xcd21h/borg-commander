@@ -180,7 +180,9 @@ Ctrl-O switches between the panels and the console.
 - **Look inside the packets.** R records the selected port, connection or process with tcpdump,
   which Borg offers to install with your package manager when it is missing, and runs as
   administrator after the system's password dialog when it needs to. The viewer sorts the packets
-  by process, host and connection, down to each packet's layers and bytes. On macOS an
+  by process, host and connection, down to each packet's layers and bytes. Each connection stays
+  whole for its first 1 MiB and keeps only its headers after that, so a long download does not
+  fill the file. On macOS an
   administrator capture tags every packet with its process. F3 opens `.pcap` files the same way.
   A capture can set `SSLKEYLOGFILE` in Borg's shell and keep the TLS keys of the programs you
   start, and an encrypted connection's stream then shows what it carried, also for programs that

@@ -514,6 +514,21 @@ fn capture_dialog(state: &AppState) -> &CaptureDialog {
     }
 }
 
+fn progress(bytes: u64, packets: usize) -> CaptureProgress {
+    CaptureProgress { bytes, packets, room: None }
+}
+
+/// Starts a capture that runs until it is stopped.
+fn until_stopped(state: &mut AppState, now: Instant) -> u64 {
+    press(state, KeyCode::Char('r'), KeyModifiers::NONE);
+    press(state, KeyCode::Down, KeyModifiers::NONE);
+    press(state, KeyCode::Down, KeyModifiers::NONE);
+    press(state, KeyCode::Left, KeyModifiers::NONE);
+    let (id, request) = started(update(state, Msg::Key(KeyCode::Enter.into()), now));
+    assert_eq!(request.seconds, None);
+    id
+}
+
 fn started(effects: Vec<Effect>) -> (u64, CaptureRequest) {
     match effects.into_iter().next() {
         Some(Effect::Capture { id, request }) => (id, request),
@@ -554,9 +569,80 @@ fn the_dialog_changes_its_fields_and_starts_the_capture_in_the_panel_folder() {
     press(&mut state, KeyCode::Char(' '), KeyModifiers::NONE);
     let (_, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
     assert_eq!(request.seconds, None, "Left from the first length goes round to until stopped");
-    assert!(request.headers_only);
+    assert_eq!(request.keep, Keep::Headers, "Space moves on from the start of each connection");
     assert_eq!(request.folder, state.panel(state.network.side.unwrap()).dir());
     assert!(state.network.recording.is_some());
+}
+
+#[test]
+fn the_dialog_keeps_the_start_of_each_connection_until_keep_is_changed() {
+    let (mut state, _) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    assert_eq!(capture_dialog(&state).keep, Keep::ConnectionStart);
+    for _ in 0..3 {
+        press(&mut state, KeyCode::Down, KeyModifiers::NONE);
+    }
+    assert_eq!(capture_dialog(&state).selected(), CaptureField::Content);
+    let mut kept = Vec::new();
+    for code in [KeyCode::Left, KeyCode::Left, KeyCode::Right, KeyCode::Right] {
+        press(&mut state, code, KeyModifiers::NONE);
+        kept.push(capture_dialog(&state).keep);
+    }
+    assert_eq!(kept, [Keep::Whole, Keep::Headers, Keep::Whole, Keep::ConnectionStart], "Left from whole goes round");
+}
+
+#[test]
+fn a_running_capture_tells_which_limit_stops_it_first_and_when() {
+    const MIB: u64 = 1024 * 1024;
+    let (mut state, now) = opened();
+    let id = until_stopped(&mut state, now);
+    let at = |seconds| now + Duration::from_secs(seconds);
+    let ahead = |state: &AppState, seconds| state.network.recording.as_ref().unwrap().limit_ahead(at(seconds));
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(16 * MIB, 10) }, at(2));
+    assert_eq!(ahead(&state, 2), None, "the rate settles first");
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(64 * MIB, 1_000) }, at(10));
+    assert_eq!(ahead(&state, 10), Some((CaptureLimit::Size, 30)), "192 MiB to go at 6.4 MiB a second");
+    let room = CaptureProgress { room: Some(32 * MIB), ..progress(64 * MIB, 1_000) };
+    update(&mut state, Msg::CaptureProgress { id, progress: room }, at(10));
+    assert_eq!(ahead(&state, 10), Some((CaptureLimit::Disk, 5)), "the disk fills before the size limit");
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(MIB, 100_000) }, at(10));
+    assert_eq!(ahead(&state, 10), Some((CaptureLimit::Packets, 10)));
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(MIB / 16, 10) }, at(10));
+    assert_eq!(ahead(&state, 10), None, "more than an hour ahead is too far to tell");
+
+    let (mut state, now) = opened();
+    press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
+    let (id, request) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
+    assert_eq!(request.seconds, Some(SHORTEST_CAPTURE));
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(64 * MIB, 1_000) }, at(4));
+    let recording = state.network.recording.as_ref().unwrap();
+    assert_eq!(recording.limit_ahead(at(4)), None, "the capture ends before a limit stops it");
+}
+
+#[test]
+fn a_capture_a_limit_stopped_says_so_once_it_is_saved() {
+    let (mut state, now) = opened();
+    let id = until_stopped(&mut state, now);
+    update(&mut state, Msg::CaptureLimited { id, limit: CaptureLimit::Size }, now);
+    let recording = state.network.recording.as_ref().unwrap();
+    assert!(recording.stopping && recording.limit_ahead(now).is_none(), "it is being saved");
+    assert!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE).is_empty(), "R has nothing left to stop");
+    update(&mut state, Msg::CaptureDone { id, result: Ok(("/work/capture.pcap".into(), Capture::default())) }, now);
+    assert_eq!(state.notice.as_deref(), Some("The capture stopped at 256 MiB, the most Borg saves."));
+
+    let (mut state, now) = opened();
+    let id = until_stopped(&mut state, now);
+    update(&mut state, Msg::CaptureLimited { id, limit: CaptureLimit::Disk }, now);
+    update(&mut state, Msg::CaptureDone { id, result: Ok(("/work/capture.pcap".into(), Capture::default())) }, now);
+    let folder = state.panel(state.network.side.unwrap()).dir().display().to_string();
+    let stopped = format!("The capture stopped because the disk holding {folder} has less than 512 MiB free.");
+    assert_eq!(state.notice.as_deref(), Some(stopped.as_str()));
+
+    let (mut state, now) = opened();
+    let id = until_stopped(&mut state, now);
+    update(&mut state, Msg::CaptureDone { id, result: Err(CaptureFailure::NoRoom) }, now);
+    let refused = format!("The disk holding {folder} has less than 512 MiB free, so the capture did not start.");
+    assert_eq!(state.notice.as_deref(), Some(refused.as_str()));
 }
 
 #[test]
@@ -564,7 +650,7 @@ fn r_stops_a_capture_and_closing_the_screen_stops_it_too() {
     let (mut state, now) = opened();
     press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
     let (id, _) = started(update(&mut state, Msg::Key(KeyCode::Enter.into()), now));
-    update(&mut state, Msg::CaptureProgress { id, bytes: 4_096, packets: 12 }, now);
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(4_096, 12) }, now);
     assert_eq!(state.network.recording.as_ref().map(|recording| recording.packets), Some(12));
     assert_eq!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE), [Effect::StopCapture { id }]);
     assert!(press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE).is_empty(), "it is already stopping");
@@ -824,7 +910,7 @@ fn a_refused_capture_asks_to_run_as_administrator_and_yes_runs_it_so() {
     assert!(recording.waiting);
 
     let later = now + Duration::from_secs(20);
-    update(&mut state, Msg::CaptureProgress { id, bytes: 24, packets: 0 }, later);
+    update(&mut state, Msg::CaptureProgress { id, progress: progress(24, 0) }, later);
     let recording = state.network.recording.as_ref().unwrap();
     assert!(!recording.waiting);
     assert_eq!(recording.started, later, "its seconds count from the password");
@@ -945,7 +1031,7 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
     let request = CaptureRequest {
         interface: "en0".into(),
         seconds: Some(10),
-        headers_only: true,
+        keep: Keep::Headers,
         filter: String::new(),
         folder: PathBuf::from("/work"),
         administrator: false,
@@ -966,7 +1052,9 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
         ]
     );
     let port = CaptureScope::Port { transport: Transport::Udp, port: 53 };
-    let ask = capture_ask(port, None, &CaptureRequest { headers_only: false, ..request }, String::new());
+    let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::Whole, ..request.clone() }, String::new());
     assert_eq!(ask.body[0].text, "Traffic: UDP port 53 and its connections");
     assert_eq!(ask.body[3].text, "Keep: Whole packets");
+    let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::ConnectionStart, ..request }, String::new());
+    assert_eq!(ask.body[3].text, "Keep: First 1 MiB of each connection");
 }

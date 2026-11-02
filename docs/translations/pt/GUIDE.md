@@ -1432,8 +1432,13 @@ Linux se instala com o pacote `tcpdump`. A caixa de diálogo **Capturar tráfego
   está sempre lá como segunda opção.
 - **Interface** começa na que tem o endereço da linha ou, se não houver, na mais ativa.
 - **Duração** é de 5, 10, 30 ou 60 segundos, ou **Até parar**.
-- **Guardar** é **Pacotes inteiros**, ou **Cabeçalhos, os primeiros 128 bytes de cada pacote** para
-  ficheiros pequenos que deixam de fora quase tudo o que os pacotes transportam.
+- **Guardar** começa em **Início de cada ligação, até 1 MiB**: os pacotes de cada conversa ficam
+  inteiros até transportarem 1 MiB de dados, e a partir daí o Borg guarda só os cabeçalhos. Os
+  pedidos curtos ficam completos, e uma transferência longa ou uma videochamada não enchem o
+  ficheiro. **Pacotes inteiros** guarda tudo, e **Cabeçalhos, os primeiros 128 bytes de cada
+  pacote** guarda o início de cada pacote para os ficheiros mais pequenos. O Borg corta os pacotes à
+  medida que escreve o ficheiro, que continua a ser um pcap ou pcapng normal, e cada pacote cortado
+  continua a registar o seu tamanho na rede.
 - **Chaves TLS** é **Não**, **Definir SSLKEYLOGFILE na shell do Borg** para guardar as chaves
   TLS dos programas que iniciar enquanto a captura decorre, ou **Passar o HTTPS pelo proxy do
   Borg com uma CA temporária** para programas que não escrevem as suas chaves (consulte
@@ -1447,8 +1452,12 @@ Linux se instala com o pacote `tcpdump`. A caixa de diálogo **Capturar tráfego
 ↑↓ escolhem um campo, ←→ ou Space mudam-no, Enter inicia a captura e Esc cancela. Com o rato, clique
 num campo para o escolher e clique outra vez para o mudar. Enquanto a captura decorre, o rodapé
 conta os pacotes, os bytes e os segundos que faltam, e **R** para-a mais cedo. Uma captura também
-para aos 200 000 pacotes ou 256 MiB. Se fechar o ecrã antes, a captura para e um aviso diz onde o
-Borg a guardou.
+para aos 200 000 pacotes ou 256 MiB, e antes de o disco encher: não começa quando o disco da pasta
+tem menos de 512 MiB livres e para quando o espaço livre desce abaixo disso. Depois dos primeiros 3
+segundos, o rodapé diz quanto falta para o primeiro destes limites parar a captura ao ritmo atual,
+como **cerca de 30 s até 256 MiB**, quando isso acontece antes do fim da própria captura e dentro de
+uma hora. Quando um limite parou a captura, um aviso diz qual foi. Se fechar o ecrã antes, a captura
+para e um aviso diz onde o Borg a guardou.
 
 O Borg guarda cada captura como `capture-<date>-<time>.pcap` na pasta do painel que o ecrã de rede
 cobre, legível só por si, para que o Wireshark e outras ferramentas a possam abrir mais tarde. Uma
@@ -1476,12 +1485,13 @@ para cada forma de a ver:
   recebidos, e o fluxo da conversa: o que cada lado enviou, por ordem e com os bytes retransmitidos
   contados uma só vez, num dump hexadecimal com os bytes que se imprimem como texto ao lado. O fluxo
   divide-se em vezes, cada uma com uma seta que indica o sentido, os bytes que contém e a hora a que
-  chegou. Quando faltam na captura bytes antes de uma vez, essa vez indica quantos faltam. **]** e
-  **[** saltam para a vez seguinte e para a anterior. F3 mostra o fluxo inteiro em linhas
-  hexadecimais no visualizador, com as vezes umas a seguir às outras, para o percorrer e pesquisar
-  lá. Enter mostra os pacotes da conversa um a um. Quando o Borg tem as chaves TLS da ligação, o
-  fluxo mostra o que os seus registos encriptados transportavam (consulte
-  [Desencriptar TLS](#decrypting-tls)).
+  chegou. Quando faltam na captura bytes antes de uma vez, essa vez indica quantos faltam. Quando a
+  captura guardou só o início da ligação, o título do fluxo diz quantos bytes ficaram de fora depois
+  disso, segundo os cabeçalhos dos pacotes. **]** e **[** saltam para a vez seguinte e para a
+  anterior. F3 mostra o fluxo inteiro em linhas hexadecimais no visualizador, com as vezes umas a
+  seguir às outras, para o percorrer e pesquisar lá. Enter mostra os pacotes da conversa um a um.
+  Quando o Borg tem as chaves TLS da ligação, o fluxo mostra o que os seus registos encriptados
+  transportavam (consulte [Desencriptar TLS](#decrypting-tls)).
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump

@@ -17,6 +17,8 @@ pub struct Stream {
     pub turns: Vec<Turn>,
     /// A key log opened its TLS records, and the bytes are what they carried.
     pub decrypted: bool,
+    /// Bytes the sides sent after the last ones the capture kept, as the packets' headers tell.
+    pub left_out: u64,
 }
 
 /// One side's bytes up to the other side's answer, or up to bytes the capture lacks.
@@ -65,12 +67,18 @@ struct Piece<'a> {
 impl Stream {
     /// The bytes of `flow`, whose packets are among `packets`.
     pub fn of(flow: &Flow, packets: &[Packet]) -> Self {
-        let mut pieces: Vec<Piece> = match flow.kind {
-            FlowKind::Tcp => [true, false].into_iter().flat_map(|side| side_pieces(flow, packets, side)).collect(),
+        let (mut pieces, left_out): (Vec<Piece>, u64) = match flow.kind {
+            FlowKind::Tcp => [true, false].into_iter().map(|side| side_pieces(flow, packets, side)).fold(
+                (Vec::new(), 0),
+                |(mut all, left_out), (pieces, left)| {
+                    all.extend(pieces);
+                    (all, left_out + left)
+                },
+            ),
             FlowKind::Udp | FlowKind::Icmp => datagram_pieces(flow, packets),
         };
         pieces.sort_by_key(|piece| piece.delivered);
-        let mut stream = Self::default();
+        let mut stream = Self { left_out, ..Self::default() };
         for piece in pieces {
             let start = stream.bytes.len();
             stream.bytes.extend_from_slice(piece.data);
@@ -148,8 +156,11 @@ fn turn_rows(turn: &Turn, layout: HexLayout) -> usize {
     1 + layout.rows(turn.len() as u64) as usize
 }
 
-fn datagram_pieces<'a>(flow: &Flow, packets: &'a [Packet]) -> Vec<Piece<'a>> {
-    flow.packets
+/// Each datagram's payload as it came, and the bytes of them the capture did not keep.
+fn datagram_pieces<'a>(flow: &Flow, packets: &'a [Packet]) -> (Vec<Piece<'a>>, u64) {
+    let left_out = flow.packets.iter().map(|&number| left_out(&packets[number])).sum();
+    let pieces = flow
+        .packets
         .iter()
         .map(|&number| (number, &packets[number]))
         .filter(|(_, packet)| !packet.payload().is_empty())
@@ -159,27 +170,38 @@ fn datagram_pieces<'a>(flow: &Flow, packets: &'a [Packet]) -> Vec<Piece<'a>> {
             data: packet.payload(),
             missing: 0,
         })
-        .collect()
+        .collect();
+    (pieces, left_out)
 }
 
-/// What one side of a TCP conversation sent, in the order of its sequence numbers. Each piece
-/// counts as whole once every byte before it came, as the receiving program would read it.
-fn side_pieces<'a>(flow: &Flow, packets: &'a [Packet], from_client: bool) -> Vec<Piece<'a>> {
-    let segments: Vec<(usize, Tcp, &[u8])> = flow
+fn left_out(packet: &Packet) -> u64 {
+    packet.layers.carried.saturating_sub(packet.payload().len()) as u64
+}
+
+/// What one side of a TCP conversation sent, in the order of its sequence numbers, and how
+/// much it sent after the last byte the capture kept. Each piece counts as whole once every
+/// byte before it came, as the receiving program would read it.
+fn side_pieces<'a>(flow: &Flow, packets: &'a [Packet], from_client: bool) -> (Vec<Piece<'a>>, u64) {
+    let segments: Vec<(usize, Tcp, &[u8], usize)> = flow
         .packets
         .iter()
         .map(|&number| (number, &packets[number]))
         .filter(|(_, packet)| flow.from_client(packet) == from_client)
         .filter_map(|(number, packet)| match packet.layers.datagram {
-            Some(Datagram::Tcp(tcp)) => Some((number, tcp, packet.payload())),
+            Some(Datagram::Tcp(tcp)) => Some((number, tcp, packet.payload(), packet.layers.carried)),
             _ => None,
         })
         .collect();
-    let Some(base) = first_byte(&segments) else { return Vec::new() };
+    let Some(base) = first_byte(&segments) else { return (Vec::new(), 0) };
+    let sent_end = segments
+        .iter()
+        .map(|&(_, tcp, _, carried)| u64::from(data_start(tcp).wrapping_sub(base)) + carried as u64)
+        .max()
+        .unwrap_or_default();
     let mut sent: Vec<(u64, usize, &[u8])> = segments
         .iter()
-        .filter(|(_, _, payload)| !payload.is_empty())
-        .map(|&(number, tcp, payload)| (u64::from(data_start(tcp).wrapping_sub(base)), number, payload))
+        .filter(|(_, _, payload, _)| !payload.is_empty())
+        .map(|&(number, tcp, payload, _)| (u64::from(data_start(tcp).wrapping_sub(base)), number, payload))
         .collect();
     sent.sort_by_key(|&(at, number, _)| (at, number));
     let (mut next, mut delivered) = (0, 0);
@@ -194,7 +216,7 @@ fn side_pieces<'a>(flow: &Flow, packets: &'a [Packet], from_client: bool) -> Vec
         pieces.push(Piece { delivered, from_client, data: &payload[skip..], missing: at.saturating_sub(next) });
         next = end;
     }
-    pieces
+    (pieces, sent_end.saturating_sub(next))
 }
 
 /// The sequence number of a segment's first byte of data, which comes after its SYN.
@@ -204,12 +226,12 @@ fn data_start(tcp: Tcp) -> u32 {
 
 /// The sequence number of the side's first byte: the one after its SYN, or else the earliest
 /// its segments carry.
-fn first_byte(segments: &[(usize, Tcp, &[u8])]) -> Option<u32> {
-    if let Some((_, syn, _)) = segments.iter().find(|(_, tcp, _)| tcp.has(SYN)) {
+fn first_byte(segments: &[(usize, Tcp, &[u8], usize)]) -> Option<u32> {
+    if let Some((_, syn, _, _)) = segments.iter().find(|(_, tcp, _, _)| tcp.has(SYN)) {
         return Some(data_start(*syn));
     }
     let first = segments.first()?.1.seq;
-    let earliest = segments.iter().map(|(_, tcp, _)| tcp.seq.wrapping_sub(first) as i32).min()?.min(0);
+    let earliest = segments.iter().map(|(_, tcp, _, _)| tcp.seq.wrapping_sub(first) as i32).min()?.min(0);
     Some(first.wrapping_add_signed(earliest))
 }
 

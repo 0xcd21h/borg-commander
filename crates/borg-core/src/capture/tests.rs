@@ -524,6 +524,95 @@ fn the_counter_stops_at_bytes_that_are_no_capture() {
     assert_eq!(counter.packets, 0);
 }
 
+/// `bytes` with each conversation kept whole for `budget` bytes, fed in chunks of `size`.
+fn budgeted(bytes: &[u8], budget: u64, size: usize) -> Vec<u8> {
+    let mut trimmer = ConnectionBudget::new(budget);
+    let mut out: Vec<u8> = bytes.chunks(size).flat_map(|chunk| trimmer.feed(chunk)).collect();
+    out.extend(trimmer.rest());
+    out
+}
+
+/// What each packet kept of its length on the wire.
+fn kept(capture: &Capture) -> Vec<(usize, u32)> {
+    capture.packets.iter().map(|packet| (packet.data.len(), packet.length)).collect()
+}
+
+const BUDGET: u64 = 100;
+const ODD_PAYLOAD: [u8; 61] = [7; 61];
+/// Ethernet, IPv4 and TCP without options.
+const TCP_HEADERS: usize = 54;
+
+/// Three segments from the client and an answer, with a DNS question between them.
+fn budget_frames() -> Vec<Vec<u8>> {
+    let sent = |seq| over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, seq, PSH | ACK, &ODD_PAYLOAD));
+    vec![
+        sent(1),
+        sent(62),
+        over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None))),
+        sent(123),
+        over_tcp(SERVER, CLIENT, tcp(443, CLIENT_PORT, 9, PSH | ACK, &ODD_PAYLOAD)),
+    ]
+}
+
+#[test]
+fn the_budget_trims_a_conversation_to_its_headers_once_it_carried_the_budget() {
+    let frames = budget_frames();
+    let bytes = pcap(&frames);
+    let whole = budgeted(&bytes, BUDGET, bytes.len());
+    for size in [1, 7, 64, 1000] {
+        assert_eq!(budgeted(&bytes, BUDGET, size), whole, "the same in chunks of {size}");
+    }
+    let capture = Capture::read(&whole).unwrap();
+    let (frame, question) = (frames[0].len(), frames[2].len());
+    let wire = frame as u32;
+    assert_eq!(
+        kept(&capture),
+        [(frame, wire), (frame, wire), (question, question as u32), (TCP_HEADERS, wire), (TCP_HEADERS, wire)],
+        "122 bytes carried before the third segment, and the answer belongs to the same conversation"
+    );
+    let tcp = capture.flows.iter().find(|flow| flow.kind == FlowKind::Tcp).unwrap();
+    let stream = Stream::of(tcp, &capture.packets);
+    assert_eq!((stream.bytes.len(), stream.left_out), (2 * ODD_PAYLOAD.len(), 2 * ODD_PAYLOAD.len() as u64));
+    assert_eq!(Stream::of(tcp, &Capture::read(&bytes).unwrap().packets).left_out, 0);
+}
+
+#[test]
+fn the_budget_trims_pcapng_packets_and_keeps_their_options() {
+    let frames = budget_frames();
+    let tagged: Vec<(Vec<u8>, Option<u32>)> = frames.iter().map(|frame| (frame.clone(), Some(BROWSER))).collect();
+    let bytes = pktap_of(&tagged, &[(BROWSER, "browser")]);
+    let whole = budgeted(&bytes, BUDGET, bytes.len());
+    assert_eq!(budgeted(&bytes, BUDGET, 3), whole);
+    let capture = Capture::read(&whole).unwrap();
+    let wire = frames[0].len() as u32;
+    assert_eq!(kept(&capture)[3..], [(TCP_HEADERS, wire), (TCP_HEADERS, wire)]);
+    assert!(capture.packets.iter().all(|packet| packet.pid == Some(BROWSER)), "each packet keeps its process");
+    let mut counter = PcapCounter::default();
+    counter.feed(&whole);
+    assert_eq!(counter.packets, frames.len());
+}
+
+#[test]
+fn the_budget_passes_what_is_no_capture_and_holds_an_unfinished_record_until_the_end() {
+    let text = b"not a capture at all, nothing to trim here";
+    assert_eq!(budgeted(text, BUDGET, 5), text);
+    let bytes = pcap(&budget_frames());
+    let cut = &bytes[..bytes.len() - 1];
+    let mut trimmer = ConnectionBudget::new(BUDGET);
+    let fed = trimmer.feed(cut);
+    assert!(fed.len() < cut.len(), "the last record waits for the rest of it");
+    let out = [fed, trimmer.rest()].concat();
+    assert_eq!(out.len(), cut.len() - ODD_PAYLOAD.len(), "only the third segment loses its payload");
+}
+
+#[test]
+fn a_packet_cut_short_still_tells_how_much_payload_it_carried() {
+    let frame = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &ODD_PAYLOAD));
+    let layers = decode::layers(ETHERNET, &frame[..TCP_HEADERS + 1]);
+    assert_eq!((layers.payload.len(), layers.carried), (1, ODD_PAYLOAD.len()));
+    assert_eq!(decode::layers(ETHERNET, &frame).carried, ODD_PAYLOAD.len());
+}
+
 #[test]
 fn dns_names_follow_pointers_and_stop_at_loops() {
     let mut message = dns("a.example", None);

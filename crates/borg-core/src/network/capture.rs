@@ -8,7 +8,8 @@ use super::{
     viewer::{TrafficPage, TrafficView},
 };
 use crate::{
-    AppState, Ask, AskKind, Capture, Confirm, ConfirmPurpose, DiffLine, Effect, Installer, Overlay, Side, Tool,
+    AppState, Ask, AskKind, CONNECTION_BUDGET, Capture, Confirm, ConfirmPurpose, DiffLine, Effect, Installer, Overlay,
+    PACKET_LIMIT, Side, Tool,
 };
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -16,7 +17,7 @@ use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 /// The shortest and the longest capture with a length.
@@ -26,6 +27,15 @@ pub const LONGEST_CAPTURE: u64 = 60;
 pub const DURATIONS: [Option<u64>; 5] = [Some(SHORTEST_CAPTURE), Some(10), Some(30), Some(LONGEST_CAPTURE), None];
 /// What a headers-only capture keeps of each packet: Ethernet, IPv6 and TCP with its options.
 pub const HEADER_BYTES: u32 = 128;
+/// Captures stop at this size, as they do at `PACKET_LIMIT` packets.
+pub const CAPTURE_SIZE_LIMIT: u64 = 256 * MIB;
+/// What a capture leaves free on its folder's disk: it does not start, or it stops, with less.
+pub const CAPTURE_DISK_RESERVE: u64 = 512 * MIB;
+/// How long a capture runs before Borg guesses when a limit stops it, so that its rate settles.
+const SETTLING: Duration = Duration::from_secs(3);
+/// The furthest ahead Borg says a limit stops a capture.
+const HORIZON: Duration = Duration::from_secs(60 * 60);
+const MIB: u64 = 1024 * 1024;
 const PCAP_EXTENSION: &str = "pcap";
 const PCAPNG_EXTENSION: &str = "pcapng";
 
@@ -40,6 +50,71 @@ pub struct CaptureAccess {
     pub tags: bool,
 }
 
+/// How much of each packet a capture keeps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Keep {
+    Whole,
+    /// Each connection whole for its first `CONNECTION_BUDGET` bytes, then its packets' headers.
+    #[default]
+    ConnectionStart,
+    /// The first `HEADER_BYTES` of each packet.
+    Headers,
+}
+
+/// What **Keep** offers, in the order Left and Right go through them.
+pub const KEEP_CHOICES: [Keep; 3] = [Keep::Whole, Keep::ConnectionStart, Keep::Headers];
+
+impl Keep {
+    pub fn label(self) -> String {
+        match self {
+            Keep::Whole => tr!(capture_whole_packets).to_owned(),
+            Keep::ConnectionStart => tr!(capture_connection_start, mib = CONNECTION_BUDGET / MIB),
+            Keep::Headers => tr!(capture_headers_only, bytes = HEADER_BYTES),
+        }
+    }
+}
+
+/// How far a running capture got.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CaptureProgress {
+    pub bytes: u64,
+    pub packets: usize,
+    /// The bytes it can still write before its folder's disk keeps only `CAPTURE_DISK_RESERVE`.
+    pub room: Option<u64>,
+}
+
+/// What stops a capture before its own end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureLimit {
+    /// `CAPTURE_SIZE_LIMIT` bytes.
+    Size,
+    /// `PACKET_LIMIT` packets.
+    Packets,
+    /// The folder's disk has no room left beyond `CAPTURE_DISK_RESERVE`.
+    Disk,
+}
+
+impl CaptureLimit {
+    /// What the capture runs up to, as the footer says it.
+    pub fn label(self) -> String {
+        match self {
+            CaptureLimit::Size => tr!(capture_mib, mib = CAPTURE_SIZE_LIMIT / MIB),
+            CaptureLimit::Packets => borg_i18n::count(PACKET_LIMIT, borg_i18n::Count::Packet),
+            CaptureLimit::Disk => tr!(capture_limit_disk).to_owned(),
+        }
+    }
+
+    /// Why the capture it stopped ended early, as a notice.
+    fn notice(self, folder: &Path) -> String {
+        match self {
+            CaptureLimit::Size | CaptureLimit::Packets => tr!(capture_limit_reached, limit = self.label()),
+            CaptureLimit::Disk => {
+                tr!(capture_disk_stopped, folder = folder.display(), mib = CAPTURE_DISK_RESERVE / MIB)
+            }
+        }
+    }
+}
+
 /// Why a capture saved nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaptureFailure {
@@ -49,6 +124,8 @@ pub enum CaptureFailure {
     Denied,
     /// The system's password dialog was dismissed, or the capture stopped before it was answered.
     Cancelled,
+    /// The folder's disk has less than `CAPTURE_DISK_RESERVE` free.
+    NoRoom,
     /// What went wrong, in words to show as they are.
     Failed(String),
 }
@@ -168,8 +245,7 @@ pub struct CaptureRequest {
     pub interface: String,
     /// How long it runs, or `None` until it is stopped.
     pub seconds: Option<u64>,
-    /// Keep only the first `HEADER_BYTES` of each packet.
-    pub headers_only: bool,
+    pub keep: Keep,
     pub filter: String,
     /// The folder the capture file is saved in.
     pub folder: PathBuf,
@@ -222,7 +298,7 @@ pub struct CaptureDialog {
     pub interfaces: Vec<String>,
     pub interface: usize,
     pub duration: usize,
-    pub headers_only: bool,
+    pub keep: Keep,
     pub tls_keys: TlsKeys,
     /// Capture as administrator.
     pub administrator: bool,
@@ -263,7 +339,7 @@ impl CaptureDialog {
         Some(CaptureRequest {
             interface: self.interfaces.get(self.interface)?.clone(),
             seconds: DURATIONS[self.duration],
-            headers_only: self.headers_only,
+            keep: self.keep,
             filter: self.scopes.get(self.scope)?.filter(),
             folder: self.folder.clone(),
             administrator: self.administrator,
@@ -279,7 +355,10 @@ impl CaptureDialog {
             CaptureField::Scope => self.scope = turn(self.scope, self.scopes.len()),
             CaptureField::Interface => self.interface = turn(self.interface, self.interfaces.len()),
             CaptureField::Duration => self.duration = turn(self.duration, DURATIONS.len()),
-            CaptureField::Content => self.headers_only = !self.headers_only,
+            CaptureField::Content => {
+                let chosen = KEEP_CHOICES.iter().position(|&choice| choice == self.keep).unwrap_or_default();
+                self.keep = KEEP_CHOICES[turn(chosen, KEEP_CHOICES.len())];
+            }
             CaptureField::TlsKeys => {
                 let choices = self.tls_choices();
                 let chosen = choices.iter().position(|choice| *choice == self.tls_keys).unwrap_or_default();
@@ -349,10 +428,14 @@ pub struct Recording {
     pub started: Instant,
     pub bytes: u64,
     pub packets: usize,
+    /// The bytes the capture can still write before the folder's disk is too full, once known.
+    pub room: Option<u64>,
     /// The system is asking for the administrator's password, and `tcpdump` has not started.
     pub waiting: bool,
     /// Stop was asked for, and the capture is being saved.
     pub stopping: bool,
+    /// The limit that stopped it.
+    pub limited: Option<CaptureLimit>,
     /// The TLS key log beside the capture, once it is there.
     pub key_log: Option<PathBuf>,
     /// Where Borg's proxy listens, once it does.
@@ -367,6 +450,30 @@ impl Recording {
     pub fn left(&self, now: Instant) -> Option<u64> {
         let elapsed = now.saturating_duration_since(self.started).as_secs();
         self.request.seconds.map(|seconds| seconds.saturating_sub(elapsed))
+    }
+
+    /// The limit that stops the capture first at its rate so far, and the seconds until it
+    /// does, when that comes before the capture's own end and within `HORIZON`.
+    pub fn limit_ahead(&self, now: Instant) -> Option<(CaptureLimit, u64)> {
+        let elapsed = now.saturating_duration_since(self.started);
+        if self.waiting || self.stopping || elapsed < SETTLING {
+            return None;
+        }
+        let seconds = elapsed.as_secs_f64();
+        let at_rate = |done: f64, left: f64| (done > 0.0).then(|| left * seconds / done);
+        let bytes = self.bytes as f64;
+        let limits = [
+            (CaptureLimit::Size, at_rate(bytes, CAPTURE_SIZE_LIMIT.saturating_sub(self.bytes) as f64)),
+            (CaptureLimit::Packets, at_rate(self.packets as f64, PACKET_LIMIT.saturating_sub(self.packets) as f64)),
+            (CaptureLimit::Disk, self.room.and_then(|room| at_rate(bytes, room as f64))),
+        ];
+        let (limit, ahead) = limits
+            .into_iter()
+            .filter_map(|(limit, ahead)| Some((limit, ahead?)))
+            .min_by(|(_, one), (_, other)| one.total_cmp(other))?;
+        let ahead = ahead.ceil() as u64;
+        let ends_first = self.left(now).is_some_and(|left| left <= ahead);
+        (!ends_first && ahead <= HORIZON.as_secs()).then_some((limit, ahead))
     }
 }
 
@@ -393,7 +500,7 @@ pub(crate) fn capture_key(state: &mut AppState) -> Vec<Effect> {
         interfaces,
         interface: 0,
         duration: 0,
-        headers_only: false,
+        keep: Keep::default(),
         tls_keys: TlsKeys::Off,
         administrator: false,
         access: network.access,
@@ -520,8 +627,10 @@ fn record(state: &mut AppState, request: CaptureRequest, view_filter: String, no
         started: now,
         bytes: 0,
         packets: 0,
+        room: None,
         waiting: request.administrator,
         stopping: false,
+        limited: None,
         key_log: None,
         proxy: None,
         view_filter,
@@ -542,14 +651,23 @@ pub(crate) fn sampled(network: &mut super::Network) {
 
 /// The capture's bytes and packets so far; the first report of a capture as administrator
 /// also says the password was given, so its seconds count from then.
-pub(crate) fn progress(state: &mut AppState, id: u64, bytes: u64, packets: usize, now: Instant) {
+pub(crate) fn progress(state: &mut AppState, id: u64, progress: CaptureProgress, now: Instant) {
     if let Some(recording) = state.network.recording.as_mut().filter(|recording| recording.id == id) {
         if recording.waiting {
             recording.waiting = false;
             recording.started = now;
         }
-        recording.bytes = bytes;
-        recording.packets = packets;
+        recording.bytes = progress.bytes;
+        recording.packets = progress.packets;
+        recording.room = progress.room;
+    }
+}
+
+/// The capture reached `limit` and is being saved.
+pub(crate) fn limited(state: &mut AppState, id: u64, limit: CaptureLimit) {
+    if let Some(recording) = state.network.recording.as_mut().filter(|recording| recording.id == id) {
+        recording.stopping = true;
+        recording.limited = Some(limit);
     }
 }
 
@@ -599,6 +717,7 @@ pub(crate) fn copy_key_log_prefix(state: &mut AppState) -> Vec<Effect> {
 pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Capture), CaptureFailure>) -> Vec<Effect> {
     let Some(recording) = state.network.recording.take_if(|recording| recording.id == id) else { return Vec::new() };
     let saved_in = result.as_ref().ok().and_then(|(path, _)| path.parent()).map(Path::to_path_buf);
+    let limited = recording.limited.filter(|_| result.is_ok()).map(|limit| limit.notice(&recording.request.folder));
     let access = state.network.access;
     match result {
         Err(CaptureFailure::Missing(installer)) => crate::install::offer(state, Tool::Tcpdump, installer),
@@ -617,6 +736,7 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
             state.notice = Some(tr!(capture_denied, interface = recording.request.interface));
         }
         Err(CaptureFailure::Cancelled) => {}
+        Err(CaptureFailure::NoRoom) => state.notice = Some(capture_no_room(&recording.request.folder)),
         Err(CaptureFailure::Failed(error)) => state.notice = Some(error),
         Ok((path, capture)) if !state.network.is_open() => {
             let packets = borg_i18n::count(capture.packets.len(), borg_i18n::Count::Packet);
@@ -631,11 +751,19 @@ pub(crate) fn done(state: &mut AppState, id: u64, result: Result<(PathBuf, Captu
             state.network.details_focused = false;
         }
     }
+    if let Some(limited) = limited {
+        state.notice = Some(limited);
+    }
     let mut effects = super::shell_variables::ended(state);
     let Some(folder) = saved_in else { return effects };
     let showing: Vec<Side> = Side::ALL.into_iter().filter(|&side| state.panel(side).destination() == folder).collect();
     effects.extend(showing.into_iter().map(|side| state.reload(side)));
     effects
+}
+
+/// Why a capture in `folder` did not start: its disk has too little room left.
+pub fn capture_no_room(folder: &Path) -> String {
+    tr!(capture_disk_full, folder = folder.display(), mib = CAPTURE_DISK_RESERVE / MIB)
 }
 
 /// Opens the viewer on a capture file read from a panel.
@@ -672,11 +800,7 @@ pub fn capture_ask(scope: CaptureScope, process: Option<&str>, request: &Capture
     let duration = request
         .seconds
         .map_or_else(|| tr!(capture_until_stopped).to_owned(), |seconds| tr!(capture_seconds, seconds = seconds));
-    let content = if request.headers_only {
-        tr!(capture_headers_only, bytes = HEADER_BYTES)
-    } else {
-        tr!(capture_whole_packets).to_owned()
-    };
+    let content = request.keep.label();
     let body = vec![
         field(tr!(capture_scope_field), traffic),
         field(tr!(network_interface_column), request.interface.clone()),

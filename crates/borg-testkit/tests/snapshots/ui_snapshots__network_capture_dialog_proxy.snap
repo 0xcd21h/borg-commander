@@ -19,7 +19,7 @@ expression: describe(&buffer)
 │                     │  Traffic      All traffic, shown for browser · PID 8239                               │       █████████████│
 │                     │  Interface    en0                                                                     │┈┈┈┈┈┈┈█████████████│
 │                     │  Duration     5 s                                                                     │                 now│
-│                     │  Keep         Whole packets                                                           │                    │
+│                     │  Keep         First 1 MiB of each connection                                          │                    │
 │                     │  TLS keys   ‹ Proxy HTTPS through Borg with the CA in /home/me/.local/share/mkcert ›  │                    │
 │                     │                                                                                       │ Down      Up       │
 │                     │  Saved as a .pcap file in /home/me/projects/borg                                      │ 1.8M/s    21K/s    │

@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use borg_core::{Motion, Msg, Preferences, Settings};
+use borg_core::{CaptureProgress, Keep, Motion, Msg, Preferences, Settings};
 use borg_term::GridSize;
 use borg_testkit::{Snapshot, Stage, describe};
 use borg_vfs::{Entry, EntryKind};
@@ -3142,7 +3142,7 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
     let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
     assert_eq!((request.interface.as_str(), request.filter.as_str()), ("en0", ""), "all of the busiest interface");
-    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    stage.send(Msg::CaptureProgress { id, progress: CaptureProgress { bytes: 52_400, packets: 61, room: None } });
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "Capturing on en0 · 61 packets")?;
     ensure_text(&buffer, "R Stop capture")?;
@@ -3290,7 +3290,7 @@ fn network_records_tls_keys_through_borgs_shell() -> Result<()> {
     assert!(effects.contains(&Effect::Write(export)), "the line is typed at the prompt: {effects:?}");
     assert_eq!(stage.state.view, View::Shell, "where it shows");
     stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
-    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    stage.send(Msg::CaptureProgress { id, progress: CaptureProgress { bytes: 52_400, packets: 61, room: None } });
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "61 packets · 51K · 5 s left · TLS keys")?;
     ensure_text(&buffer, "L Copy SSLKEYLOGFILE")?;
@@ -3331,13 +3331,45 @@ fn network_records_https_through_borgs_proxy() -> Result<()> {
     let typed = |effect: &Effect| matches!(effect, Effect::Write(line) if line.starts_with(b"export HTTPS_PROXY='http://127.0.0.1:54321' "));
     assert!(effects.iter().any(typed), "the line is typed at the prompt: {effects:?}");
     stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
-    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    stage.send(Msg::CaptureProgress { id, progress: CaptureProgress { bytes: 52_400, packets: 61, room: None } });
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "61 packets · 51K · 5 s left · Proxy on 127.0.0.1:54321")?;
     ensure_text(&buffer, "L Copy proxy settings")?;
     check("network_capture_proxy", &stage, buffer)?;
     Ok(())
+}
+
+/// A capture that runs until it is stopped says in the footer when a limit stops it at its
+/// rate so far, and the stream of a connection it kept only the start of says how much it left
+/// out.
+#[test]
+fn network_capture_tells_when_a_limit_stops_it_and_what_it_left_out() -> Result<()> {
+    use borg_core::{Capture, ConnectionBudget, Effect};
+    const MIB: u64 = 1024 * 1024;
+    const KEPT: u64 = 200;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('r'))).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Left));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!((request.seconds, request.keep), (None, Keep::ConnectionStart));
+    let progress = CaptureProgress { bytes: 64 * MIB, packets: 40_000, room: Some(8 * 1024 * MIB) };
+    stage.send(Msg::CaptureProgress { id, progress });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now + Duration::from_secs(10))?;
+    ensure_text(&buffer, "40000 packets · 64M · about 30 s to 256 MiB")?;
+    check("network_capture_limit_ahead", &stage, buffer)?;
+
+    let mut budget = ConnectionBudget::new(KEPT);
+    let trimmed = [budget.feed(&borg_testkit::capture::bytes()), budget.rest()].concat();
+    let capture = Capture::read(&trimmed).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcap");
+    stage.send(Msg::CaptureDone { id, result: Ok((path, capture)) }).send(key(KeyCode::Char('3')));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, " left out")?;
+    check("traffic_stream_left_out", &stage, buffer)
 }
 
 /// A capture without tcpdump offers to install it with the package manager Borg found, and
@@ -3481,7 +3513,7 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
     let request = CaptureRequest {
         interface: "en0".into(),
         seconds: Some(10),
-        headers_only: false,
+        keep: Keep::Whole,
         filter: "udp port 53".into(),
         folder: "/home/dev/work".into(),
         administrator: false,

@@ -131,6 +131,9 @@ pub struct Layers {
     pub datagram: Option<Datagram>,
     /// Where the TCP or UDP payload lies in the captured bytes.
     pub payload: Range<usize>,
+    /// How many payload bytes the packet carried, as its IP header tells, where the capture
+    /// kept fewer.
+    pub carried: usize,
     pub app: Option<App>,
 }
 
@@ -158,14 +161,16 @@ pub(super) fn layers(link: u32, data: &[u8]) -> Layers {
     let mut layers = Layers::default();
     let Some((ether_type, at)) = link_header(link, data, &mut layers.link) else { return layers };
     layers.link.ether_type = Some(ether_type);
-    let Some((ip, at, end)) = network(ether_type, data, at) else { return layers };
+    let Some((ip, at, announced)) = network(ether_type, data, at) else { return layers };
     layers.ip = Some(ip);
     if ip.fragment {
         return layers;
     }
+    let end = announced.min(data.len());
     let Some((datagram, start)) = transport(ip.protocol, data, at, end) else { return layers };
     layers.datagram = Some(datagram);
     layers.payload = start..end;
+    layers.carried = announced.max(end) - start;
     layers.app = apps::detect(&datagram, &data[start..end]);
     layers
 }
@@ -227,7 +232,8 @@ fn version(data: &[u8], at: usize) -> Option<u16> {
     }
 }
 
-/// The IP header at `at`, where what it carries starts, and where the packet ends.
+/// The IP header at `at`, where what it carries starts, and where the packet ends as the
+/// header tells, which may be past the bytes the capture kept.
 fn network(ether_type: u16, data: &[u8], at: usize) -> Option<(Ip, usize, usize)> {
     match ether_type {
         ETHER_IPV4 => ipv4(data, at),
@@ -255,8 +261,7 @@ fn ipv4(data: &[u8], at: usize) -> Option<(Ip, usize, usize)> {
         protocol: *data.get(at + 9)?,
         fragment: fragment & FRAGMENT_OFFSET != 0,
     };
-    let end = (at + total.max(header)).min(data.len());
-    Some((ip, at + header, end))
+    Some((ip, at + header, at + total.max(header)))
 }
 
 fn ipv6(data: &[u8], at: usize) -> Option<(Ip, usize, usize)> {
@@ -275,7 +280,7 @@ fn ipv6(data: &[u8], at: usize) -> Option<(Ip, usize, usize)> {
         protocol: *data.get(at + 6)?,
         fragment: false,
     };
-    let end = (at + IPV6_HEADER + length).min(data.len());
+    let end = at + IPV6_HEADER + length;
     let mut next = at + IPV6_HEADER;
     for _ in 0..EXTENSION_LIMIT {
         let length = match ip.protocol {

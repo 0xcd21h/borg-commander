@@ -119,8 +119,12 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Docker { id, result } => crate::docker::receive(state, id, result, now),
         Msg::Network { id, result } => crate::network::receive(state, id, result, now),
-        Msg::CaptureProgress { id, bytes, packets } => {
-            crate::network::capture_progress(state, id, bytes, packets, now);
+        Msg::CaptureProgress { id, progress } => {
+            crate::network::capture_progress(state, id, progress, now);
+            Vec::new()
+        }
+        Msg::CaptureLimited { id, limit } => {
+            crate::network::capture_limited(state, id, limit);
             Vec::new()
         }
         Msg::CaptureKeys { id, path, proxy } => crate::network::capture_keys(state, id, path, proxy),

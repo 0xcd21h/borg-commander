@@ -18,13 +18,15 @@ mod tls;
 
 pub use apps::{App, Dns, DnsAnswer, DnsData, Http, dns_type};
 pub use decode::{ACK, CWR, Datagram, ECE, FIN, Ip, Layers, Link, PSH, RST, SYN, Tcp, URG};
-pub use files::{PcapCounter, with_secrets};
+pub use files::{ConnectionBudget, PcapCounter, with_secrets};
 pub use flows::{Flow, FlowKind};
 pub use keylog::KeyLog;
 pub use stream::{Stream, StreamRow, Turn};
 
 /// The most packets Borg reads from one capture; the rest are counted and left out.
 pub const PACKET_LIMIT: usize = 200_000;
+/// What a capture that keeps the start of each conversation keeps whole of each: 1 MiB.
+pub const CONNECTION_BUDGET: u64 = 1024 * 1024;
 /// What a DNS answer code says when the name does not exist.
 const DNS_NO_NAME: u16 = 3;
 const DNS_NO_NAME_LABEL: &str = "NXDOMAIN";

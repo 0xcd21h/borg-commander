@@ -4,7 +4,7 @@ use super::{App, Flow, fail, text};
 use crate::agent::{self, Call, Location, Reply, Work};
 use crate::app::render::from_origin;
 use anyhow::Result;
-use borg_core::{AgentEvent, CaptureRequest, CaptureScope, Msg, SeenSockets};
+use borg_core::{AgentEvent, CaptureRequest, CaptureScope, Keep, Msg, SeenSockets};
 use borg_i18n::{Count, count, tr};
 use serde_json::json;
 use std::{
@@ -79,7 +79,7 @@ impl App {
         let request = CaptureRequest {
             interface,
             seconds: Some(asked.seconds),
-            headers_only: asked.headers_only,
+            keep: if asked.headers_only { Keep::Headers } else { Keep::Whole },
             filter: asked.scope.filter(),
             folder: PathBuf::from(folder),
             administrator: false,
