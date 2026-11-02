@@ -97,7 +97,9 @@ impl Server {
         let mut random = [0; 16];
         getrandom::fill(&mut random).context("creating console ID")?;
         let id = borg_link::hex(&random);
-        let runtime = tempfile::Builder::new().prefix("console-").tempdir_in(&self.runtime)?;
+        let runtime = tempfile::Builder::new()
+            .prefix(&format!("{}{}-", borg_core::CONSOLE_PREFIX, std::process::id()))
+            .tempdir_in(&self.runtime)?;
         let mut command = borg_term::shell_command(&self.shell, dir, runtime.path())?;
         // Only a client that answers the question gets it; an older one would leave `exit` waiting.
         if args["confirm_exit"] == true {

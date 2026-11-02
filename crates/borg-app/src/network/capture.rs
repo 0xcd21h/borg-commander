@@ -76,7 +76,12 @@ pub(super) struct Recorder {
 impl Recorder {
     pub(super) fn start(id: u64, request: CaptureRequest, messages: UnboundedSender<Msg>, runtime: &Path) -> Self {
         let (stop, stopped) = oneshot::channel();
-        let trust = runtime.join(format!("{TRUST_PREFIX}{}-{id}.{TRUST_EXTENSION}", std::process::id()));
+        let trust = runtime.join(format!(
+            "{}{}-{id}.{}",
+            borg_core::TRUST_PREFIX,
+            std::process::id(),
+            borg_core::TRUST_EXTENSION
+        ));
         let task = tokio::spawn(async move {
             let progress = |bytes, packets| {
                 let _ = messages.send(Msg::CaptureProgress { id, bytes, packets });
@@ -392,7 +397,11 @@ async fn record(
         if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
     let (mut file, key_log) = match create_files(&path, request.tls_keys.keeps_keys()) {
-        Ok(created) => created,
+        Ok(created) => {
+            let saved = path.clone();
+            tokio::task::spawn_blocking(move || crate::storage::remember_capture(&saved));
+            created
+        }
         Err(error) => {
             tap.stop();
             let _ = tap.finish().await;

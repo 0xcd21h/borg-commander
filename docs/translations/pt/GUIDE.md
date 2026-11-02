@@ -1031,18 +1031,6 @@ até formar uma galáxia em espiral e a regressar, ou o logótipo reconstruído 
 as tábuas antigas formam um segundo logótipo por baixo. Qualquer tecla ou clique traz os painéis
 de volta, e essa tecla não faz mais nada.
 
-As pastas dos painéis, as posições do cursor, a divisão, os modos de listagem e a ordenação ficam
-guardados em
-`~/.local/state/borg-commander`, ou na pasta indicada por `$XDG_STATE_HOME` ou `$BORG_STATE_DIR`.
-
-Enquanto corre, o Borg guarda os scripts de integração com a shell e os ficheiros copiados de
-contentores em
-`$XDG_RUNTIME_DIR/borg-commander`, ou em `borg-commander-<uid>` na pasta temporária. Só o
-utilizador pode abrir esta pasta; se já existir uma criada por outra pessoa, ou em que outros
-utilizadores possam entrar, o Borg ignora-a e usa outro nome. O ficheiro `TTL` começa com a hora
-até à qual a pasta está em uso: cada borg em execução adia essa hora um dia, de hora a hora, pelo
-que, depois de ela passar, a pasta pode ser eliminada.
-
 Os temas personalizados ficam em `~/.config/borg-commander/themes/`. Um tema pode estender um dos
 temas incluídos:
 
@@ -1054,6 +1042,65 @@ extends = "neon"
 cursor = { fg = "#0b0b16", bg = "#00e5ff", bold = true }
 dir = { fg = "#b388ff", bold = true }
 ```
+
+### Ficheiros do Borg
+
+As pastas dos painéis, as posições do cursor, a divisão, os modos de listagem e a ordenação ficam
+guardados na pasta de estado, `~/.local/state/borg-commander`, ou na pasta indicada por
+`$XDG_STATE_HOME` ou `$BORG_STATE_DIR`.
+
+Enquanto corre, o Borg guarda os scripts de integração com a shell e os ficheiros copiados de
+contentores na sua pasta de execução, `$XDG_RUNTIME_DIR/borg-commander`, ou em
+`borg-commander-<uid>` na pasta temporária. Só o utilizador pode abrir esta pasta; se já existir uma
+criada por outra pessoa, ou em que outros utilizadores possam entrar, o Borg ignora-a e usa outro
+nome. O ficheiro `TTL` começa com a hora até à qual a pasta está em uso: cada borg em execução adia
+essa hora um dia, de hora a hora, pelo que, depois de ela passar, a pasta pode ser eliminada.
+
+**F9 → Opções → Ficheiros do Borg…** mostra cada sítio onde o Borg guarda ficheiros, quanto ocupa
+cada um e onde fica:
+
+- **Ficheiros temporários**: scripts de integração com a shell, pedidos de mudança de pasta vindos
+  da shell, cópias de contentores e pré-visualizações remotas, na pasta de execução.
+- **Sockets**: por onde os agentes e os espelhos chegam às sessões em curso, em
+  `/tmp/borg-<uid>-default`, ou numa pasta `/tmp/borg-<uid>-` com o nome da pasta de execução quando
+  `$XDG_RUNTIME_DIR` está definida.
+- **Caches**: tamanhos das pastas e índices de nomes, na pasta de cache (consulte
+  [Análises de tamanho guardadas](#saved-size-scans)).
+- **Sessões e histórico**: sessões, saída da shell, histórico de pesquisas e de pastas, coleções e
+  computadores emparelhados com as suas chaves, na pasta de estado.
+- **Definições**: `config.toml` e os seus temas.
+- **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
+
+Up e Down escolhem uma linha, e uma nota curta por baixo da lista diz o que o sítio escolhido contém
+e quanto tempo fica guardado. Enter abre a pasta desse sítio no painel ativo. Esc fecha a janela.
+
+O Borg faz a sua própria limpeza 30 segundos depois de arrancar e, a seguir, de hora a hora. Só
+remove nomes que ele próprio cria e nunca nada que tenha mudado nos últimos 10 minutos, pelo que um
+Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
+
+- Pastas de outras versões do Borg na pasta de execução, quando já nenhum Borg corre a partir delas
+  e, além disso, nenhum Borg estava a correr quando este arrancou ou há 3 dias que nada nelas muda.
+- Pedidos de mudança de pasta, ficheiros escritos a meio e pastas de consolas remotas de processos
+  do Borg que terminaram.
+- Cópias de contentores e pré-visualizações remotas com mais de um dia.
+- Sockets em que ninguém responde e pastas de sockets onde já nada responde.
+- Análises de tamanho no formato do Borg 0.4 e 0.5, análises que a cache já não lista e índices de
+  nomes de pastas que já não são indexadas.
+- Pastas de execução que versões antigas do Borg deixaram abertas a outros utilizadores, quando há 3
+  dias que nada nelas muda.
+
+As sessões, o histórico, as definições e as capturas ficam guardados até os eliminar. A linha por
+baixo da nota diz quanto resta neste momento e o que a última limpeza removeu. F8 remove os restos
+depois de perguntar, e a pergunta indica as pastas de onde vêm.
+
+Cada captura que o Borg guarda entra numa lista das 1000 mais recentes. A janela mostra as que ainda
+estão no disco em **Capturas guardadas pelo Borg**, com o tamanho e a data, e **com chaves** quando
+ao lado de uma está um ficheiro `.keylog` com o mesmo nome. Enter numa captura abre a pasta dela com
+o cursor no ficheiro, e aí F8 elimina-a. As capturas guardadas antes de o Borg começar a manter esta
+lista não aparecem nela.
+
+`borg storage` mostra os mesmos sítios no terminal e diz o que resta, e `borg storage clean`
+remove-o.
 
 Para compilar, testar ou contribuir, consulte [Desenvolvimento](../../../DEVELOPMENT.md).
 
@@ -1403,7 +1450,7 @@ cobre, legível só por si, para que o Wireshark e outras ferramentas a possam a
 captura que marca cada pacote com o seu processo é guardada como `capture-<date>-<time>.pcapng`,
 o formato que consegue guardar essas marcas. O mesmo acontece a uma captura que guardou chaves
 TLS, depois de o Borg as colocar lá dentro. Uma captura contém tudo o que os pacotes transportavam, por isso guarde-a com o mesmo cuidado que esses
-dados.
+dados. Cada captura fica também na lista de [Ficheiros do Borg](#borgs-files).
 
 Um agente ligado através de `borg mcp` também pode pedir uma captura, que aguarda igualmente a sua
 aprovação (consulte [O que o agente pode fazer](#what-the-agent-can-do)).

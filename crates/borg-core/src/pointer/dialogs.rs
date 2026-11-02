@@ -155,6 +155,7 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
             let list = state.backup.window.list();
             (list.cursor, list.items.len())
         }
+        Overlay::Storage(window) => (window.selected, window.rows().len()),
         _ => return None,
     })
 }
@@ -177,6 +178,7 @@ fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) 
         Overlay::Plugins { .. } => Overlay::Plugins { selected: row },
         Overlay::Jobs(_) => Overlay::Jobs(crate::JobList { selected: row }),
         Overlay::Folders(dialog) => Overlay::Folders(crate::FoldersDialog { selected: row, ..dialog }),
+        Overlay::Storage(window) => Overlay::Storage(crate::StorageWindow { selected: row, ..window }),
         Overlay::ProcessControl(dialog) => Overlay::ProcessControl(crate::ControlDialog { selected: row, ..dialog }),
         Overlay::Remotes(mut browser) => {
             if browser.show_clients {

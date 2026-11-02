@@ -1,4 +1,8 @@
-use std::{env, fs, io, path::PathBuf, time::Duration};
+use std::{
+    env, fs, io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use borg_core::{AfterCommand, ICON_SPACING, Preferences};
@@ -354,6 +358,10 @@ impl ConfigDir {
         let xdg = || env::var_os(ENV_XDG_CONFIG).map(|dir| PathBuf::from(dir).join(APP_DIR));
         let home = || env::var_os(ENV_HOME).map(|home| PathBuf::from(home).join(DOT_CONFIG).join(APP_DIR));
         explicit.or_else(xdg).or_else(home).map(Self)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
     }
 
     pub fn themes(&self) -> PathBuf {

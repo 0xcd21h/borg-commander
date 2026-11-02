@@ -1,4 +1,4 @@
-use borg_core::{Query, RESULT_LIMIT, SearchProgress, SearchRequest};
+use borg_core::{Query, RESULT_LIMIT, SCAN_PREFIX, SIZES_PREFIX, SQLITE_SUFFIX, SearchProgress, SearchRequest};
 use borg_vfs::{Entry, EntryKind, FolderUsage};
 use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ use std::{
 
 const FORMAT: u8 = 2;
 const MAX_ROOTS: usize = 16;
-const INDEX: &str = "sizes-index.json";
+const INDEX: &str = borg_core::SIZES_INDEX;
 const INDEX_BYTES: u64 = 64 * 1024;
 const MAX_RECORD: usize = 64 * 1024;
 #[derive(Clone)]
@@ -197,7 +197,7 @@ impl SizeCache {
         let (connection, staged) = if let Some(dir) = &self.0.dir {
             fs::create_dir_all(dir).ok()?;
             let id = self.0.sequence.fetch_add(1, Ordering::SeqCst);
-            let staged = dir.join(format!(".scan-{}-{id}-{}.sqlite", std::process::id(), hex(&key)));
+            let staged = dir.join(format!("{SCAN_PREFIX}{}-{id}-{}{SQLITE_SUFFIX}", std::process::id(), hex(&key)));
             let conn = Connection::open(&staged).ok()?;
             (conn, Some(staged))
         } else {
@@ -407,8 +407,18 @@ fn hex(key: &Key) -> String {
     digest.update([u8::from(key.hidden)]);
     format!("{:x}", digest.finalize())
 }
+fn file_name(key: &Key) -> String {
+    format!("{SIZES_PREFIX}{}{SQLITE_SUFFIX}", hex(key))
+}
+
+/// The size scans the cache's index lists, by file name; `None` when there is no index to read.
+pub(crate) fn listed(dir: &Path) -> Option<std::collections::HashSet<String>> {
+    let keys = read::<Vec<Key>>(&dir.join(INDEX), INDEX_BYTES)?;
+    Some(keys.iter().map(file_name).collect())
+}
+
 fn file(dir: &Path, key: &Key) -> PathBuf {
-    dir.join(format!("sizes-{}.sqlite", hex(key)))
+    dir.join(file_name(key))
 }
 fn read<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Option<T> {
     let mut bytes = Vec::new();

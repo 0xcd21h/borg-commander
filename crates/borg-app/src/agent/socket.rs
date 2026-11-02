@@ -6,9 +6,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) const SOCKET_PREFIX: &str = "session-";
+pub(crate) const SOCKET_PREFIX: &str = "session-";
 
-pub(super) const SOCKET_SUFFIX: &str = ".sock";
+pub(crate) use borg_core::SOCKET_SUFFIX;
+
+/// Where the folders of sockets are, each named after the user and its runtime folder.
+const SOCKET_PARENT: &str = "/tmp";
+const SHARED_NAME: &str = "default";
+const HASH_DIGITS: usize = 16;
 
 pub(super) const OWNER_ONLY: u32 = 0o700;
 
@@ -19,7 +24,11 @@ pub(super) const OTHERS: u32 = 0o077;
 /// named after the runtime folder, so `borg mcp` finds only its sessions; without it, as on
 /// macOS, every program the user starts shares one, whatever its temporary folder.
 pub(crate) fn socket_dir(runtime_dir: &Path) -> Result<PathBuf> {
-    let uid = rustix::process::getuid().as_raw();
+    owner_only(&socket_path(runtime_dir))
+}
+
+/// The folder of sockets for `runtime_dir`, as [`socket_dir`] names it, without making it.
+pub(crate) fn socket_path(runtime_dir: &Path) -> PathBuf {
     let name = if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
         // FNV-1a, which stays the same from one build of borg to the next.
         let hash = runtime_dir
@@ -29,9 +38,34 @@ pub(crate) fn socket_dir(runtime_dir: &Path) -> Result<PathBuf> {
             .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3));
         format!("{hash:016x}")
     } else {
-        "default".to_owned()
+        SHARED_NAME.to_owned()
     };
-    owner_only(&PathBuf::from(format!("/tmp/borg-{uid}-{name}")))
+    Path::new(SOCKET_PARENT).join(format!("{}{name}", socket_folder_prefix()))
+}
+
+fn socket_folder_prefix() -> String {
+    format!("borg-{}-", rustix::process::getuid().as_raw())
+}
+
+/// Every folder of sockets this user's Borgs made, for whatever runtime folder.
+pub(crate) fn socket_dirs() -> Vec<PathBuf> {
+    let prefix = socket_folder_prefix();
+    let ours = |name: &str| {
+        name.strip_prefix(&prefix).is_some_and(|rest| {
+            rest == SHARED_NAME || (rest.len() == HASH_DIGITS && rest.chars().all(|c| c.is_ascii_hexdigit()))
+        })
+    };
+    let Ok(entries) = std::fs::read_dir(SOCKET_PARENT) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|entry| ours(&entry.file_name().to_string_lossy()))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            std::fs::symlink_metadata(path).is_ok_and(|meta| {
+                meta.is_dir() && meta.uid() == rustix::process::getuid().as_raw() && meta.mode() & OTHERS == 0
+            })
+        })
+        .collect()
 }
 
 /// Creates a folder only its owner can enter. One that someone else owns, or that others

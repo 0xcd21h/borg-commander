@@ -55,9 +55,6 @@ const INDEX_DELAY: Duration = Duration::from_secs(5);
 /// Larger copies stay in Borg's clipboard: terminals drop or cut longer OSC 52 writes.
 const TERMINAL_CLIPBOARD_LIMIT: usize = 256 * 1024;
 const REMOTE_CLIENT_REFRESH: Duration = Duration::from_secs(1);
-/// The folder under the runtime directory where container files are copied for viewing.
-const DOCKER_SCRATCH: &str = "docker";
-
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
 pub struct App {
@@ -97,6 +94,7 @@ pub struct App {
     backup: crate::backup::Backup,
     docker: crate::docker::Docker,
     network: crate::network::Network,
+    storage: crate::storage::Storage,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,

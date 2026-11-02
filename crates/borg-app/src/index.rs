@@ -17,7 +17,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-use borg_core::{Candidate, Msg, SearchKind, SearchQuery, SearchSettings};
+use borg_core::{Candidate, INDEX_SUFFIX, Msg, SearchKind, SearchQuery, SearchSettings};
 use borg_vfs::EntryKind;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::UnboundedSender;
@@ -31,6 +31,15 @@ const RANKED: usize = 200_000;
 const NONE: u32 = u32::MAX;
 const HIDDEN: u8 = 1;
 const LEFT_OUT: u8 = 2;
+/// The bytes of a folder's digest that name its index.
+const NAME_BYTES: usize = 16;
+
+/// The file name of `root`'s index in the cache's folder of indexes.
+pub(crate) fn file_name(root: &Path) -> String {
+    let digest = Sha256::digest(root.as_os_str().as_bytes());
+    let name: String = digest[..NAME_BYTES].iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{name}{INDEX_SUFFIX}")
+}
 
 #[derive(Debug, Clone, Copy)]
 struct Row {
@@ -427,7 +436,7 @@ struct Shared {
 impl Indexes {
     pub fn new(cache: Option<PathBuf>, refresh: Duration) -> Self {
         Self(Arc::new(Shared {
-            dir: cache.map(|cache| cache.join("index")),
+            dir: cache.map(|cache| cache.join(borg_core::INDEX_DIR)),
             roots: Mutex::new(Vec::new()),
             refresh,
             loaded: Mutex::new(HashMap::new()),
@@ -442,9 +451,7 @@ impl Indexes {
     }
 
     fn file(&self, root: &Path) -> Option<PathBuf> {
-        let digest = Sha256::digest(root.as_os_str().as_bytes());
-        let name: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
-        self.0.dir.as_ref().map(|dir| dir.join(format!("{name}.idx")))
+        self.0.dir.as_ref().map(|dir| dir.join(file_name(root)))
     }
 
     /// Replaces the indexed folders: indexes of folders no longer listed are deleted.

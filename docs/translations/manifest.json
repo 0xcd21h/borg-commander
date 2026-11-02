@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
+      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
       "protected": {
         "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
+        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
+        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
       },
       "headings": [
         {
@@ -140,6 +140,10 @@
         {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -200,12 +204,12 @@
       ]
     },
     "pt": {
-      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
+      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
       "protected": {
         "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
+        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
+        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
       },
       "headings": [
         {
@@ -339,6 +343,10 @@
         {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -399,12 +407,12 @@
       ]
     },
     "es": {
-      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
+      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
       "protected": {
         "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
+        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
+        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
       },
       "headings": [
         {
@@ -538,6 +546,10 @@
         {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -598,12 +610,12 @@
       ]
     },
     "ru": {
-      "source": "7f8571d2b53951fa74e2f7976d41e49cc12122dafdc55119349ef149d715e2a8",
+      "source": "12a2b50895f9448a7458776c9af721ddd1c438f5bd549cb35829886f7470e08c",
       "protected": {
         "code blocks": "8f04d184318f2b3dc005a581b7bfb1492021269f87e4cacc2e3410ab206dc270",
-        "inline code": "7541c61b0768d7c4b8d960104ec3951fb24506f0b0e30ba63fa1bcd8b2515061",
+        "inline code": "0ab8f84307e18ea1af5b493987b3405de03962983b2c8c53a300e87bd6cd4a06",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "98df97689631323c979269d2ca900af3040075731fa8be539d1462d522714392"
+        "heading levels": "bd0576f808d310e1655b0f815dea222821d67ba97face9f218b75c38a1a68743"
       },
       "headings": [
         {
@@ -737,6 +749,10 @@
         {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,

@@ -142,7 +142,7 @@ pub(super) fn same_folder(state: &mut AppState) -> Vec<Effect> {
     }
     state.aside = None;
     state.preview_focused = false;
-    crate::folders::open(state, other, folder)
+    crate::folders::open(state, other, folder, None)
 }
 
 /// The folder on this machine that a panel shows, or why it shows none.

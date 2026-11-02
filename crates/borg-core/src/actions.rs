@@ -92,6 +92,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::TimeMachine => crate::backup::open(state),
+        Action::Storage => crate::storage::open(state),
         Action::Up => panels::moved(state, |panel| panel.move_by(LINE_UP)),
         Action::Down => panels::moved(state, |panel| panel.move_by(LINE_DOWN)),
         Action::PageUp => panels::moved(state, |panel| panel.page(PAGE_UP)),
