@@ -47,7 +47,7 @@ mod startup;
 mod viewers;
 
 use input::WheelBurst;
-use render::{Plain, appearance, clear_screen, palette};
+use render::{Plain, appearance, palette};
 pub(crate) use render::{picture, span};
 
 /// Indexes are checked after startup, once the panels and shell are up.
@@ -236,7 +236,7 @@ impl App {
                     EnableBracketedPaste,
                     EnableMouseCapture
                 )?;
-                clear_screen(terminal)?;
+                self.clear_screen(terminal)?;
                 if let Err(error) = mirrored {
                     self.state.notice = Some(format!("Remote mirror: {error:#}"));
                 }

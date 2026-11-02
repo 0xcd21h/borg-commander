@@ -305,7 +305,9 @@ dialogs should contain controls, short labels, and keyboard hints.
 `borg-gfx` probes the terminal once at start-up (Kitty query, cell size, DA1) and picks a
 protocol. `Graphics::frame` diffs the placements of each frame: Kitty images are sent once and
 placed by id; Sixel and iTerm2 images are re-sent when something covers them and trigger a
-repaint when removed. Without a protocol the UI draws pictures with half blocks, which is also
+repaint when removed. Clearing the screen deletes kitty's images, so everything is sent again
+after a clear: `App::clear_screen` resets the graphics layer, and a frame of a new size counts as
+cleared because ratatui clears the screen on every resize. Without a protocol the UI draws pictures with half blocks, which is also
 what tests see.
 
 ## Tests
