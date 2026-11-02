@@ -230,6 +230,16 @@ first. The vectors in `capture/tls/vectors` are RFC 8448's simple handshake and 
 two OpenSSL endpoints in one process. F3 adds the key log named after the capture
 (`borg-app::network::capture::key_log_beside`).
 
+Recording keys: the dialog's **TLS keys** sets `CaptureRequest::tls_keys`. Once tcpdump runs, the
+app creates the empty `.keylog` beside the capture and sends `Msg::CaptureKeys`, and
+`network::key_log` types `export SSLKEYLOGFILE=...` (fish: `set -gx`) at the host shell's prompt
+through the same visible path as the tcpdump install command. `ShellKeyLog` remembers that Borg
+set it, and the end of the capture types the line that restores the value Borg inherited, or
+waits in `sync_key_log` until the shell is free. The app then embeds the key log's lines for the
+capture's ClientHellos with `with_secrets` (`embed_keys`), turning a pcap into pcapng, and keeps
+the key log. The decryption itself only reads key log text, so any source of standard key log
+lines works the same way.
+
 A capture as administrator goes through `network::capture::elevated`. Borg listens on a Unix
 socket in a 0700 temporary folder and asks osascript (macOS), or pkexec or else `sudo -n`
 (Linux), to run `borg --capture-traffic` as root. The helper checks its interface and filter

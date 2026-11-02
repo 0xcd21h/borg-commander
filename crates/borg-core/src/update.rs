@@ -122,6 +122,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::network::capture_progress(state, id, bytes, packets, now);
             Vec::new()
         }
+        Msg::CaptureKeys { id, path } => crate::network::capture_keys(state, id, path),
         Msg::CaptureDone { id, result } => crate::network::capture_done(state, id, result),
         Msg::CaptureOpened { path, result } => crate::network::capture_opened(state, path, result),
         Msg::HostNames(names) => {
@@ -176,6 +177,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::backup::sync(state));
     effects.extend(crate::activity::sync(state, now));
     effects.extend(crate::network::sync(state, now));
+    effects.extend(crate::network::sync_key_log(state));
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::docker::sync_console(state, now));

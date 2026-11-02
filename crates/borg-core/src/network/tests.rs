@@ -3,8 +3,12 @@ use crate::{
     ActivityData, Appearance, AskKind, Elevation, InstallOffer, Installer, Msg, Overlay, PackageManager, ProcessInfo,
     ProcessKey, Settings, Startup, SystemSample, ThemeChoice, Tool, update,
 };
+use borg_term::ShellSignal;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::{net::SocketAddr, path::PathBuf};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 const SSHD: u32 = 301;
 const POSTGRES: u32 = 812;
@@ -615,13 +619,99 @@ fn a_failed_capture_says_why() {
     assert!(state.network.viewer.is_none() && state.network.recording.is_none());
 }
 
+const KEY_LOG: &str = "/work/capture-20260101-120000.keylog";
+
+/// What the effects type at the shell's prompt.
+fn written(effects: &[Effect]) -> Vec<String> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Write(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Starts a capture with TLS keys from the dialog, and gives its id and what follows once its
+/// key log is there.
+fn keeping_keys(state: &mut AppState, now: Instant) -> (u64, Vec<Effect>) {
+    press(state, KeyCode::Char('r'), KeyModifiers::NONE);
+    while capture_dialog(state).selected() != CaptureField::TlsKeys {
+        press(state, KeyCode::Down, KeyModifiers::NONE);
+    }
+    press(state, KeyCode::Right, KeyModifiers::NONE);
+    let (id, request) = started(update(state, Msg::Key(KeyCode::Enter.into()), now));
+    assert!(request.tls_keys);
+    (id, update(state, Msg::CaptureKeys { id, path: PathBuf::from(KEY_LOG) }, now))
+}
+
+fn saved(state: &mut AppState, id: u64, now: Instant) -> Vec<Effect> {
+    update(state, Msg::CaptureDone { id, result: Ok((PathBuf::from("/work/capture.pcapng"), Capture::default())) }, now)
+}
+
+fn signal(state: &mut AppState, signal: ShellSignal, now: Instant) -> Vec<Effect> {
+    update(state, Msg::Signal(signal), now)
+}
+
+#[test]
+fn a_capture_with_tls_keys_sets_the_variable_in_the_shell_and_puts_it_back_at_the_end() {
+    let (mut state, now) = opened();
+    state.shell.integrated = true;
+    let (id, effects) = keeping_keys(&mut state, now);
+    assert_eq!(written(&effects), [format!("export SSLKEYLOGFILE='{KEY_LOG}'\r")]);
+    assert_eq!(state.view, View::Shell, "the shell shows while the line runs");
+    signal(&mut state, ShellSignal::CommandEnd { exit: Some(0) }, now);
+    assert_eq!(state.view, View::Panels, "then the network screen is back");
+    let recording = state.network.recording.as_ref().unwrap();
+    assert_eq!(recording.key_log.as_deref(), Some(Path::new(KEY_LOG)));
+
+    let effects = saved(&mut state, id, now);
+    assert_eq!(written(&effects), ["unset SSLKEYLOGFILE\r"]);
+    assert_eq!(state.view, View::Panels, "the viewer stays on screen");
+    assert!(state.network.viewer.is_some());
+    assert_eq!(state.notice.as_deref(), Some("Ran unset SSLKEYLOGFILE in Borg's shell."));
+}
+
+#[test]
+fn a_busy_shell_gets_the_variable_back_once_its_command_ends() {
+    let (mut state, now) = opened();
+    state.shell.integrated = true;
+    let (id, _) = keeping_keys(&mut state, now);
+    signal(&mut state, ShellSignal::CommandEnd { exit: Some(0) }, now);
+    signal(&mut state, ShellSignal::CommandStart, now);
+    assert!(written(&saved(&mut state, id, now)).is_empty());
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_tls_still_set)));
+    let effects = signal(&mut state, ShellSignal::CommandEnd { exit: Some(0) }, now);
+    assert_eq!(written(&effects), ["unset SSLKEYLOGFILE\r"]);
+    assert_eq!(state.notice.as_deref(), Some("Ran unset SSLKEYLOGFILE in Borg's shell."));
+    assert!(written(&signal(&mut state, ShellSignal::CommandEnd { exit: Some(0) }, now)).is_empty(), "only once");
+}
+
+#[test]
+fn without_the_shell_l_copies_the_line_for_another_terminal() {
+    let (mut state, now) = opened();
+    assert!(press(&mut state, KeyCode::Char('l'), KeyModifiers::NONE).is_empty(), "nothing to copy yet");
+    state.shell.running = true;
+    let (id, effects) = keeping_keys(&mut state, now);
+    assert!(written(&effects).is_empty());
+    assert_eq!(state.view, View::Panels);
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_tls_not_set)));
+
+    let prefix = format!("SSLKEYLOGFILE='{KEY_LOG}' ");
+    assert_eq!(press(&mut state, KeyCode::Char('l'), KeyModifiers::NONE), [Effect::Copy(prefix.clone())]);
+    assert_eq!(state.clipboard.latest(), Some(prefix.as_str()));
+    assert_eq!(state.notice, Some(format!("Copied {}", prefix.trim_end())));
+    state.shell.running = false;
+    assert!(written(&saved(&mut state, id, now)).is_empty(), "Borg set nothing in its shell to put back");
+}
+
 const ASKS: CaptureAccess = CaptureAccess { administrator: false, elevate: true, tags: true };
 
 #[test]
 fn run_as_shows_where_borg_can_ask_and_an_administrator_capture_tags_processes_where_it_can() {
     let (mut state, now) = opened();
     press(&mut state, KeyCode::Char('r'), KeyModifiers::NONE);
-    assert_eq!(capture_dialog(&state).fields().len(), 4, "no Run as where Borg cannot ask");
+    assert_eq!(capture_dialog(&state).fields().len(), 5, "no Run as where Borg cannot ask");
     press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
 
     state.network.access = ASKS;
@@ -740,6 +830,7 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
         folder: PathBuf::from("/work"),
         administrator: false,
         processes: false,
+        tls_keys: false,
     };
     let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, String::new());
     assert_eq!((ask.kind, ask.summary.as_str()), (AskKind::Capture, "capture on en0, 10 s"));

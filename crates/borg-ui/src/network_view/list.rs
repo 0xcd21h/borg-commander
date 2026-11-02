@@ -25,6 +25,7 @@ use unicode_width::UnicodeWidthStr;
 
 const SORTED_DOWN: &str = " ↓";
 const SORTED_UP: &str = " ↑";
+const SEPARATOR: &str = " · ";
 
 pub(super) fn draw_list(
     state: &AppState,
@@ -114,7 +115,8 @@ pub(super) fn draw_list(
     }
 }
 
-/// How a capture is going: where it runs, what it has so far, and the time it has left.
+/// How a capture is going: where it runs, what it has so far, whether it keeps TLS keys, and
+/// the time it has left.
 fn recording_note(recording: &Recording, now: Instant) -> String {
     if recording.stopping {
         return tr!(capture_stopping).into();
@@ -128,10 +130,9 @@ fn recording_note(recording: &Recording, now: Instant) -> String {
         packets = format::count(recording.packets, format::Count::Packet),
         size = format::size(recording.bytes)
     );
-    match recording.left(now) {
-        Some(seconds) => format!("{running} · {}", tr!(capture_left, seconds = seconds)),
-        None => running,
-    }
+    let tls_keys = recording.key_log.is_some().then(|| tr!(capture_tls_field).to_owned());
+    let left = recording.left(now).map(|seconds| tr!(capture_left, seconds = seconds));
+    [Some(running), tls_keys, left].into_iter().flatten().collect::<Vec<_>>().join(SEPARATOR)
 }
 
 fn empty_note(page: NetworkPage) -> &'static str {

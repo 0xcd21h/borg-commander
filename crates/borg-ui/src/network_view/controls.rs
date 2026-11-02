@@ -38,10 +38,12 @@ fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> 
         let process = network.selected_pid().is_some();
         let capture =
             if network.recording.is_some() { tr!(network_stop_capture_button) } else { tr!(network_capture_button) };
+        let key_log = network.recording.as_ref().is_some_and(|recording| recording.key_log.is_some());
         [
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
             network.loaded.then_some((capture, KeyCode::Char('r'))),
+            key_log.then_some((tr!(network_copy_key_log_button), KeyCode::Char('l'))),
             Some((tr!(activity_filter_button), KeyCode::Char('/'))),
             Some((tr!(activity_pause_button), KeyCode::Char(' '))),
             Some(details_button(network)),

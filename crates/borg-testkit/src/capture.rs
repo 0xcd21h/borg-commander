@@ -119,10 +119,9 @@ pub fn tagged() -> Vec<u8> {
     bytes
 }
 
-/// The browser's TLS connection to the shop's API, saved as pcapng with the key log that
-/// decrypts it, as Borg saves a capture that recorded TLS keys. The shop's last record is one
-/// no key opens.
-pub fn decryptable() -> Vec<u8> {
+/// The browser's TLS connection to the shop's API as a pcap file, and the key log that decrypts
+/// it. The shop's last record is one no key opens.
+pub fn shop_session() -> (Vec<u8>, String) {
     let mut key_log = String::new();
     let mut turns: Vec<(bool, Vec<u8>)> = Vec::new();
     for line in TLS_SESSION.lines() {
@@ -134,7 +133,14 @@ pub fn decryptable() -> Vec<u8> {
     }
     turns.push((false, record(TLS_DATA, &[0xa5; UNOPENED])));
     let frames = conversation(((MACHINE, SHOP_PORT), (SHOP, 443)), &turns);
-    borg_core::with_secrets(&pcap(&frames), &key_log).expect("a pcap file")
+    (pcap(&frames), key_log)
+}
+
+/// The TLS session saved as pcapng with its key log in it, as Borg saves a capture that kept
+/// TLS keys.
+pub fn decryptable() -> Vec<u8> {
+    let (pcap, key_log) = shop_session();
+    borg_core::with_secrets(&pcap, &key_log).expect("a pcap file")
 }
 
 fn hex(text: &str) -> Vec<u8> {

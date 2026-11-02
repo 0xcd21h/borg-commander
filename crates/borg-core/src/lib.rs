@@ -144,6 +144,7 @@ pub use network::{
     HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
     capture_ask, capture_extension, capture_interfaces, is_capture,
 };
+pub use network::{Dialect, KEY_LOG_VARIABLE, ShellKeyLog, key_log_prefix};
 
 pub use capture::{
     ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, HexLayout, Http,

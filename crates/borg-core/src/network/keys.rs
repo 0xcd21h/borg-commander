@@ -60,6 +60,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         }
         KeyCode::Char(' ') => network.paused = !network.paused,
         KeyCode::Char('r' | 'R') => return super::capture::capture_key(state),
+        KeyCode::Char('l' | 'L') => return super::capture::copy_key_log_prefix(state),
         KeyCode::Char('k' | 'K') => return show_process(state, true),
         KeyCode::Char(digit @ '1'..='4') => show_page(network, NetworkPage::ALL[usize::from(digit as u8 - b'1')]),
         KeyCode::Char(c) => {

@@ -1372,6 +1372,9 @@ Linux se instala com o pacote `tcpdump`. A caixa de diálogo **Capturar tráfego
 - **Duração** é de 5, 10, 30 ou 60 segundos, ou **Até parar**.
 - **Guardar** é **Pacotes inteiros**, ou **Cabeçalhos, os primeiros 128 bytes de cada pacote** para
   ficheiros pequenos que deixam de fora quase tudo o que os pacotes transportam.
+- **Chaves TLS** é **Não**, ou **Definir SSLKEYLOGFILE na shell do Borg** para guardar as chaves
+  TLS dos programas que iniciar enquanto a captura decorre (consulte
+  [Desencriptar TLS](#decrypting-tls)).
 - **Executar como** aparece onde o Borg pode pedir ao sistema a palavra-passe de um administrador.
   **Utilizador atual** executa o tcpdump com o seu utilizador, e **Administrador** executa-o como
   root depois de introduzir a palavra-passe no diálogo do sistema. No macOS a opção chama-se
@@ -1387,7 +1390,8 @@ Borg a guardou.
 O Borg guarda cada captura como `capture-<date>-<time>.pcap` na pasta do painel que o ecrã de rede
 cobre, legível só por si, para que o Wireshark e outras ferramentas a possam abrir mais tarde. Uma
 captura que marca cada pacote com o seu processo é guardada como `capture-<date>-<time>.pcapng`,
-o formato que consegue guardar essas marcas. Uma captura contém tudo o que os pacotes transportavam, por isso guarde-a com o mesmo cuidado que esses
+o formato que consegue guardar essas marcas. O mesmo acontece a uma captura que guardou chaves
+TLS, depois de o Borg as colocar lá dentro. Uma captura contém tudo o que os pacotes transportavam, por isso guarde-a com o mesmo cuidado que esses
 dados.
 
 Um agente ligado através de `borg mcp` também pode pedir uma captura, que aguarda igualmente a sua
@@ -1488,16 +1492,63 @@ fluxo termina em **desencriptado**. Nada se interpõe entre o programa e o servi
 também funciona com programas que fixam os seus certificados.
 
 As chaves vêm de um ficheiro de chaves TLS, o ficheiro que os browsers, o curl, o Python e muitos
-outros programas escrevem quando a variável de ambiente `SSLKEYLOGFILE` indica um. A tecla F3
-procura chaves em dois sítios:
+outros programas escrevem quando a variável de ambiente `SSLKEYLOGFILE` indica um.
+
+Para as guardar com uma captura, escolha **Definir SSLKEYLOGFILE na shell do Borg** em **Chaves
+TLS** no diálogo **Capturar tráfego**. Quando a captura começa, o Borg cria
+`capture-<date>-<time>.keylog` ao lado da captura, legível só por si, e escreve uma linha como esta
+no prompt da sua shell, onde a vê ser executada e a encontra mais tarde no histórico da shell:
+
+```sh
+export SSLKEYLOGFILE='/home/me/projects/capture-20260101-120000.keylog'
+```
+
+No fish a linha começa por `set -gx`. Depois o Borg volta ao ecrã de rede, onde o rodapé indica
+**Chaves TLS** enquanto a captura decorre.
+
+Agora inicie o programa a partir da linha de comando do Borg, ou prima Ctrl-O e inicie-o na shell.
+O programa herda a variável e escreve as suas chaves no ficheiro. Para um programa noutro terminal,
+prima **L** no ecrã de rede para copiar `SSLKEYLOGFILE='…'` com o caminho do ficheiro de chaves,
+cole-o lá e escreva o programa a seguir. Um programa que já estava em execução mantém a definição
+com que arrancou, por isso feche-o e inicie-o de novo. Isto vale sobretudo para os browsers, que
+passam um segundo arranque à janela que já está aberta. No macOS, o `open` inicia as aplicações sem
+as variáveis da shell, por isso inicie o próprio programa da aplicação, como
+`/Applications/Firefox.app/Contents/MacOS/firefox`.
+
+Se a shell do Borg estiver ocupada, ou se a linha de comando pertencer a um contentor ou a outra
+máquina, o Borg não escreve nada e um aviso indica-o. A tecla **L** continua a copiar a linha.
+
+Quando a captura termina, o Borg escreve `unset SSLKEYLOGFILE` no prompt (`set -e SSLKEYLOGFILE`
+no fish), ou repõe o valor com que o próprio Borg arrancou, e um aviso indica a linha. Se um
+programa que iniciou ainda estiver em execução na shell, a linha espera que termine. Depois o Borg
+coloca as chaves das ligações da captura dentro da captura como um bloco de segredos de
+desencriptação, por isso um `.pcap` passa a ser um `.pcapng` com o mesmo nome, que o Wireshark abre
+já desencriptado. O ficheiro de chaves fica ao lado, porque os programas iniciados durante a
+captura continuam a escrever nele até terminarem. As capturas pedidas por um agente não guardam
+chaves.
+
+Leem `SSLKEYLOGFILE` o Firefox, o Chrome e outros browsers baseados em Chromium, a maioria das
+compilações do curl e os programas em Python que usam o contexto predefinido do módulo `ssl`.
+Outros precisam da sua própria opção:
+
+- O Node.js escreve as chaves com `--tls-keylog`, por isso inicie-o como
+  `node --tls-keylog="$SSLKEYLOGFILE" app.js`.
+- Os programas em Go só as escrevem quando o programa define `KeyLogWriter` na configuração TLS.
+- Os programas em Rust com rustls só as escrevem quando usam o seu `KeyLogFile`.
+- O Java precisa de um agente que se ligue ao seu código TLS.
+
+O Safari e outras aplicações criadas sobre as bibliotecas TLS da própria Apple nunca escrevem um
+ficheiro de chaves, e o seu tráfego continua encriptado.
+
+A tecla F3 procura chaves em dois sítios:
 
 - Um bloco de segredos de desencriptação dentro de um ficheiro `.pcapng`, onde o Wireshark também
   as guarda.
 - Um ficheiro de chaves ao lado da captura, com o mesmo nome e a extensão `.keylog`, como
   `capture-20260101-120000.keylog` ao lado de `capture-20260101-120000.pcap`.
 
-Para desencriptar o tráfego de um programa, inicie uma captura com **R**, execute o programa com a
-variável definida e, quando a captura estiver guardada, mude o nome do ficheiro de chaves para que
+Para desencriptar uma captura feita de outra forma, execute o programa com a variável definida
+durante a captura e, quando a captura estiver guardada, mude o nome do ficheiro de chaves para que
 coincida com o da captura:
 
 ```sh
@@ -1512,8 +1563,9 @@ na captura, porque o Borg não consegue saber onde começa o registo seguinte. O
 encriptado.
 
 Um ficheiro de chaves desencripta todas as ligações para as quais tem chaves, incluindo
-palavras-passe, cookies e tokens. Torne-o legível só por si com `chmod 600`, guarde-o com o mesmo
-cuidado que a captura e apague ambos quando terminar.
+palavras-passe, cookies e tokens, e o mesmo faz uma captura com as chaves lá dentro. O Borg torna
+ambos legíveis só por si. Faça o mesmo com um ficheiro de chaves que escreva por si com `chmod 600`,
+guarde os ficheiros de chaves com o mesmo cuidado que as capturas e apague ambos quando terminar.
 
 ### O que o sistema indica
 

@@ -3189,6 +3189,42 @@ fn network_captures_as_administrator_and_names_every_packets_process() -> Result
     Ok(())
 }
 
+/// A capture that keeps TLS keys sets `SSLKEYLOGFILE` at Borg's shell prompt, says so while it
+/// records, and offers the line for programs started in another terminal.
+#[test]
+fn network_records_tls_keys_through_borgs_shell() -> Result<()> {
+    use borg_core::{CaptureField, Effect, Overlay, View};
+    use borg_term::ShellSignal;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.shell.integrated = true;
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    while !matches!(&stage.state.overlay, Some(Overlay::Capture(dialog)) if dialog.selected() == CaptureField::TlsKeys)
+    {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "TLS keys   ‹ Set SSLKEYLOGFILE in Borg's shell ›")?;
+    check("network_capture_dialog_tls_keys", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert!(request.tls_keys);
+    let key_log = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.keylog");
+    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log }, now);
+    let export = b"export SSLKEYLOGFILE='/home/me/projects/borg/capture-20260101-120000.keylog'\r".to_vec();
+    assert!(effects.contains(&Effect::Write(export)), "the line is typed at the prompt: {effects:?}");
+    assert_eq!(stage.state.view, View::Shell, "where it shows");
+    stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
+    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "61 packets · 51K · TLS keys · 5 s left")?;
+    ensure_text(&buffer, "L Copy SSLKEYLOGFILE")?;
+    check("network_capture_tls_keys", &stage, buffer)?;
+    Ok(())
+}
+
 /// A capture without tcpdump offers to install it with the package manager Borg found, and
 /// Enter types the command into the shell.
 #[test]
@@ -3335,6 +3371,7 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         folder: "/home/dev/work".into(),
         administrator: false,
         processes: false,
+        tls_keys: false,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
     let ask = borg_core::capture_ask(scope, None, &request, String::new());

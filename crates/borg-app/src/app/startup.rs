@@ -5,10 +5,10 @@
 use std::{collections::HashMap, path::Path, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
-use borg_core::{AppState, Effect, Msg, Side, update};
+use borg_core::{AppState, Dialect, Effect, KEY_LOG_VARIABLE, Msg, ShellKeyLog, Side, update};
 use borg_gfx::Graphics;
 use borg_i18n::tr;
-use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
+use borg_term::{Emulator, GridSize, Pty, PtyEvent, ShellKind, shell_command};
 use borg_vfs::Local;
 use ratatui::layout::Size;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -35,6 +35,10 @@ impl App {
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
         state.network.access = crate::network::capture_access();
+        state.network.shell_key_log = ShellKeyLog::new(
+            Dialect::of(ShellKind::detect(&launch.shell)),
+            std::env::var_os(KEY_LOG_VARIABLE).map(PathBuf::from),
+        );
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
