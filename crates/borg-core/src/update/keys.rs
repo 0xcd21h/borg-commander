@@ -288,5 +288,5 @@ fn changes_folder_only(state: &AppState) -> bool {
         && !state.shell.busy()
         && !state.shell.captured()
         && !state.shell.unechoed
-        && crate::plain_cd(&state.shell.observed.line)
+        && crate::plain_cd(&state.shell.observed.line.text)
 }

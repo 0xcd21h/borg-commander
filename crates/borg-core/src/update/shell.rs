@@ -20,7 +20,7 @@ pub(super) fn observe(state: &mut AppState, view: ShellView, echoed: bool) -> Ve
         crate::folders::line_changed(state);
     }
     state.refit();
-    Vec::new()
+    crate::folders::read_subfolders(state)
 }
 
 /// A remote console's screen and signals. The console in use acts on them; any other keeps

@@ -2556,16 +2556,17 @@ fn option_left_and_right_move_by_words_on_the_command_line() -> Result<()> {
 }
 
 #[test]
-fn a_typed_cd_moves_the_panel_and_cd_space_offers_recent_folders_in_each_shell() -> Result<()> {
+fn a_typed_cd_moves_the_panel_and_the_picker_offers_folders_in_each_shell() -> Result<()> {
     for (shell, _) in Shell::available() {
         let fixture = fixture()?;
+        fixture.dir("beta/two words")?;
         let mut app = start_with(&fixture, &format!("typed-cd-{}", shell.program()), shell)?;
         app.send("cd alpha")?;
         app.wait_until("typed", |s| prompt(s).contains("cd alpha"))?;
         let console = std::cell::Cell::new(false);
         app.send(keys::enter())?;
         app.wait_until(&format!("the panel follows {} into alpha", shell.program()), |s| {
-            console.set(console.get() || !s.contains("items"));
+            console.set(console.get() || s.contains("Borg console"));
             s.contains("one.txt") && prompt(s).trim() == "$"
         })?;
         ensure!(!console.get(), "{} showed the console for a cd", shell.program());
@@ -2576,6 +2577,14 @@ fn a_typed_cd_moves_the_panel_and_cd_space_offers_recent_folders_in_each_shell()
         app.wait_until(&format!("{} is back in the first folder with the line cleared", shell.program()), |s| {
             s.contains(READY) && prompt(s).trim() == "$"
         })?;
+
+        app.send("ls beta/tw")?;
+        app.wait_text("Enter Complete")?;
+        app.send(keys::up())?.send(keys::enter())?;
+        app.wait_until(&format!("{} takes the folder with its space escaped", shell.program()), |s| {
+            prompt(s).contains("ls beta/two\\ words/")
+        })?;
+        app.send(keys::ctrl('u'))?;
     }
     Ok(())
 }

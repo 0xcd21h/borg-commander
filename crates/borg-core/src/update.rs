@@ -79,6 +79,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 
         Msg::Observe(view) => shell::observe(state, view, false),
         Msg::ShellOutput(view) => shell::observe(state, view, true),
+        Msg::Subfolders { dir, names } => crate::folders::subfolders_read(state, dir, names),
         Msg::Signal(signal) => {
             state.idle_since = now;
             shell::on_signal(state, signal, now)

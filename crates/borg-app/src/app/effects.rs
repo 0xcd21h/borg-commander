@@ -45,6 +45,7 @@ impl App {
                 self.config.set_hotlist(&hotlist);
                 self.save_config();
             }
+            Effect::ReadSubfolders(dir) => self.read_subfolders(dir),
             Effect::SaveCollections => self.save_collections(),
             Effect::List { side, generation, dir } => self.list(side, generation, dir),
             Effect::GitScan { side, generation, dir } => self.plugins.scan(side, generation, dir),
@@ -187,6 +188,14 @@ impl App {
         tokio::spawn(async move {
             let result = crate::plugins::run(dir, tool, paths, size).await.map_err(|error| format!("{error:#}"));
             let _ = messages.send(Msg::GitFinished { id, result });
+        });
+    }
+
+    fn read_subfolders(&self, dir: PathBuf) {
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let names = crate::subfolders::read(&dir);
+            let _ = messages.send(Msg::Subfolders { dir, names });
         });
     }
 

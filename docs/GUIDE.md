@@ -328,12 +328,21 @@ it the way your terminal allows, usually by Shift-dragging, then use its normal 
 
 ### Jumping to folders
 
-Type `cd ` on the command line and Borg lists folders to jump to right above it: your hotlist
-first, marked ★, then the folders the panels opened, newest first. Each word you add narrows the
-list and can match anywhere in the path, so `cd pro bo` finds `~/Projects/borg`. Folders whose
-name matches the last word move to the top. Press Up to step into the list and Down to step back
-out, Enter to open the chosen folder in the active panel, or Esc to hide the list for this `cd`.
-A click on a folder opens it too. To run your own `cd`, keep typing and press Enter.
+Type `cd ` on the command line and Borg lists folders to jump to right above it: your hotlist first,
+marked ★, then the folders the panels opened, newest first. Each word you add narrows the list and
+can match anywhere in the path, so `cd pro bo` finds `~/Projects/borg`. Folders whose name matches
+the last word come first, next to the command line. Press Up to step into the list and Down to step
+back out, Enter to open the chosen folder in the active panel, or Esc to hide the list for this
+`cd`. A click on a folder opens it too. To run your own `cd`, keep typing and press Enter.
+
+Type a path and the list starts with the folders inside it. `cd /Volumes` lists the mounted volumes,
+and `cd ~/Projects/bo` narrows to the folders in `~/Projects` with `bo` in their names, those that
+start with it first. Any other command gets the same list for a path with a `/`, such as
+`cp notes.txt ~/Documents/`. There Enter types the chosen folder's name into the path, escaped or
+inside your quotes as the shell needs, and the list moves on to the folders inside it. Esc hides the
+list until you start another word. Hidden folders show once you type a dot, or when the panels show
+hidden files. Borg reads up to 10,000 subfolders of a folder, and only at this machine's command
+line; a container's or a remote machine's console keeps the shell's own completion.
 
 A command line that only changes folder runs while the panels stay on screen, and the active
 panel follows the shell to its new folder. When the folder does not exist, a notice says so and

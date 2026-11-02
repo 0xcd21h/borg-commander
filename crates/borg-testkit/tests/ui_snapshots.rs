@@ -3553,6 +3553,35 @@ fn typing_cd_lists_the_hotlist_and_recent_folders_above_the_command_line() -> Re
     check("cd_picker", &stage, buffer)
 }
 
+fn subfolders(dir: &str, names: &[&str]) -> Msg {
+    Msg::Subfolders { dir: dir.into(), names: names.iter().map(|name| (*name).to_owned()).collect() }
+}
+
+#[test]
+fn a_cd_to_a_typed_folder_lists_its_subfolders_first() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.folders = folders();
+    stage.shell(b"cd ~/projects/");
+    stage.send(subfolders("/home/me/projects", &["site", "borg", "notes", "archive"]));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "~/projects/archive")?;
+    ensure_text(&buffer, "★ ~/projects/site")?;
+    check("cd_picker_subfolders", &stage, buffer)
+}
+
+#[test]
+fn a_path_in_any_command_lists_its_subfolders_to_complete() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.folders = folders();
+    stage.shell(b"cp notes.txt /Volumes/");
+    stage.send(subfolders("/Volumes", &["Macintosh HD", "Backup", "Photos", ".Trashes"]));
+    stage.send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Enter Complete")?;
+    ensure_text(&buffer, "/Volumes/Backup")?;
+    check("path_picker", &stage, buffer)
+}
+
 #[test]
 fn ctrl_backslash_opens_the_folder_hotlist_on_the_panels_folder() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;

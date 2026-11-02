@@ -16,7 +16,7 @@ pub use alacritty_terminal::{
     },
     vte::ansi::{Color, NamedColor, Rgb},
 };
-pub use emulator::{Emulator, PromptState, Screen, Scroll};
+pub use emulator::{Emulator, PromptState, Screen, Scroll, TypedLine};
 pub use integration::{
     SESSION_MARKER, SILENT_CD_KEY, ShellKind, cd_request_file, request_cd, shell_command, user_shell,
 };

@@ -126,17 +126,18 @@ mod flows {
         update(state, Msg::Listed { side, generation, error: None }, now)
     }
 
-    fn echo(state: &mut AppState, line: &str, now: Instant) {
+    fn echo(state: &mut AppState, line: &str, now: Instant) -> Vec<Effect> {
         let prompt = if line.is_empty() { PromptState::Empty } else { PromptState::Typed };
-        let view = ShellView { prompt, foreground: Foreground::Shell, line: line.into(), ..ShellView::default() };
-        update(state, Msg::ShellOutput(view), now);
+        let line = TypedLine { text: line.into(), cursor: line.len() };
+        let view = ShellView { prompt, foreground: Foreground::Shell, line, ..ShellView::default() };
+        update(state, Msg::ShellOutput(view), now)
     }
 
-    fn type_line(state: &mut AppState, line: &str, now: Instant) {
+    fn type_line(state: &mut AppState, line: &str, now: Instant) -> Vec<Effect> {
         for c in line.chars() {
             update(state, Msg::Key(KeyEvent::from(KeyCode::Char(c))), now);
         }
-        echo(state, line, now);
+        echo(state, line, now)
     }
 
     fn press(state: &mut AppState, code: KeyCode, now: Instant) -> Vec<Effect> {
@@ -198,7 +199,7 @@ mod flows {
         assert!(cd_choices(&state).is_none(), "the picker waits for the space after cd");
         type_line(&mut state, "cd pro", now);
         let choices = cd_choices(&state).unwrap();
-        assert_eq!(choices, [FolderChoice { path: PROJECTS.into(), pinned: true }]);
+        assert_eq!(choices.choices, [FolderChoice { path: PROJECTS.into(), pinned: true }]);
 
         assert!(press(&mut state, KeyCode::Up, now).is_empty());
         assert_eq!(state.cd_picker.selected, Some(0));
@@ -207,14 +208,14 @@ mod flows {
         assert_eq!(effects[0], Effect::Write(CLEAR_LINE.to_vec()));
         assert_eq!(listed_dir(&effects), Some(Path::new(PROJECTS)));
         assert!(cd_choices(&state).is_none());
-        assert!(state.shell.observed.line.is_empty(), "the picker hides at once");
+        assert!(state.shell.observed.line.text.is_empty(), "the picker hides at once");
     }
 
     #[test]
     fn down_from_the_bottom_row_and_esc_give_the_keys_back() {
         let (mut state, now) = setup();
         type_line(&mut state, "cd ", now);
-        assert_eq!(cd_choices(&state).map(|choices| choices.len()), Some(3), "all but the panel's own folder");
+        assert_eq!(cd_choices(&state).map(|picker| picker.choices.len()), Some(3), "all but the panel's own folder");
         press(&mut state, KeyCode::Up, now);
         press(&mut state, KeyCode::Up, now);
         assert_eq!(state.cd_picker.selected, Some(1));
@@ -288,5 +289,86 @@ mod flows {
         let effect = state.navigate(Side::Left, "/etc".into(), None);
         assert!(list(&mut state, effect, now).is_empty());
         assert_eq!(state.folders.recent()[0], Path::new("/opt"));
+    }
+
+    fn read(state: &mut AppState, dir: &str, names: &[&str], now: Instant) -> Vec<Effect> {
+        let names = names.iter().map(|name| (*name).to_owned()).collect();
+        update(state, Msg::Subfolders { dir: dir.into(), names }, now)
+    }
+
+    fn shown(state: &AppState) -> Vec<PathBuf> {
+        cd_choices(state)
+            .map(|picker| picker.choices.into_iter().map(|choice| choice.path).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_cd_to_a_typed_folder_lists_its_subfolders_before_the_recent_ones() {
+        let (mut state, now) = setup();
+        assert_eq!(type_line(&mut state, "cd /Volumes/", now), [Effect::ReadSubfolders("/Volumes".into())]);
+        assert!(echo(&mut state, "cd /Volumes/", now).is_empty(), "a folder is asked for once");
+        assert!(read(&mut state, "/Volumes", &["Macintosh HD", "Backup"], now).is_empty());
+        assert_eq!(shown(&state), [PathBuf::from("/Volumes/Backup"), "/Volumes/Macintosh HD".into()]);
+        assert!(!cd_choices(&state).unwrap().completes, "in a cd, picking opens the folder");
+
+        type_line(&mut state, "cd /Volumes/b", now);
+        assert_eq!(shown(&state), [PathBuf::from("/Volumes/Backup")], "typing narrows them without reading again");
+        press(&mut state, KeyCode::Up, now);
+        let effects = press(&mut state, KeyCode::Enter, now);
+        assert_eq!(listed_dir(&effects), Some(Path::new("/Volumes/Backup")));
+    }
+
+    #[test]
+    fn a_folder_typed_without_its_slash_lists_what_is_inside() {
+        let (mut state, now) = setup();
+        assert_eq!(type_line(&mut state, "cd /Volumes", now), [Effect::ReadSubfolders("/".into())]);
+        assert_eq!(read(&mut state, "/", &["Volumes", "usr"], now), [Effect::ReadSubfolders("/Volumes".into())]);
+        read(&mut state, "/Volumes", &["Data"], now);
+        assert_eq!(shown(&state), [PathBuf::from("/Volumes/Data")]);
+
+        type_line(&mut state, "cd ~/Pro", now);
+        assert!(read(&mut state, "/Volumes", &["Late"], now).is_empty(), "an answer nobody waits for is dropped");
+        read(&mut state, HOME, &["Projects", "Pictures"], now);
+        assert_eq!(shown(&state), [PathBuf::from(PROJECTS)], "the hotlist does not repeat it");
+        assert!(cd_choices(&state).unwrap().choices[0].pinned);
+    }
+
+    #[test]
+    fn a_path_in_any_command_offers_its_subfolders_and_picking_types_one() {
+        let (mut state, now) = setup();
+        assert!(type_line(&mut state, "git commit -m fix", now).is_empty(), "no path, no picker");
+        assert!(cd_choices(&state).is_none());
+
+        assert_eq!(type_line(&mut state, "cp notes.txt /Volumes/Ma", now), [Effect::ReadSubfolders("/Volumes".into())]);
+        read(&mut state, "/Volumes", &["Macintosh HD", "Data"], now);
+        let picker = cd_choices(&state).unwrap();
+        assert_eq!(picker.choices.len(), 1);
+        assert!(picker.completes, "in another command, picking types the folder");
+
+        press(&mut state, KeyCode::Up, now);
+        let mut typed = vec![0x7f; 2];
+        typed.extend(b"Macintosh\\ HD/");
+        assert_eq!(press(&mut state, KeyCode::Enter, now), [Effect::Write(typed)]);
+        assert_eq!(state.cd_picker.selected, None);
+        assert_eq!(state.active_panel().dir(), Path::new(HOME), "the panel stays");
+        assert_eq!(
+            echo(&mut state, "cp notes.txt /Volumes/Macintosh\\ HD/", now),
+            [Effect::ReadSubfolders("/Volumes/Macintosh HD".into())]
+        );
+    }
+
+    #[test]
+    fn esc_hides_the_picker_until_the_next_path() {
+        let (mut state, now) = setup();
+        type_line(&mut state, "ls /Volumes/", now);
+        read(&mut state, "/Volumes", &["Data"], now);
+        press(&mut state, KeyCode::Esc, now);
+        assert!(cd_choices(&state).is_none());
+        type_line(&mut state, "ls /Volumes/D", now);
+        assert!(cd_choices(&state).is_none(), "still hidden for this path");
+        type_line(&mut state, "ls /Volumes/D ", now);
+        type_line(&mut state, "ls /Volumes/D /Volumes/", now);
+        read(&mut state, "/Volumes", &["Data"], now);
+        assert_eq!(shown(&state), [PathBuf::from("/Volumes/Data")]);
     }
 }

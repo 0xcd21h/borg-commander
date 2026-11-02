@@ -385,8 +385,9 @@ an artifact.
 
 ### README screenshots
 
-The theme gallery and the size, activity and Docker showcase are rendered from fictional
-folders, processes and containers, so they never show the machine they were made on:
+The theme gallery and the editor, folder picker, size, activity and Docker showcase are rendered
+from fictional files, folders, processes and containers, so they never show the machine they were
+made on:
 
 ```sh
 export BORG_SCREENSHOT_FONT=fonts/BorgMono-Regular.ttf BORG_SCREENSHOT_FONT_BOLD=fonts/BorgMono-Bold.ttf

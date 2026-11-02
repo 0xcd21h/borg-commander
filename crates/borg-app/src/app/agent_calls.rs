@@ -214,7 +214,7 @@ impl App {
     fn show_screen(&mut self, reply: Sender<Reply>) -> Result<Flow> {
         self.agent.note("looked at the screen");
         let emulator = self.console_emulator();
-        let console = agent::ConsoleText { lines: emulator.screen().live_text(), typed: emulator.command_line() };
+        let console = agent::ConsoleText { lines: emulator.screen().live_text(), typed: emulator.command_line().text };
         drop(reply.send(Reply::ok(agent::screen(&self.state, &self.screen_text(), &console))));
         Ok(Flow::Continue)
     }

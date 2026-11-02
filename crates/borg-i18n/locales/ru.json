@@ -529,6 +529,7 @@
   "folders_no_match": "Подходящих папок нет.",
   "folders_hotlist_full": "В избранном не больше {count} папок. Уберите одну, чтобы закрепить другую.",
   "cd_picker_hint": " ↑ Выбрать · Enter Открыть · Esc Скрыть ",
+  "path_picker_hint": " ↑ Выбрать · Enter Дополнить · Esc Скрыть ",
   "references_folders_missing_or_not_checked": "ссылок: {} · папок: {} · отсутствуют или не проверены: {}",
   "enter_create_esc_return_to_list": "Enter создать · Esc вернуться к списку",
   "search_dialog_title": " Поиск ",

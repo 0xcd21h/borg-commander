@@ -13,6 +13,24 @@ use alacritty_terminal::{
 
 use crate::{GridSize, OscScanner, ShellSignal};
 
+/// The command line typed at the prompt.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TypedLine {
+    pub text: String,
+    /// Where the cursor is, in bytes of `text`.
+    pub cursor: usize,
+}
+
+impl TypedLine {
+    pub fn before_cursor(&self) -> &str {
+        &self.text[..self.cursor]
+    }
+
+    pub fn after_cursor(&self) -> &str {
+        &self.text[self.cursor..]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptState {
     Empty,
@@ -163,15 +181,15 @@ impl Emulator {
         if cursor == start && blank(&self.term.grid()[cursor]) { PromptState::Empty } else { PromptState::Typed }
     }
 
-    /// What is typed at the prompt, without autosuggestions. Blanks before the cursor were typed,
-    /// so they stay.
-    pub fn command_line(&self) -> String {
-        let Some(start) = self.input_start else { return String::new() };
+    /// What is typed at the prompt, without autosuggestions, and where the cursor is in it.
+    /// Blanks before the cursor were typed, so they stay.
+    pub fn command_line(&self) -> TypedLine {
+        let Some(start) = self.input_start else { return TypedLine::default() };
         let grid = self.term.grid();
         let cursor = grid.cursor.point;
         let bottom = self.input_bottom();
         let mut text = String::new();
-        let mut typed = 0;
+        let mut typed = None;
         let mut line = start.line;
         loop {
             let first = if line == start.line { start.column.0 } else { 0 };
@@ -197,13 +215,14 @@ impl Emulator {
             let mut kept = if wrapped { row.len() } else { row.trim_end().len() };
             if line == cursor.line {
                 kept = kept.max(before_cursor);
-                typed = text.len() + before_cursor;
+                typed = Some(text.len() + before_cursor);
             }
             text.push_str(&row[..kept]);
             if line >= bottom {
-                let end = text.trim_end().len().max(typed);
+                let end = text.trim_end().len().max(typed.unwrap_or_default());
                 text.truncate(end);
-                return text;
+                let cursor = typed.unwrap_or(end);
+                return TypedLine { text, cursor };
             }
             if !wrapped {
                 text.push('\n');

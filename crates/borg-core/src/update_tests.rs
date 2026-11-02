@@ -363,7 +363,7 @@ fn idle_prompt() -> ShellView {
         foreground: Foreground::Shell,
         mode: TermMode::empty(),
         raw_input: false,
-        line: String::new(),
+        line: borg_term::TypedLine::default(),
     }
 }
 

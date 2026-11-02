@@ -1,6 +1,6 @@
 //! The shell beside the panels: which view shows, which console, and what the shell is doing.
 
-use borg_term::{Foreground, PromptState, TermMode};
+use borg_term::{Foreground, PromptState, TermMode, TypedLine};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub struct ShellView {
     pub mode: TermMode,
     pub raw_input: bool,
     /// What is typed at the prompt.
-    pub line: String,
+    pub line: TypedLine,
 }
 
 impl Default for ShellView {
@@ -41,7 +41,7 @@ impl Default for ShellView {
             foreground: Foreground::Unknown,
             mode: TermMode::empty(),
             raw_input: false,
-            line: String::new(),
+            line: TypedLine::default(),
         }
     }
 }

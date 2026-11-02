@@ -106,7 +106,7 @@ fn cd_picker_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) 
     if !area.contains(mouse.point) {
         return None;
     }
-    let row = crate::folders_view::picker_choice_at(area, mouse.point.y).filter(|&row| row < choices.len());
+    let row = crate::folders_view::picker_choice_at(area, mouse.point.y).filter(|&row| row < choices.choices.len());
     Some(row.filter(|_| mouse.click).map(|row| Msg::Pointer(Pointer::CdChoice(row))))
 }
 

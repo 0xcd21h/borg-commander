@@ -529,6 +529,7 @@
   "folders_no_match": "Ninguna carpeta coincide.",
   "folders_hotlist_full": "Las favoritas admiten como máximo {count} carpetas. Quita una para fijar otra.",
   "cd_picker_hint": " ↑ Elegir · Enter Abrir · Esc Ocultar ",
+  "path_picker_hint": " ↑ Elegir · Enter Completar · Esc Ocultar ",
   "references_folders_missing_or_not_checked": "{} referencias · {} carpetas · {} faltan o sin comprobar",
   "enter_create_esc_return_to_list": "Enter crear · Esc volver a la lista",
   "search_dialog_title": " Buscar ",

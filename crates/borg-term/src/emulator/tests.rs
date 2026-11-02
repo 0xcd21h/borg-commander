@@ -16,7 +16,7 @@ fn scrollback_moves_the_viewport_without_changing_the_prompt() {
     assert_eq!(emulator.screen().cell(7, 0).c, '1');
     assert_eq!(emulator.screen().live_cell(0, 0).c, live);
     assert_eq!(emulator.prompt_state(), PromptState::Empty);
-    assert_eq!(emulator.command_line(), "");
+    assert_eq!(emulator.command_line().text, "");
     assert!(!emulator.screen().cursor_visible());
     emulator.scroll(Scroll::Bottom);
     assert_eq!(emulator.screen().scrollback_offset(), 0);
@@ -45,22 +45,36 @@ fn tracks_empty_and_typed_prompt() {
 fn reads_the_typed_command_without_autosuggestions() {
     let mut emulator = Emulator::new(GridSize { cols: 24, rows: 4 }, 0);
     emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
-    assert_eq!(emulator.command_line(), "");
+    assert_eq!(emulator.command_line().text, "");
     emulator.feed(b"echo a long line that wraps");
-    assert_eq!(emulator.command_line(), "echo a long line that wraps");
+    assert_eq!(emulator.command_line().text, "echo a long line that wraps");
     emulator.feed(b"\x1b[90m --suggested\x1b[0m\x1b[12D");
-    assert_eq!(emulator.command_line(), "echo a long line that wraps");
+    assert_eq!(emulator.command_line().text, "echo a long line that wraps");
 }
 
 #[test]
 fn keeps_the_blanks_typed_before_the_cursor() {
     let mut emulator = Emulator::new(SIZE, 0);
     emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07cd ");
-    assert_eq!(emulator.command_line(), "cd ");
+    assert_eq!(emulator.command_line().text, "cd ");
     emulator.feed(b"\x1b[90m~/src\x1b[0m\x1b[5D");
-    assert_eq!(emulator.command_line(), "cd ");
+    assert_eq!(emulator.command_line().text, "cd ");
     emulator.feed(b"\x1b[K\x08\x08");
-    assert_eq!(emulator.command_line(), "cd", "blanks after the cursor were not typed");
+    assert_eq!(emulator.command_line().text, "cd", "blanks after the cursor were not typed");
+}
+
+#[test]
+fn knows_where_the_cursor_is_in_the_typed_line() {
+    let mut emulator = Emulator::new(SIZE, 0);
+    emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07ls /tmp");
+    let line = emulator.command_line();
+    assert_eq!((line.before_cursor(), line.after_cursor()), ("ls /tmp", ""));
+    emulator.feed(b"\x1b[4D");
+    let line = emulator.command_line();
+    assert_eq!((line.before_cursor(), line.after_cursor()), ("ls ", "/tmp"));
+    emulator.feed(b"\x1b[4C\x1b[90mdir\x1b[0m\x1b[3D");
+    let line = emulator.command_line();
+    assert_eq!((line.before_cursor(), line.after_cursor()), ("ls /tmp", ""), "a suggestion is not typed");
 }
 
 #[test]
@@ -140,7 +154,7 @@ fn tracks_wrapped_input_when_prompt_scrolls_up() {
     let mut emulator = Emulator::new(GridSize { cols: 12, rows: 4 }, 100);
     emulator.feed(b"output\r\noutput\r\noutput\r\n\x1b]133;A\x07$ \x1b]133;B\x07");
     emulator.feed(b"echo a command with several wrapped rows");
-    assert_eq!(emulator.command_line(), "echo a command with several wrapped rows");
+    assert_eq!(emulator.command_line().text, "echo a command with several wrapped rows");
     assert_eq!(emulator.command_rows(), 4);
     assert_eq!(emulator.screen().input_region(), Some((0, 3)));
     emulator.feed(b"\x1b[2A\x1b[3G");
@@ -153,9 +167,9 @@ fn tracks_wrapped_input_when_prompt_scrolls_up() {
 fn explicit_newlines_survive_command_recall() {
     let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
     emulator.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07printf first\r\nprintf second");
-    assert_eq!(emulator.command_line(), "printf first\nprintf second");
+    assert_eq!(emulator.command_line().text, "printf first\nprintf second");
     assert_eq!(emulator.command_rows(), 2);
     emulator.feed(b"\x1b[1A\r\x1b[2C\x1b[J");
     assert_eq!(emulator.command_rows(), 1);
-    assert_eq!(emulator.command_line(), "");
+    assert_eq!(emulator.command_line().text, "");
 }

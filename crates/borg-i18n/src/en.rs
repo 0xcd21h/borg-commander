@@ -540,6 +540,7 @@ catalog! {
     folders_no_match => "No folder matches.",
     folders_hotlist_full => "The hotlist holds {count} folders. Remove one to pin another.",
     cd_picker_hint => " ↑ Pick · Enter Open · Esc Hide ",
+    path_picker_hint => " ↑ Pick · Enter Complete · Esc Hide ",
     references_folders_missing_or_not_checked => "{} references · {} folders · {} missing or not checked",
     enter_create_esc_return_to_list => "Enter create · Esc return to list",
     search_dialog_title => " Search ",

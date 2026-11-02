@@ -529,6 +529,7 @@
   "folders_no_match": "没有匹配的文件夹。",
   "folders_hotlist_full": "常用文件夹最多 {count} 个。移除一个后才能固定新的。",
   "cd_picker_hint": " ↑ 选择 · Enter 打开 · Esc 隐藏 ",
+  "path_picker_hint": " ↑ 选择 · Enter 补全 · Esc 隐藏 ",
   "references_folders_missing_or_not_checked": "{} 个引用 · {} 个文件夹 · {} 个缺失或未检查",
   "enter_create_esc_return_to_list": "Enter 创建 · Esc 返回列表",
   "search_dialog_title": " 搜索 ",

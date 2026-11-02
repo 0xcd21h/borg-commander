@@ -122,6 +122,11 @@ pub enum Msg {
     },
     Observe(ShellView),
     ShellOutput(ShellView),
+    /// The names of `dir`'s subfolders, none when it could not be read.
+    Subfolders {
+        dir: PathBuf,
+        names: Vec<String>,
+    },
     Signal(ShellSignal),
     Tick,
     Opened(Viewer),
@@ -269,6 +274,8 @@ pub enum Effect {
     SaveFolders,
     /// Saves the hotlist in the configuration.
     SetHotlist(Vec<PathBuf>),
+    /// Reads the names of a folder's subfolders for the picker above the command line.
+    ReadSubfolders(PathBuf),
     /// Saves the folders indexed for instant search, builds new ones and drops removed ones.
     SetIndexRoots(Vec<PathBuf>),
     List {

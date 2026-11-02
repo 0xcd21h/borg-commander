@@ -358,10 +358,20 @@ Escribe `cd ` en la línea de comandos y Borg muestra justo encima las carpetas 
 saltar: primero tus favoritas, marcadas con ★, y después las carpetas que abrieron los paneles, de
 la más reciente a la más antigua. Cada palabra que añades acota la lista y puede coincidir con
 cualquier parte de la ruta, así que `cd pro bo` encuentra `~/Projects/borg`. Las carpetas cuyo
-nombre coincide con la última palabra suben al principio. Pulsa Up para entrar en la lista y Down
-para volver a salir, Enter para abrir la carpeta elegida en el panel activo, o Esc para ocultar la
-lista en este `cd`. Un clic en una carpeta también la abre. Para ejecutar tu propio `cd`, sigue
-escribiendo y pulsa Enter.
+nombre coincide con la última palabra aparecen primero, junto a la línea de comandos. Pulsa Up para
+entrar en la lista y Down para volver a salir, Enter para abrir la carpeta elegida en el panel
+activo, o Esc para ocultar la lista en este `cd`. Un clic en una carpeta también la abre. Para
+ejecutar tu propio `cd`, sigue escribiendo y pulsa Enter.
+
+Escribe una ruta y la lista empieza por las carpetas que contiene. `cd /Volumes` muestra los
+volúmenes montados, y `cd ~/Projects/bo` acota la lista a las carpetas de `~/Projects` con `bo` en
+el nombre, primero las que empiezan por esas letras. Cualquier otro comando muestra la misma lista
+para una ruta con `/`, como `cp notes.txt ~/Documents/`. Ahí Enter escribe el nombre de la carpeta
+elegida en la ruta, con escapes o dentro de tus comillas, según lo necesite la shell, y la lista
+pasa a las carpetas que contiene. Esc oculta la lista hasta que empiezas otra palabra. Las carpetas
+ocultas aparecen al escribir un punto, o cuando los paneles muestran archivos ocultos. Borg lee
+hasta 10 000 subcarpetas de una carpeta, y solo en la línea de comandos de esta máquina; la consola
+de un contenedor o de una máquina remota conserva el autocompletado de su shell.
 
 Una línea de comandos que solo cambia de carpeta se ejecuta sin que los paneles salgan de la
 pantalla, y el panel activo sigue al shell hasta su nueva carpeta. Si la carpeta no existe, un

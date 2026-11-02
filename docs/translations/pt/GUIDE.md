@@ -363,10 +363,20 @@ Escreva `cd ` na linha de comandos e o Borg mostra, logo acima dela, as pastas p
 saltar: primeiro as favoritas, marcadas com ★, depois as pastas que os painéis abriram, das mais
 recentes para as mais antigas. Cada palavra que acrescenta restringe a lista e pode corresponder a
 qualquer parte do caminho, por isso `cd pro bo` encontra `~/Projects/borg`. As pastas cujo nome
-corresponde à última palavra passam para o topo. Prima Up para entrar na lista e Down para voltar
-a sair, Enter para abrir a pasta escolhida no painel ativo, ou Esc para ocultar a lista neste `cd`.
-Um clique numa pasta também a abre. Para executar o seu próprio `cd`, continue a escrever e prima
-Enter.
+corresponde à última palavra ficam em primeiro lugar, junto à linha de comandos. Prima Up para
+entrar na lista e Down para voltar a sair, Enter para abrir a pasta escolhida no painel ativo, ou
+Esc para ocultar a lista neste `cd`. Um clique numa pasta também a abre. Para executar o seu próprio
+`cd`, continue a escrever e prima Enter.
+
+Escreva um caminho e a lista começa pelas pastas que ele contém. `cd /Volumes` mostra os volumes
+montados, e `cd ~/Projects/bo` restringe a lista às pastas de `~/Projects` com `bo` no nome,
+primeiro as que começam por essas letras. Qualquer outro comando mostra a mesma lista para um
+caminho com `/`, como `cp notes.txt ~/Documents/`. Aí, Enter escreve o nome da pasta escolhida no
+caminho, com escapes ou dentro das suas aspas, como a shell precisa, e a lista passa para as pastas
+que ela contém. Esc oculta a lista até começar outra palavra. As pastas ocultas aparecem quando
+escreve um ponto, ou quando os painéis mostram ficheiros ocultos. O Borg lê até 10 000 subpastas de
+uma pasta, e só na linha de comandos desta máquina; a consola de um contentor ou de uma máquina
+remota mantém a conclusão da própria shell.
 
 Uma linha de comandos que apenas muda de pasta é executada sem que os painéis saiam do ecrã, e o
 painel ativo acompanha a shell até à nova pasta. Quando a pasta não existe, um aviso indica-o e

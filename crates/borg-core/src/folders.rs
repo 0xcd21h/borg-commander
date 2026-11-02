@@ -1,7 +1,12 @@
 //! Folders to jump to: the hotlist you keep, the folders the panels visited, the picker that
-//! lists them above the command line while you type `cd `, and the dialog Ctrl-\ opens.
+//! lists them above the command line while you type `cd ` or a path, and the dialog Ctrl-\
+//! opens.
+
+mod completion;
 
 use std::path::{Path, PathBuf};
+
+use borg_term::TypedLine;
 
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -14,6 +19,8 @@ pub const RECENT_LIMIT: usize = 64;
 pub const HOTLIST_LIMIT: usize = 256;
 /// Rows the picker above the command line shows at most.
 pub const PICKER_ROWS: usize = 8;
+/// Folders whose subfolders the picker keeps, so typing back and forth reads none again.
+const SUBFOLDERS_KEPT: usize = 4;
 /// What the picker types to clear the command line: the end of the line, then everything
 /// before the cursor. Bash, zsh and fish all take these keys.
 pub const CLEAR_LINE: &[u8] = b"\x05\x15";
@@ -163,13 +170,41 @@ fn plain(line: &str) -> bool {
     !line.contains(COMPOUND) && !line.contains(SUBSTITUTION)
 }
 
-/// The picker above the command line: which folder is chosen, and whether Esc hid it for the
-/// `cd ` being typed.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// The picker above the command line: which folder is chosen, whether Esc hid it for the `cd `
+/// or path being typed, and the subfolders read for that path.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CdPicker {
     /// Counted from the row nearest the command line.
     pub selected: Option<usize>,
     pub hidden: bool,
+    subfolders: Vec<Subfolders>,
+    asked: Option<PathBuf>,
+}
+
+/// The names of the folders in `dir`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Subfolders {
+    dir: PathBuf,
+    names: Vec<String>,
+}
+
+impl CdPicker {
+    fn names(&self, dir: &Path) -> Option<&[String]> {
+        self.subfolders.iter().find(|read| read.dir == dir).map(|read| read.names.as_slice())
+    }
+
+    fn holds(&self, dir: &Path, name: &str) -> bool {
+        self.names(dir).is_some_and(|names| names.iter().any(|held| held == name))
+    }
+}
+
+/// The folders the picker offers and what picking one does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickerChoices {
+    /// Nearest the command line first.
+    pub choices: Vec<FolderChoice>,
+    /// Picking a folder types its name into the path being typed, where a `cd ` opens it.
+    pub completes: bool,
 }
 
 /// Whether the active panel shows a host folder in the panels, at the host's command line,
@@ -192,64 +227,165 @@ fn at_host_command_line(state: &AppState) -> bool {
         && !panel.is_size_view()
 }
 
-/// The folders the picker shows for the `cd ` being typed, nearest the command line first.
-pub fn cd_choices(state: &AppState) -> Option<Vec<FolderChoice>> {
+/// The folders the picker shows for the `cd ` or path being typed: the subfolders of the folder
+/// typed, then for a `cd ` the hotlist and the recent folders that match.
+pub fn cd_choices(state: &AppState) -> Option<PickerChoices> {
     if !at_host_command_line(state) || state.cd_picker.hidden {
         return None;
     }
-    let query = cd_argument(&state.shell.observed.line)?;
-    let mut choices = state.folders.choices(query, Some(state.active_panel().dir()));
+    let here = state.active_panel().dir();
+    let mut choices = subfolder_choices(state).unwrap_or_default();
+    let completes = match cd_argument(&state.shell.observed.line.text) {
+        Some(query) => {
+            for choice in state.folders.choices(query, Some(here)) {
+                if !choices.iter().any(|listed| listed.path == choice.path) {
+                    choices.push(choice);
+                }
+            }
+            false
+        }
+        None => true,
+    };
     choices.truncate(PICKER_ROWS);
-    (!choices.is_empty()).then_some(choices)
+    (!choices.is_empty()).then_some(PickerChoices { choices, completes })
 }
 
-/// A new command line lets go of the picker's choice, and once it is no `cd ` the picker shows
-/// again for the next one.
+/// The word at the cursor when the picker lists subfolders for it: any word after `cd `, or a
+/// path in another command.
+fn typed_path(state: &AppState) -> Option<completion::Word> {
+    let line = &state.shell.observed.line;
+    let word = completion::word_at_cursor(line)?;
+    let wanted = match cd_argument(&line.text) {
+        Some(_) => !word.text.is_empty(),
+        None => word.is_path(),
+    };
+    wanted.then_some(word)
+}
+
+fn typed_target(state: &AppState) -> Option<(completion::Word, completion::Target)> {
+    if !at_host_command_line(state) || state.cd_picker.hidden {
+        return None;
+    }
+    let word = typed_path(state)?;
+    let here = state.active_panel().dir();
+    let picker = &state.cd_picker;
+    let target =
+        completion::target(&word.text, here, state.folders.home.as_deref(), |dir, name| picker.holds(dir, name))?;
+    Some((word, target))
+}
+
+fn subfolder_choices(state: &AppState) -> Option<Vec<FolderChoice>> {
+    let (_, target) = typed_target(state)?;
+    let names = state.cd_picker.names(&target.dir)?;
+    let here = state.active_panel().dir();
+    let choices = completion::matching(names, &target.name, state.settings.preferences.show_hidden)
+        .into_iter()
+        .map(|name| target.dir.join(name))
+        .filter(|path| path != here)
+        .map(|path| FolderChoice { pinned: state.folders.hotlist.contains(&path), path })
+        .collect();
+    Some(choices)
+}
+
+/// Asks once for the subfolders of the folder being typed, and forgets those read once nothing
+/// is typed.
+pub(crate) fn read_subfolders(state: &mut AppState) -> Vec<Effect> {
+    let Some((_, target)) = typed_target(state) else {
+        state.cd_picker.subfolders.clear();
+        state.cd_picker.asked = None;
+        return Vec::new();
+    };
+    let picker = &mut state.cd_picker;
+    if picker.names(&target.dir).is_some() || picker.asked.as_ref() == Some(&target.dir) {
+        return Vec::new();
+    }
+    picker.asked = Some(target.dir.clone());
+    vec![Effect::ReadSubfolders(target.dir)]
+}
+
+/// The subfolders of `dir` the picker asked for; a folder it names may be the next to read.
+pub(crate) fn subfolders_read(state: &mut AppState, dir: PathBuf, names: Vec<String>) -> Vec<Effect> {
+    let picker = &mut state.cd_picker;
+    if picker.asked.as_ref() != Some(&dir) {
+        return Vec::new();
+    }
+    picker.asked = None;
+    picker.selected = None;
+    picker.subfolders.retain(|read| read.dir != dir);
+    picker.subfolders.push(Subfolders { dir, names });
+    if picker.subfolders.len() > SUBFOLDERS_KEPT {
+        picker.subfolders.remove(0);
+    }
+    read_subfolders(state)
+}
+
+/// A new command line lets go of the picker's choice, and once it holds no `cd ` or path the
+/// picker shows again for the next one.
 pub(crate) fn line_changed(state: &mut AppState) {
     state.cd_picker.selected = None;
-    if cd_argument(&state.shell.observed.line).is_none() {
+    if cd_argument(&state.shell.observed.line.text).is_none() && typed_path(state).is_none() {
         state.cd_picker.hidden = false;
     }
 }
 
-/// Up and Down move through the picker, Enter opens the chosen folder, and Esc hides the
-/// picker for this `cd `. Other keys go to the command line.
+/// Up and Down move through the picker, Enter opens the chosen folder or types it into the path,
+/// and Esc hides the picker for this `cd ` or path. Other keys go to the command line.
 pub(crate) fn picker_key(state: &mut AppState, key: &KeyEvent) -> Option<Vec<Effect>> {
     if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
         return None;
     }
     let choices = cd_choices(state)?;
-    let last = choices.len() - 1;
+    let last = choices.choices.len() - 1;
     let picker = &mut state.cd_picker;
     match (key.code, picker.selected) {
         (KeyCode::Up, None) => picker.selected = Some(0),
         (KeyCode::Up, Some(row)) => picker.selected = Some((row + 1).min(last)),
         (KeyCode::Down, Some(0)) => picker.selected = None,
         (KeyCode::Down, Some(row)) => picker.selected = Some(row - 1),
-        (KeyCode::Esc, _) => *picker = CdPicker { selected: None, hidden: true },
-        (KeyCode::Enter, Some(row)) => return Some(take(state, choices.get(row)?.path.clone())),
+        (KeyCode::Esc, _) => {
+            picker.selected = None;
+            picker.hidden = true;
+        }
+        (KeyCode::Enter, Some(row)) => return Some(take(state, &choices, row)),
         _ => return None,
     }
     Some(Vec::new())
 }
 
-/// A click on a row of the picker opens its folder, as choosing it and Enter do.
+/// A click on a row of the picker picks its folder, as choosing it and Enter do.
 pub(crate) fn pick(state: &mut AppState, row: usize) -> Vec<Effect> {
-    match cd_choices(state).and_then(|choices| choices.into_iter().nth(row)) {
-        Some(choice) => take(state, choice.path),
+    match cd_choices(state) {
+        Some(choices) => take(state, &choices, row),
         None => Vec::new(),
     }
 }
 
+fn take(state: &mut AppState, choices: &PickerChoices, row: usize) -> Vec<Effect> {
+    let Some(choice) = choices.choices.get(row) else { return Vec::new() };
+    if choices.completes { complete(state, &choice.path) } else { take_folder(state, choice.path.clone()) }
+}
+
 /// Clears the typed `cd ` and opens `dir` in the active panel; the shell follows the panel as
 /// it does after any move.
-fn take(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
-    state.cd_picker = CdPicker::default();
+fn take_folder(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
+    state.cd_picker.selected = None;
     state.shell.clear_line();
-    state.shell.observed.line.clear();
+    state.shell.observed.line = TypedLine::default();
     let mut effects = vec![Effect::Write(CLEAR_LINE.to_vec())];
     effects.extend(open(state, dir));
     effects
+}
+
+/// Types the rest of `dir`'s name and a `/` into the path being typed, so the picker moves on to
+/// its subfolders.
+fn complete(state: &mut AppState, dir: &Path) -> Vec<Effect> {
+    let (Some((word, target)), Some(name)) = (typed_target(state), dir.file_name().and_then(|name| name.to_str()))
+    else {
+        return Vec::new();
+    };
+    state.cd_picker.selected = None;
+    state.shell.mark_typed();
+    vec![Effect::Write(completion::keys(&word, &target, name))]
 }
 
 /// The folders dialog: what is typed to narrow it and which folder is chosen.

@@ -1,7 +1,7 @@
-//! The folders to jump to: the picker above the command line while `cd ` is typed, and the
-//! dialog of the hotlist and the recent folders.
+//! The folders to jump to: the picker above the command line while `cd ` or a path is typed,
+//! and the dialog of the hotlist and the recent folders.
 
-use borg_core::{AppState, FolderChoice, FoldersDialog, Layout};
+use borg_core::{AppState, FolderChoice, FoldersDialog, Layout, PickerChoices};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -32,14 +32,19 @@ fn choice_text(state: &AppState, choice: &FolderChoice, width: usize) -> String 
     format!("{mark}{}", format::truncate_start(&state.folders.display(&choice.path), room))
 }
 
+fn picker_hint(choices: &PickerChoices) -> &'static str {
+    if choices.completes { tr!(path_picker_hint) } else { tr!(cd_picker_hint) }
+}
+
 /// Where the picker sits: above the command line from its left edge, its best match in the
 /// bottom row, as wide as its longest folder and as tall as the panels allow.
-pub(crate) fn picker_rect(state: &AppState, layout: &Layout, choices: &[FolderChoice]) -> Rect {
+pub(crate) fn picker_rect(state: &AppState, layout: &Layout, choices: &PickerChoices) -> Rect {
     let prompt = layout.prompt;
     let room = prompt.y.saturating_sub(layout.panels[0].y);
-    let rows = (choices.len() as u16).saturating_add(2).min(room);
-    let widest = choices.iter().map(|c| state.folders.display(&c.path).width() + PINNED.width()).max().unwrap_or(0);
-    let wanted = (widest as u16).max(tr!(cd_picker_hint).width() as u16).saturating_add(PICKER_CHROME);
+    let rows = (choices.choices.len() as u16).saturating_add(2).min(room);
+    let widest =
+        choices.choices.iter().map(|c| state.folders.display(&c.path).width() + PINNED.width()).max().unwrap_or(0);
+    let wanted = (widest as u16).max(picker_hint(choices).width() as u16).saturating_add(PICKER_CHROME);
     let width = wanted.min(prompt.width);
     Rect { x: prompt.x, y: prompt.y.saturating_sub(rows), width, height: rows }
 }
@@ -60,11 +65,11 @@ pub(crate) fn draw_picker(state: &AppState, layout: &Layout, theme: &Theme, buf:
     Block::bordered()
         .style(theme.styles.overlay)
         .border_style(theme.styles.overlay_border)
-        .title(tr!(cd_picker_hint))
+        .title(picker_hint(&choices))
         .render(area, buf);
     let inner = area.inner(Margin::new(1, 1));
     let width = usize::from(inner.width.saturating_sub(2));
-    for (index, choice) in choices.iter().enumerate().take(usize::from(inner.height)) {
+    for (index, choice) in choices.choices.iter().enumerate().take(usize::from(inner.height)) {
         let row = Rect { y: inner.bottom() - 1 - index as u16, height: 1, ..inner };
         let style =
             if state.cd_picker.selected == Some(index) { theme.styles.overlay_selected } else { theme.styles.overlay };
