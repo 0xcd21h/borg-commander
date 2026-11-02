@@ -1657,8 +1657,8 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
         panels_ready(s) && !s.contains("Activity monitor")
     })?;
     choose(&mut app, OPTIONS_MENU, "Plugins…")?;
-    let plugin = app.wait_text("System: processes and memory")?;
-    let (x, y) = plugin.find("System: processes and memory").unwrap();
+    let plugin = app.wait_text("System: processes, memory and network")?;
+    let (x, y) = plugin.find("System: processes, memory and network").unwrap();
     app.send(mouse(0, x, y))?;
     app.wait_text("[ ] System")?;
     app.send(keys::esc())?;
@@ -1672,6 +1672,31 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     let mut app = start(&fixture, "activity-disabled")?;
     app.send(keys::alt(KeyCode::Char('m')))?;
     app.wait_text("Enable System")?;
+    Ok(())
+}
+
+/// Alt-N finds a port this test listens on, says only this machine reaches it, counts the
+/// connection to it, and the filter narrows the list to it.
+#[test]
+fn network_screen_finds_a_listening_port_and_its_connection() -> Result<()> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    let _client = std::net::TcpStream::connect(listener.local_addr()?)?;
+    let _accepted = listener.accept()?;
+    let fixture = fixture()?;
+    let mut app = start(&fixture, "network")?;
+    app.wait_text("Borg Commander")?;
+    app.send(keys::alt(KeyCode::Char('n')))?;
+    app.wait_text("1 Ports")?;
+    app.send("/")?.send(format!("port:{port}").as_str())?.send(keys::enter())?;
+    let found =
+        app.wait_until("the test's port alone", |s| s.contains(&format!("TCP {port}")) && s.contains("1 of "))?;
+    ensure!(found.contains("This machine"), "a port bound to 127.0.0.1 is reached from this machine only");
+    app.wait_text("Connections · 1")?;
+    app.send("3")?;
+    app.wait_text(&format!("127.0.0.1:{port}"))?;
+    app.send(keys::esc())?.send(keys::esc())?;
+    app.wait_until("file panels after closing the network screen", |s| panels_ready(s) && !s.contains("1 Ports"))?;
     Ok(())
 }
 

@@ -27,6 +27,11 @@ pub fn size(bytes: u64) -> String {
     format!("{value:.precision$}{}", UNITS[unit])
 }
 
+/// Bytes a second, or none.
+pub fn rate(bytes: u64) -> String {
+    if bytes == 0 { size(0) } else { tr!(network_rate, size = size(bytes)) }
+}
+
 pub fn modified(time: Option<SystemTime>, now: &Zoned) -> String {
     let Some(stamp) = time.and_then(|t| Timestamp::try_from(t).ok()) else { return String::new() };
     let local = stamp.to_zoned(now.time_zone().clone());

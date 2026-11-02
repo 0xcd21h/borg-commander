@@ -35,6 +35,7 @@ impl App {
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
+        let network = crate::network::Network::new(messages.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
@@ -76,6 +77,7 @@ impl App {
             monitor,
             backup,
             docker,
+            network,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
             agent,

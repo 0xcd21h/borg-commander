@@ -270,6 +270,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
+| Alt-N | Network: ports, connections and traffic |
 | Alt-T | Time Machine: what backups leave out, on macOS |
 | Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
@@ -497,7 +498,9 @@ and what is typed on it. It refers to places as locations: an absolute path or `
 machine borg runs on, `docker://web/etc/nginx` inside a container, or a path relative to the
 active panel. Without asking, it can read folders and files (by line range, or only the lines that
 contain some text), see the busiest processes and the containers, and show a file or folder in
-your other panel.
+your other panel. It can also list the open ports, the connections, and the network interfaces
+with their traffic, measured over one second and narrowed with the same words as the network
+screen's filter (see [Filtering](#filtering)).
 
 Anything that changes the machine waits for you in a dialog that shows the whole change: a
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
@@ -1116,3 +1119,85 @@ A process is identified together with its start time, so a new process that reus
 not inherit another process's history. Memory maps, inspection results, captures, and history
 all have size limits. The Borg Commander name stays visible in the bottom-right corner
 everywhere, including the console, viewer, monitor, dialogs, and screensaver.
+
+## Network
+
+**Alt-N** or **Command → Network** shows what this machine does on the network: the ports that
+are open and who can reach them, the processes that are talking and how fast, every connection,
+and the network interfaces. It comes from the bundled System plugin, like the activity monitor.
+The list takes the active pane, and the other pane shows the selected row in detail with charts
+of the last 60 seconds. Borg samples once a second while the screen is open and stops when you
+close it. Rates appear from the second sample on, and each one is the mean of the last 3 seconds,
+so a list sorted by traffic holds still long enough to read.
+
+Press **1** to **4**, or click a tab, to switch pages:
+
+- **1 Ports** lists every port a process listens on, sorted by port. **Reach** says who can
+  connect: **All networks** for a port open on every address, the address for a port bound to
+  specific ones, and **This machine** for a port only programs on this machine can reach. Ports
+  open to all networks stand out, since other machines can find them. **Conns** counts the
+  connections that came in through the port, and the details list them with their traffic.
+- **2 Processes** lists the processes that use the network, busiest first, with their download
+  and upload rates and connection counts. The details add what the process moved since the
+  screen opened and every connection it holds.
+- **3 Connections** lists every connection with its process, the other end, and its rates. A
+  wide pane adds the protocol and the TCP state. The details show both ends, the host name, the
+  service, and the bytes received and sent.
+- **4 Interfaces** lists the network interfaces with their kind (**Wi-Fi**, **Ethernet**,
+  **Loopback**, **Tunnel**, **Bridge** or **Virtual**), first address, and rates. ● marks an
+  interface that is up. The details add every address, the MTU, the bytes and packets the
+  interface received and sent so far, and its errors.
+
+The footer shows the machine's total download and upload rate over every interface except
+loopback. Borg looks up the names of remote addresses in the background and shows a name in
+place of the address once it is known.
+
+| Key | Action |
+| --- | --- |
+| 1 / 2 / 3 / 4 | Show Ports / Processes / Connections / Interfaces |
+| `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
+| T / N / P / C | Sort by traffic / name / port / connections; press again to reverse |
+| Enter | Show the selected row's process in the activity monitor |
+| K | Show the process with **Signal or priority** open |
+| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's address |
+| Tab | Move between the list and the details |
+| Space | Pause or resume sampling |
+| Alt-W | Maximize the focused pane |
+| Esc | Go back to the list, then clear the filter, then close the screen |
+
+P sorts the pages that have a port, and C the pages that count connections. Click a column
+heading to sort by it, and double-click a row to show its process. Enter on a row without a
+process moves into the details. The activity monitor that Enter and K open has the process
+selected, so its memory, signals and priority are one key away (see
+[Signals and priority](#signals-and-priority)).
+
+### Filtering
+
+The filter keeps the rows that match every word you type. A plain word matches the process, PID,
+port, service, address, host name, state, protocol, or a label the row shows, so `postgres`,
+`5432`, `https` and `example.com` all work. A word with a field name looks in that field only:
+
+| Word | Keeps |
+| --- | --- |
+| `port:443`, `port:ssh` | Rows on that port number or service |
+| `proc:node`, `process:node` | Rows whose process name contains the text |
+| `pid:4100` | Rows of that PID |
+| `host:example` | Rows whose address or host name contains the text |
+| `state:listen`, `state:time` | TCP rows in a state that contains the text |
+| `proto:udp`, `proto:tcp` | Rows of that protocol |
+| `if:en0`, `interface:en0` | Interfaces whose name contains the text |
+
+Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
+and `!proc:browser` hides one program. The filter applies to every page, and while you type it
+says how many of the page's rows it keeps.
+
+### What the system reports
+
+On macOS, Borg reads every socket with its byte counts and process from `netstat`, so traffic
+appears for TCP and UDP alike. Sockets of other users' processes are listed too.
+
+On Linux, Borg reads the sockets from `/proc/net` and finds each socket's process through the
+processes' open files. Without administrator rights it can only look into your own processes, so
+other users' sockets show **Unknown process**. TCP byte counts come from `ss` when it is
+installed; UDP sockets and machines without `ss` show **—** for rates, and the details say
+**The system reports no byte counts here**. Interface totals and rates always work.

@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
+      "source": "46ad6e5854b27830ae8e37e5fbe855650edf948d13853cf4fab8dee7d1de46c6",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "1ed30fde1a2006d49035b2935f7eb476b41662ea4ddb96752f63d6e42cfaef6d",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "ddcaa656904bb72508239e7efd029691865a4701dab98bbb2fd442d25110ccbb"
       },
       "headings": [
         {
@@ -176,16 +176,28 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     },
     "pt": {
-      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
+      "source": "46ad6e5854b27830ae8e37e5fbe855650edf948d13853cf4fab8dee7d1de46c6",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "1ed30fde1a2006d49035b2935f7eb476b41662ea4ddb96752f63d6e42cfaef6d",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "ddcaa656904bb72508239e7efd029691865a4701dab98bbb2fd442d25110ccbb"
       },
       "headings": [
         {
@@ -355,16 +367,28 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     },
     "es": {
-      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
+      "source": "46ad6e5854b27830ae8e37e5fbe855650edf948d13853cf4fab8dee7d1de46c6",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "1ed30fde1a2006d49035b2935f7eb476b41662ea4ddb96752f63d6e42cfaef6d",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "ddcaa656904bb72508239e7efd029691865a4701dab98bbb2fd442d25110ccbb"
       },
       "headings": [
         {
@@ -534,16 +558,28 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     },
     "ru": {
-      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
+      "source": "46ad6e5854b27830ae8e37e5fbe855650edf948d13853cf4fab8dee7d1de46c6",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
-        "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
+        "inline code": "1ed30fde1a2006d49035b2935f7eb476b41662ea4ddb96752f63d6e42cfaef6d",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
+        "heading levels": "ddcaa656904bb72508239e7efd029691865a4701dab98bbb2fd442d25110ccbb"
       },
       "headings": [
         {
@@ -713,6 +749,18 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 2,
+          "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Filtering"
+        },
+        {
+          "level": 3,
+          "title": "What the system reports"
         }
       ]
     }

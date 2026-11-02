@@ -55,10 +55,11 @@ unicode-segmentation = "1"
 ropey = "1"
 memchr = "2"
 regex              = "1"
-sysinfo            = { version = "0.39", default-features = false, features = ["system"] }
+sysinfo            = { version = "0.39", default-features = false, features = ["system", "network"] }
 read-process-memory = "0.2"
 serde_json         = "1"
 similar            = "2"
+dns-lookup         = "4"
 snow               = "0.10"
 getrandom          = "0.3"
 tokio-tungstenite  = { version = "0.30", features = ["rustls-tls-webpki-roots"] }

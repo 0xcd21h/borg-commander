@@ -36,6 +36,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
     ) {
         state.activity.side = None;
         crate::docker::close(state);
+        crate::network::close(state);
     }
     if let Some(notice) = refusals::refusal(state, action) {
         state.notice = Some(notice);
@@ -45,6 +46,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
     match action {
         Action::MeasureSizes => crate::measure::toggle(state),
         Action::Activity => crate::activity::open(state),
+        Action::Network => crate::network::toggle(state),
         Action::ToggleSystemPlugin => settings::flip(state, |prefs| &mut prefs.system_plugin),
         Action::Docker => crate::docker::toggle(state, now),
         Action::DockerAct(action) => crate::docker::act(state, action),

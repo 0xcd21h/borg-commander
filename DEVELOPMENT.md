@@ -173,6 +173,19 @@ headers at page starts, executable regions first. The report counts compared, un
 scanned and unreadable bytes and says whether a byte, time or finding limit stopped it; findings
 carry a severity, the evidence's address and length, and a caveat. The renderer shares a reserved branding area across UI modes.
 
+### Network screen
+
+`borg-core::network` owns the network screen: pages, cursors, sort orders, the filter, and
+`Traffic`, which turns two samples' byte counts into per-second rates for each socket, listening
+port, process and interface, with 60 seconds of history and a mean over the last 3 samples. A
+count lower than the one before counts as new in full, since the socket took another's place.
+`Network::measured` builds the same rows from two samples for the agent's `read` sources, so the
+screen and the agent agree on every number. `borg-app::network` samples on a blocking worker:
+sockets come from `netstat -anvbW` on macOS, and from `/proc/net`, `/proc/PID/fd` and `ss -tinHe`
+on Linux; interfaces come from sysinfo, with kinds from `networksetup` or `/sys/class/net`.
+Reverse lookups run in batches of 32 with a 2 second timeout each, and only for addresses the
+screen has not asked about before. Closing the screen cancels the sampler.
+
 ### Editor
 
 F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a
@@ -385,9 +398,9 @@ an artifact.
 
 ### README screenshots
 
-The theme gallery and the editor, folder picker, size, activity and Docker showcase are rendered
-from fictional files, folders, processes and containers, so they never show the machine they were
-made on:
+The theme gallery and the editor, folder picker, size, activity, network and Docker showcase are
+rendered from fictional files, folders, processes, sockets and containers, so they never show the
+machine they were made on:
 
 ```sh
 export BORG_SCREENSHOT_FONT=fonts/BorgMono-Regular.ttf BORG_SCREENSHOT_FONT_BOLD=fonts/BorgMono-Bold.ttf

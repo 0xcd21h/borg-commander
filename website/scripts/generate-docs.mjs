@@ -22,6 +22,7 @@ const pages = [
   ['docker', 'Docker', 'Browse containers, inspect status, and open container files and shells.', ['Docker plugin']],
   ['remote-access', 'Remote access & MCP', 'Connect Borg sessions, browse remote files, and pair an assistant.', ['Claude and other agents (MCP)']],
   ['activity', 'Activity & memory', 'Inspect processes, resource use, and memory maps.', ['Activity and memory']],
+  ['network', 'Network', 'See open ports, connections, and traffic by process and interface.', ['Network']],
   ['themes', 'Themes & icons', 'Choose a theme and configure terminal fonts and file icons.', ['Themes and icons']],
   ['configuration', 'Configuration', 'Find settings, state, and command-line options.', ['Configuration']],
 ];
@@ -86,7 +87,7 @@ for (const locale of codes) {
 }
 const screenshots = [
   ...['paper', 'classic', 'midnight', 'aurora', 'ember', 'neon'].map(name => ['themes', name]),
-  ...['editor', 'folder-picker', 'docker', 'activity', 'memory-map', 'size-tree', 'folder-totals'].map(name => ['showcase', name]),
+  ...['editor', 'folder-picker', 'docker', 'activity', 'network', 'memory-map', 'size-tree', 'folder-totals'].map(name => ['showcase', name]),
 ];
 await mkdir(join(site, 'public/screenshots'), { recursive: true });
 for (const [directory, name] of screenshots) {

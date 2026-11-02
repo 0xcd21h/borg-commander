@@ -23,6 +23,7 @@ mod keybar;
 mod kinds;
 mod look;
 mod menu_view;
+mod network_view;
 mod palette;
 mod panel_view;
 mod picker_view;

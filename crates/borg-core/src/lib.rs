@@ -28,6 +28,7 @@ mod measure;
 mod menu;
 mod motion;
 mod msg;
+mod network;
 mod ops;
 mod overlays;
 mod panel;
@@ -127,5 +128,12 @@ pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, Integri
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport, StringsTally};
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
+
+pub use network::{
+    CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
+    Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
+    RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
+    service,
+};
 
 pub use measure::SizeScan;

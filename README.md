@@ -61,7 +61,8 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
 - **Pair once.** F1 then C shows a link. Run `borg pair` with it on your computer and approve
   the computer in borg. Claude Code then reaches that borg whenever it is open.
 - **Claude sees what you see.** The screen, both panels, the console and what is typed at the
-  prompt. It reads files, folders, processes and containers, and shows you files in a panel.
+  prompt. It reads files, folders, processes, containers and the network's ports and connections,
+  and shows you files in a panel.
 - **You approve every change.** Commands, new files and edits wait in a dialog that shows the
   whole command or the diff. For a paired computer, Approve all can temporarily accept its
   changes for one session until you turn it off or disconnect. Commands run in your console, where you watch them and answer
@@ -162,6 +163,19 @@ Ctrl-O switches between the panels and the console.
 <p align="center">
   <img src="docs/showcase/memory-map.png" alt="Memory map grouped by purpose with footprint, resident and mapped columns, explaining that shared libraries are not the process's own cost" width="1100">
 </p>
+
+## Network
+
+<p align="center">
+  <img src="docs/showcase/network.png" alt="Network screen listing processes by traffic beside the selected browser's download and upload charts and its connections" width="1100">
+</p>
+
+- **Every open port and who can reach it.** Alt-N lists the ports your processes listen on and
+  says who can connect to each one: all networks, one address, or only this machine.
+- **Traffic by process.** Download and upload rates for each process, connection and interface,
+  with charts of the last minute and the names of the hosts on the other end.
+- **Straight to the culprit.** Filter with words such as `port:443`, `proc:node` or
+  `!state:time_wait`. Enter shows the row's process in the activity monitor, and K signals it.
 
 ## Containers
 

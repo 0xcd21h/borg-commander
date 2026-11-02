@@ -219,7 +219,7 @@ impl App {
         Ok(Flow::Continue)
     }
 
-    /// The processes, the containers, or a file's lines.
+    /// The processes, the containers, the network, or a file's lines.
     fn read_for_agent(&mut self, call: Call, reply: Sender<Reply>) -> Result<Flow> {
         match text(&call, "source").as_deref() {
             Some("processes") => {
@@ -235,8 +235,35 @@ impl App {
                 self.agent.note("read the containers");
                 tokio::spawn(async move { drop(reply.send(agent::containers().await)) });
             }
+            Some(source @ ("ports" | "connections" | "interfaces")) => {
+                const SHOWN: u64 = 100;
+                let source = source.to_owned();
+                let shown = call.args["limit"].as_u64().unwrap_or(SHOWN).clamp(1, agent::LIST_LIMIT as u64) as usize;
+                let filter = text(&call, "find").unwrap_or_default();
+                let hosts = self.state.network.hosts.clone();
+                self.agent.note(&format!("read the {source}"));
+                tokio::task::spawn_blocking(move || {
+                    let answer = match crate::network::measure() {
+                        Ok((before, after, seconds)) => {
+                            let network = borg_core::Network::measured(&before, after, seconds, hosts, &filter);
+                            match source.as_str() {
+                                "ports" => agent::ports(&network, shown),
+                                "connections" => agent::connections(&network, shown),
+                                _ => agent::interfaces(&network, shown),
+                            }
+                        }
+                        Err(error) => Reply::error(format!("{error:#}")),
+                    };
+                    drop(reply.send(answer));
+                });
+            }
             Some(other) => {
-                return fail(reply, format!("read has no source {other}: use processes or containers, or a path"));
+                return fail(
+                    reply,
+                    format!(
+                        "read has no source {other}: use processes, containers, ports, connections or interfaces, or a path"
+                    ),
+                );
             }
             None => {
                 let lines = match text(&call, "lines").map(|lines| agent::parse_lines(&lines)).transpose() {

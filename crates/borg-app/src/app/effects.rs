@@ -32,6 +32,8 @@ impl App {
             Effect::Backup(request) => self.backup.request(request),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
+            Effect::Network { id } => self.network.request(id),
+            Effect::ResolveHosts(addresses) => self.network.resolve(addresses),
             Effect::DockerShell(request) => self.container_shell(request),
             Effect::ExportMemory { path, bytes } => self.export_memory(path, bytes),
             Effect::SaveGame2048 => self.save_game2048(),

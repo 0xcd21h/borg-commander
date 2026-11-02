@@ -15,6 +15,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     }
     state.overlay = None;
     crate::docker::close(state);
+    crate::network::close(state);
     state.activity.side = Some(state.active);
     state.activity.preview_focused = false;
     state.activity.paused = false;
@@ -139,6 +140,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     activity.next = Some(now + REFRESH);
     let reads_memory = request.reads_memory();
     let mut notice = None;
+    let mut revealed = None;
     match result {
         Ok(ActivityData::Search(mut report)) => {
             if matches!(&request, ActivityRequest::Search { start: Some(_), .. })
@@ -194,6 +196,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             }
             activity.sample = sample;
             activity.rebuild();
+            revealed = activity.revealing.take().filter(|&(pid, _)| activity.select_pid(pid));
         }
         Ok(ActivityData::Regions(regions)) => {
             let selected = activity.selected_row_key();
@@ -243,5 +246,8 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     }
     if notice.is_some() {
         state.notice = notice;
+    }
+    if revealed.is_some_and(|(_, control)| control) {
+        super::open_control(state);
     }
 }

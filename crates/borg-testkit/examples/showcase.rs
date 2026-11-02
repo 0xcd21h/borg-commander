@@ -1,6 +1,6 @@
 //! Renders the README showcase of the editor beside search results, the folder picker, folder
-//! sizes, the activity monitor, and Docker from fictional files, folders, processes and
-//! containers, so no screenshot shows the machine it was made on.
+//! sizes, the activity monitor, Docker and the network screen from fictional files, folders,
+//! processes, containers and connections, so no screenshot shows the machine it was made on.
 
 use std::{
     env,
@@ -35,6 +35,7 @@ const FOLDERS_THEME: &str = "classic";
 const SIZES_THEME: &str = "neon";
 const ACTIVITY_THEME: &str = "ember";
 const DOCKER_THEME: &str = "aurora";
+const NETWORK_THEME: &str = "midnight";
 const SAMPLES: usize = 60;
 const KIB: u64 = 1024;
 const MIB: u64 = KIB * 1024;
@@ -709,6 +710,18 @@ fn docker(output: &Path) -> Result<()> {
     save(&mut stage, output, "docker")
 }
 
+/// The network screen over a fictional machine, on the browser's traffic: half a minute of
+/// download and upload, and the hosts it talks to.
+fn network(output: &Path) -> Result<()> {
+    let mut stage = stage(PROJECTS, ATLAS, [projects(), Vec::new()])?;
+    theme(&mut stage, NETWORK_THEME);
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('2')));
+    ensure!(stage.state.network.process().and_then(|row| row.pid).is_some(), "the busiest process leads the list");
+    stage.started = now;
+    save(&mut stage, output, "network")
+}
+
 fn main() -> Result<()> {
     let output = PathBuf::from(env::args().nth(1).unwrap_or_else(|| "docs/showcase".into()));
     fs::create_dir_all(&output)?;
@@ -717,5 +730,6 @@ fn main() -> Result<()> {
     size_tree(&output)?;
     folder_totals(&output)?;
     activity(&output)?;
-    docker(&output)
+    docker(&output)?;
+    network(&output)
 }

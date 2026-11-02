@@ -40,8 +40,8 @@ use tokio::{
 };
 
 pub use answers::{
-    ConsoleText, containers, find_container, home_relative, host_dir, locate, memory_report, place, processes, screen,
-    shell_output, typable,
+    ConsoleText, connections, containers, find_container, home_relative, host_dir, interfaces, locate, memory_report,
+    place, ports, processes, screen, shell_output, typable,
 };
 pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};
 pub use location::{DOCKER_SCHEME, Location};
@@ -52,7 +52,7 @@ use socket::{SOCKET_PREFIX, SOCKET_SUFFIX};
 pub use socket::{connect_info, hostname, program_path};
 use tools::{routing_tools, tools, transfer_tools};
 
-const LIST_LIMIT: usize = 500;
+pub(crate) const LIST_LIMIT: usize = 500;
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL: &str = "2025-06-18";

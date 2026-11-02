@@ -12,8 +12,14 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
     let mounted = state.panel(side).mount.is_some();
     let other_mounted = state.panel(side.other()).mount.is_some();
     let remote = state.panel(side).remote_mount.is_some() || state.panel(side.other()).remote_mount.is_some();
-    let notice = if (state.activity.side.is_some() || state.docker.is_open()) && on_files(action) {
-        if state.docker.is_open() { tr!(docker_close_for_files) } else { tr!(activity_close_for_files) }
+    let notice = if state.monitor_open() && on_files(action) {
+        if state.docker.is_open() {
+            tr!(docker_close_for_files)
+        } else if state.network.is_open() {
+            tr!(network_close_for_files)
+        } else {
+            tr!(activity_close_for_files)
+        }
     } else if remote && needs_local_files(action) {
         tr!(remote_operation_unavailable)
     } else if (mounted && needs_this_machine(action)) || (other_mounted && action == Action::ExtractToOther) {

@@ -18,14 +18,14 @@ pub(super) fn tools() -> Value {
         },
         {
             "name": "read",
-            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. {LOCATIONS}"),
+            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. With `source` \"ports\", \"connections\" or \"interfaces\": what the network screen lists, measured over one second: the listening ports with who can reach each and the process behind it, the connections busiest first with their rates and host names, or the interfaces with their addresses and traffic; `find` filters as the screen's filter does (words, port:443, proc:name, host:name, state:listen, !word) and `limit` caps the rows (default 100). {LOCATIONS}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
                     "lines": { "type": "string" },
                     "find": { "type": "string" },
-                    "source": { "type": "string", "enum": ["processes", "containers"] },
+                    "source": { "type": "string", "enum": ["processes", "containers", "ports", "connections", "interfaces"] },
                     "limit": { "type": "integer", "minimum": 1 },
                     "sort": { "type": "string", "enum": ["memory", "cpu"] }
                 }
