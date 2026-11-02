@@ -1279,7 +1279,7 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
 }
 
 #[test]
-fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_gets_text_back() {
+fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_keeps_them() {
     use borg_view::Mark;
     use std::sync::Arc;
 
@@ -1336,8 +1336,8 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_get
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.viewer.is_none());
     let Some(crate::Peeked { peek: crate::Peek::Text(preview), .. }) = &state.peeked else { panic!("preview") };
-    assert!(!preview.hex(), "the quick view gets its text back");
-    assert_eq!(preview.rows()[0], "row 132", "the line the hex row from byte 944 starts in");
+    assert!(preview.hex(), "the quick view keeps the hex rows");
+    assert_eq!(preview.offset(), 944);
 }
 
 #[test]
@@ -1360,6 +1360,44 @@ fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
     assert!(!shown(&state).hex(), "h shows the text");
     press(&mut state, now, key(KeyCode::Char('h')));
     assert_eq!(shown(&state).rows()[0], row);
+}
+
+#[test]
+fn a_binary_file_previews_as_hex_rows_and_h_switches_the_quick_view_and_the_viewer_it_opens() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("app.bin")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let Some(Effect::Peek { size: (width, height), .. }) = effects.iter().find(|e| matches!(e, Effect::Peek { .. }))
+    else {
+        panic!("{effects:?}")
+    };
+    let bytes = b"\x7fELF\x02\x01\x01\x00\x00\x00text\n".to_vec();
+    let pager = borg_view::Pager::for_path(Arc::new(bytes), &path, *width, *height).unwrap_or_else(|e| panic!("{e}"));
+    let peeked = crate::Peeked { aside: crate::Aside::QuickView, path, at, peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    let preview = |state: &AppState| match &state.peeked {
+        Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) => pager.clone(),
+        peeked => panic!("{peeked:?}"),
+    };
+
+    assert!(preview(&state).hex(), "a zero byte near the start previews the file as hex rows");
+    assert!(preview(&state).rows()[0].starts_with("0000  7f 45 4c 46"));
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(!preview(&state).hex(), "h in the quick view shows the text");
+    press(&mut state, now, key(KeyCode::Char('р')));
+    assert!(preview(&state).hex(), "the key in the same place on a Russian keyboard");
+    press(&mut state, now, key(KeyCode::Char('h')));
+
+    press(&mut state, now, key(KeyCode::F(3)));
+    assert!(!text(state.viewer.as_ref().unwrap()).hex(), "the viewer opens on the text the quick view showed");
+    press(&mut state, now, key(KeyCode::Char('h')));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    assert!(preview(&state).hex(), "the quick view gets the hex rows the viewer showed");
 }
 
 /// A contents search for `query` that found its first match in `/home/log` at `line`.

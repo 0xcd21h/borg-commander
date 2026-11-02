@@ -19,7 +19,7 @@ expression: describe(&buffer)
 │                                           ││                                           │
 │                                           ││                                           │
 │                                           ││                                           │
-╰ 9 items ──────────────────────────────────╯╰ 100% · Tab focus · w wrap ────────────────╯
+╰ 9 items ──────────────────────────────────╯╰ 100% · Tab focus · w wrap · h hex ────────╯
  -rw-r--r--    1234  2026-01-10 09:30  Cargo.toml
 $
 F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell

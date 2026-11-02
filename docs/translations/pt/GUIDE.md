@@ -879,12 +879,12 @@ quando existe; nos outros terminais, a imagem aparece como blocos coloridos.
 Ctrl-Q mostra uma pré-visualização no outro painel. Tab entra nela, onde as setas, PgUp/PgDn,
 Home/End e a roda do rato percorrem o conteúdo; Tab ou Esc voltam à lista de ficheiros. Ctrl-L
 mostra informações sobre o ficheiro. F3 abre uma pré-visualização de texto no visualizador completo,
-e fechar o visualizador regressa à pré-visualização com a posição, a moldagem e o modo de
-código-fonte preservados. Ambos leem os ficheiros da mesma forma limitada, pelo que abrir um
-ficheiro de texto grande lê apenas mais ou menos a primeira página e continua rápido, seja qual for
-o tamanho do ficheiro. Num resultado de uma pesquisa de texto, a pré-visualização abre em vez disso
-na primeira correspondência do ficheiro, com a pesquisa marcada como a barra de pesquisa a marca, e
-lê apenas à volta dessa correspondência.
+e fechar o visualizador regressa à pré-visualização com a posição, a moldagem, o modo de
+código-fonte e as linhas hexadecimais preservados. Ambos leem os ficheiros da mesma forma limitada,
+pelo que abrir um ficheiro de texto grande lê apenas mais ou menos a primeira página e continua
+rápido, seja qual for o tamanho do ficheiro. Num resultado de uma pesquisa de texto, a
+pré-visualização abre em vez disso na primeira correspondência do ficheiro, com a pesquisa marcada
+como a barra de pesquisa a marca, e lê apenas à volta dessa correspondência.
 
 Os dois visualizadores de texto realçam a sintaxe de linguagens de programação, formatos de
 marcação e ficheiros de configuração comuns, incluindo Rust, Python, JavaScript, TypeScript/TSX,
@@ -900,16 +900,16 @@ exatamente como estão escritos, o que ajuda sobretudo com ficheiros escritos nu
 são organizados um registo de cada vez. O JSON com mais de 16 MiB, ou que não pode ser analisado,
 abre tal como está escrito.
 
-Prima `h` no visualizador de texto para ver os bytes do ficheiro em linhas hexadecimais e prima-o de
-novo para voltar ao texto. Um ficheiro binário, que o Borg reconhece por um byte a zero nos
-primeiros 4 KiB, abre em linhas hexadecimais, e `h` mostra o seu texto. Cada linha começa com a sua
-posição no ficheiro e mostra depois os seus bytes em hexadecimal e os mesmos bytes como texto, com
-um ponto em cada byte que não é imprimível. As posições e os bytes a zero aparecem esbatidos. Uma
-linha tem 16 bytes, ou 8, 4, 2 ou 1 quando o terminal é demasiado estreito para 16. O Borg lê apenas
-as linhas que estão no ecrã, pelo que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato
-um ficheiro de vários gigabytes. A barra de pesquisa também funciona nas linhas hexadecimais e marca
-cada correspondência nas duas colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes
-tal como estão escritos. Fechar o visualizador devolve o texto à pré-visualização.
+Prima `h` no visualizador de texto ou na pré-visualização para ver os bytes do ficheiro em linhas
+hexadecimais e prima-o de novo para voltar ao texto. Um ficheiro binário, que o Borg reconhece por
+um byte a zero nos primeiros 4 KiB, abre em linhas hexadecimais em ambos, e `h` mostra o seu texto.
+Cada linha começa com a sua posição no ficheiro e mostra depois os seus bytes em hexadecimal e os
+mesmos bytes como texto, com um ponto em cada byte que não é imprimível. As posições e os bytes a
+zero aparecem esbatidos. Uma linha tem 16 bytes, ou 8, 4, 2 ou 1 quando não há espaço para 16. O
+Borg lê apenas as linhas que estão no ecrã, pelo que as setas, PgUp/PgDn, Space, Home e End
+percorrem de imediato um ficheiro de vários gigabytes. A barra de pesquisa também funciona nas
+linhas hexadecimais e marca cada correspondência nas duas colunas. Em hexadecimal, os ficheiros
+Markdown e JSON mostram os bytes tal como estão escritos.
 
 ### Editor
 

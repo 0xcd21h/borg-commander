@@ -807,14 +807,13 @@ text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping on or o
 `q` closes it. In images, Left/Right or `p`/`n` show the previous or next image. Borg uses the
 terminal's image protocol when there is one; other terminals show the image as colored blocks.
 
-Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys,
-PgUp/PgDn, Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L
-shows file information. F3 opens a text preview in the full viewer, and closing the viewer
-returns to the preview with your position, wrapping, and source mode kept. Both read files the
-same limited way, so opening a large text file reads only around the first page and stays
-fast however big the file is. On a result of a search for text, the preview opens at the file's
-first match instead, with the query marked as the find bar marks it, and reads only around that
-match.
+Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys, PgUp/PgDn,
+Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L shows file
+information. F3 opens a text preview in the full viewer, and closing the viewer returns to the
+preview with your position, wrapping, source mode, and hex rows kept. Both read files the same
+limited way, so opening a large text file reads only around the first page and stays fast however
+big the file is. On a result of a search for text, the preview opens at the file's first match
+instead, with the query marked as the find bar marks it, and reads only around that match.
 
 Both text viewers highlight common programming languages, markup, and configuration files,
 including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL,
@@ -828,15 +827,14 @@ exactly as written, which helps most with files written on a single line. Press 
 the file as written. JSON Lines files (`.jsonl`, `.ndjson`) are laid out one record at a time.
 JSON larger than 16 MiB, or JSON that does not parse, opens as written.
 
-Press `h` in the text viewer to see the file's bytes as hex rows, and press it again to go back to
-the text. A binary file, which Borg spots by a zero byte in its first 4 KiB, opens as hex rows, and
-`h` shows its text. Each row starts with its offset in the file, then shows its bytes in hex and the
-same bytes as text, with a dot for each byte that does not print. Offsets and zero bytes are dimmed.
-A row holds 16 bytes, or 8, 4, 2 or 1 when the terminal is too narrow for 16. Borg reads only the
-rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a file of several
-gigabytes at once. The find bar works in hex rows too and marks each match in both columns. In hex,
-Markdown and JSON files show their bytes as written. Closing the viewer gives the quick view the
-text again.
+Press `h` in the text viewer or in the quick view to see the file's bytes as hex rows, and press it
+again to go back to the text. A binary file, which Borg spots by a zero byte in its first 4 KiB,
+opens as hex rows in both, and `h` shows its text. Each row starts with its offset in the file, then
+shows its bytes in hex and the same bytes as text, with a dot for each byte that does not print.
+Offsets and zero bytes are dimmed. A row holds 16 bytes, or 8, 4, 2 or 1 when 16 do not fit. Borg
+reads only the rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a
+file of several gigabytes at once. The find bar works in hex rows too and marks each match in both
+columns. In hex, Markdown and JSON files show their bytes as written.
 
 ### Editor
 

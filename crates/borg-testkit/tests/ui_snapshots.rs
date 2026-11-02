@@ -967,6 +967,30 @@ fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
 }
 
 #[test]
+fn quick_view_shows_a_binary_as_hex_rows_and_h_shows_its_text() -> Result<()> {
+    let files = vec![
+        entry("bin", EntryKind::Dir, 4096, RECENT, false),
+        entry("image.bin", EntryKind::File, binary_sample().len() as u64, RECENT, false),
+        entry("notes.txt", EntryKind::File, 310, OLD, false),
+    ];
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, files, CLOCK)?;
+    hover(&mut stage, "image.bin");
+    stage.send(ctrl('q'));
+    let path = std::path::Path::new("image.bin");
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(binary_sample()), path, 43, 15)?;
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0000  42 4f 52 47 49 4d 47 00  BORGIMG.")?;
+    ensure_text(&buffer, "Tab focus · h text")?;
+    check("quick_view_hex", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('h'))).send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Tab focus · w wrap · h hex")?;
+    Ok(())
+}
+
+#[test]
 fn info_panel_lists_file_facts() -> Result<()> {
     let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     hover(&mut stage, "build.sh");

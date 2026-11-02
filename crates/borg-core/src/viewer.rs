@@ -138,7 +138,7 @@ fn is_close(code: KeyCode) -> bool {
     matches!(code, KeyCode::Esc | KeyCode::F(3 | 10) | KeyCode::Char(QUIT_KEY))
 }
 
-fn is_hex_key(code: KeyCode) -> bool {
+pub(crate) fn is_hex_key(code: KeyCode) -> bool {
     matches!(code, KeyCode::Char(c) if c.eq_ignore_ascii_case(&HEX_KEY))
 }
 
@@ -193,24 +193,31 @@ pub(crate) fn request(state: &mut AppState, path: PathBuf) -> Effect {
     Effect::View { path, at }
 }
 
-/// Shows a loaded file, if the viewer still waits for it.
-pub(crate) fn opened(state: &mut AppState, viewer: Viewer) -> Vec<Effect> {
+/// Shows a loaded file, if the viewer still waits for it, a binary file as hex rows.
+pub(crate) fn opened(state: &mut AppState, mut viewer: Viewer) -> Vec<Effect> {
     if state.opening.as_deref() != viewer.path() {
+        return Vec::new();
+    }
+    if let Content::Text(pager) = &mut viewer.content
+        && let Err(error) = binary_as_hex(pager)
+    {
+        state.opening = None;
+        state.landing = None;
+        state.notice = Some(tr!(viewer_error, error = error));
         return Vec::new();
     }
     present(state, viewer)
 }
 
-/// Puts `viewer` in front, a binary file as hex rows with its text a key away, on the match it
-/// lands on.
-fn present(state: &mut AppState, mut viewer: Viewer) -> Vec<Effect> {
-    let hex = match &mut viewer.content {
-        Content::Text(pager) if pager.binary() && !pager.hex() => pager.toggle_hex(),
-        _ => Ok(()),
-    };
+/// Shows a freshly read file as hex rows when it looks binary, with its text a key away.
+pub(crate) fn binary_as_hex(pager: &mut Pager) -> io::Result<()> {
+    if pager.binary() && !pager.hex() { pager.toggle_hex() } else { Ok(()) }
+}
+
+/// Puts `viewer` in front, on the match it lands on.
+fn present(state: &mut AppState, viewer: Viewer) -> Vec<Effect> {
     state.opening = None;
     state.viewer = Some(viewer);
-    finish(state, hex.map(|()| true));
     resize(state);
     land(state)
 }
@@ -246,10 +253,10 @@ fn close(state: &mut AppState) {
         && state.aside == Some(Aside::QuickView)
         && crate::aside::hovered_path(state).as_ref() == Some(&path)
     {
+        // The quick view marks a contents search's matches, and not the viewer's.
         let at = crate::aside::opens_on(state, Aside::QuickView, &path);
         let marks = at.as_ref().and_then(|at| at.query.compile().ok().flatten());
-        let text = if pager.hex() { pager.toggle_hex() } else { Ok(()) };
-        let _ = text.and_then(|()| pager.show_matches(marks)).and_then(|()| pager.forget_match());
+        let _ = pager.show_matches(marks).and_then(|()| pager.forget_match());
         state.peeked = Some(Peeked { aside: Aside::QuickView, path, at, peek: Peek::Text(pager) });
         state.peeking = None;
     }

@@ -883,12 +883,12 @@ del terminal cuando lo hay; los demás terminales muestran la imagen como bloque
 Ctrl-Q muestra una vista previa rápida en el otro panel. Tab entra en ella, donde las flechas,
 PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos. Ctrl-L
 muestra la información del archivo. F3 abre una vista previa de texto en el visor completo, y al
-cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea y el modo de
-código fuente. Ambos leen los archivos de la misma forma limitada, así que abrir un archivo de texto
-grande solo lee aproximadamente la primera página y es rápido sea cual sea su tamaño. En un
-resultado de una búsqueda de texto, la vista previa se abre en cambio en la primera coincidencia del
-archivo, con la consulta marcada como la marca la barra de búsqueda, y solo lee alrededor de esa
-coincidencia.
+cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea, el modo de
+código fuente y las filas hexadecimales. Ambos leen los archivos de la misma forma limitada, así que
+abrir un archivo de texto grande solo lee aproximadamente la primera página y es rápido sea cual sea
+su tamaño. En un resultado de una búsqueda de texto, la vista previa se abre en cambio en la primera
+coincidencia del archivo, con la consulta marcada como la marca la barra de búsqueda, y solo lee
+alrededor de esa coincidencia.
 
 Los dos visores de texto resaltan los lenguajes de programación, de marcado y los archivos de
 configuración más comunes, entre ellos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java,
@@ -904,17 +904,16 @@ Pulsa `s` o F4 para ver el archivo tal como está escrito. Los archivos JSON Lin
 `.ndjson`) se organizan registro a registro. El JSON de más de 16 MiB, o que no se puede analizar,
 se abre tal como está escrito.
 
-Pulsa `h` en el visor de texto para ver los bytes del archivo en filas hexadecimales y vuelve a
-pulsarla para volver al texto. Un archivo binario, que Borg reconoce por un byte a cero en sus
-primeros 4 KiB, se abre en filas hexadecimales, y `h` muestra su texto. Cada fila empieza con su
-posición en el archivo y luego muestra sus bytes en hexadecimal y los mismos bytes como texto, con
-un punto en cada byte que no se puede imprimir. Las posiciones y los bytes a cero se ven atenuados.
-Una fila tiene 16 bytes, o 8, 4, 2 o 1 cuando el terminal es demasiado estrecho para 16. Borg lee
-solo las filas que hay en pantalla, así que las flechas, PgUp/PgDn, Space, Home y End recorren al
-instante un archivo de varios gigabytes. La barra de búsqueda también funciona en las filas
-hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos Markdown y
-JSON muestran los bytes tal como están escritos. Al cerrar el visor, la vista previa vuelve a
-mostrar el texto.
+Pulsa `h` en el visor de texto o en la vista previa para ver los bytes del archivo en filas
+hexadecimales y vuelve a pulsarla para volver al texto. Un archivo binario, que Borg reconoce por un
+byte a cero en sus primeros 4 KiB, se abre en filas hexadecimales en ambos, y `h` muestra su texto.
+Cada fila empieza con su posición en el archivo y luego muestra sus bytes en hexadecimal y los
+mismos bytes como texto, con un punto en cada byte que no se puede imprimir. Las posiciones y los
+bytes a cero se ven atenuados. Una fila tiene 16 bytes, o 8, 4, 2 o 1 cuando no hay espacio para 16.
+Borg lee solo las filas que hay en pantalla, así que las flechas, PgUp/PgDn, Space, Home y End
+recorren al instante un archivo de varios gigabytes. La barra de búsqueda también funciona en las
+filas hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos
+Markdown y JSON muestran los bytes tal como están escritos.
 
 ### Editor
 
