@@ -607,6 +607,8 @@ Borg 把每次抓包保存为 `capture-<date>-<time>.pcap`，放在网络屏幕�
 
 在面板中对 `.pcap`、`.pcapng` 或 `.cap` 文件按 F3，会在同一个查看器中打开它，并从 **2 主机** 开始。在别处录制的文件没有可匹配的套接字，所以其中的会话显示为 **未知进程**。查看器最多读取 256 MiB 的文件及其前 200,000 个数据包。
 
+如果 Borg 找不到 tcpdump，抓包会提议安装它。**安装 tcpdump** 对话框显示 Borg 找到的包管理器所用的确切命令：Linux 上是 `apt-get`、`dnf`、`pacman`、`zypper` 或 `apk`，macOS 上以及没有这些包管理器的 Linux 上是 Homebrew 的 `brew`。系统的包管理器通过 `sudo` 运行，或者改用 `doas`（在没有 `sudo` 的系统上）；Borg 以 root 身份运行时则直接运行。Enter 把命令输入 Borg 的 Shell，你会在那里看到它的执行过程，并亲自输入密码；Esc 取消。命令结束时，通知会说明是否成功，Ctrl-O 显示它的输出。每次开始抓包时，Borg 都会在 `PATH` 以及 `/usr/sbin`、`/usr/bin`、`/sbin`、`/bin` 和 Homebrew 的 `sbin` 文件夹中重新查找 tcpdump，所以安装一结束，R 就能抓包。如果没有 Borg 认识的包管理器，抓包会结束并显示 **抓包需要 tcpdump，但 Borg 找不到它。**
+
 tcpdump 需要访问抓包设备，而 Borg 以你的身份运行它：
 
 - 在 macOS 上，起初只有 root 能打开 `/dev/bpf` 设备。安装一次带 **ChmodBPF** 组件的 Wireshark：它会把这些设备交给 `access_bpf` 组并把你加入该组，此后你就可以在所有接口上抓包。

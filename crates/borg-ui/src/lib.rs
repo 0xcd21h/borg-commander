@@ -18,6 +18,7 @@ mod fx;
 mod game2048_view;
 mod hints;
 mod icons;
+mod install_view;
 mod job_view;
 mod keybar;
 mod kinds;

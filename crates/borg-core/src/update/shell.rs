@@ -203,6 +203,7 @@ pub(super) fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant)
 }
 
 fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
+    crate::install::finished(state, exit);
     let full_screen = std::mem::take(&mut state.shell.went_full_screen);
     let Some(operation) = state.operation.take() else {
         if state.shell.return_view == View::Panels

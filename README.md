@@ -177,8 +177,9 @@ Ctrl-O switches between the panels and the console.
 - **Straight to the culprit.** Filter with words such as `port:443`, `proc:node` or
   `!state:time_wait`. Enter shows the row's process in the activity monitor, and K signals it.
 - **Look inside the packets.** R records the selected port, connection or process with tcpdump,
-  and the viewer sorts the packets by process, host and connection, down to each packet's layers
-  and bytes. F3 opens `.pcap` files the same way.
+  which Borg offers to install with your package manager when it is missing, and the viewer sorts
+  the packets by process, host and connection, down to each packet's layers and bytes. F3 opens
+  `.pcap` files the same way.
 
 ## Containers
 

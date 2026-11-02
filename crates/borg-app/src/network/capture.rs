@@ -1,7 +1,7 @@
 //! Captures packets with the installed tcpdump into a pcap file in the folder the network
 //! screen covers, and reads capture files for the traffic viewer.
 
-use borg_core::{Capture, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter};
+use borg_core::{Capture, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, Tool};
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
 use std::{
@@ -20,9 +20,6 @@ use tokio::{
     time::Instant,
 };
 
-const PROGRAM: &str = "tcpdump";
-/// Where tcpdump is installed when the folder is not on `PATH`, as `/usr/sbin` often is not.
-const SYSTEM_DIRS: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
 /// Captures stop at this size, as they do at `PACKET_LIMIT` packets.
@@ -50,7 +47,12 @@ impl Recorder {
     pub(super) fn start(id: u64, request: CaptureRequest, messages: UnboundedSender<Msg>) -> Self {
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
-            let result = record(id, &request, &messages, stopped).await;
+            let result = match crate::tools::find(Tool::Tcpdump.program()) {
+                Some(program) => {
+                    record(id, &program, &request, &messages, stopped).await.map_err(CaptureFailure::Failed)
+                }
+                None => Err(CaptureFailure::Missing(crate::tools::installer())),
+            };
             let _ = messages.send(Msg::CaptureDone { id, result });
         });
         Self { id, stop: Some(stop), task }
@@ -92,12 +94,12 @@ fn read_file(path: &Path) -> Result<Capture, String> {
 
 async fn record(
     id: u64,
+    program: &Path,
     request: &CaptureRequest,
     messages: &UnboundedSender<Msg>,
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), String> {
-    let program = program().ok_or_else(|| tr!(capture_missing).to_owned())?;
-    let mut child = command(&program, request).spawn().map_err(|error| match error.kind() {
+    let mut child = command(program, request).spawn().map_err(|error| match error.kind() {
         ErrorKind::NotFound => tr!(capture_missing).to_owned(),
         _ => tr!(capture_failed, error = error),
     })?;
@@ -173,16 +175,6 @@ async fn record(
         .unwrap_or_else(|error| Err(error.to_string()))
         .map_err(|error| tr!(capture_cannot_read, path = path.display(), error = error))?;
     Ok((path, capture))
-}
-
-/// The installed tcpdump: the one on `PATH`, or else in a system folder.
-fn program() -> Option<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path)
-        .filter(|dir| dir.is_absolute())
-        .chain(SYSTEM_DIRS.map(PathBuf::from))
-        .map(|dir| dir.join(PROGRAM))
-        .find(|candidate| candidate.is_file())
 }
 
 /// tcpdump writing raw packets to its output as each one arrives, without looking up names,

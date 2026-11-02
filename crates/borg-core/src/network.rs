@@ -21,7 +21,8 @@ mod traffic;
 mod viewer;
 
 pub use capture::{
-    CAPTURE_FIELDS, CaptureDialog, CaptureField, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES, Recording,
+    CAPTURE_FIELDS, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, HEADER_BYTES,
+    Recording,
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
@@ -719,7 +720,7 @@ pub(crate) fn capture_progress(state: &mut AppState, id: u64, bytes: u64, packet
 pub(crate) fn capture_done(
     state: &mut AppState,
     id: u64,
-    result: Result<(std::path::PathBuf, Capture), String>,
+    result: Result<(std::path::PathBuf, Capture), CaptureFailure>,
 ) -> Vec<Effect> {
     capture::done(state, id, result)
 }
