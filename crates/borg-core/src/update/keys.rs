@@ -11,6 +11,7 @@ use super::shell::prepare_shell;
 use crate::{Action, AppState, Effect, Operation, View, actions, keymap, overlays, state::REVEAL_DELAY};
 
 pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    let key = &crate::keyboard::latin_held(key);
     state.idle_since = now;
     state.intro = None;
     let resting = state.screensaver;

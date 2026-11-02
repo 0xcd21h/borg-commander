@@ -16,8 +16,6 @@ use crate::{
 
 const PREVIOUS: isize = -1;
 const NEXT: isize = 1;
-const ACCEPT_KEY: char = 'y';
-const REJECT_KEY: char = 'n';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
@@ -265,8 +263,8 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
 
 fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let decided = match key.code {
-        KeyCode::Char(ACCEPT_KEY) => Some(true),
-        KeyCode::Char(REJECT_KEY) | KeyCode::Esc => Some(false),
+        KeyCode::Char(_) => crate::keyboard::answer(key),
+        KeyCode::Esc => Some(false),
         KeyCode::Enter => Some(confirm.accept),
         KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
             state.overlay = Some(Overlay::Confirm(Confirm { accept: !confirm.accept, ..confirm }));

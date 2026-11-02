@@ -198,11 +198,12 @@ fn close(state: &mut AppState) {
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     let Some(viewer) = state.viewer.as_mut() else { return Vec::new() };
     if matches!(viewer.content, Content::Image(_)) {
-        return on_image_key(state, key.code);
+        return on_image_key(state, crate::keyboard::latin(key).code);
     }
     if viewer.find.open {
         return on_bar(state, key);
     }
+    let key = &crate::keyboard::latin(key);
     if let Some(effects) = on_find_key(state, key) {
         return effects;
     }

@@ -327,6 +327,14 @@ abierto (un aviso, resultados, la vista rápida o Información), el primer Esc l
 Esc cancela. Alt-1 a Alt-0 también funcionan cuando el terminal deja pasar Alt. En macOS, puede que
 tengas que activar "Usar Opción como tecla Meta" en tu terminal.
 
+Los atajos también funcionan con una distribución de teclado rusa, ucraniana o bielorrusa. Una
+letra cirílica pulsada con Ctrl o Alt cuenta como la tecla que ocupa el mismo lugar en un teclado
+estadounidense, y lo mismo ocurre con una letra pulsada en una pantalla o un diálogo que no espera
+texto. Con la distribución rusa activa, Alt-M abre el monitor de actividad y Ctrl-C llega al shell.
+La línea de comandos, el editor y los campos de Borg conservan las letras que escribes. Las
+preguntas con botones **[ Sí ]** y **[ No ]** aceptan Y y N en cualquier idioma, y también la
+primera letra de cada botón en el idioma de Borg, como S para Sí en español.
+
 ## Ratón y consola
 
 Haz clic en una fila para llevar el cursor a ella, doble clic para abrirla y clic derecho para

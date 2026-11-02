@@ -197,7 +197,7 @@ pub(crate) fn collections_key(state: &mut AppState, mut picker: CollectionPicker
     } else {
         let last = state.collections.len().saturating_sub(1);
         let page = state.rows.saturating_sub(12).clamp(1, 10) as usize;
-        match key.code {
+        match crate::keyboard::latin(key).code {
             KeyCode::Esc => {
                 state.overlay = None;
                 return Vec::new();

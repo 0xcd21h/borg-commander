@@ -15,8 +15,6 @@ use crate::{AppState, Console, Effect, Mount, Overlay, View};
 
 /// How many entries the log of what agents did keeps.
 const LOG_LIMIT: usize = 1000;
-const ACCEPT_KEY: char = 'y';
-const REJECT_KEY: char = 'n';
 /// The widest the approval dialog and the log grow, so code stays readable.
 const DIALOG_WIDTH: u16 = 100;
 const MARGIN: u16 = 4;
@@ -269,8 +267,8 @@ pub(crate) fn on_approval_key(
     now: Instant,
 ) -> Vec<Effect> {
     let decided = match key.code {
-        KeyCode::Char(ACCEPT_KEY) => Some(true),
-        KeyCode::Char(REJECT_KEY) | KeyCode::Esc => Some(false),
+        KeyCode::Char(_) => crate::keyboard::answer(key),
+        KeyCode::Esc => Some(false),
         KeyCode::Enter => Some(approval.accept),
         _ => None,
     };

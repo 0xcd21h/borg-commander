@@ -22,6 +22,7 @@ mod game2048;
 mod history;
 mod input;
 mod jobs;
+mod keyboard;
 mod keymap;
 mod layout;
 mod measure;

@@ -141,7 +141,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
 
 pub(crate) fn on_key(state: &mut AppState, mut dialog: ControlDialog, key: &KeyEvent) -> Vec<Effect> {
     let last = CONTROL_CHOICES.len() - 1;
-    let choice = match key.code {
+    let choice = match crate::keyboard::latin(key).code {
         KeyCode::Esc | KeyCode::F(10) => {
             state.overlay = None;
             return Vec::new();

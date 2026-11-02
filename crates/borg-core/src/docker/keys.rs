@@ -212,6 +212,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if state.docker.filtering && filter_key(state, key, now) {
         return Vec::new();
     }
+    let key = &crate::keyboard::latin(key);
     let docker = &mut state.docker;
     match key.code {
         KeyCode::Up => docker.move_by(-1, now),
