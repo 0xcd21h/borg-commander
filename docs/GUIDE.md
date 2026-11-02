@@ -1300,16 +1300,22 @@ way to look at it:
   own DNS answers and the server names TLS connections asked for, so most hosts have one.
 - **3 Connections** shows each conversation with its process, other end, protocol, packets and
   bytes. The details show both ends, the server name, the service, the bytes sent and received,
-  and every packet with an arrow for its direction.
+  and the conversation's stream: what each side sent, in order and with retransmitted bytes
+  counted once, as a hex dump with the bytes that print as text beside them. The stream comes in
+  turns, each with an arrow for its direction, the bytes it holds and when it came. When the
+  capture lacks bytes before a turn, the turn says how many are missing. **]** and **[** jump to
+  the next and previous turn, and Enter shows the conversation's packets one by one.
 - **4 Packets** shows every packet in order with its time from the start, protocol, length and a
   summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
   its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
-  as a hex dump.
+  as a hex dump. A dump puts 16 bytes on each line, and fewer in a narrow pane so their text still
+  fits beside them.
 
 | Key | Action |
 | --- | --- |
 | 1 / 2 / 3 / 4 | Show Processes / Hosts / Connections / Packets |
 | Enter | Go down a level: from a process or host to its connections, from a connection to its packets, from a packet into its details |
+| ] / [ | In a connection's details, jump to the next or previous turn of its stream |
 | `/` | Filter the rows, as on the live pages |
 | Ctrl-C | Copy the PID, the address, the other end, or the packet's bytes in hex |
 | Tab | Move between the list and the details, where ↑↓ scroll |

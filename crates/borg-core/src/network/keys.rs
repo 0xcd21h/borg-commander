@@ -36,7 +36,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         return crate::actions::perform(state, action, now);
     }
     if state.network.viewer.is_some() {
-        return super::viewer::route_key(state, key);
+        return super::viewer::route_key(state, key, now);
     }
     if state.network.filtering && filter_key(&mut state.network, key) {
         return Vec::new();

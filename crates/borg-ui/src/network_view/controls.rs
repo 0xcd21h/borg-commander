@@ -80,7 +80,10 @@ fn traffic_hint(network: &Network, view: &TrafficView) -> &'static str {
         return tr!(traffic_filter_hint);
     }
     if network.details_focused {
-        return tr!(network_details_hint);
+        return match view.page {
+            TrafficPage::Connections => tr!(traffic_stream_hint),
+            _ => tr!(network_details_hint),
+        };
     }
     match view.page {
         TrafficPage::Processes => tr!(traffic_pid_hint),

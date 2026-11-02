@@ -202,7 +202,11 @@ Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP
 DNS, TLS client and server hellos, HTTP/1 and QUIC. `flows` groups packets into conversations by
 transport and their two ends in either order, takes the client as the side that sent the SYN or
 spoke first, and puts the client's first bytes back together to read a TLS server name split over
-segments. `network::capture` holds the dialog and the running `Recording`, which keeps every
+segments. `stream` puts a whole conversation back together for the viewer: each side's TCP
+segments in sequence order with repeated bytes dropped, each piece counted as delivered once every
+byte before it came, and the two sides interleaved by that moment into turns. The viewer keeps the
+selected conversation's stream and the capture's first time, so a frame formats only the rows it
+shows. `network::capture` holds the dialog and the running `Recording`, which keeps every
 socket the screen samples while it runs, and `network::viewer` gives each conversation the
 process its packets were tagged with, by majority, or else the process of the socket that held
 it: the exact ends first, then a socket listening on its port. The tags come from macOS's

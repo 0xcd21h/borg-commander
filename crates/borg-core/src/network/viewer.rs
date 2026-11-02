@@ -3,13 +3,14 @@
 //! other.
 
 use super::{NetworkFilter, Socket, Transport, filter::Haystack, service};
-use crate::{Capture, Flow, FlowKind, Packet};
+use crate::{Capture, Flow, FlowKind, HexLayout, Packet, Stream};
 use borg_i18n::tr;
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, HashMap},
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    time::Duration,
 };
 
 mod keys;
@@ -90,6 +91,10 @@ pub struct TrafficView {
     pub filtering: bool,
     /// How far the details are scrolled.
     pub details_top: usize,
+    /// When the capture's first packet came.
+    start: Duration,
+    /// The bytes of the conversation under the connections' cursor, by its place in the capture.
+    stream: Option<(usize, Stream)>,
     /// The pages Enter went from, with their filters and rows, for Esc to go back to.
     history: Vec<(TrafficPage, String, usize)>,
 }
@@ -118,6 +123,7 @@ impl TrafficView {
             }
         }
         hosts.extend(capture.names.iter().map(|(address, name)| (*address, name.clone())));
+        let start = capture.start();
         let mut view = Self {
             capture,
             path,
@@ -136,6 +142,8 @@ impl TrafficView {
             filter: String::new(),
             filtering: false,
             details_top: 0,
+            start,
+            stream: None,
             history: Vec::new(),
         };
         view.rebuild();
@@ -193,6 +201,7 @@ impl TrafficView {
             self.details_top = 0;
         }
         self.cursors[self.page.index()] = index;
+        self.follow();
     }
 
     pub(crate) fn move_by(&mut self, delta: isize) {
@@ -212,6 +221,26 @@ impl TrafficView {
     pub fn flow(&self) -> Option<(usize, &Flow)> {
         let index = *self.flows.get(self.cursors[TrafficPage::Connections.index()])?;
         (self.page == TrafficPage::Connections).then(|| (index, &self.capture.flows[index]))
+    }
+
+    /// The bytes of the selected conversation.
+    pub fn stream(&self) -> Option<&Stream> {
+        let (index, _) = self.flow()?;
+        self.stream.as_ref().filter(|(shown, _)| *shown == index).map(|(_, stream)| stream)
+    }
+
+    /// Puts together the bytes of the conversation under the connections' cursor, when it moved
+    /// to another.
+    fn follow(&mut self) {
+        let selected = self.flows.get(self.cursors[TrafficPage::Connections.index()]).copied();
+        if self.stream.as_ref().map(|(index, _)| *index) != selected {
+            self.stream = selected.map(|index| (index, Stream::of(&self.capture.flows[index], &self.capture.packets)));
+        }
+    }
+
+    /// How long after the capture's first packet `stamp` came.
+    pub fn elapsed(&self, stamp: Duration) -> Duration {
+        stamp.saturating_sub(self.start)
     }
 
     /// The selected packet, with its place in the capture.
@@ -273,6 +302,7 @@ impl TrafficView {
             let index = page.index();
             self.cursors[index] = self.cursors[index].min(self.len(page).saturating_sub(1));
         }
+        self.follow();
     }
 
     fn all_talkers(&self) -> Vec<Talker> {
@@ -422,13 +452,25 @@ impl TrafficView {
         true
     }
 
-    /// How far the details can scroll: a packet's bytes, or a row's conversations.
-    pub(crate) fn detail_rows(&self) -> usize {
+    /// How far the details `width` cells wide can scroll: a row's conversations, a
+    /// conversation's bytes, or a packet's.
+    pub(crate) fn detail_rows(&self, width: usize) -> usize {
         match self.page {
             TrafficPage::Processes => self.talker().map_or(0, |talker| talker.flows.len()),
             TrafficPage::Hosts => self.host_row().map_or(0, |row| row.flows.len()),
-            TrafficPage::Connections => self.flow().map_or(0, |(_, flow)| flow.packets.len()),
-            TrafficPage::Packets => self.packet().map_or(0, |(_, packet)| packet.data.len().div_ceil(crate::HEX_WIDTH)),
+            TrafficPage::Connections => self.stream().map_or(0, |stream| stream.row_count(stream.layout(width))),
+            TrafficPage::Packets => self.packet().map_or(0, |(_, packet)| {
+                let length = packet.data.len();
+                HexLayout::fitting(width, length).rows(length)
+            }),
+        }
+    }
+
+    /// Scrolls the conversation's bytes to where the next turn begins, or the previous one.
+    pub(crate) fn step_turn(&mut self, width: usize, forward: bool) {
+        let found = self.stream().and_then(|stream| stream.turn_row(stream.layout(width), self.details_top, forward));
+        if let Some(row) = found {
+            self.details_top = row;
         }
     }
 }
