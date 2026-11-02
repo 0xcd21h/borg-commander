@@ -1,4 +1,5 @@
-//! Reading another user's process as administrator, through Borg's helper, with its output kept short.
+//! Reading another user's process as administrator, or sending it a signal or a new priority,
+//! through Borg's helper, with its output kept short.
 
 use super::{
     ADMIN_TIMEOUT, ERROR_LIMIT, OUTPUT_LIMIT, capture, census, integrity, process_files, regions, search_memory,
@@ -12,6 +13,9 @@ use std::{
     time::Duration,
 };
 use tokio::{io::AsyncReadExt, process::Command};
+
+/// The longest signal or priority change the helper reads from its arguments.
+const CONTROL_LIMIT: usize = 64;
 
 pub(super) async fn bounded_output(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
     command
@@ -73,6 +77,12 @@ pub(super) fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
             process.start.to_string(),
             region.start.to_string(),
             region.end.to_string(),
+        ]),
+        ActivityRequest::Control { process, control, .. } => args.extend([
+            "control".into(),
+            process.pid.to_string(),
+            process.start.to_string(),
+            serde_json::to_string(control)?,
         ]),
         _ => bail!(tr!(activity_request_invalid)),
     }
@@ -146,6 +156,13 @@ pub async fn helper(args: &[String]) -> Result<()> {
                 }
                 let region = MemoryRegion { start, end, permissions: "r--".into(), ..Default::default() };
                 Ok(ActivityData::Snapshot(capture(process, region, seek, true).await?))
+            }
+            ("control", 4) => {
+                let control = args[3].as_str();
+                if control.len() > CONTROL_LIMIT {
+                    bail!(tr!(activity_request_invalid));
+                }
+                Ok(ActivityData::Control(super::control::control(process, serde_json::from_str(control)?)?))
             }
             ("census", 5) => {
                 let (start, end) = (number(3)?, number(4)?);

@@ -14,6 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+pub(crate) mod control;
 mod controls;
 mod files;
 mod memory;

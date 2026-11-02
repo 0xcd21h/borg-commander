@@ -937,6 +937,7 @@ second sample on.
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; press again to reverse |
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
+| K | Send a signal or change the priority |
 | Space | Pause or resume sampling |
 | R | Refresh the current view |
 | Esc | Go back; in the process list, close the monitor |
@@ -947,6 +948,32 @@ virtual address space, and a chart of resident memory over the last 60 seconds. 
 swapped, private, and shared totals appear once the memory map has been read, if the system
 reports them. **Enter** in the memory pane opens the memory map. The memory map is read when you
 ask for it; press R to read it again after the process changes its mappings.
+
+### Signals and priority
+
+K opens **Signal or priority** for the selected process. Press a choice's letter, or move to it
+and press Enter. Esc closes the dialog and sends nothing.
+
+| Key | Choice | What it does |
+| --- | --- | --- |
+| T | **Terminate** | Sends TERM, which asks the process to quit |
+| I | **Interrupt** | Sends INT, the same as Ctrl-C in its terminal |
+| H | **Hang up** | Sends HUP; many services read their settings again |
+| K | **Kill** | Sends KILL, which ends the process at once without letting it clean up |
+| S | **Stop** | Sends STOP, which pauses the process |
+| C | **Continue** | Sends CONT, which resumes a stopped process |
+| L | **Lower priority** | Raises its nice value by 5, up to 19, so it waits longer for the CPU when the system is busy |
+| R | **Raise priority** | Lowers its nice value by 5, down to -20 |
+
+Right before sending, Borg checks that the PID still belongs to the process you chose, started at
+the same time, so a new process that reused the PID is left alone. The status line confirms what
+was sent, and the list samples again at once. The overview says when a process is stopped, and
+shows its **Nice** value when it is not 0.
+
+You can signal your own processes and lower their priority. The system refuses the rest: another
+user's process, and raising a priority, which only an administrator may do. Borg then offers
+**A: Administrator**, which sends the same choice through the helper described under
+[Administrator access](#administrator-access). Borg sends no signals to itself; F10 quits it.
 
 ### Memory map
 
@@ -1071,11 +1098,11 @@ security tools leave the same traces.
 
 ### Administrator access
 
-When reading a memory map or a capture is restricted, or a search could not read part of the
-memory, Borg offers **A: Administrator**. On macOS this opens the system's authorization prompt;
+When reading a memory map or a capture is restricted, a search could not read part of the
+memory, or the system refuses a signal or priority change, Borg offers **A: Administrator**. On macOS this opens the system's authorization prompt;
 on Linux it uses `pkexec` and needs an authorization agent to be running. Only a short-lived
-inspection helper runs with elevated rights. Borg itself keeps running normally, and the helper
-only returns map data or a limited number of bytes.
+helper runs with elevated rights. Borg itself keeps running normally, and the helper only returns
+map data or a limited number of bytes, or sends the one signal or priority you chose.
 
 macOS shields the memory of its own programs (System Integrity Protection) and of programs built
 with the Hardened Runtime from every other program, administrators included. Borg reads this from

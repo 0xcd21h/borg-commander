@@ -138,6 +138,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     activity.pending = None;
     activity.next = Some(now + REFRESH);
     let reads_memory = request.reads_memory();
+    let mut notice = None;
     match result {
         Ok(ActivityData::Search(mut report)) => {
             if matches!(&request, ActivityRequest::Search { start: Some(_), .. })
@@ -216,6 +217,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.census = Some(census);
             activity.retry = None;
         }
+        Ok(ActivityData::Control(report)) => notice = super::control::receive(activity, request, report),
         Ok(ActivityData::Snapshot(snapshot)) => {
             activity.previous = activity
                 .snapshot
@@ -238,5 +240,8 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     // keeps from every program.
     if activity.sample.administrator || (reads_memory && activity.protection().is_some()) {
         activity.retry = None;
+    }
+    if notice.is_some() {
+        state.notice = notice;
     }
 }

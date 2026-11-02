@@ -150,6 +150,8 @@ Ctrl-O switches between the panels and the console.
 
 - **A live process list.** Alt-M shows CPU, RAM, memory growth, and disk rates, sorted by
   any column or as a tree. The other pane charts the selected process's memory over the last minute.
+- **Signals and priority.** K sends Terminate, Kill, Stop, Continue and the other common signals,
+  or changes the priority. A process that belongs to someone else takes the administrator's password.
 - **Where the memory goes.** Enter opens the process's memory map, grouped by purpose and
   ranked by **footprint**: the memory charged to that process alone, separate from shared
   libraries that only make it look large.

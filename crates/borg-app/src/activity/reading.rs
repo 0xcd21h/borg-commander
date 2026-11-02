@@ -208,7 +208,8 @@ pub(super) async fn inspect(
         | ActivityRequest::Capture { admin: true, .. }
         | ActivityRequest::Census { admin: true, .. }
         | ActivityRequest::Integrity { admin: true, .. }
-        | ActivityRequest::Search { admin: true, snapshot: None, .. }) => tokio::select! {
+        | ActivityRequest::Search { admin: true, snapshot: None, .. }
+        | ActivityRequest::Control { admin: true, .. }) => tokio::select! {
             result = elevate(request) => result,
             () = wait_cancelled(&cancelled) => bail!(tr!(memory_search_stopped)),
         },
@@ -226,6 +227,11 @@ pub(super) async fn inspect(
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
             let query = Query { text: query, mode, match_case };
             search_memory(process, query, snapshot, start, cancelled, messages).await.map(ActivityData::Search)
+        }
+        ActivityRequest::Control { process, control, .. } => {
+            tokio::task::spawn_blocking(move || super::control::control(process, control))
+                .await?
+                .map(ActivityData::Control)
         }
         ActivityRequest::Sample => bail!(tr!(activity_request_invalid)),
     }

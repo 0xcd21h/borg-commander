@@ -27,6 +27,12 @@ pub(crate) use keys::{on_key, paste, route_key};
 mod refresh;
 pub(crate) use refresh::{open, receive, receive_file_preview, sync, sync_file_preview, wake_at};
 mod capture;
+mod control;
+pub use control::{
+    CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
+    PRIORITY_STEP, ProcessControl, ProcessSignal,
+};
+pub(crate) use control::{on_key as on_control_key, open as open_control};
 mod tree;
 
 pub const HISTORY: usize = 60;

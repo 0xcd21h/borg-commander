@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "818667d2ff8eaf77f61a95b0cf942f6b593cc6b47eccdbd36cb125e82237a94b",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
         "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "e5a0e50efbd3897f4896f8017233f823b0782d273bb3a74cdbab50101b72949a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -148,6 +148,10 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Signals and priority"
         },
         {
           "level": 3,
@@ -176,12 +180,12 @@
       ]
     },
     "pt": {
-      "source": "818667d2ff8eaf77f61a95b0cf942f6b593cc6b47eccdbd36cb125e82237a94b",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
         "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "e5a0e50efbd3897f4896f8017233f823b0782d273bb3a74cdbab50101b72949a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -323,6 +327,10 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Signals and priority"
         },
         {
           "level": 3,
@@ -351,12 +359,12 @@
       ]
     },
     "es": {
-      "source": "818667d2ff8eaf77f61a95b0cf942f6b593cc6b47eccdbd36cb125e82237a94b",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
         "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "e5a0e50efbd3897f4896f8017233f823b0782d273bb3a74cdbab50101b72949a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -498,6 +506,10 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Signals and priority"
         },
         {
           "level": 3,
@@ -526,12 +538,12 @@
       ]
     },
     "ru": {
-      "source": "818667d2ff8eaf77f61a95b0cf942f6b593cc6b47eccdbd36cb125e82237a94b",
+      "source": "56bcdee799bd8f787d13f40782cf85ddd24749046e8c05002af545c3ec9c96cd",
       "protected": {
         "code blocks": "85a837e6ed75f8087c38397a9855ef50a50fe0b76a3ddb9ed4f6c2921d8f9e95",
         "inline code": "9305adab2aebf546a74e05fe708d12081fc37c3c8ec032260f3768a8fa2f8c96",
         "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "e5a0e50efbd3897f4896f8017233f823b0782d273bb3a74cdbab50101b72949a"
+        "heading levels": "49fc3bc50decf7ec90b3b968c0057426654dc899b8d9b0c81fc2fbacaec2fabf"
       },
       "headings": [
         {
@@ -673,6 +685,10 @@
         {
           "level": 2,
           "title": "Activity and memory"
+        },
+        {
+          "level": 3,
+          "title": "Signals and priority"
         },
         {
           "level": 3,

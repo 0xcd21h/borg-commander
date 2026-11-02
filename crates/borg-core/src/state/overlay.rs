@@ -149,4 +149,6 @@ pub enum Overlay {
     Remotes(crate::RemoteBrowser),
     /// Time Machine exclusions; the window's lists live in `AppState::backup`.
     TimeMachine,
+    /// The signals and priority changes for a process in the monitor.
+    ProcessControl(crate::ControlDialog),
 }

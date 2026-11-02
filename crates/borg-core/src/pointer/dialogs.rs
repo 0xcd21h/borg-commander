@@ -139,6 +139,7 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
         Overlay::Folders(dialog) => {
             (dialog.selected, crate::folders::dialog_choices(state, dialog.filter.text()).len())
         }
+        Overlay::ProcessControl(dialog) => (dialog.selected, crate::CONTROL_CHOICES.len()),
         Overlay::Remotes(browser) if browser.show_clients => {
             (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
         }
@@ -172,6 +173,7 @@ fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) 
         Overlay::Plugins { .. } => Overlay::Plugins { selected: row },
         Overlay::Jobs(_) => Overlay::Jobs(crate::JobList { selected: row }),
         Overlay::Folders(dialog) => Overlay::Folders(crate::FoldersDialog { selected: row, ..dialog }),
+        Overlay::ProcessControl(dialog) => Overlay::ProcessControl(crate::ControlDialog { selected: row, ..dialog }),
         Overlay::Remotes(mut browser) => {
             if browser.show_clients {
                 browser.client_selected = row;
