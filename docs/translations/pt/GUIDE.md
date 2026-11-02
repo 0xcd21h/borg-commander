@@ -281,7 +281,7 @@ instantes.
 | Ctrl-L | Informações: mostra tamanho, permissões, proprietário, datas e espaço livre no outro painel |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar ficheiros |
 | `+` `-` `*` | Selecionar, desselecionar ou inverter por padrão (`*.rs`, `build/`) |
-| Alt-Enter | Colocar os nomes marcados (ou o atual) na linha de comando |
+| Alt-Enter | Colocar os nomes marcados (ou o atual) na linha de comando; em `..`, o caminho da pasta pai |
 | Ctrl-Insert / Alt-Shift-Insert | Copiar os nomes marcados / os respetivos caminhos completos |
 | Shift-Enter, Ctrl-J | Inserir uma quebra de linha no cursor da linha de comando; Enter executa o comando, Ctrl-C limpa-o |
 | Alt-A / Alt-Shift-A | Colocar na linha de comando o caminho da pasta deste painel / do outro painel |
@@ -293,6 +293,7 @@ instantes.
 | Alt-H | Hosts remotos: máquinas emparelhadas e as respetivas sessões |
 | Alt-Shift-Left/Right | Redimensionar os painéis |
 | Ctrl-U | Trocar os painéis |
+| Alt-O | Abrir a pasta deste painel no outro painel |
 | Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
@@ -315,6 +316,11 @@ usam o histórico de comandos da sua shell. Shift-Enter (ou Ctrl-J) insere uma q
 executar o comando. Os comandos com várias linhas, escritos ou recuperados do histórico, tornam a
 área do prompt mais alta e os painéis mais baixos, para que o cursor fique sempre visível. Todas
 as teclas habituais de edição e de conclusão da sua shell continuam a funcionar.
+
+Alt-Enter escreve os nomes tal como a shell os vê a partir da pasta do painel. Em `..` escreve o
+caminho completo da pasta pai, porque o nome da pasta pai, sozinho, apontaria para dentro da pasta
+atual. Nos resultados de pesquisa e nas coleções escreve caminhos completos, já que os ficheiros vêm
+de pastas diferentes.
 
 O que copia chega à área de transferência do computador através do terminal, mesmo por SSH e
 num espelho que controle. O Borg guarda também as últimas 20 cópias: Ctrl-V ou Shift-Insert cola
@@ -403,6 +409,15 @@ Escreva para restringir a lista, escolha com Up e Down e prima Enter para abrir 
 fixa a pasta escolhida nas favoritas, por isso Ctrl-\ seguido de Insert fixa a pasta onde está.
 F8 ou Delete retira uma pasta das favoritas ou das pastas recentes. Esc limpa o que escreveu e um
 segundo Esc fecha a janela. As favoritas guardam até 256 pastas.
+
+Alt-O ou **Comando → Mesma pasta no outro painel** abre a pasta do painel ativo no outro painel,
+para que ambos mostrem o mesmo sítio. A pasta ocupa o lugar da pré-visualização, das Informações ou
+dos ficheiros de um contentor ou de uma máquina remota nesse painel. Se o outro painel mostrava
+resultados de pesquisa ou uma coleção, Alt-Shift-R nesse painel volta a mostrá-los. A partir de
+resultados de pesquisa, Alt-O abre a pasta onde a pesquisa começou. Uma coleção não tem pasta
+própria, e as pastas de contentores e as remotas só abrem num painel, por isso nesses casos Alt-O
+mostra uma notificação, tal como acontece quando o outro painel tem um editor. Enquanto escreve um
+comando, Alt-O passa para a shell.
 
 As favoritas ficam guardadas em `config.toml`, na secção `[folders]`. O Borg lembra-se das últimas
 64 pastas que os painéis abriram, na sua pasta de estado, num ficheiro que só o utilizador pode

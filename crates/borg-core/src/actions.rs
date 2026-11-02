@@ -137,6 +137,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ExtractHere => files::extract(state, side, now),
         Action::ExtractToOther => files::extract(state, side.other(), now),
         Action::SwapPanels => panels::swap(state),
+        Action::SameFolder => panels::same_folder(state),
         Action::EqualizePanels => panels::set_split(state, EVEN_SPLIT, now),
         Action::NudgeSplit(columns) => panels::nudge_split(state, columns, now),
         Action::ToggleStatusLine => settings::preference(state, |prefs| prefs.status_line = !prefs.status_line),

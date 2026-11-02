@@ -1,9 +1,11 @@
 //! Moving in and between the panels, and how they are split, listed and sorted.
 
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
+
+use borg_i18n::tr;
 
 use super::{LINE_DOWN, LINE_UP, files::remote_view, shell::interactive};
-use crate::{AppState, Effect, ListingMode, Panel, Row, Side, Sort, SortKey, command::CommandLine, ops};
+use crate::{AppState, Effect, ListingMode, Panel, ResultSource, Row, Side, Sort, SortKey, command::CommandLine, ops};
 
 pub(super) fn moved(state: &mut AppState, motion: impl FnOnce(&mut Panel)) -> Vec<Effect> {
     motion(state.panel_mut(state.active));
@@ -120,6 +122,39 @@ pub(super) fn swap(state: &mut AppState) -> Vec<Effect> {
     }
     crate::editor::resize(state);
     if state.panels.iter().any(Panel::is_results) { state.reload_all() } else { Vec::new() }
+}
+
+/// Alt-O: opens the active panel's folder in the other panel, in place of the preview, a
+/// container's or a remote machine's files there. Search results give the folder the search
+/// started from.
+pub(super) fn same_folder(state: &mut AppState) -> Vec<Effect> {
+    let other = state.active.other();
+    let folder = match shown_folder(state.active_panel()) {
+        Ok(folder) => folder,
+        Err(notice) => {
+            state.notice = Some(notice.into());
+            return Vec::new();
+        }
+    };
+    if state.docked[other.index()].is_some() {
+        state.notice = Some(tr!(same_folder_beside_editor).into());
+        return Vec::new();
+    }
+    state.aside = None;
+    state.preview_focused = false;
+    crate::folders::open(state, other, folder)
+}
+
+/// The folder on this machine that a panel shows, or why it shows none.
+fn shown_folder(panel: &Panel) -> Result<PathBuf, &'static str> {
+    if panel.mount.is_some() || panel.remote_mount.is_some() {
+        return Err(tr!(same_folder_local_only));
+    }
+    match panel.results.as_ref().map(|results| &results.source) {
+        None => Ok(panel.destination().to_path_buf()),
+        Some(ResultSource::Search { request, .. }) => Ok(request.root.clone()),
+        Some(ResultSource::Collection(_)) => Err(tr!(same_folder_collection)),
+    }
 }
 
 /// Moves the split between the panels to `split`, the left panel's share of the width.
