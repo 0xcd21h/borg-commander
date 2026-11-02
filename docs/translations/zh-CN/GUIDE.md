@@ -36,7 +36,7 @@ brew install 0xcd21h/tap/borg-commander
 
 主题使用固定的颜色，因此自定义的终端调色板不会影响主题的外观。不支持真彩色的终端会使用 256 色调色板中最接近的颜色。
 
-每个文件都有图标。在 Ghostty 中，Borg 会自动使用更丰富的 Nerd Font 图标；其他终端默认使用通用符号：`/` 表示文件夹，`@` 表示链接，`*` 表示可执行文件。如果其他终端配置了合适的字体，可以设置 `icon-style = "nerd"` 来使用丰富图标；设置 `icon-style = "portable"` 则始终使用通用符号。默认值 `"auto"` 会根据终端自动适配，且不会把检测结果保存为你的字体偏好。
+每个文件都有图标。在内置这些图标的终端（Ghostty、kitty 和 WezTerm）中，Borg 会自动使用更丰富的 Nerd Font 图标；在你自己的计算机上，如果安装了 Nerd Font（例如 Borg Mono），会从其他已安装字体借用缺失字形的终端（Konsole、Alacritty、foot，以及 GNOME Terminal 等 VTE 终端）也会自动使用。其他终端默认使用通用符号：`/` 表示文件夹，`@` 表示链接，`*` 表示可执行文件。如果其他终端配置了合适的字体，可以设置 `icon-style = "nerd"` 来使用丰富图标；设置 `icon-style = "portable"` 则始终使用通用符号。默认值 `"auto"` 会根据终端自动适配，且不会把检测结果保存为你的字体偏好。
 
 发布压缩包中附带 **Borg Mono**，这是一款内置 Nerd Font 图标的等宽字体。从 `fonts/` 安装它的常规和粗体字形，在终端设置中选择 Borg Mono，然后选择 `"nerd"` 图标样式。Borg 无法替你更改终端字体。安装脚本会把字体放在 `${XDG_DATA_HOME:-~/.local/share}/borg-commander/fonts`；Homebrew 则放在 `$(brew --prefix)/share/borg-commander/fonts`。
 
@@ -388,7 +388,7 @@ Alt-E 在当前面板内用 Borg 的编辑器打开所选文件，取代该面�
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
-icon-style = "auto"         # auto, nerd, or portable; Ghostty gets rich icons automatically
+icon-style = "auto"         # auto, nerd, or portable; auto finds rich icons where it can
 icon-spacing = 1            # spaces after an icon, 1 to 3
 status-line = true
 menu-bar = false            # keep the menu bar visible

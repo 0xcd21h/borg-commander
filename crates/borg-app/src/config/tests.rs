@@ -70,36 +70,38 @@ fn old_switches_are_ignored_and_new_defaults_are_saved() {
     assert!(saved.contains("icon-style = \"auto\""));
 }
 
+fn undetected() -> bool {
+    panic!("an explicit icon style must not look at the terminal")
+}
+
 #[test]
 fn automatic_icons_follow_the_terminal() {
     let config = Config::default();
-    assert!(config.preferences_for_terminal(Some("ghostty"), Some("xterm-256color")).nerd_font);
-    assert!(config.preferences_for_terminal(None, Some("xterm-ghostty")).nerd_font);
-    assert!(!config.preferences_for_terminal(Some("Apple_Terminal"), Some("xterm-256color")).nerd_font);
-    assert!(!config.preferences_for_terminal(None, Some("xterm-256color")).nerd_font);
+    assert!(config.preferences_for_terminal(|| true).nerd_font);
+    assert!(!config.preferences_for_terminal(|| false).nerd_font);
 }
 
 #[test]
 fn saved_fallback_migrates_to_auto_without_locking_icons_to_one_terminal() {
     let config: Config = toml::from_str("nerd-font = false\n").unwrap();
-    let ghostty = config.preferences_for_terminal(Some("ghostty"), None);
-    assert!(ghostty.nerd_font);
-    let saved = toml::to_string(&config.capture(None, &ghostty, &[])).unwrap();
+    let rich = config.preferences_for_terminal(|| true);
+    assert!(rich.nerd_font);
+    let saved = toml::to_string(&config.capture(None, &rich, &[])).unwrap();
     assert!(!saved.contains("nerd-font"));
     let reloaded: Config = toml::from_str(&saved).unwrap();
     assert_eq!(reloaded.icon_style, Some(IconStyle::Auto));
-    assert!(reloaded.preferences_for_terminal(Some("ghostty"), None).nerd_font);
-    assert!(!reloaded.preferences_for_terminal(Some("Apple_Terminal"), None).nerd_font);
+    assert!(reloaded.preferences_for_terminal(|| true).nerd_font);
+    assert!(!reloaded.preferences_for_terminal(|| false).nerd_font);
 }
 
 #[test]
 fn explicit_icon_style_overrides_terminal_detection() {
     let portable: Config = toml::from_str("icon-style = \"portable\"\n").unwrap();
-    assert!(!portable.preferences_for_terminal(Some("ghostty"), None).nerd_font);
+    assert!(!portable.preferences_for_terminal(undetected).nerd_font);
     let nerd: Config = toml::from_str("icon-style = \"nerd\"\n").unwrap();
-    assert!(nerd.preferences_for_terminal(Some("Apple_Terminal"), None).nerd_font);
+    assert!(nerd.preferences_for_terminal(undetected).nerd_font);
     let legacy: Config = toml::from_str("nerd-font = true\n").unwrap();
-    let prefs = legacy.preferences_for_terminal(Some("Apple_Terminal"), None);
+    let prefs = legacy.preferences_for_terminal(undetected);
     assert!(prefs.nerd_font);
     assert_eq!(legacy.capture(None, &prefs, &[]).icon_style, Some(IconStyle::Nerd));
 }

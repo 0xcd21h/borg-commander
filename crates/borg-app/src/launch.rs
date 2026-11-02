@@ -8,17 +8,16 @@ use std::{
 use anyhow::{Context, Result, bail};
 use borg_core::{Motion, Settings, Startup};
 use borg_gfx::{Capabilities, Hints, Preference, TerminalColors, probe};
-use borg_ui::ThemeSet;
+use borg_ui::{ESSENTIAL_ICONS, ThemeSet};
 
 use crate::{
     config::{Config, ConfigDir},
     session::StateDir,
+    terminal_icons,
 };
 
 const ENV_HOME: &str = "HOME";
 const ENV_COLORTERM: &str = "COLORTERM";
-const ENV_TERM_PROGRAM: &str = "TERM_PROGRAM";
-const ENV_TERM: &str = "TERM";
 const ENV_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
 const ENV_SSH: [&str; 2] = ["SSH_CONNECTION", "SSH_TTY"];
 const TRUECOLOR_MARKERS: [&str; 2] = ["truecolor", "24bit"];
@@ -73,10 +72,9 @@ impl Launch {
         let mut settings = Settings {
             motion: motion(),
             truecolor: truecolor(),
-            preferences: config.preferences_for_terminal(
-                env::var(ENV_TERM_PROGRAM).ok().as_deref(),
-                env::var(ENV_TERM).ok().as_deref(),
-            ),
+            preferences: config.preferences_for_terminal(|| {
+                terminal_icons::drawable(|name| env::var(name).ok(), || terminal_icons::installed(&ESSENTIAL_ICONS))
+            }),
             screensaver_after: config.screensaver_after().unwrap_or(defaults.screensaver_after),
             search: config.search(),
             index_roots: config.index_roots(),
