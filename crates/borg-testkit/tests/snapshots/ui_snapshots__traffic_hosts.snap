@@ -35,7 +35,7 @@ expression: describe(&buffer)
 203.0.113.80 · cdn.example.net
 $
 Enter Connections  / Filter  Tab Details  Esc Back
-Ctrl-C Copy address · Alt-W Maximize                                                                        ◈ Borg Commander v0.9.4
+Ctrl-C Copy address · Alt-W Maximize                                                                        ◈ Borg Commander v0.9.5
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-40 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 41-57 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 58-60 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 61-61 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 62-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-83 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 84-123 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-13 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 14-22 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 23-48 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 49-64 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-130 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE

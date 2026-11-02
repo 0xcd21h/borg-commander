@@ -34,6 +34,11 @@ Dev builds carry line tables only: panics and backtraces still name the file and
 variables in lldb. Cargo keeps every old build in `target/`, so run `cargo clean` from time to
 time.
 
+The regex crates (`regex-automata`, `regex-syntax` and `fancy-regex`) build optimized in dev
+builds too. Syntax coloring compiles its patterns the first time a file needs them, while the
+screen waits, and unoptimized code makes that wait long enough to stall end-to-end tests on a
+busy machine.
+
 ## How the code is organised
 
 ```

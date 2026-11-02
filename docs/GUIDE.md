@@ -255,7 +255,7 @@ click both rows. Notices replace the second row for a moment.
 | Ctrl-L | Info: show size, permissions, owner, dates and free space in the other panel |
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
-| Alt-Enter | Put the marked names (or the current one) on the command line |
+| Alt-Enter | Put the marked names (or the current one) on the command line; on `..`, the parent folder's path |
 | Ctrl-Insert / Alt-Shift-Insert | Copy the marked names / their full paths |
 | Shift-Enter, Ctrl-J | Insert a line break at the cursor on the command line; Enter runs the command, Ctrl-C clears it |
 | Alt-A / Alt-Shift-A | Put the path of this panel's / the other panel's folder on the command line |
@@ -267,6 +267,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-H | Remote hosts: paired machines and their sessions |
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
+| Alt-O | Open this panel's folder in the other panel |
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
@@ -290,6 +291,10 @@ command. Multi-line commands, typed or recalled from history, make the prompt ar
 the panels shorter, so the cursor always stays visible. All of your shell's usual editing and
 completion keys keep working.
 
+Alt-Enter types names as the shell sees them from the panel's folder. On `..` it types the full path
+of the parent folder, because the parent's name alone would point inside the current folder. In
+search results and collections it types full paths, since their files come from different folders.
+
 Copies reach your computer's clipboard through the terminal, even over SSH and in a mirror you
 control. Borg also remembers your last 20 copies: Ctrl-V or Shift-Insert pastes the latest one
 into Borg's own fields, such as dialogs and the memory search, even where the terminal cannot
@@ -304,9 +309,10 @@ open (a notice, results, the quick view or Info), the first Esc closes it, and a
 cancels. Alt-1 to Alt-0 work too when the terminal passes Alt through. On macOS, you may need to
 turn on "Use Option as Meta key" in your terminal.
 
-Hotkeys work with a Russian, Ukrainian, or Belarusian keyboard layout too. A Cyrillic letter held
-with Ctrl or Alt counts as the key in the same place on a US keyboard, and so does a letter
-pressed in a screen or dialog that is not waiting for text. With the Russian layout on, Alt-M
+Hotkeys work with non-Latin keyboard layouts too: Russian, Ukrainian, Belarusian, Kazakh, Greek,
+Hebrew, Arabic, Georgian, Korean, and Thai. A letter of such a layout held with Ctrl or Alt counts
+as the key in the same place on a US keyboard, and so does a letter pressed in a screen or dialog
+that is not waiting for text. With the Russian layout on, Alt-M
 opens the activity monitor and Ctrl-C reaches the shell. The command line, the editor, and Borg's
 fields keep the letters you type. Questions with Yes and No buttons answer to Y and N in every
 language and to the first letter of each button in Borg's language, such as S for Sí in Spanish.
@@ -368,6 +374,14 @@ Type to narrow it, choose with Up and Down, and press Enter to open the folder. 
 chosen folder to the hotlist, so Ctrl-\ followed by Insert pins the folder you are in. F8 or
 Delete takes a folder off the hotlist, or out of the recent folders. Esc clears what you typed,
 and a second Esc closes the window. The hotlist holds up to 256 folders.
+
+Alt-O or **Command → Same folder in other panel** opens the active panel's folder in the other
+panel, so both show the same place. The folder takes the place of the quick view, Info, or a
+container's or remote machine's files there. If the other panel showed search results or a
+collection, Alt-Shift-R there brings them back. From search results, Alt-O opens the folder the
+search started from. A collection has no folder of its own, and container and remote folders open in
+one panel only, so in those Alt-O shows a notice, as it does while the other panel holds an editor.
+While you type a command, Alt-O goes to the shell.
 
 The hotlist is saved in `config.toml` under `[folders]`. Borg remembers the last 64 folders the
 panels opened in its state folder, in a file only you can read. Set `history = false` under

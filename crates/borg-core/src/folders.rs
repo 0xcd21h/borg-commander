@@ -401,7 +401,7 @@ fn take_folder(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
     state.shell.clear_line();
     state.shell.observed.line = TypedLine::default();
     let mut effects = vec![Effect::Write(CLEAR_LINE.to_vec())];
-    effects.extend(open(state, dir));
+    effects.extend(open(state, state.active, dir));
     effects
 }
 
@@ -473,7 +473,7 @@ pub(crate) fn dialog_key(state: &mut AppState, mut dialog: FoldersDialog, key: &
         KeyCode::Enter => {
             let Some(choice) = chosen else { return keep(state, dialog) };
             state.overlay = None;
-            return open(state, choice.path);
+            return open(state, state.active, choice.path);
         }
         KeyCode::Insert => match chosen.filter(|choice| !choice.pinned) {
             Some(choice) if state.folders.pin(&choice.path) => {
@@ -513,9 +513,8 @@ fn keep(state: &mut AppState, dialog: FoldersDialog) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Opens `dir` in the active panel, leaving a container's or a remote machine's files first.
-fn open(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
-    let side = state.active;
+/// Opens `dir` in the panel on `side`, leaving a container's or a remote machine's files first.
+pub(crate) fn open(state: &mut AppState, side: Side, dir: PathBuf) -> Vec<Effect> {
     crate::remote::unmount(state, side);
     state.panel_mut(side).mount = None;
     vec![state.navigate(side, dir, None)]

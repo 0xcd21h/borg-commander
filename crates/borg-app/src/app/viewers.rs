@@ -67,13 +67,17 @@ impl App {
         }
     }
 
-    pub(super) fn open_viewer(&self, path: PathBuf) {
+    /// Loads `path` for the viewer on a thread of its own, landed on `at` when a contents search
+    /// found it there, so that the event loop goes on drawing and reading keys while the page is
+    /// coloured.
+    pub(super) fn open_viewer(&self, path: PathBuf, at: Option<borg_core::FirstMatch>) {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
         let cell = self.graphics.capabilities().cell;
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let content = crate::document::open(
+            let content = crate::document::open_on(
                 &path,
+                at.as_ref(),
                 (width, height),
                 (cell.width, cell.height),
                 Arc::new(AtomicBool::new(false)),
