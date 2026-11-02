@@ -1411,6 +1411,8 @@ para cada forma de a ver:
   divide-se em vezes, cada uma com uma seta que indica o sentido, os bytes que contém e a hora a que
   chegou. Quando faltam na captura bytes antes de uma vez, essa vez indica quantos faltam. **]** e
   **[** saltam para a vez seguinte e para a anterior, e Enter mostra os pacotes da conversa um a um.
+  Quando o Borg tem as chaves TLS da ligação, o fluxo mostra o que os seus registos encriptados
+  transportavam (consulte [Desencriptar TLS](#decrypting-tls)).
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
@@ -1477,6 +1479,41 @@ não consegue capturar como administrador** e o motivo indicado pelo sistema. Qu
 é executado como root, nunca pergunta, e no macOS as suas capturas trazem sempre o processo de
 cada pacote. Onde o Borg não pode perguntar, a captura termina com **Sem permissão para capturar
 em** e o nome da interface.
+
+### Desencriptar TLS
+
+Quando o Borg tem as chaves de uma ligação TLS, o fluxo dela em **3 Ligações** mostra o que os
+registos encriptados transportavam, como um pedido HTTP e a respetiva resposta, e o cabeçalho do
+fluxo termina em **desencriptado**. Nada se interpõe entre o programa e o servidor, por isso isto
+também funciona com programas que fixam os seus certificados.
+
+As chaves vêm de um ficheiro de chaves TLS, o ficheiro que os browsers, o curl, o Python e muitos
+outros programas escrevem quando a variável de ambiente `SSLKEYLOGFILE` indica um. A tecla F3
+procura chaves em dois sítios:
+
+- Um bloco de segredos de desencriptação dentro de um ficheiro `.pcapng`, onde o Wireshark também
+  as guarda.
+- Um ficheiro de chaves ao lado da captura, com o mesmo nome e a extensão `.keylog`, como
+  `capture-20260101-120000.keylog` ao lado de `capture-20260101-120000.pcap`.
+
+Para desencriptar o tráfego de um programa, inicie uma captura com **R**, execute o programa com a
+variável definida e, quando a captura estiver guardada, mude o nome do ficheiro de chaves para que
+coincida com o da captura:
+
+```sh
+SSLKEYLOGFILE=~/tls.keylog curl https://example.com
+```
+
+O Borg abre registos TLS 1.3 e TLS 1.2 cifrados com AES-128-GCM, AES-256-GCM ou
+ChaCha20-Poly1305, as cifras que os browsers e os servidores atuais acordam entre si. Um registo que
+nenhuma chave abre mantém os bytes encriptados, e a sua vez indica **ainda encriptado**. Isso
+acontece quando faltam ao ficheiro de chaves algumas chaves da ligação, e depois de bytes que faltam
+na captura, porque o Borg não consegue saber onde começa o registo seguinte. O tráfego QUIC continua
+encriptado.
+
+Um ficheiro de chaves desencripta todas as ligações para as quais tem chaves, incluindo
+palavras-passe, cookies e tokens. Torne-o legível só por si com `chmod 600`, guarde-o com o mesmo
+cuidado que a captura e apague ambos quando terminar.
 
 ### O que o sistema indica
 

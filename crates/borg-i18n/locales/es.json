@@ -1093,6 +1093,8 @@
   "traffic_stream_heading": "Flujo",
   "traffic_missing": "faltan antes de este: {size}",
   "traffic_no_data": "Los paquetes no llevan datos",
+  "traffic_decrypted": "descifrado",
+  "traffic_still_encrypted": "aún cifrado",
   "capture_title": " Capturar tráfico ",
   "capture_keys": " Enter Iniciar · ←→ Cambiar · Esc Cancelar ",
   "capture_scope_field": "Tráfico",

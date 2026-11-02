@@ -2,18 +2,25 @@
 //! reads, and put together into the conversations they belong to.
 
 use borg_i18n::tr;
-use std::{collections::HashMap, net::IpAddr, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+    time::Duration,
+};
 
 mod apps;
 mod decode;
 mod files;
 mod flows;
+mod keylog;
 mod stream;
+mod tls;
 
 pub use apps::{App, Dns, DnsAnswer, DnsData, Http, dns_type};
 pub use decode::{ACK, CWR, Datagram, ECE, FIN, Ip, Layers, Link, PSH, RST, SYN, Tcp, URG};
-pub use files::PcapCounter;
+pub use files::{PcapCounter, with_secrets};
 pub use flows::{Flow, FlowKind};
+pub use keylog::KeyLog;
 pub use stream::{Stream, StreamRow, Turn};
 
 /// The most packets Borg reads from one capture; the rest are counted and left out.
@@ -260,6 +267,8 @@ pub struct Capture {
     pub skipped: usize,
     /// The file ends inside a packet.
     pub cut: bool,
+    /// The TLS secrets the file holds, and those added from a key log beside it.
+    pub keys: KeyLog,
 }
 
 impl Capture {
@@ -281,7 +290,28 @@ impl Capture {
             .collect();
         let flows = flows::group(&mut packets);
         let names = flows::names(&packets);
-        Ok(Self { packets, flows, names, processes: found.processes, skipped: found.skipped, cut: found.cut })
+        let keys = found.secrets.iter().fold(KeyLog::default(), |mut keys, text| {
+            keys.add(text);
+            keys
+        });
+        Ok(Self { packets, flows, names, processes: found.processes, skipped: found.skipped, cut: found.cut, keys })
+    }
+
+    /// Adds the secrets of a TLS key log's text.
+    pub fn add_keys(&mut self, text: &str) {
+        self.keys.add(text);
+    }
+
+    /// The lines of a TLS key log's text for the connections whose ClientHello the capture
+    /// holds.
+    pub fn keys_for(&self, text: &str) -> String {
+        let randoms: HashSet<keylog::Random> = self
+            .packets
+            .iter()
+            .filter(|packet| matches!(packet.layers.datagram, Some(Datagram::Tcp(_))))
+            .filter_map(|packet| tls::client_random(packet.payload()))
+            .collect();
+        keylog::lines_for(text, &randoms)
     }
 
     /// When the first packet was captured.

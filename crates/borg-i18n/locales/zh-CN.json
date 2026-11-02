@@ -1093,6 +1093,8 @@
   "traffic_stream_heading": "数据流",
   "traffic_missing": "之前缺失：{size}",
   "traffic_no_data": "数据包中没有数据",
+  "traffic_decrypted": "已解密",
+  "traffic_still_encrypted": "仍是密文",
   "capture_title": " 抓取流量 ",
   "capture_keys": " Enter 开始 · ←→ 更改 · Esc 取消 ",
   "capture_scope_field": "流量",

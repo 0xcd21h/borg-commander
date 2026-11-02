@@ -51,3 +51,14 @@ fn a_capture_with_processes_reads_pktap_and_saves_pcapng() {
     assert!(file_name(&tagged).starts_with(FILE_PREFIX) && file_name(&tagged).ends_with(".pcapng"));
     assert!(file_name(&request("")).ends_with(".pcap"));
 }
+
+#[test]
+fn a_capture_opens_with_the_key_log_named_after_it() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("capture-20260101-120000.pcap");
+    std::fs::write(&path, borg_testkit::capture::bytes()).unwrap();
+    assert!(read_capture(&path).unwrap().keys.is_empty());
+    let line = format!("CLIENT_RANDOM {} {}\n", "5a".repeat(32), "01".repeat(48));
+    std::fs::write(path.with_extension(KEY_LOG_EXTENSION), line).unwrap();
+    assert_eq!(read_capture(&path).unwrap().keys.len(), 1);
+}

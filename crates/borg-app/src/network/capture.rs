@@ -1,6 +1,6 @@
 //! Captures packets with the installed tcpdump into a pcap file in the folder the network
 //! screen covers, or the one an agent names, as you or as administrator through Borg's helper,
-//! and reads capture files for the traffic viewer.
+//! and reads capture files for the traffic viewer, with the TLS key log beside them.
 
 use super::Sampler;
 use borg_core::{
@@ -40,6 +40,8 @@ pub(crate) const SIZE_LIMIT: u64 = 256 * 1024 * 1024;
 const READ_LIMIT: u64 = SIZE_LIMIT;
 const FILE_MODE: u32 = 0o600;
 const FILE_PREFIX: &str = "capture-";
+/// The extension of the TLS key log beside a capture, named after it.
+const KEY_LOG_EXTENSION: &str = "keylog";
 const STAMP_FORMAT: &str = "%Y%m%d-%H%M%S";
 /// What tcpdump's own messages start with.
 const MESSAGE_PREFIX: &str = "tcpdump: ";
@@ -157,7 +159,18 @@ fn read_file(path: &Path) -> Result<Capture, String> {
         return Err(tr!(capture_too_large, limit = borg_ui::size_text(READ_LIMIT)));
     }
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
-    Capture::read(&bytes).map_err(|error| error.describe().to_owned())
+    let mut capture = Capture::read(&bytes).map_err(|error| error.describe().to_owned())?;
+    if let Some(text) = key_log_beside(path) {
+        capture.add_keys(&text);
+    }
+    Ok(capture)
+}
+
+/// The TLS key log beside a capture and named after it, when there is one Borg can read.
+fn key_log_beside(path: &Path) -> Option<String> {
+    let keys = path.with_extension(KEY_LOG_EXTENSION);
+    let small = std::fs::metadata(&keys).ok()?.len() <= READ_LIMIT;
+    small.then(|| std::fs::read_to_string(&keys).ok()).flatten()
 }
 
 /// What tcpdump is asked to capture, the same whether Borg runs it or its helper does.

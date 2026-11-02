@@ -230,11 +230,14 @@ impl TrafficView {
     }
 
     /// Puts together the bytes of the conversation under the connections' cursor, when it moved
-    /// to another.
+    /// to another, opening its TLS records when the capture has their keys.
     fn follow(&mut self) {
         let selected = self.flows.get(self.cursors[TrafficPage::Connections.index()]).copied();
         if self.stream.as_ref().map(|(index, _)| *index) != selected {
-            self.stream = selected.map(|index| (index, Stream::of(&self.capture.flows[index], &self.capture.packets)));
+            self.stream = selected.map(|index| {
+                let stream = Stream::of(&self.capture.flows[index], &self.capture.packets);
+                (index, stream.decrypted(&self.capture.keys).unwrap_or(stream))
+            });
         }
     }
 

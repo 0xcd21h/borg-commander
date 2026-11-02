@@ -147,8 +147,8 @@ pub use network::{
 
 pub use capture::{
     ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, HexLayout, Http,
-    Ip, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type,
-    hex_lines,
+    Ip, KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG,
+    dns_type, hex_lines, with_secrets,
 };
 
 pub use measure::SizeScan;

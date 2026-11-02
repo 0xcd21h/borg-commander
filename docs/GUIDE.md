@@ -1304,7 +1304,9 @@ way to look at it:
   counted once, as a hex dump with the bytes that print as text beside them. The stream comes in
   turns, each with an arrow for its direction, the bytes it holds and when it came. When the
   capture lacks bytes before a turn, the turn says how many are missing. **]** and **[** jump to
-  the next and previous turn, and Enter shows the conversation's packets one by one.
+  the next and previous turn, and Enter shows the conversation's packets one by one. When Borg
+  has the connection's TLS keys, the stream shows what its encrypted records carried (see
+  [Decrypting TLS](#decrypting-tls)).
 - **4 Packets** shows every packet in order with its time from the start, protocol, length and a
   summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
   its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
@@ -1366,6 +1368,37 @@ there is no desktop to show the dialog, so the capture ends with **Borg cannot c
 administrator** and the system's reason. When Borg itself runs as root, it never asks, and on
 macOS its captures always carry each packet's process. Where Borg cannot ask at all, the capture
 ends with **No permission to capture on** and the interface's name.
+
+### Decrypting TLS
+
+When Borg has the keys of a TLS connection, its stream on **3 Connections** shows what the
+encrypted records carried, such as an HTTP request and its answer, and the stream's heading ends
+in **decrypted**. Nothing sits between the program and the server, so this works for programs that
+pin their certificates too.
+
+The keys come from a TLS key log, the file that browsers, curl, Python and many other programs
+write when the `SSLKEYLOGFILE` environment variable names one. F3 finds keys in two places:
+
+- A decryption secrets block inside a `.pcapng` file, where Wireshark keeps them too.
+- A key log beside the capture with the same name and the `.keylog` extension, such as
+  `capture-20260101-120000.keylog` next to `capture-20260101-120000.pcap`.
+
+To decrypt a program's traffic, start a capture with **R**, run the program with the variable set,
+and once the capture is saved, rename the key log so its name matches the capture's:
+
+```sh
+SSLKEYLOGFILE=~/tls.keylog curl https://example.com
+```
+
+Borg opens TLS 1.3 and TLS 1.2 records sealed with AES-128-GCM, AES-256-GCM or
+ChaCha20-Poly1305, the ciphers browsers and current servers agree on. A record that no key opens
+keeps its encrypted bytes, and its turn says **still encrypted**. That happens when the key log
+lacks some of the connection's keys, and after bytes the capture lacks, because Borg cannot tell
+where the next record starts. QUIC traffic stays encrypted.
+
+A key log decrypts every connection it has keys for, passwords, cookies and tokens included. Make
+it readable only by you with `chmod 600`, keep it as safe as the capture, and delete both when you
+are done.
 
 ### What the system reports
 

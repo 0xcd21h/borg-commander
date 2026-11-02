@@ -3125,6 +3125,26 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     Ok(())
 }
 
+/// A capture that holds the TLS keys of its connections opens decrypted: the connection's
+/// stream shows the request and the answer the records carried, and marks the record no key
+/// opens.
+#[test]
+fn traffic_shows_a_tls_connection_decrypted_with_its_keys() -> Result<()> {
+    use borg_core::Capture;
+    let mut stage = stage(GridSize { cols: 132, rows: 58 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    let capture =
+        Capture::read(&borg_testkit::capture::decryptable()).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcapng");
+    stage.send(Msg::CaptureOpened { path, result: Ok(capture) }).send(key(KeyCode::Char('3')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, " · decrypted")?;
+    ensure_text(&buffer, "GET /api")?;
+    ensure_text(&buffer, "HTTP/1.1")?;
+    ensure_text(&buffer, " · still encrypted")?;
+    check("traffic_decrypted_stream", &stage, buffer)
+}
+
 /// Where Borg can ask the system for an administrator, the capture dialog offers **Run as**. A
 /// capture refused as the user asks to run as administrator; yes waits for the system's
 /// password dialog, and the pcapng it saves names each packet's process, even a process that

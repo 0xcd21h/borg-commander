@@ -1105,6 +1105,8 @@ catalog! {
     traffic_stream_heading => "Stream",
     traffic_missing => "missing before it: {size}",
     traffic_no_data => "The packets carry no data",
+    traffic_decrypted => "decrypted",
+    traffic_still_encrypted => "still encrypted",
     capture_title => " Capture traffic ",
     capture_keys => " Enter Start · ←→ Change · Esc Cancel ",
     capture_scope_field => "Traffic",

@@ -1417,7 +1417,9 @@ para cada forma de mirarla:
   imprimen como texto al lado. El flujo se divide en turnos, cada uno con una flecha que indica su
   sentido, los bytes que contiene y cuándo llegó. Cuando a la captura le faltan bytes antes de un
   turno, ese turno dice cuántos faltan. **]** y **[** saltan al turno siguiente y al anterior, y
-  Enter muestra los paquetes de la conversación uno a uno.
+  Enter muestra los paquetes de la conversación uno a uno. Cuando Borg tiene las claves TLS de la
+  conexión, el flujo muestra lo que llevaban sus registros cifrados (consulta
+  [Descifrar TLS](#decrypting-tls)).
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
   detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y
@@ -1482,6 +1484,41 @@ administrador** y el motivo del sistema. Cuando el propio Borg se ejecuta como r
 pregunta, y en macOS sus capturas siempre llevan el proceso de cada paquete. Donde Borg no puede
 preguntar, la captura termina con **No tienes permiso para capturar en** y el nombre de la
 interfaz.
+
+### Descifrar TLS
+
+Cuando Borg tiene las claves de una conexión TLS, su flujo en **3 Conexiones** muestra lo que
+llevaban los registros cifrados, como una petición HTTP y su respuesta, y el encabezado del flujo
+termina en **descifrado**. Nada se interpone entre el programa y el servidor, así que esto también
+funciona con programas que fijan sus certificados.
+
+Las claves salen de un archivo de claves TLS, el que escriben los navegadores, curl, Python y muchos
+otros programas cuando la variable de entorno `SSLKEYLOGFILE` nombra uno. F3 busca claves en dos
+sitios:
+
+- Un bloque de secretos de descifrado dentro de un archivo `.pcapng`, donde Wireshark también las
+  guarda.
+- Un archivo de claves junto a la captura, con el mismo nombre y la extensión `.keylog`, como
+  `capture-20260101-120000.keylog` junto a `capture-20260101-120000.pcap`.
+
+Para descifrar el tráfico de un programa, inicia una captura con **R**, ejecuta el programa con la
+variable definida y, cuando la captura se haya guardado, cambia el nombre del archivo de claves para
+que coincida con el de la captura:
+
+```sh
+SSLKEYLOGFILE=~/tls.keylog curl https://example.com
+```
+
+Borg abre registros de TLS 1.3 y TLS 1.2 cifrados con AES-128-GCM, AES-256-GCM o
+ChaCha20-Poly1305, los cifrados que acuerdan los navegadores y los servidores actuales. Un registro
+que ninguna clave abre conserva sus bytes cifrados, y su turno dice **aún cifrado**. Eso pasa cuando
+al archivo de claves le faltan algunas claves de la conexión, y después de bytes que faltan en la
+captura, porque Borg no puede saber dónde empieza el registro siguiente. El tráfico QUIC sigue
+cifrado.
+
+Un archivo de claves descifra todas las conexiones de las que tiene claves, con contraseñas, cookies
+y tokens incluidos. Haz que solo tú puedas leerlo con `chmod 600`, guárdalo con el mismo cuidado que
+la captura y borra los dos cuando termines.
 
 ### Lo que informa el sistema
 

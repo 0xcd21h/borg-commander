@@ -1093,6 +1093,8 @@
   "traffic_stream_heading": "Поток",
   "traffic_missing": "перед ней пропущено: {size}",
   "traffic_no_data": "Пакеты не несут данных",
+  "traffic_decrypted": "расшифрован",
+  "traffic_still_encrypted": "всё ещё зашифровано",
   "capture_title": " Захват трафика ",
   "capture_keys": " Enter Начать · ←→ Изменить · Esc Отмена ",
   "capture_scope_field": "Трафик",
