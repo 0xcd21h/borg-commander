@@ -641,8 +641,36 @@ The agent can also search a process's memory the same way the memory search does
 indicators, text, or bytes. Memory can hold passwords, keys, and private messages, and whatever
 the search finds goes to the agent, so the first search of each process waits for your approval
 in a dialog that names the process, its program, and the search. Once you approve, the agent can
-search that process again until borg quits. It can ask to read as administrator, which opens the
-system's own password prompt.
+search and scan that process again until borg quits. It can ask to read as administrator, which
+opens the system's own password prompt.
+
+The agent can also scan with YARA rules and check code integrity, as **Rule matches** in the
+Ctrl-F dialog and **Y** and **I** in the memory map do (see
+[Scanning files with rules](#scanning-files-with-rules), [Code integrity check](#code-integrity-check)
+and [Scanning memory with rules](#scanning-memory-with-rules)). A file or folder on the machine
+borg runs on is scanned without asking, the same as a read. A folder scan reads every file below
+the folder on the same file system, hidden files included. It leaves files over 64 MiB unread and
+stops after 20,000 files, 2,000 matches or 45 seconds. Files in containers are not scanned.
+
+A process is different, because the scan reads its memory. The first scan of each process waits
+for you in **Remote wants to scan process memory**, which names the process, its program and the
+checks: the integrity check, the rules, or both. One approval covers scans and memory searches of
+that process until borg quits, whichever the agent asked for first. Each check stops after 45
+seconds, 1 GiB of memory or 2,000 findings. The agent can ask to read as administrator, which
+opens the system's own password prompt once for both checks.
+
+The rules are Borg's and those in your rules folder, unless the agent brings its own rule text of
+up to 64 KiB. That way it can draft a rule from what it found, try it on a folder or a process,
+and refine it. Its text runs alone, without Borg's rules or yours, cannot use `include`, and is
+never saved. Text that does not compile goes back to the agent with the compiler's message, before
+any dialog. For a process, the dialog shows the agent's rule text below the checks, so you see
+what it looks for.
+
+The agent gets each finding, worst first, with its severity, its kind, the rule and where it comes
+from, the file and offset or the address and memory region, up to 64 bytes of what matched as text
+or hex, and what else could explain it. Then come how much was read, what could not be read,
+whether the scan finished, and the rule files left out. Evidence goes to the agent as found, keys
+and tokens included, as with the memory search.
 
 The agent can also capture traffic as **R** does on the network screen (see
 [Capturing traffic](#capturing-traffic)). It names what to record: a port, one connection, a
@@ -667,8 +695,8 @@ quits. Other files show their conversations under **Unknown process**, unless th
 carry their process.
 
 While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it to
-see a log of what the agent did: what it looked at, read, showed, and typed, and every command and
-change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
+see a log of what the agent did: what it looked at, read, scanned, showed, and typed, and every
+command and change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
 at all, turn it off in Options → Plugins.
 
 ### Borg cloud

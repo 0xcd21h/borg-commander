@@ -1,14 +1,19 @@
 //! Reading a process's memory: a region's snapshot, its page census, integrity checks and searches.
 
-use super::helper::elevate;
+use super::helper::{elevate, elevate_scan};
 use super::{CANCEL_POLL, FILE_STRINGS_TIME, PAGE, SEEK_LIMIT, identify, process_files, quick_maps, regions, verify};
-use crate::{memory_search::Query, memory_strings::Known};
+use crate::{
+    memory_search::Query,
+    memory_strings::Known,
+    rule_scan::{MemoryScan, RuleSet},
+};
 use anyhow::{Context, Result, bail};
 use borg_core::{
     ActivityData, ActivityRequest, IntegrityReport, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, ProcessKey,
-    RulesReport, SNAPSHOT_LIMIT,
+    SNAPSHOT_LIMIT,
 };
 use borg_i18n::tr;
+use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
     sync::{
@@ -40,6 +45,51 @@ pub(crate) async fn search_for_agent(
         ActivityData::Search(report) => Ok(report),
         _ => bail!(tr!(activity_request_invalid)),
     }
+}
+
+/// What an agent asks to check in a process: its integrity, rules, or both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanRequest {
+    pub process: ProcessKey,
+    pub integrity: bool,
+    pub rules: Option<RuleSet>,
+}
+
+/// What a scan of a process found, for each check that ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessScan {
+    pub integrity: Option<IntegrityReport>,
+    pub rules: Option<MemoryScan>,
+}
+
+/// Scans a process for an agent: as this user, or as administrator through the system's own
+/// password prompt, which asks once for every check.
+pub(crate) async fn scan_for_agent(
+    request: ScanRequest,
+    admin: bool,
+    cancelled: Arc<AtomicBool>,
+) -> Result<ProcessScan> {
+    if admin {
+        return tokio::select! {
+            result = elevate_scan(&request) => result,
+            () = wait_cancelled(&cancelled) => bail!(tr!(memory_search_stopped)),
+        };
+    }
+    scan_process(request, cancelled).await
+}
+
+/// Runs the checks `request` asks for side by side.
+pub(super) async fn scan_process(request: ScanRequest, cancelled: Arc<AtomicBool>) -> Result<ProcessScan> {
+    let ScanRequest { process, integrity: check, rules } = request;
+    let checked = async { if check { integrity(process, cancelled.clone(), None).await.map(Some) } else { Ok(None) } };
+    let scanned = async {
+        match rules {
+            Some(rules) => scan_with_rules(process, rules, cancelled.clone(), None).await.map(Some),
+            None => Ok(None),
+        }
+    };
+    let (integrity, rules) = tokio::try_join!(checked, scanned)?;
+    Ok(ProcessScan { integrity, rules })
 }
 
 /// A process opened for reading its memory. On macOS a failed open or read carries no reason
@@ -191,17 +241,17 @@ pub(super) async fn integrity(
     .await?
 }
 
-/// Scans the memory the process filled with Borg's rules and those in `folder`; see `rule_scan`.
+/// Scans the memory the process filled with `rules`; see `rule_scan`.
 pub(super) async fn scan_with_rules(
     process: ProcessKey,
-    folder: Option<PathBuf>,
+    rules: RuleSet,
     cancelled: Arc<AtomicBool>,
     messages: Option<(u64, UnboundedSender<Msg>)>,
-) -> Result<RulesReport> {
+) -> Result<MemoryScan> {
     let maps = regions(process).await?;
     tokio::task::spawn_blocking(move || {
         verify(process)?;
-        let rules = crate::rule_scan::compile(folder.as_deref());
+        let rules = rules.compile()?;
         let program = crate::integrity::facts(process.pid).program.map(|(path, _)| path).unwrap_or_default();
         let access = crate::integrity::Live::open(process);
         let progress = |scanned, total, findings| {
@@ -251,8 +301,8 @@ pub(super) async fn inspect(
             Ok(ActivityData::Integrity(integrity(process, cancelled, messages).await?))
         }
         ActivityRequest::Rules { process, .. } => {
-            let folder = crate::rule_scan::folder();
-            Ok(ActivityData::Rules(scan_with_rules(process, folder, cancelled, messages).await?))
+            let rules = RuleSet::Installed { folder: crate::rule_scan::folder() };
+            Ok(ActivityData::Rules(scan_with_rules(process, rules, cancelled, messages).await?.report()))
         }
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
             let query = Query { text: query, mode, match_case };

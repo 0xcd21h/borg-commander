@@ -29,8 +29,8 @@ mod reading;
 pub use helper::helper;
 use maps::{quick_maps, regions};
 pub use reading::Memory;
-pub(crate) use reading::search_for_agent;
-use reading::{capture, census, inspect, integrity, scan_with_rules, search_memory};
+pub(crate) use reading::{ProcessScan, ScanRequest, scan_for_agent, search_for_agent};
+use reading::{capture, census, inspect, integrity, scan_process, scan_with_rules, search_memory};
 
 const OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
 const ERROR_LIMIT: usize = 8192;

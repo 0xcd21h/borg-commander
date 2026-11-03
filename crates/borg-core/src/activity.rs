@@ -25,6 +25,8 @@ pub use strings::{
 };
 mod request;
 pub use request::{ActivityData, ActivityRequest};
+mod scan;
+pub use scan::{ScanChecks, ScanSubject, scan_ask};
 mod keys;
 pub(crate) use keys::{on_key, panels_action, paste, route_key};
 mod refresh;

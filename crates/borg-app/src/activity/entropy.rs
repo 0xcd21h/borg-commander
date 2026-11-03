@@ -2,7 +2,12 @@
 //! an administrator may read in Borg's helper. Processes macOS protects, or that refuse Borg,
 //! are left out before their regions are listed, since vmmap takes seconds a process.
 
-use super::{Memory, helper::run_helper, reading::wait_cancelled, regions};
+use super::{
+    Memory,
+    helper::{ENTROPY, HELPER_FLAG, elevated},
+    reading::wait_cancelled,
+    regions,
+};
 use crate::entropy_scan::{Found, SharedFile, scan_process};
 use anyhow::{Result, bail};
 use borg_core::{ActivityData, EntropyReport, EntropyScope, Msg, ProcessKey};
@@ -131,7 +136,7 @@ impl Drop for EntropyScanner {
 
 async fn elevate(scope: EntropyScope, processes: Vec<ProcessKey>) -> Result<EntropyReport> {
     let job = serde_json::to_string(&Job { scope, processes })?;
-    match run_helper(vec!["--inspect-process".into(), "entropy".into(), job]).await? {
+    match elevated(vec![HELPER_FLAG.into(), ENTROPY.into(), job]).await? {
         ActivityData::Entropy(report) => Ok(report),
         _ => bail!(tr!(activity_request_invalid)),
     }

@@ -1,0 +1,45 @@
+name: Dependencies
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependencies-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Publish age and yanked versions
+        run: python3 scripts/check-dependency-age.py --base HEAD^1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Advisories, banned crates and sources
+        run: cargo deny --locked check advisories bans sources
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: npm advisories
+        run: npm audit --prefix website

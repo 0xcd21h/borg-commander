@@ -695,9 +695,40 @@ El agente también puede buscar en la memoria de un proceso igual que lo hace la
 memoria: cadenas, indicadores, texto o bytes. La memoria puede contener contraseñas, claves y
 mensajes privados, y todo lo que encuentra la búsqueda va al agente, así que la primera búsqueda
 en cada proceso espera tu aprobación en un diálogo que indica el proceso, su programa y la
-búsqueda. Una vez que lo apruebas, el agente puede volver a buscar en ese proceso hasta que borg
-sale. Puede pedir leer como administrador, lo que abre la petición de contraseña del propio
-sistema.
+búsqueda. Una vez que lo apruebas, el agente puede volver a buscar en ese proceso y analizarlo
+hasta que borg sale. Puede pedir leer como administrador, lo que abre la petición de contraseña
+del propio sistema.
+
+El agente también puede analizar con reglas YARA y comprobar la integridad del código, igual que
+**Coincidencias de reglas** en el diálogo de Ctrl-F y **Y** e **I** en el mapa de memoria (consulta
+[Analizar archivos con reglas](#scanning-files-with-rules), [Comprobación de integridad del
+código](#code-integrity-check) y [Analizar la memoria con reglas](#scanning-memory-with-rules)). Un
+archivo o una carpeta de la máquina donde se ejecuta borg se analiza sin preguntar, igual que una
+lectura. El análisis de una carpeta lee todos los archivos que hay debajo en el mismo sistema de
+archivos, incluidos los ocultos. Deja sin leer los archivos de más de 64 MiB y se detiene tras 20
+000 archivos, 2000 coincidencias o 45 segundos. Los archivos de los contenedores no se analizan.
+
+Con un proceso es distinto, porque el análisis lee su memoria. El primer análisis de cada proceso
+espera tu aprobación en **El agente remoto quiere analizar la memoria de un proceso**, que indica el
+proceso, su programa y las comprobaciones: la de integridad, las reglas o ambas. Una aprobación
+cubre los análisis y las búsquedas en memoria de ese proceso hasta que borg sale, sea cual sea la
+que pidió primero el agente. Cada comprobación se detiene tras 45 segundos, 1 GiB de memoria o 2000
+hallazgos. El agente puede pedir leer como administrador, lo que abre la petición de contraseña del
+propio sistema una sola vez para ambas comprobaciones.
+
+Las reglas son las de Borg y las de tu carpeta de reglas, salvo que el agente aporte su propio texto
+de reglas, de hasta 64 KiB. Así puede redactar una regla a partir de lo que encontró, probarla en
+una carpeta o un proceso y afinarla. Ese texto se ejecuta solo, sin las reglas de Borg ni las tuyas,
+no puede usar `include` y nunca se guarda. El texto que no compila vuelve al agente con el mensaje
+del compilador, antes de cualquier diálogo. Para un proceso, el diálogo muestra el texto de reglas
+del agente debajo de las comprobaciones, para que veas qué busca.
+
+El agente recibe cada hallazgo, del más grave al menos grave, con su gravedad, su tipo, la regla y
+su origen, el archivo y el desplazamiento o la dirección y la región de memoria, hasta 64 bytes de
+lo que coincidió como texto o en hexadecimal, y qué más podría explicarlo. Después vienen cuánto se
+leyó, qué no se pudo leer, si el análisis terminó y los archivos de reglas que quedaron fuera. Las
+pruebas llegan al agente tal como se encontraron, claves y tokens incluidos, igual que con la
+búsqueda en memoria.
 
 El agente también puede capturar tráfico como lo hace **R** en la pantalla de red (consulta
 [Capturar tráfico](#capturing-traffic)). Indica qué grabar: un puerto, una conexión, un proceso por
@@ -723,8 +754,8 @@ los procesos de las últimas 16 capturas del agente hasta que sale. Los demás a
 conversaciones en **Proceso desconocido**, salvo que sus paquetes lleven su proceso.
 
 Mientras hay un agente conectado, **◈ Remoto** aparece al principio de la barra de atajos. Haz
-clic en él para ver un registro de lo que ha hecho el agente: lo que ha mirado, leído, mostrado y
-escrito, y cada comando y cambio, aprobado o rechazado. Borg guarda el registro solo en memoria,
+clic en él para ver un registro de lo que ha hecho el agente: lo que ha mirado, leído, analizado,
+mostrado y escrito, y cada comando y cambio, aprobado o rechazado. Borg guarda el registro solo en memoria,
 hasta que sale; para no guardar ningún registro, desactívalo en Opciones → Complementos.
 
 ### Borg cloud

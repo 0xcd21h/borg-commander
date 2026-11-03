@@ -1,10 +1,10 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "f15d962c33c6e494a534a42417984aee1b72fc76b844a05e2b25b7588e312564",
+      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "0d8df5e8f6639c2cf0e88813bd540d4cf7013fdaf0742641019a45d8267b217c",
+        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
         "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
       },
@@ -232,10 +232,10 @@
       ]
     },
     "pt": {
-      "source": "f15d962c33c6e494a534a42417984aee1b72fc76b844a05e2b25b7588e312564",
+      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "0d8df5e8f6639c2cf0e88813bd540d4cf7013fdaf0742641019a45d8267b217c",
+        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
         "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
       },
@@ -463,10 +463,10 @@
       ]
     },
     "es": {
-      "source": "f15d962c33c6e494a534a42417984aee1b72fc76b844a05e2b25b7588e312564",
+      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "0d8df5e8f6639c2cf0e88813bd540d4cf7013fdaf0742641019a45d8267b217c",
+        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
         "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
       },
@@ -694,10 +694,10 @@
       ]
     },
     "ru": {
-      "source": "f15d962c33c6e494a534a42417984aee1b72fc76b844a05e2b25b7588e312564",
+      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "0d8df5e8f6639c2cf0e88813bd540d4cf7013fdaf0742641019a45d8267b217c",
+        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
         "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
       },

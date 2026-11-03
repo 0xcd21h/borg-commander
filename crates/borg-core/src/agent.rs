@@ -65,6 +65,8 @@ pub enum AskKind {
     ApprovalMode,
     /// An agent asks to search a process's memory.
     Memory,
+    /// An agent asks to scan a process's memory with rules or check its integrity.
+    Scan,
     /// An agent asks to capture traffic.
     Capture,
 }

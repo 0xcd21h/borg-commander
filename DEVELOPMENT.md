@@ -28,6 +28,8 @@ cargo test --workspace
 ```
 
 CI runs the same tests with [cargo-nextest](https://nexte.st), as [On CI](#on-ci) describes.
+When you add, bump or update a dependency, also run the checks in
+[Dependencies](#dependencies).
 
 Dev builds carry line tables only: panics and backtraces still name the file and line, and
 `target/` grows much more slowly. Build with `CARGO_PROFILE_DEV_DEBUG=full` when you need
@@ -671,6 +673,109 @@ default, so they cannot download a larger archive and update by installing again
 - Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints).
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
+
+## Dependencies
+
+Every crate and npm package ends up on users' machines or in the release build, so each one
+has to earn its place. These rules apply to new dependencies, version bumps and every change to
+`Cargo.lock` or `website/package-lock.json`, including the transitive packages a change brings
+along. Security and maintenance come first. Popularity counts after them.
+
+### Seven days old
+
+Use only versions published at least 7 days ago. Hijacked accounts and broken releases are
+usually caught and yanked within days, and the wait keeps Borg out of that window.
+
+- Cargo has no stable setting for this yet. When `cargo update` picks a version that is too
+  young, pin an older one with `cargo update -p <crate> --precise <version>`.
+- `website/.npmrc` sets `min-release-age=7`, so npm 11.10 and newer only install versions that
+  are at least 7 days old.
+- A fix for an advisory that affects Borg may come in sooner. Add it to `exceptions` in
+  `.config/dependency-age.toml` with the advisory as the reason, for example
+  `{ crate = "rustls-webpki@0.103.16", reason = "RUSTSEC-2026-0382" }` or
+  `{ npm = "astro@7.4.5", reason = "GHSA-xxxx-xxxx-xxxx" }`, and remove the entry once the
+  version is 7 days old.
+
+`scripts/check-dependency-age.py` reads publish times from the crates.io index and the npm
+registry. It also fails on yanked crates:
+
+```sh
+python3 scripts/check-dependency-age.py --base origin/main   # what your branch adds or changes
+python3 scripts/check-dependency-age.py                      # every locked package
+```
+
+### Security checks
+
+Before adding or bumping a dependency, look up the exact version in:
+
+- the [RustSec advisory database](https://rustsec.org/advisories/), through
+  `cargo deny check advisories`,
+- [OSV.dev](https://osv.dev), which collects RustSec, GitHub and other advisories for crates and
+  npm packages,
+- [GitHub security advisories](https://github.com/advisories),
+- [deps.dev](https://deps.dev), for advisories, the OpenSSF Scorecard and dependents,
+- its page on [crates.io](https://crates.io) or [npmjs.com](https://www.npmjs.com): who owns it,
+  whether the repository link leads to the real source, and whether recent versions were yanked
+  or deprecated.
+
+`npm audit --prefix website` covers the website. A crate that bundles a C library, such as
+SQLite in `libsqlite3-sys`, also needs the bundled library's version checked against that
+project's own advisories, because RustSec rarely tracks them.
+
+For crates that parse untrusted input, handle cryptography, talk to the network or call C, read
+the parts Borg calls. Look at the `unsafe` blocks and at what `build.rs` does, since it runs on
+every developer's machine and in CI.
+
+### Maintenance and popularity
+
+A dependency must pass all of these:
+
+- No unfixed advisory for the locked version, including RustSec notices that a crate is
+  unmaintained or unsound.
+- A public repository that matches the published package and is not archived.
+- Signs of life in the last 12 months: a release, or commits and answered issues. A small
+  finished crate qualifies when its issues still get answers.
+
+Popularity tells you how many other people would notice a problem first. A crate is too obscure
+when it misses any of these:
+
+- 100,000 downloads in total and 10,000 in the last 90 days.
+- 10 reverse dependencies on crates.io.
+- 6 months since its first release.
+- Two or more owners, or 1,000,000 downloads in total.
+
+An npm package is too obscure when it misses any of these:
+
+- 10,000 downloads a week.
+- 6 months since its first release.
+- Two or more maintainers, or 100,000 downloads a week.
+
+A package that is too obscure comes in only when nothing popular does the job and the security
+and maintenance checks pass. Say why in the pull request, read the code Borg calls, and consider
+whether a small function in Borg would do the job.
+
+### Checks on CI
+
+`.github/workflows/dependencies.yml` runs on every pull request, on pushes to main and every
+Monday:
+
+- the age check for what the change adds to either lock file,
+- `cargo deny --locked check advisories bans sources` with `deny.toml`. It fails on RustSec
+  vulnerabilities, unmaintained and unsound notices, yanked crates, crates from anywhere but
+  crates.io, unused `[workspace.dependencies]` entries and the banned UnRAR crates,
+- `npm audit` for the website.
+
+When a new advisory fails the check, update the crate. If no fixed version is 7 days old yet,
+or the advisory cannot reach the code Borg runs, add it to `ignore` in `deny.toml` with the
+reason, and remove the entry when the fix is locked.
+
+The tools follow the same rules: CI pins cargo-deny to a release that is at least 7 days old.
+To run it locally, install the version `dependencies.yml` pins:
+
+```sh
+cargo install cargo-deny --locked --version <version>
+cargo deny --locked check advisories bans sources
+```
 
 ## Documentation website
 

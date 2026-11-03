@@ -21,7 +21,7 @@ const CHANNEL_BATCHES: usize = 4;
 const BATCH_SIZE: usize = 128;
 const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 const BACKPRESSURE_WAIT: Duration = Duration::from_millis(5);
-const MAX_DEPTH: usize = 256;
+pub(crate) const MAX_DEPTH: usize = 256;
 /// How deep a search looks first, so matches near its folder show before the whole tree is read.
 const NEAR_DEPTH: usize = 3;
 /// Borg's own ignore file, read like `.gitignore` where a search leaves ignored files out.
