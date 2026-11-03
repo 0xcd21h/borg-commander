@@ -14,8 +14,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+mod choices;
 pub(crate) mod control;
 mod controls;
+pub(crate) mod entropy;
 mod files;
 mod memory;
 mod processes;
@@ -233,8 +235,11 @@ fn frame(
             ActivityPage::Findings => tr!(integrity_title),
             ActivityPage::Files => tr!(process_files_title),
             ActivityPage::FileDetails => tr!(process_file_details),
+            ActivityPage::Entropy => tr!(entropy_title),
+            ActivityPage::EntropyDetails => tr!(entropy_details_title),
         }
     };
+    let title = if page == ActivityPage::Entropy && !searching { entropy::title(activity) } else { title.into() };
     let status = if activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Search { .. })) {
         tr!(memory_search_running)
     } else if activity.paused {
@@ -267,6 +272,11 @@ fn frame(
 
 /// The pane's first row: the machine's load, or what the page shows of the process or region.
 fn summary(activity: &Activity, page: ActivityPage, processes: bool) -> String {
+    match (page, &activity.entropy) {
+        (ActivityPage::Entropy, Some(scan)) => return entropy::summary(scan),
+        (ActivityPage::EntropyDetails, _) => return entropy::process_line(activity),
+        _ => {}
+    }
     if processes && page != ActivityPage::Processes {
         let pid = activity.selected.map_or(0, |p| p.pid);
         return if activity.regions().is_empty() {
@@ -321,6 +331,11 @@ fn subtitle(activity: &Activity, look: &Look<'_>, inner: Rect, page: ActivityPag
     let line = row(inner, 1);
     let subtitle = if page == ActivityPage::Snapshot && activity.search_form.is_none() {
         activity.shown_region().map(|r| r.name.clone()).unwrap_or_default()
+    } else if page == ActivityPage::Entropy {
+        activity.entropy.as_ref().map(entropy::left_out).unwrap_or_default()
+    } else if page == ActivityPage::EntropyDetails {
+        let hit = activity.entropy.as_ref().and_then(borg_core::EntropyScan::selected);
+        hit.map(|hit| hit.region.name.clone()).unwrap_or_default()
     } else if page == ActivityPage::Processes {
         String::new()
     } else if let Some(p) = activity.process() {
@@ -337,7 +352,7 @@ fn subtitle(activity: &Activity, look: &Look<'_>, inner: Rect, page: ActivityPag
     if page == ActivityPage::Processes {
         filter_row(activity, look, line, buf);
     }
-    if processes && page != ActivityPage::Processes {
+    if processes && !matches!(page, ActivityPage::Processes | ActivityPage::Entropy) {
         Clear.render(line, buf);
         buf.set_style(line, styles.overlay);
         for (rect, label, code) in tabs(line) {
@@ -380,6 +395,8 @@ fn draw_page(
         ActivityPage::Regions => regions(activity, theme, inner, body, buf),
         ActivityPage::Files => files(activity, look, inner, body, spinner, buf),
         ActivityPage::FileDetails => file_details(activity, look, body, buf),
+        ActivityPage::Entropy => entropy::hits(activity, theme, body, buf),
+        ActivityPage::EntropyDetails => entropy::details(activity, theme, body, buf),
         ActivityPage::Snapshot => {
             // Group and file previews have no region header, so they start at the top.
             let whole = Rect { height: inner.height.saturating_sub(FOOTER_ROWS), ..inner };

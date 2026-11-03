@@ -96,8 +96,12 @@ pub(super) fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
 }
 
 pub(super) async fn elevate(request: ActivityRequest) -> Result<ActivityData> {
+    run_helper(helper_args(&request)?).await
+}
+
+/// Runs Borg's helper with `args` as administrator, through the system's password prompt.
+pub(super) async fn run_helper(args: Vec<String>) -> Result<ActivityData> {
     let exe = std::env::current_exe()?;
-    let args = helper_args(&request)?;
     #[cfg(target_os = "macos")]
     let command = {
         let words =
@@ -135,6 +139,13 @@ pub async fn helper(args: &[String]) -> Result<()> {
                     .map(ActivityData::Search);
             }
             bail!(tr!(activity_request_invalid));
+        }
+        if kind == "entropy" && args.len() == 2 {
+            if args[1].len() > super::entropy::JOB_LIMIT {
+                bail!(tr!(activity_request_invalid));
+            }
+            let job: super::entropy::Job = serde_json::from_str(&args[1])?;
+            return Ok(ActivityData::Entropy(super::entropy::scan_as_helper(job).await));
         }
 
         let number =

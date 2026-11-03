@@ -28,6 +28,10 @@ impl App {
             Effect::MeasureSizes { id, root } => self.search.measure(id, root),
             Effect::CancelMeasure => self.search.cancel_measure(),
             Effect::CancelMemorySearch => self.monitor.cancel_search(),
+            Effect::EntropyScan { id, scope, processes, admin } => {
+                self.monitor.scan_entropy(id, scope, processes, admin)
+            }
+            Effect::StopEntropyScan => self.monitor.stop_entropy(),
             Effect::SizeChildren { side, generation, root, hidden, parent } => {
                 self.size_children(side, generation, root, hidden, parent)
             }

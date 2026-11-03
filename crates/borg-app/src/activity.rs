@@ -20,6 +20,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System,
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod control;
+mod entropy;
 mod helper;
 mod maps;
 mod process_files;
@@ -148,10 +149,19 @@ pub struct Monitor {
     cancelled: Arc<AtomicBool>,
     task: Option<JoinHandle<()>>,
     messages: UnboundedSender<Msg>,
+    /// The entropy scan of every process, which runs beside the monitor's own requests.
+    entropy: entropy::EntropyScanner,
 }
 impl Monitor {
     pub fn new(messages: UnboundedSender<Msg>) -> Self {
-        Self { sampler: Default::default(), cancelled: Default::default(), task: None, messages }
+        let entropy = entropy::EntropyScanner::new(messages.clone());
+        Self { sampler: Default::default(), cancelled: Default::default(), task: None, messages, entropy }
+    }
+    pub fn scan_entropy(&mut self, id: u64, scope: borg_core::EntropyScope, processes: Vec<ProcessKey>, admin: bool) {
+        self.entropy.start(id, scope, processes, admin);
+    }
+    pub fn stop_entropy(&self) {
+        self.entropy.stop();
     }
     pub fn cancel_search(&self) {
         self.cancelled.store(true, Ordering::Relaxed);

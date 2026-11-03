@@ -1741,6 +1741,7 @@ fn rules_search_dialog_and_results_name_the_rules_each_file_matched() -> Result<
         stage.send(key(KeyCode::Tab));
     }
     stage.send(key(KeyCode::Left));
+    stage.send(key(KeyCode::Left));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Rule matches")?;
     anyhow::ensure!(!Snapshot::from_buffer(buffer.clone(), &stage.palette, None).contains("Containing"));
@@ -1813,6 +1814,56 @@ fn rules_search_dialog_and_results_name_the_rules_each_file_matched() -> Result<
     ensure_text(&buffer, "rule files left out: 1")?;
     ensure_text(&buffer, "MacStealer_Prompt 00 01 64 69")?;
     check("search_rules_results_expanded", &stage, buffer)
+}
+
+#[test]
+fn packed_executables_show_how_much_of_their_code_has_high_entropy() -> Result<()> {
+    use borg_core::{Action, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
+    use borg_view::entropy::{BLOCK, Entropy, Tally};
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Tab));
+    }
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Packed executables")?;
+    anyhow::ensure!(!Snapshot::from_buffer(buffer.clone(), &stage.palette, None).contains("Containing"));
+    check("search_packed_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let request = borg_core::SearchRequest {
+        skip: None,
+        root: "/home/me/Downloads".into(),
+        query: "*".into(),
+        hidden: false,
+        options: SearchOptions { kind: SearchKind::Packed, ..Default::default() },
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 62);
+    stage.state.panels[0].begin_search(62);
+    let high = Entropy::of(&(0..=255u8).cycle().take(BLOCK as usize).collect::<Vec<_>>());
+    let code = Entropy::of(&[0x48, 0x89, 0xe5, 0xc3, 0x55, 0x8b].repeat(700));
+    let found = |path: &str, size: u64, blocks: u64, high_blocks: u64| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), EntryKind::File, size, RECENT, false);
+        file.source = Some(path.into());
+        let mut tally = Tally::default();
+        (0..blocks).for_each(|block| tally.add(block * BLOCK, if block < blocks - high_blocks { code } else { high }));
+        (file, tally)
+    };
+    let found = vec![
+        found("/home/me/Downloads/tool", 2_310_144, 560, 548),
+        found("/home/me/Downloads/updater/helper", 812_032, 196, 141),
+    ];
+    stage.send(Msg::PackedHits { side: Side::Left, generation: 62, found });
+    let progress = SearchProgress { visited: 240, read: 37, unread: 201, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 62, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 62, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "37 programs read · 201 other files")?;
+    ensure_text(&buffer, "97% high · max 8")?;
+    check("search_packed_results", &stage, buffer)
 }
 
 #[test]
@@ -2523,6 +2574,83 @@ fn activity_signal_dialog_lists_signals_and_priority_steps() -> Result<()> {
         stage.state.activity.pending,
         Some((_, ActivityRequest::Control { control: ProcessControl::Signal(ProcessSignal::Kill), admin: false, .. }))
     ));
+    Ok(())
+}
+
+#[test]
+fn entropy_scan_ranks_packed_code_first_and_details_the_selected_hit() -> Result<()> {
+    use borg_core::{EntropyHit, EntropyReport, HitKind, MemoryRegion, ProcessKey};
+    use borg_view::entropy::{Entropy, Tally};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('e')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "All memory of all processes")?;
+    check("entropy_scan_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('c')));
+    let id = stage.state.activity.entropy.as_ref().unwrap().id;
+
+    let dense = Entropy::of(&(0..=255u8).cycle().take(4096).collect::<Vec<_>>());
+    let hit = |pid: u32, name: &str, region: MemoryRegion, high: u32, highest: Entropy| EntropyHit {
+        process: ProcessKey { pid, start: 100 },
+        name: name.into(),
+        kind: HitKind::of(&region),
+        tally: Tally { blocks: 40, high, highest, first_high: Some(region.start + 0x3000) },
+        region,
+    };
+    let region = |start: u64, size: u64, permissions: &str, name: &str, path: Option<&str>| MemoryRegion {
+        start,
+        end: start + size,
+        permissions: permissions.into(),
+        name: path.map_or_else(|| name.into(), |path| format!("{name} · {path}")),
+        path: path.map(String::from),
+        dirty: Some(if permissions.contains('w') { 4096 } else { 0 }),
+        ..Default::default()
+    };
+    let hits = vec![
+        hit(412, "database", region(0x7f10_0000, 0x10_0000, "rw-", "MALLOC_LARGE", None), 31, dense),
+        hit(
+            411,
+            "language-server",
+            region(0x1_0000_0000, 0x80_0000, "r-x", "__TEXT", Some("/usr/local/bin/language-server")),
+            3,
+            Entropy::HIGH,
+        ),
+        hit(
+            410,
+            "compiler",
+            region(0x1_2000_0000, 0x40_0000, "r-x", "__TEXT", Some("/usr/local/bin/compiler")),
+            38,
+            dense,
+        ),
+        hit(
+            410,
+            "compiler",
+            region(0x2_0000_0000, 0x20_0000, "r--", "mapped file", Some("/usr/local/share/compiler/fonts.pak")),
+            40,
+            dense,
+        ),
+    ];
+    let first = EntropyReport { hits, scanned: 3, ..Default::default() };
+    stage.send(Msg::EntropyScan { id, found: Ok(first), done: false });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "scanning · Ctrl-C stop · 3 of 5 processes · 4 hits")?;
+    ensure_text(&buffer, "Most of this code is as dense")?;
+    check("entropy_scan_running", &stage, buffer)?;
+
+    let shell = ProcessKey { pid: 414, start: 100 };
+    let last = EntropyReport {
+        scanned: 0,
+        unreadable: vec![shell],
+        remaining: vec![ProcessKey { pid: 413, start: 100 }],
+        ..Default::default()
+    };
+    stage.send(Msg::EntropyScan { id, found: Ok(last), done: true });
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 unreadable · 0 protected · 1 not reached")?;
+    ensure_text(&buffer, "N Continue")?;
+    ensure_text(&buffer, "A Administrator")?;
+    check("entropy_scan_results", &stage, buffer)?;
     Ok(())
 }
 

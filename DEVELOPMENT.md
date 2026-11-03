@@ -226,6 +226,21 @@ skips regions and pages that were never touched, keeps one finding per rule and 
 after 1 GiB, 45 seconds or 2,000 findings, like the integrity report. The admin helper runs it as
 `rules <pid> <start> [folder]`. Findings reuse the integrity view with the kinds `RuleMatch` and
 `RuleProblem`. The renderer shares a reserved branding area across UI modes.
+The entropy scan of every process (`borg-core::activity::entropy`, `borg-app::activity::entropy`,
+`borg-app::entropy_scan`) runs in its own `EntropyScanner` beside the monitor's single request
+slot, so opening a hit's memory map does not stop it. `Effect::EntropyScan` names the processes of
+the last sample. The worker reads four at a time, leaves out the ones `code_signature::protection`
+marks and the ones `Memory::open` refuses before it runs vmmap, and sends `Msg::EntropyScan` parts
+every 250 ms, which `EntropyReport::merge` ranks (code, then own memory, then mapped files; share
+of high pages; highest page) and cuts to 2,000 hits. Per process, `entropy_scan::scan_process`
+skips shared caches (vmmap's names, the `MH_DYLIB_IN_CACHE` header flag, Linux kernel pages),
+untouched regions and absent pages, and file mappings another process already had read
+unchanged, and samples up to 1,024 pages a region and 32,768 a process. A run stops after 90
+seconds and reports the processes it did not reach, for N. The admin helper runs it as
+`entropy <json>` with the scope and the process keys, for 60 seconds, and answers with
+`ActivityData::Entropy`. Enter on a hit leaves a landing that the regions and census answers
+use: the region's group and file open, the page map turns on, and the census cursor goes to the
+first high page sampled.
 
 ### Network screen
 
@@ -373,7 +388,12 @@ line, and `Results::lines` keeps them by path for the panel and for F3 to land o
 A rules search (`SearchKind::Rules`) reads each matching file through `rule_scan::scan_file` with
 the same size limit, and on Linux with `O_NOATIME`. Its files travel in `Msg::RuleHits` with the
 rules they matched, and `Results::rule_hits` keeps them by path; F3 lands on the worst rule's
-evidence, as text up to its line break or as a byte regex. Searches that read files check each
+evidence, as text up to its line break or as a byte regex. A packed-executables search
+(`SearchKind::Packed`) asks `borg_view::executable::code_ranges` for the parts of an ELF, Mach-O
+(thin or universal) or PE file that the loader maps executable, and `entropy::code_tally` measures
+up to 1,024 blocks spread over them. Files whose tally `looks_packed` (at least `PACKED_SHARE` of
+the blocks high) travel in `Msg::PackedHits`, `Results::packed` keeps the tallies, and F3 opens hex
+rows at the first high block through `viewer::Landing::Bytes`. Searches that read files check each
 entry's real kind first, so a named pipe is never opened.
 Name-only queries match on what the listing gives and read metadata for matches alone. The
 search history is core state saved owner-only as `search-history.json` in the state directory.

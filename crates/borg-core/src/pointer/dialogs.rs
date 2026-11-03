@@ -144,6 +144,7 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
             (dialog.selected, crate::folders::dialog_choices(state, dialog.filter.text()).len())
         }
         Overlay::ProcessControl(dialog) => (dialog.selected, crate::CONTROL_CHOICES.len()),
+        Overlay::EntropyScan(dialog) => (dialog.selected, dialog.choices().len()),
         Overlay::Remotes(browser) if browser.show_clients => {
             (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
         }
@@ -180,6 +181,7 @@ fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) 
         Overlay::Folders(dialog) => Overlay::Folders(crate::FoldersDialog { selected: row, ..dialog }),
         Overlay::Storage(window) => Overlay::Storage(crate::StorageWindow { selected: row, ..window }),
         Overlay::ProcessControl(dialog) => Overlay::ProcessControl(crate::ControlDialog { selected: row, ..dialog }),
+        Overlay::EntropyScan(dialog) => Overlay::EntropyScan(crate::EntropyDialog { selected: row, ..dialog }),
         Overlay::Remotes(mut browser) => {
             if browser.show_clients {
                 browser.client_selected = row;

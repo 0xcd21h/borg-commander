@@ -36,7 +36,12 @@ pub use control::{
     PRIORITY_STEP, ProcessControl, ProcessSignal,
 };
 pub(crate) use control::{on_key as on_control_key, open as open_control};
+mod entropy;
 mod tree;
+pub use entropy::{
+    EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
+};
+pub(crate) use entropy::{on_dialog_key as on_entropy_key, open as open_entropy, receive as receive_entropy};
 
 pub const HISTORY: usize = 60;
 pub const SNAPSHOT_LIMIT: usize = 64 * 1024;
@@ -90,6 +95,10 @@ pub enum ActivityPage {
     Findings,
     Files,
     FileDetails,
+    /// The hits of the entropy scan of every process, in the list pane.
+    Entropy,
+    /// The selected hit's details, in the preview pane.
+    EntropyDetails,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivitySort {
@@ -155,7 +164,7 @@ pub struct Activity {
     /// The selected open file's preview, when it is a regular file, and the one being read.
     pub file_preview: Option<crate::Peeked>,
     file_previewing: Option<PathBuf>,
-    pub tops: [usize; 5],
+    pub tops: [usize; 6],
     pub snapshot: Option<MemorySnapshot>,
     pub previous: Option<MemorySnapshot>,
     pub text: bool,
@@ -174,6 +183,12 @@ pub struct Activity {
     revealing: Option<(u32, bool)>,
     /// The monitor was opened from the network screen, and Esc goes back to it.
     pub from_network: bool,
+    /// The entropy scan of every process, which keeps running while the monitor shows
+    /// something else.
+    pub entropy: Option<EntropyScan>,
+    /// The memory map was opened from a hit of the entropy scan, and Esc goes back to the hits.
+    pub from_entropy: bool,
+    landing: Option<entropy::Landing>,
 }
 impl Default for Activity {
     fn default() -> Self {
@@ -219,7 +234,7 @@ impl Default for Activity {
             file_cursor: 0,
             file_preview: None,
             file_previewing: None,
-            tops: [0; 5],
+            tops: [0; 6],
             snapshot: None,
             previous: None,
             text: false,
@@ -235,6 +250,9 @@ impl Default for Activity {
             next: None,
             revealing: None,
             from_network: false,
+            entropy: None,
+            from_entropy: false,
+            landing: None,
         }
     }
 }
@@ -283,6 +301,7 @@ impl Activity {
             ActivityPage::Search => (self.search_cursor, self.tops[2]),
             ActivityPage::Files => (self.file_cursor, self.tops[3]),
             ActivityPage::Findings => (self.finding_cursor, self.tops[4]),
+            ActivityPage::Entropy => (self.entropy.as_ref().map_or(0, |scan| scan.cursor), self.tops[5]),
             _ => return 0,
         };
         top.min(cursor).max(cursor.saturating_sub(height.max(1) - 1))
@@ -295,6 +314,7 @@ impl Activity {
             ActivityPage::Search => 2,
             ActivityPage::Files => 3,
             ActivityPage::Findings => 4,
+            ActivityPage::Entropy => 5,
             _ => return,
         };
         self.tops[index] = top;
@@ -399,7 +419,7 @@ impl Activity {
             self.file_cursor = 0;
             self.file_preview = None;
             self.file_previewing = None;
-            self.tops[1..].fill(0);
+            self.tops[1..5].fill(0);
             self.snapshot = None;
             self.previous = None;
             self.search_form = None;
@@ -412,6 +432,8 @@ impl Activity {
             self.from_search = false;
             self.error = None;
             self.retry = None;
+            self.from_entropy = false;
+            self.landing = None;
             if self.pending.as_ref().is_some_and(|(_, r)| !matches!(r, ActivityRequest::Sample)) {
                 self.pending = None;
                 self.next = None;

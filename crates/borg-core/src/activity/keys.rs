@@ -47,8 +47,20 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     {
         return super::open_control(state);
     }
+    if matches!(code, KeyCode::Char('e' | 'E'))
+        && !modifiers.contains(KeyModifiers::CONTROL)
+        && !state.activity.filtering
+        && state.activity.list == ActivityPage::Processes
+    {
+        return super::open_entropy(state);
+    }
     if let Some(action) = panels_action(key) {
         return crate::actions::perform(state, action, now);
+    }
+    if state.activity.list == ActivityPage::Entropy
+        && let Some(effects) = super::entropy::list_key(state, key)
+    {
+        return effects;
     }
     if code == KeyCode::Char('m') && modifiers == KeyModifiers::ALT {
         state.activity.side = None;
@@ -200,18 +212,26 @@ fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
 }
 
 /// Goes back from a search's hits or a check's findings to the list they began in, and from
-/// the regions or the open files to the processes.
+/// the regions or the open files to the processes, or to the entropy scan's hits they were
+/// opened from.
 fn step_back(activity: &mut Activity, now: Instant) {
     forget_request(activity);
     activity.preview_due = None;
     activity.search_progress = None;
     activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Findings) {
         activity.results_origin
+    } else if activity.from_entropy && matches!(activity.list, ActivityPage::Regions | ActivityPage::Files) {
+        activity.from_entropy = false;
+        activity.map = false;
+        ActivityPage::Entropy
     } else {
         ActivityPage::Processes
     };
-    activity.page =
-        if activity.list == ActivityPage::Processes { ActivityPage::Memory } else { ActivityPage::Snapshot };
+    activity.page = match activity.list {
+        ActivityPage::Processes => ActivityPage::Memory,
+        ActivityPage::Entropy => ActivityPage::EntropyDetails,
+        _ => ActivityPage::Snapshot,
+    };
     if activity.list == ActivityPage::Regions {
         activity.schedule_preview(now);
     }
@@ -224,6 +244,9 @@ fn enter(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let activity = &mut state.activity;
     if activity.list == ActivityPage::Processes {
         return enter_map(activity);
+    }
+    if activity.list == ActivityPage::Entropy {
+        return super::entropy::open_hit(activity);
     }
     if activity.list == ActivityPage::Regions
         && (activity.selected_group().is_some() || activity.selected_file().is_some())
@@ -369,6 +392,7 @@ fn enter_map(activity: &mut Activity) -> Vec<Effect> {
     activity.previous = None;
     activity.offset = 0;
     activity.from_search = false;
+    activity.from_entropy = false;
     activity.retry = None;
     activity.request(ActivityRequest::Regions { process, admin: false })
 }

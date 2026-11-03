@@ -124,3 +124,38 @@ async fn snapshot_search_needs_no_live_process_and_preserves_unicode_addresses()
     assert_eq!(report.skipped, 0);
     assert!(report.next.is_none());
 }
+#[tokio::test]
+async fn the_entropy_scan_finds_dense_bytes_in_its_own_memory_and_skips_ended_processes() {
+    use borg_core::{EntropyReport, EntropyScope, HitKind};
+    let own = Sampler::default().sample(None).processes.into_iter().find(|p| p.key.pid == std::process::id());
+    let own = own.unwrap().key;
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let noise: Vec<u8> = (0..1024 * PAGE)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as u8
+        })
+        .collect();
+    let address = noise.as_ptr() as u64 + noise.len() as u64 / 2;
+    let ended = ProcessKey { pid: u32::MAX - 1, start: 1 };
+    let mut whole = EntropyReport::default();
+    let stop = Arc::new(AtomicBool::new(false));
+    let processes = vec![ended, own];
+    entropy::scan_all(EntropyScope::Memory, processes, stop, Duration::from_secs(60), |report, _| whole.merge(report))
+        .await;
+    std::hint::black_box(&noise);
+    let found = whole
+        .hits
+        .iter()
+        .any(|hit| hit.kind == HitKind::Own && hit.region.start <= address && address < hit.region.end);
+    assert!(found, "{:?}", whole.hits.iter().map(|hit| &hit.region).collect::<Vec<_>>());
+    assert_eq!((whole.scanned, whole.unreadable.len(), whole.remaining.len()), (1, 0, 0), "the ended one is left out");
+
+    let mut stopped = EntropyReport::default();
+    let stop = Arc::new(AtomicBool::new(true));
+    entropy::scan_all(EntropyScope::Code, vec![own], stop, Duration::from_secs(60), |report, _| stopped.merge(report))
+        .await;
+    assert_eq!(stopped.remaining, [own], "a stopped scan leaves the rest for later");
+}

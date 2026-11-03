@@ -1,23 +1,18 @@
 //! The dialog K opens on a process: the signals to send it and the steps of its priority.
 
-use super::{dim, text};
-use crate::{Theme, dialog_view::centered, format};
+use super::choices::Choices;
+use crate::{Theme, format};
 use borg_core::{CONTROL_CHOICES, ControlChoice, ControlDialog, ProcessControl, ProcessSignal};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
-    text::Line,
-    widgets::{Block, Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
 const KEY_COLUMN: usize = 3;
 const SIGNAL_COLUMN: usize = 6;
 const LABEL_GAP: usize = 2;
-const SIDE_PADDING: u16 = 2;
-const BORDER: u16 = 2;
-const SUBJECT_ROWS: u16 = 2;
 
 fn label(choice: ControlChoice) -> &'static str {
     match choice {
@@ -81,58 +76,21 @@ fn lines(dialog: &ControlDialog) -> Vec<(String, String, bool)> {
         .collect()
 }
 
-pub(crate) fn rect(dialog: &ControlDialog, area: Rect) -> Rect {
-    let subject = tr!(process_control_subject, name = dialog.name, pid = dialog.process.pid);
-    let widest = lines(dialog)
-        .iter()
-        .map(|(head, about, _)| head.width() + about.width())
-        .chain([subject.width(), tr!(process_control_keys).width(), tr!(process_control_title).width()])
-        .max()
-        .unwrap_or_default();
-    let width = u16::try_from(widest).unwrap_or(u16::MAX).saturating_add(BORDER + SIDE_PADDING * 2);
-    let height = u16::try_from(CONTROL_CHOICES.len()).unwrap_or(u16::MAX).saturating_add(BORDER + SUBJECT_ROWS);
-    centered(area, width.min(area.width), height.min(area.height))
+fn choices(dialog: &ControlDialog) -> Choices<'static> {
+    Choices {
+        title: tr!(process_control_title).into(),
+        subject: tr!(process_control_subject, name = dialog.name, pid = dialog.process.pid),
+        keys: tr!(process_control_keys),
+        rows: lines(dialog),
+        selected: dialog.selected,
+    }
 }
 
 /// The choice's row under `point`, when it is on one.
 pub(crate) fn choice_at(dialog: &ControlDialog, area: Rect, point: Position) -> (Rect, Option<usize>) {
-    let rect = rect(dialog, area);
-    let top = rect.y + 1 + SUBJECT_ROWS;
-    let inside = point.x > rect.x && point.x < rect.right().saturating_sub(1) && point.y >= top;
-    let row = inside.then(|| usize::from(point.y - top)).filter(|row| *row < CONTROL_CHOICES.len());
-    (rect, row)
+    super::choices::choice_at(&choices(dialog), area, point)
 }
 
 pub(crate) fn draw(dialog: &ControlDialog, theme: &Theme, area: Rect, buf: &mut Buffer) -> Rect {
-    let styles = &theme.styles;
-    let rect = rect(dialog, area);
-    Clear.render(rect, buf);
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(styles.overlay_border)
-        .title(Line::styled(tr!(process_control_title), styles.overlay_border).centered())
-        .title_bottom(Line::styled(tr!(process_control_keys), styles.overlay).centered());
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    let padded = Rect { x: inner.x + SIDE_PADDING, width: inner.width.saturating_sub(SIDE_PADDING * 2), ..inner };
-    let line = |offset: u16| Rect { y: inner.y + offset, height: u16::from(offset < inner.height), ..padded };
-    let subject = tr!(process_control_subject, name = dialog.name, pid = dialog.process.pid);
-    text(buf, line(0), subject, styles.overlay);
-    for (index, (head, about, enabled)) in lines(dialog).into_iter().enumerate() {
-        let Ok(offset) = u16::try_from(index) else { break };
-        let area = line(SUBJECT_ROWS + offset);
-        if area.is_empty() {
-            break;
-        }
-        let selected = index == dialog.selected;
-        let style = if selected { styles.overlay_selected } else { styles.overlay };
-        buf.set_style(Rect { x: inner.x, width: inner.width, ..area }, style);
-        let head_style = if enabled || selected { style } else { dim(theme) };
-        let about_style = if selected { style } else { dim(theme) };
-        let head_width = u16::try_from(head.width()).unwrap_or(u16::MAX).min(area.width);
-        text(buf, Rect { width: head_width, ..area }, head, head_style);
-        text(buf, Rect { x: area.x + head_width, width: area.width - head_width, ..area }, about, about_style);
-    }
-    rect
+    super::choices::draw(&choices(dialog), theme, area, buf)
 }

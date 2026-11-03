@@ -21,6 +21,7 @@ const HOUR: u64 = 3600;
 /// A span reads in a smaller unit up to this many of it: 89 seconds, then 2 minutes.
 const SPAN_STEP: u64 = 90;
 const FACT_GAP: &str = " · ";
+const PERCENT: f64 = 100.0;
 
 pub fn size(bytes: u64) -> String {
     if bytes < EXACT_LIMIT {
@@ -36,13 +37,18 @@ pub fn size(bytes: u64) -> String {
     format!("{value:.precision$}{}", UNITS[unit])
 }
 
-/// Bytes a second, or none.
+/// A share as whole percent, rounded down so that only all of it reads 100.
+pub fn percent(share: f64) -> u32 {
+    (share * PERCENT).floor() as u32
+}
+
 /// Bits per byte, to two decimals at most: 7.94, 7.2, 4.
 pub fn bits(entropy: borg_view::entropy::Entropy) -> String {
     let shown = format!("{:.2}", entropy.bits());
     shown.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
+/// Bytes a second, or none.
 pub fn rate(bytes: u64) -> String {
     if bytes == 0 { size(0) } else { tr!(network_rate, size = size(bytes)) }
 }

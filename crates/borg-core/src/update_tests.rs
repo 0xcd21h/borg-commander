@@ -1611,6 +1611,46 @@ fn a_rules_search_lists_files_with_the_rules_they_match_and_f3_lands_on_the_evid
 }
 
 #[test]
+fn a_search_for_packed_programs_shows_their_code_entropy_and_f3_opens_the_first_high_block_as_hex() {
+    use borg_view::entropy::{BLOCK, Entropy, Tally};
+
+    let (mut state, now) = setup();
+    let request = crate::SearchRequest {
+        root: "/home".into(),
+        query: "*".into(),
+        hidden: false,
+        options: crate::SearchOptions { kind: crate::SearchKind::Packed, ..Default::default() },
+        skip: None,
+    };
+    let effects = crate::results::start_search(&mut state, request);
+    let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
+    let noise = borg_view::entropy::Entropy::of(&(0..=255u8).cycle().take(4096).collect::<Vec<_>>());
+    let mut tally = Tally::default();
+    (1..5).for_each(|block| tally.add(block * BLOCK, if block == 1 { Entropy::default() } else { noise }));
+    assert!(crate::looks_packed(&tally));
+    let mut tool = file("tool");
+    tool.source = Some(PathBuf::from("/home/tool"));
+    update(&mut state, Msg::PackedHits { side, generation, found: vec![(tool, tally)] }, now);
+    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert!(results.by_entropy() && !results.by_rules());
+    assert_eq!(results.title(), "Packed executables: *");
+    assert_eq!(results.first_high(Path::new("/home/tool")), Some(2 * BLOCK));
+    assert_eq!(results.first_match(Path::new("/home/tool")), None, "no query to find");
+
+    let path = PathBuf::from("/home/tool");
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View { path: path.clone(), at: None }]);
+    let bytes: Vec<u8> = (0..BLOCK * 6).map(|at| (at % 7) as u8).collect();
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(std::sync::Arc::new(bytes), width, height).unwrap();
+    update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    let viewer = state.viewer.as_ref().unwrap();
+    assert!(text(viewer).hex(), "shown as hex rows");
+    assert_eq!(text(viewer).offset(), 2 * BLOCK, "from the first high block");
+}
+
+#[test]
 fn f4_on_a_contents_match_opens_the_editor_on_it_with_the_find_bar_ready() {
     let (mut state, now) = setup();
     let query = borg_view::Query { text: "retry".into(), words: true, ..Default::default() };

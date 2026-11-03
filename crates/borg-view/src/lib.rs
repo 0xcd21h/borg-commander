@@ -1,4 +1,5 @@
 pub mod entropy;
+pub mod executable;
 mod hex;
 mod markdown;
 mod pager;

@@ -4,7 +4,7 @@ use super::processes::columns;
 use super::search::{form_field, results_list};
 use super::{SEARCH_HEADER, body, by_rules, inner, row, tabs, text};
 use crate::Theme;
-use borg_core::{Activity, ActivityPage, AppState, FINDING_NOTE, Msg, Pointer};
+use borg_core::{Activity, ActivityPage, AppState, EntropyScan, FINDING_NOTE, Msg, Pointer};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
@@ -28,6 +28,7 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 (tr!(activity_memory_button), KeyCode::Enter),
                 (tr!(activity_filter_button), KeyCode::Char('/')),
                 (tr!(activity_signal_button), KeyCode::Char('k')),
+                (tr!(entropy_button), KeyCode::Char('e')),
                 (tr!(activity_pause_button), KeyCode::Char(' ')),
                 (
                     if activity.from_network { tr!(activity_back_button) } else { tr!(activity_close_button) },
@@ -87,6 +88,24 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
+            ActivityPage::Entropy | ActivityPage::EntropyDetails => {
+                let scan = activity.entropy.as_ref();
+                let mut specs = Vec::new();
+                if scan.is_some_and(|scan| scan.selected().is_some()) {
+                    specs.push((tr!(entropy_open_button), KeyCode::Enter));
+                }
+                if scan.is_some_and(EntropyScan::continues) {
+                    specs.push((tr!(memory_continue_button), KeyCode::Char('n')));
+                }
+                if scan.is_some_and(|scan| scan.elevates(activity.sample.administrator)) {
+                    specs.push((tr!(activity_admin_button), KeyCode::Char('a')));
+                }
+                if scan.is_some_and(|scan| !scan.running) {
+                    specs.push((tr!(rules_again_button), KeyCode::Char('r')));
+                }
+                specs.push((tr!(activity_back_button), KeyCode::Esc));
+                specs
+            }
             ActivityPage::Snapshot if activity.map => vec![
                 (tr!(activity_open_page_button), KeyCode::Enter),
                 (tr!(activity_bytes_button), KeyCode::Char('m')),
@@ -152,6 +171,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
             ActivityPage::FileDetails if activity.previewable_file().is_some() => tr!(process_file_scroll_hint),
             ActivityPage::Files if activity.previewable_file().is_some() => tr!(process_file_preview_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),
+            ActivityPage::Entropy | ActivityPage::EntropyDetails => tr!(entropy_hint),
         }
     };
     text(buf, crate::branding::content(row(area, 1)), hint, theme.styles.key_label);
@@ -208,7 +228,10 @@ pub(crate) fn panel_mouse(
             return None;
         }
         let body = body(rect);
-        if !preview && activity.list != ActivityPage::Processes && row(inner(rect), 1).contains(point) {
+        if !preview
+            && !matches!(activity.list, ActivityPage::Processes | ActivityPage::Entropy)
+            && row(inner(rect), 1).contains(point)
+        {
             return tabs(row(inner(rect), 1))
                 .into_iter()
                 .find(|(r, _, _)| r.contains(point))
