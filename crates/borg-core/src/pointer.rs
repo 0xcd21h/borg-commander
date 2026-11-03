@@ -126,6 +126,11 @@ pub enum Pointer {
     FocusPreview,
     Setting(usize),
     ScrollDocument(isize),
+    /// A cell of the entropy strip beside the viewer's hex rows, of so many.
+    EntropyStrip {
+        cell: usize,
+        cells: usize,
+    },
     Panel {
         side: Side,
         index: usize,
@@ -149,6 +154,12 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     if let Pointer::ScrollDocument(delta) = pointer {
         if !resting && state.overlay.is_none() && !state.shell.captured() {
             scroll_document(state, delta);
+        }
+        return Vec::new();
+    }
+    if let Pointer::EntropyStrip { cell, cells } = pointer {
+        if !resting && state.overlay.is_none() && !state.shell.captured() {
+            crate::viewer::show_strip_cell(state, cell, cells);
         }
         return Vec::new();
     }

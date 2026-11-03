@@ -1,11 +1,15 @@
 use borg_i18n::tr;
 
-use borg_core::{Content, Image, Shown, Viewer};
+use borg_core::{Content, ENTROPY_STRIP, Image, Msg, Pointer, Shown, Viewer};
 use borg_gfx::{Placement, draw_halfblocks};
-use borg_view::{Format, Pager};
+use borg_view::{
+    Format, Pager,
+    entropy::{Band, Entropy, strip_cell, strip_cell_of},
+};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
+    style::{Color, Modifier, Style},
     text::Line,
     widgets::Widget,
 };
@@ -19,6 +23,14 @@ const PICTURE_LAYER: i32 = 0;
 const TITLE_MIN: usize = 12;
 /// The blank columns between where the viewer stands and the key hints.
 const GAP: usize = 3;
+/// The bars the entropy strip draws, from none to the most bits a byte carries. The longest
+/// leaves an eighth of its cell, where the page's place still shows.
+const BARS: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+const BYTE_BITS: f64 = 8.0;
+/// What a cell of the strip shows before the entropy of its bytes was read.
+const UNREAD: char = '·';
+/// Colours high entropy shows in, the first that reads well on the viewer's background.
+const HIGH_COLORS: [Color; 2] = [Color::Red, Color::LightRed];
 
 /// Draws the viewer, returning the pictures to place and where the find bar's cursor belongs.
 pub fn draw_viewer(
@@ -41,6 +53,9 @@ pub fn draw_viewer(
                 body,
                 buf,
             );
+            if pager.hex() {
+                draw_strip(viewer, pager, theme, strip_area(body), buf);
+            }
             if viewer.find.open {
                 let cursor = crate::find_view::draw_bar(&viewer.find, theme, status, buf);
                 return (Vec::new(), Some(cursor).filter(|cursor| status.contains(*cursor)));
@@ -52,14 +67,74 @@ pub fn draw_viewer(
     }
 }
 
-/// The key a click on the viewer's status line presses: on the find bar, a switch or a key.
-pub(crate) fn click(viewer: &Viewer, area: Rect, point: Position) -> Option<crossterm::event::KeyEvent> {
-    let [_, status] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+/// What a click on the viewer does: on the find bar it presses a switch or a key, and on the
+/// entropy strip it scrolls the hex rows to where its cell starts.
+pub(crate) fn click(viewer: &Viewer, area: Rect, point: Position) -> Option<Msg> {
+    let [body, status] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let status = crate::branding::content(status);
     if viewer.find.open && status.contains(point) {
-        return crate::find_view::click(&viewer.find, status, point);
+        return crate::find_view::click(&viewer.find, status, point).map(Msg::Key);
     }
-    None
+    let strip = strip_area(body);
+    let hex = matches!(&viewer.content, Content::Text(pager) if pager.hex());
+    (hex && strip.contains(point)).then(|| {
+        let (cell, cells) = (usize::from(point.y - strip.y), usize::from(strip.height));
+        Msg::Pointer(Pointer::EntropyStrip { cell, cells })
+    })
+}
+
+/// Where the entropy strip goes: the columns at the right of the page, which hex rows leave.
+fn strip_area(body: Rect) -> Rect {
+    let width = ENTROPY_STRIP.min(body.width);
+    Rect { x: body.right() - width, width, ..body }
+}
+
+/// The entropy strip beside the hex rows: a cell for each stretch of the source, its bar as long
+/// as the highest entropy in it and coloured by what that usually means, and the cells of the
+/// bytes on the page marked as on a scrollbar.
+fn draw_strip(viewer: &Viewer, pager: &Pager, theme: &Theme, area: Rect, buf: &mut Buffer) {
+    let (len, cells) = (pager.len(), usize::from(area.height));
+    let shown = pager.shown();
+    let page = strip_cell_of(len, cells, shown.start)..=strip_cell_of(len, cells, shown.end.saturating_sub(1));
+    for (index, y) in (area.top()..area.bottom()).enumerate() {
+        let entropy = viewer.profile().and_then(|profile| profile.highest(strip_cell(len, cells, index)));
+        let (glyph, style) = match entropy {
+            Some(entropy) => (bar(entropy), band_style(entropy.band(), theme.styles.viewer)),
+            None => (UNREAD, theme.styles.viewer.add_modifier(Modifier::DIM)),
+        };
+        let style = if page.contains(&index) { theme.styles.cursor } else { style };
+        if let Some(cell) = buf.cell_mut(Position { x: area.x, y }) {
+            cell.set_char(glyph).set_style(style);
+        }
+    }
+}
+
+fn bar(entropy: Entropy) -> char {
+    let level = (entropy.bits() / BYTE_BITS * (BARS.len() - 1) as f64).round() as usize;
+    BARS[level.min(BARS.len() - 1)]
+}
+
+/// How the strip draws an entropy in `band` on the viewer's `base`: low faint, high bold in red.
+fn band_style(band: Band, base: Style) -> Style {
+    match band {
+        Band::Low => base.add_modifier(Modifier::DIM),
+        Band::Typical => base,
+        Band::High => {
+            let red = HIGH_COLORS.into_iter().find_map(|color| crate::activity_view::readable_on(base, Some(color)));
+            red.map_or(base, |color| base.fg(color)).add_modifier(Modifier::BOLD)
+        }
+    }
+}
+
+/// What the status line says of the entropy of the bytes on the page, once it was read.
+fn entropy_status(viewer: &Viewer, pager: &Pager) -> Option<String> {
+    let entropy = viewer.profile()?.highest(pager.shown())?;
+    let band = match entropy.band() {
+        Band::Low => tr!(entropy_low),
+        Band::Typical => tr!(entropy_typical),
+        Band::High => tr!(entropy_high),
+    };
+    Some(tr!(entropy_status, bits = format::bits(entropy), band = band))
 }
 
 fn draw_image(
@@ -100,12 +175,14 @@ fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &
         },
     };
 
+    let entropy = entropy_status(viewer, pager).filter(|_| pager.hex()).map(|entropy| format!(" · {entropy}"));
     let position = format!(
-        " {}/{} · {}% · {}",
+        " {}/{} · {}% · {}{}",
         format::size(pager.offset()),
         format::size(pager.len()),
         pager.percent(),
         mode(pager),
+        entropy.unwrap_or_default(),
     );
     let width = usize::from(status.width);
     let hints = fit(&hints, width.saturating_sub(position.width() + TITLE_MIN + GAP));
