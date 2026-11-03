@@ -70,6 +70,8 @@ pub struct App {
     inbox: UnboundedReceiver<Msg>,
     listings: [Option<JoinHandle<()>>; 2],
     remote_listings: crate::remote_fs::Listings,
+    /// The listings of the archives the panels showed lately.
+    archives: crate::archive::Indexes,
     remote_catalog: Option<JoinHandle<()>>,
     remote_consoles: crate::remote_console::Clients,
     console_server: crate::remote_console::Server,

@@ -98,7 +98,7 @@ pub(crate) fn shell_ready(state: &AppState) -> bool {
 }
 
 fn sync_cwd(state: &mut AppState) -> Option<Effect> {
-    let dir = state.active_panel().dir();
+    let dir = state.active_panel().shell_folder();
     // A shell follows only a panel on its own machine: the host's, or its container's.
     if !shell_ready(state) || state.shell.cwd == dir || !state.console_owns_panel() {
         return None;
@@ -194,8 +194,9 @@ pub(super) fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant)
         }
         ShellSignal::CommandEnd { .. } => Vec::new(),
         ShellSignal::Cwd { path, .. } => {
-            let follow =
-                path != state.shell.cwd && path != state.active_panel().destination() && state.console_owns_panel();
+            let panel = state.active_panel();
+            let shown = path == panel.destination() || path == panel.shell_folder();
+            let follow = path != state.shell.cwd && !shown && state.console_owns_panel();
             state.shell.cwd = path.clone();
             if follow { vec![state.navigate(state.active, path, None)] } else { Vec::new() }
         }

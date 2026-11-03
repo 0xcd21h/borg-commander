@@ -471,6 +471,7 @@ version = "0.9.6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "borg-archive",
  "borg-core",
  "borg-docker",
  "borg-gfx",
@@ -515,6 +516,7 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "uzers",
+ "zip",
 ]
 
 [[package]]
@@ -541,6 +543,7 @@ name = "borg-core"
 version = "0.9.6"
 dependencies = [
  "aes-gcm",
+ "borg-archive",
  "borg-docker",
  "borg-edit",
  "borg-gfx",
@@ -669,6 +672,7 @@ version = "0.9.6"
 dependencies = [
  "ab_glyph",
  "anyhow",
+ "borg-archive",
  "borg-core",
  "borg-docker",
  "borg-gfx",

@@ -824,6 +824,95 @@ fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
     Ok(())
 }
 
+const ARCHIVE: &str = "/home/me/projects/borg/site.zip";
+const GIB: u64 = 1 << 30;
+
+fn archive_stage() -> Result<Stage> {
+    let left = vec![
+        entry("docs", EntryKind::Dir, 4096, OLD, false),
+        entry("site.zip", EntryKind::File, 42_000_000, RECENT, false),
+    ];
+    staged(Motion::STILL, QUIET, left, CLOCK)
+}
+
+/// Enter on the archive, and the listing it asks for.
+fn open_archive(stage: &mut Stage) -> Result<(borg_core::Side, u64)> {
+    stage.send(key(KeyCode::End));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::List { side, generation, .. } => Some((side, generation)),
+            _ => None,
+        })
+        .context("Enter on an archive must list it")
+}
+
+fn archive_entries() -> Vec<Entry> {
+    let usage = borg_vfs::FolderUsage { files: 12, folders: 2, ..Default::default() };
+    vec![
+        Entry { usage: Some(usage), ..entry("docs", EntryKind::Dir, 1_480_000, OLD, false) },
+        entry("index.html", EntryKind::File, 18_400, RECENT, false),
+        entry("readme.md", EntryKind::File, 2_100, RECENT, false),
+    ]
+}
+
+#[test]
+fn an_archive_reads_opens_asks_for_its_password_and_warns_before_unpacking() -> Result<()> {
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveReading { side, generation, read: 18_000_000, total: 42_000_000 });
+    let buffer = stage.render(stage.started + Duration::from_millis(800))?;
+    ensure_text(&buffer, "site.zip")?;
+    check("archive_reading", &stage, buffer)?;
+
+    let format = borg_archive::Format::Zip;
+    stage.send(Msg::ArchiveOpened { side, generation, format, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▤ zip")?;
+    ensure_text(&buffer, "readme.md")?;
+    check("archive_panel", &stage, buffer)?;
+
+    stage.send(key(KeyCode::End)).send(key(KeyCode::F(5)));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::StartUnpack { id, .. } => Some(*id),
+            _ => None,
+        })
+        .context("F5 in an archive must unpack")?;
+    let expand = borg_jobs::Ask::Expand {
+        archive: PathBuf::from(ARCHIVE),
+        packed: 42_000_000,
+        unpacked: 64 * GIB,
+        files: 250_000,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(expand) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Unpack anyway")?;
+    check("archive_expand", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('u')));
+    let room = borg_jobs::Ask::Room { target: PathBuf::from("/var/log"), needed: 64 * GIB, free: 12 * GIB };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(room) });
+    let buffer = stage.render(stage.started)?;
+    check("archive_room", &stage, buffer)?;
+
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveLocked { side, generation, wrong: true });
+    for msg in chars("hunter2") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "•••••••")?;
+    anyhow::ensure!(!describe(&buffer).contains("hunter2"), "the password must stay hidden");
+    check("archive_password", &stage, buffer)
+}
+
 fn running_copy(stage: &mut Stage) -> Result<u64> {
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
     stage.send(key(KeyCode::F(5)));

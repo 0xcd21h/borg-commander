@@ -8,15 +8,18 @@ use std::{
 
 use borg_i18n::tr;
 
-use super::{dialogs::prompt, shell::interactive, shell::run_operation};
+use super::{dialogs::prompt, shell::interactive};
 use crate::{
     Action, AppState, Confirm, ConfirmPurpose, EditorSlot, Effect, FirstMatch, Overlay, Panel, PromptPurpose, Side,
-    ops::{self, ArchiveFormat, DEFAULT_ARCHIVE_SUFFIX},
+    ops::{self, DEFAULT_ARCHIVE_SUFFIX},
 };
 
-/// F3: views the hovered file, from this machine, a container or a remote Borg.
-pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
+/// F3: views the hovered file, from this machine, a container, a remote Borg or an archive.
+pub(super) fn view(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect> {
     let panel = state.panel(side);
+    if panel.archive.is_some() {
+        return crate::archive::view(state, side, now);
+    }
     if panel.mount.is_some() {
         return hovered_file(state).map(|path| crate::docker::view(state, &path)).unwrap_or_default();
     }
@@ -83,6 +86,13 @@ pub(super) fn edit_external(state: &mut AppState) -> Vec<Effect> {
 /// panels show.
 pub(super) fn copy(state: &mut AppState, side: Side) -> Vec<Effect> {
     let other = side.other();
+    if state.panel(side).archive.is_some() {
+        if !crate::archive::takes_copies(state, other) {
+            state.notice = Some(tr!(archive_copy_destination).into());
+            return Vec::new();
+        }
+        return transfer(state, tr!(copy), |sources| PromptPurpose::Unpack { sources });
+    }
     if state.panel(side).remote_mount.is_some() || state.panel(other).remote_mount.is_some() {
         return copy_remote(state, side);
     }
@@ -191,15 +201,6 @@ pub(super) fn compress(state: &mut AppState) -> Vec<Effect> {
     };
     let default = format!("{stem}{DEFAULT_ARCHIVE_SUFFIX}");
     prompt(state, tr!(compress), &tr!(archive_as, describe(&sources)), &default, PromptPurpose::Compress { sources })
-}
-
-/// Unpacks the hovered archive into the folder of the panel on `to`.
-pub(super) fn extract(state: &mut AppState, to: Side, now: Instant) -> Vec<Effect> {
-    let dest = state.panel(to).dir().to_path_buf();
-    let Some(entry) = state.active_panel().hovered_entry() else { return Vec::new() };
-    let Some(format) = ArchiveFormat::detect(&entry.name) else { return Vec::new() };
-    let command = ops::extract(&entry.name, format, &dest);
-    run_operation(state, tr!(extract), &command, None, now)
 }
 
 fn hovered_file(state: &AppState) -> Option<PathBuf> {

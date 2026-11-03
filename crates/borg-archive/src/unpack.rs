@@ -16,6 +16,7 @@ use rustix::fs::{AtFlags, renameat, symlinkat, unlinkat};
 
 use crate::{Archive, Error, Flow, Index, Item, ItemKind, name};
 
+pub(crate) mod guard;
 mod place;
 
 use place::{Destination, Existing};
@@ -49,6 +50,13 @@ impl Unpack<'_> {
         let totals = Index::selected_totals(&selection);
         let total = Totals { files: totals.files, bytes: totals.bytes };
         emit(Event::Scanning(total));
+        let free = guard::free_space(self.target);
+        for ask in guard::questions(self.archive.path, self.target, index.bytes, totals, free) {
+            emit(Event::Asking(ask));
+            if control.decide() != Decision::Proceed {
+                return Outcome::Cancelled { done: Totals::default() };
+            }
+        }
         let destination = match Destination::open(self.target) {
             Ok(destination) => destination,
             Err(error) => return Outcome::Failed(format!("{}: {error}", self.target.display())),

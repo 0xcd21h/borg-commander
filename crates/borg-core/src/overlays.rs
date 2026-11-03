@@ -155,6 +155,20 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             return vec![effect];
         }
     }
+    if let PromptPurpose::ArchivePassword { side } = prompt.purpose {
+        match key.code {
+            KeyCode::Esc => {
+                state.overlay = None;
+                return crate::archive::unmount(state, side).into_iter().collect();
+            }
+            KeyCode::Enter if prompt.input.text().is_empty() => return Vec::new(),
+            KeyCode::Enter => {
+                state.overlay = None;
+                return crate::archive::unlock(state, side, prompt.input.text());
+            }
+            _ => {}
+        }
+    }
     if prompt.purpose.option().is_some() {
         match key.code {
             KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
@@ -245,6 +259,11 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             effects
         }
         PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text, now),
+        PromptPurpose::Unpack { sources } => {
+            let target = state.panel(state.active.other()).dir().join(text);
+            crate::archive::unpack(state, &sources, target, now)
+        }
+        PromptPurpose::ArchivePassword { .. } => Vec::new(),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));

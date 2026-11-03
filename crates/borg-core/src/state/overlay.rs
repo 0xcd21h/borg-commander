@@ -48,6 +48,14 @@ pub enum PromptPurpose {
     DockerCopy {
         sources: Vec<PathBuf>,
     },
+    /// Copy out of the archive the active panel shows.
+    Unpack {
+        sources: Vec<PathBuf>,
+    },
+    /// The password for the archive the panel on `side` opens.
+    ArchivePassword {
+        side: crate::Side,
+    },
 }
 
 impl PromptPurpose {
@@ -58,6 +66,11 @@ impl PromptPurpose {
             Self::BackupAdd { fixed } => Some((borg_i18n::tr!(backup_add_fixed), *fixed)),
             _ => None,
         }
+    }
+
+    /// Whether the field hides what is typed.
+    pub fn masked(&self) -> bool {
+        matches!(self, Self::ArchivePassword { .. })
     }
 
     pub(crate) fn toggle_option(&mut self) {

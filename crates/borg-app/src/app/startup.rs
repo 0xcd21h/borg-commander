@@ -60,6 +60,7 @@ impl App {
             inbox,
             listings: [None, None],
             remote_listings: crate::remote_fs::Listings::default(),
+            archives: crate::archive::Indexes::default(),
             remote_catalog: None,
             remote_consoles: crate::remote_console::Clients::new(),
             console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),

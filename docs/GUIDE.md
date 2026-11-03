@@ -246,6 +246,7 @@ click both rows. Notices replace the second row for a moment.
 | Up, Down, PgUp, PgDn, Home, End | Move |
 | Enter, Right | Open a folder / run or view a file |
 | Left | Go to the parent folder |
+| Ctrl-PgDn / Ctrl-PgUp | Open the folder or archive under the cursor / go to the parent folder |
 | Tab | Switch panels, or move into the quick preview and back to the file list |
 | Ctrl-O | Show the shell / return to the panels |
 | Alt-I | Count folder sizes in the background / stop counting |
@@ -836,6 +837,60 @@ reads only the rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and
 file of several gigabytes at once. The find bar works in hex rows too and marks each match in both
 columns. In hex, Markdown and JSON files show their bytes as written.
 
+### Archives
+
+Press Enter on an archive to open it as a folder. Borg opens files whose names end in `.zip`,
+`.7z`, `.rar`, `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.xz`, `.txz`, `.tar.zst`
+or `.tzst`, and single compressed files ending in `.gz`, `.bz2`, `.xz` or `.zst`, which open as a
+folder holding the one file. Ctrl-PgDn opens an archive too, and F3 on the archive itself still
+shows its bytes in the viewer. The panel's title gets a badge such as **▤ zip** that names the
+format Borg found in the file's first bytes, and the path goes on inside the archive. Folders
+inside show the size of what they hold. Left, Enter on `..` or Ctrl-PgUp at the archive's top
+takes you back to the folder that holds it, with the cursor on the archive.
+
+To list an archive, Borg reads what it holds, which for a compressed tar means reading the whole
+file. While a large archive is read, the panel's footer shows how far Borg got, and Esc stops
+reading and goes back. Borg remembers the listings of the last 4 archives as long as their files
+keep the same size and time, so going in and out again is instant. Archives with more than
+1,000,000 entries do not open.
+
+F3 or Enter on a file inside unpacks it into a private folder in Borg's runtime folder and opens
+it in the viewer. The unpacking runs as a job, so a large file shows its progress, and Esc cancels
+it. Borg deletes the unpacked file as soon as the viewer has it open.
+
+F5 copies the marked files and folders out of the archive into the other panel's folder, or into
+the folder you type in the Copy dialog. **Extract here** and **Extract to other panel** in the
+File menu (F2) unpack the whole archive under the cursor into this panel's folder or the other
+panel's. Either way the files land in a folder on this machine, and the job shows up in Alt-J with
+its progress, rate and time left. It asks about names that already exist as a copy does, writes
+each file under a temporary name until it is complete, and stops each file at the size the
+archive gives it.
+
+Archives open read only. F4, F6, F7, F8, Alt-E, Ctrl-Q and **Compress…** say so, and F5 from the
+other panel cannot copy into an archive. Copy files out with F5 to work on them. An archive inside
+an archive opens once you copy it out. The shell stays in the folder that holds the archive, and a
+saved session reopens that folder with the cursor on the archive.
+
+Encrypted zip and 7z archives ask for the password when they open. The **Password** dialog shows
+a dot for each character you type, asks again when the password is wrong, and Esc leaves the
+archive. Borg keeps the password in memory while the panel shows the archive and never writes it
+anywhere. **Extract here** has no way to ask for one, so for an encrypted archive press Enter on
+it, type the password, and copy the files out with F5.
+
+Before it writes anything, Borg adds up what the chosen entries unpack to and asks first when
+that is more than 1 GiB and more than 100 times the archive's size, or more than 100,000 files,
+which is how zip bombs look. It also asks when the destination has less free space than the files
+need. **Unpack anyway** (`u`) goes ahead, and Cancel stops before the first file. Entries with
+absolute paths, `..` in their paths, or device files are left out with a notice, and no entry or
+link in an archive can make Borg write outside the destination folder.
+
+Borg reads zip, 7z and the tar family itself. RAR archives go through 7-Zip (`7zz` or `7z`) or
+`bsdtar`, whichever Borg finds first, and macOS comes with `bsdtar`. When none is installed, Enter
+on a RAR archive offers to install bsdtar. The **Install bsdtar** dialog works like the one for
+tcpdump in [Capturing traffic](#capturing-traffic): it shows the exact command for your package
+manager, and Enter types it into Borg's shell. Borg also looks for `bsdtar` in Homebrew's
+`libarchive` folder, which Homebrew leaves off `PATH`. Encrypted RAR archives do not open yet.
+
 ### Editor
 
 F4 opens the selected file in Borg's editor, and Shift-F4 opens it in `$VISUAL` or `$EDITOR`. The
@@ -981,7 +1036,8 @@ once it has passed, the folder can be deleted.
 where it is:
 
 - **Temporary files**: shell integration scripts, folder requests from the shell, copies out of
-  containers, remote previews and the certificates of a capture's proxy, in the runtime folder.
+  containers, remote previews, files unpacked from archives for the viewer and the certificates
+  of a capture's proxy, in the runtime folder.
 - **Sockets**: where agents and mirrors reach running sessions, in `/tmp/borg-<uid>-default`, or
   in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
 - **Caches**: folder sizes and name indexes, in the cache folder (see
@@ -1002,7 +1058,8 @@ still starting up keeps what it made. This is what goes:
   no Borg was running when this one started or nothing in them changed for 3 days.
 - Folder requests, half-written files, remote console folders and capture proxy certificates of
   Borg processes that ended.
-- Copies out of containers and remote previews older than a day.
+- Copies out of containers, remote previews and files unpacked from archives for the viewer,
+  once they are older than a day.
 - Sockets nobody answers on, and socket folders where nothing answers any more.
 - Size scans in the format of Borg 0.4 and 0.5, scans the cache no longer lists, and name indexes
   of folders that are no longer indexed.

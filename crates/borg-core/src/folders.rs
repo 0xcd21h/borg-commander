@@ -232,8 +232,7 @@ fn at_host_command_line(state: &AppState) -> bool {
         && crate::editor::focused(state).is_none()
         && state.console == Console::Host
         && !state.shell.busy()
-        && panel.mount.is_none()
-        && panel.remote_mount.is_none()
+        && !panel.foreign()
         && !panel.is_results()
         && !panel.is_size_view()
 }
@@ -438,7 +437,7 @@ pub fn dialog_choices(state: &AppState, filter: &str) -> Vec<FolderChoice> {
 
 fn host_panel(state: &AppState, side: Side) -> bool {
     let panel = state.panel(side);
-    panel.mount.is_none() && panel.remote_mount.is_none() && !panel.is_results()
+    !panel.foreign() && !panel.is_results()
 }
 
 /// Ctrl-\ opens the dialog on the active panel's folder.

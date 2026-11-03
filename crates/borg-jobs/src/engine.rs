@@ -219,7 +219,7 @@ impl Job<'_> {
         }
         (self.emit)(Event::Asking(Ask::Failure { path: path.to_path_buf(), message: error.to_string() }));
         match self.control.ask() {
-            Decision::Skip | Decision::KeepBoth | Decision::Overwrite => Ok(true),
+            Decision::Skip | Decision::KeepBoth | Decision::Overwrite | Decision::Proceed => Ok(true),
             Decision::SkipAll | Decision::OverwriteAll => {
                 self.errors = Sticky::Always;
                 Ok(true)
@@ -281,7 +281,7 @@ impl Job<'_> {
                     self.overwrite = Sticky::Always;
                     return Ok(Some(dest));
                 }
-                Decision::Skip => return Ok(None),
+                Decision::Skip | Decision::Proceed => return Ok(None),
                 Decision::SkipAll => {
                     self.overwrite = Sticky::Never;
                     return Ok(None);

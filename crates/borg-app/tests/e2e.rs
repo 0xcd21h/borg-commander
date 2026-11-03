@@ -1,4 +1,8 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, ensure};
 use borg_testkit::{Fixture, Session, Shell, Snapshot, keys};
@@ -205,6 +209,73 @@ fn navigation_enters_and_returns_to_folder() -> Result<()> {
     let screen =
         app.wait_until("back in parent with alpha focused", |s| s.contains("/ beta") && highlighted(s, "/ alpha"))?;
     ensure!(!highlighted(&screen, "/ beta"));
+    Ok(())
+}
+
+/// A zip archive in the fixture's folder with a folder and a file.
+fn site_zip(fixture: &Fixture) -> Result<()> {
+    let mut zip = zip::ZipWriter::new(fs::File::create(fixture.work().join("site.zip"))?);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.add_directory("docs/", options)?;
+    zip.start_file("docs/guide.md", options)?;
+    zip.write_all(b"archive guide\n")?;
+    zip.start_file("readme.md", options)?;
+    zip.write_all(b"read me from the zip\n")?;
+    zip.finish()?;
+    Ok(())
+}
+
+/// The folders Borg unpacked files into for the viewer that are still there.
+fn unpacked_views(fixture: &Fixture) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![fixture.runtime()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.parent().and_then(Path::file_name).is_some_and(|name| name == "archive-view") {
+                    found.push(path.clone());
+                }
+                pending.push(path);
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn an_archive_opens_as_a_folder_views_and_copies_files_out() -> Result<()> {
+    let fixture = fixture()?;
+    site_zip(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).shell(Shell::Bash).label("archive").spawn()?;
+    app.wait_text("5 items")?;
+    app.wait_until("shell prompt", |s| prompt(s).starts_with('$'))?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_until("cursor on the archive", |s| highlighted(s, " site.zip"))?;
+    app.send(keys::enter())?;
+    app.wait_until("the archive's files", |s| s.contains("▤ zip") && s.contains("readme.md") && s.contains("/ docs"))?;
+    app.checkpoint("inside-archive")?;
+
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_until("cursor on readme", |s| highlighted(s, " readme.md"))?;
+    app.send(keys::f(3))?;
+    app.wait_text("read me from the zip")?;
+    ensure!(unpacked_views(&fixture).is_empty(), "the viewer's copy stays behind: {:?}", unpacked_views(&fixture));
+    app.send(keys::esc())?;
+    app.wait_until("back in the archive", |s| s.contains("▤ zip"))?;
+
+    app.send(keys::f(8))?;
+    app.wait_text("read only")?;
+    app.send(keys::up())?;
+    app.wait_until("cursor on docs", |s| highlighted(s, "/ docs"))?;
+    app.send(keys::f(5))?;
+    app.wait_text("Copy")?;
+    app.send(keys::enter())?;
+    let copied = fixture.work().join("docs/guide.md");
+    app.wait_until("docs copied out", |_| holds(&copied, "archive guide\n"))?;
+
+    app.send(keys::left())?;
+    app.wait_until("back beside the archive", |s| !s.contains("▤ zip") && highlighted(s, " site.zip"))?;
     Ok(())
 }
 

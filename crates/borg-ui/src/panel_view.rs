@@ -45,6 +45,7 @@ const PADDING: u16 = 1;
 const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const CONTAINER_MARK: char = '▣';
+const ARCHIVE_MARK: char = '▤';
 const PARENT_NAME: &str = "..";
 const COLUMN_SEPARATOR: &str = "│";
 const LEFT_CAP: char = '▐';
@@ -186,8 +187,8 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
     Line::from(spans)
 }
 
-/// The folder path as breadcrumbs. Container and remote panels lead with their source,
-/// so they never pass for a local folder.
+/// The folder path as breadcrumbs. Container, remote and archive panels lead with their
+/// source, so they never pass for a local folder.
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
     let mount = scene.panel.mount.as_ref();
     let label = mount
@@ -201,6 +202,7 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Styl
                 )
             })
         })
+        .or_else(|| scene.panel.archive.as_ref().map(|archive| format!(" {ARCHIVE_MARK} {} ", archive.label())))
         .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
@@ -245,6 +247,13 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         let pad = || Span::styled(" ", styles.footer);
         Line::from([vec![pad()], spinner.spans(&text, look, styles.footer), vec![pad()]].concat())
     };
+    if let Some(text) = reading(panel) {
+        let line = match scene.spinner {
+            Some(spinner) => spinning(spinner, text),
+            None => Line::styled(format!(" {text} "), styles.footer),
+        };
+        return (line, None);
+    }
     let line = match (scene.spinner, &scene.activity, panel.listing()) {
         (Some(spinner), Some(activity), _) => spinning(spinner, activity.label.clone()),
         (Some(spinner), None, _) if panel.loading() => spinning(spinner, tr!(loading, panel.received())),
@@ -269,6 +278,14 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         (_, _, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
     };
     (line, None)
+}
+
+/// How far the first read of the archive the panel opens got.
+fn reading(panel: &borg_core::Panel) -> Option<String> {
+    let archive = panel.archive.as_ref()?;
+    let (read, total) = archive.reading?;
+    let name = archive.archive.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    Some(tr!(archive_reading, name = name, read = format::size(read), total = format::size(total)))
 }
 
 fn decorate(scene: &PanelScene<'_>, look: &Look<'_>, title: Rect, buf: &mut Buffer) {

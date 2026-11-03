@@ -33,11 +33,7 @@ pub(crate) fn toggle(state: &mut AppState) -> Vec<Effect> {
         state.notice = Some(tr!(background_sizes_stopped).into());
         return cancel(state);
     }
-    if state.active_panel().is_results()
-        || state.active_panel().mount.is_some()
-        || state.active_panel().remote_mount.is_some()
-        || state.monitor_open()
-    {
+    if state.active_panel().is_results() || state.active_panel().foreign() || state.monitor_open() {
         state.notice = Some(tr!(background_sizes_directory_required).into());
         return Vec::new();
     }

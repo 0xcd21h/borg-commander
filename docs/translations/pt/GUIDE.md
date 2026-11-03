@@ -272,6 +272,7 @@ instantes.
 | Up, Down, PgUp, PgDn, Home, End | Mover |
 | Enter, Right | Abrir uma pasta / executar ou ver um ficheiro |
 | Left | Ir para a pasta pai |
+| Ctrl-PgDn / Ctrl-PgUp | Abrir a pasta ou o arquivo sob o cursor / ir para a pasta pai |
 | Tab | Alternar entre painéis, ou entrar na pré-visualização e voltar à lista de ficheiros |
 | Ctrl-O | Mostrar a shell / voltar aos painéis |
 | Alt-I | Contar tamanhos de pastas em segundo plano / parar a contagem |
@@ -911,6 +912,62 @@ percorrem de imediato um ficheiro de vários gigabytes. A barra de pesquisa tamb
 linhas hexadecimais e marca cada correspondência nas duas colunas. Em hexadecimal, os ficheiros
 Markdown e JSON mostram os bytes tal como estão escritos.
 
+### Arquivos
+
+Prima Enter num arquivo para o abrir como uma pasta. O Borg abre ficheiros cujo nome termina em
+`.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.xz`, `.txz`,
+`.tar.zst` ou `.tzst`, e ficheiros comprimidos únicos terminados em `.gz`, `.bz2`, `.xz` ou `.zst`,
+que abrem como uma pasta com esse único ficheiro. Ctrl-PgDn também abre um arquivo, e F3 no próprio
+arquivo continua a mostrar os seus bytes no visualizador. O título do painel ganha uma marca como
+**▤ zip**, que indica o formato que o Borg encontrou nos primeiros bytes do ficheiro, e o caminho
+continua dentro do arquivo. As pastas lá dentro mostram o tamanho do que contêm. Left, Enter em `..`
+ou Ctrl-PgUp no topo do arquivo levam-no de volta à pasta que o contém, com o cursor no arquivo.
+
+Para listar um arquivo, o Borg lê o que ele contém, o que num tar comprimido significa ler o
+ficheiro inteiro. Enquanto um arquivo grande é lido, o rodapé do painel mostra até onde o Borg
+chegou, e Esc interrompe a leitura e volta atrás. O Borg guarda as listagens dos últimos 4 arquivos
+enquanto os seus ficheiros mantiverem o mesmo tamanho e a mesma data, por isso entrar e sair outra
+vez é imediato. Os arquivos com mais de 1 000 000 de entradas não abrem.
+
+F3 ou Enter num ficheiro lá dentro descompacta-o para uma pasta privada na pasta de execução do Borg
+e abre-o no visualizador. A descompactação corre como uma tarefa, por isso um ficheiro grande mostra
+o progresso, e Esc cancela-a. O Borg apaga o ficheiro descompactado assim que o visualizador o abre.
+
+F5 copia os ficheiros e pastas marcados para fora do arquivo, para a pasta do outro painel ou para a
+pasta que escrever na caixa de diálogo Copiar. **Extrair aqui** e **Extrair para o outro painel**,
+no menu Ficheiro (F2), descompactam o arquivo inteiro sob o cursor para a pasta deste painel ou do
+outro. Em ambos os casos os ficheiros ficam numa pasta desta máquina, e a tarefa aparece em Alt-J
+com o progresso, a velocidade e o tempo restante. Pergunta o que fazer com nomes que já existem, tal
+como uma cópia, escreve cada ficheiro com um nome temporário até estar completo e para cada ficheiro
+no tamanho que o arquivo lhe atribui.
+
+Os arquivos abrem só para leitura. F4, F6, F7, F8, Alt-E, Ctrl-Q e **Comprimir…** avisam disso, e F5
+no outro painel não copia para dentro de um arquivo. Copie os ficheiros para fora com F5 para
+trabalhar com eles. Um arquivo dentro de outro arquivo abre depois de o copiar para fora. A shell
+fica na pasta que contém o arquivo, e uma sessão guardada reabre essa pasta com o cursor no arquivo.
+
+Os arquivos zip e 7z cifrados pedem a palavra-passe ao abrir. A caixa de diálogo **Palavra-passe**
+mostra um ponto por cada carácter que escreve, volta a pedir quando a palavra-passe está errada, e
+Esc sai do arquivo. O Borg guarda a palavra-passe em memória enquanto o painel mostra o arquivo e
+nunca a escreve em lado nenhum. **Extrair aqui** não tem maneira de a pedir, por isso, num arquivo
+cifrado, prima Enter nele, escreva a palavra-passe e copie os ficheiros para fora com F5.
+
+Antes de escrever o que quer que seja, o Borg soma o que as entradas escolhidas ocupam depois de
+descompactadas e pergunta primeiro quando isso passa de 1 GiB e de 100 vezes o tamanho do arquivo,
+ou de 100 000 ficheiros, que é o aspeto de uma bomba zip. Também pergunta quando o destino tem menos
+espaço livre do que os ficheiros precisam. **Descompactar mesmo assim** (`u`) avança, e Cancelar
+para antes do primeiro ficheiro. As entradas com caminhos absolutos, com `..` no caminho ou que são
+ficheiros de dispositivo ficam de fora, com um aviso, e nenhuma entrada ou ligação de um arquivo
+consegue fazer o Borg escrever fora da pasta de destino.
+
+O Borg lê zip, 7z e a família tar por si próprio. Os arquivos RAR passam pelo 7-Zip (`7zz` ou `7z`)
+ou pelo `bsdtar`, o que o Borg encontrar primeiro, e o macOS já traz o `bsdtar`. Quando nenhum está
+instalado, Enter num arquivo RAR propõe instalar o bsdtar. A caixa de diálogo **Instalar bsdtar**
+funciona como a do tcpdump em [Capturar tráfego](#capturing-traffic): mostra o comando exato para o
+seu gestor de pacotes, e Enter escreve-o na shell do Borg. O Borg também procura o `bsdtar` na pasta
+`libarchive` do Homebrew, que o Homebrew deixa fora do `PATH`. Os arquivos RAR cifrados ainda não
+abrem.
+
 ### Editor
 
 F4 abre o ficheiro selecionado no editor do Borg, e Shift-F4 abre-o em `$VISUAL` ou `$EDITOR`. O
@@ -1064,8 +1121,8 @@ essa hora um dia, de hora a hora, pelo que, depois de ela passar, a pasta pode s
 cada um e onde fica:
 
 - **Ficheiros temporários**: scripts de integração com a shell, pedidos de mudança de pasta vindos
-  da shell, cópias de contentores, pré-visualizações remotas e os certificados do proxy de uma
-  captura, na pasta de execução.
+  da shell, cópias de contentores, pré-visualizações remotas, ficheiros descompactados de arquivos
+  para o visualizador e os certificados do proxy de uma captura, na pasta de execução.
 - **Sockets**: por onde os agentes e os espelhos chegam às sessões em curso, em
   `/tmp/borg-<uid>-default`, ou numa pasta `/tmp/borg-<uid>-` com o nome da pasta de execução quando
   `$XDG_RUNTIME_DIR` está definida.
@@ -1087,7 +1144,8 @@ Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
   e, além disso, nenhum Borg estava a correr quando este arrancou ou há 3 dias que nada nelas muda.
 - Pedidos de mudança de pasta, ficheiros escritos a meio, pastas de consolas remotas e certificados
   do proxy de capturas de processos do Borg que terminaram.
-- Cópias de contentores e pré-visualizações remotas com mais de um dia.
+- Cópias de contentores, pré-visualizações remotas e ficheiros descompactados de arquivos para o
+  visualizador com mais de um dia.
 - Sockets em que ninguém responde e pastas de sockets onde já nada responde.
 - Análises de tamanho no formato do Borg 0.4 e 0.5, análises que a cache já não lista e índices de
   nomes de pastas que já não são indexadas.

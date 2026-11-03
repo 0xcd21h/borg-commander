@@ -16,6 +16,8 @@ const PROMPT_HEIGHT: u16 = 6;
 /// A prompt with a checkbox below its field.
 const OPTION_HEIGHT: u16 = 8;
 const CONFIRM_HEIGHT: u16 = 6;
+/// What a password field shows for each character typed.
+const MASK: char = '•';
 const PADDING: u16 = 1;
 const BUTTON_GAP: &str = "   ";
 
@@ -47,7 +49,8 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     Line::styled(format::truncate_end(&prompt.label, width), styles.overlay).render(label, buf);
     buf.set_style(field, styles.input);
 
-    let text = prompt.input.text();
+    let masked = prompt.purpose.masked().then(|| MASK.to_string().repeat(prompt.input.text().chars().count()));
+    let text = masked.as_deref().unwrap_or(prompt.input.text());
     let cursor = prompt.input.cursor_chars();
     let before: String = text.chars().take(cursor).collect();
     let shift = before.width().saturating_sub(width.saturating_sub(1));

@@ -55,6 +55,8 @@ crates/
   borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-docker   bundled Docker plugin: containers, stats, files and shells through the docker CLI
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
+  borg-archive  archives as folders: zip, 7z and tar read in process, RAR through 7-Zip or
+                bsdtar, and unpacking that cannot write outside its destination
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
   borg-relay    the relay borgs meet through: it forwards traffic it cannot read
   borg-update   release checks and self-update
@@ -97,9 +99,17 @@ Other shells receive a typed ` cd '…'` that skips history. Once a shell announ
 the emulator conceals that command and its output (`Effect::WriteConcealed`) until the next prompt
 marker, which is drawn where the previous prompt began, so nothing flashes or stays in the console.
 
-Mkdir and archive actions are built by `borg_core::command::CommandLine` (with shell quoting)
+Mkdir and Compress are built by `borg_core::command::CommandLine` (with shell quoting)
 and run in the embedded shell, hidden at first. If a command takes longer than 600 ms the shell
 is revealed, and the panels come back when it finishes.
+
+An archive panel's folder is the archive's path followed by the folder inside it, and
+`Panel::archive` holds the `ArchiveMount`. `borg-app` lists such a folder through `borg-archive`
+and keeps the indexes of the last 4 archives while their size and time stay the same. Copying
+out (F5, Extract here, Extract to other panel) runs as `JobKind::Unpack`, and F3 inside an
+archive runs `JobKind::View`, which unpacks into `archive-view` in the runtime folder and drops
+the file once the viewer opened it. The bomb and free space checks in
+`borg-archive/src/unpack/guard.rs` ask through the job's questions before the first write.
 
 ### Rendering pipeline
 

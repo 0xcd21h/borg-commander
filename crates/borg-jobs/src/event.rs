@@ -44,8 +44,29 @@ pub struct Progress {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ask {
-    Conflict { source: PathBuf, target: PathBuf, sizes: (u64, u64), newer: bool },
-    Failure { path: PathBuf, message: String },
+    Conflict {
+        source: PathBuf,
+        target: PathBuf,
+        sizes: (u64, u64),
+        newer: bool,
+    },
+    Failure {
+        path: PathBuf,
+        message: String,
+    },
+    /// An archive that unpacks to far more than it takes on disk, or to very many files.
+    Expand {
+        archive: PathBuf,
+        packed: u64,
+        unpacked: u64,
+        files: u64,
+    },
+    /// Less free space where the job writes than it is about to write.
+    Room {
+        target: PathBuf,
+        needed: u64,
+        free: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +77,7 @@ pub enum Decision {
     SkipAll,
     KeepBoth,
     Retry,
+    Proceed,
     Cancel,
 }
 

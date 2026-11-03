@@ -262,6 +262,48 @@ fn an_entry_holding_more_than_its_header_says_stops_at_that_size() {
 }
 
 #[test]
+fn unpacking_asks_about_archives_that_expand_far_or_into_many_files() {
+    use crate::unpack::guard::{EXPANSION_FLOOR, EXPANSION_RATIO, FILE_CEILING, questions};
+    let (archive, target) = (Path::new("/a.zip"), Path::new("/out"));
+    let totals = |files, bytes| Totals { files, folders: 0, bytes };
+    let packed = EXPANSION_FLOOR / EXPANSION_RATIO;
+
+    assert!(questions(archive, target, packed, totals(1, EXPANSION_FLOOR), None).is_empty());
+    assert!(matches!(
+        &questions(archive, target, packed, totals(1, EXPANSION_FLOOR * 2), None)[..],
+        [Ask::Expand { unpacked, files: 1, .. }] if *unpacked == EXPANSION_FLOOR * 2
+    ));
+    assert!(questions(archive, target, EXPANSION_FLOOR, totals(1, EXPANSION_FLOOR * 2), None).is_empty());
+    assert!(matches!(
+        &questions(archive, target, packed, totals(FILE_CEILING + 1, 1), None)[..],
+        [Ask::Expand { files, .. }] if *files == FILE_CEILING + 1
+    ));
+    assert!(matches!(
+        &questions(archive, target, packed, totals(1, 500), Some(100))[..],
+        [Ask::Room { needed: 500, free: 100, .. }]
+    ));
+    assert!(questions(archive, target, packed, totals(1, 500), Some(500)).is_empty());
+}
+
+#[test]
+fn a_refused_question_cancels_before_anything_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.zip");
+    sample_zip(&path);
+    let real = index(&path);
+    let mut huge = real.item("docs/guide.md").unwrap().clone();
+    huge.size = real.bytes.saturating_mul(1 << 20).max(1 << 31);
+    let index = Index::new(real.format, real.bytes, vec![huge], 0);
+    let target = dir.path().join("out");
+    fs::create_dir(&target).unwrap();
+
+    let (outcome, asked) = unpack(&path, &index, &[""], "", &target, &[Decision::Cancel]);
+    assert!(matches!(outcome, Outcome::Cancelled { .. }), "{outcome:?}");
+    assert!(matches!(&asked[..], [Ask::Expand { .. }]), "{asked:?}");
+    assert!(tree(&target).is_empty());
+}
+
+#[test]
 fn names_already_there_are_asked_about() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sample.zip");

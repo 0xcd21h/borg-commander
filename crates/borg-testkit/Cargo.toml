@@ -26,6 +26,7 @@ borg-vfs     = { workspace = true }
 jiff         = { workspace = true }
 
 [dev-dependencies]
+borg-archive = { workspace = true }
 borg-i18n = { workspace = true }
 borg-docker = { workspace = true }
 borg-git = { workspace = true }

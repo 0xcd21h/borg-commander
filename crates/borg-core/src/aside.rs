@@ -108,7 +108,7 @@ pub(crate) fn opens_on(state: &AppState, aside: Aside, path: &Path) -> Option<Fi
 pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
     // A preview has no room while a panel holds an editor.
     let docked = state.docked.iter().any(Option::is_some);
-    if docked || state.active_panel().mount.is_some() || state.active_panel().remote_mount.is_some() {
+    if docked || state.active_panel().foreign() {
         state.aside = None;
     }
     let aside = state.aside?;

@@ -7,7 +7,10 @@ use borg_core::{Aside, EditorSlot, Effect, FileStamp, FirstMatch, Msg, Side, vie
 use borg_i18n::tr;
 use borg_term::Scroll;
 use futures::StreamExt;
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 impl App {
     pub(super) fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
@@ -98,6 +101,7 @@ impl App {
             Effect::StartRemoteCopy { id, from, to, sources, target } => {
                 self.start_remote_copy(id, crate::remote_copy::CopyJob { from, to, sources, target })
             }
+            Effect::StartUnpack { id, request } => self.start_unpack(id, request),
             Effect::StartDockerCopy { id, container, inbound, sources, target } => {
                 self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target })
             }
@@ -251,6 +255,9 @@ impl App {
     /// in place of any listing or search that panel had going.
     pub(super) fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
         self.search.cancel(side);
+        if let Some(mount) = self.state.panel(side).archive.clone().filter(|mount| mount.holds(&dir)) {
+            return self.list_archive(side, generation, dir, mount);
+        }
         let mount = self.state.panel(side).mount.clone();
         let remote = self.state.panel(side).remote_mount.clone();
         let mut batches = match (&mount, &remote) {
@@ -292,6 +299,28 @@ impl App {
             let _ = messages.send(Msg::Listed { side, generation, error: None });
         });
 
+        if let Some(previous) = self.listings[side.index()].replace(task) {
+            previous.abort();
+        }
+    }
+
+    /// Lists the folder `dir` of the archive the panel on `side` shows, on a thread of its own,
+    /// which stops once the panel lists something else.
+    fn list_archive(&mut self, side: Side, generation: u64, dir: PathBuf, mount: borg_core::ArchiveMount) {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let listing = crate::archive::Listing {
+            side,
+            generation,
+            dir,
+            mount,
+            messages: self.messages.clone(),
+            stopped: Arc::clone(&stopped),
+        };
+        let indexes = self.archives.clone();
+        let task = tokio::spawn(async move {
+            let _stop = crate::archive::StopOnDrop(stopped);
+            let _ = tokio::task::spawn_blocking(move || listing.run(&indexes)).await;
+        });
         if let Some(previous) = self.listings[side.index()].replace(task) {
             previous.abort();
         }

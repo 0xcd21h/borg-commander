@@ -328,7 +328,7 @@ pub enum BackupEvent {
 }
 
 fn shows_marks(panel: &crate::Panel) -> bool {
-    !panel.is_results() && panel.mount.is_none() && panel.remote_mount.is_none()
+    !panel.is_results() && !panel.foreign()
 }
 
 pub(crate) fn sync(state: &mut AppState) -> Vec<Effect> {

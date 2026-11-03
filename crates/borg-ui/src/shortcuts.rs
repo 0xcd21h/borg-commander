@@ -71,12 +71,14 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         if state.last_results[state.active.index()].is_some() {
             items.push((tr!(alt_shift_r_resume), Action::BackResults));
         }
-        items.push((tr!(alt_k_collect), Action::Collect));
+        if state.active_panel().archive.is_none() {
+            items.push((tr!(alt_k_collect), Action::Collect));
+        }
     }
     // A container's filesystem offers none of the host's searches or sizes.
     if state.active_panel().mount.is_some() {
         items = vec![(tr!(alt_c_docker), Action::Docker)];
-    } else if state.sizing.is_some() || !state.active_panel().is_results() {
+    } else if state.sizing.is_some() || !(state.active_panel().is_results() || state.active_panel().archive.is_some()) {
         items.insert(
             0,
             (if state.sizing.is_some() { tr!(alt_i_stop_sizes) } else { tr!(alt_i_count_sizes) }, Action::MeasureSizes),
