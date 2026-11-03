@@ -1025,6 +1025,7 @@ history = true              # remember the folders the panels open
 
 [network]
 proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
+keep-free-mib = 1024        # stop captures before the disk has less than this free
 ```
 
 En un terminal local con color verdadero, Borg arranca con una breve animación de su logotipo con
@@ -1440,8 +1441,13 @@ y Linux instala con el paquete `tcpdump`. El diálogo **Capturar tráfico** part
   está siempre como segunda opción.
 - **Interfaz** empieza en la que tiene la dirección de la fila o, si no la hay, en la más activa.
 - **Duración** es de 5, 10, 30 o 60 segundos, o **Hasta detenerla**.
-- **Guardar** es **Paquetes completos**, o **Cabeceras, los primeros 128 bytes de cada paquete**
-  para archivos pequeños que dejan fuera casi todo lo que llevan los paquetes.
+- **Guardar** empieza en **Inicio de cada conexión, hasta 1 MiB**: los paquetes de cada conversación
+  se guardan completos hasta que llevan 1 MiB de datos, y a partir de ahí Borg guarda solo sus
+  cabeceras. Las peticiones cortas quedan completas, y una descarga larga o una videollamada no
+  llenan el archivo. **Paquetes completos** guarda todo, y **Cabeceras, los primeros 128 bytes de
+  cada paquete** guarda el principio de cada paquete para los archivos más pequeños. Borg recorta
+  los paquetes a medida que escribe el archivo, que sigue siendo un pcap o pcapng normal, y cada
+  paquete recortado conserva su longitud en la red.
 - **Claves TLS** es **No**, **Definir SSLKEYLOGFILE en el shell de Borg** para guardar las claves
   TLS de los programas que inicies mientras la captura se ejecuta, o **Pasar el HTTPS por el proxy
   de Borg con una CA temporal** para programas que no escriben sus claves (consulta
@@ -1455,8 +1461,15 @@ y Linux instala con el paquete `tcpdump`. El diálogo **Capturar tráfico** part
 ↑↓ eligen un campo, ←→ o Space lo cambian, Enter inicia la captura y Esc la cancela. Con el ratón,
 haz clic en un campo para elegirlo y otra vez para cambiarlo. Mientras la captura se ejecuta, el pie
 cuenta sus paquetes, sus bytes y los segundos que quedan, y **R** la detiene antes de tiempo. Una
-captura también se detiene a los 200.000 paquetes o 256 MiB. Si cierras la pantalla antes, la
-captura se detiene y un aviso dice dónde la guardó Borg.
+captura también se detiene a los 200.000 paquetes o 256 MiB, y cuando se llena el disco, con lo que
+ya guardó. Para dejar espacio al resto del sistema, define `keep-free-mib` en la sección `[network]`
+del archivo de configuración: entonces la captura no empieza cuando al disco de la carpeta le quedan
+menos de esos MiB libres, y se detiene cuando el espacio libre baja de ahí. Pasados sus primeros 3
+segundos, el pie dice cuánto falta para que el primero de estos límites detenga la captura al ritmo
+actual, como **unos 30 s hasta 256 MiB** o **unos 2 min hasta llenar el disco**, cuando eso llega
+antes del final de la propia captura y dentro de la hora. Cuando un límite detuvo la captura, un
+aviso dice cuál. Si cierras la pantalla antes, la captura se detiene y un aviso dice dónde la guardó
+Borg.
 
 Borg guarda cada captura como `capture-<date>-<time>.pcap` en la carpeta del panel que cubre la
 pantalla de red, legible solo por ti, para que Wireshark y otras herramientas puedan abrirla
@@ -1485,11 +1498,13 @@ para cada forma de mirarla:
   con los bytes retransmitidos contados una sola vez, en un volcado hexadecimal con los bytes que se
   imprimen como texto al lado. El flujo se divide en turnos, cada uno con una flecha que indica su
   sentido, los bytes que contiene y cuándo llegó. Cuando a la captura le faltan bytes antes de un
-  turno, ese turno dice cuántos faltan. **]** y **[** saltan al turno siguiente y al anterior. F3
-  muestra el flujo entero como filas hexadecimales en el visor, con sus turnos uno tras otro, para
-  recorrerlo y buscar en él. Enter muestra los paquetes de la conversación uno a uno. Cuando Borg
-  tiene las claves TLS de la conexión, el flujo muestra lo que llevaban sus registros cifrados
-  (consulta [Descifrar TLS](#decrypting-tls)).
+  turno, ese turno dice cuántos faltan. Cuando la captura guardó solo el principio de la conexión,
+  el encabezado del flujo dice cuántos bytes dejó fuera después, según las cabeceras de los
+  paquetes. **]** y **[** saltan al turno siguiente y al anterior. F3 muestra el flujo entero como
+  filas hexadecimales en el visor, con sus turnos uno tras otro, para recorrerlo y buscar en él.
+  Enter muestra los paquetes de la conversación uno a uno. Cuando Borg tiene las claves TLS de la
+  conexión, el flujo muestra lo que llevaban sus registros cifrados (consulta [Descifrar
+  TLS](#decrypting-tls)).
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
   detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y sus

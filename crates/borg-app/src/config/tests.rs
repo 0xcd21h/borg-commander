@@ -134,6 +134,16 @@ fn saved_language_survives_other_preference_changes() {
 }
 
 #[test]
+fn captures_keep_free_only_the_space_the_network_section_asks_for() {
+    assert_eq!(Config::default().capture_keep_free_mib(), None);
+    let config: Config = toml::from_str("[network]\nkeep-free-mib = 512\n").unwrap();
+    assert_eq!(config.capture_keep_free_mib(), Some(512));
+    let saved = toml::to_string(&config.capture(None, &Preferences::default(), &[])).unwrap();
+    assert!(saved.contains("keep-free-mib = 512"), "{saved}");
+    assert!(toml::from_str::<Config>("[network]\nkeep-free-mib = \"512M\"\n").is_err(), "a number of MiB");
+}
+
+#[test]
 fn the_hotlist_keeps_home_as_a_tilde_and_survives_saving_preferences() {
     let home = PathBuf::from(env::var_os(ENV_HOME).expect("a home folder"));
     let mut config: Config = toml::from_str("[folders]\nhotlist = [\"/srv/www\"]\n").unwrap();

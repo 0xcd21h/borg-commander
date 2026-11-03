@@ -8,8 +8,9 @@ use super::{
     proxy::{Event, Proxy, Report},
 };
 use borg_core::{
-    Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, Proxied,
-    ProxyEndpoint, SeenSockets, TlsKeys, Tool, Transport, capture_extension, with_secrets,
+    CAPTURE_SIZE_LIMIT, CONNECTION_BUDGET, Capture, CaptureAccess, CaptureFailure, CaptureLimit, CaptureProgress,
+    CaptureRequest, ConnectionBudget, HEADER_BYTES, Keep, Msg, PACKET_LIMIT, PcapCounter, Proxied, ProxyEndpoint,
+    SeenSockets, TlsKeys, Tool, Transport, capture_extension, capture_no_room, with_secrets,
 };
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
@@ -39,10 +40,8 @@ const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 /// How often an agent's capture looks at the sockets, as the network screen samples them.
 const SOCKETS_EVERY: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
-/// Captures stop at this size, as they do at `PACKET_LIMIT` packets.
-pub(crate) const SIZE_LIMIT: u64 = 256 * 1024 * 1024;
 /// Capture files larger than this are not read whole into the viewer.
-const READ_LIMIT: u64 = SIZE_LIMIT;
+const READ_LIMIT: u64 = CAPTURE_SIZE_LIMIT;
 const FILE_MODE: u32 = 0o600;
 const FILE_PREFIX: &str = "capture-";
 /// The extension of the TLS key log beside a capture, named after it.
@@ -83,15 +82,18 @@ impl Recorder {
             borg_core::TRUST_EXTENSION
         ));
         let task = tokio::spawn(async move {
-            let progress = |bytes, packets| {
-                let _ = messages.send(Msg::CaptureProgress { id, bytes, packets });
+            let progress = |progress| {
+                let _ = messages.send(Msg::CaptureProgress { id, progress });
+            };
+            let limited = |limit| {
+                let _ = messages.send(Msg::CaptureLimited { id, limit });
             };
             let keys = |path, proxy| {
                 let _ = messages.send(Msg::CaptureKeys { id, path, proxy });
             };
             let proxying = Proxying { trust, report: report(id, messages.clone()) };
             let result = match crate::tools::find(Tool::Tcpdump.program()) {
-                Some(program) => record(&program, &request, progress, keys, Some(proxying), stopped).await,
+                Some(program) => record(&program, &request, progress, limited, keys, Some(proxying), stopped).await,
                 None => Err(CaptureFailure::Missing(crate::tools::installer())),
             };
             let _ = messages.send(Msg::CaptureDone { id, result });
@@ -167,7 +169,7 @@ pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBu
     let (done, watching) = channel::<()>();
     let watcher = tokio::task::spawn_blocking(move || watch_sockets(&watching));
     let (_stop, stopped) = oneshot::channel();
-    let recorded = record(&program, request, |_, _| {}, |_, _| {}, None, stopped)
+    let recorded = record(&program, request, |_| {}, |_| {}, |_, _| {}, None, stopped)
         .await
         .map_err(|failure| refused(failure, request));
     drop(done);
@@ -180,6 +182,7 @@ pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBu
 fn refused(failure: CaptureFailure, request: &CaptureRequest) -> String {
     match failure {
         CaptureFailure::Failed(error) => error,
+        CaptureFailure::NoRoom => capture_no_room(request),
         CaptureFailure::Missing(_) => tr!(capture_missing).to_owned(),
         CaptureFailure::Denied | CaptureFailure::Cancelled => tr!(capture_denied, interface = request.interface),
     }
@@ -312,7 +315,7 @@ impl Tcpdump {
     fn of(request: &CaptureRequest) -> Self {
         Self {
             interface: request.interface.clone(),
-            headers_only: request.headers_only,
+            headers_only: request.keep == Keep::Headers,
             processes: request.processes,
             filter: request.filter.clone(),
         }
@@ -377,21 +380,26 @@ fn own(program: &Path, request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + 
     Ok((Box::new(stdout), Tap::Own { child, errors: tokio::spawn(read_all(stderr)) }))
 }
 
-/// Runs tcpdump as `request` asks and saves what it writes, telling `progress` the bytes and
-/// packets so far every second, until the deadline, `stopped`, or a limit. A capture that keeps
-/// TLS keys tells `keys` where its key log is once tcpdump runs.
+/// Runs tcpdump as `request` asks and saves what it writes, trimmed to the start of each
+/// connection when it asks for that, telling `progress` the bytes and packets so far and the
+/// room left on the disk every second, until the deadline, `stopped`, or a limit, which it tells
+/// `limited`. A capture that keeps TLS keys tells `keys` where its key log is once tcpdump runs.
 async fn record(
     program: &Path,
     request: &CaptureRequest,
-    progress: impl Fn(u64, usize),
+    progress: impl Fn(CaptureProgress),
+    limited: impl Fn(CaptureLimit),
     keys: impl FnOnce(PathBuf, Option<ProxyEndpoint>),
     proxying: Option<Proxying>,
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), CaptureFailure> {
+    if room(&request.folder, request.keep_free()) == Some(0) {
+        return Err(CaptureFailure::NoRoom);
+    }
     let (mut packets, mut tap) =
         if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
-    let (mut file, key_log) = match create_files(&path, request.tls_keys.keeps_keys()) {
+    let (file, key_log) = match create_files(&path, request.tls_keys.keeps_keys()) {
         Ok(created) => {
             let saved = path.clone();
             tokio::task::spawn_blocking(move || crate::storage::remember_capture(&saved));
@@ -421,27 +429,32 @@ async fn record(
         keys(key_log.clone(), proxy.as_ref().map(Proxy::endpoint));
     }
     let deadline = request.seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
-    let mut counter = PcapCounter::default();
-    let mut written: u64 = 0;
+    let mut saving = Saving::new(file, request.keep);
     let mut chunk = vec![0; READ_CHUNK];
     let mut ticks = tokio::time::interval(PROGRESS_EVERY);
     let mut stopping = false;
     let mut failure = None;
+    let stop_at = |limit, stopping: &mut bool, tap: &mut Tap| {
+        if !*stopping {
+            *stopping = true;
+            limited(limit);
+            tap.stop();
+        }
+    };
     loop {
         tokio::select! {
             read = packets.read(&mut chunk) => match read {
                 Ok(0) => break,
                 Ok(count) => {
-                    if let Err(error) = file.write_all(&chunk[..count]) {
+                    if let Err(error) = saving.write(&chunk[..count]) {
                         failure = Some(tr!(capture_cannot_save, error = error));
                         tap.stop();
                         break;
                     }
-                    counter.feed(&chunk[..count]);
-                    written += count as u64;
-                    if written >= SIZE_LIMIT && !stopping {
-                        stopping = true;
-                        tap.stop();
+                    if saving.full {
+                        stop_at(CaptureLimit::Disk, &mut stopping, &mut tap);
+                    } else if saving.written >= CAPTURE_SIZE_LIMIT {
+                        stop_at(CaptureLimit::Size, &mut stopping, &mut tap);
                     }
                 }
                 Err(error) => {
@@ -449,7 +462,13 @@ async fn record(
                     break;
                 }
             },
-            _ = ticks.tick() => progress(written, counter.packets),
+            _ = ticks.tick() => {
+                let room = room(&request.folder, request.keep_free());
+                progress(CaptureProgress { bytes: saving.written, packets: saving.counter.packets, room });
+                if room == Some(0) {
+                    stop_at(CaptureLimit::Disk, &mut stopping, &mut tap);
+                }
+            }
             _ = sleep_until(deadline), if !stopping => {
                 stopping = true;
                 tap.stop();
@@ -460,6 +479,15 @@ async fn record(
             }
         }
     }
+    if failure.is_none() && !stopping && saving.counter.packets >= PACKET_LIMIT {
+        limited(CaptureLimit::Packets);
+    }
+    if failure.is_none()
+        && let Err(error) = saving.finish()
+    {
+        failure = Some(tr!(capture_cannot_save, error = error));
+    }
+    let Saving { file, written, full, .. } = saving;
     drop(packets);
     drop(proxy);
     let said = tap.finish().await;
@@ -471,7 +499,7 @@ async fn record(
     }
     if written == 0 {
         discard(&path, key_log.as_deref());
-        return Err(explain(&said?));
+        return Err(if full { CaptureFailure::NoRoom } else { explain(&said?) });
     }
     saved.map_err(|error| CaptureFailure::Failed(tr!(capture_cannot_save, error = error)))?;
     let read = path.clone();
@@ -495,6 +523,65 @@ fn interrupt(child: &Child) {
     if let Some(pid) = child.id().and_then(|id| i32::try_from(id).ok()).and_then(Pid::from_raw) {
         let _ = kill_process(pid, Signal::INT);
     }
+}
+
+/// The capture file as it is written: tcpdump's bytes, trimmed to the start of each connection
+/// when the capture keeps only that, with the bytes and packets written so far.
+struct Saving {
+    file: File,
+    budget: Option<ConnectionBudget>,
+    counter: PcapCounter,
+    written: u64,
+    /// The disk filled up: the file keeps what was written whole before, and takes no more.
+    full: bool,
+}
+
+impl Saving {
+    fn new(file: File, keep: Keep) -> Self {
+        let budget = (keep == Keep::ConnectionStart).then(|| ConnectionBudget::new(CONNECTION_BUDGET));
+        Self { file, budget, counter: PcapCounter::default(), written: 0, full: false }
+    }
+
+    fn write(&mut self, read: &[u8]) -> io::Result<()> {
+        match self.budget.as_mut().map(|budget| budget.feed(read)) {
+            Some(kept) => self.keep(&kept),
+            None => self.keep(read),
+        }
+    }
+
+    /// Writes the bytes the budget held back for a record tcpdump did not finish.
+    fn finish(&mut self) -> io::Result<()> {
+        match self.budget.as_mut().map(ConnectionBudget::rest) {
+            Some(rest) => self.keep(&rest),
+            None => Ok(()),
+        }
+    }
+
+    fn keep(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if self.full {
+            return Ok(());
+        }
+        match self.file.write_all(bytes) {
+            Ok(()) => {
+                self.counter.feed(bytes);
+                self.written += bytes.len() as u64;
+                Ok(())
+            }
+            Err(error) if error.kind() == ErrorKind::StorageFull => {
+                self.full = true;
+                let _ = self.file.set_len(self.written);
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+/// The bytes a capture in `folder` can still write before its disk has only `keep_free` bytes
+/// free, when the system says how much is free.
+fn room(folder: &Path, keep_free: u64) -> Option<u64> {
+    let stats = rustix::fs::statvfs(folder).ok()?;
+    Some(stats.f_bavail.saturating_mul(stats.f_frsize).saturating_sub(keep_free))
 }
 
 async fn sleep_until(deadline: Option<Instant>) {

@@ -80,12 +80,16 @@ pub struct Config {
     pub network: Option<Network>,
 }
 
-/// `[network]`: the development CA that signs the certificates of Borg's capture proxy.
+/// `[network]`: the development CA that signs the certificates of Borg's capture proxy, and
+/// the space captures leave free on the disk.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Network {
     /// A folder with a CA certificate and its key, such as mkcert's.
     pub proxy_ca: Option<String>,
+    /// The MiB a capture leaves free on its folder's disk; without it a capture runs until the
+    /// disk is full.
+    pub keep_free_mib: Option<u64>,
 }
 
 /// `[folders]`: the folder hotlist, and whether Borg remembers the folders the panels visit.
@@ -249,6 +253,11 @@ impl Config {
     pub fn proxy_authority(&self) -> borg_core::Authority {
         let folder = self.network.as_ref().and_then(|network| network.proxy_ca.clone());
         expand_home(folder.as_slice()).pop().map_or(borg_core::Authority::Temporary, borg_core::Authority::Folder)
+    }
+
+    /// The MiB captures leave free on their folder's disk, from `keep-free-mib`.
+    pub fn capture_keep_free_mib(&self) -> Option<u64> {
+        self.network.as_ref().and_then(|network| network.keep_free_mib)
     }
 
     pub fn folder_history(&self) -> bool {

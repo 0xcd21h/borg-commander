@@ -146,21 +146,22 @@ pub use network::{
     TlsKeys, shell_variables,
 };
 pub use network::{
+    CAPTURE_SIZE_LIMIT, CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureLimit, CaptureProgress,
+    CaptureRequest, CaptureScope, DURATIONS, Ends, HEADER_BYTES, HostRow, KEEP_CHOICES, Keep, LONGEST_CAPTURE,
+    Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView, capture_ask, capture_extension,
+    capture_interfaces, capture_no_room, is_capture,
+};
+pub use network::{
     CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
     Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
     RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
     service,
 };
-pub use network::{
-    CaptureAccess, CaptureDialog, CaptureFailure, CaptureField, CaptureRequest, CaptureScope, DURATIONS, Ends,
-    HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
-    capture_ask, capture_extension, capture_interfaces, is_capture,
-};
 
 pub use capture::{
-    ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, Http, Ip,
-    KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream, StreamRow, Tcp, Turn, URG,
-    dns_type, with_secrets,
+    ACK, App, CONNECTION_BUDGET, CWR, Capture, CaptureError, ConnectionBudget, Datagram, Dns, DnsAnswer, DnsData, ECE,
+    FIN, Flow, FlowKind, Http, Ip, KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream,
+    StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
 };
 
 pub use measure::SizeScan;

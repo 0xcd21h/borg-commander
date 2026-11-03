@@ -571,6 +571,9 @@ fn flow_lines(view: &TrafficView) -> Vec<Detail> {
     if stream.is_some_and(|stream| stream.decrypted) {
         let _ = write!(heading, "{SEPARATOR}{}", tr!(traffic_decrypted));
     }
+    if let Some(left_out) = stream.map(|stream| stream.left_out).filter(|&left_out| left_out > 0) {
+        let _ = write!(heading, "{SEPARATOR}{}", tr!(traffic_left_out, size = format::size(left_out)));
+    }
     lines.push(steady("", heading, Tone::Heading));
     if stream.is_none_or(|stream| stream.turns.is_empty()) {
         lines.push(steady("", tr!(traffic_no_data), Tone::Quiet));
