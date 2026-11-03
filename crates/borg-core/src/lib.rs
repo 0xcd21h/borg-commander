@@ -143,6 +143,7 @@ pub use activity::{FindingsReport, RulesReport, evidence_text, problem_finding, 
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport, StringsTally};
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
+pub use activity::{ScanChecks, ScanSubject, scan_ask};
 
 pub use network::{
     Authority, Dialect, KEY_LOG_VARIABLE, PROXY_VARIABLES, Proxied, ProxyEndpoint, ShellVariables, TRUST_VARIABLES,

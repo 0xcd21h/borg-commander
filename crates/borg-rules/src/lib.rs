@@ -3,7 +3,7 @@
 
 use boreal::{
     Compiler, MetadataValue, Scanner,
-    compiler::CompilerParams,
+    compiler::{CompilerParams, generate_description},
     scanner::{EvaluatedRule, ScanError, ScanParams},
 };
 use borg_i18n::tr;
@@ -16,6 +16,10 @@ use std::{
 /// The namespace of the rules Borg ships.
 pub const BUILT_IN: &str = "borg";
 const BUILT_IN_RULES: &str = include_str!("../rules/borg.yar");
+/// The namespace of rule text compiled on its own, and the name its compiler messages give it.
+pub const INLINE: &str = "inline";
+/// The longest rule text compiled on its own, in bytes.
+pub const INLINE_LIMIT: usize = 64 * 1024;
 /// Name extensions of rule files.
 pub const RULE_EXTENSIONS: &[&str] = &["yar", "yara"];
 /// Bytes of a match kept as evidence.
@@ -71,6 +75,26 @@ pub struct Problem {
     pub file: PathBuf,
     pub message: String,
 }
+
+/// Why rule text compiled on its own cannot run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlineError {
+    /// Longer than `INLINE_LIMIT` bytes.
+    TooLong,
+    /// The compiler's message, which starts with `inline:LINE:COLUMN`.
+    Invalid(String),
+}
+
+impl std::fmt::Display for InlineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooLong => write!(f, "rule text is longer than {} KiB", INLINE_LIMIT / 1024),
+            Self::Invalid(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for InlineError {}
 
 /// The first bytes a rule's strings matched: which string, where, and the bytes themselves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,7 +180,24 @@ impl Rules {
                 problems.push(Problem { file: file.clone(), message: error.to_string() });
             }
         }
-        let mut scanner = all.finalize();
+        Self::finish(all, problems)
+    }
+
+    /// Rule text on its own, without Borg's rules or the user's, in the namespace `INLINE`.
+    /// It cannot include other files.
+    pub fn inline(text: &str) -> Result<Self, InlineError> {
+        if text.len() > INLINE_LIMIT {
+            return Err(InlineError::TooLong);
+        }
+        let mut alone = compiler();
+        alone
+            .add_rules_str_in_namespace(text, INLINE)
+            .map_err(|error| InlineError::Invalid(generate_description(&error.to_diagnostic(), INLINE, text)))?;
+        Ok(Self::finish(alone, Vec::new()))
+    }
+
+    fn finish(compiler: Compiler, problems: Vec<Problem>) -> Self {
+        let mut scanner = compiler.finalize();
         scanner.set_scan_params(
             ScanParams::default()
                 .compute_full_matches(true)
