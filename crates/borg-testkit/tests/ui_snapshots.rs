@@ -4632,3 +4632,72 @@ fn startup_items_drop_columns_on_a_narrow_screen() -> Result<()> {
     check("startup_items_narrow", &stage, buffer)?;
     Ok(())
 }
+
+fn start_sessions() -> Vec<borg_core::SessionEntry> {
+    let entry = |id: &str, name: &str, used: Option<SystemTime>, in_use| borg_core::SessionEntry {
+        id: id.into(),
+        name: name.into(),
+        last_used: used,
+        in_use,
+    };
+    vec![
+        entry(borg_core::DEFAULT_SESSION, "Default", at(RECENT - 3_600), Some(borg_core::SessionUse::Terminal)),
+        entry("8f3c2a", "web", at(RECENT), Some(borg_core::SessionUse::Service)),
+        entry("41d9e0", "scratch", at(OLD), None),
+        entry("c07b55", "migration-2024", None, None),
+    ]
+}
+
+/// The window Borg opens on start, drawn on a screen of `size` in the default theme and checked
+/// against the snapshot `name`.
+fn start_window(name: &str, picker: &borg_core::SessionPicker, size: GridSize) -> Result<Buffer> {
+    let stage = stage(size, Motion::STILL)?;
+    let look = borg_ui::StartLook { theme: stage.themes.find(None), palette: &stage.palette, truecolor: true };
+    let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, size.cols, size.rows));
+    borg_ui::draw_session_picker(picker, &look, &stage.clock, &mut buffer);
+    check(name, &stage, buffer.clone())?;
+    Ok(buffer)
+}
+
+fn picker_key(picker: &mut borg_core::SessionPicker, code: KeyCode) -> Option<borg_core::SessionChoice> {
+    picker.update(borg_core::PickerInput::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+}
+
+/// The window says what a session is, marks the sessions another terminal or the service runs,
+/// says why those stay, and asks before removing an old one with No chosen.
+#[test]
+fn start_window_marks_active_sessions_and_asks_before_removing_an_old_one() -> Result<()> {
+    let mut picker = borg_core::SessionPicker::new(start_sessions());
+    let buffer = start_window("start_sessions", &picker, SIZE)?;
+    ensure_text(&buffer, "A session is a saved workspace")?;
+    ensure_text(&buffer, "● Kept running by the service")?;
+    ensure_text(&buffer, "● Open in another terminal")?;
+    ensure_text(&buffer, "2024-06-01")?;
+
+    picker_key(&mut picker, KeyCode::F(8));
+    let buffer = start_window("start_sessions_kept_by_service", &picker, SIZE)?;
+    ensure_text(&buffer, "borg service stop")?;
+
+    picker_key(&mut picker, KeyCode::Down);
+    picker_key(&mut picker, KeyCode::Down);
+    start_window("start_sessions_idle", &picker, SIZE)?;
+    picker_key(&mut picker, KeyCode::F(8));
+    let buffer = start_window("start_sessions_remove_confirm", &picker, SIZE)?;
+    ensure_text(&buffer, "Remove session \"scratch\"?")?;
+    assert_eq!(picker_key(&mut picker, KeyCode::Enter), None, "No is chosen first");
+    Ok(())
+}
+
+#[test]
+fn start_window_names_a_new_session_and_fits_a_narrow_screen() -> Result<()> {
+    let mut picker = borg_core::SessionPicker::new(start_sessions());
+    picker_key(&mut picker, KeyCode::F(7));
+    for letter in "web".chars() {
+        picker_key(&mut picker, KeyCode::Char(letter));
+    }
+    picker_key(&mut picker, KeyCode::Enter);
+    let buffer = start_window("start_sessions_name_taken", &picker, SIZE)?;
+    ensure_text(&buffer, "A session named \"web\" already exists.")?;
+    start_window("start_sessions_narrow", &borg_core::SessionPicker::new(start_sessions()), NARROW)?;
+    Ok(())
+}

@@ -795,6 +795,22 @@ pode chamar `list_sessions`, `list_remote_sessions` e `use_session` para escolhe
 essa ligação trabalha. Uma única chamada de ferramenta pode também passar um ID em `session` para
 visar outra sessão apenas dessa vez. A sessão escolhida aplica-se apenas a essa ligação MCP.
 
+Com mais de uma sessão, o `borg` começa pela janela **Sessões do Borg**. As primeiras linhas
+explicam o que é uma sessão, e a lista mostra cada sessão com a data em que foi usada pela última
+vez. Uma sessão ativa neste momento aparece marcada com o seu estado: **Aberta noutro terminal**, ou
+**Mantida pelo serviço** quando o serviço em segundo plano a executa. Fica escolhida a sessão usada
+por último, a menos que outro terminal a tenha aberta. Enter abre a sessão escolhida onde a deixou;
+uma sessão que o serviço mantém abre-se ligada a ele, como com `borg service attach NAME`. Um clique
+escolhe uma sessão e um segundo clique abre-a. **F7** dá nome a uma nova sessão e abre-a, e Esc ou
+F10 sai sem abrir nenhuma. Enquanto a janela está aberta, verifica a cada 2 segundos que sessões
+estão ativas.
+
+**F8** ou **Delete** remove a sessão escolhida, depois de uma confirmação que tem **Não** por
+omissão. Isto elimina os painéis guardados e o histórico de terminal da sessão; os seus ficheiros e
+pastas mantêm-se. A sessão Default fica sempre, tal como uma sessão ativa neste momento: saia
+primeiro do Borg no outro terminal, ou execute `borg service stop` para remover uma sessão que o
+serviço mantém.
+
 `borg service install`, `enable` e `start` configuram o serviço opcional em segundo plano. Este
 mantém a ligação de emparelhamento da máquina e mantém as sessões com nome em execução depois de
 os respetivos terminais fecharem. `borg service attach NAME` volta a ligar-se a uma delas, e

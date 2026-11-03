@@ -7,17 +7,20 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
+use borg_core::{DEFAULT_SESSION, SESSION_NAME_LIMIT};
 use serde::{Deserialize, Serialize};
 
 use crate::{session::StateDir, store::write_atomically};
 
 const REGISTRY: &str = "sessions.json";
+/// The file in a session's folder that a running Borg holds locked.
+const LOCK_FILE: &str = ".lock";
 const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 pub async fn delete_remote(state: &StateDir, runtime: &std::path::Path, id: &str, serving: Option<&str>) -> Result<()> {
     let selected = list(state)?.into_iter().find(|session| session.id == id).context("The session no longer exists")?;
-    ensure!(id != "default", "The Default session is protected and cannot be removed");
+    ensure!(id != DEFAULT_SESSION, "The Default session is protected and cannot be removed");
     ensure!(
         serving != Some(id),
         "This session is hosting the remote connection. Close it on the host before removing it"
@@ -79,7 +82,7 @@ pub fn list(state: &StateDir) -> Result<Vec<NamedSession>> {
     let mut names = std::collections::HashSet::new();
     for session in &sessions {
         ensure!(
-            session.id == "default"
+            session.id == DEFAULT_SESSION
                 || session.id.len() == 32 && session.id.bytes().all(|byte| byte.is_ascii_hexdigit()),
             "invalid Borg session ID in registry"
         );
@@ -93,7 +96,8 @@ pub fn ensure_default(state: &StateDir) -> Result<Vec<NamedSession>> {
     if !sessions.is_empty() {
         return Ok(sessions);
     }
-    let default = NamedSession { id: "default".into(), name: "Default".into(), archived: false, last_opened: now() };
+    let default =
+        NamedSession { id: DEFAULT_SESSION.into(), name: "Default".into(), archived: false, last_opened: now() };
     save(state, std::slice::from_ref(&default))?;
     Ok(vec![default])
 }
@@ -105,8 +109,8 @@ fn save(state: &StateDir, sessions: &[NamedSession]) -> Result<()> {
 
 fn validate_name(name: &str, sessions: &[NamedSession], except: Option<&str>) -> Result<String> {
     let name = name.trim();
-    if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
-        bail!("session name must contain 1–40 printable characters");
+    if name.is_empty() || name.chars().count() > SESSION_NAME_LIMIT || name.chars().any(char::is_control) {
+        bail!("session name must contain 1 to {SESSION_NAME_LIMIT} printable characters");
     }
     if sessions.iter().any(|session| session.id != except.unwrap_or_default() && session.name == name) {
         bail!("a session named {name} already exists");
@@ -131,6 +135,11 @@ pub fn create(state: &StateDir, name: &str) -> Result<NamedSession> {
     sessions.push(session.clone());
     save(state, &sessions)?;
     Ok(session)
+}
+
+/// The session with this name or ID, as the registry has it.
+pub fn find(state: &StateDir, name: &str) -> Result<NamedSession> {
+    resolve(&list(state)?, name).cloned()
 }
 
 pub fn open(state: &StateDir, name: &str) -> Result<NamedSession> {
@@ -165,7 +174,7 @@ pub fn archive(state: &StateDir, target: &str, archived: bool) -> Result<()> {
 pub fn delete(state: &StateDir, target: &str) -> Result<()> {
     let mut sessions = list(state)?;
     let id = resolve(&sessions, target)?.id.clone();
-    if id == "default" {
+    if id == DEFAULT_SESSION {
         bail!("the Default session holds Borg's existing state and cannot be deleted");
     }
     let _guard = lock(state, &id)?;
@@ -184,43 +193,34 @@ pub fn lock(state: &StateDir, id: &str) -> Result<fs::File> {
     let workspace = state.workspace(id);
     fs::create_dir_all(&workspace)?;
     let file =
-        fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(workspace.join(".lock"))?;
+        fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(workspace.join(LOCK_FILE))?;
     file.try_lock().with_context(|| format!("session {id} is already running"))?;
     Ok(file)
 }
 
-pub fn choose(state: &StateDir, requested: Option<&str>) -> Result<NamedSession> {
-    use std::io::{IsTerminal, Write};
+/// Whether a running Borg holds the session's lock now, in a terminal or in the background
+/// service. Asking makes no folder for a session that never ran.
+pub fn held(state: &StateDir, id: &str) -> bool {
+    fs::File::open(state.workspace(id).join(LOCK_FILE))
+        .is_ok_and(|file| matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock)))
+}
+
+/// The session to open: the one asked for, the only one there is, or the one chosen in the
+/// start window. `None` when the user quits the window.
+pub async fn choose(state: &StateDir, requested: Option<&str>) -> Result<Option<NamedSession>> {
+    use std::io::IsTerminal;
     let sessions = ensure_default(state)?;
     if let Some(requested) = requested {
-        return open(state, requested);
+        return open(state, requested).map(Some);
     }
     let visible: Vec<_> = sessions.iter().filter(|session| !session.archived).collect();
     if visible.len() == 1 {
-        return open(state, &visible[0].id);
+        return open(state, &visible[0].id).map(Some);
     }
     if !std::io::stdin().is_terminal() {
         bail!("multiple Borg sessions exist; start with `borg --session NAME`");
     }
-    println!("Borg sessions:");
-    for (index, session) in visible.iter().enumerate() {
-        println!("  {}. {}", index + 1, session.name);
-    }
-    println!("  n. Create a new session");
-    print!("Choose a session: ");
-    std::io::stdout().flush()?;
-    let mut choice = String::new();
-    std::io::stdin().read_line(&mut choice)?;
-    if choice.trim().eq_ignore_ascii_case("n") {
-        print!("New session name: ");
-        std::io::stdout().flush()?;
-        let mut name = String::new();
-        std::io::stdin().read_line(&mut name)?;
-        return create(state, &name);
-    }
-    let index: usize = choice.trim().parse().context("enter a session number or n")?;
-    let session = visible.get(index.saturating_sub(1)).filter(|_| index != 0).context("no such session number")?;
-    open(state, &session.id)
+    crate::start_window::run(state).await
 }
 
 pub fn command(state: &StateDir, args: &[String]) -> Result<()> {

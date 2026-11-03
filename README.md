@@ -72,7 +72,8 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
 - **Help at the prompt.** Claude can type a command at your prompt, or a script into vim or
   nano, for you to check and run yourself.
 
-`borg sessions` manages named workspaces. `borg service install` prepares a background service;
+`borg sessions` manages named workspaces, and with more than one, `borg` starts with a window to
+open, create or remove them. `borg service install` prepares a background service;
 `borg service enable` starts it at boot, and `borg service start` starts it now. The service keeps
 session shells and the pairing connection alive when no terminal is attached. Open a workspace
 with `borg --session NAME`; Ctrl-] detaches. One `borg mcp` connection can list and select local

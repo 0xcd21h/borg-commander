@@ -42,6 +42,7 @@ mod pointer;
 mod query;
 mod remote;
 mod results;
+mod session_picker;
 mod settings;
 mod startup_items;
 mod state;
@@ -105,6 +106,10 @@ pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
 pub use query::{Candidate, Problem as QueryProblem, QueryError, SearchQuery};
+pub use session_picker::{
+    DEFAULT_SESSION, PickerInput, PickerStep, SESSION_NAME_LIMIT, SessionChoice, SessionEntry, SessionPicker,
+    SessionUse,
+};
 pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, SearchSettings, Settings,
 };
