@@ -214,7 +214,7 @@ impl Drawing<'_, '_> {
             Line::styled(crate::network_view::status(&state.network), styles.status).render(status, &mut self.buf);
         } else if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| self.focused.is_some()) {
             // The panel's files are out of sight; the status line names the file being edited.
-            Line::styled(format!(" {}", editor.path.display()), styles.status).render(status, &mut self.buf);
+            Line::styled(format!(" {}", editor.shown_path().display()), styles.status).render(status, &mut self.buf);
         } else {
             draw_status(state.active_panel(), status, styles, self.scene.clock, &mut self.buf);
         }

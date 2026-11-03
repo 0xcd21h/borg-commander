@@ -29,7 +29,12 @@ impl App {
         let (pty, pty_events) = spawn_shell(launch, &state, grid)?;
         let (messages, inbox) = unbounded_channel();
 
-        let preview = preview::Loader::new(messages.clone());
+        let drives = launch
+            .state_dir
+            .as_ref()
+            .map_or_else(borg_drives::Drives::default, |dir| borg_drives::Drives::load(dir.path()));
+        state.kept_answers = drives.kept();
+        let preview = preview::Loader::new(messages.clone(), drives.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
         let backup = crate::backup::Backup::new(messages.clone());
@@ -61,6 +66,7 @@ impl App {
             listings: [None, None],
             remote_listings: crate::remote_fs::Listings::default(),
             archives: crate::archive::Indexes::default(),
+            drives,
             remote_catalog: None,
             remote_consoles: crate::remote_console::Clients::new(),
             console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),

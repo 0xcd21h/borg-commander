@@ -1,7 +1,7 @@
 //! Starting file jobs and the copies to remote Borgs and containers, and steering them as they run.
 
 use super::App;
-use borg_core::{JobCommand, Msg, UnpackRequest, UnpackTarget, Viewer, viewer_size};
+use borg_core::{JobCommand, Msg, PackedFile, RewriteRequest, UnpackRequest, UnpackTarget, Viewer, viewer_size};
 use borg_jobs::{Control, Spec, run};
 use std::{
     path::PathBuf,
@@ -21,8 +21,9 @@ impl App {
         cache.begin_changes();
         let control = self.control_for(id);
         let messages = self.messages.clone();
+        let drives = self.drives.clone();
         tokio::task::spawn_blocking(move || {
-            run(&spec, &control, &mut |event| {
+            run(&spec, &drives, &control, &mut |event| {
                 if matches!(event, borg_jobs::Event::Finished(_)) {
                     cache.invalidate(&changed);
                 }
@@ -46,37 +47,62 @@ impl App {
         let messages = self.messages.clone();
         let runtime = tokio::runtime::Handle::current();
         let cache = self.search.cache.clone();
+        let drives = self.drives.clone();
         let changed = if job.to.is_none() { vec![job.target.clone()] } else { Vec::new() };
         cache.begin_changes();
         tokio::task::spawn_blocking(move || {
-            let outcome = job.run(&runtime, &control, &mut |event| drop(messages.send(Msg::Job { id, event })));
+            let emit = &mut |event| drop(messages.send(Msg::Job { id, event }));
+            let outcome = job.run(&runtime, &drives, &control, emit);
             cache.invalidate(&changed);
             drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
         });
     }
 
-    /// Unpacks entries of an archive into a folder, or the one file the viewer waits for, which
-    /// it then shows from Borg's folder for such files and removes.
+    /// Unpacks entries of an archive into a folder, moving them when the request says so, or
+    /// the one file the viewer or the editor waits for. The viewer shows its file from Borg's
+    /// folder for such files, which then removes it; the editor keeps its file there.
     pub(super) fn start_unpack(&mut self, id: u64, request: UnpackRequest) {
         let control = self.control_for(id);
         let messages = self.messages.clone();
         let indexes = self.archives.clone();
+        let drives = self.drives.clone();
         let cache = self.search.cache.clone();
         let scratch = self.runtime_dir.join(borg_core::ARCHIVE_VIEWS);
         let size = viewer_size(self.state.cols, self.state.rows);
         let cell = self.graphics.capabilities().cell;
         let changed: Vec<PathBuf> = match &request.target {
+            UnpackTarget::Folder(target) if request.remove => vec![target.clone(), request.archive.clone()],
             UnpackTarget::Folder(target) => vec![target.clone()],
-            UnpackTarget::Viewer { .. } => Vec::new(),
+            UnpackTarget::Viewer { .. } | UnpackTarget::Editor { .. } => Vec::new(),
         };
         cache.begin_changes();
         tokio::task::spawn_blocking(move || {
             let emit = &mut |event| drop(messages.send(Msg::Job { id, event }));
             let outcome = match &request.target {
-                UnpackTarget::Folder(target) => crate::archive::unpack(&indexes, &request, target, &control, emit),
+                UnpackTarget::Folder(target) if request.remove => {
+                    crate::archive::move_out(&indexes, &request, target, &drives, &control, emit)
+                }
+                UnpackTarget::Folder(target) => {
+                    crate::archive::unpack(&indexes, &request, target, &drives, &control, emit).outcome
+                }
+                UnpackTarget::Editor { shown, slot } => {
+                    let (outcome, unpacked) =
+                        crate::archive::unpack_for_editor(&indexes, &request, &scratch, &drives, &control, emit);
+                    if let Some(unpacked) = unpacked {
+                        let packed = PackedFile {
+                            archive: request.archive.clone(),
+                            password: request.password.clone(),
+                            entry: request.paths.first().cloned().unwrap_or_default(),
+                            shown: shown.clone(),
+                        };
+                        let result = crate::edit_file::read(&unpacked);
+                        drop(messages.send(Msg::ArchiveEditorOpened { slot: *slot, packed, result }));
+                    }
+                    outcome
+                }
                 UnpackTarget::Viewer { shown } => {
                     let (outcome, unpacked) =
-                        crate::archive::unpack_for_viewer(&indexes, &request, &scratch, &control, emit);
+                        crate::archive::unpack_for_viewer(&indexes, &request, &scratch, &drives, &control, emit);
                     if let Some(unpacked) = unpacked {
                         let content = crate::document::open(
                             &unpacked.path,
@@ -92,6 +118,24 @@ impl App {
                     outcome
                 }
             };
+            cache.invalidate(&changed);
+            drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
+        });
+    }
+
+    /// Changes an archive: adds, removes, moves or replaces entries.
+    pub(super) fn start_rewrite(&mut self, id: u64, request: RewriteRequest) {
+        let control = self.control_for(id);
+        let messages = self.messages.clone();
+        let indexes = self.archives.clone();
+        let drives = self.drives.clone();
+        let cache = self.search.cache.clone();
+        let mut changed = request.originals.clone();
+        changed.push(request.archive.clone());
+        cache.begin_changes();
+        tokio::task::spawn_blocking(move || {
+            let emit = &mut |event| drop(messages.send(Msg::Job { id, event }));
+            let outcome = crate::archive::rewrite(&indexes, &request, &drives, &control, emit);
             cache.invalidate(&changed);
             drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
         });

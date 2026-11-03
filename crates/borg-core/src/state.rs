@@ -157,6 +157,8 @@ pub struct AppState {
     pub peeked: Option<Peeked>,
     pub(crate) peeking: Option<(Aside, PathBuf, Option<crate::FirstMatch>)>,
     pub next_job: u64,
+    /// How many answers keep Borg from asking before long jobs.
+    pub kept_answers: usize,
     pub idle_since: Instant,
     pub screensaver: bool,
     /// Which screensaver shows; picked again each time it starts.
@@ -252,6 +254,7 @@ impl AppState {
             peeked: None,
             peeking: None,
             next_job: 0,
+            kept_answers: 0,
             idle_since: now,
             screensaver: false,
             saver: Saver::default(),

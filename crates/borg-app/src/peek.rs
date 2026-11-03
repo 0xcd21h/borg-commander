@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::Result;
 use borg_core::{Aside, Content, Facts, FirstMatch, Nature, Peek};
+use borg_drives::Drives;
 use borg_vfs::{Entry, entries};
 
 const PERMISSION_BITS: u32 = 0o7777;
@@ -21,10 +22,11 @@ pub fn peek(
     size: (usize, usize),
     cell: (u16, u16),
     cancelled: Arc<AtomicBool>,
+    drives: &Drives,
 ) -> Peek {
     let peeked = match aside {
         Aside::QuickView | Aside::OpenFile => quick_view(path, at, size, cell, cancelled),
-        Aside::Info => info(path, &cancelled).map(Peek::Info),
+        Aside::Info => info(path, &cancelled, drives).map(Peek::Info),
     };
     peeked.unwrap_or_else(|e| Peek::Unavailable(format!("{e:#}")))
 }
@@ -82,7 +84,7 @@ fn disk(path: &Path) -> Option<(u64, u64)> {
     Some((stats.f_bavail.saturating_mul(stats.f_frsize), stats.f_blocks.saturating_mul(stats.f_frsize)))
 }
 
-fn info(path: &Path, cancelled: &AtomicBool) -> Result<Facts> {
+fn info(path: &Path, cancelled: &AtomicBool, drives: &Drives) -> Result<Facts> {
     let own = fs::symlink_metadata(path)?;
     let effective = fs::metadata(path).unwrap_or_else(|_| own.clone());
     let items = effective
@@ -105,5 +107,6 @@ fn info(path: &Path, cancelled: &AtomicBool) -> Result<Facts> {
         items,
         disk: disk(path),
         backup: crate::backup::available().then(|| crate::backup::status(path)),
+        drive: Some(drives.facts(path)),
     })
 }

@@ -180,6 +180,8 @@ pub struct Editor {
     closed: bool,
     pub slot: EditorSlot,
     pub(crate) beside: Option<Beside>,
+    /// The archive entry the file was unpacked from, which each save writes back into.
+    pub packed: Option<crate::PackedFile>,
 }
 
 impl Editor {
@@ -202,7 +204,14 @@ impl Editor {
             closed: false,
             slot,
             beside: None,
+            packed: None,
         }
+    }
+
+    /// The path the editor's title shows: the entry's place in its archive, for a file unpacked
+    /// from one.
+    pub fn shown_path(&self) -> &std::path::Path {
+        self.packed.as_ref().map_or(&self.path, |packed| &packed.shown)
     }
 
     /// The width of the line numbers and the space after them.
@@ -432,7 +441,19 @@ fn display_name(path: &std::path::Path) -> String {
     path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
 }
 
-pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileStamp, SaveError>) -> Vec<Effect> {
+/// Marks the editor in `slot` as holding a file unpacked from an archive.
+pub(crate) fn pack(state: &mut AppState, slot: EditorSlot, packed: crate::PackedFile) {
+    if let Some(editor) = holder(state, slot).as_mut() {
+        editor.packed = Some(packed);
+    }
+}
+
+pub(crate) fn saved(
+    state: &mut AppState,
+    slot: EditorSlot,
+    result: Result<FileStamp, SaveError>,
+    now: std::time::Instant,
+) -> Vec<Effect> {
     let Some(editor) = holder(state, slot).as_mut() else { return Vec::new() };
     let Some((revision, close)) = editor.saving.take() else { return Vec::new() };
     match result {
@@ -441,11 +462,20 @@ pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileS
             if editor.buffer.revision() == revision {
                 editor.buffer.mark_saved();
             }
-            editor.note = Some(tr!(editor_saved).into());
+            let packed = editor.packed.clone().map(|packed| (packed, editor.path.clone()));
+            editor.note = Some(match &packed {
+                Some((packed, _)) => tr!(editor_saved_into_archive, name = display_name(&packed.archive)),
+                None => tr!(editor_saved).into(),
+            });
+            let beside = editor.beside;
+            let mut effects = match packed {
+                Some((packed, source)) => crate::archive::save(state, &packed, source, now),
+                None => Vec::new(),
+            };
             if close {
-                let beside = editor.beside;
-                return close_editor(state, slot, beside);
+                effects.extend(close_editor(state, slot, beside));
             }
+            return effects;
         }
         Err(SaveError::Changed) => {
             editor.saving = Some((revision, close));

@@ -7,6 +7,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
+use borg_drives::{Drive, DriveKind, Drives, Rates, Remember};
 use borg_jobs::{Ask, Control, Decision, Event, Outcome, Spec, Totals, run};
 use tempfile::TempDir;
 
@@ -45,14 +46,27 @@ fn tree(root: &Path) {
     symlink("README.md", root.join("project/readme-link")).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// Drives fast enough that no job asks before it starts.
+fn quick() -> Drives {
+    on(DriveKind::Memory, DriveKind::Memory.typical())
+}
+
+fn on(kind: DriveKind, rates: Rates) -> Drives {
+    Drives::uniform(Drive { id: "test".into(), kind, filesystem: "test".into(), clones: false }, rates)
+}
+
 fn answering(spec: &Spec, answers: &[Decision]) -> (Outcome, Vec<Event>) {
+    answering_on(&quick(), spec, answers)
+}
+
+fn answering_on(drives: &Drives, spec: &Spec, answers: &[Decision]) -> (Outcome, Vec<Event>) {
     let control = Control::default();
     let mut answers = answers.iter().copied();
     let mut events = Vec::new();
     let control_ref = &control;
     let outcome = thread::scope(|scope| {
         let (tx, rx) = mpsc::channel::<Event>();
-        let runner = scope.spawn(move || run(spec, control_ref, &mut |event| drop(tx.send(event))));
+        let runner = scope.spawn(move || run(spec, drives, control_ref, &mut |event| drop(tx.send(event))));
         for event in rx {
             if matches!(event, Event::Asking(_)) {
                 control_ref.answer(answers.next().unwrap_or(Decision::Cancel));
@@ -147,7 +161,7 @@ fn cancelling_mid_file_leaves_no_partial_files() {
     let spec = Spec::Copy { sources: vec![from.join("big.bin")], target: to.clone(), optimize_hdd: false };
     let worker = {
         let control = Arc::clone(&control);
-        thread::spawn(move || run(&spec, &control, &mut |_| {}))
+        thread::spawn(move || run(&spec, &quick(), &control, &mut |_| {}))
     };
     thread::sleep(Duration::from_millis(50));
     control.cancel();
@@ -230,7 +244,7 @@ fn buffered_selected_files_use_captured_data_before_destination_writes() {
     }
     let spec = Spec::Copy { sources: sources.clone(), target: to.clone(), optimize_hdd: true };
     let mut observed_read = false;
-    let outcome = run(&spec, &Control::default(), &mut |event| {
+    let outcome = run(&spec, &quick(), &Control::default(), &mut |event| {
         if let Event::Progress(progress) = event
             && progress.done.files == 0
             && progress.done.bytes == 0
@@ -256,7 +270,7 @@ fn cancelling_a_buffered_read_batch_leaves_existing_destinations_untouched() {
     write(&to.join("a"), "old a");
     let spec = Spec::Copy { sources: vec![from.join("a"), from.join("b")], target: to.clone(), optimize_hdd: true };
     let control = Control::default();
-    let outcome = run(&spec, &control, &mut |event| {
+    let outcome = run(&spec, &quick(), &control, &mut |event| {
         if matches!(event, Event::Progress(_)) {
             control.cancel();
         }
@@ -273,11 +287,45 @@ fn files_growing_after_scan_fall_back_to_streaming() {
     write(&source, "small");
     let spec = Spec::Copy { sources: vec![source.clone()], target: to.clone(), optimize_hdd: true };
     let content = vec![9; STREAMED_BYTES];
-    let outcome = run(&spec, &Control::default(), &mut |event| {
+    let outcome = run(&spec, &quick(), &Control::default(), &mut |event| {
         if matches!(event, Event::Scanning(_)) {
             fs::write(&source, &content).unwrap();
         }
     });
     assert_eq!(outcome, Outcome::Done { done: Totals { files: 1, bytes: STREAMED_BYTES as u64 }, skipped: 0 });
     assert_eq!(fs::read(to.join("growing")).unwrap(), content);
+}
+
+#[test]
+fn a_copy_that_would_take_long_asks_first_and_an_answer_can_stop_the_asking() {
+    let (_dir, from, to) = sandbox();
+    fs::write(from.join("big.bin"), vec![7u8; BIG]).unwrap_or_else(|e| panic!("{e}"));
+    let crawling = Rates { read: 100_000, write: 100_000 };
+    let drives = on(DriveKind::Network, crawling);
+    let spec = Spec::Copy { sources: vec![from.join("big.bin")], target: to.clone(), optimize_hdd: false };
+
+    let (cancelled, events) = answering_on(&drives, &spec, &[Decision::Cancel]);
+    assert!(matches!(cancelled, Outcome::Cancelled { .. }));
+    let asked = events.iter().find_map(|event| match event {
+        Event::Asking(Ask::Slow { path, file, bytes, estimate, kind }) => Some((path, *file, *bytes, *estimate, *kind)),
+        _ => None,
+    });
+    let (path, file, bytes, estimate, kind) = asked.expect("a slow copy asks first");
+    assert_eq!((path, file, bytes, kind), (&to, false, BIG as u64, DriveKind::Network));
+    assert!(estimate > Duration::from_secs(120), "{estimate:?}");
+    assert!(!to.join("big.bin").exists(), "nothing written before the answer");
+
+    let (copied, _) = answering_on(&drives, &spec, &[Decision::Always(Remember::Kind)]);
+    assert!(matches!(copied, Outcome::Done { skipped: 0, .. }));
+    fs::remove_file(to.join("big.bin")).unwrap_or_else(|e| panic!("{e}"));
+    let (again, events) = answering_on(&drives, &spec, &[]);
+    assert!(matches!(again, Outcome::Done { skipped: 0, .. }));
+    assert!(!events.iter().any(|event| matches!(event, Event::Asking(_))), "the answer holds for network drives");
+
+    let elsewhere = from.with_file_name("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap_or_else(|e| panic!("{e}"));
+    let spec = Spec::Move { sources: vec![to.join("big.bin")], target: elsewhere };
+    let (moved, events) = answering_on(&on(DriveKind::HardDrive, crawling), &spec, &[]);
+    assert!(matches!(moved, Outcome::Done { skipped: 0, .. }));
+    assert!(!events.iter().any(|event| matches!(event, Event::Asking(_))), "a move on one drive renames");
 }

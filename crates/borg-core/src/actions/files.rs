@@ -54,7 +54,10 @@ pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
 
 /// Opens the hovered file in Borg's editor, full screen or in a panel, on the match a contents
 /// search found in it.
-pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot) -> Vec<Effect> {
+pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot, now: Instant) -> Vec<Effect> {
+    if state.active_panel().archive.is_some() {
+        return crate::archive::edit(state, slot, now);
+    }
     let Some(path) = hovered_file(state) else { return Vec::new() };
     match first_match(state.active_panel(), &path) {
         Some(FirstMatch { query, offset }) => crate::editor::open_at(state, path, slot, query, offset),
@@ -64,14 +67,14 @@ pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot) -> Vec<Effect
 
 /// Alt-E: opens the hovered file in a panel's editor, in place of the panel's files, or beside
 /// results in the other panel, so the list stays in view.
-pub(super) fn edit_in_panel(state: &mut AppState, side: Side) -> Vec<Effect> {
+pub(super) fn edit_in_panel(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect> {
     if !state.panel(side).is_results() {
-        return edit_hovered(state, EditorSlot::Panel(side));
+        return edit_hovered(state, EditorSlot::Panel(side), now);
     }
     if hovered_file(state).is_none() || !crate::editor::ready_beside(state, side.other()) {
         return Vec::new();
     }
-    edit_hovered(state, EditorSlot::Panel(side.other()))
+    edit_hovered(state, EditorSlot::Panel(side.other()), now)
 }
 
 /// Opens the hovered file in the editor the shell names.
@@ -91,7 +94,10 @@ pub(super) fn copy(state: &mut AppState, side: Side) -> Vec<Effect> {
             state.notice = Some(tr!(archive_copy_destination).into());
             return Vec::new();
         }
-        return transfer(state, tr!(copy), |sources| PromptPurpose::Unpack { sources });
+        return transfer(state, tr!(copy), |sources| PromptPurpose::Unpack { sources, moving: false });
+    }
+    if state.panel(other).archive.is_some() {
+        return pack(state, side, tr!(copy), false);
     }
     if state.panel(side).remote_mount.is_some() || state.panel(other).remote_mount.is_some() {
         return copy_remote(state, side);
@@ -142,7 +148,22 @@ pub(super) fn move_selection(state: &mut AppState, side: Side) -> Vec<Effect> {
         state.notice = Some(tr!(move_needs_a_real_destination_folder).into());
         return Vec::new();
     }
+    if state.panel(side).archive.is_some() {
+        return transfer(state, tr!(move), |sources| PromptPurpose::Unpack { sources, moving: true });
+    }
+    if state.panel(side.other()).archive.is_some() {
+        return pack(state, side, tr!(move), true);
+    }
     transfer(state, tr!(move), |sources| PromptPurpose::Move { sources })
+}
+
+/// F5 and F6 into the archive the other panel shows, from a folder of this machine.
+fn pack(state: &mut AppState, side: Side, title: &'static str, moving: bool) -> Vec<Effect> {
+    if state.panel(side).foreign() {
+        state.notice = Some(tr!(archive_pack_source).into());
+        return Vec::new();
+    }
+    transfer(state, title, |sources| PromptPurpose::Pack { sources, moving })
 }
 
 /// F8: asks before deleting the selection; in a collection it only takes the references out.

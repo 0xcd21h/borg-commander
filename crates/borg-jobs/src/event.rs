@@ -1,4 +1,6 @@
-use std::{ops::Add, path::PathBuf};
+use std::{ops::Add, path::PathBuf, time::Duration};
+
+use borg_drives::{DriveKind, Remember};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Spec {
@@ -67,6 +69,17 @@ pub enum Ask {
         needed: u64,
         free: u64,
     },
+    /// Work that would take long, by what Borg knows of the drives it reads and writes.
+    Slow {
+        /// What the work is on: the archive it changes, or the folder it writes into.
+        path: PathBuf,
+        /// Whether an answer may name `path` itself, as it may an archive.
+        file: bool,
+        bytes: u64,
+        estimate: Duration,
+        /// The kind of the drive that holds the work up.
+        kind: DriveKind,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +91,8 @@ pub enum Decision {
     KeepBoth,
     Retry,
     Proceed,
+    /// Go ahead, and do not ask about such work again.
+    Always(Remember),
     Cancel,
 }
 

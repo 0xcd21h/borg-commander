@@ -93,6 +93,11 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::TimeMachine => crate::backup::open(state),
         Action::Storage => crate::storage::open(state),
+        Action::AskAgain => {
+            state.kept_answers = 0;
+            state.notice = Some(tr!(asking_again).into());
+            vec![Effect::AskAgain]
+        }
         Action::Up => panels::moved(state, |panel| panel.move_by(LINE_UP)),
         Action::Down => panels::moved(state, |panel| panel.move_by(LINE_DOWN)),
         Action::PageUp => panels::moved(state, |panel| panel.page(PAGE_UP)),
@@ -128,8 +133,8 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         }
         Action::InvertSelection => panels::moved(state, Panel::invert_marks),
         Action::View => files::view(state, side, now),
-        Action::Edit => files::edit_hovered(state, crate::EditorSlot::Screen),
-        Action::EditInPanel => files::edit_in_panel(state, side),
+        Action::Edit => files::edit_hovered(state, crate::EditorSlot::Screen, now),
+        Action::EditInPanel => files::edit_in_panel(state, side, now),
         Action::EditExternal => files::edit_external(state),
         Action::Copy => files::copy(state, side),
         Action::Move => files::move_selection(state, side),

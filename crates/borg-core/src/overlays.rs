@@ -250,6 +250,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             Vec::new()
         }
         PromptPurpose::Mkdir if state.active_panel().mount.is_some() => crate::docker::mkdir(state, text),
+        PromptPurpose::Mkdir if state.active_panel().archive.is_some() => crate::archive::mkdir(state, text, now),
         PromptPurpose::Mkdir => {
             run_operation(state, tr!(overlays_mkdir), &ops::mkdir(text), Some(first_component(text)), now)
         }
@@ -260,10 +261,12 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             effects
         }
         PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text, now),
-        PromptPurpose::Unpack { sources } => {
+        PromptPurpose::Unpack { sources, moving: true } => crate::archive::move_out(state, &sources, text, now),
+        PromptPurpose::Unpack { sources, moving: false } => {
             let target = state.panel(state.active.other()).dir().join(text);
             crate::archive::unpack(state, &sources, target, now)
         }
+        PromptPurpose::Pack { sources, moving } => crate::archive::pack(state, sources, text, moving, now),
         PromptPurpose::ArchivePassword { .. } => Vec::new(),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
@@ -325,6 +328,9 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         }
         (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
             crate::docker::delete(state, sources)
+        }
+        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().archive.is_some() => {
+            crate::archive::remove(state, &sources, now)
         }
         (Some(true), ConfirmPurpose::Delete { sources }) => {
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)

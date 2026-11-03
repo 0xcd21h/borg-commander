@@ -279,7 +279,7 @@ instantes.
 | Ctrl-S | Localização rápida na pasta |
 | Ctrl-\ | Pastas favoritas: saltar para uma pasta fixada ou recente |
 | Ctrl-Q | Pré-visualização: mostra o ficheiro sob o cursor (texto, imagem ou pasta) no outro painel |
-| Ctrl-L | Informações: mostra tamanho, permissões, proprietário, datas e espaço livre no outro painel |
+| Ctrl-L | Informações: mostra tamanho, permissões, proprietário, datas, espaço livre e o disco no outro painel |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar ficheiros |
 | `+` `-` `*` | Selecionar, desselecionar ou inverter por padrão (`*.rs`, `build/`) |
 | Alt-Enter | Colocar os nomes marcados (ou o atual) na linha de comando; em `..`, o caminho da pasta pai |
@@ -868,6 +868,38 @@ substitui todos,
 `n` ignora todos e Esc cancela. As cópias são escritas em ficheiros temporários e mudam de nome
 quando estão completas.
 
+### Tarefas longas e discos
+
+O Borg sabe em que tipo de disco está cada pasta: um disco rígido, um SSD, um disco em RAM, uma
+partilha de rede como NFS, SMB ou sshfs, ou a máquina que um painel remoto mostra. No macOS pergunta
+ao `diskutil` e ao `hdiutil`, e no Linux lê `/proc/self/mountinfo` e os indicadores do dispositivo
+em `/sys`. Ctrl-L mostra o disco e o seu sistema de ficheiros na linha **Disco**, e a linha
+**Velocidade** diz a que velocidade o Borg espera que ele leia e escreva.
+
+Antes de uma tarefa escrever o que quer que seja, o Borg calcula quanto tempo vai demorar a partir
+dos bytes que lê e escreve em cada disco e do tempo que a compressão leva. Quando uma cópia, uma
+movimentação para outro disco ou uma descompactação demoraria mais de 2 minutos, ou uma alteração a
+um arquivo mais de 20 segundos, a caixa de diálogo **Tarefa demorada** diz quanto tempo vai levar,
+aproximadamente, e em que tipo de disco, e espera:
+
+- **Iniciar** (`s`) corre a tarefa.
+- **Sempre para este ficheiro** (`f`) corre-a e deixa de perguntar sobre este arquivo. A
+  descompactação e as alterações a um arquivo oferecem esta opção.
+- **Sempre neste tipo de disco** (`d`) corre-a e deixa de perguntar sobre trabalho em discos deste
+  tipo.
+- **Cancelar** (`c`) para antes da primeira escrita.
+
+Enquanto o Borg não tiver medido um disco, conta com a velocidade habitual do seu tipo: cerca de
+120 MB/s para um disco rígido, 900 MB/s para um SSD, 4 GB/s para um disco em RAM, 60 MB/s para uma
+partilha de rede e 10 MB/s para uma máquina remota. Cada tarefa que corre durante pelo menos 2
+segundos e move pelo menos 64 MiB ensina ao Borg a velocidade real do disco, e a linha **Disco**
+passa a dizer **velocidade medida**. Uma tarefa que passa o tempo a comprimir não lhe ensina nada
+sobre o disco.
+
+O Borg guarda as velocidades e as suas respostas em `drives.json`, na pasta de estado, com até 256
+arquivos. A linha **Tarefas longas** de Ctrl-L diz se o Borg pergunta primeiro nesse disco.
+**F9 → Opções → Voltar a perguntar antes de tarefas longas** esquece todas as respostas Sempre.
+
 ### Visualizador e pré-visualização
 
 F3 abre o visualizador. Com o plugin Sistema ativo, F3 num ficheiro `.pcap`, `.pcapng` ou `.cap`
@@ -933,6 +965,12 @@ F3 ou Enter num ficheiro lá dentro descompacta-o para uma pasta privada na past
 e abre-o no visualizador. A descompactação corre como uma tarefa, por isso um ficheiro grande mostra
 o progresso, e Esc cancela-a. O Borg apaga o ficheiro descompactado assim que o visualizador o abre.
 
+F4 num ficheiro lá dentro abre-o no editor, e Alt-E abre-o no editor do painel. O Borg descompacta o
+ficheiro para a mesma pasta privada, e o título do editor mostra o seu caminho dentro do arquivo.
+Cada gravação escreve o ficheiro de volta no arquivo como uma tarefa, e o editor avisa disso
+("Guardado. A escrever em site.zip."). Quando o arquivo não o aceita, o aviso diz porquê e onde fica
+a sua edição.
+
 F5 copia os ficheiros e pastas marcados para fora do arquivo, para a pasta do outro painel ou para a
 pasta que escrever na caixa de diálogo Copiar. **Extrair aqui** e **Extrair para o outro painel**,
 no menu Ficheiro (F2), descompactam o arquivo inteiro sob o cursor para a pasta deste painel ou do
@@ -941,9 +979,33 @@ com o progresso, a velocidade e o tempo restante. Pergunta o que fazer com nomes
 como uma cópia, escreve cada ficheiro com um nome temporário até estar completo e para cada ficheiro
 no tamanho que o arquivo lhe atribui.
 
-Os arquivos abrem só para leitura. F4, F6, F7, F8, Alt-E, Ctrl-Q e **Comprimir…** avisam disso, e F5
-no outro painel não copia para dentro de um arquivo. Copie os ficheiros para fora com F5 para
-trabalhar com eles. Um arquivo dentro de outro arquivo abre depois de o copiar para fora. A shell
+O Borg altera arquivos zip, 7z e tar, comprimidos ou não. F5 ou F6 a partir de uma pasta desta
+máquina copia ou move os ficheiros marcados para o arquivo que o outro painel mostra, ou para a pasta
+dele que escrever na caixa de diálogo. F7 cria uma pasta no arquivo, e F8 elimina as entradas
+marcadas depois de perguntar. F6 para um nome no mesmo arquivo muda o nome das entradas ou move-as
+para lá, e F6 para uma pasta desta máquina move-as para fora: são descompactadas lá e depois saem do
+arquivo. Quando um nome já existe no arquivo, o Borg pergunta o que fazer tal como numa cópia, e uma
+mudança de nome para um nome que o arquivo já tem para com um aviso. Uma movimentação só elimina o
+que chegou inteiro, por isso um ficheiro que ignore fica onde estava.
+
+Cada alteração corre como uma tarefa em Alt-J. O Borg escreve o arquivo alterado ao lado do original
+com um nome temporário, volta a ler a lista de entradas de um zip ou de um 7z e só então o põe no
+lugar do original, com as mesmas permissões. Uma alteração que falhe ou que cancele deixa o arquivo
+como estava. As entradas que a alteração mantém são copiadas tal como estão guardadas: um zip copia
+os seus dados comprimidos, e um 7z copia cada bloco sólido que mantém todas as suas entradas e só
+volta a comprimir os blocos que perdem alguma. Um tar comprimido é descompactado e comprimido de novo
+por inteiro, por isso alterar um `.tar.xz` grande demora quase tanto como criá-lo. Um zip ou um tar
+simples que só ganha entradas é copiado e as novas entradas seguem-se à última, e em APFS, Btrfs, XFS
+e bcachefs essa cópia é instantânea. Antes de uma alteração que demoraria muito, o Borg pergunta
+primeiro (consulte [Tarefas longas e discos](#long-jobs-and-drives)).
+
+Num arquivo zip ou 7z cifrado, as novas entradas são cifradas com AES-256 e com a palavra-passe com
+que abriu o arquivo, e um 7z que esconde a sua lista de entradas continua a escondê-la. As entradas
+que a alteração mantém ficam como estavam.
+
+Os arquivos RAR e os ficheiros comprimidos únicos, como `.gz`, continuam só para leitura, e
+alterá-los avisa disso. Ctrl-Q e **Comprimir…** não funcionam dentro de um arquivo. Um arquivo
+dentro de outro arquivo abre depois de o copiar para fora. A shell
 fica na pasta que contém o arquivo, e uma sessão guardada reabre essa pasta com o cursor no arquivo.
 
 Os arquivos zip e 7z cifrados pedem a palavra-passe ao abrir. Na caixa de diálogo **Palavra-passe**,
@@ -956,7 +1018,8 @@ cifrado, prima Enter nele, escreva a palavra-passe e copie os ficheiros para for
 Antes de escrever o que quer que seja, o Borg soma o que as entradas escolhidas ocupam depois de
 descompactadas e pergunta primeiro quando isso passa de 1 GiB e de 100 vezes o tamanho do arquivo,
 ou de 100 000 ficheiros, que é o aspeto de uma bomba zip. Também pergunta quando o destino tem menos
-espaço livre do que os ficheiros precisam. **Descompactar mesmo assim** (`u`) avança, e Cancelar
+espaço livre do que os ficheiros precisam, e uma alteração a um arquivo pergunta quando o seu disco
+não tem espaço para o novo arquivo ao lado do antigo. **Descompactar mesmo assim** (`u`) avança, e Cancelar
 para antes do primeiro ficheiro. As entradas com caminhos absolutos, com `..` no caminho ou que são
 ficheiros de dispositivo ficam de fora, com um aviso, e nenhuma entrada ou ligação de um arquivo
 consegue fazer o Borg escrever fora da pasta de destino.
@@ -1123,14 +1186,15 @@ cada um e onde fica:
 
 - **Ficheiros temporários**: scripts de integração com a shell, pedidos de mudança de pasta vindos
   da shell, cópias de contentores, pré-visualizações remotas, ficheiros descompactados de arquivos
-  para o visualizador e os certificados do proxy de uma captura, na pasta de execução.
+  para o visualizador e o editor, e os certificados do proxy de uma captura, na pasta de execução.
 - **Sockets**: por onde os agentes e os espelhos chegam às sessões em curso, em
   `/tmp/borg-<uid>-default`, ou numa pasta `/tmp/borg-<uid>-` com o nome da pasta de execução quando
   `$XDG_RUNTIME_DIR` está definida.
 - **Caches**: tamanhos das pastas e índices de nomes, na pasta de cache (consulte
   [Análises de tamanho guardadas](#saved-size-scans)).
-- **Sessões e histórico**: sessões, saída da shell, histórico de pesquisas e de pastas, coleções e
-  computadores emparelhados com as suas chaves, na pasta de estado.
+- **Sessões e histórico**: sessões, saída da shell, histórico de pesquisas e de pastas, coleções,
+  computadores emparelhados com as suas chaves e o que o Borg aprendeu sobre os seus discos
+  (`drives.json`), na pasta de estado.
 - **Definições**: `config.toml` e os seus temas.
 - **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
 
@@ -1146,7 +1210,7 @@ Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
 - Pedidos de mudança de pasta, ficheiros escritos a meio, pastas de consolas remotas e certificados
   do proxy de capturas de processos do Borg que terminaram.
 - Cópias de contentores, pré-visualizações remotas e ficheiros descompactados de arquivos para o
-  visualizador com mais de um dia.
+  visualizador e o editor com mais de um dia.
 - Sockets em que ninguém responde e pastas de sockets onde já nada responde.
 - Análises de tamanho no formato do Borg 0.4 e 0.5, análises que a cache já não lista e índices de
   nomes de pastas que já não são indexadas.

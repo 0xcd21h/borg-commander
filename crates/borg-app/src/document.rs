@@ -70,6 +70,7 @@ impl Source for LoadingSource {
 #[cfg(test)]
 mod tests {
     use borg_core::{Aside, Peek};
+    use borg_drives::Drives;
 
     use super::*;
 
@@ -85,9 +86,15 @@ mod tests {
             let path = folder.path().join(name);
             fs::write(&path, source).unwrap();
             let cancelled = Arc::new(AtomicBool::new(false));
-            let Peek::Text(mut preview) =
-                crate::peek::peek(Aside::QuickView, &path, None, (45, 20), (8, 16), cancelled.clone())
-            else {
+            let Peek::Text(mut preview) = crate::peek::peek(
+                Aside::QuickView,
+                &path,
+                None,
+                (45, 20),
+                (8, 16),
+                cancelled.clone(),
+                &Drives::default(),
+            ) else {
                 panic!("expected text preview")
             };
             let Content::Text(viewer) = open(&path, (132, 35), (8, 16), cancelled).unwrap() else {
@@ -115,7 +122,8 @@ mod tests {
             let offset = text.find("needle").unwrap() as u64;
             let at = borg_core::FirstMatch { query: query.clone(), offset };
             let cancelled = Arc::new(AtomicBool::new(false));
-            let Peek::Text(pager) = crate::peek::peek(Aside::QuickView, &path, Some(&at), (45, 20), (8, 16), cancelled)
+            let Peek::Text(pager) =
+                crate::peek::peek(Aside::QuickView, &path, Some(&at), (45, 20), (8, 16), cancelled, &Drives::default())
             else {
                 panic!("expected text preview")
             };

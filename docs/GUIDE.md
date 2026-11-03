@@ -253,7 +253,7 @@ click both rows. Notices replace the second row for a moment.
 | Ctrl-S | Quick find in the folder |
 | Ctrl-\ | Folder hotlist: jump to a pinned or recent folder |
 | Ctrl-Q | Quick view: preview the file under the cursor (text, picture or folder) in the other panel |
-| Ctrl-L | Info: show size, permissions, owner, dates and free space in the other panel |
+| Ctrl-L | Info: show size, permissions, owner, dates, free space and the drive in the other panel |
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line; on `..`, the parent folder's path |
@@ -800,6 +800,36 @@ When a file name already exists: `o` overwrites, `s` skips, `k` keeps both, `a` 
 `n` skips all, and Esc cancels. Copies are written to temporary files and renamed once they are
 complete.
 
+### Long jobs and drives
+
+Borg knows what kind of drive each folder lies on: a hard drive, an SSD, a RAM disk, a network
+share such as NFS, SMB or sshfs, or the machine a remote panel shows. On macOS it asks `diskutil`
+and `hdiutil`, and on Linux it reads `/proc/self/mountinfo` and the device's flags in `/sys`.
+Ctrl-L shows the drive and its filesystem in the **Drive** row, and the **Speed** row says how fast
+Borg expects it to read and write.
+
+Before a job writes anything, Borg works out how long it will take from the bytes it reads and
+writes on each drive and the time compressing takes. When a copy, a move to another drive or an
+unpack would take more than 2 minutes, or a change to an archive more than 20 seconds, the
+**Long job** dialog says about how long and on which kind of drive, and waits:
+
+- **Start** (`s`) runs the job.
+- **Always for this file** (`f`) runs it and stops asking about this archive. Unpacking and
+  changes to an archive offer it.
+- **Always on this kind of drive** (`d`) runs it and stops asking about work on drives of this
+  kind.
+- **Cancel** (`c`) stops before the first write.
+
+Until Borg has measured a drive, it expects the usual speed of its kind: about 120 MB/s for a hard
+drive, 900 MB/s for an SSD, 4 GB/s for a RAM disk, 60 MB/s for a network share and 10 MB/s for a
+remote machine. Every job that runs for at least 2 seconds and moves at least 64 MiB teaches Borg
+the drive's real speed, and the **Drive** row then says **measured speed**. A job that spends its
+time compressing teaches it nothing about the drive.
+
+Borg keeps the speeds and your answers in `drives.json` in its state folder, with up to 256
+archives. The **Long jobs** row of Ctrl-L says whether Borg asks first on that drive.
+**F9 → Options → Ask before long jobs again** forgets every Always answer.
+
 ### Viewer and quick view
 
 F3 opens the viewer. With the System plugin on, F3 on a `.pcap`, `.pcapng` or `.cap` file opens
@@ -858,6 +888,12 @@ F3 or Enter on a file inside unpacks it into a private folder in Borg's runtime 
 it in the viewer. The unpacking runs as a job, so a large file shows its progress, and Esc cancels
 it. Borg deletes the unpacked file as soon as the viewer has it open.
 
+F4 on a file inside opens it in the editor, and Alt-E opens it in the panel's editor. Borg unpacks
+the file into the same private folder, and the editor's title shows its path inside the archive.
+Each save writes the file back into the archive as a job, and the editor says so ("Saved. Writing
+it into site.zip."). When the archive does not take it, the notice says why and where your edit
+stays.
+
 F5 copies the marked files and folders out of the archive into the other panel's folder, or into
 the folder you type in the Copy dialog. **Extract here** and **Extract to other panel** in the
 File menu (F2) unpack the whole archive under the cursor into this panel's folder or the other
@@ -866,10 +902,32 @@ its progress, rate and time left. It asks about names that already exist as a co
 each file under a temporary name until it is complete, and stops each file at the size the
 archive gives it.
 
-Archives open read only. F4, F6, F7, F8, Alt-E, Ctrl-Q and **Compress…** say so, and F5 from the
-other panel cannot copy into an archive. Copy files out with F5 to work on them. An archive inside
-an archive opens once you copy it out. The shell stays in the folder that holds the archive, and a
-saved session reopens that folder with the cursor on the archive.
+Borg changes zip, 7z and tar archives, compressed or not. F5 or F6 from a folder of this machine
+copies or moves the marked files into the archive the other panel shows, or into the folder of it
+you type in the dialog. F7 makes a folder in the archive, and F8 deletes the marked entries after
+asking. F6 to a name in the same archive renames or moves the entries there, and F6 to a folder of
+this machine moves them out: they unpack there and then leave the archive. Names that already exist
+in the archive are asked about as a copy asks, and a rename to a name the archive holds stops with
+a notice. A move deletes only what arrived whole, so a file you skip stays where it was.
+
+Each change runs as a job in Alt-J. Borg writes the changed archive beside the original under a
+temporary name, reads a zip's or 7z's list of entries back, and then puts it in the original's
+place with the same permissions. A change that fails or that you cancel leaves the archive as it
+was. Entries the change keeps are copied as they are stored: a zip copies their compressed data,
+and a 7z copies every solid block that keeps all its entries and packs again only the blocks that
+lose one. A compressed tar is unpacked and packed again whole, so changing a large `.tar.xz` takes
+about as long as making it. A zip or plain tar that only gains entries is copied and the new
+entries follow the last one, and on APFS, Btrfs, XFS and bcachefs that copy is instant. Before a
+change that would take long, Borg asks first (see [Long jobs and drives](#long-jobs-and-drives)).
+
+In an encrypted zip or 7z archive, new entries are encrypted with AES-256 and the password you
+opened the archive with, and a 7z that hides its list of entries keeps it hidden. Entries the change
+keeps stay as they were.
+
+RAR archives and single compressed files such as `.gz` stay read only, and changing them says so.
+Ctrl-Q and **Compress…** do not work inside an archive. An archive inside an archive opens once you
+copy it out. The shell stays in the folder that holds the archive, and a saved session reopens that
+folder with the cursor on the archive.
 
 Encrypted zip and 7z archives ask for the password when they open. In the **Password** dialog each
 character you type shows as glitch noise that keeps changing and flares with every key. The noise
@@ -881,7 +939,8 @@ press Enter on it, type the password, and copy the files out with F5.
 Before it writes anything, Borg adds up what the chosen entries unpack to and asks first when
 that is more than 1 GiB and more than 100 times the archive's size, or more than 100,000 files,
 which is how zip bombs look. It also asks when the destination has less free space than the files
-need. **Unpack anyway** (`u`) goes ahead, and Cancel stops before the first file. Entries with
+need, and a change to an archive asks when its drive lacks room for the new archive beside the old
+one. **Unpack anyway** (`u`) goes ahead, and Cancel stops before the first file. Entries with
 absolute paths, `..` in their paths, or device files are left out with a notice, and no entry or
 link in an archive can make Borg write outside the destination folder.
 
@@ -1037,14 +1096,15 @@ once it has passed, the folder can be deleted.
 where it is:
 
 - **Temporary files**: shell integration scripts, folder requests from the shell, copies out of
-  containers, remote previews, files unpacked from archives for the viewer and the certificates
-  of a capture's proxy, in the runtime folder.
+  containers, remote previews, files unpacked from archives for the viewer and the editor, and the
+  certificates of a capture's proxy, in the runtime folder.
 - **Sockets**: where agents and mirrors reach running sessions, in `/tmp/borg-<uid>-default`, or
   in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
 - **Caches**: folder sizes and name indexes, in the cache folder (see
   [Saved size scans](#saved-size-scans)).
-- **Sessions and history**: sessions, shell output, search and folder history, collections, and
-  paired computers with their keys, in the state folder.
+- **Sessions and history**: sessions, shell output, search and folder history, collections,
+  paired computers with their keys, and what Borg learned about your drives (`drives.json`), in
+  the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 
@@ -1059,8 +1119,8 @@ still starting up keeps what it made. This is what goes:
   no Borg was running when this one started or nothing in them changed for 3 days.
 - Folder requests, half-written files, remote console folders and capture proxy certificates of
   Borg processes that ended.
-- Copies out of containers, remote previews and files unpacked from archives for the viewer,
-  once they are older than a day.
+- Copies out of containers, remote previews and files unpacked from archives for the viewer and
+  the editor, once they are older than a day.
 - Sockets nobody answers on, and socket folders where nothing answers any more.
 - Size scans in the format of Borg 0.4 and 0.5, scans the cache no longer lists, and name indexes
   of folders that are no longer indexed.

@@ -251,7 +251,7 @@ fn remote_menu(state: &AppState) -> Menu {
     }
 }
 
-fn options_menu(_state: &AppState) -> Menu {
+fn options_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(options),
         entries: vec![
@@ -261,6 +261,7 @@ fn options_menu(_state: &AppState) -> Menu {
             item(tr!(language), "", Action::PickLanguage),
             MenuEntry::Separator,
             item(tr!(storage_menu), "", Action::Storage),
+            when(item(tr!(ask_again_menu), "", Action::AskAgain), state.kept_answers > 0),
         ],
     }
 }

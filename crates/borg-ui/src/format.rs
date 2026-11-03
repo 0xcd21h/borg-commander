@@ -1,5 +1,9 @@
+use borg_drives::{DriveKind, Facts};
 use borg_i18n::tr;
-use std::{path::Path, time::SystemTime};
+use std::{
+    path::Path,
+    time::{Duration, SystemTime},
+};
 
 use jiff::{Timestamp, Zoned, tz::TimeZone};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -12,6 +16,11 @@ const OLD_FORMAT: &str = "%b %e  %Y";
 const ELLIPSIS: char = '…';
 const HOME_MARK: &str = "~";
 const ROOT_MARK: &str = "/";
+const MINUTE: u64 = 60;
+const HOUR: u64 = 3600;
+/// A span reads in a smaller unit up to this many of it: 89 seconds, then 2 minutes.
+const SPAN_STEP: u64 = 90;
+const FACT_GAP: &str = " · ";
 
 pub fn size(bytes: u64) -> String {
     if bytes < EXACT_LIMIT {
@@ -40,6 +49,57 @@ pub fn modified(time: Option<SystemTime>, now: &Zoned) -> String {
 }
 
 pub use borg_i18n::{Count, count};
+
+/// A span of time in the unit that suits it, rounded: 45 seconds, 3 minutes, 2 hours.
+pub fn span(duration: Duration) -> String {
+    let seconds = duration.as_secs_f64().ceil() as u64;
+    let rounded = |unit: u64| (seconds + unit / 2) / unit;
+    let (amount, unit) = if seconds < SPAN_STEP {
+        (seconds.max(1), Count::Second)
+    } else if seconds < SPAN_STEP * MINUTE {
+        (rounded(MINUTE), Count::Minute)
+    } else {
+        (rounded(HOUR), Count::Hour)
+    };
+    count(usize::try_from(amount).unwrap_or(usize::MAX), unit)
+}
+
+pub fn drive(kind: DriveKind) -> &'static str {
+    match kind {
+        DriveKind::HardDrive => tr!(drive_hard_drive),
+        DriveKind::SolidState => tr!(drive_solid_state),
+        DriveKind::Memory => tr!(drive_memory),
+        DriveKind::Network => tr!(drive_network),
+        DriveKind::Remote => tr!(drive_remote),
+        DriveKind::Unknown => tr!(drive_unknown),
+    }
+}
+
+/// Where work happens, as the end of a sentence: "on a hard drive".
+pub fn on_drive(kind: DriveKind) -> &'static str {
+    match kind {
+        DriveKind::HardDrive => tr!(slow_on_hard_drive),
+        DriveKind::SolidState => tr!(slow_on_solid_state),
+        DriveKind::Memory => tr!(slow_on_memory),
+        DriveKind::Network => tr!(slow_on_network),
+        DriveKind::Remote => tr!(slow_on_remote),
+        DriveKind::Unknown => tr!(slow_on_unknown),
+    }
+}
+
+/// The drive's kind and filesystem, and whether Borg measured its speed.
+pub fn drive_facts(facts: &Facts) -> String {
+    let source = if facts.measured { tr!(drive_measured) } else { tr!(drive_typical) };
+    [drive(facts.drive.kind), &facts.drive.filesystem, source]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(FACT_GAP)
+}
+
+pub fn drive_speeds(facts: &Facts) -> String {
+    tr!(drive_speeds, read = size(facts.rates.read), write = size(facts.rates.write))
+}
 
 pub fn marked_summary(marked: usize, files: usize, bytes: u64, folders: usize) -> String {
     let mut parts = vec![tr!(marked_total, marked = marked)];
@@ -146,6 +206,15 @@ mod tests {
         assert_eq!(size(10_240), "10K");
         assert_eq!(size(1_572_864), "1.5M");
         assert_eq!(size(5 * 1024 * 1024 * 1024), "5.0G");
+    }
+
+    #[test]
+    fn spans_read_in_the_unit_that_suits_them() {
+        assert_eq!(span(Duration::from_millis(300)), "1 second");
+        assert_eq!(span(Duration::from_secs(45)), "45 seconds");
+        assert_eq!(span(Duration::from_secs(90)), "2 minutes");
+        assert_eq!(span(Duration::from_secs(61 * 60)), "61 minutes");
+        assert_eq!(span(Duration::from_secs(5 * 3600)), "5 hours");
     }
 
     #[test]

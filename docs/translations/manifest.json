@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
+      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
+        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
+        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
       },
       "headings": [
         {
@@ -128,6 +128,10 @@
         {
           "level": 3,
           "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
         },
         {
           "level": 3,
@@ -212,12 +216,12 @@
       ]
     },
     "pt": {
-      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
+      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
+        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
+        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
       },
       "headings": [
         {
@@ -339,6 +343,10 @@
         {
           "level": 3,
           "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
         },
         {
           "level": 3,
@@ -423,12 +431,12 @@
       ]
     },
     "es": {
-      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
+      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
+        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
+        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
       },
       "headings": [
         {
@@ -550,6 +558,10 @@
         {
           "level": 3,
           "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
         },
         {
           "level": 3,
@@ -634,12 +646,12 @@
       ]
     },
     "ru": {
-      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
+      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
+        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
+        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
       },
       "headings": [
         {
@@ -761,6 +773,10 @@
         {
           "level": 3,
           "title": "Copying, moving, and deleting"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
         },
         {
           "level": 3,

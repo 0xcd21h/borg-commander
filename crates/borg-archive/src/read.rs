@@ -18,6 +18,8 @@ mod stream;
 pub(crate) mod tool;
 mod zip;
 
+pub(crate) use stream::damaged;
+
 /// Reports how far a read got: bytes of the archive file read so far and the file's size.
 /// Returning false stops the read.
 pub type Watch<'a> = &'a mut dyn FnMut(u64, u64) -> bool;

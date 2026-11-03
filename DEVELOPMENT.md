@@ -54,9 +54,11 @@ crates/
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
   borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-docker   bundled Docker plugin: containers, stats, files and shells through the docker CLI
+  borg-drives   the kind of drive a path lies on, its typical and measured speeds, and the
+                answers that stop Borg asking before long jobs
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
-  borg-archive  archives as folders: zip, 7z and tar read in process, RAR through 7-Zip or
-                bsdtar, and unpacking that cannot write outside its destination
+  borg-archive  archives as folders: zip, 7z and tar read and changed in process, RAR through
+                7-Zip or bsdtar, and unpacking that cannot write outside its destination
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
   borg-relay    the relay borgs meet through: it forwards traffic it cannot read
   borg-update   release checks and self-update
@@ -110,6 +112,23 @@ out (F5, Extract here, Extract to other panel) runs as `JobKind::Unpack`, and F3
 archive runs `JobKind::View`, which unpacks into `archive-view` in the runtime folder and drops
 the file once the viewer opened it. The bomb and free space checks in
 `borg-archive/src/unpack/guard.rs` ask through the job's questions before the first write.
+
+Changes to an archive go out as `Effect::StartRewrite` with a `RewriteRequest`: F5 into an
+archive runs as `JobKind::Pack`, F6 as `JobKind::Move`, F7 as `JobKind::ArchiveFolder`, F8 as
+`JobKind::Delete` and an editor save as `JobKind::Save`. `borg_archive::Rewrite` locks the
+archive, plans the change and writes `.name.borg-partial` beside it, either as a copy with the new
+entries appended (a cloning filesystem makes the copy at once) or as a new archive with the kept
+entries copied as stored. It reads a zip's or 7z's entries back and then renames the partial over
+the original. A move deletes its originals from the `kept` list of the job's `Report`, so a file
+left out stays. F4 inside an archive unpacks into `archive-view/edit-…`, and the file stays while
+the editor has it.
+
+Before a job writes, `borg_jobs::Pace` adds up its `borg_drives::Work`, the bytes read and written
+on each drive plus the time spent compressing, and asks `Ask::Slow` when the estimate passes the
+job's patience: 2 minutes for copies and unpacks, 20 seconds for archive changes. `borg-drives`
+finds the drive kind with statfs, `diskutil` and `hdiutil` on macOS and `/proc/self/mountinfo`
+and `/sys` on Linux. It learns measured speeds from jobs of at least 2 seconds and 64 MiB and keeps
+them with the Always answers in `drives.json` in the state folder.
 
 ### Rendering pipeline
 

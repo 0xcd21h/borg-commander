@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use borg_drives::Remember;
 use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -25,6 +26,18 @@ const FAILURE_CHOICES: [(Decision, char, borg_i18n::Message); 4] = [
 ];
 const PROCEED_CHOICES: [(Decision, char, borg_i18n::Message); 2] =
     [(Decision::Proceed, 'u', tr!(@ unpack_anyway)), (Decision::Cancel, 'c', tr!(@ cancel))];
+/// For long work on one file, such as an archive: an answer may stop Borg asking about it.
+const SLOW_FILE_CHOICES: [(Decision, char, borg_i18n::Message); 4] = [
+    (Decision::Proceed, 's', tr!(@ slow_start)),
+    (Decision::Always(Remember::File), 'f', tr!(@ slow_always_file)),
+    (Decision::Always(Remember::Kind), 'd', tr!(@ slow_always_kind)),
+    (Decision::Cancel, 'c', tr!(@ cancel)),
+];
+const SLOW_CHOICES: [(Decision, char, borg_i18n::Message); 3] = [
+    (Decision::Proceed, 's', tr!(@ slow_start)),
+    (Decision::Always(Remember::Kind), 'd', tr!(@ slow_always_kind)),
+    (Decision::Cancel, 'c', tr!(@ cancel)),
+];
 const PAUSE_KEY: char = 'p';
 const CANCEL_KEY: char = 'c';
 
@@ -35,8 +48,14 @@ pub enum JobKind {
     Delete,
     /// Files copied out of an archive.
     Unpack,
-    /// A file unpacked from an archive for the viewer.
+    /// A file unpacked from an archive for the viewer or the editor.
     View,
+    /// Files copied into an archive.
+    Pack,
+    /// A folder made in an archive.
+    ArchiveFolder,
+    /// A file edited from an archive, written back into it.
+    Save,
 }
 
 impl JobKind {
@@ -46,6 +65,9 @@ impl JobKind {
             Self::Move => tr!(moving),
             Self::Delete => tr!(deleting),
             Self::Unpack | Self::View => tr!(unpacking),
+            Self::Pack => tr!(packing),
+            Self::ArchiveFolder => tr!(making_archive_folder),
+            Self::Save => tr!(saving_into_archive),
         }
     }
 
@@ -55,14 +77,22 @@ impl JobKind {
             Self::Move => tr!(moved),
             Self::Delete => tr!(deleted),
             Self::Unpack | Self::View => tr!(unpacked),
+            Self::Pack => tr!(packed),
+            Self::ArchiveFolder | Self::Save => tr!(archive_changed),
         }
+    }
+
+    /// Whether finishing says nothing unless something went wrong: the panel or the editor
+    /// already shows what changed.
+    fn quiet(self) -> bool {
+        matches!(self, Self::ArchiveFolder | Self::Save)
     }
 
     /// The panel that shows the job's progress: the one it writes into.
     fn shown_on(self, origin: Side) -> Side {
         match self {
-            Self::Copy | Self::Move | Self::Unpack => origin.other(),
-            Self::Delete | Self::View => origin,
+            Self::Copy | Self::Move | Self::Unpack | Self::Pack => origin.other(),
+            Self::Delete | Self::View | Self::ArchiveFolder | Self::Save => origin,
         }
     }
 }
@@ -104,6 +134,8 @@ impl Job {
         match self.state {
             JobState::Asking(Ask::Failure { .. }) => &FAILURE_CHOICES,
             JobState::Asking(Ask::Expand { .. } | Ask::Room { .. }) => &PROCEED_CHOICES,
+            JobState::Asking(Ask::Slow { file: true, .. }) => &SLOW_FILE_CHOICES,
+            JobState::Asking(Ask::Slow { file: false, .. }) => &SLOW_CHOICES,
             JobState::Asking(Ask::Conflict { .. }) | JobState::Scanning(_) | JobState::Running(_) => &CONFLICT_CHOICES,
         }
     }
@@ -202,6 +234,7 @@ fn finish(state: &mut AppState, index: usize, outcome: Outcome) -> Vec<Effect> {
         return Vec::new();
     }
     state.notice = Some(match outcome {
+        Outcome::Done { skipped: 0, .. } if job.kind.quiet() => return state.reload_all(),
         Outcome::Done { done, skipped } => {
             if skipped == 0 {
                 state.panel_mut(job.origin).clear_marks();

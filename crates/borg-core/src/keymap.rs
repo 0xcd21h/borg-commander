@@ -117,6 +117,8 @@ pub enum Action {
     TimeMachine,
     /// Opens the window of Borg's own files.
     Storage,
+    /// Forgets the answers that keep Borg from asking before long jobs.
+    AskAgain,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

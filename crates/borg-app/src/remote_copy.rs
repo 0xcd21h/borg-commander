@@ -6,14 +6,15 @@ use std::{
         fs::{MetadataExt, PermissionsExt},
     },
     path::{Path, PathBuf},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use borg_core::RemoteMount;
+use borg_drives::{Drive, Drives, Work};
 use borg_i18n::tr;
-use borg_jobs::{Ask, Control, Decision, Event, Outcome, Progress, Totals};
+use borg_jobs::{Ask, COPY_PATIENCE, Control, Decision, Event, Outcome, Pace, Progress, Totals};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -380,6 +381,9 @@ struct Item {
 struct Copy<'a> {
     from: Endpoint<'a>,
     to: Endpoint<'a>,
+    drives: &'a Drives,
+    /// The drives the copy reads and writes, a remote Borg's standing for its machine.
+    ends: (Drive, Drive),
     control: &'a Control,
     emit: &'a mut dyn FnMut(Event),
     done: Totals,
@@ -392,13 +396,25 @@ struct Copy<'a> {
 }
 
 impl CopyJob {
-    pub fn run(self, runtime: &tokio::runtime::Handle, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
+    pub fn run(
+        self,
+        runtime: &tokio::runtime::Handle,
+        drives: &Drives,
+        control: &Control,
+        emit: &mut dyn FnMut(Event),
+    ) -> Outcome {
+        let end = |mount: &Option<RemoteMount>, path: &Path| {
+            mount.as_ref().map_or_else(|| drives.drive(path), |mount| Drives::remote(&mount.machine))
+        };
+        let ends = (end(&self.from, self.sources.first().unwrap_or(&self.target)), end(&self.to, &self.target));
         let result = (|| {
             let from = Endpoint::open(self.from.clone(), runtime, control)?;
             let to = Endpoint::open(self.to.clone(), runtime, control)?;
             let mut copy = Copy {
                 from,
                 to,
+                drives,
+                ends,
                 control,
                 emit,
                 done: Totals::default(),
@@ -495,6 +511,12 @@ impl Copy<'_> {
                 items.push(Item { source, target, node, finish });
             }
         }
+        let work = Work::default().read(&self.ends.0, self.total.bytes).write(&self.ends.1, self.total.bytes);
+        let pace = Pace { drives: self.drives, work, path: &target, file: false, patience: COPY_PATIENCE };
+        if !pace.ask(self.control, &mut *self.emit) {
+            return Err(Cancelled.into());
+        }
+        let started = Instant::now();
         let mut skipped_dirs = Vec::<PathBuf>::new();
         for mut item in items {
             if skipped_dirs.iter().any(|dir| item.target.starts_with(dir)) {
@@ -536,6 +558,7 @@ impl Copy<'_> {
                 }
             }
         }
+        pace.learn(started);
         Ok(())
     }
 
