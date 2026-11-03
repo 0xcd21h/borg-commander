@@ -824,6 +824,8 @@ fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
     Ok(())
 }
 
+/// Long enough after the last keystroke for the password field to calm down.
+const PASSWORD_SETTLED: Duration = Duration::from_millis(1300);
 const ARCHIVE: &str = "/home/me/projects/borg/site.zip";
 const GIB: u64 = 1 << 30;
 
@@ -901,16 +903,23 @@ fn an_archive_reads_opens_asks_for_its_password_and_warns_before_unpacking() -> 
     let buffer = stage.render(stage.started)?;
     check("archive_room", &stage, buffer)?;
 
+    let (stage, buffer) = typed_password("hunter2")?;
+    anyhow::ensure!(!describe(&buffer).contains("hunter2"), "the password must stay hidden");
+    let (_, other) = typed_password("letmein")?;
+    anyhow::ensure!(other == buffer, "the noise must not depend on what was typed");
+    check("archive_password", &stage, buffer)
+}
+
+/// The password prompt after typing `password`, drawn once its flare has passed.
+fn typed_password(password: &str) -> Result<(Stage, Buffer)> {
     let mut stage = archive_stage()?;
     let (side, generation) = open_archive(&mut stage)?;
     stage.send(Msg::ArchiveLocked { side, generation, wrong: true });
-    for msg in chars("hunter2") {
+    for msg in chars(password) {
         stage.send(msg);
     }
-    let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "•••••••")?;
-    anyhow::ensure!(!describe(&buffer).contains("hunter2"), "the password must stay hidden");
-    check("archive_password", &stage, buffer)
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    Ok((stage, buffer))
 }
 
 fn running_copy(stage: &mut Stage) -> Result<u64> {

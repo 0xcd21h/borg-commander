@@ -207,6 +207,7 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
         }
         _ => {
             if prompt.input.apply(key) == Edit::Changed {
+                prompt.typed = Some(now);
                 state.overlay = Some(Overlay::Prompt(prompt));
             }
             Vec::new()

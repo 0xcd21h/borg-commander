@@ -871,11 +871,12 @@ other panel cannot copy into an archive. Copy files out with F5 to work on them.
 an archive opens once you copy it out. The shell stays in the folder that holds the archive, and a
 saved session reopens that folder with the cursor on the archive.
 
-Encrypted zip and 7z archives ask for the password when they open. The **Password** dialog shows
-a dot for each character you type, asks again when the password is wrong, and Esc leaves the
-archive. Borg keeps the password in memory while the panel shows the archive and never writes it
-anywhere. **Extract here** has no way to ask for one, so for an encrypted archive press Enter on
-it, type the password, and copy the files out with F5.
+Encrypted zip and 7z archives ask for the password when they open. In the **Password** dialog each
+character you type shows as glitch noise that keeps changing and flares with every key. The noise
+depends only on how many characters you typed. The dialog asks again when the password is wrong, and
+Esc leaves the archive. Borg keeps the password in memory while the panel shows the archive and
+never writes it anywhere. **Extract here** has no way to ask for one, so for an encrypted archive
+press Enter on it, type the password, and copy the files out with F5.
 
 Before it writes anything, Borg adds up what the chosen entries unpack to and asks first when
 that is more than 1 GiB and more than 100 times the archive's size, or more than 100,000 files,

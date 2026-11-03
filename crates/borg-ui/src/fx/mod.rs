@@ -1,4 +1,5 @@
 mod braille;
+mod cipher;
 mod clock;
 mod cube;
 mod glitch;
@@ -12,6 +13,7 @@ mod spinner;
 mod stars;
 mod theseus;
 
+pub use cipher::{Cipher, draw_cipher};
 pub use clock::draw_clock_screen;
 pub use cube::draw_cube;
 pub use glitch::{

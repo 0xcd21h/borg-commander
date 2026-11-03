@@ -177,10 +177,14 @@ fn an_encrypted_archive_asks_for_its_password_and_never_shows_it() {
     let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("a password prompt") };
     assert!(prompt.purpose.masked());
     assert_eq!(prompt.label, tr!(archive_password_for, name = "site.zip"));
+    assert_eq!(state.pace(now), None, "an empty field keeps still");
 
     for typed in SECRET.chars() {
         press(&mut state, KeyCode::Char(typed), KeyModifiers::NONE, now);
     }
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("the prompt stays") };
+    assert_eq!(prompt.typed, Some(now));
+    assert_eq!(state.pace(now), Some(crate::Pace::Ambient), "the hidden characters glitch");
     let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
     let (_, retry, dir) = listing(&effects).expect("the archive is listed again");
     assert_eq!(dir, Path::new(ARCHIVE));

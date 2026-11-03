@@ -946,9 +946,10 @@ no outro painel não copia para dentro de um arquivo. Copie os ficheiros para fo
 trabalhar com eles. Um arquivo dentro de outro arquivo abre depois de o copiar para fora. A shell
 fica na pasta que contém o arquivo, e uma sessão guardada reabre essa pasta com o cursor no arquivo.
 
-Os arquivos zip e 7z cifrados pedem a palavra-passe ao abrir. A caixa de diálogo **Palavra-passe**
-mostra um ponto por cada carácter que escreve, volta a pedir quando a palavra-passe está errada, e
-Esc sai do arquivo. O Borg guarda a palavra-passe em memória enquanto o painel mostra o arquivo e
+Os arquivos zip e 7z cifrados pedem a palavra-passe ao abrir. Na caixa de diálogo **Palavra-passe**,
+cada carácter que escreve aparece como ruído de interferência que está sempre a mudar e cintila a
+cada tecla. O ruído depende apenas de quantos caracteres escreveu. A caixa volta a pedir quando a
+palavra-passe está errada, e Esc sai do arquivo. O Borg guarda a palavra-passe em memória enquanto o painel mostra o arquivo e
 nunca a escreve em lado nenhum. **Extrair aqui** não tem maneira de a pedir, por isso, num arquivo
 cifrado, prima Enter nele, escreva a palavra-passe e copie os ficheiros para fora com F5.
 

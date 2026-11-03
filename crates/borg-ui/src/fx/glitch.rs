@@ -47,7 +47,7 @@ impl<'a> Blocks<'a> {
 
 /// Corruption glyphs, all one cell wide and in the bundled Borg Mono font: shades,
 /// quadrants, box lines, shapes, and Greek, Cyrillic and math letters.
-const NOISE: [char; 40] = [
+pub(super) const NOISE: [char; 40] = [
     '▓', '▒', '░', '▚', '▞', '▙', '▟', '▛', '▜', '▀', '▄', '▌', '▐', '■', '▪', '◢', '◣', '◤', '◥', '╳', '╱', '╲', '┼',
     '╪', '╫', '¦', '≡', '∆', '¤', 'Ξ', 'Ψ', 'Ж', 'λ', 'Ø', '§', '∑', '∂', '√', '#', '%',
 ];
@@ -55,7 +55,7 @@ const NOISE: [char; 40] = [
 const SMEAR: [char; 4] = ['░', '░', '▒', '▓'];
 /// Colours for corrupted rows: hot magenta, acid green, electric blue, toxic orange,
 /// ultraviolet, and the two halves of a colour split.
-const VIVID: [Rgb; 7] = [
+pub(super) const VIVID: [Rgb; 7] = [
     Rgb::new(255, 0, 170),
     Rgb::new(190, 255, 0),
     Rgb::new(0, 140, 255),
@@ -66,13 +66,13 @@ const VIVID: [Rgb; 7] = [
 ];
 const SPLIT_RED: Rgb = Rgb::new(255, 40, 90);
 const SPLIT_CYAN: Rgb = Rgb::new(40, 230, 255);
-const BEAM: Rgb = Rgb::WHITE;
+pub(super) const BEAM: Rgb = Rgb::WHITE;
 const FRAMES_PER_SECOND: f32 = 24.0;
 const MAX_TEAR: f32 = 14.0;
 const BEAM_PERIOD: f32 = 1.4;
 const SETTLE_CURVE: f32 = 1.6;
 
-fn seed(frame: u64, row: u64, column: u64, salt: u64) -> u64 {
+pub(super) fn seed(frame: u64, row: u64, column: u64, salt: u64) -> u64 {
     hash(frame.wrapping_mul(0x9e37) ^ row.wrapping_mul(0x85eb) ^ column.wrapping_mul(0xc2b2) ^ salt)
 }
 

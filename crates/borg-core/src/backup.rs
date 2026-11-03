@@ -573,6 +573,7 @@ fn add(state: &mut AppState) -> Vec<Effect> {
         input: LineInput::new(value),
         purpose: PromptPurpose::BackupAdd { fixed: false },
         option_focused: false,
+        typed: None,
     }));
     Vec::new()
 }

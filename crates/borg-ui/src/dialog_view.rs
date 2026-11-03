@@ -8,7 +8,11 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{Theme, format};
+use crate::{
+    Theme, format,
+    fx::{self, Cipher},
+    look::Look,
+};
 
 const MAX_WIDTH: u16 = 64;
 const MARGIN: u16 = 4;
@@ -16,8 +20,8 @@ const PROMPT_HEIGHT: u16 = 6;
 /// A prompt with a checkbox below its field.
 const OPTION_HEIGHT: u16 = 8;
 const CONFIRM_HEIGHT: u16 = 6;
-/// What a password field shows for each character typed.
-const MASK: char = '•';
+/// What holds the place of each character of a password under its noise.
+const HIDDEN: char = ' ';
 const PADDING: u16 = 1;
 const BUTTON_GAP: &str = "   ";
 
@@ -38,7 +42,15 @@ pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str)
     (rect, hint)
 }
 
-pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
+/// Draws the prompt, `typed` seconds after a key last changed its text.
+pub fn draw_prompt(
+    prompt: &Prompt,
+    look: &Look<'_>,
+    typed: Option<f32>,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> (Rect, Position) {
+    let theme = look.theme;
     let styles = &theme.styles;
     let (rect, hint) = prompt_hint(prompt, screen);
     let checkbox = prompt.purpose.option();
@@ -49,12 +61,17 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     Line::styled(format::truncate_end(&prompt.label, width), styles.overlay).render(label, buf);
     buf.set_style(field, styles.input);
 
-    let masked = prompt.purpose.masked().then(|| MASK.to_string().repeat(prompt.input.text().chars().count()));
-    let text = masked.as_deref().unwrap_or(prompt.input.text());
+    let count = prompt.input.text().chars().count();
+    let hidden = prompt.purpose.masked().then(|| HIDDEN.to_string().repeat(count));
+    let text = hidden.as_deref().unwrap_or(prompt.input.text());
     let cursor = prompt.input.cursor_chars();
     let before: String = text.chars().take(cursor).collect();
     let shift = before.width().saturating_sub(width.saturating_sub(1));
     Line::styled(skip_columns(text, shift), styles.input).render(field, buf);
+    if hidden.is_some() {
+        let cipher = Cipher { first: shift, count, t: look.t, typed };
+        fx::draw_cipher(buf, field, cipher, look.accent(), look.bg(styles.input));
+    }
 
     if let Some((caption, checked)) = checkbox {
         let style = if prompt.option_focused { styles.overlay_selected } else { styles.overlay };

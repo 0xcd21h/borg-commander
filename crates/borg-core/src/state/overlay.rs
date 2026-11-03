@@ -1,7 +1,7 @@
 //! The windows over the panels: menus, prompts, questions and the rest.
 
 use crate::{About, Find, JobList, LineInput, Picker, Question};
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuCursor {
@@ -88,6 +88,8 @@ pub struct Prompt {
     pub input: LineInput,
     pub purpose: PromptPurpose,
     pub option_focused: bool,
+    /// When a key last changed the text, which a password field flares at.
+    pub typed: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

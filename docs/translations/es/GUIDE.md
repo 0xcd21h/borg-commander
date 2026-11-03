@@ -953,9 +953,10 @@ Copia los archivos fuera con F5 para trabajar con ellos. Un archivo comprimido d
 abre cuando lo copias fuera. El shell se queda en la carpeta que contiene el archivo comprimido, y
 una sesión guardada vuelve a abrir esa carpeta con el cursor sobre él.
 
-Los archivos zip y 7z cifrados piden la contraseña al abrirse. El diálogo **Contraseña** muestra un
-punto por cada carácter que escribes, vuelve a preguntar si la contraseña es incorrecta, y Esc sale
-del archivo comprimido. Borg guarda la contraseña en memoria mientras el panel muestra el archivo
+Los archivos zip y 7z cifrados piden la contraseña al abrirse. En el diálogo **Contraseña**, cada
+carácter que escribes aparece como ruido de interferencia que cambia sin parar y destella con cada
+tecla. El ruido depende solo de cuántos caracteres has escrito. El diálogo vuelve a preguntar si la
+contraseña es incorrecta, y Esc sale del archivo comprimido. Borg guarda la contraseña en memoria mientras el panel muestra el archivo
 comprimido y nunca la escribe en ningún sitio. **Extraer aquí** no puede pedirla, así que para un
 archivo comprimido cifrado pulsa Enter sobre él, escribe la contraseña y copia los archivos fuera
 con F5.

@@ -28,6 +28,7 @@ pub(super) fn prompt(
             input: LineInput::new(value),
             purpose,
             option_focused: false,
+            typed: None,
         }),
     )
 }

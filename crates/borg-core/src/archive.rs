@@ -184,6 +184,7 @@ pub(crate) fn locked(state: &mut AppState, side: Side, generation: u64, wrong: b
         input: LineInput::default(),
         purpose: PromptPurpose::ArchivePassword { side },
         option_focused: false,
+        typed: None,
     }));
 }
 

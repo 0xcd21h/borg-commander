@@ -116,7 +116,9 @@ pub(crate) fn ambient(state: &AppState, now: Instant) -> bool {
         empty_shown(state) && empty_glitch(now.saturating_duration_since(state.epoch).as_secs_f32()).is_some();
     let rain = state.rain_until.is_some_and(|until| now < until);
     let about = matches!(state.overlay, Some(crate::Overlay::About(_)));
-    let decorative = empty_art || rain || about;
+    let cipher = matches!(&state.overlay, Some(crate::Overlay::Prompt(prompt))
+        if prompt.purpose.masked() && !prompt.input.text().is_empty());
+    let decorative = empty_art || rain || about || cipher;
     spinning || working || decorative || state.screensaver || state.intro.is_some()
 }
 
