@@ -65,25 +65,40 @@ fn interruptible(marker: &str) -> String {
     format!("tee {marker}")
 }
 
-/// Filters the activity monitor by `pid` and puts the cursor on that process. Other PIDs can
-/// contain it, so it steps to it rather than expect it alone.
+/// Filters the activity monitor by `pid` and moves the cursor to the row whose PID column is
+/// `pid`. Other PIDs can contain it, so the filter can list more rows than that one.
 fn select_process(app: &mut Session, pid: u32) -> Result<Snapshot> {
     app.send("/")?.send(pid.to_string())?.send(keys::enter())?;
-    app.wait_until("activity list filtered by the PID", |s| {
-        s.lines()
+    let mut screen = app.wait_until("the process listed under the PID filter", |s| {
+        let filtered = s
+            .lines()
             .iter()
-            .any(|line| line.contains("Filter") && line.contains(&format!(" {pid} ")) && line.contains(" of "))
+            .any(|line| line.contains("Filter") && line.contains(&format!(" {pid} ")) && line.contains(" of "));
+        filtered && process_row(s, pid).is_some() && activity_cursor(s).is_some()
     })?;
     let selected = format!("· PID {pid} ·");
-    app.send(keys::key(KeyCode::Home))?;
-    for _ in 0..20 {
-        if app.snapshot().contains(&selected) {
-            break;
+    for _ in activity_rows(&screen) {
+        let (Some(cursor), Some(target)) = (activity_cursor(&screen), process_row(&screen, pid)) else { break };
+        if cursor == target {
+            return app.wait_until("the process selected", |s| s.contains(&selected));
         }
-        app.send(keys::down())?;
-        app.pump(std::time::Duration::from_millis(300))?;
+        app.send(if target < cursor { keys::up() } else { keys::down() })?;
+        screen =
+            app.wait_until("the cursor on another process", |s| activity_cursor(s).is_some_and(|y| y != cursor))?;
     }
-    app.wait_until("the process selected", |s| s.contains(&selected))
+    anyhow::bail!("could not select PID {pid}\n{}", screen.text())
+}
+
+fn process_row(s: &Snapshot, pid: u32) -> Option<u16> {
+    let pid = pid.to_string();
+    let panel = left_panel(s);
+    let lines: Vec<&str> = panel.lines().collect();
+    activity_rows(s).find(|&y| {
+        let first_number = lines
+            .get(usize::from(y))
+            .and_then(|line| line.split(|c: char| !c.is_ascii_digit()).find(|n| !n.is_empty()));
+        first_number == Some(pid.as_str())
+    })
 }
 
 /// Approves an agent's ask once its dialog takes Yes: one that appears right after a key
