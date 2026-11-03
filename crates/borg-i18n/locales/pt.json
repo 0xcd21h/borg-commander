@@ -1261,5 +1261,18 @@
   "cli_storage_cleaned": "Foram removidos {items}, {size}.",
   "cli_storage_failed": "Não foi possível remover {items}.",
   "storage_clean_folder": "{items} em {folder}",
-  "storage_clean_elsewhere": "{items} noutros sítios"
+  "storage_clean_elsewhere": "{items} noutros sítios",
+  "archive_unknown": "Isto não é um arquivo que o Borg consiga ler.",
+  "archive_needs_password": "Este arquivo está encriptado e precisa da palavra-passe.",
+  "archive_wrong_password": "Essa palavra-passe não abre este arquivo.",
+  "archive_overlapping": "Há entradas deste arquivo que partilham os mesmos dados, um truque das bombas zip para extrair muito mais do que ocupam, por isso o Borg não o abre.",
+  "archive_too_many": "Este arquivo tem mais de 1 000 000 de entradas, mais do que o Borg lista.",
+  "archive_no_tool": "O Borg lê arquivos RAR através do 7-Zip ou do bsdtar, e nenhum deles está instalado.",
+  "archive_tool_failed": "O {tool} não conseguiu ler o arquivo: {error}",
+  "archive_tool_password": "O Borg ainda não abre arquivos RAR encriptados.",
+  "archive_damaged": "O arquivo está danificado: {error}",
+  "archive_stopped": "A leitura do arquivo parou.",
+  "archive_entry_too_long": "{path} contém mais dados do que o arquivo indica, por isso o Borg parou de o extrair.",
+  "archive_entry_short": "{path} acaba antes do tamanho que o arquivo lhe atribui.",
+  "archive_link_left_out": "{path} liga a {target}, que não faz parte do que está a extrair."
 }

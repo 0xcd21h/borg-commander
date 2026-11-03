@@ -1261,5 +1261,18 @@
   "cli_storage_cleaned": "已删除 {items}，{size}。",
   "cli_storage_failed": "无法删除 {items}。",
   "storage_clean_folder": "{folder} 中有 {items}",
-  "storage_clean_elsewhere": "其他位置有 {items}"
+  "storage_clean_elsewhere": "其他位置有 {items}",
+  "archive_unknown": "这不是 Borg 能读取的压缩包。",
+  "archive_needs_password": "此压缩包已加密，需要输入密码。",
+  "archive_wrong_password": "这个密码打不开此压缩包。",
+  "archive_overlapping": "此压缩包中的多个条目共用同一份数据，压缩炸弹常用这种手法解压出远超自身大小的内容，因此 Borg 不会打开它。",
+  "archive_too_many": "此压缩包含有超过 1,000,000 个条目，超出了 Borg 能列出的数量。",
+  "archive_no_tool": "Borg 通过 7-Zip 或 bsdtar 读取 RAR 压缩包，但两者都没有安装。",
+  "archive_tool_failed": "{tool} 无法读取此压缩包：{error}",
+  "archive_tool_password": "Borg 暂时还不能打开加密的 RAR 压缩包。",
+  "archive_damaged": "压缩包已损坏：{error}",
+  "archive_stopped": "已停止读取压缩包。",
+  "archive_entry_too_long": "{path} 的数据比压缩包声明的更多，因此 Borg 停止了解压。",
+  "archive_entry_short": "{path} 在达到压缩包声明的大小之前就结束了。",
+  "archive_link_left_out": "{path} 链接到 {target}，但它不在你要解压的内容中。"
 }

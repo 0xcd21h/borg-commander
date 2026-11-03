@@ -1261,5 +1261,18 @@
   "cli_storage_cleaned": "Удалено: {items}, {size}.",
   "cli_storage_failed": "Не удалось удалить: {items}.",
   "storage_clean_folder": "{items} в {folder}",
-  "storage_clean_elsewhere": "{items} в других местах"
+  "storage_clean_elsewhere": "{items} в других местах",
+  "archive_unknown": "Это не архив, который Borg может прочитать.",
+  "archive_needs_password": "Архив зашифрован, для него нужен пароль.",
+  "archive_wrong_password": "Этот пароль не открывает архив.",
+  "archive_overlapping": "Записи этого архива используют одни и те же данные. Так zip-бомбы распаковываются в гораздо больший объём, чем занимают, поэтому Borg не открывает этот архив.",
+  "archive_too_many": "В архиве больше 1 000 000 записей, Borg столько не показывает.",
+  "archive_no_tool": "Borg читает архивы RAR через 7-Zip или bsdtar, а ни одна из этих программ не установлена.",
+  "archive_tool_failed": "{tool} не смог прочитать архив: {error}",
+  "archive_tool_password": "Borg пока не открывает зашифрованные архивы RAR.",
+  "archive_damaged": "Архив повреждён: {error}",
+  "archive_stopped": "Чтение архива остановлено.",
+  "archive_entry_too_long": "{path} содержит больше данных, чем указано в архиве, поэтому Borg прекратил его извлечение.",
+  "archive_entry_short": "{path} заканчивается раньше размера, указанного в архиве.",
+  "archive_link_left_out": "{path} ссылается на {target}, а он не входит в то, что вы извлекаете."
 }

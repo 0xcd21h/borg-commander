@@ -1,0 +1,29 @@
+[package]
+name = "borg-archive"
+description = "Archive reading for borg-commander: listing and safe unpacking"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+borg-i18n    = { workspace = true }
+borg-jobs    = { workspace = true }
+jiff         = { workspace = true }
+bzip2        = { workspace = true }
+flate2       = { workspace = true }
+lzma-rust2   = { workspace = true }
+rustix       = { workspace = true }
+sevenz-rust2 = { workspace = true }
+tar          = { workspace = true }
+thiserror    = { workspace = true }
+zip          = { workspace = true }
+zstd         = { workspace = true }
+
+[dev-dependencies]
+lzma-rust2   = { workspace = true, features = ["encoder"] }
+sevenz-rust2 = { workspace = true, features = ["compress", "util"] }
+tempfile     = { workspace = true }
+
+[lints]
+workspace = true
