@@ -59,7 +59,7 @@ expression: describe(&buffer)
 Unknown process · 192.0.2.20:50700 → 203.0.113.90:443
 $
 Enter Packets  / Filter  Tab Details  Esc Back
-Ctrl-C Copy address · F3 View · Alt-W Maximize                                                              ◈ Borg Commander v0.9.5
+Ctrl-C Copy address · F3 View · Alt-W Maximize                                                              ◈ Borg Commander v0.9.6
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-42 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 43-57 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 58-60 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 61-61 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 62-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-88 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 89-123 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-22 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 23-37 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 38-48 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 49-64 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-130 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
