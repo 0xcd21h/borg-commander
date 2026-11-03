@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ACK, PSH, SYN,
+    ACK, PSH, Proxied, SYN, SeenSockets,
     capture::tests::{
         CLIENT, CLIENT_PORT, RESOLVER, SERVER, client_hello, dns, over_tcp, over_udp, pcap, pktap_of, tcp, udp,
     },
@@ -60,6 +60,19 @@ fn conversations_belong_to_the_process_whose_socket_holds_them() {
         view.ends[web],
         Ends { pid: Some(WEB), local: address(CLIENT, WEB_PORT), remote: address(VISITOR, VISITOR_PORT) }
     );
+}
+
+#[test]
+fn a_connection_borg_proxied_belongs_to_the_program_it_was_for() {
+    const BORG: u32 = 77;
+    let mut seen = SeenSockets::default();
+    let upstream = (address(CLIENT, CLIENT_PORT), address(SERVER, 443));
+    seen.saw(&[socket(upstream.0, Some(upstream.1), BORG)], &[(BORG, "borg".to_owned())].into());
+    seen.proxied(Proxied { local: upstream.0, remote: upstream.1, pid: BROWSER, name: "curl".into() });
+    let view = seen.view(capture(), &HashMap::new(), None);
+    let tls = view.capture.flows.iter().position(|flow| flow.server.port() == 443).unwrap();
+    assert_eq!(view.ends[tls].pid, Some(BROWSER));
+    assert_eq!(view.name(Some(BROWSER)), "curl");
 }
 
 #[test]

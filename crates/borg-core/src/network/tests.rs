@@ -632,17 +632,37 @@ fn written(effects: &[Effect]) -> Vec<String> {
         .collect()
 }
 
-/// Starts a capture with TLS keys from the dialog, and gives its id and what follows once its
-/// key log is there.
-fn keeping_keys(state: &mut AppState, now: Instant) -> (u64, Vec<Effect>) {
+const TRUST: &str = "/run/borg/trust-7-1.pem";
+const PROXY: &str = "127.0.0.1:8080";
+const CURL: u32 = 7311;
+
+/// Starts a capture from the dialog with the TLS keys choice `steps` to the right of the first.
+fn choosing_tls_keys(state: &mut AppState, steps: usize, now: Instant) -> (u64, CaptureRequest) {
     press(state, KeyCode::Char('r'), KeyModifiers::NONE);
     while capture_dialog(state).selected() != CaptureField::TlsKeys {
         press(state, KeyCode::Down, KeyModifiers::NONE);
     }
-    press(state, KeyCode::Right, KeyModifiers::NONE);
-    let (id, request) = started(update(state, Msg::Key(KeyCode::Enter.into()), now));
-    assert!(request.tls_keys);
-    (id, update(state, Msg::CaptureKeys { id, path: PathBuf::from(KEY_LOG) }, now))
+    for _ in 0..steps {
+        press(state, KeyCode::Right, KeyModifiers::NONE);
+    }
+    started(update(state, Msg::Key(KeyCode::Enter.into()), now))
+}
+
+/// Starts a capture with TLS keys from the dialog, and gives its id and what follows once its
+/// key log is there.
+fn keeping_keys(state: &mut AppState, now: Instant) -> (u64, Vec<Effect>) {
+    let (id, request) = choosing_tls_keys(state, 1, now);
+    assert_eq!(request.tls_keys, TlsKeys::Shell);
+    (id, update(state, Msg::CaptureKeys { id, path: PathBuf::from(KEY_LOG), proxy: None }, now))
+}
+
+/// Starts a capture through Borg's proxy from the dialog, and gives its id and what follows
+/// once the proxy listens.
+fn proxying(state: &mut AppState, now: Instant) -> (u64, Vec<Effect>) {
+    let (id, request) = choosing_tls_keys(state, 2, now);
+    assert_eq!(request.tls_keys, TlsKeys::Proxy(Authority::Temporary));
+    let proxy = ProxyEndpoint { address: address(PROXY), trust: PathBuf::from(TRUST) };
+    (id, update(state, Msg::CaptureKeys { id, path: PathBuf::from(KEY_LOG), proxy: Some(proxy) }, now))
 }
 
 fn saved(state: &mut AppState, id: u64, now: Instant) -> Vec<Effect> {
@@ -703,6 +723,61 @@ fn without_the_shell_l_copies_the_line_for_another_terminal() {
     assert_eq!(state.notice, Some(format!("Copied {}", prefix.trim_end())));
     state.shell.running = false;
     assert!(written(&saved(&mut state, id, now)).is_empty(), "Borg set nothing in its shell to put back");
+}
+
+#[test]
+fn a_capture_through_the_proxy_points_the_shell_at_it_and_puts_back_what_it_had() {
+    let (mut state, now) = opened();
+    state.shell.integrated = true;
+    state.network.shell_variables.inherited = [("SSL_CERT_FILE", "/etc/ssl/cert.pem".into())].into();
+    let (id, effects) = proxying(&mut state, now);
+    let proxies = PROXY_VARIABLES.map(|name| format!("{name}='http://{PROXY}'"));
+    let trusts = TRUST_VARIABLES.map(|name| format!("{name}='{TRUST}'"));
+    assert_eq!(written(&effects), [format!("export {} {}\r", proxies.join(" "), trusts.join(" "))]);
+    signal(&mut state, ShellSignal::CommandEnd { exit: Some(0) }, now);
+
+    let effects = saved(&mut state, id, now);
+    let restore = "export SSL_CERT_FILE='/etc/ssl/cert.pem'; \
+                   unset HTTPS_PROXY https_proxy CURL_CA_BUNDLE REQUESTS_CA_BUNDLE NODE_EXTRA_CA_CERTS";
+    assert_eq!(written(&effects), [format!("{restore}\r")]);
+    assert_eq!(state.notice, Some(format!("Ran {restore} in Borg's shell.")));
+}
+
+#[test]
+fn without_the_shell_l_copies_the_proxy_settings() {
+    let (mut state, now) = opened();
+    state.shell.running = true;
+    let (id, effects) = proxying(&mut state, now);
+    assert!(written(&effects).is_empty());
+    assert_eq!(state.notice.as_deref(), Some(tr!(capture_proxy_not_set)));
+    let copied = press(&mut state, KeyCode::Char('l'), KeyModifiers::NONE);
+    let [Effect::Copy(prefix)] = copied.as_slice() else { panic!("one copy: {copied:?}") };
+    assert!(prefix.starts_with(&format!("HTTPS_PROXY='http://{PROXY}' ")), "{prefix}");
+    assert!(prefix.ends_with(&format!("NODE_EXTRA_CA_CERTS='{TRUST}' ")), "{prefix}");
+    state.shell.running = false;
+    assert!(written(&saved(&mut state, id, now)).is_empty(), "Borg set nothing in its shell to put back");
+}
+
+#[test]
+fn the_proxy_signs_with_the_ca_folder_the_config_names() {
+    let (mut state, now) = opened();
+    let folder = PathBuf::from("/work/dev-ca");
+    state.network.authority = Authority::Folder(folder.clone());
+    let (_, request) = choosing_tls_keys(&mut state, 2, now);
+    assert_eq!(request.tls_keys, TlsKeys::Proxy(Authority::Folder(folder)));
+    let (mut state, now) = opened();
+    let (_, request) = choosing_tls_keys(&mut state, 3, now);
+    assert_eq!(request.tls_keys, TlsKeys::Off, "Right goes round to Off");
+}
+
+#[test]
+fn the_viewer_names_the_program_a_proxied_connection_was_for() {
+    let (mut state, now) = opened();
+    let (id, _) = proxying(&mut state, now);
+    let proxied = Proxied { local: address("127.0.0.1:50001"), remote: address(PROXY), pid: CURL, name: "curl".into() };
+    update(&mut state, Msg::CaptureProxied { id, proxied }, now);
+    saved(&mut state, id, now);
+    assert_eq!(state.network.viewer.as_deref().map(|view| view.name(Some(CURL))).as_deref(), Some("curl"));
 }
 
 const ASKS: CaptureAccess = CaptureAccess { administrator: false, elevate: true, tags: true };
@@ -875,7 +950,7 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
         folder: PathBuf::from("/work"),
         administrator: false,
         processes: false,
-        tls_keys: false,
+        tls_keys: TlsKeys::Off,
     };
     let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, String::new());
     assert_eq!((ask.kind, ask.summary.as_str()), (AskKind::Capture, "capture on en0, 10 s"));

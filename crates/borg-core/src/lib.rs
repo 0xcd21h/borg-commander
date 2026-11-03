@@ -113,7 +113,8 @@ pub use storage::{
     CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR, INDEX_SUFFIX,
     Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX, SIZES_PREFIX,
     SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport, StorageRow, StorageWindow,
-    TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
+    TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers,
+    socket_leftovers,
 };
 pub use update::update;
 pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};
@@ -141,6 +142,10 @@ pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchRe
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
 
 pub use network::{
+    Authority, Dialect, KEY_LOG_VARIABLE, PROXY_VARIABLES, Proxied, ProxyEndpoint, ShellVariables, TRUST_VARIABLES,
+    TlsKeys, shell_variables,
+};
+pub use network::{
     CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
     Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
     RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
@@ -151,7 +156,6 @@ pub use network::{
     HEADER_BYTES, HostRow, LONGEST_CAPTURE, Recording, SHORTEST_CAPTURE, SeenSockets, Talker, TrafficPage, TrafficView,
     capture_ask, capture_extension, capture_interfaces, is_capture,
 };
-pub use network::{Dialect, KEY_LOG_VARIABLE, ShellKeyLog, key_log_prefix};
 
 pub use capture::{
     ACK, App, CWR, Capture, CaptureError, Datagram, Dns, DnsAnswer, DnsData, ECE, FIN, Flow, FlowKind, Http, Ip,

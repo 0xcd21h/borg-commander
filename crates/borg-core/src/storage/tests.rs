@@ -109,6 +109,20 @@ fn consoles_go_when_their_process_ends_and_old_ones_without_a_process_after_thre
 }
 
 #[test]
+fn a_capture_proxys_certificates_go_when_its_borg_ends() {
+    let root = Path::new("/run/borg");
+    let bundle = |pid: u32, rest: &str| file(&format!("{TRUST_PREFIX}{pid}{rest}"), OLD);
+    let entries = [
+        bundle(RUNNING, "-1.pem"),
+        bundle(ENDED, "-1.pem"),
+        bundle(ENDED, "-2.txt"),
+        bundle(ENDED, ".pem"),
+        file(&format!("{TRUST_PREFIX}{ENDED}-1.pem"), SETTLE - Duration::from_secs(1)),
+    ];
+    assert_eq!(names(root, &runtime_leftovers(root, &entries, &judge(false))), ["trust-200-1.pem"]);
+}
+
+#[test]
 fn copies_out_of_containers_and_remote_previews_go_after_a_day() {
     let root = Path::new("/run/borg");
     let entries = [

@@ -1,18 +1,22 @@
 //! Captures packets with the installed tcpdump into a pcap file in the folder the network
 //! screen covers, or the one an agent names, as you or as administrator through Borg's helper,
-//! with a TLS key log beside it when asked, and reads capture files for the traffic viewer,
-//! with the key log beside them.
+//! with a TLS key log beside it when asked, and Borg's proxy running for it when its HTTPS goes
+//! through Borg, and reads capture files for the traffic viewer, with the key log beside them.
 
-use super::Sampler;
+use super::{
+    Sampler,
+    proxy::{Event, Proxy, Report},
+};
 use borg_core::{
-    Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, SeenSockets,
-    Tool, capture_extension, with_secrets,
+    Capture, CaptureAccess, CaptureFailure, CaptureRequest, HEADER_BYTES, Msg, PACKET_LIMIT, PcapCounter, Proxied,
+    ProxyEndpoint, SeenSockets, TlsKeys, Tool, Transport, capture_extension, with_secrets,
 };
 use borg_i18n::tr;
 use rustix::process::{Pid, Signal, kill_process};
 use std::{
     fs::{File, OpenOptions},
     io::{self, ErrorKind, Write},
+    net::SocketAddr,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Stdio,
@@ -70,17 +74,24 @@ pub(super) struct Recorder {
 }
 
 impl Recorder {
-    pub(super) fn start(id: u64, request: CaptureRequest, messages: UnboundedSender<Msg>) -> Self {
+    pub(super) fn start(id: u64, request: CaptureRequest, messages: UnboundedSender<Msg>, runtime: &Path) -> Self {
         let (stop, stopped) = oneshot::channel();
+        let trust = runtime.join(format!(
+            "{}{}-{id}.{}",
+            borg_core::TRUST_PREFIX,
+            std::process::id(),
+            borg_core::TRUST_EXTENSION
+        ));
         let task = tokio::spawn(async move {
             let progress = |bytes, packets| {
                 let _ = messages.send(Msg::CaptureProgress { id, bytes, packets });
             };
-            let keys = |path| {
-                let _ = messages.send(Msg::CaptureKeys { id, path });
+            let keys = |path, proxy| {
+                let _ = messages.send(Msg::CaptureKeys { id, path, proxy });
             };
+            let proxying = Proxying { trust, report: report(id, messages.clone()) };
             let result = match crate::tools::find(Tool::Tcpdump.program()) {
-                Some(program) => record(&program, &request, progress, keys, stopped).await,
+                Some(program) => record(&program, &request, progress, keys, Some(proxying), stopped).await,
                 None => Err(CaptureFailure::Missing(crate::tools::installer())),
             };
             let _ = messages.send(Msg::CaptureDone { id, result });
@@ -102,6 +113,41 @@ impl Recorder {
     }
 }
 
+/// Where a capture's proxy keeps its trust bundle, and what it says as it works.
+struct Proxying {
+    trust: PathBuf,
+    report: Report,
+}
+
+/// What a capture's proxy says, as messages to the screen: each connection it opens with the
+/// program it opened it for, and the hosts and programs it could not connect.
+fn report(id: u64, messages: UnboundedSender<Msg>) -> Report {
+    Box::new(move |event| match event {
+        Event::Opened { client, local, remote } => {
+            let messages = messages.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Some((pid, name)) = owner(client) {
+                    let _ = messages.send(Msg::CaptureProxied { id, proxied: Proxied { local, remote, pid, name } });
+                }
+            });
+        }
+        Event::Refused { host } => {
+            let _ = messages.send(Msg::Notice(tr!(capture_proxy_refused, host = host)));
+        }
+        Event::Unverified { host, error } => {
+            let _ = messages.send(Msg::Notice(tr!(capture_proxy_unverified, host = host, error = error)));
+        }
+    })
+}
+
+/// The process whose socket is the program's end of a connection to the proxy, with its name.
+fn owner(client: SocketAddr) -> Option<(u32, String)> {
+    let (sockets, names) = Sampler::default().sockets().ok()?;
+    let socket = sockets.iter().find(|socket| socket.transport == Transport::Tcp && socket.local == client)?;
+    let pid = socket.pid?;
+    Some((pid, names.get(&pid).cloned().unwrap_or_default()))
+}
+
 /// Reads a capture file opened from a panel.
 pub(super) fn open(path: PathBuf, messages: UnboundedSender<Msg>) {
     tokio::spawn(async move {
@@ -121,8 +167,9 @@ pub(crate) async fn record_for_agent(request: &CaptureRequest) -> Result<(PathBu
     let (done, watching) = channel::<()>();
     let watcher = tokio::task::spawn_blocking(move || watch_sockets(&watching));
     let (_stop, stopped) = oneshot::channel();
-    let recorded =
-        record(&program, request, |_, _| {}, |_| {}, stopped).await.map_err(|failure| refused(failure, request));
+    let recorded = record(&program, request, |_, _| {}, |_, _| {}, None, stopped)
+        .await
+        .map_err(|failure| refused(failure, request));
     drop(done);
     let seen = watcher.await.unwrap_or_default();
     recorded.map(|(path, capture)| (path, capture, seen))
@@ -337,13 +384,14 @@ async fn record(
     program: &Path,
     request: &CaptureRequest,
     progress: impl Fn(u64, usize),
-    keys: impl FnOnce(PathBuf),
+    keys: impl FnOnce(PathBuf, Option<ProxyEndpoint>),
+    proxying: Option<Proxying>,
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<(PathBuf, Capture), CaptureFailure> {
     let (mut packets, mut tap) =
         if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
     let path = request.folder.join(file_name(request));
-    let (mut file, key_log) = match create_files(&path, request.tls_keys) {
+    let (mut file, key_log) = match create_files(&path, request.tls_keys.keeps_keys()) {
         Ok(created) => {
             let saved = path.clone();
             tokio::task::spawn_blocking(move || crate::storage::remember_capture(&saved));
@@ -355,8 +403,22 @@ async fn record(
             return Err(CaptureFailure::Failed(tr!(capture_cannot_save, error = error)));
         }
     };
+    let proxy = match (&request.tls_keys, &key_log, proxying) {
+        (TlsKeys::Proxy(authority), Some(key_log), Some(proxying)) => {
+            match Proxy::start(authority, key_log, proxying.trust, proxying.report).await {
+                Ok(proxy) => Some(proxy),
+                Err(error) => {
+                    tap.stop();
+                    let _ = tap.finish().await;
+                    discard(&path, Some(key_log));
+                    return Err(CaptureFailure::Failed(tr!(capture_proxy_failed, error = error)));
+                }
+            }
+        }
+        _ => None,
+    };
     if let Some(key_log) = &key_log {
-        keys(key_log.clone());
+        keys(key_log.clone(), proxy.as_ref().map(Proxy::endpoint));
     }
     let deadline = request.seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     let mut counter = PcapCounter::default();
@@ -399,6 +461,7 @@ async fn record(
         }
     }
     drop(packets);
+    drop(proxy);
     let said = tap.finish().await;
     let saved = file.sync_all();
     drop(file);

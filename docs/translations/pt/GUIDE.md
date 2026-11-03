@@ -1018,6 +1018,9 @@ refresh-minutes = 15        # rebuild an index once it is this old
 [folders]
 hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
 history = true              # remember the folders the panels open
+
+[network]
+proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
 ```
 
 Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com
@@ -1060,7 +1063,8 @@ essa hora um dia, de hora a hora, pelo que, depois de ela passar, a pasta pode s
 cada um e onde fica:
 
 - **Ficheiros temporários**: scripts de integração com a shell, pedidos de mudança de pasta vindos
-  da shell, cópias de contentores e pré-visualizações remotas, na pasta de execução.
+  da shell, cópias de contentores, pré-visualizações remotas e os certificados do proxy de uma
+  captura, na pasta de execução.
 - **Sockets**: por onde os agentes e os espelhos chegam às sessões em curso, em
   `/tmp/borg-<uid>-default`, ou numa pasta `/tmp/borg-<uid>-` com o nome da pasta de execução quando
   `$XDG_RUNTIME_DIR` está definida.
@@ -1080,8 +1084,8 @@ Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
 
 - Pastas de outras versões do Borg na pasta de execução, quando já nenhum Borg corre a partir delas
   e, além disso, nenhum Borg estava a correr quando este arrancou ou há 3 dias que nada nelas muda.
-- Pedidos de mudança de pasta, ficheiros escritos a meio e pastas de consolas remotas de processos
-  do Borg que terminaram.
+- Pedidos de mudança de pasta, ficheiros escritos a meio, pastas de consolas remotas e certificados
+  do proxy de capturas de processos do Borg que terminaram.
 - Cópias de contentores e pré-visualizações remotas com mais de um dia.
 - Sockets em que ninguém responde e pastas de sockets onde já nada responde.
 - Análises de tamanho no formato do Borg 0.4 e 0.5, análises que a cache já não lista e índices de
@@ -1430,8 +1434,9 @@ Linux se instala com o pacote `tcpdump`. A caixa de diálogo **Capturar tráfego
 - **Duração** é de 5, 10, 30 ou 60 segundos, ou **Até parar**.
 - **Guardar** é **Pacotes inteiros**, ou **Cabeçalhos, os primeiros 128 bytes de cada pacote** para
   ficheiros pequenos que deixam de fora quase tudo o que os pacotes transportam.
-- **Chaves TLS** é **Não**, ou **Definir SSLKEYLOGFILE na shell do Borg** para guardar as chaves
-  TLS dos programas que iniciar enquanto a captura decorre (consulte
+- **Chaves TLS** é **Não**, **Definir SSLKEYLOGFILE na shell do Borg** para guardar as chaves
+  TLS dos programas que iniciar enquanto a captura decorre, ou **Passar o HTTPS pelo proxy do
+  Borg com uma CA temporária** para programas que não escrevem as suas chaves (consulte
   [Desencriptar TLS](#decrypting-tls)).
 - **Executar como** aparece onde o Borg pode pedir ao sistema a palavra-passe de um administrador.
   **Utilizador atual** executa o tcpdump com o seu utilizador, e **Administrador** executa-o como
@@ -1549,11 +1554,13 @@ em** e o nome da interface.
 
 Quando o Borg tem as chaves de uma ligação TLS, o fluxo dela em **3 Ligações** mostra o que os
 registos encriptados transportavam, como um pedido HTTP e a respetiva resposta, e o cabeçalho do
-fluxo termina em **desencriptado**. Nada se interpõe entre o programa e o servidor, por isso isto
-também funciona com programas que fixam os seus certificados.
+fluxo termina em **desencriptado**.
 
 As chaves vêm de um ficheiro de chaves TLS, o ficheiro que os browsers, o curl, o Python e muitos
-outros programas escrevem quando a variável de ambiente `SSLKEYLOGFILE` indica um.
+outros programas escrevem quando a variável de ambiente `SSLKEYLOGFILE` indica um. Nesse caso nada
+se interpõe entre o programa e o servidor, por isso isto também funciona com programas que fixam
+os seus certificados. Para programas que nunca escrevem um ficheiro de chaves, o Borg pode
+colocar-se ele próprio no meio (consulte [Pelo proxy do Borg](#through-borgs-proxy)).
 
 Para as guardar com uma captura, escolha **Definir SSLKEYLOGFILE na shell do Borg** em **Chaves
 TLS** no diálogo **Capturar tráfego**. Quando a captura começa, o Borg cria
@@ -1600,6 +1607,67 @@ Outros precisam da sua própria opção:
 
 O Safari e outras aplicações criadas sobre as bibliotecas TLS da própria Apple nunca escrevem um
 ficheiro de chaves, e o seu tráfego continua encriptado.
+
+#### Pelo proxy do Borg
+
+Defina **Chaves TLS** como **Passar o HTTPS pelo proxy do Borg com uma CA temporária** para ler o
+HTTPS de programas que nunca escrevem um ficheiro de chaves, como programas em Go e Rust ou um
+cliente que não pode alterar. Quando a captura começa, o Borg corre um proxy em `127.0.0.1` e cria
+uma autoridade de certificação (CA) só para esta captura. A chave da CA vive na memória do Borg e
+desaparece quando a captura termina. O Borg escreve uma linha no prompt da sua shell que envia o
+HTTPS pelo proxy e faz os programas confiarem na CA:
+
+```sh
+export HTTPS_PROXY='http://127.0.0.1:54321' https_proxy='http://127.0.0.1:54321' SSL_CERT_FILE='…' CURL_CA_BUNDLE='…' REQUESTS_CA_BUNDLE='…' NODE_EXTRA_CA_CERTS='…'
+```
+
+As quatro variáveis de certificados indicam um único ficheiro na pasta de execução do Borg,
+legível só por si. Esse ficheiro tem o certificado da CA seguido dos certificados do próprio
+sistema, por isso os programas continuam a confiar em todos os outros anfitriões. Enquanto a
+captura decorre, o rodapé mostra **Proxy em** e o endereço do proxy, e **L Copiar definições do
+proxy** copia as mesmas variáveis para um programa noutro terminal. Quando a captura termina, o
+Borg devolve à shell o que ela tinha, tal como faz com `SSLKEYLOGFILE`, e apaga o ficheiro. O Borg
+nunca acrescenta a sua CA ao repositório de certificados de confiança do sistema.
+
+Um programa que passa pelo proxy pede-lhe um túnel até ao anfitrião. O proxy liga-se ao
+anfitrião, verifica o certificado dele como o sistema o faz e depois mostra ao programa um
+certificado para o mesmo anfitrião assinado pela CA. O programa e o anfitrião continuam a falar
+HTTP/2 ou HTTP/1.1, conforme o que o anfitrião escolheu. O proxy escreve as chaves das duas sessões
+TLS no ficheiro de chaves da captura, por isso a cópia da ligação ao anfitrião que está na captura
+abre desencriptada, e o visualizador atribui-a ao processo que pediu o túnel. Tudo o que passa num
+túnel sem ser TLS segue tal como está.
+
+Os programas passam pelo proxy quando leem os dois tipos de variáveis:
+
+- O curl, o git e o Python com requests ou urllib seguem `HTTPS_PROXY` ou `https_proxy`, e
+  confiam no ficheiro de certificados através de `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, ou
+  `SSL_CERT_FILE` quando usam OpenSSL.
+- O Go segue `HTTPS_PROXY`, exceto em pedidos para `localhost`, e lê `SSL_CERT_FILE` no Linux. No
+  macOS confia apenas nos certificados do sistema, por isso aí as suas ligações falham.
+- O Node.js confia na CA através de `NODE_EXTRA_CA_CERTS`. As versões recentes enviam `fetch` e
+  `https` pelo proxy quando também define `NODE_USE_ENV_PROXY=1`.
+- Programas com a sua própria lista de certificados, programas que fixam certificados e
+  aplicações que tiram o proxy das definições do sistema, como o Safari, recusam ou contornam o
+  proxy. Uma recusa aparece como **Um programa não confiou no certificado do proxy para** e o
+  anfitrião.
+
+Quando o certificado do anfitrião não passa na verificação, o proxy fecha a ligação e um aviso
+diz **O Borg não conseguiu verificar** e o anfitrião. É o que acontece com os seus próprios
+serviços quando os certificados vêm de uma CA de desenvolvimento em que o sistema não confia, como
+a que o [mkcert](https://github.com/FiloSottile/mkcert) cria. Aponte `proxy-ca`, na secção
+`[network]` do `config.toml`, para a pasta dessa CA:
+
+```toml
+[network]
+proxy-ca = "~/Library/Application Support/mkcert"  # mkcert -CAROOT prints the folder
+```
+
+A pasta tem de conter o certificado e a respetiva chave como `rootCA.pem` e `rootCA-key.pem`, os
+nomes que o mkcert lhes dá, ou como `ca.pem` e `ca-key.pem`. A opção no diálogo passa então a ser
+**Passar o HTTPS pelo proxy do Borg com a CA em** e a pasta. O proxy assina com a sua CA, em que
+os seus programas já confiam, e também confia nela quando verifica os seus serviços. Use uma CA que
+exista apenas para desenvolvimento, porque quem tiver a chave dela pode ler o tráfego de tudo o
+que confia nela.
 
 A tecla F3 procura chaves em dois sítios:
 

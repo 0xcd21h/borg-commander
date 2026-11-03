@@ -10,7 +10,7 @@ fn request(filter: &str) -> CaptureRequest {
         folder: PathBuf::from("/tmp"),
         administrator: false,
         processes: false,
-        tls_keys: false,
+        tls_keys: borg_core::TlsKeys::Off,
     }
 }
 

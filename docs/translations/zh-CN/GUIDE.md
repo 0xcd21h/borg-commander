@@ -425,6 +425,9 @@ refresh-minutes = 15        # rebuild an index once it is this old
 [folders]
 hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
 history = true              # remember the folders the panels open
+
+[network]
+proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
 ```
 
 在支持真彩色的本地终端中，Borg 启动时会播放一段简短的 logo 故障风格动画；按任意键或单击即可跳过。通过 SSH 连接时，以及在不支持真彩色的终端中，会直接打开面板。
@@ -450,7 +453,7 @@ dir = { fg = "#b388ff", bold = true }
 
 **F9 → 选项 → Borg 的文件…** 会列出 Borg 存放文件的每个位置、各处占用的空间以及具体所在：
 
-- **临时文件**：Shell 集成脚本、Shell 发出的切换文件夹请求、从容器复制出的文件和远程预览，位于运行时文件夹中。
+- **临时文件**：Shell 集成脚本、Shell 发出的切换文件夹请求、从容器复制出的文件、远程预览和抓包代理的证书，位于运行时文件夹中。
 - **套接字**：智能体和镜像通过它们连接运行中的会话，位于 `/tmp/borg-<uid>-default`，或位于以运行时文件夹命名的 `/tmp/borg-<uid>-` 文件夹中（设置了 `$XDG_RUNTIME_DIR` 时）。
 - **缓存**：文件夹大小和名称索引，位于缓存文件夹中（参见[已保存的大小扫描](#saved-size-scans)）。
 - **会话和历史记录**：会话、Shell 输出、搜索和文件夹历史记录、集合，以及已配对的计算机及其密钥，位于状态文件夹中。
@@ -462,7 +465,7 @@ dir = { fg = "#b388ff", bold = true }
 Borg 会在启动 30 秒后自行清理一次，之后每小时清理一次。它只删除自己创建的名称，并且从不删除最近 10 分钟内有过改动的内容，因此正在启动的 Borg 能保住刚刚创建的文件。会被删除的内容如下：
 
 - 运行时文件夹中其他 Borg 版本的文件夹：前提是已没有 Borg 从中运行，并且满足以下任一条件：本次 Borg 启动时没有其他 Borg 在运行，或其中的内容已有 3 天没有变化。
-- 已结束的 Borg 进程留下的切换文件夹请求、未写完的文件和远程控制台文件夹。
+- 已结束的 Borg 进程留下的切换文件夹请求、未写完的文件、远程控制台文件夹和抓包代理的证书。
 - 超过一天的从容器复制出的文件和远程预览。
 - 无人应答的套接字，以及其中已没有任何应答的套接字文件夹。
 - Borg 0.4 和 0.5 格式的大小扫描结果、缓存不再列出的扫描结果，以及不再建立索引的文件夹的名称索引。
@@ -623,7 +626,7 @@ P 用于有端口的页面，C 用于统计连接数的页面。点击列标题�
 - **接口** 默认是该行地址所在的接口，没有时则是最繁忙的接口。
 - **时长** 可选 5、10、30 或 60 秒，或 **直到停止**。
 - **保留** 可选 **完整数据包** 或 **仅头部，每个数据包的前 128 字节**。后者的文件很小，数据包携带的大部分内容都不会写入。
-- **TLS 密钥** 可选 **关闭** 或 **在 Borg 的 Shell 中设置 SSLKEYLOGFILE**，后者会记录抓包期间你启动的程序的 TLS 密钥（参见[解密 TLS](#decrypting-tls)）。
+- **TLS 密钥** 可选 **关闭**、**在 Borg 的 Shell 中设置 SSLKEYLOGFILE** 或 **通过 Borg 代理 HTTPS，使用临时 CA**。第二项会记录抓包期间你启动的程序的 TLS 密钥，第三项用于不写密钥的程序（参见[解密 TLS](#decrypting-tls)）。
 - **运行身份** 在 Borg 能请系统索要管理员密码时出现。**当前用户** 以你的身份运行 tcpdump，**管理员** 则在你于系统对话框中输入密码后以 root 身份运行它。在 macOS 上，这个选项显示为 **管理员，并记录每个数据包的进程**：tcpdump 会通过 macOS 的 `pktap` 监听，它会为每个数据包标记发送或接收它的进程。
 
 ↑↓ 选择字段，←→ 或 Space 更改字段，Enter 开始抓包，Esc 取消。使用鼠标时，单击字段选中它，再单击一次更改它。抓包进行时，底部一行显示已抓到的数据包数、字节数和剩余秒数，按 **R** 可以提前停止。抓包在达到 200,000 个数据包或 256 MiB 时也会停止。如果先关闭了屏幕，抓包会停止，并有通知告诉你 Borg 把它保存在哪里。
@@ -667,9 +670,9 @@ tcpdump 需要访问抓包设备。Borg 以你的身份运行它，所以请为�
 
 ### 解密 TLS
 
-当 Borg 拥有某个 TLS 连接的密钥时，该连接在 **3 连接** 中的数据流会显示加密记录所携带的内容，例如一个 HTTP 请求及其响应，数据流标题的末尾会显示 **已解密**。程序和服务器之间没有任何中间环节，因此对固定证书的程序同样有效。
+当 Borg 拥有某个 TLS 连接的密钥时，该连接在 **3 连接** 中的数据流会显示加密记录所携带的内容，例如一个 HTTP 请求及其响应，数据流标题的末尾会显示 **已解密**。
 
-密钥来自 TLS 密钥日志：当环境变量 `SSLKEYLOGFILE` 指定一个文件时，浏览器、curl、Python 以及许多其他程序会把密钥写入该文件。
+密钥来自 TLS 密钥日志：当环境变量 `SSLKEYLOGFILE` 指定一个文件时，浏览器、curl、Python 以及许多其他程序会把密钥写入该文件。这时程序和服务器之间没有任何中间环节，因此对固定证书的程序同样有效。对于从不写密钥日志的程序，Borg 可以自己站到中间（参见[通过 Borg 的代理](#through-borgs-proxy)）。
 
 要在抓包时记录密钥，请在 **抓取流量** 对话框中把 **TLS 密钥** 设为 **在 Borg 的 Shell 中设置 SSLKEYLOGFILE**。抓包开始时，Borg 会在抓包文件旁边创建只有你能读取的 `capture-<date>-<time>.keylog`，并在其 Shell 的提示符处输入类似下面的一行。你能看到它运行，之后也能在 Shell 的历史记录中找到它：
 
@@ -693,6 +696,34 @@ export SSLKEYLOGFILE='/home/me/projects/capture-20260101-120000.keylog'
 - Java 需要一个能挂接其 TLS 代码的 Java agent。
 
 Safari 以及其他基于 Apple 自家 TLS 库的应用从不写密钥日志，它们的流量仍保持加密。
+
+#### 通过 Borg 的代理
+
+把 **TLS 密钥** 设为 **通过 Borg 代理 HTTPS，使用临时 CA**，就能读取从不写密钥日志的程序的 HTTPS，例如 Go 和 Rust 程序，或者你无法修改的客户端。抓包开始时，Borg 会在 `127.0.0.1` 上运行一个代理，并为这次抓包单独生成一个证书颁发机构（CA）。CA 的私钥只保存在 Borg 的内存中，抓包结束后就不复存在。Borg 会在其 Shell 的提示符处输入一行命令，让 HTTPS 经过代理，并让程序信任这个 CA：
+
+```sh
+export HTTPS_PROXY='http://127.0.0.1:54321' https_proxy='http://127.0.0.1:54321' SSL_CERT_FILE='…' CURL_CA_BUNDLE='…' REQUESTS_CA_BUNDLE='…' NODE_EXTRA_CA_CERTS='…'
+```
+
+这四个证书变量指向 Borg 运行时文件夹中的同一个文件，只有你可以读取。文件里先是 CA 的证书，后面是系统自己的证书，所以程序仍然信任其他所有主机。抓包进行时，底部一行显示 **代理位于** 和代理的地址，**L 复制代理设置** 会复制同样的变量，供另一个终端中的程序使用。抓包结束时，Borg 会像处理 `SSLKEYLOGFILE` 一样恢复其 Shell 原有的设置，并删除这个文件。Borg 从不把它的 CA 加入系统的信任存储。
+
+经过代理的程序会请求代理建立一条通往主机的隧道。代理连接主机，像系统一样检查主机的证书，然后向程序出示一张由 CA 签发、针对同一主机的证书。程序和主机之间仍然使用主机选定的 HTTP/2 或 HTTP/1.1。代理把两段 TLS 会话的密钥都写入抓包的密钥日志，因此抓包中与主机之间的那条连接可以解密打开，查看器也会把它归到请求隧道的进程名下。隧道中不是 TLS 的内容会原样通过。
+
+程序同时读取这两类变量时才会经过代理：
+
+- curl、git 以及使用 requests 或 urllib 的 Python 会遵循 `HTTPS_PROXY` 或 `https_proxy`，并通过 `CURL_CA_BUNDLE`、`REQUESTS_CA_BUNDLE` 或（使用 OpenSSL 时）`SSL_CERT_FILE` 信任这个证书文件。
+- Go 遵循 `HTTPS_PROXY`，但发往 `localhost` 的请求除外；在 Linux 上它读取 `SSL_CERT_FILE`。在 macOS 上它只信任系统的证书，所以在那里它的连接会失败。
+- Node.js 通过 `NODE_EXTRA_CA_CERTS` 信任这个 CA。较新的版本会让 `fetch` 和 `https` 经过代理，前提是你同时设置了 `NODE_USE_ENV_PROXY=1`。
+- 自带证书列表的程序、固定证书的程序，以及从系统设置读取代理的应用（例如 Safari）会拒绝或绕过代理。被拒绝时，会有通知说明有程序不信任代理为该主机出示的证书。
+
+如果主机的证书没有通过检查，代理会关闭连接，并有通知显示 **Borg 无法验证** 和主机名。当你自己的服务使用系统不信任的开发 CA 签发的证书时就会这样，例如 [mkcert](https://github.com/FiloSottile/mkcert) 生成的 CA。把 `proxy-ca` 指向那个 CA 的文件夹，这一项属于 `[network]` 部分，写在 `config.toml` 中：
+
+```toml
+[network]
+proxy-ca = "~/Library/Application Support/mkcert"  # mkcert -CAROOT prints the folder
+```
+
+文件夹中必须有证书及其私钥，名称为 `rootCA.pem` 和 `rootCA-key.pem`（mkcert 的命名），或 `ca.pem` 和 `ca-key.pem`。这样对话框中的选项会写明这个文件夹，形如 **通过 Borg 代理 HTTPS，使用 /home/me/dev-ca 中的 CA**。代理用你的 CA 签发证书，你的程序本来就信任它；代理检查你的服务时也信任它。请只使用专门用于开发的 CA，因为拿到它私钥的人可以读取所有信任它的程序的流量。
 
 F3 会在两个地方查找密钥：
 

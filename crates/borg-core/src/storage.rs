@@ -14,7 +14,8 @@ use crate::{AppState, Confirm, ConfirmPurpose, Effect, Overlay};
 pub use leftovers::{
     CONSOLE_PREFIX, CacheLists, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR, INDEX_SUFFIX, Judge, Leftover,
     REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX, SIZES_PREFIX, SOCKET_SUFFIX, SQLITE_SUFFIX,
-    STAGING_SUFFIX, STALE, TTL_FILE, abandoned_leftover, cache_leftovers, runtime_leftovers, socket_leftovers,
+    STAGING_SUFFIX, STALE, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, abandoned_leftover, cache_leftovers,
+    runtime_leftovers, socket_leftovers,
 };
 
 /// Captures Borg remembers having saved, newest first.

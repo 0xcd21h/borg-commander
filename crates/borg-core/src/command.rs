@@ -5,6 +5,8 @@ const ESCAPED_QUOTE: &[u8] = b"'\\''";
 pub(crate) const HISTORY_SKIP: &[u8] = b" ";
 const SEPARATOR: u8 = b' ';
 const LOCAL_PREFIX: &[u8] = b"./";
+const ASSIGN: u8 = b'=';
+const COMMAND_END: u8 = b';';
 pub(crate) const SUBMIT: &[u8] = b"\r";
 
 pub fn quote(raw: &[u8]) -> Vec<u8> {
@@ -52,6 +54,21 @@ impl CommandLine {
         self
     }
 
+    /// `name=value`, with the value quoted, as a shell sets a variable.
+    pub fn assigned(mut self, name: &str, value: &[u8]) -> Self {
+        self.words.push([name.as_bytes(), &[ASSIGN], &quote(value)].concat());
+        self
+    }
+
+    /// This command, then `next` once it ends.
+    pub fn then(mut self, next: Self) -> Self {
+        if let Some(last) = self.words.last_mut() {
+            last.push(COMMAND_END);
+        }
+        self.words.extend(next.words);
+        self
+    }
+
     pub fn line(&self) -> Vec<u8> {
         self.words.join(&SEPARATOR)
     }
@@ -68,6 +85,12 @@ impl CommandLine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assigns_quoted_values_and_runs_one_command_after_another() {
+        let line = CommandLine::program("export").assigned("A", b"it's").then(CommandLine::program("unset").flag("B"));
+        assert_eq!(line.line(), b"export A='it'\\''s'; unset B");
+    }
 
     #[test]
     fn quotes_single_quotes() {

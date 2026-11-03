@@ -937,6 +937,9 @@ refresh-minutes = 15        # rebuild an index once it is this old
 [folders]
 hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
 history = true              # remember the folders the panels open
+
+[network]
+proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
 ```
 
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any
@@ -977,7 +980,7 @@ once it has passed, the folder can be deleted.
 where it is:
 
 - **Temporary files**: shell integration scripts, folder requests from the shell, copies out of
-  containers and remote previews, in the runtime folder.
+  containers, remote previews and the certificates of a capture's proxy, in the runtime folder.
 - **Sockets**: where agents and mirrors reach running sessions, in `/tmp/borg-<uid>-default`, or
   in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
 - **Caches**: folder sizes and name indexes, in the cache folder (see
@@ -996,7 +999,8 @@ still starting up keeps what it made. This is what goes:
 
 - Folders of other Borg versions in the runtime folder, once no Borg runs from them, and either
   no Borg was running when this one started or nothing in them changed for 3 days.
-- Folder requests, half-written files and remote console folders of Borg processes that ended.
+- Folder requests, half-written files, remote console folders and capture proxy certificates of
+  Borg processes that ended.
 - Copies out of containers and remote previews older than a day.
 - Sockets nobody answers on, and socket folders where nothing answers any more.
 - Size scans in the format of Borg 0.4 and 0.5, scans the cache no longer lists, and name indexes
@@ -1321,8 +1325,9 @@ Linux installs from the `tcpdump` package. The **Capture traffic** dialog starts
 - **Duration** is 5, 10, 30 or 60 seconds, or **Until stopped**.
 - **Keep** is **Whole packets**, or **Headers, first 128 bytes of each packet** for small files
   that leave out most of what the packets carry.
-- **TLS keys** is **Off**, or **Set SSLKEYLOGFILE in Borg's shell** to record the TLS keys of
-  the programs you start while the capture runs (see [Decrypting TLS](#decrypting-tls)).
+- **TLS keys** is **Off**, **Set SSLKEYLOGFILE in Borg's shell** to record the TLS keys of the
+  programs you start while the capture runs, or **Proxy HTTPS through Borg with a temporary CA**
+  for programs that do not write their keys (see [Decrypting TLS](#decrypting-tls)).
 - **Run as** shows where Borg can ask the system for an administrator's password. **You** runs
   tcpdump as you, and **Administrator** runs it as root once you give your password in the
   system's dialog. On macOS the choice reads **Administrator, with each packet's process**:
@@ -1432,11 +1437,13 @@ ends with **No permission to capture on** and the interface's name.
 
 When Borg has the keys of a TLS connection, its stream on **3 Connections** shows what the
 encrypted records carried, such as an HTTP request and its answer, and the stream's heading ends
-in **decrypted**. Nothing sits between the program and the server, so this works for programs that
-pin their certificates too.
+in **decrypted**.
 
 The keys come from a TLS key log, the file that browsers, curl, Python and many other programs
-write when the `SSLKEYLOGFILE` environment variable names one.
+write when the `SSLKEYLOGFILE` environment variable names one. Nothing sits between the program
+and the server then, so this works for programs that pin their certificates too. For programs that
+never write a key log, Borg can stand in the middle instead (see
+[Through Borg's proxy](#through-borgs-proxy)).
 
 To record them with a capture, set **TLS keys** to **Set SSLKEYLOGFILE in Borg's shell** in the
 **Capture traffic** dialog. When the capture starts, Borg creates `capture-<date>-<time>.keylog`
@@ -1481,6 +1488,62 @@ switch:
 
 Safari and other apps built on Apple's own TLS libraries never write a key log, and their traffic
 stays encrypted.
+
+#### Through Borg's proxy
+
+Set **TLS keys** to **Proxy HTTPS through Borg with a temporary CA** to read the HTTPS of programs
+that never write a key log, such as Go and Rust programs or a client you cannot change. When the
+capture starts, Borg runs a proxy on `127.0.0.1` and makes a certificate authority for this
+capture alone. Its key lives in Borg's memory and is gone when the capture ends. Borg types one
+line at its shell's prompt that sends HTTPS through the proxy and has programs trust the CA:
+
+```sh
+export HTTPS_PROXY='http://127.0.0.1:54321' https_proxy='http://127.0.0.1:54321' SSL_CERT_FILE='…' CURL_CA_BUNDLE='…' REQUESTS_CA_BUNDLE='…' NODE_EXTRA_CA_CERTS='…'
+```
+
+The four certificate variables name one file in Borg's runtime folder, readable only by you, that
+holds the CA's certificate followed by the system's own, so the programs still trust every other
+host. While the capture runs, the footer says **Proxy on** and the proxy's address, and
+**L Copy proxy settings** copies the same variables for a program in another terminal. When the
+capture ends, Borg puts back what its shell had, as it does for `SSLKEYLOGFILE`, and removes the
+file. Borg never adds its CA to the system's trust store.
+
+A program that goes through the proxy asks it for a tunnel to the host. The proxy connects to the
+host and checks its certificate as the system does, then shows the program a certificate for the
+same host that the CA signed. The program and the host still talk HTTP/2 or HTTP/1.1, whichever
+the host picked. The proxy writes the keys of both TLS sessions to the capture's key log, so the
+capture's copy of the connection to the host opens decrypted, and the viewer gives it the process
+that asked for it. Anything in a tunnel that is not TLS passes through as it is.
+
+Programs follow the proxy when they read both kinds of variables:
+
+- curl, git and Python with requests or urllib follow `HTTPS_PROXY` or `https_proxy`, and trust
+  the bundle through `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, or `SSL_CERT_FILE` where they use
+  OpenSSL.
+- Go follows `HTTPS_PROXY`, except for requests to `localhost`, and reads `SSL_CERT_FILE` on
+  Linux. On macOS it trusts the system's certificates only, so its connections fail there.
+- Node.js trusts the CA through `NODE_EXTRA_CA_CERTS`. Recent versions send `fetch` and `https`
+  through the proxy when you also set `NODE_USE_ENV_PROXY=1`.
+- Programs with their own certificate list, those that pin certificates, and apps that take the
+  proxy from the system settings, such as Safari, refuse or bypass the proxy. A refusal shows as
+  **A program did not trust the proxy's certificate for** and the host.
+
+When the host's certificate does not check out, the proxy closes the connection and a notice says
+**Borg could not verify** and the host. That is what happens with your own services when their
+certificates come from a development CA the system does not trust, such as the one
+[mkcert](https://github.com/FiloSottile/mkcert) makes. Point `proxy-ca` in the `[network]` section
+of `config.toml` at that CA's folder:
+
+```toml
+[network]
+proxy-ca = "~/Library/Application Support/mkcert"  # mkcert -CAROOT prints the folder
+```
+
+The folder must hold the certificate and its key as `rootCA.pem` and `rootCA-key.pem`, as mkcert
+names them, or as `ca.pem` and `ca-key.pem`. The choice in the dialog then reads **Proxy HTTPS
+through Borg with the CA in** and the folder. The proxy signs with your CA, which your programs
+already trust, and it trusts the CA too when it checks your services. Use a CA that exists for
+development only, because whoever has its key can read the traffic of everything that trusts it.
 
 F3 finds keys in two places:
 

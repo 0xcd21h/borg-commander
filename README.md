@@ -184,7 +184,8 @@ Ctrl-O switches between the panels and the console.
   administrator capture tags every packet with its process. F3 opens `.pcap` files the same way.
   A capture can set `SSLKEYLOGFILE` in Borg's shell and keep the TLS keys of the programs you
   start, and an encrypted connection's stream then shows what it carried, also for programs that
-  pin their certificates.
+  pin their certificates. Programs that never write their keys can go through Borg's own HTTPS
+  proxy instead, signed by a CA made for that capture or by your development CA.
 
 ## Containers
 

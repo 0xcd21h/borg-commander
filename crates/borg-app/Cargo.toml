@@ -45,6 +45,12 @@ ratatui   = { workspace = true }
 rustix    = { workspace = true }
 serde     = { workspace = true }
 tokio     = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+rustls-native-certs = { workspace = true }
+rcgen     = { workspace = true }
+time      = { workspace = true }
+httparse  = { workspace = true }
 tempfile  = { workspace = true }
 toml      = { workspace = true }
 uzers     = { workspace = true }

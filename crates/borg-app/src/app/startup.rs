@@ -5,7 +5,7 @@
 use std::{collections::HashMap, path::Path, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
-use borg_core::{AppState, Dialect, Effect, KEY_LOG_VARIABLE, Msg, ShellKeyLog, Side, update};
+use borg_core::{AppState, Dialect, Effect, Msg, ShellVariables, Side, shell_variables, update};
 use borg_gfx::Graphics;
 use borg_i18n::tr;
 use borg_term::{Emulator, GridSize, Pty, PtyEvent, ShellKind, shell_command};
@@ -35,12 +35,13 @@ impl App {
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
         state.network.access = crate::network::capture_access();
-        state.network.shell_key_log = ShellKeyLog::new(
+        state.network.shell_variables = ShellVariables::new(
             Dialect::of(ShellKind::detect(&launch.shell)),
-            std::env::var_os(KEY_LOG_VARIABLE).map(PathBuf::from),
+            shell_variables().filter_map(|name| std::env::var_os(name).map(|value| (name, value))).collect(),
         );
+        state.network.authority = launch.config.proxy_authority();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
-        let network = crate::network::Network::new(messages.clone());
+        let network = crate::network::Network::new(messages.clone(), launch.runtime_dir.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
         keep_runtime_dir(launch.runtime_dir.clone());

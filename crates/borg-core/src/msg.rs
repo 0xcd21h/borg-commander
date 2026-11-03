@@ -54,10 +54,17 @@ pub enum Msg {
         bytes: u64,
         packets: usize,
     },
-    /// The running capture keeps the TLS key log at `path`, empty for now.
+    /// The running capture keeps the TLS key log at `path`, empty for now, and Borg's proxy
+    /// listens as `proxy` says when the capture sends HTTPS through it.
     CaptureKeys {
         id: u64,
         path: PathBuf,
+        proxy: Option<crate::ProxyEndpoint>,
+    },
+    /// Borg's proxy opened a connection for a program during the running capture.
+    CaptureProxied {
+        id: u64,
+        proxied: crate::Proxied,
     },
     /// A capture ended: the file it was saved to and what it caught, or why it has none.
     CaptureDone {

@@ -84,7 +84,7 @@ impl App {
             folder: PathBuf::from(folder),
             administrator: false,
             processes: false,
-            tls_keys: false,
+            tls_keys: borg_core::TlsKeys::Off,
         };
         let place = from_origin(String::new(), call.origin.as_deref());
         let ask = borg_core::capture_ask(asked.scope, text(&call, PROCESS).as_deref(), &request, place);
