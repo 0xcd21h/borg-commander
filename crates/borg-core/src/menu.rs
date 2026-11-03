@@ -211,6 +211,7 @@ fn command_menu(state: &AppState) -> Menu {
         entries: [
             when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
             when(item(tr!(network_title), "M-n", Action::Network), state.settings.preferences.system_plugin),
+            when(item(tr!(startup_title), "M-u", Action::StartupItems), state.settings.preferences.system_plugin),
             when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
         ]
         .into_iter()

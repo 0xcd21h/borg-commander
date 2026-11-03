@@ -1,0 +1,3 @@
+# libraries loaded into every program
+/usr/lib/libexample-hook.so
+/lib/libfirst.so /lib/libsecond.so

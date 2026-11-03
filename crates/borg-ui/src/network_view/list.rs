@@ -247,17 +247,17 @@ fn value(
 }
 
 /// What the filter row shows: the filter, whether it is typed, and the rows it keeps.
-pub(super) struct FilterLine<'a> {
-    pub(super) filter: &'a str,
-    pub(super) filtering: bool,
-    pub(super) shown: usize,
-    pub(super) total: usize,
-    pub(super) placeholder: &'a str,
+pub(crate) struct FilterLine<'a> {
+    pub(crate) filter: &'a str,
+    pub(crate) filtering: bool,
+    pub(crate) shown: usize,
+    pub(crate) total: usize,
+    pub(crate) placeholder: &'a str,
 }
 
 /// The filter: an input with a cursor while typing, a badge while a filter applies, and a
 /// hint otherwise.
-pub(super) fn filter_line(line: &FilterLine<'_>, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+pub(crate) fn filter_line(line: &FilterLine<'_>, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let styles = &theme.styles;
     let label = tr!(activity_filter_label);

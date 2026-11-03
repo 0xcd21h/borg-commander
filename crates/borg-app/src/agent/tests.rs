@@ -128,6 +128,69 @@ fn a_capture_call_names_one_scope_and_a_bounded_length() {
 }
 
 #[test]
+fn startup_items_read_newest_first_with_their_program_and_rules() {
+    use borg_core::{
+        ProgramPresence, RuleHit, StartupEntry, StartupFormat, StartupItem, StartupPlace, StartupReport, StartupSpot,
+    };
+    use std::time::{Duration, UNIX_EPOCH};
+    let spot = StartupSpot {
+        place: StartupPlace::UserAgent,
+        format: StartupFormat::Launchd,
+        path: "/home/sam/Library/LaunchAgents".into(),
+        folder: true,
+        extensions: &["plist"],
+        read_only: false,
+    };
+    let entry = StartupEntry {
+        name: "com.example.updater".into(),
+        runs: "/tmp/.cache/updater --daemon".into(),
+        program: Some("/tmp/.cache/updater".into()),
+        when: Some("RunAtLoad".into()),
+        ..StartupEntry::default()
+    };
+    let mut agent = StartupItem::new(&spot, "/home/sam/Library/LaunchAgents/com.example.updater.plist".into(), entry);
+    agent.modified = Some(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+    agent.owner = Some("sam".into());
+    agent.presence = ProgramPresence::Missing;
+    agent.hits = vec![RuleHit {
+        rule: borg_rules::RuleMatch {
+            rule: "launch_agent_from_temp".into(),
+            namespace: borg_rules::BUILT_IN.into(),
+            level: borg_rules::Level::Warning,
+            description: None,
+            false_positives: None,
+            evidence: None,
+        },
+        in_program: false,
+    }];
+    let quiet = StartupItem::new(&spot, "/home/sam/Library/LaunchAgents/quiet.plist".into(), StartupEntry::default());
+    let report = StartupReport {
+        items: vec![agent, quiet],
+        unread: vec![("/usr/lib/cron/tabs".into(), "Permission denied".into())],
+        problems: Vec::new(),
+    };
+    let reply = borg_core_locale(|| startup_items(&report, "", 1));
+    assert!(reply.ok);
+    let lines: Vec<&str> = reply.text.lines().collect();
+    assert_eq!(lines[0], "Startup items: 2, showing 1 · 1 matched a rule · newest change first");
+    assert_eq!(lines[1], "Could not read /usr/lib/cron/tabs: Permission denied");
+    assert!(
+        lines[3].starts_with("2027-01-15T08:00:00Z  user-launch-agent     sam       missing  /home/sam/"),
+        "{}",
+        lines[3]
+    );
+    assert_eq!(lines[5], "  runs: /tmp/.cache/updater --daemon");
+    assert_eq!(lines[7], "  when: RunAtLoad");
+    assert!(lines[8].starts_with("  rule launch_agent_from_temp (warning, in its file): "), "{}", lines[8]);
+    assert!(!reply.text.contains("quiet.plist"));
+    assert!(startup_items(&report, "quiet", 5).text.contains("quiet.plist"));
+}
+
+fn borg_core_locale<T>(run: impl FnOnce() -> T) -> T {
+    borg_i18n::with_locale(borg_i18n::Locale::English, run)
+}
+
+#[test]
 fn a_read_names_a_packet_from_1() {
     assert_eq!(packet_number(&json!({})), Ok(None));
     assert_eq!(packet_number(&json!({ "packet": 12 })), Ok(Some(12)));

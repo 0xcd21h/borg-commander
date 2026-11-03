@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.example.backup</string>
+	<key>Program</key>
+	<string>/usr/local/bin/backup</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>backup</string>
+		<string>--quiet</string>
+	</array>
+	<key>UserName</key>
+	<string>root</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>3</integer>
+	</dict>
+	<key>Disabled</key>
+	<true/>
+</dict>
+</plist>

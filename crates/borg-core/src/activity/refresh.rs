@@ -16,6 +16,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     state.overlay = None;
     crate::docker::close(state);
     crate::network::close(state);
+    crate::startup_items::close(state);
     state.activity.side = Some(state.active);
     state.activity.from_network = false;
     state.activity.preview_focused = false;

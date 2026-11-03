@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Example Chat
+Exec=/opt/chat/chat --minimized %U
+X-GNOME-Autostart-enabled=false
+
+[Desktop Action New]
+Exec=/opt/chat/chat --new

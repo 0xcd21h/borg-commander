@@ -18,6 +18,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
             tr!(docker_close_for_files)
         } else if state.network.is_open() {
             tr!(network_close_for_files)
+        } else if state.startup_items.is_open() {
+            tr!(startup_close_for_files)
         } else {
             tr!(activity_close_for_files)
         }

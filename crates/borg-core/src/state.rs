@@ -95,6 +95,7 @@ pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
     pub network: crate::Network,
+    pub startup_items: crate::StartupItems,
     pub agent: crate::Agent,
     pub backup: crate::Backup,
     /// When background work started, for spinners that wait before appearing.
@@ -202,6 +203,7 @@ impl AppState {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
             network: crate::Network::default(),
+            startup_items: crate::StartupItems::default(),
             agent: crate::Agent::default(),
             backup: crate::Backup::default(),
             console: Console::Host,
@@ -289,9 +291,10 @@ impl AppState {
         self.panel(self.active)
     }
 
-    /// Whether a monitor covers the panels: the activity monitor, Docker or the network screen.
+    /// Whether a monitor covers the panels: the activity monitor, Docker, the network screen or
+    /// the startup items.
     pub fn monitor_open(&self) -> bool {
-        self.activity.side.is_some() || self.docker.is_open() || self.network.is_open()
+        self.activity.side.is_some() || self.docker.is_open() || self.network.is_open() || self.startup_items.is_open()
     }
 
     pub fn effective_view(&self) -> View {

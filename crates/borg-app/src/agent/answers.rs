@@ -378,6 +378,7 @@ pub(super) fn indicator_name(kind: borg_core::Indicator) -> &'static str {
 
 /// What the system does not count, in a network answer.
 const UNCOUNTED: &str = "—";
+const UTC_STAMP: &str = "%Y-%m-%dT%H:%M:%SZ";
 
 fn per_second(bytes: Option<u64>) -> String {
     bytes.map_or_else(|| UNCOUNTED.into(), |bytes| format!("{}/s", borg_ui::size_text(bytes)))
@@ -386,6 +387,70 @@ fn per_second(bytes: Option<u64>) -> String {
 fn shown_of(total: usize, shown: usize, filter: &str) -> String {
     let filtered = if filter.is_empty() { String::new() } else { format!(" matching {filter:?}") };
     if shown < total { format!("{total}{filtered}, showing {shown}") } else { format!("{total}{filtered}") }
+}
+
+/// The places programs start from, newest change first: when each changed, where it is, who
+/// owns it, whether its program is there, what it runs and the rules it matched.
+pub fn startup_items(report: &borg_core::StartupReport, filter: &str, shown: usize) -> Reply {
+    use borg_core::ProgramPresence;
+    let rows = borg_core::startup_filtered(&report.items, filter);
+    let mut text = format!(
+        "Startup items: {} · {} matched a rule · newest change first\n",
+        shown_of(rows.len(), shown.min(rows.len()), filter),
+        report.matched()
+    );
+    for (path, error) in &report.unread {
+        let _ = writeln!(text, "Could not read {}: {error}", path.display());
+    }
+    for problem in &report.problems {
+        let _ = writeln!(text, "Rule file left out: {}: {}", problem.file.display(), problem.message);
+    }
+    text.push_str("MODIFIED (UTC)        PLACE                 OWNER     PROGRAM  FILE\n");
+    for item in rows.iter().take(shown).map(|&index| &report.items[index]) {
+        let modified = item
+            .modified
+            .and_then(|time| jiff::Timestamp::try_from(time).ok())
+            .map_or_else(|| UNCOUNTED.into(), |stamp| stamp.strftime(UTC_STAMP).to_string());
+        let presence = match item.presence {
+            ProgramPresence::Present => "found",
+            ProgramPresence::Missing => "missing",
+            ProgramPresence::Unknown => UNCOUNTED,
+        };
+        let line = item.found.line.map_or_else(String::new, |line| format!(":{line}"));
+        let _ = writeln!(
+            text,
+            "{modified:<21} {:<21} {:<9} {presence:<8} {}{line}",
+            item.place.code(),
+            item.owner.as_deref().unwrap_or(UNCOUNTED),
+            item.file.display()
+        );
+        let _ = writeln!(text, "  name: {}", item.found.name);
+        if !item.found.runs.is_empty() {
+            let _ = writeln!(text, "  runs: {}", item.found.runs);
+        }
+        if let Some(program) = &item.found.program {
+            let found =
+                item.resolved.as_ref().map_or_else(String::new, |path| format!(" (found at {})", path.display()));
+            let _ = writeln!(text, "  program: {program}{found}");
+        }
+        let facts = [
+            item.found.when.as_ref().map(|when| format!("when: {when}")),
+            item.found.user.as_ref().map(|user| format!("runs as: {user}")),
+            item.found.disabled.then(|| "disabled in its file".to_owned()),
+            item.read_only.then(|| "on the sealed system volume".to_owned()),
+        ];
+        let facts: Vec<String> = facts.into_iter().flatten().collect();
+        if !facts.is_empty() {
+            let _ = writeln!(text, "  {}", facts.join(" · "));
+        }
+        for hit in &item.hits {
+            let place = if hit.in_program { "its program" } else { "its file" };
+            let level = borg_core::Severity::from(hit.rule.level).label();
+            let about = hit.rule.about().map_or_else(String::new, |about| format!(": {about}"));
+            let _ = writeln!(text, "  rule {} ({level}, in {place}){about}", hit.rule.rule);
+        }
+    }
+    Reply::ok(text)
 }
 
 /// The listening ports, who can reach each and the process behind it.

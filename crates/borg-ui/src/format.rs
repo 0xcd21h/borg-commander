@@ -13,6 +13,9 @@ const STEP: f64 = 1024.0;
 const EXACT_LIMIT: u64 = 10_000;
 const RECENT_FORMAT: &str = "%b %e %H:%M";
 const OLD_FORMAT: &str = "%b %e  %Y";
+const STAMP_FORMAT: &str = "%Y-%m-%d %H:%M";
+const DAY_FORMAT: &str = "%Y-%m-%d";
+const EXACT_STAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S %Z";
 const ELLIPSIS: char = '…';
 const HOME_MARK: &str = "~";
 const ROOT_MARK: &str = "/";
@@ -46,6 +49,26 @@ pub fn modified(time: Option<SystemTime>, now: &Zoned) -> String {
     let local = stamp.to_zoned(now.time_zone().clone());
     let format = if local.year() == now.year() { RECENT_FORMAT } else { OLD_FORMAT };
     local.strftime(format).to_string()
+}
+
+/// A time to the minute with its year, in `now`'s time zone, for lists that sort by time.
+pub fn stamp(time: Option<SystemTime>, now: &Zoned) -> String {
+    zoned(time, now).map_or_else(String::new, |local| local.strftime(STAMP_FORMAT).to_string())
+}
+
+/// The day of a time, in the zone of `now`.
+pub fn day(time: Option<SystemTime>, now: &Zoned) -> String {
+    zoned(time, now).map_or_else(String::new, |local| local.strftime(DAY_FORMAT).to_string())
+}
+
+/// A time to the second with its zone.
+pub fn exact_stamp(time: Option<SystemTime>, now: &Zoned) -> String {
+    zoned(time, now).map_or_else(String::new, |local| local.strftime(EXACT_STAMP_FORMAT).to_string())
+}
+
+fn zoned(time: Option<SystemTime>, now: &Zoned) -> Option<Zoned> {
+    let stamp = time.and_then(|t| Timestamp::try_from(t).ok())?;
+    Some(stamp.to_zoned(now.time_zone().clone()))
 }
 
 pub use borg_i18n::{Count, count};

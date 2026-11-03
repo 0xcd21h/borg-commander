@@ -1,0 +1,5 @@
+# ~/.zshrc
+export PATH="$HOME/bin:$PATH"
+
+alias ll='ls -l'
+source ~/.config/prompt.zsh

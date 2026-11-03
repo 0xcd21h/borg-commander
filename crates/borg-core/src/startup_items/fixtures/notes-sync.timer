@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync notes every hour
+
+[Timer]
+OnCalendar=hourly
+OnBootSec=5min
+Unit=notes-sync.service
+
+[Install]
+WantedBy=timers.target

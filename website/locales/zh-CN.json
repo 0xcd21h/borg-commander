@@ -59,6 +59,8 @@
   "activity.description": "查看进程、资源使用情况和内存映射。",
   "network.title": "网络",
   "network.description": "查看开放端口、连接，以及各进程和接口的流量。",
+  "startup-items.title": "启动项",
+  "startup-items.description": "查看哪些程序会自动启动、它们运行什么，最近改动的排在最前。",
   "themes.title": "主题与图标",
   "themes.description": "选择主题，并配置终端字体和文件图标。",
   "configuration.title": "配置",
