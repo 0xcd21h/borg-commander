@@ -10,6 +10,7 @@ mod answers;
 mod capture;
 mod files;
 mod location;
+mod scan;
 mod server;
 mod socket;
 mod tools;
@@ -47,6 +48,7 @@ pub use answers::{
 pub use capture::{capture_call, packet_number, summary_rows};
 pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};
 pub use location::{DOCKER_SCHEME, Location};
+pub use scan::{ScanCall, ScanTarget, files_answer, process_answer, rule_text_problem, scan_call};
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
 use socket::SOCKET_SUFFIX;

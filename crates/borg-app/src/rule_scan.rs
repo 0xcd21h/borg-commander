@@ -1,9 +1,10 @@
-//! Scanning with rules: the user's rule files, the files a search finds, and the memory a
-//! process filled, region by region.
+//! Scanning with rules: the user's rule files, the files a search finds, the files below a
+//! folder, and the memory a process filled, region by region.
 
 use crate::integrity::{Access, untouched};
 use borg_core::{FindingKind, MemoryRegion, ProcessKey, RulesReport, problem_finding, rule_finding};
-use borg_rules::{RULE_EXTENSIONS, RuleMatch, Rules, Subject};
+use borg_rules::{InlineError, Problem, RULE_EXTENSIONS, RuleMatch, Rules, Subject};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs::File,
@@ -19,16 +20,155 @@ const PAGE: u64 = 4096;
 const CHUNK: u64 = 16 * 1024 * 1024;
 const OVERLAP: u64 = PAGE;
 /// Bytes of memory read before the scan stops short; it also stops after `TIME_LIMIT`.
-const SCAN_LIMIT: u64 = 1024 * 1024 * 1024;
-const TIME_LIMIT: Duration = Duration::from_secs(45);
+pub(crate) const SCAN_LIMIT: u64 = 1024 * 1024 * 1024;
+/// Files a scan below a folder reads before it stops short, as many as a search lists; it
+/// also stops after `TIME_LIMIT`.
+pub(crate) const FILE_LIMIT: usize = borg_core::RESULT_LIMIT;
+pub(crate) const TIME_LIMIT: Duration = Duration::from_secs(45);
 const PROGRESS: Duration = Duration::from_millis(100);
-const FINDING_LIMIT: usize = 2000;
+pub(crate) const FINDING_LIMIT: usize = 2000;
 /// How deep the rules folder is read.
 const FOLDER_DEPTH: usize = 16;
 
 /// The folder of the user's rules, beside the configuration.
 pub fn folder() -> Option<PathBuf> {
     crate::config::ConfigDir::locate().map(|dir| dir.rules())
+}
+
+/// The rules a scan runs: Borg's with those in the user's folder, or rule text on its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuleSet {
+    Installed { folder: Option<PathBuf> },
+    Inline(String),
+}
+
+impl RuleSet {
+    pub fn compile(&self) -> Result<Rules, InlineError> {
+        match self {
+            Self::Installed { folder } => Ok(compile(folder.as_deref())),
+            Self::Inline(text) => Rules::inline(text),
+        }
+    }
+}
+
+/// A rule's first match in a region of memory, among the bytes read from `base`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hit {
+    pub found: RuleMatch,
+    pub region: MemoryRegion,
+    pub base: u64,
+}
+
+impl Hit {
+    /// Where the match starts, or the bytes it matched on its condition alone.
+    pub fn address(&self) -> u64 {
+        self.base + self.found.evidence.as_ref().map_or(0, |evidence| evidence.offset)
+    }
+}
+
+/// What rules found in the memory a process filled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryScan {
+    pub process: ProcessKey,
+    /// Worst first, then by address.
+    pub hits: Vec<Hit>,
+    pub rules: usize,
+    /// Rule files left out because they do not compile.
+    pub problems: Vec<Problem>,
+    /// Bytes of the memory the process filled that were scanned, of `total`.
+    pub scanned: u64,
+    pub total: u64,
+    pub unreadable: u64,
+    /// Whether the scan ran to the end. It stops early at a limit or when cancelled.
+    pub complete: bool,
+}
+
+impl MemoryScan {
+    /// The scan as the memory map lists it: each match a finding, the rule files left out last.
+    pub fn report(self) -> RulesReport {
+        let mut findings: Vec<_> =
+            self.hits.iter().map(|hit| rule_finding(&hit.found, &hit.region, hit.base)).collect();
+        findings.extend(self.problems.iter().map(problem_finding));
+        findings.sort_by_key(|finding| (finding.kind == FindingKind::RuleProblem, finding.severity, finding.address));
+        RulesReport {
+            process: self.process,
+            findings,
+            rules: self.rules,
+            scanned: self.scanned,
+            total: self.total,
+            unreadable: self.unreadable,
+            complete: self.complete,
+        }
+    }
+}
+
+/// A rule that matched a file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileHit {
+    pub path: PathBuf,
+    pub found: RuleMatch,
+}
+
+/// What rules found in a file, or in the files below a folder.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileScan {
+    /// Worst first, then by path.
+    pub hits: Vec<FileHit>,
+    pub rules: usize,
+    pub problems: Vec<Problem>,
+    /// Files read whole, and those left unread as larger than a contents search reads.
+    pub read: usize,
+    pub too_large: usize,
+    /// Files and folders that could not be read.
+    pub unreadable: usize,
+    pub complete: bool,
+}
+
+/// Scans the file at `root`, or every file below the folder at `root` on its file system,
+/// hidden ones included, with `rules`, until `FILE_LIMIT` files, `FINDING_LIMIT` matches or
+/// `TIME_LIMIT`.
+pub fn scan_files(rules: &Rules, root: &Path, cancelled: &AtomicBool) -> io::Result<FileScan> {
+    std::fs::metadata(root)?;
+    let mut scan =
+        FileScan { rules: rules.count(), problems: rules.problems().to_vec(), complete: true, ..Default::default() };
+    let began = Instant::now();
+    let mut buffer = Vec::new();
+    let walk = ignore::WalkBuilder::new(root)
+        .standard_filters(false)
+        .same_file_system(true)
+        .max_depth(Some(crate::search::MAX_DEPTH))
+        .build();
+    for entry in walk {
+        let Ok(entry) = entry else {
+            scan.unreadable += 1;
+            continue;
+        };
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        if cancelled.load(Ordering::Relaxed)
+            || began.elapsed() >= TIME_LIMIT
+            || scan.read + scan.too_large + scan.unreadable >= FILE_LIMIT
+            || scan.hits.len() >= FINDING_LIMIT
+        {
+            scan.complete = false;
+            break;
+        }
+        match scan_file(rules, entry.path(), &mut buffer) {
+            Ok(Some(found)) => {
+                scan.read += 1;
+                scan.hits.extend(found.into_iter().map(|found| FileHit { path: entry.path().to_path_buf(), found }));
+            }
+            Ok(None) => scan.too_large += 1,
+            Err(_) => scan.unreadable += 1,
+        }
+    }
+    scan.hits.sort_by(|a, b| (a.found.level, &a.path).cmp(&(b.found.level, &b.path)));
+    if scan.hits.len() > FINDING_LIMIT {
+        scan.hits.truncate(FINDING_LIMIT);
+        scan.complete = false;
+    }
+    Ok(scan)
 }
 
 /// The rule files in `folder` and the folders in it, by path.
@@ -87,9 +227,8 @@ fn open_quietly(path: &Path) -> io::Result<File> {
     File::open(path)
 }
 
-/// Scans the memory the process filled with `rules`, region by region, and lists the rule
-/// files left out after the matches. A rule matches a region once, at its first match.
-/// `program` is the path rules see as the file's.
+/// Scans the memory the process filled with `rules`, region by region. A rule matches a
+/// region once, at its first match. `program` is the path rules see as the file's.
 pub fn scan_memory(
     process: ProcessKey,
     rules: &Rules,
@@ -98,12 +237,13 @@ pub fn scan_memory(
     access: &impl Access,
     cancelled: &AtomicBool,
     mut progress: impl FnMut(u64, u64, usize),
-) -> RulesReport {
+) -> MemoryScan {
     let own: Vec<_> = regions.iter().filter(|region| region.readable() && region.own()).collect();
-    let mut report = RulesReport {
+    let mut report = MemoryScan {
         process,
-        findings: Vec::new(),
+        hits: Vec::new(),
         rules: rules.count(),
+        problems: rules.problems().to_vec(),
         scanned: 0,
         total: own.iter().map(|region| region.mapped()).sum(),
         unreadable: 0,
@@ -137,8 +277,8 @@ pub fn scan_memory(
                             if !matched.insert((found.namespace.clone(), found.rule.clone())) {
                                 continue;
                             }
-                            if report.findings.len() < FINDING_LIMIT {
-                                report.findings.push(rule_finding(&found, region, from));
+                            if report.hits.len() < FINDING_LIMIT {
+                                report.hits.push(Hit { found, region: region.clone(), base: from });
                             } else {
                                 report.complete = false;
                             }
@@ -151,14 +291,11 @@ pub fn scan_memory(
             at = end;
             if shown.is_none_or(|shown| shown.elapsed() >= PROGRESS) {
                 shown = Some(Instant::now());
-                progress(report.scanned, report.total, report.findings.len());
+                progress(report.scanned, report.total, report.hits.len());
             }
         }
     }
-    report.findings.extend(rules.problems().iter().map(problem_finding));
-    report
-        .findings
-        .sort_by_key(|finding| (finding.kind == FindingKind::RuleProblem, finding.severity, finding.address));
+    report.hits.sort_by_key(|hit| (hit.found.level, hit.address()));
     report
 }
 

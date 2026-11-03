@@ -460,3 +460,35 @@ fn evidence_reads_as_text_when_it_is_text_and_as_hex_otherwise() {
     assert_eq!(evidence_text(&[0x7F, b'E', b'L', b'F']), "7f 45 4c 46");
     assert_eq!(evidence_text(&[0; 20]), format!("{} …", ["00"; 16].join(" ")));
 }
+
+#[test]
+fn a_scan_asks_with_the_process_its_program_the_checks_and_the_agents_own_rules() {
+    use crate::{AskKind, ScanChecks, ScanSubject, scan_ask};
+    let program = std::path::Path::new("/usr/bin/sample");
+    let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
+    let rules = "rule marker {\n  strings: $a = \"x\"\n  condition: $a\n}";
+    let ask = scan_ask(subject, ScanChecks::Both, Some(rules), "asked from laptop".into());
+    let lines: Vec<_> = ask.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(
+        (ask.kind, ask.summary.as_str(), ask.place.as_str()),
+        (AskKind::Scan, "sample · PID 4100", "asked from laptop")
+    );
+    assert_eq!(
+        lines[..3],
+        [
+            "Process: sample · PID 4100",
+            "Program: /usr/bin/sample",
+            "Checks: code integrity · the agent's own rules, shown below"
+        ]
+    );
+    assert!(lines[4].contains("up to 64 bytes") && lines[4].contains("until Borg quits"), "{}", lines[4]);
+    assert_eq!(lines[6..], ["rule marker {", "  strings: $a = \"x\"", "  condition: $a", "}"]);
+
+    let subject = ScanSubject { program: None, ..subject };
+    let ask = scan_ask(subject, ScanChecks::Integrity, None, String::new());
+    let lines: Vec<_> = ask.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(lines[..2], ["Process: sample · PID 4100", "Checks: code integrity"]);
+    assert_eq!(lines.len(), 4, "no rules to show: {lines:?}");
+    let ask = scan_ask(subject, ScanChecks::Rules, None, String::new());
+    assert_eq!(ask.body[1].text, "Checks: Borg's rules and yours");
+}

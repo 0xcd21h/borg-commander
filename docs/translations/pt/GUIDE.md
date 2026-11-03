@@ -674,9 +674,41 @@ O agente pode ainda pesquisar a memória de um processo da mesma forma que a pes
 à procura de cadeias de caracteres, indicadores, texto ou bytes. A memória pode conter
 palavras-passe, chaves e mensagens privadas, e tudo o que a pesquisa encontrar vai para o agente;
 por isso, a primeira pesquisa em cada processo aguarda a sua aprovação numa caixa de diálogo que
-indica o processo, o programa e a pesquisa. Depois de aprovar, o agente pode voltar a pesquisar
-esse processo até o borg terminar. Pode pedir para ler como administrador, o que abre o pedido de
-palavra-passe do próprio sistema.
+indica o processo, o programa e a pesquisa. Depois de aprovar, o agente pode voltar a pesquisar e
+analisar esse processo até o borg terminar. Pode pedir para ler como administrador, o que abre o
+pedido de palavra-passe do próprio sistema.
+
+O agente também pode analisar com regras YARA e verificar a integridade do código, como fazem
+**Correspondências de regras** na caixa de diálogo de Ctrl-F e as teclas **Y** e **I** no mapa de
+memória (consulte [Analisar ficheiros com regras](#scanning-files-with-rules), [Verificação de
+integridade do código](#code-integrity-check) e [Analisar a memória com
+regras](#scanning-memory-with-rules)). Um ficheiro ou uma pasta na máquina onde o borg corre é
+analisado sem perguntar, tal como uma leitura. A análise de uma pasta lê todos os ficheiros abaixo
+dela no mesmo sistema de ficheiros, incluindo os ocultos. Deixa por ler os ficheiros com mais de 64
+MiB e para ao fim de 20 000 ficheiros, 2000 correspondências ou 45 segundos. Os ficheiros em
+contentores não são analisados.
+
+Com um processo é diferente, porque a análise lê a sua memória. A primeira análise de cada processo
+aguarda a sua aprovação em **Pedido remoto para analisar a memória de um processo**, que indica o
+processo, o programa e as verificações: a verificação de integridade, as regras, ou ambas. Uma
+aprovação cobre as análises e as pesquisas de memória desse processo até o borg terminar, seja qual
+for a que o agente pediu primeiro. Cada verificação para ao fim de 45 segundos, 1 GiB de memória ou
+2000 resultados. O agente pode pedir para ler como administrador, o que abre o pedido de
+palavra-passe do próprio sistema uma única vez para as duas verificações.
+
+As regras são as do Borg e as da sua pasta de regras, a não ser que o agente traga o seu próprio
+texto de regras, até 64 KiB. Assim, pode redigir uma regra a partir do que encontrou, experimentá-la
+numa pasta ou num processo e afiná-la. Esse texto corre sozinho, sem as regras do Borg nem as suas,
+não pode usar `include` e nunca é guardado. O texto que não compila volta para o agente com a
+mensagem do compilador, antes de qualquer caixa de diálogo. Para um processo, a caixa de diálogo
+mostra o texto de regras do agente abaixo das verificações, para que veja o que ele procura.
+
+O agente recebe cada resultado, do mais grave para o menos grave, com a gravidade, o tipo, a regra e
+a sua origem, o ficheiro e o deslocamento ou o endereço e a região de memória, até 64 bytes do que
+correspondeu, como texto ou em hexadecimal, e o que mais o poderia explicar. Seguem-se quanto foi
+lido, o que não foi possível ler, se a análise terminou e os ficheiros de regras deixados de fora.
+As provas vão para o agente tal como foram encontradas, incluindo chaves e tokens, como na pesquisa
+de memória.
 
 O agente também pode capturar tráfego como a tecla **R** faz no ecrã de rede (consulte
 [Capturar tráfego](#capturing-traffic)). Indica o que gravar: uma porta, uma ligação, um processo
@@ -702,8 +734,8 @@ processos das últimas 16 capturas do agente até terminar. Os outros ficheiros 
 em **Processo desconhecido**, a menos que os pacotes tragam o seu processo.
 
 Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele
-para ver um registo do que o agente fez: o que viu, leu, mostrou e escreveu, e todos os comandos e
-alterações, aprovados ou recusados. O Borg guarda o registo apenas em memória, até terminar; para
+para ver um registo do que o agente fez: o que viu, leu, analisou, mostrou e escreveu, e todos os
+comandos e alterações, aprovados ou recusados. O Borg guarda o registo apenas em memória, até terminar; para
 não guardar registo nenhum, desative-o em Opções → Plugins.
 
 ### Borg cloud

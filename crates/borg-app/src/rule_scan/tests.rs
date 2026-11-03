@@ -102,7 +102,7 @@ fn memory_is_scanned_where_the_process_filled_it_once_per_rule_and_region() {
     };
     let process = ProcessKey { pid: 42, start: 1 };
     let mut shown = Vec::new();
-    let report = scan_memory(
+    let scan = scan_memory(
         process,
         &rules,
         "/usr/bin/sample",
@@ -111,6 +111,9 @@ fn memory_is_scanned_where_the_process_filled_it_once_per_rule_and_region() {
         &AtomicBool::new(false),
         |scanned, total, _| shown.push((scanned, total)),
     );
+    let [hit] = &scan.hits[..] else { panic!("{:?}", scan.hits) };
+    assert_eq!((hit.found.rule.as_str(), hit.address(), hit.base), ("marker", own + 64, own));
+    let report = scan.report();
 
     let matches: Vec<_> = report.findings.iter().filter(|finding| finding.kind == FindingKind::RuleMatch).collect();
     let [found] = &matches[..] else { panic!("{:?}", report.findings) };
@@ -125,8 +128,8 @@ fn memory_is_scanned_where_the_process_filled_it_once_per_rule_and_region() {
     let mut second = filled;
     second[64..64 + MARKER.len()].fill(0);
     let model = Model { memory: vec![(own, second)], reads: Default::default() };
-    let report = scan_memory(process, &rules, "", &regions[..1], &model, &AtomicBool::new(false), |_, _, _| {});
-    let addresses: Vec<_> = report.findings.iter().filter_map(|finding| finding.address).collect();
+    let scan = scan_memory(process, &rules, "", &regions[..1], &model, &AtomicBool::new(false), |_, _, _| {});
+    let addresses: Vec<_> = scan.hits.iter().map(Hit::address).collect();
     assert_eq!(addresses, [own + across as u64], "a match across two reads is found");
 }
 
@@ -147,4 +150,44 @@ fn a_cancelled_scan_keeps_what_it_found_and_says_it_stopped_short() {
     assert!(!report.complete);
     assert_eq!((report.scanned, report.total, model.reads.get()), (0, PAGE, 0));
     assert_eq!(report.rules, rules.count());
+}
+
+#[test]
+fn a_folder_is_scanned_through_every_file_below_it_hidden_ones_included() {
+    let (rules_folder, rules) = rules_with(&[("marker.yar", MARKER_RULE), ("broken.yar", "rule broken {")]);
+    let root = rules_folder.path().join("tree");
+    fs::create_dir_all(root.join(".hidden/deep")).expect("folders");
+    fs::write(root.join(".hidden/deep/payload.sh"), [&b"#!/bin/sh\n"[..], MARKER].concat()).expect("payload");
+    fs::write(root.join("notes.txt"), "nothing here").expect("notes");
+    fs::write(root.join("again.bin"), [MARKER, b" and more"].concat()).expect("again");
+    fs::File::create(root.join("huge.bin")).expect("huge").set_len(borg_core::CONTENTS_SIZE_LIMIT + 1).expect("size");
+
+    let scan = scan_files(&rules, &root, &AtomicBool::new(false)).expect("scanned");
+    let paths: Vec<_> = scan.hits.iter().map(|hit| hit.path.strip_prefix(&root).expect("below").to_owned()).collect();
+    assert_eq!(paths, [PathBuf::from(".hidden/deep/payload.sh"), "again.bin".into()], "worst first, then by path");
+    assert_eq!((scan.read, scan.too_large, scan.unreadable), (3, 1, 0));
+    assert_eq!((scan.rules, scan.problems.len()), (rules.count(), 1));
+    assert!(scan.complete);
+
+    let one = scan_files(&rules, &root.join("again.bin"), &AtomicBool::new(false)).expect("one file");
+    assert_eq!((one.read, one.hits.len()), (1, 1));
+    assert!(scan_files(&rules, &root.join("missing"), &AtomicBool::new(false)).is_err());
+}
+
+#[test]
+fn a_cancelled_folder_scan_says_it_stopped_short() {
+    let (folder, rules) = rules_with(&[("marker.yar", MARKER_RULE)]);
+    fs::write(folder.path().join("sample.bin"), MARKER).expect("sample");
+    let scan = scan_files(&rules, folder.path(), &AtomicBool::new(true)).expect("scanned");
+    assert!(!scan.complete);
+    assert_eq!((scan.read, scan.hits.len()), (0, 0));
+}
+
+#[test]
+fn installed_rules_come_from_the_folder_and_inline_rules_run_alone() {
+    let (folder, _) = rules_with(&[("marker.yar", MARKER_RULE)]);
+    let installed = RuleSet::Installed { folder: Some(folder.path().to_owned()) }.compile().expect("installed");
+    let inline = RuleSet::Inline(MARKER_RULE.into()).compile().expect("inline");
+    assert_eq!((installed.count(), inline.count()), (compile(None).count() + 1, 1));
+    assert!(RuleSet::Inline("rule {".into()).compile().is_err());
 }

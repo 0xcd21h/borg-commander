@@ -67,6 +67,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
         AskKind::Upload => tr!(agent_wants_upload),
         AskKind::ApprovalMode => tr!(agent_wants_approve_all),
         AskKind::Memory => tr!(agent_wants_memory),
+        AskKind::Scan => tr!(agent_wants_scan),
         AskKind::Capture => tr!(agent_wants_capture),
     };
     Line::styled(heading, styles.overlay).centered().render(row(rect, rect.y + 1), buf);
@@ -91,6 +92,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
         | AskKind::Upload
         | AskKind::ApprovalMode
         | AskKind::Memory
+        | AskKind::Scan
         | AskKind::Capture => place.clone(),
         _ if place.is_empty() => ask.summary.clone(),
         _ => tr!(agent_file_place).replace("{path}", &ask.summary).replace("{place}", place),

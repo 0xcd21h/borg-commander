@@ -2,13 +2,14 @@
 //! through Borg's helper, with its output kept short.
 
 use super::{
-    ADMIN_TIMEOUT, ERROR_LIMIT, OUTPUT_LIMIT, capture, census, integrity, process_files, regions, scan_with_rules,
-    search_memory,
+    ADMIN_TIMEOUT, ERROR_LIMIT, OUTPUT_LIMIT, ProcessScan, ScanRequest, capture, census, integrity, process_files,
+    regions, scan_process, scan_with_rules, search_memory,
 };
-use crate::memory_search::Query;
+use crate::{memory_search::Query, rule_scan::RuleSet};
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{ActivityData, ActivityRequest, MemoryRegion, ProcessKey};
 use borg_i18n::tr;
+use serde::de::DeserializeOwned;
 use std::{
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
@@ -18,6 +19,12 @@ use tokio::{io::AsyncReadExt, process::Command};
 
 /// The longest signal or priority change the helper reads from its arguments.
 const CONTROL_LIMIT: usize = 64;
+const HELPER_FLAG: &str = "--inspect-process";
+/// An agent's scan of a process: integrity, rules or both in one run, so the password is asked
+/// for once.
+const SCAN: &str = "scan";
+/// The longest scan request the helper reads: rule text at its longest with every byte escaped.
+const SCAN_REQUEST_LIMIT: usize = 8 * borg_rules::INLINE_LIMIT;
 
 pub(super) async fn bounded_output(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
     command
@@ -51,7 +58,7 @@ pub(super) async fn read_output(reader: impl tokio::io::AsyncRead + Unpin, limit
 }
 
 pub(super) fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
-    let mut args = vec!["--inspect-process".into()];
+    let mut args = vec![HELPER_FLAG.into()];
     match request {
         request @ ActivityRequest::Search { snapshot: None, .. } => {
             args.extend(["search".into(), serde_json::to_string(request)?]);
@@ -96,8 +103,17 @@ pub(super) fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
 }
 
 pub(super) async fn elevate(request: ActivityRequest) -> Result<ActivityData> {
+    elevated(helper_args(&request)?).await
+}
+
+/// Scans a process as administrator, with every check the request asks for in one run.
+pub(super) async fn elevate_scan(request: &ScanRequest) -> Result<ProcessScan> {
+    elevated(vec![HELPER_FLAG.into(), SCAN.into(), serde_json::to_string(request)?]).await
+}
+
+/// Runs Borg's helper with `args` as administrator and reads what it answers.
+async fn elevated<T: DeserializeOwned>(args: Vec<String>) -> Result<T> {
     let exe = std::env::current_exe()?;
-    let args = helper_args(&request)?;
     #[cfg(target_os = "macos")]
     let command = {
         let words =
@@ -116,11 +132,18 @@ pub(super) async fn elevate(request: ActivityRequest) -> Result<ActivityData> {
     let bytes = bounded_output(command, ADMIN_TIMEOUT)
         .await
         .map_err(|e| anyhow!("{}", tr!(activity_admin_unavailable, error = e)))?;
-    let result: Result<ActivityData, String> = serde_json::from_slice(&bytes)?;
+    let result: Result<T, String> = serde_json::from_slice(&bytes)?;
     result.map_err(anyhow::Error::msg)
 }
 
 pub async fn helper(args: &[String]) -> Result<()> {
+    if let [kind, request] = args
+        && kind == SCAN
+    {
+        let result = scan_helper(request).await.map_err(|error| error.to_string());
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
     let result = async {
         let kind = args.first().context(tr!(activity_request_invalid))?;
         if kind == "search" && args.len() == 2 {
@@ -150,9 +173,9 @@ pub async fn helper(args: &[String]) -> Result<()> {
                 Ok(ActivityData::Integrity(integrity(process, Arc::new(AtomicBool::new(false)), None).await?))
             }
             ("rules", 3 | 4) => {
-                let folder = args.get(3).map(PathBuf::from);
+                let rules = RuleSet::Installed { folder: args.get(3).map(PathBuf::from) };
                 let cancelled = Arc::new(AtomicBool::new(false));
-                Ok(ActivityData::Rules(scan_with_rules(process, folder, cancelled, None).await?))
+                Ok(ActivityData::Rules(scan_with_rules(process, rules, cancelled, None).await?.report()))
             }
             ("capture", 6) => {
                 let start = number(3)?;
@@ -191,4 +214,15 @@ pub async fn helper(args: &[String]) -> Result<()> {
     .map_err(|error: anyhow::Error| error.to_string());
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
+}
+
+async fn scan_helper(request: &str) -> Result<ProcessScan> {
+    if request.len() > SCAN_REQUEST_LIMIT {
+        bail!(tr!(activity_request_invalid));
+    }
+    let request: ScanRequest = serde_json::from_str(request)?;
+    if request.process.pid == 0 {
+        bail!(tr!(activity_request_invalid));
+    }
+    scan_process(request, Arc::new(AtomicBool::new(false))).await
 }

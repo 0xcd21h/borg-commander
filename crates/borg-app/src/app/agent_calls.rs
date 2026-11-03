@@ -13,6 +13,7 @@ use std::{
 use tokio::sync::oneshot::Sender;
 mod capture;
 mod changes;
+mod scan;
 
 pub(super) use capture::SavedCaptures;
 
@@ -37,13 +38,15 @@ impl App {
         if let Some(origin) = call.origin.clone()
             && !call.approved
             && self.state.settings.preferences.agent_ask_reads
-            && matches!(call.tool.as_str(), "screen" | "read" | "get" | "fs_list")
+            && (matches!(call.tool.as_str(), "screen" | "read" | "get" | "fs_list")
+                || (call.tool == "scan" && call.args["pid"].is_null()))
             && !(call.tool == "get"
                 && self.downloads.contains(&(origin.clone(), text(&call, "path").unwrap_or_default())))
         {
             let summary = match call.tool.as_str() {
                 "screen" => "what borg shows".to_owned(),
                 "get" => format!("download {}", text(&call, "path").unwrap_or_default()),
+                "scan" => format!("scan {}", text(&call, "path").unwrap_or_default()),
                 _ => text(&call, "source").or_else(|| text(&call, "path")).unwrap_or_else(|| ".".into()),
             };
             let place = tr!(agent_asked_from).replace("{origin}", &origin);
@@ -66,6 +69,7 @@ impl App {
             "put" => self.put(call, reply),
             "screen" => self.show_screen(reply),
             "search_memory" => self.search_memory(call, reply),
+            "scan" => self.scan(call, reply),
             "capture" => self.ask_to_capture(call, reply),
             "read" => self.read_for_agent(call, reply),
             "show" => self.show_spot(call, reply),
@@ -424,10 +428,7 @@ impl App {
         if call.approved && call.args["_start"].as_u64() != Some(process.start) {
             return fail(reply, format!("The process with PID {pid} ended before the search could start"));
         }
-        let allowed = call.approved
-            || self.memory_readers.contains(&(call.origin.clone(), process))
-            || call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin));
-        if !allowed {
+        if !self.may_read_memory(&call, process) {
             let mut body = vec![DiffLine::plain(tr!(agent_memory_process, name = name, pid = pid))];
             if let Some(program) = &program {
                 body.push(DiffLine::plain(tr!(agent_memory_program, path = program.display())));
@@ -460,6 +461,14 @@ impl App {
             drop(reply.send(answer));
         });
         Ok(Flow::Continue)
+    }
+
+    /// Whether the agent may read the process's memory: the user approved this call, or a
+    /// search or scan of the process before, or approves everything its computer asks.
+    fn may_read_memory(&self, call: &Call, process: borg_core::ProcessKey) -> bool {
+        call.approved
+            || self.memory_readers.contains(&(call.origin.clone(), process))
+            || call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin))
     }
 
     /// Answers reveals once their panel shows the folder, or is going somewhere else.

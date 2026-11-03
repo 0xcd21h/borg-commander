@@ -3844,6 +3844,20 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
 }
 
 #[test]
+fn a_scan_asks_with_the_process_the_checks_and_the_agents_own_rules() -> Result<()> {
+    use borg_core::{AgentEvent, ScanChecks, ScanSubject};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let program = std::path::Path::new("/usr/bin/sample");
+    let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
+    let rules = "rule beacon {\n  strings: $host = \"c2.example.org\"\n  condition: $host\n}";
+    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), "asked from laptop".into());
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote wants to scan process memory")?;
+    check("agent_scan_approval", &stage, buffer)
+}
+
+#[test]
 fn remote_console_names_the_host_and_session_and_mounts_the_right_panel() -> Result<()> {
     use borg_core::Side;
     let mut stage = stage(GridSize { cols: 110, rows: 24 }, Motion::STILL)?;
