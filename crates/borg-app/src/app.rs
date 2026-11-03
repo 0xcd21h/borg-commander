@@ -94,6 +94,8 @@ pub struct App {
     preview: preview::Loader,
     /// Stops the viewer's search running in the background.
     viewer_search: Option<Arc<AtomicBool>>,
+    /// Stops the read of the viewer's entropy under way.
+    viewer_profile: Option<Arc<AtomicBool>>,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
     backup: crate::backup::Backup,

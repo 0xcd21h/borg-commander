@@ -178,6 +178,8 @@ pub struct AppState {
     pub find_recent: Vec<String>,
     /// The id of the viewer's latest search.
     pub(crate) next_find: u64,
+    /// The id of the viewer's latest read of entropy.
+    pub(crate) next_profile: u64,
     /// A folder just added to the index, whose first build ends with a notice.
     pub indexing: Option<PathBuf>,
     /// When the next flash over an empty folder starts, while one is shown.
@@ -267,6 +269,7 @@ impl AppState {
             cd_picker: crate::CdPicker::default(),
             find_recent: Vec::new(),
             next_find: 0,
+            next_profile: 0,
             indexing: None,
             glitch_wake: None,
             generation: 0,

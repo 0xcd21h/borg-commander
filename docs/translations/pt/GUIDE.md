@@ -1023,6 +1023,23 @@ percorrem de imediato um ficheiro de vários gigabytes. A barra de pesquisa tamb
 linhas hexadecimais e marca cada correspondência nas duas colunas. Em hexadecimal, os ficheiros
 Markdown e JSON mostram os bytes tal como estão escritos.
 
+No visualizador, uma faixa de entropia acompanha o lado direito das linhas hexadecimais. A entropia
+indica quão variados são os bytes, de 0 bits por byte para um único byte repetido a 8 para bytes tão
+aleatórios como dados comprimidos, cifrados ou empacotados. O texto fica normalmente perto de 4,5, e
+o código entre 5 e 6,5. A faixa cobre o ficheiro inteiro de cima a baixo. A barra de cada célula é
+tão longa quanto a entropia mais alta na sua parte do ficheiro, esbatida abaixo de 4 bits por byte e
+a vermelho e negrito a partir de 7,2, e as células dos bytes que estão no ecrã ficam marcadas como
+numa barra de deslocamento. A linha de estado mostra a entropia na página e se é **baixa**,
+**típica** ou **alta**. Prima `]` e `[` para saltar para a sequência seguinte ou anterior de blocos
+de entropia alta, ou clique na faixa para ir para essa parte do ficheiro.
+
+O Borg lê a entropia em segundo plano, em blocos de 4 KiB. Um ficheiro até 256 MiB é lido por
+inteiro, e um maior é amostrado em 65 536 blocos espaçados por igual, pelo que a memória usada é a
+mesma seja qual for o tamanho do ficheiro. Entropia alta onde se esperaria código, cabeçalhos ou
+tabelas pode indicar dados empacotados ou cifrados ali escondidos. Multimédia comprimida, arquivos,
+volumes cifrados e cofres de chaves têm entropia alta do princípio ao fim, por isso leia a faixa à
+luz do que o ficheiro deveria conter.
+
 ### Arquivos
 
 Prima Enter num arquivo para o abrir como uma pasta. O Borg abre ficheiros cujo nome termina em
@@ -1450,6 +1467,15 @@ ao sistema que páginas estão em memória e não lê as restantes, pelo que nã
 em swap nem toca em páginas novas; no macOS, as páginas nunca usadas são lidas como zeros. Os
 tipos são deduzidos apenas a partir dos bytes, por isso encare-os como uma
 indicação.
+
+As páginas cuja entropia chega a 7,2 bits por byte são desenhadas a vermelho e negrito, ou só a
+negrito onde o vermelho seria difícil de ler, seja qual for o seu tipo. Assim, o código empacotado
+ou cifrado destaca-se numa região executável, onde o Borg conta como código todas as páginas que não
+são zeros nem enchimento. A legenda mostra a sua proporção como **entropia alta**, a linha do cursor
+acrescenta a entropia da página sob ele, e a mesma linha termina com a entropia mais alta da região.
+Uma nota sob a legenda explica o que a entropia alta e a baixa costumam significar. As caches
+comprimidas, as imagens, os arquivos e as chaves também têm entropia alta, por isso veja o que a
+região contém antes de suspeitar dela.
 
 ### Pesquisa de memória
 

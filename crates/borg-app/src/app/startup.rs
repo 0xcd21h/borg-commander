@@ -88,6 +88,7 @@ impl App {
             wheel: WheelBurst::default(),
             preview,
             viewer_search: None,
+            viewer_profile: None,
             plugins,
             monitor,
             backup,

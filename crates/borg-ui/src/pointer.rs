@@ -53,7 +53,7 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if let Some(viewer) = state.viewer.as_ref().filter(|_| !state.shell.captured()) {
         return match mouse.wheel() {
             Some(delta) => Some(Msg::Pointer(Pointer::ScrollDocument(delta))),
-            None if click => crate::viewer_view::click(viewer, state.layout(now).screen, point).map(Msg::Key),
+            None if click => crate::viewer_view::click(viewer, state.layout(now).screen, point),
             None => None,
         };
     }

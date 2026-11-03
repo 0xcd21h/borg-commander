@@ -134,6 +134,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::viewer::searching(state, id, percent);
             Vec::new()
         }
+        Msg::ViewerProfiled { id, profile } => {
+            crate::viewer::profiled(state, id, profile);
+            Vec::new()
+        }
 
         Msg::Activity { id, result } => {
             crate::activity::receive(state, id, result, now);
