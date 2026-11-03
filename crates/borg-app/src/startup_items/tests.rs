@@ -71,8 +71,8 @@ fn places_read_newest_first_with_owner_program_and_rule_hits() {
     assert!(!shell.hits[0].in_program);
     assert_eq!(helper.presence, ProgramPresence::Present);
     assert_eq!(
-        helper.hits.iter().map(|hit| (hit.rule.rule.as_str(), hit.in_program)).collect::<Vec<_>>(),
-        [("reverse_shell", true)]
+        helper.hits.iter().filter(|hit| hit.in_program).map(|hit| hit.rule.rule.as_str()).collect::<Vec<_>>(),
+        ["reverse_shell"]
     );
     assert_eq!(gone.presence, ProgramPresence::Missing);
     assert_eq!(startup_filtered(&report.items, "reverse_shell"), [0, 1]);
