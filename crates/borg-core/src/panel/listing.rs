@@ -2,7 +2,7 @@
 
 use super::{
     Anchor, EAGER_MERGE_LIMIT, EXTENSION_SEPARATOR, INITIAL_GENERATION, Incoming, Listing, ListingMode,
-    MERGE_GROWTH_DIVISOR, Panel, Row, Sort, SortKey,
+    MERGE_GROWTH_DIVISOR, Panel, Row, Sort, SortKey, Viewport,
 };
 use borg_vfs::Entry;
 use std::{
@@ -13,18 +13,21 @@ use std::{
 
 impl Panel {
     pub fn navigate(&mut self, dir: PathBuf, generation: u64, focus: Option<String>) {
+        self.remember_viewport(&dir);
         self.results = None;
         let refresh = self.is_reloading_into(&dir);
-        self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh });
+        let row = focus.as_deref().and_then(|entry| self.recall_row(&dir, entry));
+        self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh, row });
     }
 
     pub fn reload(&mut self, generation: u64) {
         // A folder still loading keeps the entry it was opened to select; otherwise the
         // refresh selects whatever is hovered when it arrives, after any move made meanwhile.
         let focus = self.incoming.as_ref().and_then(|incoming| incoming.focus.clone());
+        let row = self.incoming.as_ref().and_then(|incoming| incoming.row);
         let dir = self.destination().to_path_buf();
         let refresh = self.is_reloading_into(&dir);
-        self.incoming = Some(Incoming { dir, generation, focus, refresh });
+        self.incoming = Some(Incoming { dir, generation, focus, refresh, row });
     }
 
     pub fn receive(&mut self, generation: u64, batch: Vec<Entry>, show_hidden: bool) {
@@ -61,6 +64,13 @@ impl Panel {
     }
 
     pub fn settle(&mut self) {
+        self.take_pending();
+        if self.listing != Listing::Loading {
+            self.return_row = None;
+        }
+    }
+
+    fn take_pending(&mut self) {
         let loading = self.listing == Listing::Loading;
         if self.replacing {
             if !loading {
@@ -142,12 +152,14 @@ impl Panel {
         self.generation = incoming.generation;
         if incoming.focus.is_some() || !incoming.refresh {
             self.focus = incoming.focus;
+            self.return_row = incoming.row;
         }
         self.replacing = incoming.refresh;
         self.pending.clear();
         self.listing = Listing::Loading;
         self.dir = incoming.dir;
         if !incoming.refresh {
+            self.trail.retain(|viewport| self.dir.starts_with(&viewport.dir) && self.dir != viewport.dir);
             self.entries.clear();
             self.marks.clear();
             self.cursor = 0;
@@ -174,7 +186,31 @@ impl Panel {
                 self.focus = None;
             }
         }
+        if let Some(row) = self.return_row {
+            let top = self.cursor.saturating_sub(row);
+            self.scroll = top - top % self.page_step();
+        }
         self.clamp();
+    }
+
+    fn remember_viewport(&mut self, destination: &Path) {
+        let mount = self.mount.as_ref().map(|mount| mount.id.clone());
+        if mount != self.trail_mount {
+            self.trail.clear();
+            self.trail_mount = mount;
+            return;
+        }
+        if self.is_results() || destination == self.dir {
+            return;
+        }
+        let Some(entry) = self.hovered_entry().map(|entry| entry.name.clone()) else { return };
+        let row = self.cursor.saturating_sub(self.scroll);
+        self.trail.retain(|viewport| viewport.dir != self.dir);
+        self.trail.push(Viewport { dir: self.dir.clone(), entry, row });
+    }
+
+    fn recall_row(&self, dir: &Path, entry: &str) -> Option<usize> {
+        self.trail.iter().find(|viewport| viewport.dir == dir && viewport.entry == entry).map(|viewport| viewport.row)
     }
 
     pub(super) fn parent_rows(&self) -> usize {
