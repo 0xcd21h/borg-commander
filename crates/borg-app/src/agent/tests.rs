@@ -134,3 +134,32 @@ fn a_read_names_a_packet_from_1() {
     assert!(packet_number(&json!({ "packet": 0 })).is_err());
     assert!(packet_number(&json!({ "packet": "first" })).is_err());
 }
+
+#[test]
+fn screen_calls_an_archive_read_only_only_when_borg_cannot_change_it() {
+    use borg_archive::{Compression, Format};
+    let place = |name: &str, format: Option<Format>, inside: &str| {
+        let archive = Path::new("/srv").join(name);
+        let mount = borg_core::ArchiveMount {
+            archive: archive.clone(),
+            host: "/srv".into(),
+            password: None,
+            verified: false,
+            reading: None,
+            format,
+        };
+        answers::archive_place(&mount, &archive.join(inside))
+    };
+
+    assert_eq!(place("site.zip", Some(Format::Zip), "docs"), "inside the archive /srv/site.zip, at /docs");
+    assert_eq!(
+        place("site.tar.xz", Some(Format::Tar(Some(Compression::Xz))), ""),
+        "inside the archive /srv/site.tar.xz, at /"
+    );
+    assert_eq!(place("site.rar", Some(Format::Rar), "docs"), "inside the archive /srv/site.rar, at /docs, read only");
+    assert_eq!(
+        place("log.gz", Some(Format::Compressed(Compression::Gzip)), ""),
+        "inside the archive /srv/log.gz, at /, read only"
+    );
+    assert_eq!(place("big.7z", None, ""), "inside the archive /srv/big.7z, at /", "unknown until it opens");
+}

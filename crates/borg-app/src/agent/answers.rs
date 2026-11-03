@@ -2,7 +2,7 @@
 //! output.
 
 use super::{LIST_LIMIT, Location, OUTPUT_LIMIT, Reply, Target, hostname};
-use borg_core::{AppState, Console, Row, Side, View};
+use borg_core::{AppState, ArchiveMount, Console, Row, Side, View};
 use borg_i18n::tr;
 use std::{
     fmt::Write as _,
@@ -155,8 +155,7 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         let panel = state.panel(side);
         let _ = writeln!(text, "{} panel: {}", side_name(side), panel_location(state, side));
         if let Some(archive) = &panel.archive {
-            let inside = archive.inside(panel.dir()).unwrap_or_default();
-            let _ = writeln!(text, "  inside the archive {}, at /{inside}, read only", archive.archive.display());
+            let _ = writeln!(text, "  {}", archive_place(archive, panel.dir()));
         }
         match panel.hovered() {
             Some(Row::Entry(entry)) => drop(writeln!(text, "  highlighted: {}", entry.name)),
@@ -236,6 +235,17 @@ pub(super) fn side_name(side: Side) -> &'static str {
     match side {
         Side::Left => "left",
         Side::Right => "right",
+    }
+}
+
+/// Where in an archive the folder `dir` lies, and that the archive is read only when Borg
+/// cannot change its format.
+pub(super) fn archive_place(archive: &ArchiveMount, dir: &Path) -> String {
+    let inside = archive.inside(dir).unwrap_or_default();
+    let place = format!("inside the archive {}, at /{inside}", archive.archive.display());
+    match archive.format {
+        Some(format) if !borg_archive::writable(format) => format!("{place}, read only"),
+        _ => place,
     }
 }
 
