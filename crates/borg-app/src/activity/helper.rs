@@ -2,13 +2,15 @@
 //! through Borg's helper, with its output kept short.
 
 use super::{
-    ADMIN_TIMEOUT, ERROR_LIMIT, OUTPUT_LIMIT, capture, census, integrity, process_files, regions, search_memory,
+    ADMIN_TIMEOUT, ERROR_LIMIT, OUTPUT_LIMIT, capture, census, integrity, process_files, regions, scan_with_rules,
+    search_memory,
 };
 use crate::memory_search::Query;
 use anyhow::{Context, Result, anyhow, bail};
 use borg_core::{ActivityData, ActivityRequest, MemoryRegion, ProcessKey};
 use borg_i18n::tr;
 use std::{
+    path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
@@ -62,6 +64,10 @@ pub(super) fn helper_args(request: &ActivityRequest) -> Result<Vec<String>> {
         }
         ActivityRequest::Integrity { process, .. } => {
             args.extend(["integrity".into(), process.pid.to_string(), process.start.to_string()])
+        }
+        ActivityRequest::Rules { process, .. } => {
+            args.extend(["rules".into(), process.pid.to_string(), process.start.to_string()]);
+            args.extend(crate::rule_scan::folder().map(|folder| folder.display().to_string()));
         }
         ActivityRequest::Capture { process, region, seek, .. } => args.extend([
             "capture".into(),
@@ -142,6 +148,11 @@ pub async fn helper(args: &[String]) -> Result<()> {
             ("files", 3) => Ok(ActivityData::Files(process_files::list(process).await?)),
             ("integrity", 3) => {
                 Ok(ActivityData::Integrity(integrity(process, Arc::new(AtomicBool::new(false)), None).await?))
+            }
+            ("rules", 3 | 4) => {
+                let folder = args.get(3).map(PathBuf::from);
+                let cancelled = Arc::new(AtomicBool::new(false));
+                Ok(ActivityData::Rules(scan_with_rules(process, folder, cancelled, None).await?))
             }
             ("capture", 6) => {
                 let start = number(3)?;

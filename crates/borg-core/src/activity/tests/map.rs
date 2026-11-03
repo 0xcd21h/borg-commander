@@ -1,6 +1,8 @@
-//! The memory map: regions, groups, open files, the page census and integrity findings.
+//! The memory map: regions, groups, open files, the page census, integrity findings and rule
+//! matches.
 
 use super::*;
+use borg_rules::{Evidence, Level, RuleMatch};
 
 #[test]
 fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_esc() {
@@ -28,6 +30,7 @@ fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_es
         region: address.map(|_| region.clone()),
         address,
         length: 8,
+        note: None,
     };
     let report = IntegrityReport {
         process: state.activity.selected.unwrap(),
@@ -41,7 +44,7 @@ fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_es
     };
     let id = state.activity.pending.as_ref().unwrap().0;
     receive(&mut state, id, Ok(ActivityData::Integrity(report)), now);
-    assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Integrity, ActivityPage::Snapshot));
+    assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Findings, ActivityPage::Snapshot));
     assert!(state.activity.search_progress.is_none());
     assert!(state.activity.retry.is_some(), "unread memory can be checked again as administrator");
     assert_eq!(state.activity.marked(), Some(0x11010..0x11018));
@@ -379,4 +382,81 @@ fn regions_group_by_purpose_rank_by_footprint_and_collapse_library_segments_per_
     let tagged = |name: &str| MemoryRegion { name: name.into(), permissions: "rw-".into(), ..Default::default() };
     assert_eq!(tagged("Memory Tag 253").group(None), MemoryGroup::Heap);
     assert_eq!(tagged("Memory Tag 22").group(None), MemoryGroup::Other);
+}
+
+#[test]
+fn y_scans_the_process_with_rules_and_r_scans_it_again() {
+    let (mut state, now) = state();
+    open(&mut state);
+    sample(&mut state, vec![process(2, 10, 200)], now);
+    state.activity.paused = true;
+    key(&mut state, KeyCode::Enter);
+    let id = state.activity.pending.as_ref().unwrap().0;
+    let region = MemoryRegion { start: 0x10000, end: 0x20000, permissions: "rw-".into(), ..Default::default() };
+    receive(&mut state, id, Ok(ActivityData::Regions(vec![region.clone()])), now);
+    let effects = key(&mut state, KeyCode::Char('y'));
+    assert!(matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Rules { admin: false, .. }, .. }]));
+    let effects = on_key(&mut state, &KeyEvent::new(KeyCode::Char('c'), crossterm::event::KeyModifiers::CONTROL));
+    assert!(matches!(&effects[..], [Effect::CancelMemorySearch]));
+
+    let found = RuleMatch {
+        rule: "reverse_shell".into(),
+        namespace: borg_rules::BUILT_IN.into(),
+        level: Level::Alert,
+        description: None,
+        false_positives: None,
+        evidence: Some(Evidence { string: "$dev_tcp".into(), offset: 0x20, length: 6, bytes: b"bash -".to_vec() }),
+    };
+    let report = RulesReport {
+        process: state.activity.selected.unwrap(),
+        findings: vec![rule_finding(&found, &region, 0x10000)],
+        rules: 15,
+        scanned: 0x10000,
+        total: 0x10000,
+        unreadable: 0,
+        complete: true,
+    };
+    let id = state.activity.pending.as_ref().unwrap().0;
+    receive(&mut state, id, Ok(ActivityData::Rules(report)), now);
+    assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Findings, ActivityPage::Snapshot));
+    assert!(state.activity.retry.is_none(), "nothing was left unread");
+    assert_eq!(state.activity.marked(), Some(0x10020..0x10026));
+    let effects = key(&mut state, KeyCode::Char('r'));
+    assert!(matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Rules { .. }, .. }]));
+    state.activity.pending = None;
+    route_key(&mut state, &KeyCode::Esc.into(), now);
+    assert_eq!(state.activity.list, ActivityPage::Regions);
+}
+
+#[test]
+fn a_rule_finding_names_its_rule_its_source_and_evidence_and_keeps_the_rules_caveat() {
+    let region = MemoryRegion { start: 0x4000, end: 0x8000, permissions: "rw-".into(), ..Default::default() };
+    let mut found = RuleMatch {
+        rule: "miner".into(),
+        namespace: "/home/me/.config/borg-commander/rules/coins.yar".into(),
+        level: Level::Notice,
+        description: Some("A pool address".into()),
+        false_positives: Some("Your own miner".into()),
+        evidence: Some(Evidence { string: "$pool".into(), offset: 0x10, length: 4, bytes: b"pool".to_vec() }),
+    };
+    let finding = rule_finding(&found, &region, 0x5000);
+    assert_eq!((finding.kind, finding.severity), (FindingKind::RuleMatch, Severity::Notice));
+    assert_eq!((finding.address, finding.length), (Some(0x5010), 4));
+    assert_eq!(finding.detail, "miner from coins.yar · $pool matched \"pool\" · A pool address");
+    assert_eq!(finding.caveat(), "Your own miner");
+
+    found.evidence = None;
+    found.false_positives = None;
+    let finding = rule_finding(&found, &region, 0x5000);
+    assert_eq!(finding.detail, "miner from coins.yar · A pool address");
+    assert_eq!((finding.address, finding.length), (Some(0x5000), 0));
+    assert_eq!(finding.caveat(), FindingKind::RuleMatch.caveat());
+}
+
+#[test]
+fn evidence_reads_as_text_when_it_is_text_and_as_hex_otherwise() {
+    assert_eq!(evidence_text(b"bash -i"), "\"bash -i\"");
+    assert_eq!(evidence_text(&[b'a'; 50]), format!("\"{}…\"", "a".repeat(40)));
+    assert_eq!(evidence_text(&[0x7F, b'E', b'L', b'F']), "7f 45 4c 46");
+    assert_eq!(evidence_text(&[0; 20]), format!("{} …", ["00"; 16].join(" ")));
 }

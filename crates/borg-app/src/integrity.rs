@@ -16,7 +16,8 @@ mod findings;
 mod rules;
 
 use compare::{compare, scan};
-use findings::{Stretch, executable, hex, label, map_findings, process_findings, size, stretches, unbacked, untouched};
+pub(crate) use findings::untouched;
+use findings::{Stretch, executable, hex, label, map_findings, process_findings, size, stretches, unbacked};
 use rules::{
     CODE_FILES, INTERPRETERS, KERNEL_PAGES, KERNEL_THREADS, LIBRARY_PATHS, PRELOADS, compiles_code, temporary,
 };

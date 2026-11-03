@@ -124,6 +124,85 @@ archivos en segundo plano, y la línea de contexto cuenta los archivos leídos. 
 demasiado grandes. Ctrl-C detiene la búsqueda, que se para en 20.000 archivos como cualquier
 búsqueda.
 
+### Analizar archivos con reglas
+
+Pon **Buscar** en **Coincidencias de reglas** en el diálogo de Ctrl-F para analizar los archivos
+bajo la carpeta con reglas YARA: las que incluye Borg y las tuyas. El patrón de nombre, el **Tamaño
+mínimo** y **Omitir resultados de compilación, cachés y archivos ignorados** siguen aplicándose. Son
+las reglas las que deciden qué buscar, así que el diálogo deja de mostrar **Con el texto** y
+**Mínimo de archivos**.
+
+Cada resultado muestra en la columna **Coincidencia** la regla más grave que coincide con el
+archivo, cuántas más coinciden y los primeros bytes que encontró esa regla, como texto entre
+comillas o en hexadecimal. F3 abre el archivo en el visor en esos bytes, con la barra de búsqueda
+rellenada con ellos, y F4 y la vista rápida también se abren ahí. La línea de contexto cuenta los
+archivos analizados y las reglas usadas. Los archivos de más de 64 MiB quedan sin leer y cuentan
+como demasiado grandes, y el análisis se para en 20.000 archivos como cualquier búsqueda. Ctrl-C lo
+detiene.
+
+Las reglas propias de Borg buscan:
+
+- `reverse_shell`: una shell interactiva a través de `/dev/tcp`, `nc` o `socat` ejecutando una
+  shell, o una shell lanzada en un pseudoterminal.
+- `download_and_run`: un script descargado y enviado directamente a una shell por una tubería.
+- `decode_and_run`: base64 decodificado y ejecutado como comando de shell o como código Python.
+- `crypto_miner`: la dirección de un pool de minería, o la configuración de un minero común.
+- `upx_packed`: un ejecutable empaquetado con UPX, que se desempaqueta a sí mismo en memoria.
+- `execve_shellcode`: la ruta de la shell que construye el código de un exploit antes de iniciar una
+  shell.
+- `ssh_key_planted`: una clave pública añadida a un archivo `authorized_keys`.
+- `reboot_job_fetch`: una tarea cron que se ejecuta en cada arranque y descarga, decodifica o
+  ejecuta algo desde una carpeta temporal.
+- `password_prompt`: un diálogo de AppleScript que pide una contraseña con la respuesta oculta, como
+  hacen los programas que roban datos en macOS.
+- `launch_agent_from_temp`: un agente o daemon de arranque de macOS que inicia un programa desde una
+  carpeta temporal o compartida.
+- `preload_write`: una escritura en `/etc/ld.so.preload`, que carga una biblioteca en todos los
+  programas de Linux.
+- `history_wiping`: el historial de la shell desactivado, o los registros del sistema vaciados.
+- `agent_unattended`: un agente de programación con IA iniciado con las aprobaciones desactivadas,
+  como hizo el ataque a la cadena de suministro de Nx para buscar secretos en las máquinas.
+- `hidden_prompt`: una serie de caracteres de etiqueta Unicode invisibles, que pueden ocultar
+  instrucciones para modelos de IA en prompts, archivos de reglas y páginas web.
+- `pickle_runs_code`: un pickle, el formato en que Python y PyTorch guardan modelos, que ejecuta un
+  comando al cargarse.
+
+Pon tus propias reglas en la carpeta `rules` junto a `config.toml`:
+`~/.config/borg-commander/rules`, o la misma carpeta bajo `$XDG_CONFIG_HOME` o `$BORG_CONFIG_DIR`.
+Borg lee todos los archivos `.yar` y `.yara` que hay ahí y en las carpetas inferiores, cada uno en
+su propio espacio de nombres, así que dos archivos pueden usar los mismos nombres de reglas. Cada
+archivo se compila por separado. Un archivo con un error se omite entero, la línea de estado lo
+nombra con el mensaje del compilador, la línea de contexto cuenta los archivos omitidos y los demás
+archivos siguen funcionando. Como cada archivo se carga por separado, un archivo que usa `include`
+también se omite, y los archivos que incluye funcionan por su cuenta.
+
+Las reglas pueden importar los módulos `hash`, `math`, `string`, `time`, `elf`, `macho`, `pe`,
+`dotnet` y `dex`; un archivo que importa `magic`, `cuckoo` o `console` se omite. Las variables
+`filename`, `filepath` y `extension` contienen el nombre, la ruta y la extensión del archivo
+analizado, como esperan los conjuntos de reglas escritos para THOR y LOKI, y `filetype` y `owner`
+quedan vacías. El metadato `severity` de una regla fija la importancia de una coincidencia: `alert`,
+`critical` o `high` dan una alerta, `warning`, `medium` o `suspicious` una advertencia, y `notice`,
+`low` o `info` un aviso. Sin él, un `score` de 80 o más da una alerta, de 60 o más una advertencia,
+y por debajo un aviso. Una regla sin ninguno de los dos cuenta como advertencia. Sus campos
+`description` y `false_positives` aparecen con cada coincidencia.
+
+Borg no incluye conjuntos de reglas públicos, porque sus licencias varían. Descarga los que te
+merezcan confianza en la carpeta de reglas y revisa cada licencia antes de usarlos en el trabajo:
+
+- [YARA Forge](https://yarahq.github.io/) reúne en paquetes probados reglas de muchas fuentes
+  públicas; cada regla conserva la licencia de su fuente.
+- [signature-base](https://github.com/Neo23x0/signature-base) es gratuito para uso no comercial (CC
+  BY-NC 4.0).
+- [Los protection artifacts de Elastic](https://github.com/elastic/protections-artifacts) se
+  publican bajo la Elastic License 2.0.
+- [Las reglas de ReversingLabs](https://github.com/reversinglabs/reversinglabs-yara-rules) se
+  publican bajo la licencia MIT.
+
+Las reglas coinciden con patrones de bytes y no saben nada de intenciones. Los instaladores, las
+herramientas de seguridad y sus datos de prueba también coinciden, y un archivo con el que no
+coincide ninguna regla puede ser malicioso igualmente. Toma las coincidencias como pistas. [Analizar
+la memoria con reglas](#scanning-memory-with-rules) explica lo que un análisis no puede ver.
+
 ### Trabajar con los resultados
 
 Haz clic en el encabezado de una columna para ordenar por ella, y otra vez para invertir el orden.
@@ -1452,6 +1531,51 @@ caché compartida de macOS no tiene un archivo propio y no se compara. La memori
 comprobación no puede leer se contabiliza, y Borg ofrece **A Administrador**. Toma los hallazgos
 como pistas, porque los depuradores, los perfiladores, los actualizadores y las herramientas de
 seguridad dejan los mismos rastros.
+
+### Analizar la memoria con reglas
+
+**Y**, en el mapa de memoria o entre las coincidencias de búsqueda, analiza la memoria que el propio
+proceso ha rellenado con las mismas reglas que un análisis de archivos: las de Borg y las de tu
+carpeta de reglas (consulta [Analizar archivos con reglas](#scanning-files-with-rules)). Igual que
+**Cadenas**, lee la memoria no respaldada por archivos y la memoria en la que el proceso puede
+escribir; en macOS también omite las regiones en las que nunca ha escrito. Una región sin ninguna
+página en memoria ni en swap no se lee, y en Linux las tablas de páginas muestran qué páginas no ha
+tocado nunca el proceso, así que esas tampoco se leen. Las páginas en swap sí se leen, porque una
+carga maliciosa puede esperar ahí. La memoria se lee en bloques de 16 MiB que se solapan 4 KiB, así
+que una coincidencia que pasa de un bloque al siguiente también se encuentra. Cada regla aparece una
+vez por región, en su primera coincidencia.
+
+Las coincidencias ocupan el panel de la lista, con las alertas primero. Cada una indica la regla y
+de dónde viene, **reglas de Borg** o tu archivo, luego los bytes que encontró y lo que busca la
+regla, y las filas bajo la lista indican qué otra cosa podría explicarla. Al seleccionar una
+coincidencia se previsualizan los bytes que la rodean, con la coincidencia resaltada. Los archivos
+de reglas omitidos aparecen al final, con el mensaje del compilador. **R** vuelve a analizar,
+**Ctrl-C** detiene el análisis y conserva lo encontrado, y **Esc** vuelve atrás. Un análisis lee
+como máximo 1 GiB, durante un máximo de 45 segundos, muestra hasta 2000 coincidencias e indica si se
+detuvo antes de tiempo. La memoria que no puede leer se contabiliza, y Borg ofrece **A
+Administrador**, que ejecuta el análisis en el programa auxiliar con tu carpeta de reglas.
+
+Un análisis con reglas es una evaluación rápida: un vistazo a un proceso o una carpeta en busca de
+patrones que alguien ha descrito. No vigila el sistema, no bloquea nada ni limpia, que es la tarea
+de la protección de endpoints. Algunas cosas quedan fuera de su alcance:
+
+- macOS protege la memoria de sus propios programas y de los programas creados con Hardened Runtime
+  frente a cualquier otro programa, administradores incluidos (consulta [Acceso de
+  administrador](#administrator-access)).
+- En Linux, `kernel.yama.ptrace_scope` decide de quién puedes leer la memoria. Con 1, como en
+  Ubuntu, solo puedes leer tus propios procesos hijos, así que Borg ofrece **A Administrador** para
+  los demás. Con 3, nadie puede leer otro proceso, administradores incluidos.
+- Un rootkit de kernel puede ocultar memoria, archivos y procesos a cualquier programa, Borg
+  incluido, así que un análisis limpio demuestra poco.
+- Un programa empaquetado o cifrado solo muestra su código real mientras se ejecuta. Analizar su
+  memoria entonces ve lo que un análisis de su archivo no puede ver.
+
+Borg lee la memoria sin adjuntarse como depurador, con `process_vm_readv` en Linux y `mach_vm_read`
+en macOS, así que el proceso no ve ningún trazador, que es lo que buscan la mayoría de las
+comprobaciones antidepuración. Los monitores que se ejecutan como administrador, como auditd, las
+herramientas eBPF y los clientes de Endpoint Security de macOS, pueden registrar las lecturas de
+todos modos. Un análisis de archivos abre cada archivo que lee, y `inotify` y `fanotify` lo
+notifican. En Linux, deja intacta la hora de acceso de los archivos que son tuyos.
 
 ### Acceso de administrador
 

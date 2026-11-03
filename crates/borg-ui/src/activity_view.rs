@@ -2,7 +2,7 @@
 //! searches, each page in a module of its own; the drawing they share is here.
 
 use crate::{Rgb, Theme, format, look::Look, spinner::Spinner};
-use borg_core::{Activity, ActivityPage, ActivityRequest, AppState};
+use borg_core::{Activity, ActivityPage, ActivityRequest, AppState, FindingsReport};
 use borg_i18n::tr;
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -223,7 +223,8 @@ fn frame(
             ActivityPage::Regions => tr!(activity_map),
             ActivityPage::Snapshot => tr!(activity_snapshot),
             ActivityPage::Search => tr!(memory_search_results),
-            ActivityPage::Integrity => tr!(integrity_title),
+            ActivityPage::Findings if by_rules(activity) => tr!(rules_title),
+            ActivityPage::Findings => tr!(integrity_title),
             ActivityPage::Files => tr!(process_files_title),
             ActivityPage::FileDetails => tr!(process_file_details),
         }
@@ -346,6 +347,11 @@ fn subtitle(activity: &Activity, look: &Look<'_>, inner: Rect, page: ActivityPag
     }
 }
 
+/// Whether the findings shown come from scanning with rules.
+fn by_rules(activity: &Activity) -> bool {
+    matches!(activity.findings, Some(FindingsReport::Rules(_)))
+}
+
 fn draw_page(
     activity: &Activity,
     look: &Look<'_>,
@@ -358,8 +364,8 @@ fn draw_page(
     let theme = look.theme;
     match page {
         ActivityPage::Search => search_results(activity, theme, body, buf),
-        ActivityPage::Integrity => {
-            if let Some(report) = &activity.integrity {
+        ActivityPage::Findings => {
+            if let Some(report) = &activity.findings {
                 findings(activity, report, theme, body, buf);
             }
         }
@@ -388,13 +394,17 @@ fn footer(state: &AppState, look: &Look<'_>, inner: Rect, live: bool, spinner: O
         height: FOOTER_ROWS.min(inner.height),
         ..inner
     };
-    let checking = activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Integrity { .. }));
+    let running = activity.pending.as_ref().map(|(_, request)| request);
     let progress = activity.search_progress.map(|(scanned, total, hits)| {
         let (scanned, total) = (format::size(scanned), format::size(total));
-        if checking {
-            tr!(integrity_progress, checked = scanned, total = total, findings = hits)
-        } else {
-            tr!(memory_search_progress, scanned = scanned, total = total, hits = hits)
+        match running {
+            Some(ActivityRequest::Integrity { .. }) => {
+                tr!(integrity_progress, checked = scanned, total = total, findings = hits)
+            }
+            Some(ActivityRequest::Rules { .. }) => {
+                tr!(rules_progress, scanned = scanned, total = total, findings = hits)
+            }
+            _ => tr!(memory_search_progress, scanned = scanned, total = total, hits = hits),
         }
     });
     let files_note = (activity.list == ActivityPage::Files && activity.files_loaded)

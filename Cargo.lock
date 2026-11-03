@@ -150,7 +150,7 @@ dependencies = [
  "asn1-rs-derive 0.5.1",
  "asn1-rs-impl",
  "displaydoc",
- "nom",
+ "nom 7.1.3",
  "num-traits",
  "rusticata-macros",
  "thiserror 1.0.69",
@@ -166,7 +166,7 @@ dependencies = [
  "asn1-rs-derive 0.6.0",
  "asn1-rs-impl",
  "displaydoc",
- "nom",
+ "nom 7.1.3",
  "num-traits",
  "rusticata-macros",
  "thiserror 2.0.21",
@@ -466,6 +466,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "boreal"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e956900b305cc38b8afaf92c6dea9f60596649ec9278998d1be79879bc71036a"
+dependencies = [
+ "aho-corasick",
+ "boreal-parser",
+ "codespan-reporting",
+ "crc32fast",
+ "md-5",
+ "memchr",
+ "object",
+ "regex-automata",
+ "regex-syntax",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tlsh2",
+]
+
+[[package]]
+name = "boreal-parser"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87e11ef29dea24d4ebebf9b50cc10d4a596a8cbb69176522f87d5a1f9a3e9d0c"
+dependencies = [
+ "codespan-reporting",
+ "nom 8.0.0",
+]
+
+[[package]]
 name = "borg-app"
 version = "0.9.6"
 dependencies = [
@@ -481,6 +511,7 @@ dependencies = [
  "borg-jobs",
  "borg-link",
  "borg-relay",
+ "borg-rules",
  "borg-term",
  "borg-testkit",
  "borg-ui",
@@ -553,6 +584,7 @@ dependencies = [
  "borg-git",
  "borg-i18n",
  "borg-jobs",
+ "borg-rules",
  "borg-term",
  "borg-vfs",
  "borg-view",
@@ -668,6 +700,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "borg-rules"
+version = "0.9.6"
+dependencies = [
+ "boreal",
+ "borg-i18n",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "borg-term"
 version = "0.9.6"
 dependencies = [
@@ -695,6 +737,7 @@ dependencies = [
  "borg-i18n",
  "borg-jobs",
  "borg-link",
+ "borg-rules",
  "borg-term",
  "borg-ui",
  "borg-vfs",
@@ -722,6 +765,7 @@ dependencies = [
  "borg-gfx",
  "borg-i18n",
  "borg-jobs",
+ "borg-rules",
  "borg-term",
  "borg-vfs",
  "borg-view",
@@ -979,6 +1023,17 @@ name = "cmov"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
+
+[[package]]
+name = "codespan-reporting"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
+dependencies = [
+ "serde",
+ "termcolor",
+ "unicode-width",
+]
 
 [[package]]
 name = "color_quant"
@@ -1339,7 +1394,7 @@ checksum = "5cd0a5c643689626bec213c4d8bd4d96acc8ffdb4ad4bb6bc16abf27d5f4b553"
 dependencies = [
  "asn1-rs 0.6.2",
  "displaydoc",
- "nom",
+ "nom 7.1.3",
  "num-bigint",
  "num-traits",
  "rusticata-macros",
@@ -1353,7 +1408,7 @@ checksum = "07da5016415d5a3c4dd39b11ed26f915f52fc4e0dc197d87908bc916e51bc1a6"
 dependencies = [
  "asn1-rs 0.7.2",
  "displaydoc",
- "nom",
+ "nom 7.1.3",
  "num-bigint",
  "num-traits",
  "rusticata-macros",
@@ -2346,6 +2401,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest 0.10.7",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2471,6 +2536,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nom"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "ntapi"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2551,6 +2625,15 @@ checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
 dependencies = [
  "libc",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "object"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -3353,7 +3436,7 @@ version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf0c4a6ece9950b9abdb62b1cfcf2a68b3b67a10ba445b3bb85be2a293d0632"
 dependencies = [
- "nom",
+ "nom 7.1.3",
 ]
 
 [[package]]
@@ -3649,6 +3732,17 @@ dependencies = [
  "sha2 0.11.1",
  "wasm-bindgen",
  "zstd",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -3997,6 +4091,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "termina"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4016,7 +4119,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4ea810f0692f9f51b382fff5893887bb4580f5fa246fde546e0b13e7fcee662"
 dependencies = [
  "fnv",
- "nom",
+ "nom 7.1.3",
  "phf",
  "phf_codegen",
 ]
@@ -4149,6 +4252,12 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "tlsh2"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7184dfffa0d05e10284df327c6cb52f0d62c5aa6c9a8b9236fa151d4361882f1"
 
 [[package]]
 name = "tokio"
@@ -4299,7 +4408,7 @@ dependencies = [
  "rand 0.10.3",
  "rustls",
  "rustls-pki-types",
- "sha1",
+ "sha1 0.11.0",
  "thiserror 2.0.21",
 ]
 
@@ -4966,7 +5075,7 @@ dependencies = [
  "data-encoding",
  "der-parser 9.0.0",
  "lazy_static",
- "nom",
+ "nom 7.1.3",
  "oid-registry 0.7.1",
  "ring",
  "rusticata-macros",
@@ -4984,7 +5093,7 @@ dependencies = [
  "data-encoding",
  "der-parser 10.0.0",
  "lazy_static",
- "nom",
+ "nom 7.1.3",
  "oid-registry 0.8.1",
  "rusticata-macros",
  "thiserror 2.0.21",
@@ -5037,7 +5146,7 @@ dependencies = [
  "nix 0.31.3",
  "pbkdf2",
  "ppmd-rust",
- "sha1",
+ "sha1 0.11.0",
  "typed-path",
  "windows-sys 0.61.2",
  "zeroize",

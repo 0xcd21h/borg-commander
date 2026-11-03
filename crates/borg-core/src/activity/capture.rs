@@ -47,7 +47,7 @@ impl Activity {
         match page {
             ActivityPage::Processes => self.cursor,
             ActivityPage::Search => self.search_cursor,
-            ActivityPage::Integrity => self.finding_cursor,
+            ActivityPage::Findings => self.finding_cursor,
             ActivityPage::Files => self.file_cursor,
             _ => self.region_cursor,
         }
@@ -107,7 +107,7 @@ impl Activity {
         let (region, seek) = if self.list == ActivityPage::Search {
             let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
             around(hit.address, &hit.region)
-        } else if self.list == ActivityPage::Integrity {
+        } else if self.list == ActivityPage::Findings {
             let finding = self.selected_finding()?;
             around(finding.address?, finding.region.as_ref()?)
         } else {
@@ -124,13 +124,13 @@ impl Activity {
     pub fn shown_region(&self) -> Option<&MemoryRegion> {
         match self.list {
             ActivityPage::Search => self.search_report.as_ref()?.hits.get(self.search_cursor).map(|hit| &hit.region),
-            ActivityPage::Integrity => self.selected_finding()?.region.as_ref(),
+            ActivityPage::Findings => self.selected_finding()?.region.as_ref(),
             _ => self.selected_region(),
         }
     }
 
     pub fn selected_finding(&self) -> Option<&Finding> {
-        self.integrity.as_ref()?.findings.get(self.finding_cursor)
+        self.findings.as_ref()?.findings().get(self.finding_cursor)
     }
 
     /// The bytes the preview marks: the selected match, or the selected finding's evidence.
@@ -140,7 +140,7 @@ impl Activity {
                 let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
                 (hit.address, hit.length)
             }
-            ActivityPage::Integrity => {
+            ActivityPage::Findings => {
                 let finding = self.selected_finding()?;
                 (finding.address?, finding.length)
             }
@@ -251,8 +251,8 @@ impl Activity {
             ActivityPage::Files => {
                 self.file_cursor = self.file_cursor.saturating_add_signed(delta).min(self.files.len().saturating_sub(1))
             }
-            ActivityPage::Integrity => {
-                let findings = self.integrity.as_ref().map_or(0, |report| report.findings.len());
+            ActivityPage::Findings => {
+                let findings = self.findings.as_ref().map_or(0, |report| report.findings().len());
                 self.finding_cursor = self.finding_cursor.saturating_add_signed(delta).min(findings.saturating_sub(1))
             }
             ActivityPage::Snapshot => {

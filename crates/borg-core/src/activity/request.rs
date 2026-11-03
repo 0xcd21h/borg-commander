@@ -2,7 +2,7 @@
 
 use super::{
     ControlReport, IntegrityReport, MemoryCensus, MemoryRegion, MemorySearchMode, MemorySearchReport, MemorySnapshot,
-    ProcessControl, ProcessFiles, ProcessKey, SystemSample,
+    ProcessControl, ProcessFiles, ProcessKey, RulesReport, SystemSample,
 };
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +46,11 @@ pub enum ActivityRequest {
         process: ProcessKey,
         admin: bool,
     },
+    /// Borg's rules and the user's over the memory the process filled.
+    Rules {
+        process: ProcessKey,
+        admin: bool,
+    },
     /// A signal or priority change for the process.
     Control {
         process: ProcessKey,
@@ -60,7 +65,11 @@ impl ActivityRequest {
     pub fn reads_memory(&self) -> bool {
         matches!(
             self,
-            Self::Search { snapshot: None, .. } | Self::Census { .. } | Self::Capture { .. } | Self::Integrity { .. }
+            Self::Search { snapshot: None, .. }
+                | Self::Census { .. }
+                | Self::Capture { .. }
+                | Self::Integrity { .. }
+                | Self::Rules { .. }
         )
     }
     pub fn elevated(&self) -> Option<Self> {
@@ -84,6 +93,7 @@ impl ActivityRequest {
                 Some(Self::Capture { process: *process, region: region.clone(), admin: true, seek: *seek })
             }
             Self::Integrity { process, .. } => Some(Self::Integrity { process: *process, admin: true }),
+            Self::Rules { process, .. } => Some(Self::Rules { process: *process, admin: true }),
             Self::Control { process, control, .. } => {
                 Some(Self::Control { process: *process, control: *control, admin: true })
             }
@@ -100,5 +110,6 @@ pub enum ActivityData {
     Snapshot(MemorySnapshot),
     Census(MemoryCensus),
     Integrity(IntegrityReport),
+    Rules(RulesReport),
     Control(ControlReport),
 }

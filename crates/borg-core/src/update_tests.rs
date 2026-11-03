@@ -1468,6 +1468,65 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
 }
 
 #[test]
+fn a_rules_search_lists_files_with_the_rules_they_match_and_f3_lands_on_the_evidence() {
+    use borg_rules::{Evidence, Level, Problem, RuleMatch};
+
+    let (mut state, now) = setup();
+    let request = crate::SearchRequest {
+        root: "/home".into(),
+        query: "*".into(),
+        hidden: false,
+        options: crate::SearchOptions { kind: crate::SearchKind::Rules, ..Default::default() },
+        skip: None,
+    };
+    let effects = crate::results::start_search(&mut state, request);
+    let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
+    let hit = |rule: &str, bytes: &[u8]| RuleMatch {
+        rule: rule.into(),
+        namespace: borg_rules::BUILT_IN.into(),
+        level: Level::Warning,
+        description: None,
+        false_positives: None,
+        evidence: Some(Evidence { string: "$a".into(), offset: 40, length: bytes.len() as u64, bytes: bytes.to_vec() }),
+    };
+    let mut script = file("install.sh");
+    script.source = Some(PathBuf::from("/home/install.sh"));
+    let mut packed = file("tool");
+    packed.source = Some(PathBuf::from("/home/tool"));
+    let found = vec![
+        (script, vec![hit("decode_and_run", b"base64 -d | sh\nrm -f x")]),
+        (packed, vec![hit("upx_packed", b"UPX!\x00\x01")]),
+    ];
+    update(&mut state, Msg::RuleHits { side, generation, found }, now);
+    let left_out = vec![Problem { file: "/rules/broken.yar".into(), message: "syntax error".into() }];
+    let progress = crate::SearchProgress { rules: 16, left_out, ..Default::default() };
+    update(&mut state, Msg::SearchProgress { side, generation, progress }, now);
+    assert_eq!(state.notice.as_deref(), Some("Left out /rules/broken.yar: syntax error"));
+    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert!(results.by_rules());
+    assert_eq!(results.title(), "Rule matches: *");
+    let at = results.first_match(Path::new("/home/install.sh"));
+    let text = borg_view::Query { text: "base64 -d | sh".into(), case: true, words: false, regex: false };
+    assert_eq!(at, Some(crate::FirstMatch { query: text, offset: 40 }), "text up to its line break");
+    let bytes = results.first_match(Path::new("/home/tool")).map(|at| at.query).unwrap();
+    assert_eq!(
+        (bytes.text.as_str(), bytes.regex),
+        (r"(?-u:\x55\x50\x58\x21\x00\x01)", true),
+        "bytes that are not text"
+    );
+    let search = bytes.compile().unwrap().unwrap();
+    assert_eq!(search.in_line(b"..UPX!\x00\x01.."), [std::ops::Range { start: 2, end: 8 }]);
+
+    let at = results.first_match(Path::new("/home/install.sh"));
+    assert_eq!(
+        press(&mut state, now, key(KeyCode::F(3))),
+        [Effect::View { path: PathBuf::from("/home/install.sh"), at }]
+    );
+}
+
+#[test]
 fn f4_on_a_contents_match_opens_the_editor_on_it_with_the_find_bar_ready() {
     let (mut state, now) = setup();
     let query = borg_view::Query { text: "retry".into(), words: true, ..Default::default() };

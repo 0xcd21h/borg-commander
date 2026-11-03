@@ -42,7 +42,7 @@ pub(super) fn file_name(path: &str) -> &str {
 }
 
 /// Whether the memory map says none of a region's pages are of the kind counted.
-pub(super) fn untouched(pages: Option<u64>, swapped: Option<u64>) -> bool {
+pub(crate) fn untouched(pages: Option<u64>, swapped: Option<u64>) -> bool {
     pages == Some(0) && swapped.unwrap_or(0) == 0
 }
 
@@ -54,7 +54,7 @@ pub(super) fn hex(bytes: &[u8]) -> String {
 pub(super) fn process_findings(facts: &Facts, exists: impl Fn(&str) -> Option<bool>) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut add = |kind, severity, detail: String| {
-        findings.push(Finding { kind, severity, detail, region: None, address: None, length: 0 })
+        findings.push(Finding { kind, severity, detail, region: None, address: None, length: 0, note: None })
     };
     if let Some((path, deleted)) = &facts.program {
         match (deleted, exists(path)) {
@@ -110,6 +110,7 @@ pub(super) fn map_findings(regions: &[MemoryRegion], jit: bool, exists: impl Fn(
                 region: Some(region.clone()),
                 address: Some(region.start),
                 length: 0,
+                note: None,
             })
         };
         let (bytes, access) = (borg_ui::size_text(size(region)), region.permissions.as_str());

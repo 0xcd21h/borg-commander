@@ -1,8 +1,8 @@
 //! Opening the monitor, asking for fresh data on time, and taking it in.
 
 use super::{
-    Activity, ActivityData, ActivityPage, ActivityRequest, FILE_PREVIEW_TOP, HISTORY, MemoryHistory, PROCESS_LIMIT,
-    REFRESH, chrome_rows, merge_strings,
+    Activity, ActivityData, ActivityPage, ActivityRequest, FILE_PREVIEW_TOP, FindingsReport, HISTORY, MemoryHistory,
+    PROCESS_LIMIT, REFRESH, chrome_rows, merge_strings,
 };
 use crate::{AppState, Effect};
 use borg_i18n::tr;
@@ -164,19 +164,9 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.retry = retry;
         }
         Ok(ActivityData::Integrity(report)) => {
-            // Unread memory leaves checks undone, which the administrator retry can finish.
-            activity.retry = (report.unreadable > 0).then(|| request.clone());
-            activity.integrity = Some(report);
-            activity.finding_cursor = 0;
-            activity.tops[4] = 0;
-            activity.page = ActivityPage::Snapshot;
-            activity.list = ActivityPage::Integrity;
-            activity.preview_focused = false;
-            activity.search_progress = None;
-            let retry = activity.retry.clone();
-            activity.schedule_preview(now);
-            activity.retry = retry;
+            show_findings(activity, FindingsReport::Integrity(report), &request, now)
         }
+        Ok(ActivityData::Rules(report)) => show_findings(activity, FindingsReport::Rules(report), &request, now),
         Ok(ActivityData::Sample(mut sample)) => {
             sample.processes.truncate(PROCESS_LIMIT);
             let keys: HashSet<_> = sample.processes.iter().map(|p| p.key).collect();
@@ -251,4 +241,20 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     if revealed.is_some_and(|(_, control)| control) {
         super::open_control(state);
     }
+}
+
+/// Shows what a check found in place of the list, with the first finding's bytes.
+fn show_findings(activity: &mut Activity, report: FindingsReport, request: &ActivityRequest, now: Instant) {
+    // Unread memory leaves checks undone, which the administrator retry can finish.
+    activity.retry = (report.unreadable() > 0).then(|| request.clone());
+    activity.findings = Some(report);
+    activity.finding_cursor = 0;
+    activity.tops[4] = 0;
+    activity.page = ActivityPage::Snapshot;
+    activity.list = ActivityPage::Findings;
+    activity.preview_focused = false;
+    activity.search_progress = None;
+    let retry = activity.retry.clone();
+    activity.schedule_preview(now);
+    activity.retry = retry;
 }

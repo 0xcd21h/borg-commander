@@ -127,6 +127,85 @@ nos primeiros 8 KiB) e os ficheiros com mais de 64 MiB ficam por ler e contam co
 demasiado grandes. Ctrl-C interrompe a pesquisa, que para nos 20 000 ficheiros como qualquer
 pesquisa.
 
+### Analisar ficheiros com regras
+
+Defina **Procurar** como **Correspondências de regras** na caixa de diálogo de Ctrl-F para analisar
+os ficheiros abaixo da pasta com regras YARA: as que o Borg inclui e as suas. O padrão de nome, o
+**Tamanho mínimo** e **Omitir resultados de compilação, caches e ficheiros ignorados** continuam a
+aplicar-se. São as regras que decidem o que procurar, por isso a caixa de diálogo deixa de mostrar
+**Com o texto** e **Mínimo de ficheiros**.
+
+Cada resultado mostra na coluna **Correspondência** a regra mais grave a que o ficheiro corresponde,
+a quantas outras corresponde e os primeiros bytes que essa regra encontrou, como texto entre aspas
+ou em hexadecimal. F3 abre o ficheiro no visualizador nesses bytes, com a barra de pesquisa
+preenchida com eles, e F4 e a pré-visualização também abrem nesse ponto. A linha de contexto conta
+os ficheiros analisados e as regras usadas. Os ficheiros com mais de 64 MiB ficam por ler e contam
+como demasiado grandes, e a análise para nos 20 000 ficheiros como qualquer pesquisa. Ctrl-C
+interrompe-a.
+
+As regras do próprio Borg procuram:
+
+- `reverse_shell`: uma shell interativa através de `/dev/tcp`, `nc` ou `socat` a executar uma shell,
+  ou uma shell lançada num pseudoterminal.
+- `download_and_run`: um script transferido e encaminhado diretamente para uma shell.
+- `decode_and_run`: base64 descodificado e executado como comando da shell ou como código Python.
+- `crypto_miner`: o endereço de um pool de mineração, ou as definições de um minerador comum.
+- `upx_packed`: um executável comprimido com UPX, que se descomprime a si próprio em memória.
+- `execve_shellcode`: o caminho da shell que o código de exploração constrói antes de iniciar uma
+  shell.
+- `ssh_key_planted`: uma chave pública acrescentada a um ficheiro `authorized_keys`.
+- `reboot_job_fetch`: uma tarefa cron que corre em cada arranque e transfere, descodifica ou executa
+  algo a partir de uma pasta temporária.
+- `password_prompt`: uma caixa de diálogo AppleScript que pede uma palavra-passe com a resposta
+  oculta, como fazem os programas que roubam dados no macOS.
+- `launch_agent_from_temp`: um agente ou daemon de arranque do macOS que inicia um programa a partir
+  de uma pasta temporária ou partilhada.
+- `preload_write`: uma escrita em `/etc/ld.so.preload`, que carrega uma biblioteca em todos os
+  programas no Linux.
+- `history_wiping`: o histórico da shell desativado, ou registos do sistema esvaziados.
+- `agent_unattended`: um agente de programação com IA iniciado com as aprovações desligadas, como
+  fez o ataque à cadeia de fornecimento do Nx para procurar segredos nas máquinas.
+- `hidden_prompt`: uma sequência de caracteres de etiqueta Unicode invisíveis, que podem esconder
+  instruções para modelos de IA em prompts, ficheiros de regras e páginas web.
+- `pickle_runs_code`: um pickle, o formato em que o Python e o PyTorch guardam modelos, que executa
+  um comando quando é carregado.
+
+Coloque as suas regras na pasta `rules` ao lado de `config.toml`: `~/.config/borg-commander/rules`,
+ou a mesma pasta em `$XDG_CONFIG_HOME` ou `$BORG_CONFIG_DIR`. O Borg lê todos os ficheiros `.yar` e
+`.yara` que aí estão e nas pastas abaixo, cada um num espaço de nomes próprio, por isso dois
+ficheiros podem usar os mesmos nomes de regras. Cada ficheiro é compilado separadamente. Um ficheiro
+com um erro fica de fora por inteiro, a linha de estado indica-o com a mensagem do compilador, a
+linha de contexto conta os ficheiros deixados de fora, e os outros ficheiros continuam a correr.
+Como cada ficheiro é carregado separadamente, um ficheiro que use `include` também fica de fora, e
+os ficheiros que inclui correm por si.
+
+As regras podem importar os módulos `hash`, `math`, `string`, `time`, `elf`, `macho`, `pe`, `dotnet`
+e `dex`; um ficheiro que importe `magic`, `cuckoo` ou `console` fica de fora. As variáveis
+`filename`, `filepath` e `extension` contêm o nome, o caminho e a extensão do ficheiro analisado,
+como esperam os conjuntos de regras escritos para o THOR e o LOKI, e `filetype` e `owner` ficam
+vazias. A meta `severity` de uma regra define a importância de uma correspondência: `alert`,
+`critical` ou `high` dão um alerta, `warning`, `medium` ou `suspicious` um aviso, e `notice`, `low`
+ou `info` uma nota. Sem ela, um `score` de 80 ou mais dá um alerta, de 60 ou mais um aviso, e abaixo
+disso uma nota. Uma regra sem nenhuma das duas conta como aviso. Os seus campos `description` e
+`false_positives` aparecem com cada correspondência.
+
+O Borg não inclui conjuntos de regras públicos, porque as licenças variam. Transfira os que
+considera fiáveis para a pasta de regras e verifique cada licença antes de os usar no trabalho:
+
+- [YARA Forge](https://yarahq.github.io/) reúne em pacotes testados regras de muitas fontes
+  públicas; cada regra mantém a licença da sua fonte.
+- [signature-base](https://github.com/Neo23x0/signature-base) é gratuito para uso não comercial (CC
+  BY-NC 4.0).
+- [Os protection artifacts da Elastic](https://github.com/elastic/protections-artifacts) estão sob a
+  Elastic License 2.0.
+- [As regras da ReversingLabs](https://github.com/reversinglabs/reversinglabs-yara-rules) estão sob
+  a licença MIT.
+
+As regras correspondem a padrões de bytes e nada sabem de intenções. Instaladores, ferramentas de
+segurança e os seus dados de teste também correspondem, e um ficheiro a que nenhuma regra
+corresponde pode mesmo assim ser malicioso. Encare as correspondências como pistas. [Analisar a
+memória com regras](#scanning-memory-with-rules) explica o que uma análise não consegue ver.
+
 ### Trabalhar com os resultados
 
 Clique no cabeçalho de uma coluna para ordenar por ela e clique de novo para inverter a ordem. Os
@@ -1300,7 +1379,7 @@ indica quando um processo está parado e mostra o seu valor **Nice** quando não
 
 Pode enviar sinais aos seus próprios processos e baixar a prioridade deles. O sistema recusa o
 resto: processos de outro utilizador e subir uma prioridade, que só um administrador pode fazer.
-Nesse caso, o Borg oferece **A: Administrador**, que envia a mesma opção através do auxiliar
+Nesse caso, o Borg oferece **A Administrador**, que envia a mesma opção através do auxiliar
 descrito em [Acesso de administrador](#administrator-access). O Borg não envia sinais a si
 próprio; F10 fecha-o.
 
@@ -1436,15 +1515,60 @@ durante até 45 segundos, e indica se parou antes do fim.
 No Linux, as tabelas de páginas mostram que páginas de código um processo alterou, pelo que só
 essas são lidas; no macOS, as regiões sem páginas modificadas também não são lidas. O código da
 cache partilhada do macOS não tem um ficheiro próprio e não é comparado. A memória que uma
-verificação não consegue ler é contabilizada, e o Borg oferece **A: Administrador**. Encare as
+verificação não consegue ler é contabilizada, e o Borg oferece **A Administrador**. Encare as
 conclusões como pistas, porque depuradores, profilers, atualizadores e ferramentas de segurança
 deixam os mesmos vestígios.
+
+### Analisar a memória com regras
+
+**Y**, no mapa de memória ou nas correspondências de uma pesquisa, analisa a memória que o próprio
+processo preencheu com as mesmas regras de uma análise de ficheiros: as do Borg e as da sua pasta de
+regras (consulte [Analisar ficheiros com regras](#scanning-files-with-rules)). Tal como **Cadeias**,
+lê a memória que não provém de ficheiros e a memória em que o processo pode escrever; no macOS, as
+regiões em que nunca escreveu também são ignoradas. Uma região sem nenhuma página em memória ou na
+swap não é lida, e no Linux as tabelas de páginas mostram que páginas o processo nunca tocou, pelo
+que essas também não são lidas. As páginas na swap são lidas, porque um payload pode esperar aí. A
+memória é lida em blocos de 16 MiB que se sobrepõem em 4 KiB, por isso uma correspondência que passa
+de um bloco para o seguinte continua a ser encontrada. Cada regra aparece uma vez por região, na sua
+primeira correspondência.
+
+As correspondências ocupam o painel da lista, com os alertas primeiro. Cada uma indica a regra e de
+onde vem, **regras do Borg** ou o seu ficheiro, depois os bytes que encontrou e o que a regra
+procura, e as linhas por baixo da lista indicam o que mais a poderia explicar. Selecionar uma
+correspondência pré-visualiza os bytes à sua volta, com a correspondência realçada. Os ficheiros de
+regras deixados de fora aparecem no fim, com a mensagem do compilador. **R** analisa de novo,
+**Ctrl-C** interrompe a análise e mantém o que encontrou, e **Esc** volta atrás. Uma análise lê no
+máximo 1 GiB, durante até 45 segundos, lista até 2000 correspondências e indica se parou antes do
+fim. A memória que não consegue ler é contabilizada, e o Borg oferece **A Administrador**, que corre
+a análise no programa auxiliar com a sua pasta de regras.
+
+Uma análise com regras é uma triagem: um olhar rápido sobre um processo ou uma pasta à procura de
+padrões que alguém descreveu. Não vigia o sistema, não bloqueia nada nem limpa, que é o papel da
+proteção de endpoints. Algumas coisas ficam fora do seu alcance:
+
+- O macOS protege a memória dos seus próprios programas e dos programas criados com o Hardened
+  Runtime contra todos os outros programas, administradores incluídos (consulte [Acesso de
+  administrador](#administrator-access)).
+- No Linux, `kernel.yama.ptrace_scope` decide de quem pode ler a memória. Com 1, como no Ubuntu, só
+  pode ler os seus próprios processos filhos, por isso o Borg oferece **A Administrador** para os
+  restantes. Com 3, ninguém pode ler outro processo, administradores incluídos.
+- Um rootkit de kernel pode esconder memória, ficheiros e processos de todos os programas, incluindo
+  o Borg, por isso uma análise limpa prova pouco.
+- Um programa comprimido ou cifrado só mostra o seu código real enquanto corre. Analisar a sua
+  memória nessa altura vê o que uma análise do seu ficheiro não consegue ver.
+
+O Borg lê a memória sem se ligar como depurador, com `process_vm_readv` no Linux e `mach_vm_read` no
+macOS, por isso o processo não vê nenhum tracer, que é o que a maioria das verificações
+anti-depuração procura. Os monitores que correm como administrador, como o auditd, as ferramentas
+eBPF e os clientes do Endpoint Security do macOS, podem mesmo assim registar as leituras. Uma
+análise de ficheiros abre todos os ficheiros que lê, o que `inotify` e `fanotify` reportam. No
+Linux, deixa como estava a hora de acesso dos ficheiros que lhe pertencem.
 
 ### Acesso de administrador
 
 Quando a leitura de um mapa de memória ou de uma captura está restrita, uma pesquisa não
 conseguiu ler parte da memória, ou o sistema recusa um sinal ou uma alteração de prioridade, o Borg
-oferece **A: Administrador**. No macOS, isto abre o pedido
+oferece **A Administrador**. No macOS, isto abre o pedido
 de autorização do sistema; no Linux, usa `pkexec` e precisa de um agente de autorização em
 execução. Apenas um auxiliar de curta duração corre com privilégios elevados. O próprio Borg
 continua a correr normalmente, e o auxiliar devolve apenas dados do mapa ou um número limitado de
@@ -1453,7 +1577,7 @@ bytes, ou envia o sinal ou a prioridade que escolheu.
 O macOS protege a memória dos seus próprios programas (System Integrity Protection) e dos programas
 compilados com o Hardened Runtime contra todos os outros programas, incluindo os administradores.
 O Borg obtém esta informação a partir da assinatura do programa: os detalhes do processo indicam
-**Memória protegida**, uma leitura recusada explica porquê, e **A: Administrador** não é oferecido,
+**Memória protegida**, uma leitura recusada explica porquê, e **A Administrador** não é oferecido,
 porque não ajudaria. Os mapas de memória e os ficheiros abertos destes programas continuam a ser
 mostrados. Também não é oferecido quando o Borg já está a correr como administrador. No Linux, a
 política de segurança pode ainda assim negar o acesso; o Borg mostra o erro e o monitor de

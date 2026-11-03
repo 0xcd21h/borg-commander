@@ -10,7 +10,8 @@ use super::form;
 use crate::{
     AppState, Effect,
     activity::{
-        Activity, ActivityPage, ActivityRequest, ActivitySort, CENSUS_LEGEND, SNAPSHOT_LIMIT, census_grid, chrome_rows,
+        Activity, ActivityPage, ActivityRequest, ActivitySort, CENSUS_LEGEND, FindingsReport, SNAPSHOT_LIMIT,
+        census_grid, chrome_rows,
     },
 };
 
@@ -92,10 +93,13 @@ fn filter_key(activity: &mut Activity, code: KeyCode) {
     activity.rebuild();
 }
 
-/// Whether a memory search or an integrity check is under way, which Ctrl-C stops.
+/// Whether a memory search, an integrity check or a rules scan is under way, which Ctrl-C stops.
 fn scanning(activity: &Activity) -> bool {
     activity.pending.as_ref().is_some_and(|(_, request)| {
-        matches!(request, ActivityRequest::Search { .. } | ActivityRequest::Integrity { .. })
+        matches!(
+            request,
+            ActivityRequest::Search { .. } | ActivityRequest::Integrity { .. } | ActivityRequest::Rules { .. }
+        )
     })
 }
 
@@ -124,12 +128,12 @@ fn pause(activity: &mut Activity) -> Vec<Effect> {
     if !activity.paused && activity.pending.is_none() { activity.request(ActivityRequest::Sample) } else { Vec::new() }
 }
 
-/// R reads again what the page shows: the integrity check, the snapshot, the regions or the
-/// open files, or else takes a sample.
+/// R reads again what the page shows: the check that found the findings, the snapshot, the
+/// regions or the open files, or else takes a sample.
 fn reload(activity: &mut Activity) -> Vec<Effect> {
     let process = activity.selected;
     let request = match activity.page {
-        ActivityPage::Integrity => process.map(|process| ActivityRequest::Integrity { process, admin: false }),
+        ActivityPage::Findings => activity.findings.as_ref().map(FindingsReport::check),
         ActivityPage::Snapshot => activity.recapture_request(),
         ActivityPage::Regions => process.map(|process| ActivityRequest::Regions { process, admin: false }),
         ActivityPage::Files | ActivityPage::FileDetails => {

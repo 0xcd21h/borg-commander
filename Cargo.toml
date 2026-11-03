@@ -20,6 +20,7 @@ borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
 borg-link = { path = "crates/borg-link" }
 borg-relay = { path = "crates/borg-relay" }
+borg-rules = { path = "crates/borg-rules" }
 borg-update = { path = "crates/borg-update" }
 borg-term = { path = "crates/borg-term" }
 borg-testkit = { path = "crates/borg-testkit" }
@@ -88,6 +89,7 @@ toml               = "1"
 unicode-width      = "0.2"
 two-face           = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 pulldown-cmark     = "0.13"
+boreal             = { version = "1.4", default-features = false, features = ["hash", "object"] }
 uzers              = "0.12"
 
 [workspace.lints.rust]

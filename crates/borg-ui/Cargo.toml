@@ -11,6 +11,7 @@ borg-i18n = { workspace = true }
 borg-drives = { workspace = true }
 borg-docker = { workspace = true }
 borg-core     = { workspace = true }
+borg-rules    = { workspace = true }
 borg-gfx      = { workspace = true }
 borg-jobs     = { workspace = true }
 borg-term     = { workspace = true }

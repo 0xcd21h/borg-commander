@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use borg_rules::{Problem, RuleMatch};
 use borg_vfs::Entry;
 
 use crate::{Action, AppState, Effect, LineInput, Overlay, Panel, Prompt, PromptPurpose, Side};
@@ -36,6 +37,9 @@ pub struct SearchProgress {
     pub unread: usize,
     pub limited: bool,
     pub cancelled: bool,
+    /// Rules a rules search runs, Borg's own included, and the rule files it left out.
+    pub rules: usize,
+    pub left_out: Vec<Problem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +77,7 @@ pub(crate) fn name_search(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResultSource {
     Collection(String),
-    Search { request: SearchRequest, progress: SearchProgress },
+    Search { request: SearchRequest, progress: Box<SearchProgress> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +97,8 @@ pub struct Results {
     pub collapsed: HashSet<String>,
     /// A contents search's first match in each file it found, by the file's path.
     pub lines: HashMap<PathBuf, crate::LineMatch>,
+    /// The rules each file a rules search found matched, worst first, by the file's path.
+    pub rule_hits: HashMap<PathBuf, Vec<RuleMatch>>,
 }
 
 /// Where a contents search found its first match in a file, and the query it found it with.
@@ -140,6 +146,7 @@ impl Results {
             rows: Vec::new(),
             collapsed: HashSet::new(),
             lines: HashMap::new(),
+            rule_hits: HashMap::new(),
         }
     }
 
@@ -156,9 +163,24 @@ impl Results {
         self.lines.get(path)
     }
 
-    /// Where the file at `path` opens on a contents search's result.
+    /// Whether the results come from scanning files with rules.
+    pub fn by_rules(&self) -> bool {
+        matches!(&self.source, ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Rules)
+    }
+
+    /// The rules the file at `path` matched, worst first.
+    pub fn rule_hits(&self, path: &Path) -> Option<&[RuleMatch]> {
+        self.rule_hits.get(path).map(Vec::as_slice)
+    }
+
+    /// Where the file at `path` opens on a contents search's result, or on the bytes the worst
+    /// rule it matched found.
     pub fn first_match(&self, path: &Path) -> Option<FirstMatch> {
-        Some(FirstMatch { query: self.contents()?.clone(), offset: self.line(path)?.offset })
+        if let Some(query) = self.contents() {
+            return Some(FirstMatch { query: query.clone(), offset: self.line(path)?.offset });
+        }
+        let evidence = self.rule_hits(path)?.iter().find_map(|found| found.evidence.as_ref())?;
+        Some(FirstMatch { query: evidence_query(&evidence.bytes)?, offset: evidence.offset })
     }
 
     pub fn title(&self) -> String {
@@ -169,6 +191,9 @@ impl Results {
             ResultSource::Collection(name) => tr!(collection_title, name = name),
             ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::FolderTotals => {
                 tr!(folder_sizes, request.query)
+            }
+            ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Rules => {
+                tr!(rules_search_title, query = request.query)
             }
             ResultSource::Search { request, .. } if let Some(contents) = &request.options.contents => {
                 tr!(contents_search_title, query = request.query, contents = contents.text)
@@ -334,7 +359,7 @@ pub(crate) fn start_search(state: &mut AppState, request: SearchRequest) -> Vec<
     let generation = state.next_generation();
     remember(state, side);
     state.panel_mut(side).open_results(
-        ResultSource::Search { request: request.clone(), progress: SearchProgress::default() },
+        ResultSource::Search { request: request.clone(), progress: Default::default() },
         Vec::new(),
         generation,
     );
@@ -607,12 +632,51 @@ pub(crate) fn found(state: &mut AppState, side: Side, generation: u64, found: Ve
     panel.receive(generation, entries, show_hidden);
 }
 
+/// Files a rules search found, each with the rules it matched.
+pub(crate) fn found_by_rules(state: &mut AppState, side: Side, generation: u64, found: Vec<(Entry, Vec<RuleMatch>)>) {
+    let show_hidden = state.settings.preferences.show_hidden;
+    let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let Some(results) = panel.results.as_mut() else { return };
+    let entries = found
+        .into_iter()
+        .map(|(entry, hits)| {
+            results.rule_hits.insert(entry.identity().to_path_buf(), hits);
+            entry
+        })
+        .collect();
+    panel.receive(generation, entries, show_hidden);
+}
+
+/// The query that finds a rule's evidence in the viewer, which looks within one line at a time:
+/// the evidence up to its first line break, as text, or as bytes when it is not text.
+fn evidence_query(bytes: &[u8]) -> Option<borg_view::Query> {
+    let line = bytes.split(|byte| matches!(byte, b'\n' | b'\r')).next().filter(|line| !line.is_empty())?;
+    let text = line.iter().all(|&byte| byte == b' ' || byte.is_ascii_graphic());
+    let (text, regex) = if text {
+        (String::from_utf8_lossy(line).into_owned(), false)
+    } else {
+        (format!("(?-u:{})", line.iter().map(|byte| format!("\\x{byte:02x}")).collect::<String>()), true)
+    };
+    Some(borg_view::Query { text, case: true, words: false, regex })
+}
+
+/// Takes in how far a search got. The first rule file a rules search leaves out shows in a
+/// notice, with why.
 pub(crate) fn progress(state: &mut AppState, side: Side, generation: u64, update: SearchProgress) {
     let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let mut notice = None;
     if let Some(Results { source: ResultSource::Search { progress, .. }, .. }) = &mut panel.results
         && !progress.cancelled
     {
-        *progress = update;
+        if progress.left_out.is_empty()
+            && let Some(problem) = update.left_out.first()
+        {
+            notice = Some(tr!(rule_file_left_out_notice, file = problem.file.display(), message = problem.message));
+        }
+        **progress = update;
+    }
+    if notice.is_some() {
+        state.notice = notice;
     }
 }
 
