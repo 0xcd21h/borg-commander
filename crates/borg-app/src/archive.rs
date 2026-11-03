@@ -1,5 +1,5 @@
 //! Archives in panels: their listings, kept while the archive file stays the same, and the jobs
-//! that unpack their entries into a folder or for the viewer.
+//! that unpack their entries into a folder, for the viewer or for the editor, and change them.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -13,10 +13,11 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use borg_archive::{Archive, Error, Index, Item, ItemKind, RAR_PROGRAMS, Tool, Unpack};
-use borg_core::{ArchiveMount, Msg, Password, Side, UnpackRequest};
+use borg_archive::{Archive, Change, Error, Index, Item, ItemKind, RAR_PROGRAMS, Report, Rewrite, Tool, Unpack};
+use borg_core::{ArchiveMount, Msg, Password, RewriteRequest, Side, UnpackRequest};
+use borg_drives::Drives;
 use borg_i18n::tr;
-use borg_jobs::{Control, Event, Outcome};
+use borg_jobs::{Control, Event, Outcome, Spec};
 use borg_vfs::{Entry, EntryKind, FolderUsage};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -28,6 +29,7 @@ const EXECUTABLE: u32 = 0o111;
 /// Only the user reads what Borg unpacks for the viewer.
 const PRIVATE_FOLDER: u32 = 0o700;
 const VIEW_PREFIX: &str = "view-";
+const EDIT_PREFIX: &str = "edit-";
 
 /// The size and time that tell whether an archive file changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,22 +208,90 @@ pub(crate) fn unpack(
     indexes: &Indexes,
     request: &UnpackRequest,
     target: &Path,
+    drives: &Drives,
     control: &Control,
     emit: &mut dyn FnMut(Event),
-) -> Outcome {
+) -> Report<String> {
     let tool = rar_tool();
     let archive =
         Archive { path: &request.archive, password: password(request.password.as_ref()), tool: tool.as_ref() };
     let index = match indexes.index(archive, &mut |_, _| !control.cancelled()) {
         Ok(index) => index,
-        Err(Error::NeedsPassword) => return Outcome::Failed(tr!(archive_extract_password).into()),
-        Err(_) if control.cancelled() => return Outcome::Cancelled { done: Default::default() },
-        Err(error) => return Outcome::Failed(error.to_string()),
+        Err(Error::NeedsPassword) => return Report::whole(Outcome::Failed(tr!(archive_extract_password).into())),
+        Err(_) if control.cancelled() => return Report::whole(Outcome::Cancelled { done: Default::default() }),
+        Err(error) => return Report::whole(Outcome::Failed(error.to_string())),
     };
     if index.encrypted() && archive.password.is_none() {
-        return Outcome::Failed(tr!(archive_extract_password).into());
+        return Report::whole(Outcome::Failed(tr!(archive_extract_password).into()));
     }
-    Unpack { archive, paths: &request.paths, base: &request.base, target }.run(&index, control, emit)
+    Unpack { archive, paths: &request.paths, base: &request.base, target }.run(&index, drives, control, emit)
+}
+
+/// Moves what `request` names out of the archive into `target`: each entry leaves the archive
+/// once it unpacked whole.
+pub(crate) fn move_out(
+    indexes: &Indexes,
+    request: &UnpackRequest,
+    target: &Path,
+    drives: &Drives,
+    control: &Control,
+    emit: &mut dyn FnMut(Event),
+) -> Outcome {
+    let unpacked = unpack(indexes, request, target, drives, control, emit);
+    let Outcome::Done { .. } = unpacked.outcome else { return unpacked.outcome };
+    let paths: Vec<String> = request.paths.iter().filter(|path| !unpacked.kept.contains(path)).cloned().collect();
+    if paths.is_empty() {
+        return unpacked.outcome;
+    }
+    let removal = Change::Remove { paths };
+    match change(indexes, &request.archive, request.password.as_ref(), &removal, drives, control, emit).outcome {
+        Outcome::Done { .. } => unpacked.outcome,
+        other => other,
+    }
+}
+
+/// Changes the archive as `request` says. Files moved into it are deleted once each is in it
+/// whole.
+pub(crate) fn rewrite(
+    indexes: &Indexes,
+    request: &RewriteRequest,
+    drives: &Drives,
+    control: &Control,
+    emit: &mut dyn FnMut(Event),
+) -> Outcome {
+    let report = change(indexes, &request.archive, request.password.as_ref(), &request.change, drives, control, emit);
+    if let (Outcome::Failed(error), Change::Replace { source, .. }) = (&report.outcome, &request.change) {
+        return Outcome::Failed(tr!(archive_edit_kept, error = error, path = source.display()));
+    }
+    let Outcome::Done { .. } = report.outcome else { return report.outcome };
+    let sources: Vec<PathBuf> =
+        request.originals.iter().filter(|original| !report.kept.contains(original)).cloned().collect();
+    if sources.is_empty() {
+        return report.outcome;
+    }
+    let deleted = borg_jobs::run(&Spec::Delete { sources }, drives, control, &mut |event| {
+        if !matches!(event, Event::Finished(_)) {
+            emit(event);
+        }
+    });
+    match deleted {
+        Outcome::Done { .. } => report.outcome,
+        other => other,
+    }
+}
+
+fn change(
+    indexes: &Indexes,
+    path: &Path,
+    given: Option<&Password>,
+    change: &Change,
+    drives: &Drives,
+    control: &Control,
+    emit: &mut dyn FnMut(Event),
+) -> Report<PathBuf> {
+    let archive = Archive { path, password: password(given), tool: None };
+    let list = |archive: Archive<'_>, watch: borg_archive::Watch| indexes.index(archive, watch);
+    Rewrite { archive, change }.run(&list, drives, control, emit)
 }
 
 /// A file unpacked for the viewer, in a folder of its own that goes away with it.
@@ -236,23 +306,48 @@ pub(crate) fn unpack_for_viewer(
     indexes: &Indexes,
     request: &UnpackRequest,
     scratch: &Path,
+    drives: &Drives,
     control: &Control,
     emit: &mut dyn FnMut(Event),
 ) -> (Outcome, Option<Unpacked>) {
-    let folder = DirBuilder::new()
-        .recursive(true)
-        .mode(PRIVATE_FOLDER)
-        .create(scratch)
-        .and_then(|()| tempfile::Builder::new().prefix(VIEW_PREFIX).tempdir_in(scratch));
-    let folder = match folder {
+    let folder = match scratch_folder(scratch, VIEW_PREFIX) {
         Ok(folder) => folder,
         Err(error) => return (Outcome::Failed(format!("{}: {error}", scratch.display())), None),
     };
-    let outcome = unpack(indexes, request, folder.path(), control, emit);
-    let name = request.paths.first().map(|path| borg_archive::base(path)).unwrap_or_default();
-    let path = folder.path().join(name);
+    let outcome = unpack(indexes, request, folder.path(), drives, control, emit).outcome;
+    let path = folder.path().join(unpacked_name(request));
     let unpacked = matches!(outcome, Outcome::Done { skipped: 0, .. }).then_some(Unpacked { _folder: folder, path });
     (outcome, unpacked)
+}
+
+/// Unpacks the one file `request` names into a new folder in `scratch` for the editor, which
+/// saves into it while the file is open.
+pub(crate) fn unpack_for_editor(
+    indexes: &Indexes,
+    request: &UnpackRequest,
+    scratch: &Path,
+    drives: &Drives,
+    control: &Control,
+    emit: &mut dyn FnMut(Event),
+) -> (Outcome, Option<PathBuf>) {
+    let folder = match scratch_folder(scratch, EDIT_PREFIX) {
+        Ok(folder) => folder,
+        Err(error) => return (Outcome::Failed(format!("{}: {error}", scratch.display())), None),
+    };
+    let outcome = unpack(indexes, request, folder.path(), drives, control, emit).outcome;
+    let unpacked =
+        matches!(outcome, Outcome::Done { skipped: 0, .. }).then(|| folder.keep().join(unpacked_name(request)));
+    (outcome, unpacked)
+}
+
+/// A new private folder in `scratch`, Borg's folder for files unpacked to show or edit.
+fn scratch_folder(scratch: &Path, prefix: &str) -> std::io::Result<tempfile::TempDir> {
+    DirBuilder::new().recursive(true).mode(PRIVATE_FOLDER).create(scratch)?;
+    tempfile::Builder::new().prefix(prefix).tempdir_in(scratch)
+}
+
+fn unpacked_name(request: &UnpackRequest) -> &str {
+    request.paths.first().map(|path| borg_archive::base(path)).unwrap_or_default()
 }
 
 /// Sets `stopped` when dropped, as when the task that waits for a listing is aborted.

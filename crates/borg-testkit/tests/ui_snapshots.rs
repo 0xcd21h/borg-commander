@@ -828,6 +828,7 @@ fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
 const PASSWORD_SETTLED: Duration = Duration::from_millis(1300);
 const ARCHIVE: &str = "/home/me/projects/borg/site.zip";
 const GIB: u64 = 1 << 30;
+const MIB: u64 = 1 << 20;
 
 fn archive_stage() -> Result<Stage> {
     let left = vec![
@@ -902,6 +903,20 @@ fn an_archive_reads_opens_asks_for_its_password_and_warns_before_unpacking() -> 
     stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(room) });
     let buffer = stage.render(stage.started)?;
     check("archive_room", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('u')));
+    let slow = borg_jobs::Ask::Slow {
+        path: PathBuf::from(ARCHIVE),
+        file: true,
+        bytes: 64 * GIB,
+        estimate: Duration::from_secs(25 * 60),
+        kind: borg_drives::DriveKind::HardDrive,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(slow) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "About 25 minutes for 64G on a hard drive.")?;
+    ensure_text(&buffer, "Always for this file")?;
+    check("archive_slow", &stage, buffer)?;
 
     let (stage, buffer) = typed_password("hunter2")?;
     anyhow::ensure!(!describe(&buffer).contains("hunter2"), "the password must stay hidden");
@@ -1107,12 +1122,26 @@ fn info_panel_lists_file_facts() -> Result<()> {
         items: None,
         disk: Some((128_849_018_880, 499_963_174_912)),
         backup: None,
+        drive: Some(borg_drives::Facts {
+            drive: borg_drives::Drive {
+                id: "disk1".into(),
+                kind: borg_drives::DriveKind::SolidState,
+                filesystem: "apfs".into(),
+                clones: true,
+            },
+            rates: borg_drives::Rates { read: 2_400 * MIB, write: 1_800 * MIB },
+            measured: true,
+            asks: false,
+        }),
     };
     peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "rwxr-xr-x 0755")?;
     ensure_text(&buffer, "me:staff")?;
     ensure_text(&buffer, "120G of 466G")?;
+    ensure_text(&buffer, "SSD · apfs · measured speed")?;
+    ensure_text(&buffer, "reads 2.3G/s, writes 1.8G/s")?;
+    ensure_text(&buffer, "Borg starts them at once")?;
     check("info_panel", &stage, buffer)
 }
 
@@ -3896,6 +3925,7 @@ fn time_machine_marks_excluded_entries_and_lists_exclusions_by_kind() -> Result<
         items: Some(3),
         disk: None,
         backup: Some(Exclusion::Sticky),
+        drive: None,
     };
     peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
     let buffer = stage.render(stage.started)?;

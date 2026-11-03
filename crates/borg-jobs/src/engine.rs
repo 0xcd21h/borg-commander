@@ -8,8 +8,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use borg_drives::{Drives, Work};
+
 use crate::{
-    Ask, Control, Decision, Event, Outcome, Progress, Spec, Totals,
+    Ask, Control, Decision, Event, Outcome, Pace, Progress, Spec, Totals,
     control::Stopped,
     plan::{Item, Kind, Root, scan},
 };
@@ -23,6 +25,8 @@ const INTO_ITSELF: &str = "cannot copy a folder into itself";
 const BUFFERED_FILE_BYTES: usize = 1024 * 1024;
 const BATCH_BYTES: usize = 64 * 1024 * 1024;
 const BATCH_FILES: usize = 4096;
+/// How long a copy may take before Borg asks first.
+pub const COPY_PATIENCE: Duration = Duration::from_secs(120);
 
 struct BufferedFile<'a> {
     item: &'a Item,
@@ -80,6 +84,7 @@ enum Sticky {
 }
 
 struct Job<'a> {
+    drives: &'a Drives,
     control: &'a Control,
     emit: &'a mut dyn FnMut(Event),
     done: Totals,
@@ -91,8 +96,9 @@ struct Job<'a> {
     reported: Option<Instant>,
 }
 
-pub fn run(spec: &Spec, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
+pub fn run(spec: &Spec, drives: &Drives, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
     let mut job = Job {
+        drives,
         control,
         emit,
         done: Totals::default(),
@@ -110,6 +116,19 @@ pub fn run(spec: &Spec, control: &Control, emit: &mut dyn FnMut(Event)) -> Outco
     };
     (job.emit)(Event::Finished(outcome.clone()));
     outcome
+}
+
+/// What a copy, or a move to another drive, reads and writes; a delete or a move on one drive
+/// moves no data.
+fn pace<'s>(drives: &'s Drives, spec: &'s Spec, bytes: u64) -> Option<Pace<'s>> {
+    let (Spec::Copy { sources, target, .. } | Spec::Move { sources, target }) = spec else { return None };
+    let from = drives.drive(sources.first()?);
+    let to = drives.drive(target);
+    if matches!(spec, Spec::Move { .. }) && from.id == to.id {
+        return None;
+    }
+    let work = Work::default().read(&from, bytes).write(&to, bytes);
+    Some(Pace { drives, work, path: target, file: false, patience: COPY_PATIENCE })
 }
 
 fn exists(path: &Path) -> bool {
@@ -158,6 +177,13 @@ impl Job<'_> {
     fn execute(&mut self, spec: &Spec) -> Result<(), Halt> {
         let roots = self.scan(spec.sources())?;
         self.total = roots.iter().map(Root::totals).fold(Totals::default(), Totals::add);
+        let pace = pace(self.drives, spec, self.total.bytes);
+        if let Some(pace) = &pace
+            && !pace.ask(self.control, self.emit)
+        {
+            return Err(Halt::Stopped);
+        }
+        let started = Instant::now();
         let single = roots.len() == 1;
         let mut batch = Batch::default();
         for root in &roots {
@@ -171,6 +197,9 @@ impl Job<'_> {
         }
         self.flush_batch(&mut batch)?;
         self.report(true);
+        if let Some(pace) = &pace {
+            pace.learn(started);
+        }
         Ok(())
     }
 
@@ -220,7 +249,7 @@ impl Job<'_> {
         (self.emit)(Event::Asking(Ask::Failure { path: path.to_path_buf(), message: error.to_string() }));
         match self.control.ask() {
             Decision::Skip | Decision::KeepBoth | Decision::Overwrite | Decision::Proceed => Ok(true),
-            Decision::SkipAll | Decision::OverwriteAll => {
+            Decision::SkipAll | Decision::OverwriteAll | Decision::Always(_) => {
                 self.errors = Sticky::Always;
                 Ok(true)
             }
@@ -282,7 +311,7 @@ impl Job<'_> {
                     return Ok(Some(dest));
                 }
                 Decision::Skip | Decision::Proceed => return Ok(None),
-                Decision::SkipAll => {
+                Decision::SkipAll | Decision::Always(_) => {
                     self.overwrite = Sticky::Never;
                     return Ok(None);
                 }

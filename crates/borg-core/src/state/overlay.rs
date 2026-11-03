@@ -48,9 +48,15 @@ pub enum PromptPurpose {
     DockerCopy {
         sources: Vec<PathBuf>,
     },
-    /// Copy out of the archive the active panel shows.
+    /// Copy out of the archive the active panel shows, or move out of it or within it.
     Unpack {
         sources: Vec<PathBuf>,
+        moving: bool,
+    },
+    /// Copy or move into the archive the other panel shows.
+    Pack {
+        sources: Vec<PathBuf>,
+        moving: bool,
     },
     /// The password for the archive the panel on `side` opens.
     ArchivePassword {

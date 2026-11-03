@@ -46,6 +46,8 @@ pub struct Facts {
     pub disk: Option<(u64, u64)>,
     /// How Time Machine treats it, on macOS.
     pub backup: Option<crate::Exclusion>,
+    /// What Borg knows of the drive it lies on.
+    pub drive: Option<borg_drives::Facts>,
 }
 
 #[derive(Debug, Clone)]

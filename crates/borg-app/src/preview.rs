@@ -29,8 +29,10 @@ pub struct Loader {
 }
 
 impl Loader {
-    pub fn new(messages: UnboundedSender<Msg>) -> Self {
-        Self::with_load(messages, crate::peek::peek)
+    pub fn new(messages: UnboundedSender<Msg>, drives: borg_drives::Drives) -> Self {
+        Self::with_load(messages, move |aside, path, at, size, cell, cancelled| {
+            crate::peek::peek(aside, path, at, size, cell, cancelled, &drives)
+        })
     }
 
     fn with_load<F>(messages: UnboundedSender<Msg>, load: F) -> Self

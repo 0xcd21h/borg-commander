@@ -201,6 +201,14 @@ pub enum Msg {
     },
     /// A file read for the editor in a slot, or why it was not.
     EditorOpened(crate::EditorSlot, Result<crate::EditorFile, crate::OpenError>),
+    /// How many answers keep Borg from asking before long jobs, after a job may have kept one.
+    KeptAnswers(usize),
+    /// The editor in `slot` opened a file unpacked from an archive, which saves write back.
+    ArchiveEditorOpened {
+        slot: crate::EditorSlot,
+        packed: crate::PackedFile,
+        result: Result<crate::EditorFile, crate::OpenError>,
+    },
     /// The save of the editor in a slot landed, with the file's new stamp, or did not.
     EditorSaved(crate::EditorSlot, Result<crate::FileStamp, crate::SaveError>),
     /// What the viewer's search `id` found, or why it could not look.
@@ -429,6 +437,13 @@ pub enum Effect {
         id: u64,
         request: crate::UnpackRequest,
     },
+    /// A job that changes an archive.
+    StartRewrite {
+        id: u64,
+        request: crate::RewriteRequest,
+    },
+    /// Forgets the answers that keep Borg from asking before long jobs.
+    AskAgain,
     /// A copy job between a container and a host folder; `inbound` copies into the container.
     StartDockerCopy {
         id: u64,

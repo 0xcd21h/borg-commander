@@ -58,7 +58,7 @@ pub use agent::{
 };
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
-pub use archive::{ArchiveMount, Password, UnpackRequest, UnpackTarget};
+pub use archive::{ArchiveMount, PackedFile, Password, RewriteRequest, UnpackRequest, UnpackTarget};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked, land_on_match};
 pub use backup::{
     Backup, BackupChange, BackupEvent, BackupItem, BackupList, BackupListing, BackupPanel, BackupRequest, BackupTab,

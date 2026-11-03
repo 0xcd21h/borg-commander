@@ -244,7 +244,7 @@ fn unpacked_views(fixture: &Fixture) -> Vec<PathBuf> {
 }
 
 #[test]
-fn an_archive_opens_as_a_folder_views_and_copies_files_out() -> Result<()> {
+fn an_archive_opens_as_a_folder_views_deletes_and_copies_files_out() -> Result<()> {
     let fixture = fixture()?;
     site_zip(&fixture)?;
     let mut app = Session::builder(BORG, &fixture).shell(Shell::Bash).label("archive").spawn()?;
@@ -265,8 +265,13 @@ fn an_archive_opens_as_a_folder_views_and_copies_files_out() -> Result<()> {
     app.wait_until("back in the archive", |s| s.contains("▤ zip"))?;
 
     app.send(keys::f(8))?;
-    app.wait_text("read only")?;
-    app.send(keys::up())?;
+    app.wait_text("permanently")?;
+    app.send(keys::enter())?;
+    app.wait_until("readme gone from the archive", |s| s.contains("▤ zip") && !s.contains("readme.md"))?;
+    let left = zip::ZipArchive::new(fs::File::open(fixture.work().join("site.zip"))?)?;
+    ensure!(left.index_for_name("readme.md").is_none(), "the archive still holds readme.md");
+    ensure!(left.index_for_name("docs/guide.md").is_some(), "the archive lost docs/guide.md");
+    app.send(keys::key(KeyCode::End))?;
     app.wait_until("cursor on docs", |s| highlighted(s, "/ docs"))?;
     app.send(keys::f(5))?;
     app.wait_text("Copy")?;

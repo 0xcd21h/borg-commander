@@ -72,6 +72,9 @@ pub struct App {
     remote_listings: crate::remote_fs::Listings,
     /// The listings of the archives the panels showed lately.
     archives: crate::archive::Indexes,
+    /// What Borg knows of the drives jobs read and write, and the answers it keeps about long
+    /// jobs.
+    drives: borg_drives::Drives,
     remote_catalog: Option<JoinHandle<()>>,
     remote_consoles: crate::remote_console::Clients,
     console_server: crate::remote_console::Server,
@@ -271,7 +274,11 @@ impl App {
     }
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
-        let effects = update(&mut self.state, msg, Instant::now());
+        let finished = matches!(msg, Msg::Job { event: borg_jobs::Event::Finished(_), .. });
+        let mut effects = update(&mut self.state, msg, Instant::now());
+        if finished {
+            effects.extend(update(&mut self.state, Msg::KeptAnswers(self.drives.kept()), Instant::now()));
+        }
         if self.state.activity.side.is_none() || self.state.activity.pending.is_none() {
             self.monitor.cancel();
         }

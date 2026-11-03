@@ -3,6 +3,8 @@ use std::{
     time::Instant,
 };
 
+use borg_archive::Format;
+use borg_drives::{DriveKind, Remember};
 use borg_i18n::tr;
 use borg_jobs::{Ask, Decision, Event, Outcome};
 use borg_term::{Foreground, PromptState, ShellSignal, TermMode};
@@ -11,13 +13,14 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::*;
 use crate::{
-    Action, Elevation, Installer, JobCommand, Msg, PackageManager, PanelSetup, Seek, Settings, ShellView, Startup,
-    ThemeChoice, Tool, update,
+    Action, EditorFile, Elevation, FileStamp, Installer, JobCommand, LineInput, Msg, PackageManager, PanelSetup, Seek,
+    Settings, ShellView, Startup, ThemeChoice, Tool, update,
 };
 
 const HOME: &str = "/home";
 const OTHER: &str = "/tmp";
 const ARCHIVE: &str = "/home/site.zip";
+const PHOTO: &str = "/tmp/photo.jpg";
 const SECRET: &str = "s3cr3t-words";
 const COLS: u16 = 100;
 const ROWS: u16 = 30;
@@ -76,7 +79,8 @@ fn setup() -> (AppState, Instant) {
     let (mut state, effects) = AppState::new(startup, COLS, ROWS, settings, crate::Appearance::new(themes, 0), now);
     for effect in &effects {
         let Effect::List { side, .. } = effect else { continue };
-        let entries = if *side == Side::Left { vec![file("site.zip"), file("notes.txt")] } else { Vec::new() };
+        let entries =
+            if *side == Side::Left { vec![file("site.zip"), file("notes.txt")] } else { vec![file("photo.jpg")] };
         list(&mut state, std::slice::from_ref(effect), &entries, now);
     }
     let view = ShellView {
@@ -104,12 +108,15 @@ fn press(state: &mut AppState, code: KeyCode, modifiers: KeyModifiers, now: Inst
 
 /// Opens the archive in the left panel and lists `entries` at its top.
 fn opened(entries: &[Entry]) -> (AppState, Instant) {
+    opened_as(Format::Zip, entries)
+}
+
+fn opened_as(format: Format, entries: &[Entry]) -> (AppState, Instant) {
     let (mut state, now) = setup();
     hover(&mut state, "site.zip");
     let effects = crate::actions::perform(&mut state, Action::Open, now);
     let (side, generation, dir) = listing(&effects).expect("the archive is listed");
     assert_eq!((side, dir), (Side::Left, Path::new(ARCHIVE)));
-    let format = borg_archive::Format::Zip;
     update(&mut state, Msg::ArchiveOpened { side, generation, format, left_out: 0 }, now);
     list(&mut state, &effects, entries, now);
     (state, now)
@@ -117,6 +124,37 @@ fn opened(entries: &[Entry]) -> (AppState, Instant) {
 
 fn mount(state: &AppState) -> Option<&ArchiveMount> {
     state.panel(Side::Left).archive.as_ref()
+}
+
+/// Answers the prompt on screen with `text`.
+fn answer(state: &mut AppState, text: &str, now: Instant) -> Vec<Effect> {
+    let Some(Overlay::Prompt(prompt)) = &mut state.overlay else { panic!("a prompt") };
+    prompt.input = LineInput::new(text);
+    press(state, KeyCode::Enter, KeyModifiers::NONE, now)
+}
+
+/// The change to the archive `effects` start, with the kind of job it runs in.
+fn rewrite_in(state: &AppState, effects: &[Effect]) -> (RewriteRequest, JobKind) {
+    let Some((id, request)) = effects.iter().find_map(|effect| match effect {
+        Effect::StartRewrite { id, request } => Some((*id, request.clone())),
+        _ => None,
+    }) else {
+        panic!("a change to the archive: {effects:?}")
+    };
+    let kind = state.jobs.iter().find(|job| job.id == id).map(|job| job.kind).expect("the job runs");
+    (request, kind)
+}
+
+/// Whether the menu item that asks before long jobs again can be chosen.
+fn ask_again(state: &AppState) -> Option<bool> {
+    crate::menu::menus(state).iter().flat_map(|menu| &menu.entries).find_map(|entry| match entry {
+        crate::MenuEntry::Item(item) if item.action == Action::AskAgain => Some(item.enabled),
+        _ => None,
+    })
+}
+
+fn change_of(change: Change) -> RewriteRequest {
+    RewriteRequest { archive: ARCHIVE.into(), password: None, change, originals: Vec::new() }
 }
 
 #[test]
@@ -201,18 +239,155 @@ fn an_encrypted_archive_asks_for_its_password_and_never_shows_it() {
 }
 
 #[test]
-fn archives_open_read_only() {
-    let (mut state, now) = opened(&[file("readme.md")]);
+fn delete_and_new_folders_change_the_archive() {
+    let (mut state, now) = opened(&[folder("docs"), file("readme.md")]);
     hover(&mut state, "readme.md");
-    for action in [Action::Delete, Action::Move, Action::Mkdir, Action::Edit, Action::QuickView, Action::Compress] {
+    crate::actions::perform(&mut state, Action::Delete, now);
+    assert!(matches!(state.overlay, Some(Overlay::Confirm(_))));
+    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
+    let removal = Change::Remove { paths: vec!["readme.md".into()] };
+    assert_eq!(rewrite_in(&state, &effects), (change_of(removal), JobKind::Delete));
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    let effects = answer(&mut state, "drafts", now);
+    let folder = Change::Folder { path: "drafts".into() };
+    assert_eq!(rewrite_in(&state, &effects), (change_of(folder), JobKind::ArchiveFolder));
+}
+
+#[test]
+fn f6_in_an_archive_renames_inside_it_or_moves_entries_out() {
+    let (mut state, now) = opened(&[folder("docs"), file("readme.md")]);
+    hover(&mut state, "readme.md");
+    crate::actions::perform(&mut state, Action::Move, now);
+    let effects = answer(&mut state, "docs", now);
+    let moved = Change::Move { paths: vec!["readme.md".into()], to: "docs".into() };
+    assert_eq!(rewrite_in(&state, &effects), (change_of(moved), JobKind::Move));
+
+    crate::actions::perform(&mut state, Action::Move, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("the move prompt") };
+    assert_eq!(prompt.input.text(), OTHER);
+    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
+    let Some(Effect::StartUnpack { request, .. }) =
+        effects.iter().find(|effect| matches!(effect, Effect::StartUnpack { .. }))
+    else {
+        panic!("an unpack job: {effects:?}")
+    };
+    assert_eq!(request.paths, ["readme.md"]);
+    assert_eq!(request.target, UnpackTarget::Folder(OTHER.into()));
+    assert!(request.remove, "the entries leave the archive");
+}
+
+#[test]
+fn f5_and_f6_from_a_folder_put_files_into_the_archive() {
+    let (mut state, now) = opened(&[folder("docs")]);
+    state.active = Side::Right;
+    hover(&mut state, "photo.jpg");
+    crate::actions::perform(&mut state, Action::Copy, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("the copy prompt") };
+    assert_eq!(prompt.input.text(), ARCHIVE);
+    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
+    let added = || Change::Add { sources: vec![PHOTO.into()], into: String::new() };
+    assert_eq!(rewrite_in(&state, &effects), (change_of(added()), JobKind::Pack));
+
+    crate::actions::perform(&mut state, Action::Move, now);
+    let effects = answer(&mut state, &format!("{ARCHIVE}/docs"), now);
+    let into_docs = Change::Add { sources: vec![PHOTO.into()], into: "docs".into() };
+    let moved = RewriteRequest { originals: vec![PHOTO.into()], ..change_of(into_docs) };
+    assert_eq!(rewrite_in(&state, &effects), (moved, JobKind::Move));
+}
+
+#[test]
+fn archives_borg_does_not_write_stay_read_only() {
+    let (mut state, now) = opened_as(Format::Rar, &[file("readme.md")]);
+    hover(&mut state, "readme.md");
+    let read_only = tr!(archive_read_only, format = Format::Rar.label());
+    for action in [Action::Delete, Action::Move, Action::Mkdir, Action::Edit] {
         state.notice = None;
         assert!(crate::actions::perform(&mut state, action, now).is_empty(), "{action:?}");
-        assert_eq!(state.notice.as_deref(), Some(tr!(archive_read_only)), "{action:?}");
+        assert_eq!(state.notice.as_deref(), Some(read_only.as_str()), "{action:?}");
     }
     state.active = Side::Right;
     state.notice = None;
-    assert!(crate::actions::perform(&mut state, Action::Copy, now).is_empty(), "nothing copies into an archive");
-    assert_eq!(state.notice.as_deref(), Some(tr!(archive_read_only)));
+    assert!(crate::actions::perform(&mut state, Action::Copy, now).is_empty(), "nothing copies into a RAR archive");
+    assert_eq!(state.notice.as_deref(), Some(read_only.as_str()));
+}
+
+#[test]
+fn what_an_archive_cannot_do_says_so() {
+    let (mut state, now) = opened(&[file("readme.md")]);
+    hover(&mut state, "readme.md");
+    for action in [Action::QuickView, Action::Compress] {
+        state.notice = None;
+        assert!(crate::actions::perform(&mut state, action, now).is_empty(), "{action:?}");
+        assert_eq!(state.notice.as_deref(), Some(tr!(archive_unsupported)), "{action:?}");
+    }
+}
+
+#[test]
+fn f4_edits_a_file_of_the_archive_and_each_save_writes_it_back() {
+    let (mut state, now) = opened(&[file("readme.md")]);
+    hover(&mut state, "readme.md");
+    let shown = PathBuf::from("/home/site.zip/readme.md");
+    let slot = EditorSlot::Screen;
+    let effects = crate::actions::perform(&mut state, Action::Edit, now);
+    let Some(Effect::StartUnpack { request, .. }) =
+        effects.iter().find(|effect| matches!(effect, Effect::StartUnpack { .. }))
+    else {
+        panic!("an unpack job: {effects:?}")
+    };
+    assert_eq!(request.target, UnpackTarget::Editor { shown: shown.clone(), slot });
+
+    let scratch = PathBuf::from("/run/borg/archive-view/edit-1/readme.md");
+    let text = String::from("hello");
+    let stamp = FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let packed =
+        PackedFile { archive: ARCHIVE.into(), password: None, entry: "readme.md".into(), shown: shown.clone() };
+    let file = EditorFile { path: scratch.clone(), text, stamp };
+    update(&mut state, Msg::ArchiveEditorOpened { slot, packed, result: Ok(file) }, now);
+    assert!(state.opening.is_none());
+    assert_eq!(state.editor.as_ref().map(crate::Editor::shown_path), Some(shown.as_path()));
+
+    press(&mut state, KeyCode::Char('!'), KeyModifiers::NONE, now);
+    let effects = press(&mut state, KeyCode::F(2), KeyModifiers::NONE, now);
+    assert!(matches!(&effects[..], [Effect::SaveFile { path, .. }] if *path == scratch), "{effects:?}");
+    let effects = update(&mut state, Msg::EditorSaved(slot, Ok(stamp)), now);
+    let replaced = Change::Replace { path: "readme.md".into(), source: scratch };
+    assert_eq!(rewrite_in(&state, &effects), (change_of(replaced), JobKind::Save));
+    let note = state.editor.as_ref().and_then(|editor| editor.note.clone());
+    assert_eq!(note, Some(tr!(editor_saved_into_archive, name = "site.zip")));
+}
+
+#[test]
+fn a_long_job_asks_and_an_always_answer_can_be_undone_from_the_menu() {
+    let (mut state, now) = opened(&[file("readme.md")]);
+    hover(&mut state, "readme.md");
+    crate::actions::perform(&mut state, Action::Delete, now);
+    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
+    let Some(id) = effects.iter().find_map(|effect| match effect {
+        Effect::StartRewrite { id, .. } => Some(*id),
+        _ => None,
+    }) else {
+        panic!("a change to the archive")
+    };
+    let ask = Ask::Slow {
+        path: ARCHIVE.into(),
+        file: true,
+        bytes: 1 << 33,
+        estimate: std::time::Duration::from_secs(600),
+        kind: DriveKind::HardDrive,
+    };
+    update(&mut state, Msg::Job { id, event: Event::Asking(ask) }, now);
+    assert!(matches!(state.overlay, Some(Overlay::Question(_))));
+    let effects = press(&mut state, KeyCode::Char('f'), KeyModifiers::NONE, now);
+    let always = Decision::Always(Remember::File);
+    assert_eq!(effects, vec![Effect::JobControl { id, command: JobCommand::Answer(always) }]);
+
+    assert_eq!(ask_again(&state), Some(false), "nothing to undo yet");
+    update(&mut state, Msg::KeptAnswers(1), now);
+    assert_eq!(ask_again(&state), Some(true));
+    assert_eq!(crate::actions::perform(&mut state, Action::AskAgain, now), vec![Effect::AskAgain]);
+    assert_eq!(state.kept_answers, 0);
+    assert_eq!(state.notice.as_deref(), Some(tr!(asking_again)));
 }
 
 #[test]
@@ -240,6 +415,7 @@ fn view_unpacks_the_file_for_the_viewer_and_esc_stops_it() {
         paths: vec!["docs/guide.md".into()],
         base: "docs".into(),
         target: UnpackTarget::Viewer { shown: shown.clone() },
+        remove: false,
     };
     assert_eq!(request, &expected);
     assert_eq!(state.opening.as_ref(), Some(&shown));
@@ -310,6 +486,7 @@ fn extract_unpacks_the_whole_archive_here_or_into_the_other_panel() {
         paths: vec![String::new()],
         base: String::new(),
         target: UnpackTarget::Folder(target.into()),
+        remove: false,
     };
     for (action, target, side) in
         [(Action::ExtractHere, HOME, Side::Left), (Action::ExtractToOther, OTHER, Side::Right)]

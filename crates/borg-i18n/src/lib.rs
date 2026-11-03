@@ -121,6 +121,9 @@ pub enum Count {
     Error,
     Region,
     Packet,
+    Second,
+    Minute,
+    Hour,
 }
 
 pub fn count(count: usize, noun: Count) -> String {
@@ -133,6 +136,9 @@ pub fn count(count: usize, noun: Count) -> String {
             Count::Error => tr!(count_error_few, count = count),
             Count::Region => tr!(count_region_few, count = count),
             Count::Packet => tr!(count_packet_few, count = count),
+            Count::Second => tr!(count_second_few, count = count),
+            Count::Minute => tr!(count_minute_few, count = count),
+            Count::Hour => tr!(count_hour_few, count = count),
         };
     }
     match (noun, singular) {
@@ -148,6 +154,12 @@ pub fn count(count: usize, noun: Count) -> String {
         (Count::Region, false) => tr!(count_region_many, count = count),
         (Count::Packet, true) => tr!(count_packet_one, count = count),
         (Count::Packet, false) => tr!(count_packet_many, count = count),
+        (Count::Second, true) => tr!(count_second_one, count = count),
+        (Count::Second, false) => tr!(count_second_many, count = count),
+        (Count::Minute, true) => tr!(count_minute_one, count = count),
+        (Count::Minute, false) => tr!(count_minute_many, count = count),
+        (Count::Hour, true) => tr!(count_hour_one, count = count),
+        (Count::Hour, false) => tr!(count_hour_many, count = count),
     }
 }
 

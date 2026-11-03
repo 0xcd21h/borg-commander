@@ -111,7 +111,12 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         Msg::ShellExited => vec![Effect::Quit],
 
         Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
-        Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result),
+        Msg::KeptAnswers(kept) => {
+            state.kept_answers = kept;
+            Vec::new()
+        }
+        Msg::ArchiveEditorOpened { slot, packed, result } => crate::archive::editor_opened(state, slot, packed, result),
+        Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result, now),
         Msg::Opened(viewer) => crate::viewer::opened(state, viewer),
         Msg::OpenFailed { path, notice } => {
             crate::viewer::failed(state, path, notice);

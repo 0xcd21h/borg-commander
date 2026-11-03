@@ -6,17 +6,30 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use borg_drives::{Drive, DriveKind, Drives, Rates};
 use borg_jobs::{Ask, Control, Decision, Event, Outcome};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::*;
 use crate::{format::sniff, index::Item as RawItem, name::clean};
 
+mod write;
+
 const HELLO: &[u8] = b"hello archive\n";
 const SECRET: &str = "open sesame";
 
 fn index(path: &Path) -> Index {
     Archive { path, password: None, tool: None }.index(&mut |_, _| true).unwrap()
+}
+
+/// Drives of one kind at the given speeds.
+fn on(kind: DriveKind, rates: Rates) -> Drives {
+    Drives::uniform(Drive { id: "test".into(), kind, filesystem: "test".into(), clones: false }, rates)
+}
+
+/// Drives fast enough that no job asks how long it takes.
+fn quick() -> Drives {
+    on(DriveKind::Memory, DriveKind::Memory.typical())
 }
 
 /// What a folder holds: each path below it with its content, `/` for a folder, `-> target` for a link.
@@ -51,12 +64,24 @@ fn unpack(
     target: &Path,
     answers: &[Decision],
 ) -> (Outcome, Vec<Ask>) {
+    let (report, asked) = unpack_report(archive, index, paths, base, target, answers);
+    (report.outcome, asked)
+}
+
+fn unpack_report(
+    archive: &Path,
+    index: &Index,
+    paths: &[&str],
+    base: &str,
+    target: &Path,
+    answers: &[Decision],
+) -> (Report<String>, Vec<Ask>) {
     let control = Control::default();
     let mut answers = answers.iter();
     let mut asked = Vec::new();
     let paths: Vec<String> = paths.iter().map(|path| path.to_string()).collect();
     let job = Unpack { archive: Archive { path: archive, password: None, tool: None }, paths: &paths, base, target };
-    let outcome = job.run(index, &control, &mut |event| {
+    let outcome = job.run(index, &quick(), &control, &mut |event| {
         if let Event::Asking(ask) = event {
             asked.push(ask);
             control.answer(*answers.next().unwrap_or(&Decision::Cancel));
@@ -324,6 +349,22 @@ fn names_already_there_are_asked_about() {
     unpack(&path, &index, &["docs"], "", &target, &[Decision::Overwrite]);
     assert_eq!(fs::read(target.join("docs/guide.md")).unwrap(), HELLO);
     assert!(!tree(&target).keys().any(|name| name.contains("borg-partial")));
+}
+
+#[test]
+fn entries_left_out_stay_in_the_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.zip");
+    sample_zip(&path);
+    let index = index(&path);
+    let target = dir.path().join("out");
+    fs::create_dir_all(target.join("docs")).unwrap();
+    fs::write(target.join("docs/guide.md"), "mine").unwrap();
+
+    let (report, _) = unpack_report(&path, &index, &["docs", "tools"], "", &target, &[Decision::Skip]);
+    assert!(matches!(report.outcome, Outcome::Done { skipped: 1, .. }), "{report:?}");
+    assert_eq!(report.kept, vec!["docs".to_owned()]);
+    assert_eq!(fs::read(target.join("tools/run.sh")).unwrap(), b"#!/bin/sh\n");
 }
 
 #[test]

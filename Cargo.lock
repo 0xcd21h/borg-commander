@@ -474,6 +474,7 @@ dependencies = [
  "borg-archive",
  "borg-core",
  "borg-docker",
+ "borg-drives",
  "borg-gfx",
  "borg-git",
  "borg-i18n",
@@ -523,6 +524,7 @@ dependencies = [
 name = "borg-archive"
 version = "0.9.6"
 dependencies = [
+ "borg-drives",
  "borg-i18n",
  "borg-jobs",
  "bzip2",
@@ -545,6 +547,7 @@ dependencies = [
  "aes-gcm",
  "borg-archive",
  "borg-docker",
+ "borg-drives",
  "borg-edit",
  "borg-gfx",
  "borg-git",
@@ -576,6 +579,16 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "borg-drives"
+version = "0.9.6"
+dependencies = [
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -621,6 +634,7 @@ dependencies = [
 name = "borg-jobs"
 version = "0.9.6"
 dependencies = [
+ "borg-drives",
  "tempfile",
 ]
 
@@ -675,6 +689,7 @@ dependencies = [
  "borg-archive",
  "borg-core",
  "borg-docker",
+ "borg-drives",
  "borg-gfx",
  "borg-git",
  "borg-i18n",
@@ -702,6 +717,7 @@ version = "0.9.6"
 dependencies = [
  "borg-core",
  "borg-docker",
+ "borg-drives",
  "borg-edit",
  "borg-gfx",
  "borg-i18n",

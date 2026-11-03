@@ -96,14 +96,23 @@ pub struct Index {
     items: Vec<Item>,
     paths: HashMap<String, usize>,
     children: HashMap<String, Vec<usize>>,
+    /// Places of entries a later entry of the same path hides.
+    shadowed: Vec<usize>,
 }
 
 impl Index {
     /// Builds the tree from the archive's entries in archive order. A later entry with the same
     /// path replaces an earlier one, as unpacking would; folders the paths imply are added.
     pub(crate) fn new(format: Format, bytes: u64, entries: Vec<Item>, left_out: usize) -> Self {
-        let mut index =
-            Self { format, bytes, left_out, items: Vec::new(), paths: HashMap::new(), children: HashMap::new() };
+        let mut index = Self {
+            format,
+            bytes,
+            left_out,
+            items: Vec::new(),
+            paths: HashMap::new(),
+            children: HashMap::new(),
+            shadowed: Vec::new(),
+        };
         for item in entries {
             index.imply(name::parent(&item.path).to_owned());
             index.insert(item);
@@ -115,9 +124,10 @@ impl Index {
     fn insert(&mut self, item: Item) {
         match self.paths.get(&item.path) {
             Some(&at) if !(self.items[at].is_folder() && item.is_folder()) || self.items[at].slot.is_none() => {
+                self.shadowed.extend(self.items[at].slot);
                 self.items[at] = item;
             }
-            Some(_) => {}
+            Some(_) => self.shadowed.extend(item.slot),
             None => {
                 let at = self.items.len();
                 self.children.entry(name::parent(&item.path).to_owned()).or_default().push(at);
@@ -168,6 +178,16 @@ impl Index {
 
     pub fn item(&self, path: &str) -> Option<&Item> {
         self.paths.get(path).map(|&at| &self.items[at])
+    }
+
+    /// Every entry, in archive order, folders the paths imply among them.
+    pub(crate) fn entries(&self) -> impl Iterator<Item = &Item> {
+        self.items.iter()
+    }
+
+    /// Places of entries that later entries of the same path hide.
+    pub(crate) fn shadowed(&self) -> &[usize] {
+        &self.shadowed
     }
 
     /// Everything the archive holds.

@@ -158,7 +158,7 @@ pub(crate) fn question_buttons(job: &Job, screen: Rect) -> (Rect, Vec<(Rect, cha
     let width = screen.width.saturating_sub(MARGIN).min(DIALOG_WIDTH);
     let text_width = usize::from(width.saturating_sub(PADDING * 2 + BORDER_ROWS));
     let lines = match &job.state {
-        JobState::Asking(Ask::Conflict { .. } | Ask::Expand { .. }) => 3,
+        JobState::Asking(Ask::Conflict { .. } | Ask::Expand { .. } | Ask::Slow { .. }) => 3,
         JobState::Asking(Ask::Failure { .. } | Ask::Room { .. }) => 2,
         _ => return (Rect::default(), Vec::new()),
     };
@@ -266,6 +266,25 @@ pub fn draw_question(job: &Job, question: Question, look: &Look<'_>, screen: Rec
                         styles.overlay.add_modifier(Modifier::BOLD),
                     ),
                     Line::styled(format::truncate_end(&detail, text_width), styles.notice),
+                ],
+            )
+        }
+        Ask::Slow { path, bytes, estimate, kind, .. } => {
+            let detail = tr!(
+                slow_detail,
+                time = format::span(*estimate),
+                bytes = format::size(*bytes),
+                place = format::on_drive(*kind)
+            );
+            (
+                tr!(slow_title),
+                vec![
+                    Line::styled(
+                        format::truncate_end(&name(path), text_width),
+                        styles.overlay.add_modifier(Modifier::BOLD),
+                    ),
+                    Line::styled(format::truncate_end(&detail, text_width), styles.overlay),
+                    Line::styled(format::truncate_end(tr!(slow_note), text_width), styles.notice),
                 ],
             )
         }

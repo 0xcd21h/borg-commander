@@ -7,14 +7,19 @@ use std::{
     io::{self, Read, Write},
     os::fd::OwnedFd,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use borg_drives::{Drives, Work};
 use borg_i18n::tr;
-use borg_jobs::{Ask, Control, Decision, Event, Outcome, Progress, Totals};
+use borg_jobs::{Ask, Control, Decision, Event, Outcome, Pace, Progress, Totals};
 use rustix::fs::{AtFlags, renameat, symlinkat, unlinkat};
 
-use crate::{Archive, Error, Flow, Index, Item, ItemKind, name};
+use crate::{
+    Archive, Error, Flow, Index, Item, ItemKind, Report,
+    cost::{codec, unpacking},
+    name,
+};
 
 pub(crate) mod guard;
 mod place;
@@ -27,6 +32,8 @@ const LINK_LIMIT: u64 = 4096;
 const FOLDER_MODE: u32 = 0o755;
 const PARTIAL_PREFIX: &str = ".";
 const PARTIAL_SUFFIX: &str = ".borg-partial";
+/// How long unpacking may take before Borg asks.
+pub const UNPACK_PATIENCE: Duration = Duration::from_secs(120);
 
 /// Entries to unpack: their paths inside the archive, chosen in the archive folder `base`,
 /// whose own path is left out of where they land below `target`.
@@ -44,8 +51,15 @@ impl Unpack<'_> {
         Index::selected_totals(&index.selection(self.paths))
     }
 
-    /// Runs the job, reporting to `emit` and asking through `control`.
-    pub fn run(&self, index: &Index, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
+    /// Runs the job, reporting to `emit` and asking through `control`. The report keeps the chosen
+    /// paths that did not unpack whole.
+    pub fn run(
+        &self,
+        index: &Index,
+        drives: &Drives,
+        control: &Control,
+        emit: &mut dyn FnMut(Event),
+    ) -> Report<String> {
         let selection = index.selection(self.paths);
         let totals = Index::selected_totals(&selection);
         let total = Totals { files: totals.files, bytes: totals.bytes };
@@ -54,12 +68,21 @@ impl Unpack<'_> {
         for ask in guard::questions(self.archive.path, self.target, index.bytes, totals, free) {
             emit(Event::Asking(ask));
             if control.decide() != Decision::Proceed {
-                return Outcome::Cancelled { done: Totals::default() };
+                return Report::whole(Outcome::Cancelled { done: Totals::default() });
             }
         }
+        let work = Work::default()
+            .read(&drives.drive(self.archive.path), index.bytes)
+            .write(&drives.drive(self.target), totals.bytes)
+            .computing(unpacking(codec(index.format), totals.bytes));
+        let pace = Pace { drives, work, path: self.archive.path, file: true, patience: UNPACK_PATIENCE };
+        if !pace.ask(control, emit) {
+            return Report::whole(Outcome::Cancelled { done: Totals::default() });
+        }
+        let started = Instant::now();
         let destination = match Destination::open(self.target) {
             Ok(destination) => destination,
-            Err(error) => return Outcome::Failed(format!("{}: {error}", self.target.display())),
+            Err(error) => return Report::whole(Outcome::Failed(format!("{}: {error}", self.target.display()))),
         };
         let mut run = Run {
             job: self,
@@ -73,14 +96,19 @@ impl Unpack<'_> {
             overwrite: None,
             skip_errors: false,
             placed: HashMap::new(),
-            skipped_folders: Vec::new(),
+            left: Vec::new(),
         };
-        match run.all(&selection) {
-            Ok(()) => Outcome::Done { done: run.done, skipped: run.skipped },
+        let outcome = match run.all(&selection) {
+            Ok(()) => {
+                pace.learn(started);
+                Outcome::Done { done: run.done, skipped: run.skipped }
+            }
             Err(_) if control.cancelled() => Outcome::Cancelled { done: run.done },
             Err(Error::Stopped) => Outcome::Cancelled { done: run.done },
             Err(error) => Outcome::Failed(error.to_string()),
-        }
+        };
+        let kept = self.paths.iter().filter(|path| run.left.iter().any(|left| name::within(left, path))).cloned();
+        Report { outcome, kept: kept.collect() }
     }
 }
 
@@ -98,7 +126,8 @@ struct Run<'a, 'e> {
     skip_errors: bool,
     /// Where each unpacked entry landed below the target, for hard links to it.
     placed: HashMap<String, String>,
-    skipped_folders: Vec<String>,
+    /// Entries left out, with everything beneath them.
+    left: Vec<String>,
 }
 
 /// Why writing one entry did not finish.
@@ -124,18 +153,15 @@ impl Run<'_, '_> {
         for item in selection.iter().filter(|item| item.is_folder()) {
             self.attempt(item, |run| run.folder(item))?;
         }
-        let skipped = |item: &&&Item, folders: &[String]| folders.iter().any(|folder| name::within(&item.path, folder));
-        let data: Vec<&Item> = selection
-            .iter()
-            .filter(|item| item.carries_data() && !skipped(item, &self.skipped_folders))
-            .copied()
-            .collect();
+        let skipped = |item: &&&Item, left: &[String]| left.iter().any(|left| name::within(&item.path, left));
+        let data: Vec<&Item> =
+            selection.iter().filter(|item| item.carries_data() && !skipped(item, &self.left)).copied().collect();
         let (archive, index) = (self.job.archive, self.index);
         archive.each(index, &data, &mut |item, reader| self.visit(item, reader))?;
         let links: Vec<&Item> = selection
             .iter()
             .filter(|item| matches!(item.kind, ItemKind::Symlink | ItemKind::HardLink) && !item.carries_data())
-            .filter(|item| !skipped(item, &self.skipped_folders))
+            .filter(|item| !skipped(item, &self.left))
             .copied()
             .collect();
         for item in links {
@@ -184,9 +210,7 @@ impl Run<'_, '_> {
 
     fn skip(&mut self, item: &Item) {
         self.skipped += 1;
-        if item.is_folder() {
-            self.skipped_folders.push(item.path.clone());
-        }
+        self.left.push(item.path.clone());
     }
 
     /// Writes one entry the archive hands over with its data, asking again on failure; a retry
@@ -338,7 +362,7 @@ impl Run<'_, '_> {
                 if decision == Decision::SkipAll {
                     self.overwrite = Some(false);
                 }
-                self.skipped += 1;
+                self.skip(item);
                 Settled::Skip
             }
             Decision::KeepBoth => {

@@ -275,7 +275,7 @@ momento.
 | Ctrl-S | Búsqueda rápida en la carpeta |
 | Ctrl-\ | Carpetas favoritas: saltar a una carpeta fijada o reciente |
 | Ctrl-Q | Vista rápida: previsualiza en el otro panel el archivo bajo el cursor (texto, imagen o carpeta) |
-| Ctrl-L | Información: muestra en el otro panel el tamaño, los permisos, el propietario, las fechas y el espacio libre |
+| Ctrl-L | Información: muestra en el otro panel el tamaño, los permisos, el propietario, las fechas, el espacio libre y el disco |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar archivos |
 | `+` `-` `*` | Seleccionar, deseleccionar o invertir por patrón (`*.rs`, `build/`) |
 | Alt-Enter | Poner los nombres marcados (o el actual) en la línea de comandos; en `..`, la ruta de la carpeta superior |
@@ -872,6 +872,38 @@ Cuando ya existe un archivo con el mismo nombre: `o` sobrescribe, `s` omite, `k`
 `a` sobrescribe todos, `n` omite todos y Esc cancela. Las copias se escriben en archivos temporales
 y se renombran cuando están completas.
 
+### Tareas largas y discos
+
+Borg sabe en qué tipo de disco está cada carpeta: un disco duro, un SSD, un disco en RAM, un recurso
+compartido de red como NFS, SMB o sshfs, o la máquina que muestra un panel remoto. En macOS consulta
+a `diskutil` y `hdiutil`, y en Linux lee `/proc/self/mountinfo` y los indicadores del dispositivo en
+`/sys`. Ctrl-L muestra el disco y su sistema de archivos en la fila **Disco**, y la fila
+**Velocidad** dice a qué velocidad espera Borg que lea y escriba.
+
+Antes de que una tarea escriba nada, Borg calcula cuánto tardará a partir de los bytes que lee y
+escribe en cada disco y del tiempo que lleva comprimir. Cuando una copia, un movimiento a otro disco
+o una descompresión tardaría más de 2 minutos, o un cambio en un archivo comprimido más de 20
+segundos, el diálogo **Tarea larga** dice cuánto tardará aproximadamente y en qué tipo de disco, y
+espera:
+
+- **Empezar** (`s`) ejecuta la tarea.
+- **Siempre para este archivo** (`f`) la ejecuta y deja de preguntar por este archivo comprimido.
+  La descompresión y los cambios en un archivo comprimido ofrecen esta opción.
+- **Siempre en este tipo de disco** (`d`) la ejecuta y deja de preguntar por el trabajo en discos de
+  este tipo.
+- **Cancelar** (`c`) se detiene antes de la primera escritura.
+
+Mientras Borg no haya medido un disco, cuenta con la velocidad habitual de su tipo: unos 120 MB/s
+para un disco duro, 900 MB/s para un SSD, 4 GB/s para un disco en RAM, 60 MB/s para un recurso
+compartido de red y 10 MB/s para una máquina remota. Cada tarea que dura al menos 2 segundos y mueve
+al menos 64 MiB le enseña a Borg la velocidad real del disco, y entonces la fila **Disco** dice
+**velocidad medida**. Una tarea que pasa su tiempo comprimiendo no le enseña nada sobre el disco.
+
+Borg guarda las velocidades y tus respuestas en `drives.json`, en su carpeta de estado, con hasta 256
+archivos comprimidos. La fila **Tareas largas** de Ctrl-L dice si Borg pregunta primero en ese
+disco. **F9 → Opciones → Volver a preguntar antes de tareas largas** olvida todas las respuestas
+Siempre.
+
 ### Visor y vista rápida
 
 F3 abre el visor. Con el complemento Sistema activado, F3 sobre un archivo `.pcap`, `.pcapng` o
@@ -939,6 +971,12 @@ ejecución de Borg y lo abre en el visor. La descompresión se ejecuta como una 
 archivo grande muestra su progreso, y Esc la cancela. Borg borra el archivo descomprimido en cuanto
 el visor lo tiene abierto.
 
+F4 sobre un archivo de dentro lo abre en el editor, y Alt-E lo abre en el editor del panel. Borg
+descomprime el archivo en la misma carpeta privada, y el título del editor muestra su ruta dentro del
+archivo comprimido. Cada vez que guardas, el archivo vuelve a escribirse en el archivo comprimido
+como una tarea, y el editor lo avisa ("Guardado. Escribiéndolo en site.zip."). Si el archivo
+comprimido no lo acepta, el aviso dice por qué y dónde queda tu edición.
+
 F5 copia los archivos y carpetas marcados fuera del archivo comprimido, a la carpeta del otro panel
 o a la carpeta que escribas en el diálogo Copiar. **Extraer aquí** y **Extraer en el otro panel**,
 en el menú Archivo (F2), descomprimen el archivo comprimido entero bajo el cursor en la carpeta de
@@ -947,10 +985,35 @@ tarea aparece en Alt-J con su progreso, su velocidad y el tiempo restante. Pregu
 que ya existen igual que una copia, escribe cada archivo con un nombre temporal hasta que está
 completo y detiene cada archivo en el tamaño que le asigna el archivo comprimido.
 
-Los archivos comprimidos se abren en modo de solo lectura. F4, F6, F7, F8, Alt-E, Ctrl-Q y
-**Comprimir…** lo avisan, y F5 desde el otro panel no puede copiar dentro de un archivo comprimido.
-Copia los archivos fuera con F5 para trabajar con ellos. Un archivo comprimido dentro de otro se
-abre cuando lo copias fuera. El shell se queda en la carpeta que contiene el archivo comprimido, y
+Borg modifica archivos zip, 7z y tar, con compresión o sin ella. F5 o F6 desde una carpeta de esta
+máquina copia o mueve los archivos marcados al archivo comprimido que muestra el otro panel, o a la
+carpeta de él que escribas en el diálogo. F7 crea una carpeta en el archivo comprimido, y F8 borra
+las entradas marcadas después de preguntar. F6 hacia un nombre del mismo archivo comprimido cambia
+el nombre de las entradas o las mueve allí, y F6 hacia una carpeta de esta máquina las saca: se
+descomprimen allí y luego salen del archivo comprimido. Cuando un nombre ya existe en el archivo
+comprimido, Borg pregunta igual que una copia, y un cambio de nombre a un nombre que el archivo
+comprimido ya tiene se detiene con un aviso. Un movimiento solo borra lo que llegó entero, así que
+un archivo que omites se queda donde estaba.
+
+Cada cambio se ejecuta como una tarea en Alt-J. Borg escribe el archivo comprimido modificado junto
+al original con un nombre temporal, vuelve a leer la lista de entradas de un zip o un 7z y solo
+entonces lo pone en el lugar del original con los mismos permisos. Un cambio que falla o que
+cancelas deja el archivo comprimido como estaba. Las entradas que el cambio conserva se copian tal
+como están guardadas: un zip copia sus datos comprimidos, y un 7z copia cada bloque sólido que
+conserva todas sus entradas y vuelve a comprimir solo los bloques que pierden alguna. Un tar
+comprimido se descomprime y se vuelve a comprimir entero, así que cambiar un `.tar.xz` grande tarda
+casi lo mismo que crearlo. Un zip o un tar sin comprimir que solo gana entradas se copia y las
+entradas nuevas van detrás de la última, y en APFS, Btrfs, XFS y bcachefs esa copia es instantánea.
+Antes de un cambio que tardaría mucho, Borg pregunta primero (consulta
+[Tareas largas y discos](#long-jobs-and-drives)).
+
+En un archivo zip o 7z cifrado, las entradas nuevas se cifran con AES-256 y con la contraseña con la
+que abriste el archivo comprimido, y un 7z que oculta su lista de entradas la sigue ocultando. Las
+entradas que el cambio conserva quedan como estaban.
+
+Los archivos RAR y los archivos comprimidos sueltos como `.gz` siguen siendo de solo lectura, y al
+intentar cambiarlos Borg lo avisa. Ctrl-Q y **Comprimir…** no funcionan dentro de un archivo
+comprimido. Un archivo comprimido dentro de otro se abre cuando lo copias fuera. El shell se queda en la carpeta que contiene el archivo comprimido, y
 una sesión guardada vuelve a abrir esa carpeta con el cursor sobre él.
 
 Los archivos zip y 7z cifrados piden la contraseña al abrirse. En el diálogo **Contraseña**, cada
@@ -964,7 +1027,8 @@ con F5.
 Antes de escribir nada, Borg suma lo que ocupan las entradas elegidas una vez descomprimidas y
 pregunta primero cuando pasan de 1 GiB y de 100 veces el tamaño del archivo comprimido, o de 100.000
 archivos, que es el aspecto de una bomba zip. También pregunta cuando el destino tiene menos espacio
-libre del que necesitan los archivos. **Descomprimir de todos modos** (`u`) sigue adelante, y
+libre del que necesitan los archivos, y un cambio en un archivo comprimido pregunta cuando su disco no
+tiene sitio para el nuevo archivo comprimido junto al antiguo. **Descomprimir de todos modos** (`u`) sigue adelante, y
 Cancelar se detiene antes del primer archivo. Las entradas con rutas absolutas, con `..` en la ruta
 o que son archivos de dispositivo se omiten con un aviso, y ninguna entrada ni enlace de un archivo
 comprimido puede hacer que Borg escriba fuera de la carpeta de destino.
@@ -1131,15 +1195,16 @@ cada uno y dónde está:
 
 - **Archivos temporales**: scripts de integración con el shell, peticiones de cambio de carpeta
   desde el shell, copias desde contenedores, vistas previas remotas, archivos descomprimidos de
-  archivos comprimidos para el visor y los certificados del proxy de una captura, en la carpeta de
-  ejecución.
+  archivos comprimidos para el visor y el editor, y los certificados del proxy de una captura, en la
+  carpeta de ejecución.
 - **Sockets**: por donde los agentes y los espejos llegan a las sesiones en curso, en
   `/tmp/borg-<uid>-default`, o en una carpeta `/tmp/borg-<uid>-` con el nombre de la carpeta de
   ejecución cuando `$XDG_RUNTIME_DIR` está definida.
 - **Cachés**: tamaños de carpeta e índices de nombres, en la carpeta de caché (consulta
   [Análisis de tamaño guardados](#saved-size-scans)).
 - **Sesiones e historial**: sesiones, salida del shell, historial de búsquedas y carpetas,
-  colecciones y equipos emparejados con sus claves, en la carpeta de estado.
+  colecciones, equipos emparejados con sus claves y lo que Borg aprendió sobre tus discos
+  (`drives.json`), en la carpeta de estado.
 - **Configuración**: `config.toml` y tus temas.
 - **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.
 
@@ -1155,8 +1220,8 @@ está arrancando conserva lo que acaba de crear. Esto es lo que se elimina:
   cambiado en 3 días.
 - Peticiones de cambio de carpeta, archivos a medio escribir, carpetas de consolas remotas y
   certificados del proxy de capturas de procesos de Borg que terminaron.
-- Copias desde contenedores, vistas previas remotas y archivos descomprimidos para el visor de
-  más de un día.
+- Copias desde contenedores, vistas previas remotas y archivos descomprimidos para el visor y
+  el editor de más de un día.
 - Sockets en los que nadie responde, y carpetas de sockets en las que ya no responde nada.
 - Análisis de tamaño en el formato de Borg 0.4 y 0.5, análisis que la caché ya no lista e índices de
   nombres de carpetas que ya no se indexan.
