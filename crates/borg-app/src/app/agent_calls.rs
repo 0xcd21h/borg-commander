@@ -265,11 +265,24 @@ impl App {
                     drop(reply.send(answer));
                 });
             }
+            Some("startup") => {
+                const SHOWN: u64 = 100;
+                let shown = call.args["limit"].as_u64().unwrap_or(SHOWN).clamp(1, agent::LIST_LIMIT as u64) as usize;
+                let filter = text(&call, "find").unwrap_or_default();
+                self.agent.note("read the startup items");
+                tokio::task::spawn_blocking(move || {
+                    let answer = match crate::startup_items::read() {
+                        Ok(report) => agent::startup_items(&report, &filter, shown),
+                        Err(error) => Reply::error(format!("{error:#}")),
+                    };
+                    drop(reply.send(answer));
+                });
+            }
             Some(other) => {
                 return fail(
                     reply,
                     format!(
-                        "read has no source {other}: use processes, containers, ports, connections or interfaces, or a path"
+                        "read has no source {other}: use processes, containers, ports, connections, interfaces or startup, or a path"
                     ),
                 );
             }

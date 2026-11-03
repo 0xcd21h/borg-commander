@@ -29,6 +29,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             }
             KeyCode::Char('m') => crate::actions::perform(state, Action::Activity, now),
             KeyCode::Char('c') => crate::actions::perform(state, Action::Docker, now),
+            KeyCode::Char('u') => crate::actions::perform(state, Action::StartupItems, now),
             _ => Vec::new(),
         };
     }

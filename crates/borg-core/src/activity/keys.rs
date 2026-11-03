@@ -54,6 +54,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         state.activity.side = None;
         return Vec::new();
     }
+    if code == KeyCode::Char('u') && modifiers == KeyModifiers::ALT {
+        return crate::actions::perform(state, Action::StartupItems, now);
+    }
     if code == KeyCode::Char('n') && modifiers == KeyModifiers::ALT {
         return match state.activity.process().map(|process| process.key.pid) {
             Some(pid) => crate::network::show_traffic(state, pid),

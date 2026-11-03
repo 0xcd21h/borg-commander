@@ -338,6 +338,20 @@ moving the shell to the panel's folder first, so the next command end is the ins
 `install::finished` turns its exit code into a notice. Another program joins as a `Tool` variant
 with its package name for each manager and its own dialog text.
 
+### Startup items screen
+
+`borg-core::startup_items` owns the screen and everything about startup items that needs no
+disk: `startup_spots` lists the folders and files each system starts programs from, `parse_startup`
+turns a property list (XML or binary, read by its own small reader), crontab, anacrontab, systemd
+unit, desktop entry, script, shell file, preload list or `authorized_keys` into entries with what
+they run, their program, when and as whom, and `newest_first` and `startup_filtered` order and
+narrow the items. Its tests read fixtures in `startup_items/fixtures`. `borg-app::startup_items`
+does the reading on a blocking worker: each place as the user Borg runs as, units that `.wants`
+and `.requires` folders link to, the user's own crontab through `crontab -l` when the crontab
+folder is closed, owners and change times, whether each program exists, and the rules each file
+and program match through `rule_scan`, each program once. Programs on macOS's sealed system
+volume are not scanned. The agent's `read` source `startup` returns the same report as text.
+
 ### Editor
 
 F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a

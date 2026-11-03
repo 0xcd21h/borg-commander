@@ -38,6 +38,7 @@ mod service_install;
 mod session;
 mod sessions;
 mod size_cache;
+mod startup_items;
 mod storage;
 mod store;
 mod subfolders;

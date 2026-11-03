@@ -46,6 +46,10 @@ pub enum Msg {
         id: u64,
         result: Result<crate::NetworkSample, String>,
     },
+    StartupItems {
+        id: u64,
+        result: Result<crate::StartupReport, String>,
+    },
     /// Names for addresses the network screen asked about; `None` where there is none.
     HostNames(Vec<(std::net::IpAddr, Option<String>)>),
     /// How far the running capture got.
@@ -283,6 +287,10 @@ pub enum Effect {
     },
     /// Samples the machine's sockets and interfaces for the network screen.
     Network {
+        id: u64,
+    },
+    /// Reads the places programs start from for the startup items screen.
+    StartupItems {
         id: u64,
     },
     /// Looks up the names of addresses, in the background.

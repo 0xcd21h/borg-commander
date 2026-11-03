@@ -34,6 +34,7 @@ export default defineConfig({
         { ...label('remote-access.title'), slug: 'guide/remote-access' },
         { ...label('activity.title'), slug: 'guide/activity' },
         { ...label('network.title'), slug: 'guide/network' },
+        { ...label('startup-items.title'), slug: 'guide/startup-items' },
       ] },
       { ...label('customize'), items: [
         { ...label('themes.title'), slug: 'guide/themes' },

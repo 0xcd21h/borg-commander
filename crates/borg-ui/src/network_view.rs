@@ -21,6 +21,7 @@ mod traffic;
 
 pub(crate) use capture::{draw_dialog as draw_capture_dialog, field_at as capture_field_at};
 pub(crate) use controls::{keybar, panel_mouse, status};
+pub(crate) use list::{FilterLine, filter_line};
 
 const TABS_ROW: u16 = 0;
 const FILTER_ROW: u16 = 1;

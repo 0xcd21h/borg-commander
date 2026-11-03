@@ -105,6 +105,23 @@ pub(super) fn containers(state: &mut AppState, pointer: Pointer, now: Instant) -
     }
 }
 
+/// A click in the startup items screen: on its frame, a row or a control.
+pub(super) fn startup(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
+    match pointer {
+        Pointer::StartupExpand(expand) => {
+            state.startup_items.expanded = expand;
+            Vec::new()
+        }
+        Pointer::StartupHide => {
+            crate::startup_items::close(state);
+            Vec::new()
+        }
+        Pointer::StartupRow { index, open } => crate::startup_items::click(state, index, open),
+        Pointer::StartupControl(code) => crate::startup_items::route_key(state, &code.into(), now),
+        _ => Vec::new(),
+    }
+}
+
 /// A click in the network screen: on its frame, a row, a column's title or a control.
 pub(super) fn network(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     match pointer {

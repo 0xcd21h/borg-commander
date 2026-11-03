@@ -246,6 +246,8 @@ fn monitor_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) ->
         state.activity.expanded
     } else if state.network.is_open() {
         state.network.expanded
+    } else if state.startup_items.is_open() {
+        state.startup_items.expanded
     } else {
         state.docker.expanded
     };
@@ -260,6 +262,8 @@ fn monitor_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) ->
         crate::activity_view::panel_mouse(state, mouse.event, mouse.double, layout)
     } else if state.network.is_open() {
         crate::network_view::panel_mouse(state, mouse.event, mouse.double, layout)
+    } else if state.startup_items.is_open() {
+        crate::startup_view::panel_mouse(state, mouse.event, mouse.double, layout)
     } else {
         crate::docker_view::panel_mouse(state, mouse.event, mouse.double, layout)
     }

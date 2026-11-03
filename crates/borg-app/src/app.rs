@@ -99,6 +99,7 @@ pub struct App {
     backup: crate::backup::Backup,
     docker: crate::docker::Docker,
     network: crate::network::Network,
+    startup_items: crate::startup_items::StartupItems,
     storage: crate::storage::Storage,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
