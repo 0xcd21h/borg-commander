@@ -59,6 +59,8 @@ crates/
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
   borg-archive  archives as folders: zip, 7z and tar read and changed in process, RAR through
                 7-Zip or bsdtar, and unpacking that cannot write outside its destination
+  borg-rules    YARA rules through boreal: Borg's own rules and the user's, compiled file by file,
+                and what they match with its evidence, severity and caveat
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
   borg-relay    the relay borgs meet through: it forwards traffic it cannot read
   borg-update   release checks and self-update
@@ -211,7 +213,14 @@ their header flag. Only pages that can differ are read: on Linux those pagemap m
 copies or swapped, on macOS regions with dirty pages. Unbacked memory is searched for image
 headers at page starts, executable regions first. The report counts compared, uncompared,
 scanned and unreadable bytes and says whether a byte, time or finding limit stopped it; findings
-carry a severity, the evidence's address and length, and a caveat. The renderer shares a reserved branding area across UI modes.
+carry a severity, the evidence's address and length, and a caveat.
+Rule scans (`borg-app::rule_scan`) compile `borg-rules` once per scan from the built-in rules and
+the `rules` folder beside the configuration. A memory scan reads the regions the process owns
+through the same `integrity::Access`, in 16 MiB reads that take in the page before them again,
+skips regions and pages that were never touched, keeps one finding per rule and region, and stops
+after 1 GiB, 45 seconds or 2,000 findings, like the integrity report. The admin helper runs it as
+`rules <pid> <start> [folder]`. Findings reuse the integrity view with the kinds `RuleMatch` and
+`RuleProblem`. The renderer shares a reserved branding area across UI modes.
 
 ### Network screen
 
@@ -356,6 +365,11 @@ A contents search compiles the find bar's `borg_view::Query` once, and the worke
 whose name matches through `borg-core::contents`, which leaves binary and oversized files unread
 and cuts the first matching line to a preview. Those files travel in `Msg::Found`, each with its
 line, and `Results::lines` keeps them by path for the panel and for F3 to land on the match.
+A rules search (`SearchKind::Rules`) reads each matching file through `rule_scan::scan_file` with
+the same size limit, and on Linux with `O_NOATIME`. Its files travel in `Msg::RuleHits` with the
+rules they matched, and `Results::rule_hits` keeps them by path; F3 lands on the worst rule's
+evidence, as text up to its line break or as a byte regex. Searches that read files check each
+entry's real kind first, so a named pipe is never opened.
 Name-only queries match on what the listing gives and read metadata for matches alone. The
 search history is core state saved owner-only as `search-history.json` in the state directory.
 

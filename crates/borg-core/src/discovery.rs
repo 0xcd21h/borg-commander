@@ -25,6 +25,8 @@ pub enum SearchKind {
     Folders,
     FolderTotals,
     FolderTree,
+    /// Files that Borg's rules or the user's match.
+    Rules,
 }
 
 impl SearchKind {
@@ -35,10 +37,11 @@ impl SearchKind {
             Self::Folders => tr!(folders_only),
             Self::FolderTotals => tr!(folder_totals),
             Self::FolderTree => tr!(folder_size_tree),
+            Self::Rules => tr!(rule_matches),
         }
     }
     fn step(self, reverse: bool) -> Self {
-        let kinds = [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree];
+        let kinds = [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree, Self::Rules];
         let index = kinds.iter().position(|kind| *kind == self).unwrap_or(0);
         kinds[(index + if reverse { kinds.len() - 1 } else { 1 }) % kinds.len()]
     }
@@ -52,6 +55,13 @@ pub struct SearchOptions {
     pub minimum_files: u64,
     /// Text the files must contain. A search with it lists files only.
     pub contents: Option<Box<borg_view::Query>>,
+}
+
+impl SearchOptions {
+    /// Whether the search reads the files it finds, for text or with rules, which no index answers.
+    pub fn reads_files(&self) -> bool {
+        self.contents.is_some() || self.kind == SearchKind::Rules
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,10 +118,14 @@ impl SearchForm {
     }
 
     /// Whether the dialog shows `field`. Size scans measure folders and read everything, so
-    /// they look inside no file and have no switch for leaving things out.
+    /// they look inside no file and have no switch for leaving things out. Rule scans look for
+    /// what the rules describe and list files, so they take no text and no count of files.
     pub fn shows(&self, field: usize) -> bool {
         let sizes = matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree);
-        field < SEARCH_FIELDS && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD))
+        let rules = self.kind == SearchKind::Rules;
+        field < SEARCH_FIELDS
+            && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD))
+            && !(rules && matches!(field, CONTENTS_FIELD | FILES_FIELD))
     }
 
     /// The field Tab goes to, or Shift-Tab when `back`, passing over those not shown.
@@ -303,7 +317,7 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
 /// size scans leave that text aside.
 fn options(form: &SearchForm) -> Result<SearchOptions, String> {
     let files = form.files.text().trim();
-    let files = if files.is_empty() { Ok(0) } else { files.parse::<u64>() };
+    let files = if files.is_empty() || !form.shows(FILES_FIELD) { Ok(0) } else { files.parse::<u64>() };
     let (Some(minimum), Ok(minimum_files)) = (parse_size(form.minimum.text()), files) else {
         return Err(tr!(use_a_size_such_as_500m_or).into());
     };

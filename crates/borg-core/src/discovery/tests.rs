@@ -174,3 +174,40 @@ fn sizes_accept_units_but_reject_invalid_or_overflowing_input() {
         assert_eq!(parse_size(input), None);
     }
 }
+
+#[test]
+fn a_rules_search_takes_no_text_or_file_count_and_lists_files() {
+    let now = std::time::Instant::now();
+    let (mut state, _) = AppState::new(
+        crate::Startup::at("/work".into()),
+        100,
+        30,
+        crate::Settings::default(),
+        crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+        now,
+    );
+    let mut form = SearchForm::new(&state, false);
+    form.kind = SearchKind::FolderTree;
+    form.selected = KIND_FIELD;
+    form.contents.load(&borg_view::Query { text: "secret".into(), ..Default::default() });
+    form.files = LineInput::new("3");
+    form.minimum = LineInput::new("1k");
+    state.overlay = Some(Overlay::Search(form));
+    search_key_of(&mut state, KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let Some(Overlay::Search(form)) = state.overlay.clone() else { panic!("search window") };
+    assert_eq!(form.kind, SearchKind::Rules);
+    assert_eq!(form.kind.label(), "Rule matches");
+    assert!(!form.shows(CONTENTS_FIELD) && !form.shows(FILES_FIELD) && form.shows(SKIP_FIELD));
+    let effects = search_key_of(&mut state, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(&effects[..], [.., Effect::Search { request, .. }]
+        if request.options.kind == SearchKind::Rules
+            && request.options.contents.is_none()
+            && request.options.minimum_files == 0
+            && request.options.minimum == 1024
+            && request.options.reads_files()));
+}
+
+fn search_key_of(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
+    let Some(Overlay::Search(form)) = state.overlay.take() else { panic!("search window") };
+    search_key(state, form, &key)
+}

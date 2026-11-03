@@ -6,7 +6,7 @@ use crate::{memory_search::Query, memory_strings::Known};
 use anyhow::{Context, Result, bail};
 use borg_core::{
     ActivityData, ActivityRequest, IntegrityReport, MemoryCensus, MemoryRegion, MemorySnapshot, Msg, ProcessKey,
-    SNAPSHOT_LIMIT,
+    RulesReport, SNAPSHOT_LIMIT,
 };
 use borg_i18n::tr;
 use std::{
@@ -191,6 +191,31 @@ pub(super) async fn integrity(
     .await?
 }
 
+/// Scans the memory the process filled with Borg's rules and those in `folder`; see `rule_scan`.
+pub(super) async fn scan_with_rules(
+    process: ProcessKey,
+    folder: Option<PathBuf>,
+    cancelled: Arc<AtomicBool>,
+    messages: Option<(u64, UnboundedSender<Msg>)>,
+) -> Result<RulesReport> {
+    let maps = regions(process).await?;
+    tokio::task::spawn_blocking(move || {
+        verify(process)?;
+        let rules = crate::rule_scan::compile(folder.as_deref());
+        let program = crate::integrity::facts(process.pid).program.map(|(path, _)| path).unwrap_or_default();
+        let access = crate::integrity::Live::open(process);
+        let progress = |scanned, total, findings| {
+            if let Some((id, messages)) = &messages {
+                let _ = messages.send(Msg::MemorySearchProgress { id: *id, scanned, total, hits: findings });
+            }
+        };
+        let report = crate::rule_scan::scan_memory(process, &rules, &program, &maps, &access, &cancelled, progress);
+        verify(process)?;
+        Ok(report)
+    })
+    .await?
+}
+
 pub(super) async fn wait_cancelled(cancelled: &AtomicBool) {
     while !cancelled.load(Ordering::Relaxed) {
         tokio::time::sleep(CANCEL_POLL).await;
@@ -208,6 +233,7 @@ pub(super) async fn inspect(
         | ActivityRequest::Capture { admin: true, .. }
         | ActivityRequest::Census { admin: true, .. }
         | ActivityRequest::Integrity { admin: true, .. }
+        | ActivityRequest::Rules { admin: true, .. }
         | ActivityRequest::Search { admin: true, snapshot: None, .. }
         | ActivityRequest::Control { admin: true, .. }) => tokio::select! {
             result = elevate(request) => result,
@@ -223,6 +249,10 @@ pub(super) async fn inspect(
         }
         ActivityRequest::Integrity { process, .. } => {
             Ok(ActivityData::Integrity(integrity(process, cancelled, messages).await?))
+        }
+        ActivityRequest::Rules { process, .. } => {
+            let folder = crate::rule_scan::folder();
+            Ok(ActivityData::Rules(scan_with_rules(process, folder, cancelled, messages).await?))
         }
         ActivityRequest::Search { process, query, mode, match_case, snapshot, start, .. } => {
             let query = Query { text: query, mode, match_case };

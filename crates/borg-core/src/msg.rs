@@ -153,6 +153,12 @@ pub enum Msg {
         generation: u64,
         found: Vec<(Entry, crate::LineMatch)>,
     },
+    /// Files a rules search found, each with the rules it matched, worst first.
+    RuleHits {
+        side: Side,
+        generation: u64,
+        found: Vec<(Entry, Vec<borg_rules::RuleMatch>)>,
+    },
     Listed {
         side: Side,
         generation: u64,

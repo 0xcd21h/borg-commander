@@ -18,6 +18,7 @@ const DOT_CONFIG: &str = ".config";
 const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
 const THEMES_DIR: &str = "themes";
+const RULES_DIR: &str = "rules";
 const HOME_PREFIX: &str = "~/";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,6 +376,11 @@ impl ConfigDir {
 
     pub fn themes(&self) -> PathBuf {
         self.0.join(THEMES_DIR)
+    }
+
+    /// The user's own rule files, which scans add to Borg's.
+    pub fn rules(&self) -> PathBuf {
+        self.0.join(RULES_DIR)
     }
 
     pub fn load(&self) -> Result<Config> {

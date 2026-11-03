@@ -29,7 +29,7 @@ pub use helper::helper;
 use maps::{quick_maps, regions};
 pub use reading::Memory;
 pub(crate) use reading::search_for_agent;
-use reading::{capture, census, inspect, integrity, search_memory};
+use reading::{capture, census, inspect, integrity, scan_with_rules, search_memory};
 
 const OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
 const ERROR_LIMIT: usize = 8192;

@@ -388,7 +388,7 @@ impl AppState {
                     }) = &mut panel.results
                     {
                         *saved = request.clone();
-                        *progress = crate::SearchProgress::default();
+                        **progress = crate::SearchProgress::default();
                     }
                     Effect::Search { side, generation, request }
                 }

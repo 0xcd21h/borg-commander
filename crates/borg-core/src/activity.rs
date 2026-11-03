@@ -14,6 +14,9 @@ use memory::{GroupEntry, Member};
 mod integrity;
 use integrity::check_integrity;
 pub use integrity::{FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity};
+mod rules;
+use rules::scan_with_rules;
+pub use rules::{FindingsReport, RulesReport, evidence_text, problem_finding, rule_finding, rule_source};
 mod strings;
 use strings::merge_strings;
 pub use strings::{
@@ -50,7 +53,7 @@ pub fn chrome_rows(page: ActivityPage) -> u16 {
     match page {
         ActivityPage::Snapshot => 8,
         ActivityPage::Search => 8,
-        ActivityPage::Integrity => 7 + FINDING_NOTE,
+        ActivityPage::Findings => 7 + FINDING_NOTE,
         _ => 6,
     }
 }
@@ -83,8 +86,8 @@ pub enum ActivityPage {
     Regions,
     Snapshot,
     Search,
-    /// Integrity findings, in the list pane.
-    Integrity,
+    /// What the integrity check or rules found, in the list pane.
+    Findings,
     Files,
     FileDetails,
 }
@@ -110,7 +113,7 @@ pub struct Activity {
     pub side: Option<crate::Side>,
     pub preview_focused: bool,
     pub list: ActivityPage,
-    /// The list that search matches and integrity findings go back to with Esc.
+    /// The list that search matches and findings go back to with Esc.
     pub results_origin: ActivityPage,
     preview_due: Option<Instant>,
     pub search_form: Option<MemorySearchForm>,
@@ -119,7 +122,7 @@ pub struct Activity {
     pub search_progress: Option<(u64, u64, usize)>,
     pub last_search: Option<ActivityRequest>,
     pub from_search: bool,
-    pub integrity: Option<IntegrityReport>,
+    pub findings: Option<FindingsReport>,
     pub finding_cursor: usize,
     pub sample: SystemSample,
     pub histories: HashMap<ProcessKey, MemoryHistory>,
@@ -187,7 +190,7 @@ impl Default for Activity {
             search_progress: None,
             last_search: None,
             from_search: false,
-            integrity: None,
+            findings: None,
             finding_cursor: 0,
             sample: Default::default(),
             histories: Default::default(),
@@ -279,7 +282,7 @@ impl Activity {
             ActivityPage::Regions => (self.region_cursor, self.tops[1]),
             ActivityPage::Search => (self.search_cursor, self.tops[2]),
             ActivityPage::Files => (self.file_cursor, self.tops[3]),
-            ActivityPage::Integrity => (self.finding_cursor, self.tops[4]),
+            ActivityPage::Findings => (self.finding_cursor, self.tops[4]),
             _ => return 0,
         };
         top.min(cursor).max(cursor.saturating_sub(height.max(1) - 1))
@@ -291,7 +294,7 @@ impl Activity {
             ActivityPage::Regions => 1,
             ActivityPage::Search => 2,
             ActivityPage::Files => 3,
-            ActivityPage::Integrity => 4,
+            ActivityPage::Findings => 4,
             _ => return,
         };
         self.tops[index] = top;
@@ -403,7 +406,7 @@ impl Activity {
             self.search_report = None;
             self.last_search = None;
             self.search_progress = None;
-            self.integrity = None;
+            self.findings = None;
             self.finding_cursor = 0;
             self.preview_due = None;
             self.from_search = false;

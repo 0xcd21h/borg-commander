@@ -9,8 +9,8 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    Activity, ActivityPage, CENSUS_LEGEND, MemoryCensus, MemoryGroup, MemoryProtection, PageClass, RegionRow,
-    SnapshotRow, census_grid,
+    Activity, ActivityPage, CENSUS_LEGEND, FindingKind, MemoryCensus, MemoryGroup, MemoryProtection, PageClass,
+    RegionRow, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
 use ratatui::{
@@ -161,14 +161,16 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
         }
     }
     if let Some(finding) =
-        activity.selected_finding().filter(|f| f.address.is_none() && activity.list == ActivityPage::Integrity)
+        activity.selected_finding().filter(|f| f.address.is_none() && activity.list == ActivityPage::Findings)
     {
         let mut page = Page { buf, area: body, y: 0 };
-        page.wrapped(tr!(integrity_whole_process), dim(theme));
-        page.gap();
+        if finding.kind != FindingKind::RuleProblem {
+            page.wrapped(tr!(integrity_whole_process), dim(theme));
+            page.gap();
+        }
         page.wrapped(&finding.detail, emphasis(theme));
         page.gap();
-        return page.wrapped(finding.kind.caveat(), theme.styles.overlay);
+        return page.wrapped(finding.caveat(), theme.styles.overlay);
     }
     let Some(snapshot) = &activity.snapshot else {
         if activity.error.is_none() && activity.preview_waiting() {
@@ -188,8 +190,8 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
             tr!(activity_region_unreadable)
         } else if activity.list == ActivityPage::Search {
             tr!(activity_no_matches)
-        } else if activity.list == ActivityPage::Integrity {
-            tr!(integrity_none)
+        } else if activity.list == ActivityPage::Findings {
+            activity.findings.as_ref().map_or(tr!(integrity_none), super::search::nothing_found)
         } else {
             tr!(activity_region_choose)
         };

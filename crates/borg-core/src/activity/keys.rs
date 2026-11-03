@@ -7,7 +7,7 @@ use std::time::Instant;
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Activity, ActivityPage, ActivityRequest, RegionRow, RowKey, check_integrity};
+use super::{Activity, ActivityPage, ActivityRequest, RegionRow, RowKey, check_integrity, scan_with_rules};
 use crate::{Action, AppState, Effect, keymap::SPLIT_STEP};
 
 mod form;
@@ -144,7 +144,7 @@ fn find_in_memory(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     activity.preview_focused = true;
-    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Findings) {
         activity.results_origin = activity.list;
     }
     if activity.page == ActivityPage::Processes {
@@ -205,7 +205,7 @@ fn step_back(activity: &mut Activity, now: Instant) {
     forget_request(activity);
     activity.preview_due = None;
     activity.search_progress = None;
-    activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+    activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Findings) {
         activity.results_origin
     } else {
         ActivityPage::Processes
@@ -242,17 +242,21 @@ fn enter(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The keys of the regions, a search's hits and a check's findings: checking the process, the
-/// next copy of a hit, the page map, grouping the regions and opening their groups, and
-/// capturing the focused snapshot again.
+/// The keys of the regions, a search's hits and a check's findings: checking the process or
+/// scanning it with rules, the next copy of a hit, the page map, grouping the regions and
+/// opening their groups, and capturing the focused snapshot again.
 fn list_key(activity: &mut Activity, key: &KeyEvent, now: Instant) -> Option<Vec<Effect>> {
     let plain = key.modifiers.is_empty();
     let regions = activity.list == ActivityPage::Regions;
-    let findings = matches!(activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity);
+    let findings = matches!(activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Findings);
     match key.code {
         KeyCode::Char('i') if plain && findings => {
             let process = activity.selected?;
             Some(check_integrity(activity, process))
+        }
+        KeyCode::Char('y') if plain && findings => {
+            let process = activity.selected?;
+            Some(scan_with_rules(activity, process))
         }
         KeyCode::Char('c') if plain && activity.list == ActivityPage::Search && activity.next_copy() => {
             activity.schedule_preview(now);
@@ -303,7 +307,7 @@ fn in_focused_page(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Ef
         }
         activity.preview_focused = true;
     }
-    if matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
+    if matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Findings)
         && cursor != activity.list_cursor(context)
     {
         activity.schedule_preview(now);

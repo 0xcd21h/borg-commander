@@ -2,7 +2,7 @@
 
 use super::processes::columns;
 use super::search::{form_field, results_list};
-use super::{SEARCH_HEADER, body, inner, row, tabs, text};
+use super::{SEARCH_HEADER, body, by_rules, inner, row, tabs, text};
 use crate::Theme;
 use borg_core::{Activity, ActivityPage, AppState, FINDING_NOTE, Msg, Pointer};
 use borg_i18n::tr;
@@ -49,6 +49,7 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                     KeyCode::Char('m'),
                 ),
                 (tr!(integrity_button), KeyCode::Char('i')),
+                (tr!(rules_button), KeyCode::Char('y')),
                 (tr!(activity_refresh_button), KeyCode::Char('r')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
@@ -77,9 +78,12 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 ]);
                 specs
             }
-            ActivityPage::Integrity => vec![
+            ActivityPage::Findings => vec![
                 (tr!(memory_preview_button), KeyCode::Enter),
-                (tr!(integrity_again_button), KeyCode::Char('r')),
+                (
+                    if by_rules(activity) { tr!(rules_again_button) } else { tr!(integrity_again_button) },
+                    KeyCode::Char('r'),
+                ),
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
@@ -143,7 +147,8 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
                 tr!(memory_strings_hint)
             }
             ActivityPage::Search => tr!(memory_results_hint),
-            ActivityPage::Integrity => tr!(integrity_hint),
+            ActivityPage::Findings if by_rules(activity) => tr!(rules_hint),
+            ActivityPage::Findings => tr!(integrity_hint),
             ActivityPage::FileDetails if activity.previewable_file().is_some() => tr!(process_file_scroll_hint),
             ActivityPage::Files if activity.previewable_file().is_some() => tr!(process_file_preview_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),
@@ -226,7 +231,7 @@ pub(crate) fn panel_mouse(
         let body = match activity.list {
             _ if preview => body,
             ActivityPage::Search => results_list(body, SEARCH_HEADER, 0),
-            ActivityPage::Integrity => results_list(body, 1, FINDING_NOTE),
+            ActivityPage::Findings => results_list(body, 1, FINDING_NOTE),
             _ => body,
         };
         if body.contains(point) && !preview {

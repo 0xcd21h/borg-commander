@@ -31,6 +31,7 @@ mod remote_console;
 mod remote_copy;
 mod remote_fs;
 mod remote_names;
+mod rule_scan;
 mod search;
 mod service;
 mod service_install;

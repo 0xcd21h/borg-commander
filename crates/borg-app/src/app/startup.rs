@@ -264,7 +264,8 @@ fn start_storage(
 
 /// The searches and their indexes, which refresh the stale ones once Borg is up.
 fn start_search(launch: &Launch, state: &AppState, messages: &UnboundedSender<Msg>) -> crate::search::Search {
-    let search = crate::search::Search::new(launch.config.index_refresh());
+    let rules = launch.config_dir.as_ref().map(crate::config::ConfigDir::rules);
+    let search = crate::search::Search::new(launch.config.index_refresh(), rules);
     search.indexes.connect(messages.clone());
     search.indexes.set_roots(state.settings.index_roots.clone());
     let (indexes, settings) = (search.indexes.clone(), state.settings.search.clone());

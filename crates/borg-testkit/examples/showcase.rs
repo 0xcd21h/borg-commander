@@ -196,11 +196,7 @@ fn editor(output: &Path) -> Result<()> {
         options: SearchOptions { kind: SearchKind::Files, contents: Some(Box::new(contents)), ..Default::default() },
     };
     stage.state.result_history[0] = Some(stage.state.panels[0].clone());
-    stage.state.panels[0].open_results(
-        ResultSource::Search { request, progress: SearchProgress::default() },
-        Vec::new(),
-        90,
-    );
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 90);
     stage.state.panels[0].begin_search(90);
     stage.send(Msg::Found { side: Side::Left, generation: 90, found: found.into() });
     let progress = SearchProgress { visited: 1_284, read: 1_206, unread: 41, ..Default::default() };
@@ -269,7 +265,7 @@ fn size_tree(output: &Path) -> Result<()> {
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTree, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(MEASURED), visited: 230_684, ..Default::default() },
+            progress: Box::new(SearchProgress { measured: at(MEASURED), visited: 230_684, ..Default::default() }),
         },
         tree.into(),
         80,
@@ -310,7 +306,7 @@ fn folder_totals(output: &Path) -> Result<()> {
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTotals, minimum: 200 * MIB, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(MEASURED), visited: 412_966, ..Default::default() },
+            progress: Box::new(SearchProgress { measured: at(MEASURED), visited: 412_966, ..Default::default() }),
         },
         found.into(),
         80,

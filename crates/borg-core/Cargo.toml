@@ -13,6 +13,7 @@ hkdf = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 borg-i18n = { workspace = true }
+borg-rules = { workspace = true }
 borg-archive = { workspace = true }
 borg-drives = { workspace = true }
 borg-docker = { workspace = true }

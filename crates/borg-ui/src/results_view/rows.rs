@@ -1,8 +1,9 @@
 //! The rows of a panel of results: entries with their columns, groups, and in a tree the row
 //! for the files directly in a folder.
 
-use borg_core::{LineMatch, Panel, Results, Row, SortKey};
+use borg_core::{LineMatch, Panel, Results, Row, SortKey, evidence_text};
 use borg_i18n::tr;
+use borg_rules::RuleMatch;
 use borg_vfs::Entry;
 use ratatui::{
     buffer::Buffer,
@@ -100,18 +101,34 @@ fn draw_entry(
         };
         text(buf, cell, &value, style);
     }
-    if let Some(cell) = match_column(panel, place.area)
-        && let Some(line) = results.line(entry.identity())
-    {
-        let (found, current) = crate::find_view::match_styles(styles);
-        let (style, found) = if place.focused {
-            (style, current)
-        } else {
-            (styles.meta.patch(style.remove_modifier(Modifier::BOLD)), found)
-        };
-        let width = cell.width.saturating_sub(1);
-        first_match(line, usize::from(width), style, found).render(Rect { width, ..cell }, buf);
-    }
+    let Some(cell) = match_column(panel, place.area) else { return };
+    let (found, current) = crate::find_view::match_styles(styles);
+    let (style, found) = if place.focused {
+        (style, current)
+    } else {
+        (styles.meta.patch(style.remove_modifier(Modifier::BOLD)), found)
+    };
+    let width = cell.width.saturating_sub(1);
+    let matched = if let Some(line) = results.line(entry.identity()) {
+        first_match(line, usize::from(width), style, found)
+    } else if let Some(hits) = results.rule_hits(entry.identity()) {
+        rule_hits(hits, usize::from(width), style, found)
+    } else {
+        return;
+    };
+    matched.render(Rect { width, ..cell }, buf);
+}
+
+/// The rules a file matched: the worst one, how many more, and the bytes it found.
+fn rule_hits(hits: &[RuleMatch], width: usize, style: Style, found: Style) -> Line<'static> {
+    let Some(worst) = hits.first() else { return Line::default() };
+    let rule = format::truncate_end(&worst.rule, width);
+    let more = if hits.len() > 1 { format!(" +{}", hits.len() - 1) } else { String::new() };
+    let evidence =
+        worst.evidence.as_ref().map_or_else(String::new, |evidence| format!(" {}", evidence_text(&evidence.bytes)));
+    let room = width.saturating_sub(rule.width());
+    let rest = format::truncate_end(&format!("{more}{evidence}"), room);
+    Line::from(vec![Span::styled(rule, found), Span::styled(rest, style)])
 }
 
 /// A contents search's first match in a file: its line number, then the line with the match

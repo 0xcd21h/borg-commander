@@ -113,6 +113,78 @@ the context line counts the files read. Binary files (a NUL byte in the first 8 
 64 MiB stay unread and are counted as binary or too large. Ctrl-C stops the search, and it stops at
 20,000 files like any search.
 
+### Scanning files with rules
+
+Set **Look for** to **Rule matches** in the Ctrl-F dialog to scan the files below the folder with
+YARA rules: those Borg ships and your own. The name pattern, **Minimum size** and **Leave out build
+output, caches and ignored files** still apply. The rules decide what to look for, so the dialog
+drops **Containing** and **Minimum files**.
+
+Each result shows in the **Match** column the worst rule the file matched, how many more it
+matched, and the first bytes that rule found, as quoted text or as hex. F3 opens the file in the
+viewer at those bytes with the find bar on them, and F4 and the quick view land there too. The
+context line counts the files scanned and the rules that ran. Files over 64 MiB stay unread and
+count as too large, and the scan stops at 20,000 files like any search. Ctrl-C stops it.
+
+Borg's own rules look for:
+
+- `reverse_shell`: an interactive shell over `/dev/tcp`, `nc` or `socat` running a shell, or a
+  shell spawned on a pseudo-terminal.
+- `download_and_run`: a script downloaded and piped straight into a shell.
+- `decode_and_run`: base64 decoded and run as a shell command or as Python code.
+- `crypto_miner`: a mining pool address, or the settings of a common miner.
+- `upx_packed`: an executable packed with UPX, which unpacks itself in memory.
+- `execve_shellcode`: the shell path exploit code builds before it starts a shell.
+- `ssh_key_planted`: a public key appended to an `authorized_keys` file.
+- `reboot_job_fetch`: a cron job that runs at every boot and downloads, decodes or runs something
+  from a temporary folder.
+- `password_prompt`: an AppleScript dialog that asks for a password with the answer hidden, as
+  macOS stealers do.
+- `launch_agent_from_temp`: a macOS launch agent or daemon that starts a program from a temporary
+  or shared folder.
+- `preload_write`: a write to `/etc/ld.so.preload`, which loads a library into every program on
+  Linux.
+- `history_wiping`: shell history turned off, or system logs emptied.
+- `agent_unattended`: an AI coding agent started with its approvals turned off, as the Nx
+  supply-chain attack did to search machines for secrets.
+- `hidden_prompt`: a run of invisible Unicode tag characters, which can hide instructions for AI
+  models in prompts, rule files and web pages.
+- `pickle_runs_code`: a pickle, the format Python and PyTorch save models in, that runs a command
+  when it is loaded.
+
+Put your own rules in the `rules` folder beside `config.toml`: `~/.config/borg-commander/rules`,
+or the same folder under `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. Borg reads every `.yar` and
+`.yara` file there and in the folders below, each in a namespace of its own, so two files can
+use the same rule names. Each file compiles by itself. A file with an error is left out whole,
+the status line names it with the compiler's message, the context line counts the files left
+out, and the other files still run. Since every file loads on its own, a file that uses `include`
+is left out too, and the files it includes run by themselves.
+
+Rules can import the `hash`, `math`, `string`, `time`, `elf`, `macho`, `pe`, `dotnet` and `dex`
+modules; a file that imports `magic`, `cuckoo` or `console` is left out. The variables `filename`,
+`filepath` and `extension` hold the scanned file's name, path and extension, as rule sets written
+for THOR and LOKI expect, and `filetype` and `owner` are empty. A rule's `severity` meta sets how
+much a match matters: `alert`, `critical` or `high` make an alert, `warning`, `medium` or
+`suspicious` a warning, and `notice`, `low` or `info` a notice. Without it, a `score` of 80 or
+more makes an alert, 60 or more a warning, and less a notice. A rule with neither counts as a
+warning. Its `description` and `false_positives` show with each match.
+
+Borg ships no public rule sets, because their licenses differ. Download the ones you trust into
+the rules folder, and check each license before you use it at work:
+
+- [YARA Forge](https://yarahq.github.io/) packages tested rules from many public sources; each
+  rule keeps its source's license.
+- [signature-base](https://github.com/Neo23x0/signature-base) is free for non-commercial use
+  (CC BY-NC 4.0).
+- [Elastic's protection artifacts](https://github.com/elastic/protections-artifacts) come under
+  the Elastic License 2.0.
+- [ReversingLabs' rules](https://github.com/reversinglabs/reversinglabs-yara-rules) come under
+  the MIT license.
+
+Rules match patterns of bytes and know nothing of intent. Installers, security tools and their
+test data match too, and a file that no rule matches can still be malicious. Treat matches as
+leads. [Scanning memory with rules](#scanning-memory-with-rules) says what a scan cannot see.
+
 ### Working with results
 
 Click a column heading to sort by it, and click again to reverse the order. The Left and Right
@@ -1208,7 +1280,7 @@ shows its **Nice** value when it is not 0.
 
 You can signal your own processes and lower their priority. The system refuses the rest: another
 user's process, and raising a priority, which only an administrator may do. Borg then offers
-**A: Administrator**, which sends the same choice through the helper described under
+**A Administrator**, which sends the same choice through the helper described under
 [Administrator access](#administrator-access). Borg sends no signals to itself; F10 quits it.
 
 ### Memory map
@@ -1329,13 +1401,55 @@ and says if it stopped early.
 On Linux, the page tables show which code pages a process has changed, so only those are read;
 on macOS, regions without modified pages are not read either. Code in the macOS shared cache has
 no file of its own and is not compared. Memory a check cannot read is counted, and Borg offers
-**A: Administrator**. Treat findings as leads, because debuggers, profilers, updaters, and
+**A Administrator**. Treat findings as leads, because debuggers, profilers, updaters, and
 security tools leave the same traces.
+
+### Scanning memory with rules
+
+**Y**, in the memory map or among search matches, scans the memory the process filled in itself
+with the same rules as a file scan: Borg's and those in your rules folder (see
+[Scanning files with rules](#scanning-files-with-rules)). Like **Strings**, it reads memory not
+backed by a file and memory the process may write to; on macOS, regions it never wrote to are
+skipped too. A region with no page in memory or in swap is not read, and on Linux the page tables
+show which pages the process never touched, so those are not read either. Swapped pages are read,
+since a payload can wait there. Memory is read in pieces of 16 MiB that
+overlap by 4 KiB, so a match that crosses from one piece into the next is still found. Each rule
+is listed once per region, at its first match.
+
+Matches take the list pane, with alerts first. Each one names the rule and where it comes from,
+**Borg's rules** or your file, then the bytes it matched and what the rule looks for, and the rows
+below the list say what else could explain it. Selecting a match previews the bytes around it with
+the match highlighted. Rule files left out come last, with the compiler's message. **R** scans
+again, **Ctrl-C** stops the scan and keeps what it found, and **Esc** goes back. A scan reads at
+most 1 GiB, for up to 45 seconds, lists up to 2,000 matches, and says if it stopped early. Memory
+it cannot read is counted, and Borg offers **A Administrator**, which runs the scan in the helper
+with your rules folder.
+
+A rule scan is triage: a quick look at one process or folder for patterns someone has described.
+It does not watch the system, block anything or clean up, which is what endpoint protection is
+for. Some things stay out of its reach:
+
+- macOS keeps the memory of its own programs and of programs built with the Hardened Runtime from
+  every other program, administrators included (see [Administrator access](#administrator-access)).
+- On Linux, `kernel.yama.ptrace_scope` decides whose memory you may read. At 1, as on Ubuntu, you
+  may read only your own child processes, so Borg offers **A Administrator** for the rest. At 3, nobody may read another process, administrators
+  included.
+- A kernel rootkit can hide memory, files and processes from every program, Borg included, so a
+  clean scan proves little.
+- A packed or encrypted program shows its real code only while it runs. Scanning its memory then
+  sees what a scan of its file cannot.
+
+Borg reads memory without attaching as a debugger, with `process_vm_readv` on Linux and
+`mach_vm_read` on macOS, so the process sees no tracer, which is what most anti-debugging checks
+look for.
+Monitors that run as administrator, such as auditd, eBPF tools and macOS Endpoint Security
+clients, can still log the reads. A file scan opens every file it reads, which `inotify` and
+`fanotify` report. On Linux, it leaves the access time of the files you own as it was.
 
 ### Administrator access
 
 When reading a memory map or a capture is restricted, a search could not read part of the
-memory, or the system refuses a signal or priority change, Borg offers **A: Administrator**. On macOS this opens the system's authorization prompt;
+memory, or the system refuses a signal or priority change, Borg offers **A Administrator**. On macOS this opens the system's authorization prompt;
 on Linux it uses `pkexec` and needs an authorization agent to be running. Only a short-lived
 helper runs with elevated rights. Borg itself keeps running normally, and the helper only returns
 map data or a limited number of bytes, or sends the one signal or priority you chose.
@@ -1343,7 +1457,7 @@ map data or a limited number of bytes, or sends the one signal or priority you c
 macOS shields the memory of its own programs (System Integrity Protection) and of programs built
 with the Hardened Runtime from every other program, administrators included. Borg reads this from
 the program's signature: the process details say **Memory protected**, a refused read explains
-why, and **A: Administrator** is not offered, since it cannot help. Their memory maps and open
+why, and **A Administrator** is not offered, since it cannot help. Their memory maps and open
 files are still shown. It is not offered either when Borg already runs as administrator. On
 Linux, security policy can still deny access; Borg shows the error and the process monitor keeps
 working as usual.

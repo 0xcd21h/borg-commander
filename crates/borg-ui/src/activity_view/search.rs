@@ -1,8 +1,9 @@
-//! Searching a process's memory: the form, its results and the integrity findings.
+//! Searching a process's memory: the form, its results, and what integrity checks and rules
+//! found.
 
 use super::{SEARCH_HEADER, dim, displayable, emphasis, row, text, wrap};
 use crate::{Theme, format};
-use borg_core::{Activity, ActivityPage, ActivityRequest, FINDING_NOTE, IntegrityReport, Severity};
+use borg_core::{Activity, ActivityPage, ActivityRequest, FINDING_NOTE, FindingKind, FindingsReport, Severity};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -148,24 +149,48 @@ pub(super) fn results_list(body: Rect, header: u16, note: u16) -> Rect {
 }
 
 /// Integrity findings, worst first, with what the selected one means below them.
-pub(super) fn findings(activity: &Activity, report: &IntegrityReport, theme: &Theme, body: Rect, buf: &mut Buffer) {
-    let summary = tr!(
-        integrity_summary,
-        findings = report.findings.len(),
-        compared = format::size(report.compared),
-        scanned = format::size(report.scanned),
-        unbacked = format::size(report.unbacked),
-        unreadable = format::size(report.unreadable),
-        incomplete = if report.complete { "" } else { tr!(integrity_incomplete) }
-    );
-    text(buf, row(body, 0), summary, dim(theme));
+/// What the check read, and how much of it.
+fn summary(report: &FindingsReport) -> String {
+    let incomplete = |complete: bool| if complete { "" } else { tr!(integrity_incomplete) };
+    match report {
+        FindingsReport::Integrity(report) => tr!(
+            integrity_summary,
+            findings = report.findings.len(),
+            compared = format::size(report.compared),
+            scanned = format::size(report.scanned),
+            unbacked = format::size(report.unbacked),
+            unreadable = format::size(report.unreadable),
+            incomplete = incomplete(report.complete)
+        ),
+        FindingsReport::Rules(report) => tr!(
+            rules_summary,
+            findings = report.findings.iter().filter(|finding| finding.kind == FindingKind::RuleMatch).count(),
+            rules = report.rules,
+            scanned = format::size(report.scanned),
+            total = format::size(report.total),
+            unreadable = format::size(report.unreadable),
+            incomplete = incomplete(report.complete)
+        ),
+    }
+}
+
+/// What the list says when the check found nothing.
+pub(super) fn nothing_found(report: &FindingsReport) -> &'static str {
+    match report {
+        FindingsReport::Integrity(_) => tr!(integrity_none),
+        FindingsReport::Rules(_) => tr!(rules_none),
+    }
+}
+
+pub(super) fn findings(activity: &Activity, report: &FindingsReport, theme: &Theme, body: Rect, buf: &mut Buffer) {
+    text(buf, row(body, 0), summary(report), dim(theme));
     let list = results_list(body, 1, FINDING_NOTE);
-    if report.findings.is_empty() {
-        text(buf, row(list, 0), tr!(integrity_none), theme.styles.overlay);
+    if report.findings().is_empty() {
+        text(buf, row(list, 0), nothing_found(report), theme.styles.overlay);
         return;
     }
-    let start = activity.list_start(ActivityPage::Integrity, usize::from(list.height));
-    for (i, finding) in report.findings.iter().enumerate().skip(start).take(usize::from(list.height)) {
+    let start = activity.list_start(ActivityPage::Findings, usize::from(list.height));
+    for (i, finding) in report.findings().iter().enumerate().skip(start).take(usize::from(list.height)) {
         let line = row(list, (i - start) as u16);
         let selected = i == activity.finding_cursor;
         let style = if selected { theme.styles.cursor } else { theme.styles.overlay };
@@ -187,7 +212,7 @@ pub(super) fn findings(activity: &Activity, report: &IntegrityReport, theme: &Th
     let note = Rect { y: list.bottom(), height: FINDING_NOTE.min(body.bottom().saturating_sub(list.bottom())), ..body };
     let width = usize::from(note.width).max(1);
     let detail = wrap(&finding.detail, width).into_iter().take(3).map(|line| (line, emphasis(theme)));
-    let caveat = wrap(finding.kind.caveat(), width).into_iter().map(|line| (line, dim(theme)));
+    let caveat = wrap(finding.caveat(), width).into_iter().map(|line| (line, dim(theme)));
     for (y, (line, style)) in detail.chain(caveat).enumerate() {
         text(buf, row(note, y as u16), line, style);
     }

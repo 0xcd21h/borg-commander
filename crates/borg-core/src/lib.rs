@@ -139,6 +139,7 @@ pub use activity::{
     PRIORITY_STEP, ProcessControl, ProcessSignal,
 };
 pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity, chrome_rows};
+pub use activity::{FindingsReport, RulesReport, evidence_text, problem_finding, rule_finding, rule_source};
 pub use activity::{MemoryGroup, MemoryTotals, ProcessFile, ProcessFiles, RegionItem, RegionRow, SnapshotRow};
 pub use activity::{MemoryHit, MemorySearchForm, MemorySearchMode, MemorySearchReport, StringsTally};
 pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};

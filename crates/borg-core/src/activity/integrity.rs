@@ -53,6 +53,10 @@ pub enum FindingKind {
     ProgramGone,
     /// The process goes by a name other than its program's.
     NameMismatch,
+    /// A YARA rule matched.
+    RuleMatch,
+    /// A rule file left out because it does not compile.
+    RuleProblem,
 }
 
 impl FindingKind {
@@ -70,6 +74,8 @@ impl FindingKind {
             Self::Traced => tr!(finding_traced),
             Self::ProgramGone => tr!(finding_program_gone),
             Self::NameMismatch => tr!(finding_name_mismatch),
+            Self::RuleMatch => tr!(finding_rule_match),
+            Self::RuleProblem => tr!(finding_rule_problem),
         }
     }
     /// The ordinary reasons for the finding, so it is read as a lead rather than a verdict.
@@ -87,6 +93,8 @@ impl FindingKind {
             Self::Traced => tr!(caveat_traced),
             Self::ProgramGone => tr!(caveat_program_gone),
             Self::NameMismatch => tr!(caveat_name_mismatch),
+            Self::RuleMatch => tr!(caveat_rule_match),
+            Self::RuleProblem => tr!(caveat_rule_problem),
         }
     }
 }
@@ -100,6 +108,16 @@ pub struct Finding {
     pub region: Option<MemoryRegion>,
     pub address: Option<u64>,
     pub length: usize,
+    /// What else could explain this finding, when it says more than its kind's caveat, as a
+    /// rule's author can.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+impl Finding {
+    pub fn caveat(&self) -> &str {
+        self.note.as_deref().unwrap_or(self.kind.caveat())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,7 +144,7 @@ pub const FINDING_NOTE: u16 = 6;
 /// Checks the process against its files and for signs of injected code; the findings replace
 /// the list until Esc goes back to where the check started.
 pub(super) fn check_integrity(activity: &mut Activity, process: ProcessKey) -> Vec<Effect> {
-    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Findings) {
         activity.results_origin = activity.list;
     }
     activity.search_progress = Some((0, 0, 0));

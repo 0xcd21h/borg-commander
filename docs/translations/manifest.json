@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
+      "source": "0f726de620617cc71bd60069f5e08a0286cbb684c3f3b8aaa0b21a2c77576fce",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
-        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
+        "inline code": "508ac763ee5524ad17eda8596798f53643408159b9c7f8c056a1410fc66a83d3",
+        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
+        "heading levels": "53e55618611c670fd57a6f8e6c8a2059f5a231c8077be483fff14910760f11fc"
       },
       "headings": [
         {
@@ -24,6 +24,10 @@
         {
           "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
         },
         {
           "level": 3,
@@ -184,6 +188,10 @@
         {
           "level": 3,
           "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Scanning memory with rules"
         },
         {
           "level": 3,
@@ -216,12 +224,12 @@
       ]
     },
     "pt": {
-      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
+      "source": "0f726de620617cc71bd60069f5e08a0286cbb684c3f3b8aaa0b21a2c77576fce",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
-        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
+        "inline code": "508ac763ee5524ad17eda8596798f53643408159b9c7f8c056a1410fc66a83d3",
+        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
+        "heading levels": "53e55618611c670fd57a6f8e6c8a2059f5a231c8077be483fff14910760f11fc"
       },
       "headings": [
         {
@@ -239,6 +247,10 @@
         {
           "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
         },
         {
           "level": 3,
@@ -399,6 +411,10 @@
         {
           "level": 3,
           "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Scanning memory with rules"
         },
         {
           "level": 3,
@@ -431,12 +447,12 @@
       ]
     },
     "es": {
-      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
+      "source": "0f726de620617cc71bd60069f5e08a0286cbb684c3f3b8aaa0b21a2c77576fce",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
-        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
+        "inline code": "508ac763ee5524ad17eda8596798f53643408159b9c7f8c056a1410fc66a83d3",
+        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
+        "heading levels": "53e55618611c670fd57a6f8e6c8a2059f5a231c8077be483fff14910760f11fc"
       },
       "headings": [
         {
@@ -454,6 +470,10 @@
         {
           "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
         },
         {
           "level": 3,
@@ -614,6 +634,10 @@
         {
           "level": 3,
           "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Scanning memory with rules"
         },
         {
           "level": 3,
@@ -646,12 +670,12 @@
       ]
     },
     "ru": {
-      "source": "462d824ef27587f881be647afd4823076f1e8714cc0a6ca5c757a45fe37e4aaf",
+      "source": "0f726de620617cc71bd60069f5e08a0286cbb684c3f3b8aaa0b21a2c77576fce",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "fe715beae33d147749790026398eb3ac578ed8898e812e5447fd38d5f3ec4d91",
-        "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "676c6069f907be107c9c95ac05b8e670d1e56e9ebbcb0923c5a1aadbd6532987"
+        "inline code": "508ac763ee5524ad17eda8596798f53643408159b9c7f8c056a1410fc66a83d3",
+        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
+        "heading levels": "53e55618611c670fd57a6f8e6c8a2059f5a231c8077be483fff14910760f11fc"
       },
       "headings": [
         {
@@ -669,6 +693,10 @@
         {
           "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
         },
         {
           "level": 3,
@@ -829,6 +857,10 @@
         {
           "level": 3,
           "title": "Code integrity check"
+        },
+        {
+          "level": 3,
+          "title": "Scanning memory with rules"
         },
         {
           "level": 3,
