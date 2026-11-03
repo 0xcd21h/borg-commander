@@ -158,8 +158,8 @@ pub(crate) fn question_buttons(job: &Job, screen: Rect) -> (Rect, Vec<(Rect, cha
     let width = screen.width.saturating_sub(MARGIN).min(DIALOG_WIDTH);
     let text_width = usize::from(width.saturating_sub(PADDING * 2 + BORDER_ROWS));
     let lines = match &job.state {
-        JobState::Asking(Ask::Conflict { .. }) => 3,
-        JobState::Asking(Ask::Failure { .. }) => 2,
+        JobState::Asking(Ask::Conflict { .. } | Ask::Expand { .. }) => 3,
+        JobState::Asking(Ask::Failure { .. } | Ask::Room { .. }) => 2,
         _ => return (Rect::default(), Vec::new()),
     };
     let rows = button_rows(job, text_width);
@@ -236,6 +236,39 @@ pub fn draw_question(job: &Job, question: Question, look: &Look<'_>, screen: Rec
                 Line::styled(format::truncate_end(message, text_width), styles.notice),
             ],
         ),
+        Ask::Expand { archive, packed, unpacked, files } => {
+            let files = borg_i18n::count(usize::try_from(*files).unwrap_or(usize::MAX), borg_i18n::Count::File);
+            let detail = tr!(
+                archive_expand_detail,
+                unpacked = format::size(*unpacked),
+                files = files,
+                packed = format::size(*packed)
+            );
+            (
+                tr!(archive_expand_title),
+                vec![
+                    Line::styled(
+                        format::truncate_end(&name(archive), text_width),
+                        styles.overlay.add_modifier(Modifier::BOLD),
+                    ),
+                    Line::styled(format::truncate_end(&detail, text_width), styles.overlay),
+                    Line::styled(format::truncate_end(tr!(archive_expand_warning), text_width), styles.notice),
+                ],
+            )
+        }
+        Ask::Room { target, needed, free } => {
+            let detail = tr!(archive_room_detail, needed = format::size(*needed), free = format::size(*free));
+            (
+                tr!(archive_room_title),
+                vec![
+                    Line::styled(
+                        format::truncate_start(&target.display().to_string(), text_width),
+                        styles.overlay.add_modifier(Modifier::BOLD),
+                    ),
+                    Line::styled(format::truncate_end(&detail, text_width), styles.notice),
+                ],
+            )
+        }
     };
     let actions = buttons(job, question.choice, text_width, look);
     let height = u16::try_from(lines.len() + actions.len()).unwrap_or(u16::MAX) + BORDER_ROWS + 3;

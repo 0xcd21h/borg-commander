@@ -392,7 +392,7 @@ impl CopyJob {
                 match decision {
                     Decision::Overwrite | Decision::Retry => {}
                     Decision::OverwriteAll => overwrite = Sticky::Always,
-                    Decision::Skip | Decision::SkipAll => {
+                    Decision::Skip | Decision::SkipAll | Decision::Proceed => {
                         if decision == Decision::SkipAll {
                             overwrite = Sticky::Never;
                         }

@@ -109,6 +109,8 @@ pub struct Panel {
     pub mount: Option<crate::Mount>,
     /// A paired Borg session whose filesystem this panel shows.
     pub remote_mount: Option<RemoteMount>,
+    /// The archive whose files this panel shows.
+    pub archive: Option<crate::ArchiveMount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,7 +144,20 @@ impl Panel {
             backup: crate::BackupPanel::default(),
             mount: None,
             remote_mount: None,
+            archive: None,
         }
+    }
+
+    /// The folder a shell beside the panel works in: the panel's own, or the one that holds the
+    /// archive it shows.
+    pub fn shell_folder(&self) -> &Path {
+        self.archive.as_ref().map_or(&self.dir, |mount| &mount.host)
+    }
+
+    /// Whether the panel shows files from somewhere other than this machine's folders: a
+    /// container, a paired Borg or an archive.
+    pub fn foreign(&self) -> bool {
+        self.mount.is_some() || self.remote_mount.is_some() || self.archive.is_some()
     }
 
     pub fn dir(&self) -> &Path {
@@ -171,9 +186,12 @@ impl Panel {
     }
 
     pub fn git_repository(&self) -> Option<&borg_git::Repository> {
-        (!self.is_results() && self.remote_mount.is_none() && self.dir() == self.destination())
-            .then_some(self.git.repository.as_ref())
-            .flatten()
+        (!self.is_results()
+            && self.remote_mount.is_none()
+            && self.archive.is_none()
+            && self.dir() == self.destination())
+        .then_some(self.git.repository.as_ref())
+        .flatten()
     }
 
     pub fn mode(&self) -> ListingMode {

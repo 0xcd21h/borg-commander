@@ -3,6 +3,7 @@ mod activity;
 mod agent;
 mod anim;
 mod appearance;
+mod archive;
 mod aside;
 mod backup;
 mod busy;
@@ -57,6 +58,7 @@ pub use agent::{
 };
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
+pub use archive::{ArchiveMount, Password, UnpackRequest, UnpackTarget};
 pub use aside::{Aside, Facts, Nature, Peek, Peeked, land_on_match};
 pub use backup::{
     Backup, BackupChange, BackupEvent, BackupItem, BackupList, BackupListing, BackupPanel, BackupRequest, BackupTab,
@@ -110,11 +112,11 @@ pub use state::{
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
 };
 pub use storage::{
-    CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR, INDEX_SUFFIX,
-    Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX, SIZES_PREFIX,
-    SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport, StorageRow, StorageWindow,
-    TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers,
-    socket_leftovers,
+    ARCHIVE_VIEWS, CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR,
+    INDEX_SUFFIX, Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX,
+    SIZES_PREFIX, SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport, StorageRow,
+    StorageWindow, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines,
+    runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
 pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};

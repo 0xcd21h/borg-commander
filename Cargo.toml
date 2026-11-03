@@ -10,6 +10,7 @@ rust-version = "1.97"
 
 [workspace.dependencies]
 borg-i18n = { path = "crates/borg-i18n" }
+borg-archive = { path = "crates/borg-archive" }
 borg-core = { path = "crates/borg-core" }
 borg-docker = { path = "crates/borg-docker" }
 borg-edit = { path = "crates/borg-edit" }
@@ -48,6 +49,11 @@ gif                = "0.14"
 ureq               = { version = "3", features = ["platform-verifier"] }
 flate2             = "1"
 tar                = "0.4"
+bzip2              = "0.6"
+lzma-rust2         = { version = "0.23", default-features = false, features = ["std", "xz", "optimization"] }
+sevenz-rust2       = { version = "0.24", default-features = false, features = ["aes256", "bzip2", "deflate", "ppmd", "zstd"] }
+zip                = { version = "9", default-features = false, features = ["aes-crypto", "bzip2", "deflate-flate2", "deflate64", "lzma", "ppmd", "xz", "zstd"] }
+zstd               = "0.14"
 sha2               = "0.10"
 aes-gcm            = "0.10"
 chacha20poly1305   = "0.10"

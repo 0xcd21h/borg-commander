@@ -1,5 +1,8 @@
 use borg_i18n::tr;
-use std::time::Instant;
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -20,6 +23,8 @@ const FAILURE_CHOICES: [(Decision, char, borg_i18n::Message); 4] = [
     (Decision::SkipAll, 'a', tr!(@ skip_all)),
     (Decision::Cancel, 'c', tr!(@ cancel)),
 ];
+const PROCEED_CHOICES: [(Decision, char, borg_i18n::Message); 2] =
+    [(Decision::Proceed, 'u', tr!(@ unpack_anyway)), (Decision::Cancel, 'c', tr!(@ cancel))];
 const PAUSE_KEY: char = 'p';
 const CANCEL_KEY: char = 'c';
 
@@ -28,6 +33,10 @@ pub enum JobKind {
     Copy,
     Move,
     Delete,
+    /// Files copied out of an archive.
+    Unpack,
+    /// A file unpacked from an archive for the viewer.
+    View,
 }
 
 impl JobKind {
@@ -36,6 +45,7 @@ impl JobKind {
             Self::Copy => tr!(copying),
             Self::Move => tr!(moving),
             Self::Delete => tr!(deleting),
+            Self::Unpack | Self::View => tr!(unpacking),
         }
     }
 
@@ -44,6 +54,15 @@ impl JobKind {
             Self::Copy => tr!(copied),
             Self::Move => tr!(moved),
             Self::Delete => tr!(deleted),
+            Self::Unpack | Self::View => tr!(unpacked),
+        }
+    }
+
+    /// The panel that shows the job's progress: the one it writes into.
+    fn shown_on(self, origin: Side) -> Side {
+        match self {
+            Self::Copy | Self::Move | Self::Unpack => origin.other(),
+            Self::Delete | Self::View => origin,
         }
     }
 }
@@ -65,6 +84,8 @@ pub struct Job {
     pub progress: Option<Progress>,
     pub paused: bool,
     pub started: Instant,
+    /// The file the viewer waits for, which the job unpacks.
+    pub opens: Option<PathBuf>,
 }
 
 impl Job {
@@ -82,6 +103,7 @@ impl Job {
     pub fn choices(&self) -> &'static [(Decision, char, borg_i18n::Message)] {
         match self.state {
             JobState::Asking(Ask::Failure { .. }) => &FAILURE_CHOICES,
+            JobState::Asking(Ask::Expand { .. } | Ask::Room { .. }) => &PROCEED_CHOICES,
             JobState::Asking(Ask::Conflict { .. }) | JobState::Scanning(_) | JobState::Running(_) => &CONFLICT_CHOICES,
         }
     }
@@ -113,13 +135,15 @@ pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instan
 
 /// Adds a job to the list and returns its id, for a job that some effect then runs.
 pub(crate) fn begin(state: &mut AppState, kind: JobKind, now: Instant) -> (u64, Vec<Effect>) {
+    let shown_on = kind.shown_on(state.active);
+    begin_on(state, kind, shown_on, now)
+}
+
+/// Adds a job whose progress shows in the panel on `shown_on`.
+pub(crate) fn begin_on(state: &mut AppState, kind: JobKind, shown_on: Side, now: Instant) -> (u64, Vec<Effect>) {
     let id = state.next_job;
     state.next_job += 1;
     let origin = state.active;
-    let shown_on = match kind {
-        JobKind::Copy | JobKind::Move => origin.other(),
-        JobKind::Delete => origin,
-    };
     state.jobs.push(Job {
         id,
         kind,
@@ -129,10 +153,23 @@ pub(crate) fn begin(state: &mut AppState, kind: JobKind, now: Instant) -> (u64, 
         progress: None,
         paused: false,
         started: now,
+        opens: None,
     });
+    if kind == JobKind::View {
+        return (id, Vec::new());
+    }
     let effects = crate::measure::cancel(state);
     crate::measure::forget(state);
     (id, effects)
+}
+
+/// Adds a job that unpacks the file the viewer waits for as `opens`.
+pub(crate) fn begin_view(state: &mut AppState, opens: PathBuf, now: Instant) -> u64 {
+    let (id, _) = begin(state, JobKind::View, now);
+    if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
+        job.opens = Some(opens);
+    }
+    id
 }
 
 pub(crate) fn on_event(state: &mut AppState, id: u64, event: Event) -> Vec<Effect> {
@@ -154,6 +191,15 @@ fn finish(state: &mut AppState, index: usize, outcome: Outcome) -> Vec<Effect> {
     let job = state.jobs.remove(index);
     if matches!(state.overlay, Some(Overlay::Question(question)) if question.id == job.id) {
         state.overlay = None;
+    }
+    if let Some(path) = job.opens {
+        let notice = match outcome {
+            Outcome::Done { .. } => return Vec::new(),
+            Outcome::Cancelled { done } => tr!(cancelled_after, job.kind.doing(), summary(done)),
+            Outcome::Failed(message) => tr!(job_failed, job.kind.doing(), message = message),
+        };
+        crate::viewer::failed(state, path, notice);
+        return Vec::new();
     }
     state.notice = Some(match outcome {
         Outcome::Done { done, skipped } => {
@@ -251,6 +297,12 @@ pub(crate) fn on_list_key(state: &mut AppState, list: JobList, key: &KeyEvent) -
         state.overlay = None;
     }
     effects
+}
+
+/// Cancels the job that unpacks `path` for the viewer, which no longer waits for it.
+pub(crate) fn cancel_opening(state: &AppState, path: &Path) -> Vec<Effect> {
+    let opening = state.jobs.iter().filter(|job| job.opens.as_deref() == Some(path));
+    opening.map(|job| Effect::JobControl { id: job.id, command: JobCommand::Cancel }).collect()
 }
 
 pub(crate) fn cancel_all(state: &AppState) -> Vec<Effect> {

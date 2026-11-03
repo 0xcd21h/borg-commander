@@ -1,7 +1,7 @@
 //! The windows over the panels: menus, prompts, questions and the rest.
 
 use crate::{About, Find, JobList, LineInput, Picker, Question};
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuCursor {
@@ -48,6 +48,14 @@ pub enum PromptPurpose {
     DockerCopy {
         sources: Vec<PathBuf>,
     },
+    /// Copy out of the archive the active panel shows.
+    Unpack {
+        sources: Vec<PathBuf>,
+    },
+    /// The password for the archive the panel on `side` opens.
+    ArchivePassword {
+        side: crate::Side,
+    },
 }
 
 impl PromptPurpose {
@@ -58,6 +66,11 @@ impl PromptPurpose {
             Self::BackupAdd { fixed } => Some((borg_i18n::tr!(backup_add_fixed), *fixed)),
             _ => None,
         }
+    }
+
+    /// Whether the field hides what is typed.
+    pub fn masked(&self) -> bool {
+        matches!(self, Self::ArchivePassword { .. })
     }
 
     pub(crate) fn toggle_option(&mut self) {
@@ -75,6 +88,8 @@ pub struct Prompt {
     pub input: LineInput,
     pub purpose: PromptPurpose,
     pub option_focused: bool,
+    /// When a key last changed the text, which a password field flares at.
+    pub typed: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -313,8 +313,14 @@ pub(crate) fn prompt(
     value: String,
     purpose: PromptPurpose,
 ) -> Vec<Effect> {
-    state.overlay =
-        Some(Overlay::Prompt(Prompt { title, label, input: LineInput::new(value), purpose, option_focused: false }));
+    state.overlay = Some(Overlay::Prompt(Prompt {
+        title,
+        label,
+        input: LineInput::new(value),
+        purpose,
+        option_focused: false,
+        typed: None,
+    }));
     Vec::new()
 }
 

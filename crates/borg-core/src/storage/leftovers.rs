@@ -14,7 +14,8 @@ pub const SETTLE: Duration = Duration::from_secs(10 * 60);
 /// Folders of other Borg versions, and folders without a process in their name, are left over
 /// once nothing in them changed for this long. macOS clears its temporary folder after as long.
 pub const STALE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
-/// Copies out of containers and remote previews are left over after a day.
+/// Copies out of containers, remote previews and files unpacked for the viewer are left over
+/// after a day.
 pub const SCRATCH_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The file in the runtime folder that says until when a running Borg uses it.
@@ -23,6 +24,8 @@ pub const TTL_FILE: &str = "TTL";
 pub const DOCKER_SCRATCH: &str = "docker";
 /// Where Borg keeps the files it shows from remote machines, in the runtime folder.
 pub const REMOTE_PREVIEWS: &str = "remote-preview";
+/// Where Borg unpacks the files it shows from archives, in the runtime folder.
+pub const ARCHIVE_VIEWS: &str = "archive-view";
 /// The start of a remote console's folder in the runtime folder, followed by its process.
 pub const CONSOLE_PREFIX: &str = "console-";
 /// The start of the certificates a capture's proxy has programs trust, in the runtime folder,
@@ -146,7 +149,8 @@ fn children(found: &Found) -> &[Found] {
 
 /// What is left over in a runtime folder: the folders of other Borg versions nobody uses,
 /// folder requests, staged files and capture proxy certificates of ended processes, remote
-/// consoles that ended, and old copies out of containers and remote previews.
+/// consoles that ended, and old copies out of containers, remote previews and files unpacked
+/// for the viewer.
 pub fn runtime_leftovers(root: &Path, entries: &[Found], judge: &Judge) -> Vec<Leftover> {
     entries.iter().flat_map(|found| runtime_entry(root, found, judge)).collect()
 }
@@ -155,11 +159,15 @@ fn runtime_entry(root: &Path, found: &Found, judge: &Judge) -> Vec<Leftover> {
     let path = root.join(&found.name);
     match &found.kind {
         FoundKind::Folder(inside) if is_version(&found.name) => version_folder(path, found, inside, judge),
-        FoundKind::Folder(inside) if found.name == DOCKER_SCRATCH || found.name == REMOTE_PREVIEWS => inside
-            .iter()
-            .filter(|child| judge.age(child) >= SCRATCH_AGE)
-            .map(|child| whole(path.join(&child.name), child))
-            .collect(),
+        FoundKind::Folder(inside)
+            if [DOCKER_SCRATCH, REMOTE_PREVIEWS, ARCHIVE_VIEWS].contains(&found.name.as_str()) =>
+        {
+            inside
+                .iter()
+                .filter(|child| judge.age(child) >= SCRATCH_AGE)
+                .map(|child| whole(path.join(&child.name), child))
+                .collect()
+        }
         FoundKind::Folder(_) if found.name.starts_with(CONSOLE_PREFIX) && judge.settled(found) => {
             let ended = match process(&found.name, CONSOLE_PREFIX, separated) {
                 Some(pid) => !(judge.runs)(pid),

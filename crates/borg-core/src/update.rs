@@ -53,6 +53,25 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Listed { side, generation, error } => listed(state, side, generation, error),
+        Msg::ArchiveReading { side, generation, read, total } => {
+            crate::archive::reading(state, side, generation, read, total);
+            Vec::new()
+        }
+        Msg::ArchiveOpened { side, generation, format, left_out } => {
+            crate::archive::opened(state, side, generation, format, left_out);
+            Vec::new()
+        }
+        Msg::ArchiveNeedsTool { side, generation, installer } => {
+            let visible = state.panel(side).generation() == generation;
+            if visible {
+                crate::install::offer(state, crate::Tool::Bsdtar, installer);
+            }
+            listed(state, side, generation, Some(tr!(archive_no_tool).into()))
+        }
+        Msg::ArchiveLocked { side, generation, wrong } => {
+            crate::archive::locked(state, side, generation, wrong);
+            Vec::new()
+        }
         message @ (Msg::Sized { .. } | Msg::SizeProgress { .. } | Msg::SizesFinished { .. }) => {
             crate::measure::receive(state, message)
         }
@@ -254,6 +273,7 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
         }
         state.notice = notice.or(state.notice.take());
     }
+    crate::archive::settle(state, side);
     if !visible {
         return Vec::new();
     }

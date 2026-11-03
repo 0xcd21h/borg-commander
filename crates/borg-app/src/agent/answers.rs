@@ -154,6 +154,10 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
     for side in Side::ALL {
         let panel = state.panel(side);
         let _ = writeln!(text, "{} panel: {}", side_name(side), panel_location(state, side));
+        if let Some(archive) = &panel.archive {
+            let inside = archive.inside(panel.dir()).unwrap_or_default();
+            let _ = writeln!(text, "  inside the archive {}, at /{inside}, read only", archive.archive.display());
+        }
         match panel.hovered() {
             Some(Row::Entry(entry)) => drop(writeln!(text, "  highlighted: {}", entry.name)),
             Some(Row::Parent) => drop(writeln!(text, "  highlighted: .. (the parent folder)")),
@@ -235,12 +239,13 @@ pub(super) fn side_name(side: Side) -> &'static str {
     }
 }
 
-/// Where a panel is: a folder on this machine, or in a container's filesystem.
+/// Where a panel is: a folder on this machine, or in a container's filesystem. An archive's
+/// panel is where the archive is.
 pub fn panel_location(state: &AppState, side: Side) -> Location {
     let panel = state.panel(side);
     match &panel.mount {
         Some(mount) => Location::Container { container: mount.name.clone(), path: panel.dir().to_path_buf() },
-        None => Location::Host(panel.dir().to_path_buf()),
+        None => Location::Host(panel.shell_folder().to_path_buf()),
     }
 }
 
@@ -257,7 +262,7 @@ pub fn host_dir(state: &AppState) -> PathBuf {
         .into_iter()
         .map(|side| state.panel(side))
         .find(|panel| panel.mount.is_none())
-        .map_or_else(|| state.shell.cwd.clone(), |panel| panel.dir().to_path_buf())
+        .map_or_else(|| state.shell.cwd.clone(), |panel| panel.shell_folder().to_path_buf())
 }
 
 /// Text an agent types, with every control character left out but line breaks and tabs, so

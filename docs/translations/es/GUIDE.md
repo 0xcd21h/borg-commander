@@ -268,6 +268,7 @@ momento.
 | Up, Down, PgUp, PgDn, Home, End | Moverse |
 | Enter, Right | Abrir una carpeta / ejecutar o ver un archivo |
 | Left | Ir a la carpeta superior |
+| Ctrl-PgDn / Ctrl-PgUp | Abrir la carpeta o el archivo comprimido bajo el cursor / ir a la carpeta superior |
 | Tab | Cambiar de panel, o entrar en la vista previa rápida y volver a la lista de archivos |
 | Ctrl-O | Mostrar el shell / volver a los paneles |
 | Alt-I | Contar tamaños de carpetas en segundo plano / dejar de contar |
@@ -915,6 +916,67 @@ recorren al instante un archivo de varios gigabytes. La barra de búsqueda tambi
 filas hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos
 Markdown y JSON muestran los bytes tal como están escritos.
 
+### Archivos comprimidos
+
+Pulsa Enter sobre un archivo comprimido para abrirlo como una carpeta. Borg abre los archivos cuyo
+nombre termina en `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`,
+`.tar.xz`, `.txz`, `.tar.zst` o `.tzst`, y los archivos comprimidos sueltos que terminan en `.gz`,
+`.bz2`, `.xz` o `.zst`, que se abren como una carpeta con ese único archivo. Ctrl-PgDn también abre
+un archivo comprimido, y F3 sobre el propio archivo comprimido sigue mostrando sus bytes en el
+visor. El título del panel muestra una marca como **▤ zip** con el formato que Borg encontró en los
+primeros bytes del archivo, y la ruta continúa dentro del archivo comprimido. Las carpetas de dentro
+muestran el tamaño de lo que contienen. Left, Enter en `..` o Ctrl-PgUp en la raíz del archivo
+comprimido te devuelven a la carpeta que lo contiene, con el cursor sobre él.
+
+Para listar un archivo comprimido, Borg lee lo que contiene, lo que en un tar comprimido significa
+leer el archivo entero. Mientras lee uno grande, el pie del panel muestra hasta dónde ha llegado
+Borg, y Esc detiene la lectura y vuelve atrás. Borg recuerda los listados de los últimos 4 archivos
+comprimidos mientras conserven el mismo tamaño y la misma fecha, así que entrar y salir de nuevo es
+instantáneo. Los archivos comprimidos con más de 1.000.000 de entradas no se abren.
+
+F3 o Enter sobre un archivo de dentro lo descomprime en una carpeta privada dentro de la carpeta de
+ejecución de Borg y lo abre en el visor. La descompresión se ejecuta como una tarea, así que un
+archivo grande muestra su progreso, y Esc la cancela. Borg borra el archivo descomprimido en cuanto
+el visor lo tiene abierto.
+
+F5 copia los archivos y carpetas marcados fuera del archivo comprimido, a la carpeta del otro panel
+o a la carpeta que escribas en el diálogo Copiar. **Extraer aquí** y **Extraer en el otro panel**,
+en el menú Archivo (F2), descomprimen el archivo comprimido entero bajo el cursor en la carpeta de
+este panel o en la del otro. En ambos casos los archivos llegan a una carpeta de esta máquina, y la
+tarea aparece en Alt-J con su progreso, su velocidad y el tiempo restante. Pregunta por los nombres
+que ya existen igual que una copia, escribe cada archivo con un nombre temporal hasta que está
+completo y detiene cada archivo en el tamaño que le asigna el archivo comprimido.
+
+Los archivos comprimidos se abren en modo de solo lectura. F4, F6, F7, F8, Alt-E, Ctrl-Q y
+**Comprimir…** lo avisan, y F5 desde el otro panel no puede copiar dentro de un archivo comprimido.
+Copia los archivos fuera con F5 para trabajar con ellos. Un archivo comprimido dentro de otro se
+abre cuando lo copias fuera. El shell se queda en la carpeta que contiene el archivo comprimido, y
+una sesión guardada vuelve a abrir esa carpeta con el cursor sobre él.
+
+Los archivos zip y 7z cifrados piden la contraseña al abrirse. En el diálogo **Contraseña**, cada
+carácter que escribes aparece como ruido de interferencia que cambia sin parar y destella con cada
+tecla. El ruido depende solo de cuántos caracteres has escrito. El diálogo vuelve a preguntar si la
+contraseña es incorrecta, y Esc sale del archivo comprimido. Borg guarda la contraseña en memoria mientras el panel muestra el archivo
+comprimido y nunca la escribe en ningún sitio. **Extraer aquí** no puede pedirla, así que para un
+archivo comprimido cifrado pulsa Enter sobre él, escribe la contraseña y copia los archivos fuera
+con F5.
+
+Antes de escribir nada, Borg suma lo que ocupan las entradas elegidas una vez descomprimidas y
+pregunta primero cuando pasan de 1 GiB y de 100 veces el tamaño del archivo comprimido, o de 100.000
+archivos, que es el aspecto de una bomba zip. También pregunta cuando el destino tiene menos espacio
+libre del que necesitan los archivos. **Descomprimir de todos modos** (`u`) sigue adelante, y
+Cancelar se detiene antes del primer archivo. Las entradas con rutas absolutas, con `..` en la ruta
+o que son archivos de dispositivo se omiten con un aviso, y ninguna entrada ni enlace de un archivo
+comprimido puede hacer que Borg escriba fuera de la carpeta de destino.
+
+Borg lee por sí mismo zip, 7z y la familia tar. Los archivos RAR pasan por 7-Zip (`7zz` o `7z`) o
+por `bsdtar`, el que Borg encuentre primero, y macOS ya trae `bsdtar`. Si no hay ninguno instalado,
+Enter sobre un archivo RAR ofrece instalar bsdtar. El diálogo **Instalar bsdtar** funciona como el
+de tcpdump en [Capturar tráfico](#capturing-traffic): muestra el comando exacto para tu gestor de
+paquetes, y Enter lo escribe en el shell de Borg. Borg también busca `bsdtar` en la carpeta
+`libarchive` de Homebrew, que Homebrew deja fuera del `PATH`. Los archivos RAR cifrados todavía no
+se abren.
+
 ### Editor
 
 F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 lo abre en `$VISUAL` o `$EDITOR`.
@@ -1068,8 +1130,9 @@ ejecución adelanta esa hora un día cada hora, así que, una vez pasada, la car
 cada uno y dónde está:
 
 - **Archivos temporales**: scripts de integración con el shell, peticiones de cambio de carpeta
-  desde el shell, copias desde contenedores, vistas previas remotas y los certificados del proxy de
-  una captura, en la carpeta de ejecución.
+  desde el shell, copias desde contenedores, vistas previas remotas, archivos descomprimidos de
+  archivos comprimidos para el visor y los certificados del proxy de una captura, en la carpeta de
+  ejecución.
 - **Sockets**: por donde los agentes y los espejos llegan a las sesiones en curso, en
   `/tmp/borg-<uid>-default`, o en una carpeta `/tmp/borg-<uid>-` con el nombre de la carpeta de
   ejecución cuando `$XDG_RUNTIME_DIR` está definida.
@@ -1092,7 +1155,8 @@ está arrancando conserva lo que acaba de crear. Esto es lo que se elimina:
   cambiado en 3 días.
 - Peticiones de cambio de carpeta, archivos a medio escribir, carpetas de consolas remotas y
   certificados del proxy de capturas de procesos de Borg que terminaron.
-- Copias desde contenedores y vistas previas remotas de más de un día.
+- Copias desde contenedores, vistas previas remotas y archivos descomprimidos para el visor de
+  más de un día.
 - Sockets en los que nadie responde, y carpetas de sockets en las que ya no responde nada.
 - Análisis de tamaño en el formato de Borg 0.4 y 0.5, análisis que la caché ya no lista e índices de
   nombres de carpetas que ya no se indexan.

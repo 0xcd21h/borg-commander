@@ -55,6 +55,8 @@ pub enum Action {
     Top,
     Bottom,
     Open,
+    /// Into the hovered folder or archive.
+    Enter,
     Descend,
     Leave,
     InsertName,
@@ -218,6 +220,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Down, NONE, Action::Down, Scope::Panels),
     bind(KeyCode::PageUp, NONE, Action::PageUp, Scope::Panels),
     bind(KeyCode::PageDown, NONE, Action::PageDown, Scope::Panels),
+    bind(KeyCode::PageDown, CTRL, Action::Enter, Scope::Panels),
+    bind(KeyCode::PageUp, CTRL, Action::Leave, Scope::Panels),
     bind(KeyCode::Home, NONE, Action::Top, Scope::PanelsEmptyLine),
     bind(KeyCode::End, NONE, Action::Bottom, Scope::PanelsEmptyLine),
     bind(KeyCode::Enter, NONE, Action::Open, Scope::PanelsEmptyLine),

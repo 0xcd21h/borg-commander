@@ -10,6 +10,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Tcpdump,
+    /// libarchive's tar, which reads RAR archives.
+    Bsdtar,
 }
 
 impl Tool {
@@ -17,6 +19,7 @@ impl Tool {
     pub fn program(self) -> &'static str {
         match self {
             Self::Tcpdump => "tcpdump",
+            Self::Bsdtar => "bsdtar",
         }
     }
 
@@ -24,6 +27,9 @@ impl Tool {
     pub fn package(self, manager: PackageManager) -> &'static str {
         match (self, manager) {
             (Self::Tcpdump, _) => "tcpdump",
+            (Self::Bsdtar, PackageManager::Apt | PackageManager::Apk) => "libarchive-tools",
+            (Self::Bsdtar, PackageManager::Pacman | PackageManager::Homebrew) => "libarchive",
+            (Self::Bsdtar, PackageManager::Dnf | PackageManager::Zypper) => "bsdtar",
         }
     }
 
@@ -31,6 +37,7 @@ impl Tool {
     fn missing(self) -> &'static str {
         match self {
             Self::Tcpdump => tr!(capture_missing),
+            Self::Bsdtar => tr!(archive_no_tool),
         }
     }
 
@@ -38,6 +45,7 @@ impl Tool {
     fn installed(self) -> &'static str {
         match self {
             Self::Tcpdump => tr!(install_tcpdump_done),
+            Self::Bsdtar => tr!(install_bsdtar_done),
         }
     }
 }

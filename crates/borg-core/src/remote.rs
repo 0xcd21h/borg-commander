@@ -242,6 +242,7 @@ fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Ve
             browser: Box::new(browser),
         },
         option_focused: false,
+        typed: None,
     }));
     Vec::new()
 }

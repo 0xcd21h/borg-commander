@@ -1,6 +1,6 @@
 //! The actions a panel's place rules out, and what Borg says instead: files wait while the
-//! activity monitor or the container list shows, remote panels take copies and little else, and
-//! containers and results take only what works there.
+//! activity monitor or the container list shows, remote panels take copies and little else,
+//! archives open read only, and containers and results take only what works there.
 
 use borg_i18n::tr;
 
@@ -12,6 +12,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
     let mounted = state.panel(side).mount.is_some();
     let other_mounted = state.panel(side.other()).mount.is_some();
     let remote = state.panel(side).remote_mount.is_some() || state.panel(side.other()).remote_mount.is_some();
+    let archived = state.panel(side).archive.is_some();
+    let other_archived = state.panel(side.other()).archive.is_some();
     let notice = if state.monitor_open() && on_files(action) {
         if state.docker.is_open() {
             tr!(docker_close_for_files)
@@ -20,6 +22,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
         } else {
             tr!(activity_close_for_files)
         }
+    } else if (archived && needs_local_files(action)) || (other_archived && writes_to_other(action)) {
+        tr!(archive_read_only)
     } else if remote && needs_local_files(action) {
         tr!(remote_operation_unavailable)
     } else if (mounted && needs_this_machine(action)) || (other_mounted && action == Action::ExtractToOther) {
@@ -56,6 +60,11 @@ fn on_files(action: Action) -> bool {
             | Action::Git(_)
             | Action::SameFolder
     )
+}
+
+/// Actions that write into the other panel's folder.
+fn writes_to_other(action: Action) -> bool {
+    matches!(action, Action::Copy | Action::Move | Action::ExtractToOther | Action::Collect)
 }
 
 /// Actions that work on files where Borg runs, which no remote panel holds.

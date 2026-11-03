@@ -6,6 +6,7 @@ mod activity;
 mod admin;
 mod agent;
 mod app;
+mod archive;
 mod backup;
 mod code_signature;
 mod config;

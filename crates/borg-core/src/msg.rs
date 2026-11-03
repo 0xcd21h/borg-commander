@@ -158,6 +158,32 @@ pub enum Msg {
         generation: u64,
         error: Option<String>,
     },
+    /// How much of an archive its first listing has read, of `total` bytes.
+    ArchiveReading {
+        side: Side,
+        generation: u64,
+        read: u64,
+        total: u64,
+    },
+    /// An archive opened for listing; `left_out` entries have names or kinds Borg does not unpack.
+    ArchiveOpened {
+        side: Side,
+        generation: u64,
+        format: borg_archive::Format,
+        left_out: usize,
+    },
+    /// An archive that only an installed program reads, and none is; `installer` installs one.
+    ArchiveNeedsTool {
+        side: Side,
+        generation: u64,
+        installer: Option<crate::Installer>,
+    },
+    /// An archive that needs a password, or a better one than it was given.
+    ArchiveLocked {
+        side: Side,
+        generation: u64,
+        wrong: bool,
+    },
     Observe(ShellView),
     ShellOutput(ShellView),
     /// The names of `dir`'s subfolders, none when it could not be read.
@@ -397,6 +423,11 @@ pub enum Effect {
         to: Option<crate::RemoteMount>,
         sources: Vec<PathBuf>,
         target: PathBuf,
+    },
+    /// A job that unpacks entries of an archive.
+    StartUnpack {
+        id: u64,
+        request: crate::UnpackRequest,
     },
     /// A copy job between a container and a host folder; `inbound` copies into the container.
     StartDockerCopy {

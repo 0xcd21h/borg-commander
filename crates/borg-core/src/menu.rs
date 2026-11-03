@@ -1,4 +1,4 @@
-use crate::{Action, AfterCommand, AppState, ListingMode, Side, SortKey, ops::ArchiveFormat};
+use crate::{Action, AfterCommand, AppState, ListingMode, Side, SortKey};
 use borg_i18n::tr;
 
 pub const FILE_MENU: usize = 1;
@@ -172,7 +172,7 @@ fn file_menu(state: &AppState) -> Menu {
     let listed = state.docked[state.active.index()].is_none();
     let has_selection = listed && !panel.selection().is_empty();
     let hovered_file = listed && panel.hovered_entry().is_some_and(|entry| !entry.is_dir());
-    let archive = listed && panel.hovered_entry().is_some_and(|entry| ArchiveFormat::detect(&entry.name).is_some());
+    let archive = listed && !panel.foreign() && panel.hovered_entry().is_some_and(crate::archive::opens);
     Menu {
         title: tr!(file),
         entries: vec![
@@ -370,7 +370,7 @@ fn results_menu(state: &AppState) -> Menu {
                     Action::ToggleIndex,
                     state.settings.index_roots.iter().any(|root| root == panel.dir()),
                 ),
-                !result && panel.mount.is_none() && panel.remote_mount.is_none(),
+                !result && !panel.foreign(),
             ),
             item(tr!(open_create_collection), "M-v", Action::OpenCollection),
             when(item(tr!(collect_in_other_panel), "M-k", Action::Collect), !panel.selection().is_empty()),

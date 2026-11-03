@@ -328,7 +328,7 @@ pub enum BackupEvent {
 }
 
 fn shows_marks(panel: &crate::Panel) -> bool {
-    !panel.is_results() && panel.mount.is_none() && panel.remote_mount.is_none()
+    !panel.is_results() && !panel.foreign()
 }
 
 pub(crate) fn sync(state: &mut AppState) -> Vec<Effect> {
@@ -573,6 +573,7 @@ fn add(state: &mut AppState) -> Vec<Effect> {
         input: LineInput::new(value),
         purpose: PromptPurpose::BackupAdd { fixed: false },
         option_focused: false,
+        typed: None,
     }));
     Vec::new()
 }

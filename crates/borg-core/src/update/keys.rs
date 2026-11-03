@@ -148,12 +148,15 @@ fn panels_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect>
     effects
 }
 
-/// Esc backs out of one thing at a time: a file still opening in the viewer, results, then the
-/// side pane. Only an Esc with nothing to close, not even a notice, starts the Esc-digit
+/// Esc backs out of one thing at a time: a file still opening in the viewer, an archive still
+/// read for the first time, results, then the side pane. Only an Esc with nothing to close, not even a notice, starts the Esc-digit
 /// function keys (`prefix`), and a second Esc cancels.
 fn escape(state: &mut AppState, prefix: bool, now: Instant) -> Vec<Effect> {
-    if state.opening.take().is_some() {
-        return Vec::new();
+    if let Some(path) = state.opening.take() {
+        return crate::jobs::cancel_opening(state, &path);
+    }
+    if let Some(effect) = crate::archive::stop_reading(state) {
+        return vec![effect];
     }
     if state.active_panel().is_results() {
         let effects = crate::results::back(state);

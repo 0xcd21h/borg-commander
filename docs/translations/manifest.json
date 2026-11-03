@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "68408ce738fa254ab40ab2bfcbffa8f397fbe43aba779a1fa1d39254d4431949",
+      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "5019de6f2bba13cee55e20b5ed2c8c9fdce5b685c4696d9b1912575b4c50fdb9",
+        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
+        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
       },
       "headings": [
         {
@@ -132,6 +132,10 @@
         {
           "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
@@ -208,12 +212,12 @@
       ]
     },
     "pt": {
-      "source": "68408ce738fa254ab40ab2bfcbffa8f397fbe43aba779a1fa1d39254d4431949",
+      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "5019de6f2bba13cee55e20b5ed2c8c9fdce5b685c4696d9b1912575b4c50fdb9",
+        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
+        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
       },
       "headings": [
         {
@@ -339,6 +343,10 @@
         {
           "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
@@ -415,12 +423,12 @@
       ]
     },
     "es": {
-      "source": "68408ce738fa254ab40ab2bfcbffa8f397fbe43aba779a1fa1d39254d4431949",
+      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "5019de6f2bba13cee55e20b5ed2c8c9fdce5b685c4696d9b1912575b4c50fdb9",
+        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
+        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
       },
       "headings": [
         {
@@ -546,6 +554,10 @@
         {
           "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
@@ -622,12 +634,12 @@
       ]
     },
     "ru": {
-      "source": "68408ce738fa254ab40ab2bfcbffa8f397fbe43aba779a1fa1d39254d4431949",
+      "source": "85282748bee848ff831e13cee4f9159e380df48f09aa321f97d6a89bcc7afa70",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "5019de6f2bba13cee55e20b5ed2c8c9fdce5b685c4696d9b1912575b4c50fdb9",
+        "inline code": "92fae2747d9e91bf4821e0fd18049151837217b609ee4436eab88488458d964e",
         "external links": "b97604ee4b24788646755b6af3f73f89809eae2e48db7f3d31888aa3b392c83c",
-        "heading levels": "10a55f25cd6af22033730395b24187a0c494bfa5bdfdfccb3643211ace680bfa"
+        "heading levels": "c8889235b3ec52ddefcdc954f5a5b3f1c5ef7cde30929af5481fd5f75d5fae90"
       },
       "headings": [
         {
@@ -753,6 +765,10 @@
         {
           "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,

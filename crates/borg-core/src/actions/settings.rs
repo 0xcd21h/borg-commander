@@ -56,7 +56,7 @@ pub(super) fn toggle_after_command(state: &mut AppState) -> Vec<Effect> {
 /// Adds the active folder to the folders indexed for instant search, or removes it.
 pub(super) fn toggle_index(state: &mut AppState) -> Vec<Effect> {
     let panel = state.active_panel();
-    if panel.is_results() || panel.mount.is_some() || panel.remote_mount.is_some() {
+    if panel.is_results() || panel.foreign() {
         return Vec::new();
     }
     let dir = panel.dir().to_path_buf();

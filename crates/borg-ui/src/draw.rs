@@ -334,7 +334,8 @@ fn paint_overlay(
             (draw_picker(picker, state.appearance.choices(), theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Prompt(prompt) => {
-            let (rect, position) = dialog_view::draw_prompt(prompt, theme, screen, buf);
+            let typed = prompt.typed.map(|at| scene.now.saturating_duration_since(at).as_secs_f32());
+            let (rect, position) = dialog_view::draw_prompt(prompt, look, typed, screen, buf);
             (rect, Some(position), Unfold::FromCenter)
         }
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
