@@ -407,19 +407,25 @@ connections first and take in the hash and matches when they come. The watcher r
 `borg service run` and nowhere else, so one Borg decides and the others read the log; a Borg with
 the page closed follows the log every 5 seconds for the count of unread alerts.
 
-`watch::notify` sends alerts off the machine as they happen, to the places `[watch.notify]` names:
-a Telegram bot, an ntfy topic, a webhook and a heartbeat URL. The watcher hands each event to a
-sender on a thread of its own, so a slow place never holds up the watcher, and a static lock keeps a
-sender started with new settings from writing the outbox while the old one finishes. Each place has
-its own chain: a message's `seq` is one higher than the last one to that place and `previous` is
-the SHA-256 of that message's exact body, which is why the outbox (`watch-outbox.json`, owner-only,
-at most 500 messages, each tried for 48 hours) keeps bodies as sent. A place's messages go oldest
-first and stop at its first refusal, so they arrive in order. The program's hash and rule matches
-follow an alert to the webhook alone, as `evidence`. The heartbeat adds `/fail` when the examiner's
-channel is closed, a message has waited 30 minutes, or Borg gave up on one since the last beat.
-Building messages, the chain and the waits are pure functions; `watch::notify::deliver` does the
-HTTPS with `ureq`, and its tests post to a server on `127.0.0.1`. `borg service watch notify` sends
-a test message outside the chain.
+`watch::notify` sends alerts off the machine as they happen, to the places `[watch.notify]` names: a
+Telegram bot, an ntfy topic, a webhook and a heartbeat URL. Configuration parsing refuses an address
+that is neither `https://` nor `http://` to the machine itself, and an ntfy address without a topic.
+The watcher hands each event to a sender on a thread of its own, so a slow place never holds up the
+watcher. A static lock keeps a sender started with new settings from writing the outbox while the
+old one finishes, and a counter of senders started tells the old one to stop sending after the
+message in hand. Each place has its own chain: a message's `seq` is one higher than the last one to
+that place and `previous` is the SHA-256 of that message's exact body, which is why the outbox
+(`watch-outbox.json`, owner-only, at most 500 messages, each tried for 48 hours) keeps bodies as
+sent. The chain shows loss and changes on the way; it lives on the watched machine, so it cannot
+show what someone who controls that machine does before a message leaves. A place's messages go
+oldest first and stop at its first refusal, so they arrive in order, and a place taken out of the
+configuration leaves nothing waiting. The program's hash and rule matches follow an alert to the
+webhook alone, as `evidence`. The heartbeat adds `/fail` when the examiner's channel is closed, a
+message has waited 30 minutes, or Borg gave up on one since the last beat, and names each refusing
+place with its HTTP status only, since the heartbeat goes to a service of its own. Building
+messages, the chain and the waits are pure functions; `watch::notify::deliver` does the HTTPS with
+`ureq` and takes each place's token and the key part of its address out of every error. Its tests
+post to a server on `127.0.0.1`. `borg service watch notify` sends a test message outside the chain.
 
 The watcher is Linux only in this release. macOS needs `eslogger` and is a separate change.
 

@@ -95,6 +95,10 @@ fn a_full_outbox_gives_up_on_its_oldest_messages_and_says_how_many() {
     assert_eq!(outbox.dropped, 4, "and making room for it gave up on one more");
 }
 
+fn busy() -> Refused {
+    Refused { status: Some(500), said: "busy".into() }
+}
+
 #[test]
 fn a_refused_message_waits_longer_each_time_until_borg_gives_up_on_it() {
     assert_eq!(retry_wait(1), Duration::from_secs(5));
@@ -106,13 +110,13 @@ fn a_refused_message_waits_longer_each_time_until_borg_gives_up_on_it() {
     let mut outbox = Outbox::default();
     outbox.add("web-01", &Event::Armed, &[Channel::Webhook], start).unwrap();
     assert_eq!(outbox.next_due(&[Channel::Webhook]), Some(start));
-    outbox.failed(0, "HTTP 500: busy".into(), start);
+    outbox.failed(0, busy(), start);
     assert_eq!(outbox.next_due(&[Channel::Webhook]), Some(start + Duration::from_secs(5)));
-    assert_eq!(outbox.errors[&Channel::Webhook], "HTTP 500: busy");
+    assert_eq!(outbox.errors[&Channel::Webhook].to_string(), "HTTP 500: busy");
     assert!(!outbox.late(start + Duration::from_secs(60)));
     assert!(outbox.late(start + LATE), "a message this old means the place stopped taking them");
 
-    outbox.failed(0, "HTTP 500: busy".into(), start + GIVE_UP_AFTER);
+    outbox.failed(0, busy(), start + GIVE_UP_AFTER);
     assert!(outbox.waiting.is_empty());
     assert_eq!(outbox.dropped, 1);
 
@@ -173,10 +177,66 @@ fn the_heartbeat_says_something_is_wrong_when_alerts_could_go_missing() {
     assert!(beat("web-01", Some(&healthy), &gave_up, 2, now).0, "and once said, it is old news");
     let mut stuck = Outbox::default();
     stuck.add("web-01", &Event::Armed, &[Channel::Webhook], now).unwrap();
-    stuck.errors.insert(Channel::Webhook, "HTTP 503: down".into());
+    stuck.errors.insert(Channel::Webhook, Refused { status: Some(503), said: "down at api/hooks/k3y".into() });
+    stuck.errors.insert(Channel::Ntfy, Refused::said("io: Connection refused"));
     let (fine, body) = beat("web-01", Some(&healthy), &stuck, 0, now + LATE);
     assert!(!fine, "a place stopped taking messages");
-    assert!(body.contains("HTTP 503: down"), "{body}");
+    assert!(body.contains("HTTP 503"), "{body}");
+    assert!(body.contains(tr!(notify_beat_no_answer)), "{body}");
+    assert!(!body.contains("k3y") && !body.contains("refused"), "what a place said stays on this machine: {body}");
+}
+
+#[test]
+fn a_place_taken_out_of_the_configuration_leaves_nothing_waiting() {
+    let now = moment(Duration::ZERO);
+    let mut outbox = Outbox::default();
+    outbox.add("web-01", &Event::Armed, &[Channel::Webhook, Channel::Ntfy], now).unwrap();
+    outbox.failed(0, busy(), now);
+    outbox.keep_only(&[Channel::Ntfy]);
+    assert_eq!(outbox.waiting.len(), 1);
+    assert_eq!(outbox.waiting[0].channel, Channel::Ntfy);
+    assert!(outbox.errors.is_empty());
+    assert_eq!(outbox.dropped, 0, "taking a place out is no failure");
+    let healthy = Health { source: WatchSource::Kernel, seen: 1, suppressed: 0, examiner: true };
+    assert!(!beat("web-01", Some(&healthy), &outbox, 0, now + LATE).0, "a place still named and stuck still fails");
+    outbox.keep_only(&[]);
+    assert!(beat("web-01", Some(&healthy), &outbox, 0, now + LATE).0);
+}
+
+#[test]
+fn alerts_go_only_to_https_addresses_or_to_this_machine() {
+    for safe in [
+        "https://example.com/hook",
+        "HTTPS://example.com",
+        "http://127.0.0.1:8099/hook",
+        "http://localhost/x",
+        "http://[::1]:80/",
+    ] {
+        assert!(safe_address(safe), "{safe}");
+    }
+    for unsafe_address in [
+        "http://example.com/hook",
+        "http://10.0.0.5:8080/hook",
+        "ftp://example.com",
+        "example.com/hook",
+        "https://",
+        "",
+    ] {
+        assert!(!safe_address(unsafe_address), "{unsafe_address}");
+    }
+    assert_eq!(ntfy_parts("https://ntfy.sh/my-topic/"), Some(("https://ntfy.sh", "my-topic")));
+    assert_eq!(ntfy_parts("https://example.com/ntfy/alerts"), Some(("https://example.com/ntfy", "alerts")));
+    for no_topic in ["https://ntfy.sh", "https://ntfy.sh/", "https://ntfy.sh/topic?x=1", "ntfy.sh/topic"] {
+        assert_eq!(ntfy_parts(no_topic), None, "{no_topic}");
+    }
+    let config = |text: &str| toml::from_str::<crate::config::Config>(text).map_err(|error| error.to_string());
+    let plain = config("[watch.notify.webhook]\nurl = \"http://example.com/hook\"\n").unwrap_err();
+    assert!(plain.contains(UNSAFE_ADDRESS), "{plain}");
+    let beat = config("[watch.notify.heartbeat]\nurl = \"http://hc-ping.com/x\"\n").unwrap_err();
+    assert!(beat.contains(UNSAFE_ADDRESS), "{beat}");
+    let topicless = config("[watch.notify.ntfy]\nurl = \"https://ntfy.sh\"\n").unwrap_err();
+    assert!(topicless.contains(NO_TOPIC), "{topicless}");
+    assert!(config("[watch.notify.webhook]\nurl = \"http://127.0.0.1:8099/hook\"\n").is_ok());
 }
 
 #[test]
@@ -239,7 +299,8 @@ impl Request {
     }
 }
 
-/// A server on this machine that answers each request with the next status and says what it got.
+/// A server on this machine that answers each request with the next status and the path it was
+/// asked for, as a place that echoes its address would, and says what it got.
 fn server(statuses: Vec<u16>) -> (String, Receiver<Request>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = format!("http://{}", listener.local_addr().unwrap());
@@ -267,7 +328,11 @@ fn server(statuses: Vec<u16>) -> (String, Receiver<Request>) {
                 .map_or(0, |(_, value)| value.parse().unwrap());
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
-            let answer = format!("HTTP/1.1 {status} Whatever\r\ncontent-length: 4\r\nconnection: close\r\n\r\nnope");
+            let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
+            let answer = format!(
+                "HTTP/1.1 {status} Whatever\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{path}",
+                path.len()
+            );
             (&stream).write_all(answer.as_bytes()).unwrap();
             let _ = sent.send(Request {
                 line: line.trim_end().to_owned(),
@@ -335,7 +400,7 @@ fn the_heartbeat_adds_fail_when_something_is_wrong_and_a_refusal_says_why() {
     assert_eq!(failing.line, "POST /ping/1/fail HTTP/1.1");
     assert_eq!(failing.body, "examiner stopped");
     let refused = deliver::heartbeat(&agent, &format!("{address}/ping/1"), true, "fine").unwrap_err();
-    assert_eq!(refused, "HTTP 503: nope");
+    assert_eq!(refused.to_string(), "HTTP 503: /…", "the check's key stays hidden");
 }
 
 #[test]
@@ -347,14 +412,21 @@ fn messages_to_one_place_go_in_order_and_wait_behind_a_refusal() {
     for _ in 0..3 {
         outbox.add("web-01", &Event::Armed, &channels, SystemTime::now()).unwrap();
     }
-    assert!(send_due(&settings, &deliver::agent(), &channels, &mut outbox));
+    assert!(send_due(&settings, &deliver::agent(), &channels, &mut outbox, &|| true));
     let first = envelope(&received.recv().unwrap().body);
     let second = envelope(&received.recv().unwrap().body);
     assert_eq!((first.seq, second.seq), (1, 2));
     assert_eq!(outbox.waiting.len(), 2, "the refused message and the one behind it wait");
     assert_eq!(outbox.waiting[0].seq, 2);
     assert_eq!(outbox.waiting[0].failures, 1);
-    assert!(!send_due(&settings, &deliver::agent(), &channels, &mut outbox), "nothing is due before the wait is over");
+    assert!(
+        !send_due(&settings, &deliver::agent(), &channels, &mut outbox, &|| true),
+        "nothing is due before the wait is over"
+    );
+    assert!(
+        !send_due(&settings, &deliver::agent(), &channels, &mut outbox, &|| false),
+        "a replaced sender sends nothing"
+    );
 }
 
 #[test]
@@ -367,9 +439,22 @@ fn a_secret_never_shows_in_what_went_wrong() {
     let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
     let api = format!("http://{closed}");
     let error = deliver::send_through(&deliver::agent(), &settings, Channel::Telegram, &body, &api).unwrap_err();
-    assert!(!error.contains("SECRET"), "{error}");
+    assert!(!error.to_string().contains("SECRET"), "{error}");
     let (address, received) = server(vec![401]);
     let error = deliver::send_through(&deliver::agent(), &settings, Channel::Telegram, &body, &address).unwrap_err();
     assert_eq!(received.recv().unwrap().line, "POST /bot123:SECRET/sendMessage HTTP/1.1");
-    assert_eq!(error, "HTTP 401: nope");
+    assert_eq!(error.to_string(), "HTTP 401: /bot…/sendMessage");
+
+    let (address, received) = server(vec![404, 403]);
+    let webhook = Settings {
+        webhook: Some(Webhook { url: format!("{address}/api/webhooks/1/s3cret-path"), secret: Some("k".into()) }),
+        ntfy: Some(Ntfy { url: format!("{address}/hidden-topic"), token: Some("tk_SECRET".into()) }),
+        ..Settings::default()
+    };
+    let error = deliver::send(&deliver::agent(), &webhook, Channel::Webhook, &body).unwrap_err();
+    assert_eq!(received.recv().unwrap().line, "POST /api/webhooks/1/s3cret-path HTTP/1.1");
+    assert_eq!(error.to_string(), "HTTP 404: /…", "a webhook's path is its key on Discord and Slack");
+    let error = deliver::send(&deliver::agent(), &webhook, Channel::Ntfy, &body).unwrap_err();
+    assert_eq!(received.recv().unwrap().line, "POST / HTTP/1.1");
+    assert!(!error.to_string().contains("hidden-topic") && !error.to_string().contains("SECRET"), "{error}");
 }

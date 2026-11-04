@@ -137,6 +137,7 @@ pub struct Telegram {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Ntfy {
+    #[serde(deserialize_with = "ntfy_address")]
     pub url: String,
     pub token: Option<String>,
 }
@@ -145,6 +146,7 @@ pub struct Ntfy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Webhook {
+    #[serde(deserialize_with = "notify_address")]
     pub url: String,
     pub secret: Option<String>,
 }
@@ -153,8 +155,29 @@ pub struct Webhook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Heartbeat {
+    #[serde(deserialize_with = "notify_address")]
     pub url: String,
     pub minutes: Option<u64>,
+}
+
+/// An address alerts may go to: HTTPS, or plain HTTP to this machine itself.
+fn notify_address<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let url = String::deserialize(deserializer)?;
+    if crate::watch::notify::safe_address(&url) {
+        Ok(url)
+    } else {
+        Err(serde::de::Error::custom(crate::watch::notify::UNSAFE_ADDRESS))
+    }
+}
+
+/// An ntfy topic's address, which names the topic at its end.
+fn ntfy_address<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let url = notify_address(deserializer)?;
+    if crate::watch::notify::ntfy_parts(&url).is_some() {
+        Ok(url)
+    } else {
+        Err(serde::de::Error::custom(crate::watch::notify::NO_TOPIC))
+    }
 }
 
 impl Notify {

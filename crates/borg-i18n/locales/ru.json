@@ -1473,6 +1473,7 @@
   "notify_beat_seen": "Замечено запусков: {seen}. Пропущено находок: {suppressed}.",
   "notify_beat_examiner": "Проверка программ остановилась, поэтому новые оповещения приходят без хеша программы и совпадений правил.",
   "notify_beat_waiting": "Сообщений в очереди: {count}. Не удалось отправить: {dropped}.",
+  "notify_beat_no_answer": "нет ответа",
   "notify_none": "Не задано, куда отправлять оповещения. Добавьте [watch.notify] в конфигурацию.",
   "notify_test_sent": "{place}: отправлено",
   "notify_test_refused": "{place}: {error}",

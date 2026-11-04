@@ -1486,6 +1486,7 @@ catalog! {
     notify_beat_seen => "Starts seen: {seen}. Findings left out: {suppressed}.",
     notify_beat_examiner => "The examiner has stopped, so new alerts come without the program's hash and rule matches.",
     notify_beat_waiting => "Messages waiting to be sent: {count}. Messages given up on: {dropped}.",
+    notify_beat_no_answer => "no answer",
     notify_none => "No place to send alerts is set up. Add [watch.notify] to the configuration.",
     notify_test_sent => "{place}: sent",
     notify_test_refused => "{place}: {error}",

@@ -1837,9 +1837,10 @@ origen dice que nada está vigilando.
 ### Alertas fuera de la máquina
 
 La página Alertas vive en la máquina que vigila, así que quien se haga con esa máquina puede borrar
-el registro. Envía cada alerta a otro sitio en cuanto ocurre, y esa copia queda fuera de su
-alcance. Añade `[watch.notify]` a la configuración del servidor, con cualquiera de estos destinos
-o con varios:
+el registro. Envía cada alerta a otro sitio en cuanto ocurre: una copia que ya llegó queda fuera de
+su alcance, y el latido te avisa cuando el vigilante se queda callado. Añade `[watch.notify]` a la
+configuración del servidor, con cualquiera de estos destinos o con varios. Todas las direcciones
+usan `https://`, o `http://` hacia el propio servidor:
 
 ```toml
 [watch.notify]
@@ -1891,12 +1892,15 @@ horas, y el mensaje siguiente dice cuántos abandonó.
 
 Cada destino numera sus mensajes desde 1, y el JSON de cada mensaje lleva en `previous` el SHA-256
 del anterior. Un salto en la numeración, o un `previous` que no coincide, significa que un mensaje
-se perdió o se cambió por el camino.
+se perdió o se cambió por el camino. La numeración se hace en el servidor, así que no detecta a
+quien controla el servidor.
 
 Los tokens están en la configuración, que cualquier cosa que se ejecute como tu usuario en el
-servidor puede leer. Con ellos, alguien puede enviar mensajes que parecen de Borg, y un bot de
-Telegram puede borrar lo que envió en las últimas 48 horas. Un webhook a una máquina que controlas
-conserva lo que llegó tal como llegó.
+servidor puede leer. Con ellos, alguien puede enviar mensajes que parecen de Borg y seguir la
+numeración sin saltos, y un bot de Telegram puede borrar lo que envió en las últimas 48 horas. Quien
+se haga con el servidor también puede borrar los mensajes que aún esperan para salir. Lo que llegó
+antes queda como estaba, y un webhook a una máquina que controlas lo conserva tal como llegó. Cuando
+el vigilante se queda callado, es el latido el que te avisa.
 
 ### Lo que el vigilante no ve
 

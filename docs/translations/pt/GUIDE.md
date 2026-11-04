@@ -1822,9 +1822,10 @@ origem diz que nada está a observar.
 ### Alertas fora da máquina
 
 A página Alertas vive na máquina que observa, por isso quem tomar conta dessa máquina pode apagar o
-registo. Envie cada alerta para outro lado no momento em que acontece, e essa cópia fica fora do
-seu alcance. Adicione `[watch.notify]` à configuração no servidor, com qualquer um destes destinos
-ou com vários:
+registo. Envie cada alerta para outro lado no momento em que acontece: uma cópia que já chegou fica
+fora do seu alcance, e o sinal de vida avisa quando o observador se cala. Adicione `[watch.notify]`
+à configuração no servidor, com qualquer um destes destinos ou com vários. Todos os endereços usam
+`https://`, ou `http://` para o próprio servidor:
 
 ```toml
 [watch.notify]
@@ -1875,12 +1876,15 @@ diz de quantas desistiu.
 
 Cada destino numera as suas mensagens a partir de 1, e o JSON de cada mensagem leva em `previous` o
 SHA-256 da anterior. Um salto na numeração, ou um `previous` que não bate certo, quer dizer que uma
-mensagem se perdeu ou foi alterada pelo caminho.
+mensagem se perdeu ou foi alterada pelo caminho. A numeração é feita no servidor, por isso não
+apanha quem controla o servidor.
 
 Os tokens ficam na configuração, que qualquer coisa a correr como o seu utilizador no servidor pode
-ler. Com eles, alguém pode enviar mensagens que parecem do Borg, e um bot de Telegram pode apagar o
-que enviou nas últimas 48 horas. Um webhook para uma máquina que controla mantém o que chegou tal
-como chegou.
+ler. Com eles, alguém pode enviar mensagens que parecem do Borg e continuar a numeração sem saltos,
+e um bot de Telegram pode apagar o que enviou nas últimas 48 horas. Quem tomar conta do servidor
+também pode apagar as mensagens que ainda esperam para sair. O que chegou antes disso fica como
+estava, e um webhook para uma máquina que controla guarda-o tal como chegou. Quando o observador se
+cala, é o sinal de vida que o avisa.
 
 ### O que o observador não consegue ver
 

@@ -1473,6 +1473,7 @@
   "notify_beat_seen": "Arranques vistos: {seen}. Hallazgos omitidos: {suppressed}.",
   "notify_beat_examiner": "El examen de programas se detuvo, así que las nuevas alertas llegan sin el hash del programa ni las coincidencias de reglas.",
   "notify_beat_waiting": "Mensajes en espera de envío: {count}. Mensajes abandonados: {dropped}.",
+  "notify_beat_no_answer": "sin respuesta",
   "notify_none": "No hay ningún destino para las alertas. Añade [watch.notify] a la configuración.",
   "notify_test_sent": "{place}: enviado",
   "notify_test_refused": "{place}: {error}",

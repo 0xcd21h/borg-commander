@@ -1,20 +1,24 @@
-//! Alerts that leave the machine as they happen, so whoever takes the machine over cannot take
-//! back what the watcher saw. Every message names this machine and carries a number one higher
-//! than the one before it to the same place, with the SHA-256 of that earlier message, so
-//! whoever keeps them can tell when one went missing or was changed. Messages wait in an
-//! owner-only outbox in the state folder until the place they go has taken them, and a
-//! heartbeat tells a service such as healthchecks.io that the watcher still runs, so silence is
-//! news too.
+//! Alerts that leave the machine as they happen. A copy that has arrived somewhere else is out
+//! of reach of whoever takes this machine over later, and a heartbeat tells a service such as
+//! healthchecks.io that the watcher still runs, so its silence is news too.
+//!
+//! Every message names this machine and carries a number one higher than the one before it to
+//! the same place, with the SHA-256 of that earlier message, so whoever keeps them can tell when
+//! one went missing or was changed on the way. The numbers, the outbox and the tokens all live
+//! on this machine: someone who controls it can drop what has not left yet and carry the chain
+//! on without a gap. Messages wait in an owner-only outbox in the state folder until the place
+//! they go has taken them.
 //!
 //! What a message says and when Borg tries again are pure functions; `deliver` sends them.
 
 use std::{
     collections::{BTreeMap, VecDeque},
-    fs,
+    fmt, fs,
     io::Read,
     path::{Path, PathBuf},
     sync::{
         Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread,
@@ -57,6 +61,10 @@ const CONNECTIONS_SENT: usize = 8;
 const COMMAND_CHARS: usize = 1000;
 /// Rule matches a message names.
 pub const MATCHES_SENT: usize = 8;
+/// Why the configuration refuses an address. It stays in English, as the configuration's other
+/// errors do, since the language is set in the same file.
+pub const UNSAFE_ADDRESS: &str = "alerts go to https:// addresses, or to http:// on this machine itself";
+pub const NO_TOPIC: &str = "an ntfy address ends with its topic, such as https://ntfy.sh/my-topic";
 
 /// Where alerts go, from `[watch.notify]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +131,29 @@ impl Settings {
     pub fn takes(&self, level: Level) -> bool {
         level <= self.level
     }
+}
+
+/// Whether an address may carry alerts: HTTPS anywhere, or plain HTTP to this machine itself.
+pub fn safe_address(url: &str) -> bool {
+    let Ok(uri) = url.parse::<ureq::http::Uri>() else { return false };
+    let Some(host) = uri.host().filter(|host| !host.is_empty()) else { return false };
+    match uri.scheme_str().map(str::to_ascii_lowercase).as_deref() {
+        Some("https") => true,
+        Some("http") => matches!(host, "localhost" | "127.0.0.1" | "::1" | "[::1]"),
+        _ => false,
+    }
+}
+
+/// An ntfy address split into its server, which takes JSON at its root, and its topic, the
+/// last part of the path. None when the address names no topic or carries a query.
+pub fn ntfy_parts(url: &str) -> Option<(&str, &str)> {
+    let trimmed = url.trim_end_matches('/');
+    let (_, rest) = trimmed.split_once("://")?;
+    if rest.contains(['?', '#']) || !rest.contains('/') {
+        return None;
+    }
+    let (server, topic) = trimmed.rsplit_once('/')?;
+    (!topic.is_empty()).then_some((server, topic))
 }
 
 /// A place messages go.
@@ -283,6 +314,31 @@ pub struct Waiting {
     pub since: SystemTime,
 }
 
+/// Why a place did not take a message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Refused {
+    /// The HTTP status the place answered with, when an answer came.
+    pub status: Option<u16>,
+    /// What the place said, or why no answer came, with the place's secrets taken out.
+    pub said: String,
+}
+
+impl Refused {
+    pub fn said(said: impl Into<String>) -> Self {
+        Self { status: None, said: said.into() }
+    }
+}
+
+impl fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.status {
+            Some(status) if self.said.is_empty() => write!(formatter, "HTTP {status}"),
+            Some(status) => write!(formatter, "HTTP {status}: {}", self.said),
+            None => formatter.write_str(&self.said),
+        }
+    }
+}
+
 /// Messages waiting to leave, and the chain each place has seen so far.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Outbox {
@@ -291,7 +347,7 @@ pub struct Outbox {
     pub dropped: u64,
     /// What went wrong the last time a place refused a message, until it takes one again.
     #[serde(default)]
-    pub errors: BTreeMap<Channel, String>,
+    pub errors: BTreeMap<Channel, Refused>,
 }
 
 impl Outbox {
@@ -318,6 +374,13 @@ impl Outbox {
         Ok(())
     }
 
+    /// Forgets the messages and refusals of places the configuration no longer names. A place
+    /// taken out on purpose is no reason for the heartbeat to fail.
+    pub fn keep_only(&mut self, channels: &[Channel]) {
+        self.waiting.retain(|waiting| channels.contains(&waiting.channel));
+        self.errors.retain(|channel, _| channels.contains(channel));
+    }
+
     /// The oldest message waiting for this place, which goes before any other.
     pub fn first(&self, channel: Channel) -> Option<usize> {
         self.waiting.iter().position(|waiting| waiting.channel == channel)
@@ -335,7 +398,7 @@ impl Outbox {
     }
 
     /// A place refused the message: it waits longer each time, until Borg gives up on it.
-    pub fn failed(&mut self, index: usize, error: String, now: SystemTime) {
+    pub fn failed(&mut self, index: usize, error: Refused, now: SystemTime) {
         let Some(waiting) = self.waiting.get_mut(index) else { return };
         self.errors.insert(waiting.channel, error);
         waiting.failures = waiting.failures.saturating_add(1);
@@ -422,6 +485,8 @@ pub struct Health {
 
 /// The heartbeat: whether all is well, and what it says. Something is wrong when the examiner
 /// stopped, a place stopped taking messages, or Borg gave up on one since the last heartbeat.
+/// A refusal shows only as its status: what a place answered stays on this machine, since the
+/// heartbeat goes to a service of its own.
 pub fn beat(
     host: &str,
     health: Option<&Health>,
@@ -440,8 +505,10 @@ pub fn beat(
     if !outbox.waiting.is_empty() || outbox.dropped > 0 {
         lines.push(tr!(notify_beat_waiting, count = outbox.waiting.len(), dropped = outbox.dropped));
     }
-    for (channel, error) in &outbox.errors {
-        lines.push(format!("{}: {error}", channel.label()));
+    for (channel, refused) in &outbox.errors {
+        let why =
+            refused.status.map_or_else(|| tr!(notify_beat_no_answer).to_owned(), |status| format!("HTTP {status}"));
+        lines.push(format!("{}: {why}", channel.label()));
     }
     let fine = health.examiner && !outbox.late(now) && outbox.dropped == dropped_before;
     (fine, lines.join("\n"))
@@ -450,6 +517,9 @@ pub fn beat(
 /// Held by the one sender that runs: a watcher started again with new settings waits for the
 /// old sender to finish, so the two never write the outbox over each other.
 static SENDING: Mutex<()> = Mutex::new(());
+/// The senders started so far. One that a newer sender replaced stops sending after the
+/// message in hand, keeps whatever its watcher still hands it, and ends when that watcher does.
+static STARTED: AtomicU64 = AtomicU64::new(0);
 
 /// The watcher's line to the sender, which runs on a thread of its own so a slow place never
 /// holds up the watcher.
@@ -471,9 +541,10 @@ impl Notifier {
         }
         let (messages, received) = mpsc::channel();
         let sending = settings.clone();
+        let generation = STARTED.fetch_add(1, Ordering::SeqCst) + 1;
         thread::Builder::new()
             .name("borg-notify".into())
-            .spawn(move || run(&sending, &host, &state, &received))
+            .spawn(move || run(&sending, &host, &state, &received, generation))
             .map_err(|error| eprintln!("borg watch: starting the sender: {error}"))
             .ok()?;
         Some(Self { settings, messages })
@@ -492,18 +563,20 @@ impl Notifier {
     }
 }
 
-fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Message>) {
+fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Message>, generation: u64) {
     let _only = SENDING.lock().unwrap_or_else(PoisonError::into_inner);
+    let current = || STARTED.load(Ordering::SeqCst) == generation;
     let channels = settings.channels();
     let agent = deliver::agent();
     let mut outbox = read_outbox(state);
+    outbox.keep_only(&channels);
     let mut health = None;
     let mut next_beat = SystemTime::now();
     let mut dropped_before = outbox.dropped;
     loop {
         let now = SystemTime::now();
-        let beat_due = settings.heartbeat.as_ref().map(|_| next_beat);
-        let due = outbox.next_due(&channels).into_iter().chain(beat_due).min();
+        let beat_due = settings.heartbeat.as_ref().filter(|_| current()).map(|_| next_beat);
+        let due = outbox.next_due(&channels).filter(|_| current()).into_iter().chain(beat_due).min();
         let wait = due.map_or(IDLE, |due| due.duration_since(now).unwrap_or_default());
         let mut changed = false;
         match received.recv_timeout(wait) {
@@ -521,11 +594,12 @@ fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Messag
         if changed {
             write_outbox(state, &outbox);
         }
-        if send_due(settings, &agent, &channels, &mut outbox) {
+        if send_due(settings, &agent, &channels, &mut outbox, &current) {
             write_outbox(state, &outbox);
         }
         let now = SystemTime::now();
         if let Some(heartbeat) = &settings.heartbeat
+            && current()
             && now >= next_beat
         {
             let (fine, body) = beat(host, health.as_ref(), &outbox, dropped_before, now);
@@ -539,13 +613,20 @@ fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Messag
 }
 
 /// Sends what is due, oldest first for each place, and stops at a place's first refusal so its
-/// messages arrive in order. Says whether the outbox changed.
-fn send_due(settings: &Settings, agent: &ureq::Agent, channels: &[Channel], outbox: &mut Outbox) -> bool {
+/// messages arrive in order, or as soon as `current` says a newer sender took over. Says whether
+/// the outbox changed.
+fn send_due(
+    settings: &Settings,
+    agent: &ureq::Agent,
+    channels: &[Channel],
+    outbox: &mut Outbox,
+    current: &dyn Fn() -> bool,
+) -> bool {
     let mut changed = false;
     for &channel in channels {
         while let Some(index) = outbox.first(channel) {
             let now = SystemTime::now();
-            if outbox.waiting[index].due > now {
+            if !current() || outbox.waiting[index].due > now {
                 break;
             }
             changed = true;
@@ -562,7 +643,7 @@ fn send_due(settings: &Settings, agent: &ureq::Agent, channels: &[Channel], outb
 }
 
 /// Sends a test message to every place at once, outside the chain, and says how each went.
-pub fn test(settings: &Settings, host: &str) -> Vec<(String, Result<(), String>)> {
+pub fn test(settings: &Settings, host: &str) -> Vec<(String, Result<(), Refused>)> {
     let agent = deliver::agent();
     let envelope = Envelope {
         host: host.to_owned(),
@@ -573,7 +654,7 @@ pub fn test(settings: &Settings, host: &str) -> Vec<(String, Result<(), String>)
         event: Event::Test,
     };
     let body = serde_json::to_string(&envelope).unwrap_or_default();
-    let mut results: Vec<(String, Result<(), String>)> = settings
+    let mut results: Vec<(String, Result<(), Refused>)> = settings
         .channels()
         .into_iter()
         .map(|channel| (channel.label().to_owned(), deliver::send(&agent, settings, channel, &body)))

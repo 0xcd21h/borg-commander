@@ -1684,8 +1684,10 @@ says nothing is watching.
 ### Alerts off the machine
 
 The Alerts page lives on the machine it watches, so whoever takes that machine over can delete the
-log. Send each alert somewhere else as it happens, and that copy stays out of their reach. Add
-`[watch.notify]` to the configuration on the server, with any of these places or several:
+log. Send each alert somewhere else as it happens: a copy that has arrived is out of their reach,
+and a heartbeat tells you when the watcher goes quiet. Add `[watch.notify]` to the configuration on
+the server, with any of these places or several. Every address uses `https://`, or `http://` to the
+server itself:
 
 ```toml
 [watch.notify]
@@ -1734,11 +1736,15 @@ hours, and the next message says how many it gave up on.
 
 Each place numbers its messages from 1, and every message's JSON carries the SHA-256 of the one
 before it in `previous`. A gap in the numbers, or a `previous` that does not match, means a message
-went missing or was changed on the way.
+went missing or was changed on the way. The numbering happens on the server, so it cannot catch
+someone who controls the server.
 
-The tokens sit in the configuration, which anyone running as your user on the server can read.
-With them, someone can send messages that look like Borg's, and a Telegram bot can delete what it
-sent in the last 48 hours. A webhook to a machine you control keeps what arrived as it arrived.
+The tokens sit in the configuration, which anyone running as your user on the server can read. With
+them, someone can send messages that look like Borg's and carry the numbering on without a gap, and
+a Telegram bot can delete what it sent in the last 48 hours. Whoever takes over the server can also
+delete the messages still waiting to leave. What arrived before that stays as it was, and a webhook
+to a machine you control keeps it as it arrived. When the watcher goes quiet, the heartbeat is what
+tells you.
 
 ### What the watcher cannot see
 
