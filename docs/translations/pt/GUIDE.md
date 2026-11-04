@@ -379,6 +379,7 @@ instantes.
 | Alt-C | Docker: projetos Compose e contentores |
 | Alt-N | Rede: portas, ligações e tráfego |
 | Alt-U | Itens de arranque: o que arranca sozinho, alteração mais recente primeiro |
+| Alt-L | Alertas: o que o observador de processos encontrou |
 | Alt-T | Time Machine: o que as cópias de segurança deixam de fora, no macOS |
 | Alt-E | Editar o ficheiro selecionado neste painel, em vez dos seus ficheiros, ou no outro painel ao lado dos resultados |
 | F1 | Sobre |
@@ -1258,6 +1259,18 @@ history = true              # remember the folders the panels open
 [network]
 proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
 keep-free-mib = 1024        # stop captures before the disk has less than this free
+
+[watch]
+on = false                  # watch what starts, in the background service
+freeze = true               # stop a process a rule is sure about
+learning-days = 7           # learn what is normal here before freezing anything
+alerts-per-minute = 20      # processes written about before Borg only counts them
+freezes-per-minute = 5
+keep-running = ["backup-agent"]  # programs Borg never freezes
+
+[[watch.allow]]
+program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
+parent = "nginx"
 ```
 
 Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com
@@ -1624,6 +1637,133 @@ reutilize um PID não herda o histórico de outro processo. Os mapas de memória
 inspeção, as capturas e o histórico têm todos limites de tamanho. O nome Borg Commander fica
 visível no canto inferior direito em todo o lado, incluindo a consola, o visualizador, o monitor,
 as caixas de diálogo e a proteção de ecrã.
+
+### Alertas
+
+O Borg pode observar o que arranca numa máquina e avisá-lo quando algo parece errado. Ative
+**Vigiar: arranques de processos invulgares** em F9 → Opções → Plugins e inicie o serviço em
+segundo plano com `borg service start`. O observador vive nesse serviço, por isso continua a
+observar sem nenhum terminal aberto, e todos os Borg da máquina leem os mesmos alertas.
+
+**Alt-L** ou **Comando → Alertas** abre a página. A lista ocupa o painel ativo, com o alerta mais
+recente primeiro, e o outro painel mostra o alerta selecionado por inteiro. Cada linha mostra a
+hora, a regra que disparou, o programa, o processo-pai que o iniciou, o utilizador com que correu
+e o que é do processo agora. A linha acima da lista conta os alertas e quantos ainda ninguém leu.
+
+Os detalhes dizem numa frase por que a regra disparou e depois o comando, o programa, o
+processo-pai, o utilizador, para onde levavam os fluxos padrão e onde o processo se encontra
+agora. Em **Árvore de processos** cada pai aparece acima do seu filho, para que possa ler o
+caminho de um serviço até ao comando que o preocupa. **Ligações** lista os sockets que o processo
+tinha naquele momento, **Hash do programa** é o SHA-256 do seu programa e **Regras** mostra o que
+as regras do Borg e as suas encontraram nesse programa (veja
+[Analisar ficheiros com regras](#scanning-files-with-rules)).
+
+| Tecla | Ação |
+| --- | --- |
+| Enter | Mostrar o processo no monitor de atividade |
+| C | Deixar um processo congelado continuar a correr |
+| K | Terminar o processo, depois de uma pergunta |
+| A | Permitir arranques como este a partir de agora |
+| `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
+| R | Ler o registo de novo |
+| Ctrl-C | Copiar o comando que o processo correu |
+| Alt-W | Maximizar a lista |
+| Esc | Limpar o filtro e depois fechar a página |
+
+O filtro mantém os alertas que contêm todas as palavras que escrever, na regra, no seu nome curto,
+no motivo, no programa, no processo-pai, no utilizador, no comando e no que o Borg fez. Ponha `!`
+antes de uma palavra para deixar de fora o que ela apanha: `shell-on-socket !root` mantém as
+shells remotas de todos os outros utilizadores.
+
+Os alertas vivem em `alerts.json` na pasta de estado, acessível só ao dono, os 200 mais recentes.
+A janela **Ficheiros do Borg** conta-os em **Estado** (veja [Ficheiros do Borg](#borgs-files)).
+Abrir a página marca como lidos os alertas que ela mostra, e a contagem de alertas não lidos
+acompanha o registo enquanto o Borg estiver aberto, esteja a página aberta ou não.
+
+### O que o observador procura
+
+Cada regra nomeia uma coisa estranha num processo que acabou de arrancar. O nível diz quanto isso
+significa: **alerta** raramente é inocente, **aviso** tem muitas vezes um motivo comum, **nota**
+está lá para o retrato ficar completo.
+
+| Regra | O que a faz disparar | Nível |
+| --- | --- | --- |
+| **Shell num socket de rede** | Uma shell cuja entrada e saída são um socket, que é o aspeto de uma shell remota | alerta |
+| **Programa apagado enquanto corre** | O ficheiro do programa já não existe, por isso nada no disco diz o que o processo é | alerta |
+| **Programa sem ficheiro** | O Borg não encontra nenhum ficheiro de programa para o processo | alerta |
+| **Biblioteca imposta a um programa** | `LD_PRELOAD`, `LD_AUDIT` ou `DYLD_INSERT_LIBRARIES` está definido no seu ambiente | alerta |
+| **Shell a partir de um serviço** | Um servidor web, um ambiente de execução de aplicações ou uma base de dados iniciou uma shell | aviso |
+| **Shell sem terminal** | Uma shell sem terminal de nenhum dos lados, por isso ninguém a escreveu | aviso |
+| **Exploração da máquina** | Quatro comandos diferentes como `whoami`, `id`, `uname` e `ss` do mesmo pai sem terminal, em 20 segundos | aviso |
+| **Programa numa pasta temporária** | O programa está em `/tmp`, `/var/tmp`, `/dev/shm` ou `/run/shm` | aviso |
+| **Nome diferente do programa** | O processo chama-se uma coisa e corre outra | aviso |
+| **O pai nunca o iniciou antes** | Este pai nunca iniciou este programa nesta máquina | nota |
+
+De cada processo o Borg lê o programa que corre e se o seu ficheiro foi apagado, o comando, o
+utilizador, o terminal a que pertence, para onde levam a sua entrada e saída padrão, as variáveis
+de pré-carregamento no seu ambiente e a cadeia de pais acima dele.
+
+O Borg aprende a máquina antes de agir. Nos primeiros 7 dias registra qual pai inicia qual
+programa aqui e não congela nada, e a coluna Resposta diz **Teria congelado** onde o teria feito.
+Depois disso, um par que já viu fica em silêncio para as regras que se podem aprender: as duas
+regras das shells, a série de comandos, o nome diferente e o pai que nunca o iniciou. As quatro
+regras de nível alerta disparam sempre, porque uma shell num socket ou uma biblioteca imposta
+nunca se tornam normais por acontecerem muitas vezes.
+
+**A** num alerta permite arranques como aquele a partir daí, pelo seu programa e pelo seu pai.
+Essas permissões ficam em `watch-allowed.json` na pasta de estado, que o observador lê e adota no
+espaço de um minuto. A secção `[watch]` da configuração guarda o mesmo à mão (veja [Configuração](#configuration)). O
+Borg escreve no máximo 20 processos por minuto e congela no máximo 5, e a linha acima da lista diz
+quantas deteções deixou de fora quando mais dispararam ao mesmo tempo.
+
+### Congelar um processo
+
+Terminado o período de aprendizagem, o Borg congela o processo em que disparou uma regra de nível
+alerta ou aviso. Congelar envia um sinal de paragem ao processo e a tudo abaixo dele. Um processo
+congelado não terminou, por isso o seu serviço continua a correr, o `systemd` e o Docker não têm
+nada para reiniciar, e o que ele estava a ponto de fazer espera onde está até você ver. A coluna
+Resposta diz **Congelado**, **C** deixa-o continuar e **K** termina-o. Terminar é definitivo, por
+isso o Borg pergunta primeiro.
+
+O Borg nunca congela o primeiro processo do sistema, nem a si mesmo nem nada que tenha iniciado,
+nem um programa da lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` e
+semelhantes, mais qualquer nome que acrescente em `keep-running`), nem um processo que pertence a
+um terminal onde alguém pode estar a trabalhar, nem um arranque que tenha permitido. Uma nota
+nunca para um programa. Os detalhes dizem qual destes motivos manteve o processo a correr.
+
+O Borg verifica a identidade de um processo, o seu número junto com o momento em que arrancou,
+imediatamente antes de lhe enviar um sinal, para que um número que outro processo tenha tomado
+entretanto fique em paz.
+
+### O observador como root
+
+Sem mais direitos, o Borg sabe apenas dos processos do seu próprio utilizador, olhando para a
+lista de processos quatro vezes por segundo, e a página diz isso abaixo da lista. Um comando curto
+pode desaparecer antes da olhada seguinte.
+
+Para saber de cada processo no momento em que arranca, instale a parte que corre como root:
+
+```sh
+borg service watch install
+```
+
+Isto pede a sua palavra-passe uma vez e instala uma unidade separada,
+`borg-commander-watch.service`, que corre `borg --watch-root`. Essa parte lê os eventos de
+processo do kernel, lê `/proc` e para, continua ou termina um processo quando o Borg pede. Não faz
+mais nada: a unidade abdica de todas as capacidades de que não precisa, e a interface do Borg
+continua a correr como você. Os dois lados falam por um socket na pasta de estado a que só o dono
+chega, o Borg aceita uma ligação apenas de um processo que corre como root, e a parte root liga-se
+apenas a um socket que pertence ao utilizador para quem foi instalada.
+`borg service watch uninstall` remove-a, e `borg service watch status` imprime de onde vêm os
+eventos e o que foi encontrado.
+
+Os alertas de qualquer dos lados são os mesmos alertas, no mesmo registo. Um processo de outro
+utilizador só pode ser congelado pela parte root, por isso retomá-lo ou terminá-lo a partir da
+página passa pelo observador no serviço. Quando nada o alcança, a página diz que só o dono ou um
+administrador o pode fazer.
+
+O observador é uma funcionalidade de Linux para já. No macOS a página abre e lê o seu registo, e a
+origem diz que nada está a observar.
 
 ## Rede
 

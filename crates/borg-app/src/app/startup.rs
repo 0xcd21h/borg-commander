@@ -49,6 +49,10 @@ impl App {
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone(), launch.runtime_dir.clone());
         let startup_items = crate::startup_items::StartupItems::new(messages.clone());
+        let mut alerts = crate::watch::Alerts::new(messages.clone());
+        if state.settings.preferences.process_watch {
+            alerts.follow_log();
+        }
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
@@ -95,6 +99,7 @@ impl App {
             docker,
             network,
             startup_items,
+            alerts,
             storage,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,

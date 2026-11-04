@@ -1,0 +1,49 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+╭ Alerts ────────────────────────────[+]─[-]╮╭ Shell on a network socket ─────────[+]─[-]╮
+│5 alerts · 4 unread                        ││alert · 2026-01-15 11:58:12 UTC            │
+│/ Filter by rule, program, parent or user  ││The shell sh has a network socket for its  │
+│Time       Rule                 Program    ││input and output, which is what a remote   │
+│2026-01-15 Shell on a network … sh         ││shell looks like.                          │
+│2026-01-15 Program in a tempor… kworker    ││                                           │
+│2026-01-15 Library forced into… curl       ││Command        sh -i                       │
+│2026-01-15 Looking around the … whoami     ││Program        /bin/sh                     │
+│2026-01-14 P╭──────────────────────── Kill process ────────────────────────╮            │
+│            │                                                              │            │
+│            │   Kill sh (29314)? A frozen process stays where it is until  │ network …  │
+│            │   you resume or kill it, and killing cannot be taken back.   │14          │
+│            │                                                              │            │
+│            │                       [ Yes ]   [ No ]                       │            │
+│            ╰──────────────────────────────────────────────────────────────╯            │
+│                                           ││  /usr/sbin/nginx (812)                    │
+│Watching every process on this machine, as ││    sh -i (29314)                          │
+╰───────────────────────────────────────────╯╰───────────────────────────────────────────╯
+Shell on a network socket · sh · Frozen
+$
+Enter Activity  C Resume  K Kill  A Allow  R Read again  / Filter  Esc Close
+Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity monitor     ◈ Borg Commander v0.9.6
+--- styles ---
+  0: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-8 Rgb(157, 157, 157) Rgb(38, 38, 38) BOLD | 9-36 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 37-39 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 40-40 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 41-43 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-72 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 73-81 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 82-84 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 85-85 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 86-88 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  1: 0-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(150, 59, 59) Rgb(38, 38, 38) BOLD | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  2: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-43 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  3: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-10 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 11-11 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 12-31 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 32-32 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 33-43 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  4: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-43 Rgb(140, 183, 201) Rgb(0, 95, 135) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  5: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-11 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 12-31 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 32-43 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  6: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-11 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 12-31 Rgb(150, 59, 59) Rgb(38, 38, 38) BOLD | 32-43 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-60 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 61-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  7: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-11 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 12-31 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 32-43 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-60 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 61-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  8: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-10 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 11-11 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 12-12 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 13-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+  9: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 10: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 11: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 12: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 13: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-46 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 47-52 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 53-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(17, 72, 85) Rgb(25, 25, 25) BOLD | 79-88 Rgb(26, 110, 130) Rgb(38, 38, 38) BOLD | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 14: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 15: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-14 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 15-43 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 44-44 Rgb(17, 72, 85) Rgb(25, 25, 25) NONE | 45-45 Rgb(47, 47, 47) Rgb(25, 25, 25) NONE | 46-76 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 77-78 Rgb(60, 60, 60) Rgb(16, 16, 16) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 16: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-43 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 17: 0-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 18: 0-89 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE
+ 19: 0-89 Rgb(126, 126, 126) Reset NONE
+ 20: 0-77 Rgb(148, 216, 233) Rgb(17, 168, 205) NONE | 78-89 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE
+ 21: 0-64 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 65-65 Rgb(0, 0, 0) Rgb(95, 175, 215) BOLD | 66-66 Rgb(0, 0, 0) Rgb(97, 172, 215) BOLD | 67-67 Rgb(0, 0, 0) Rgb(98, 168, 215) BOLD | 68-68 Rgb(0, 0, 0) Rgb(100, 165, 215) BOLD | 69-69 Rgb(0, 0, 0) Rgb(102, 162, 215) BOLD | 70-70 Rgb(0, 0, 0) Rgb(103, 158, 215) BOLD | 71-71 Rgb(0, 0, 0) Rgb(105, 155, 215) BOLD | 72-72 Rgb(0, 0, 0) Rgb(107, 152, 215) BOLD | 73-73 Rgb(0, 0, 0) Rgb(108, 148, 215) BOLD | 74-74 Rgb(0, 0, 0) Rgb(110, 145, 215) BOLD | 75-75 Rgb(0, 0, 0) Rgb(112, 142, 215) BOLD | 76-76 Rgb(255, 255, 255) Rgb(113, 138, 215) BOLD | 77-77 Rgb(255, 255, 255) Rgb(115, 135, 215) BOLD | 78-78 Rgb(255, 255, 255) Rgb(117, 132, 215) BOLD | 79-79 Rgb(255, 255, 255) Rgb(118, 128, 215) BOLD | 80-80 Rgb(255, 255, 255) Rgb(120, 125, 215) BOLD | 81-81 Rgb(255, 255, 255) Rgb(122, 122, 215) BOLD | 82-82 Rgb(255, 255, 255) Rgb(123, 118, 215) BOLD | 83-83 Rgb(255, 255, 255) Rgb(125, 115, 215) BOLD | 84-84 Rgb(255, 255, 255) Rgb(127, 112, 215) BOLD | 85-85 Rgb(255, 255, 255) Rgb(128, 108, 215) BOLD | 86-86 Rgb(255, 255, 255) Rgb(130, 105, 215) BOLD | 87-87 Rgb(255, 255, 255) Rgb(132, 102, 215) BOLD | 88-88 Rgb(255, 255, 255) Rgb(133, 98, 215) BOLD | 89-89 Rgb(255, 255, 255) Rgb(135, 95, 215) BOLD

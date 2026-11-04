@@ -35,6 +35,8 @@ pub struct Preferences {
     pub icon_spacing: u8,
     pub git_plugin: bool,
     pub system_plugin: bool,
+    /// The process watcher runs in the background service and may freeze what it finds.
+    pub process_watch: bool,
     pub docker_plugin: bool,
     /// The command line runs inside a container while its filesystem panel is active.
     pub docker_console: bool,
@@ -59,6 +61,7 @@ impl Preferences {
         icon_spacing: *ICON_SPACING.start(),
         git_plugin: true,
         system_plugin: true,
+        process_watch: false,
         docker_plugin: true,
         docker_console: true,
         agent_log: true,

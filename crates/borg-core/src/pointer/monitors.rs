@@ -122,6 +122,23 @@ pub(super) fn startup(state: &mut AppState, pointer: Pointer, now: Instant) -> V
     }
 }
 
+/// A click in the Alerts page: on its frame, a row or a control.
+pub(super) fn alerts(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
+    match pointer {
+        Pointer::AlertsExpand(expand) => {
+            state.alerts.expanded = expand;
+            Vec::new()
+        }
+        Pointer::AlertsHide => {
+            crate::watch::close(state);
+            Vec::new()
+        }
+        Pointer::AlertsRow { index, open } => crate::watch::click(state, index, open, now),
+        Pointer::AlertsControl(code) => crate::watch::route_key(state, &code.into(), now),
+        _ => Vec::new(),
+    }
+}
+
 /// A click in the network screen: on its frame, a row, a column's title or a control.
 pub(super) fn network(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     match pointer {

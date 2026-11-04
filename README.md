@@ -163,6 +163,12 @@ Ctrl-O switches between the panels and the console.
 - **What starts on its own.** Alt-U lists launch agents and daemons, systemd units and timers,
   cron jobs, shell startup files and SSH keys in one list, newest change first, with the program
   each one runs, whether that program is there, and the rules it matched.
+- **Watch what starts.** On Linux, turn on Watch in Options and `borg service start` keeps an eye
+  on every process that begins: a shell opened by a web server, a program running from `/tmp` or
+  from a deleted file, a forced library, a run of commands looking around the machine. Borg learns
+  what is normal here for a week first, then freezes what it is sure about, which stops the
+  process where it is without giving a supervisor anything to restart. Alt-L lists the alerts with
+  the evidence, and C, K or A lets it go on, ends it, or allows that start for good.
 
 <p align="center">
   <img src="docs/showcase/memory-map.png" alt="Memory map grouped by purpose with footprint, resident and mapped columns, explaining that shared libraries are not the process's own cost" width="1100">

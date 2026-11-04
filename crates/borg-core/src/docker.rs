@@ -368,6 +368,7 @@ pub(crate) fn open(state: &mut AppState, now: Instant) -> Vec<Effect> {
     state.activity.side = None;
     crate::network::close(state);
     crate::startup_items::close(state);
+    crate::watch::close(state);
     let docker = &mut state.docker;
     docker.side = Some(state.active);
     docker.details_focused = false;

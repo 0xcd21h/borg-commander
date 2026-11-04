@@ -21,6 +21,8 @@ pub enum Task {
     Network,
     /// The startup items screen reading its places.
     StartupItems,
+    /// The Alerts page reading its log.
+    Alerts,
     /// The quick view or Info pane preparing its contents.
     Preview,
     RemoteCatalog,
@@ -84,6 +86,9 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
     }
     if state.startup_items.is_open() && state.startup_items.pending.is_some() {
         active.push(Task::StartupItems);
+    }
+    if state.alerts.is_open() && state.alerts.pending.is_some() {
+        active.push(Task::Alerts);
     }
     let docker = &state.docker;
     if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty()) {

@@ -60,6 +60,15 @@ impl AppState {
             layout.panels[side.other().index()] = Default::default();
             return layout;
         }
+        if let Some(side) = self.alerts.side
+            && self.alerts.expanded
+        {
+            let left = layout.panels[0];
+            let right = layout.panels[1];
+            layout.panels[side.index()] = ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+            layout.panels[side.other().index()] = Default::default();
+            return layout;
+        }
         if let Some(side) = self.docker.side
             && self.docker.expanded
         {

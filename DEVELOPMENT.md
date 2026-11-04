@@ -352,6 +352,57 @@ folder is closed, owners and change times, whether each program exists, and the 
 and program match through `rule_scan`, each program once. Programs on macOS's sealed system
 volume are not scanned. The agent's `read` source `startup` returns the same report as text.
 
+### Process watcher
+
+`borg-core::watch` owns everything about the watcher that needs no system: `StartedProcess` is
+what Borg knows of a process the moment it starts (program and whether its file was deleted,
+command, user, terminal, what standard input and output lead to, preload variables, and the chain
+of parents), `examine` applies the ten rules to one of those and returns `Finding`s that say in
+plain words why they fired, `Baseline` holds which parent starts which program here and the
+learning period, `decide` says what to do about a finding with the guardrails that keep PID 1,
+Borg, terminals and the never-frozen programs running, and `Watcher` ties them together with the
+limits on alerts and freezes per minute. `Alerts` is the page: the log, the filter, the cursor and
+the keys. All of it is data in and data out, tested in `watch/tests.rs`.
+
+`borg-app::watch` does the watching. Events come from the kernel's proc connector over netlink
+(`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
+fixtures, so its tests run on macOS), from the root watcher once it connects, or from looking at
+the user's own process list four times a second. `watch::facts::Processes` reads `/proc` and takes
+its folder as an argument, so its tests run against a folder of fixtures on any system; a process
+is identified by its number together with its start time in clock ticks since boot, read again
+before Borg acts. `watch::freeze` sends the stop, continue and kill signals to a process and its
+descendants, parents first, checking identity before each one. `watch::log` keeps `alerts.json`
+(the newest 200 alerts), `watch-baseline.json` and `watch-allowed.json` in the state folder,
+owner-only, named by constants in `borg-core::storage` so the Borg's files window and the cleanup
+rules know them. The watcher writes the baseline and never the allowances, while the Alerts page
+writes the allowances and never the baseline, so neither can lose what the other wrote; the
+watcher takes in new allowances on its own tick, once a minute. The
+watcher runs inside `borg service run` and nowhere else, so one Borg decides and the others read
+the log; a Borg with the page closed follows the log every 5 seconds for the count of unread
+alerts.
+
+The watcher is Linux only in this release. macOS needs `eslogger` and is a separate change.
+
+### The part that runs as root
+
+The watcher is the first part of Borg that may run as root for a long time, so it is kept as small
+as it can be. `borg service watch install` installs `borg-commander-watch.service`, which runs
+`borg --watch-root SOCKET UID` (`borg-app::watch::root`). That process reads the kernel's process
+events and `/proc`, and stops, continues or ends a process when Borg asks it to. It does nothing
+else: no file manager commands, no reading of file contents, no network, and the unit sets
+`NoNewPrivileges` and bounds its capabilities to `CAP_NET_ADMIN`, `CAP_KILL`, `CAP_SYS_PTRACE` and
+`CAP_DAC_READ_SEARCH`.
+
+The two sides talk in lines of JSON over a Unix socket in the user's state folder, mode 0600.
+Borg accepts a connection only from a peer whose user is root, and the root part connects only to
+a socket owned by the user it was installed for. Borg's own interface stays unprivileged and
+writes the log itself, so nothing root-owned is left in the user's folders. Anything the root part
+sends is data: it reports processes and the outcomes of what it was asked, and Borg never runs a
+command on its behalf.
+
+When adding to the root part, keep that shape. It should read, report and signal, and the list of
+things it may be asked to do stays in one enum (`watch::root::Act`).
+
 ### Editor
 
 F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a

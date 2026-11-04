@@ -1,9 +1,9 @@
 //! Searching a process's memory: the form, its results, and what integrity checks and rules
 //! found.
 
-use super::{SEARCH_HEADER, dim, displayable, emphasis, row, text, wrap};
+use super::{SEARCH_HEADER, dim, displayable, emphasis, row, severity_style, text, wrap};
 use crate::{Theme, format};
-use borg_core::{Activity, ActivityPage, ActivityRequest, FINDING_NOTE, FindingKind, FindingsReport, Severity};
+use borg_core::{Activity, ActivityPage, ActivityRequest, FINDING_NOTE, FindingKind, FindingsReport};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -194,12 +194,7 @@ pub(super) fn findings(activity: &Activity, report: &FindingsReport, theme: &The
         let line = row(list, (i - start) as u16);
         let selected = i == activity.finding_cursor;
         let style = if selected { theme.styles.cursor } else { theme.styles.overlay };
-        let severity = match finding.severity {
-            _ if selected => style,
-            Severity::Alert => theme.styles.notice.add_modifier(Modifier::BOLD),
-            Severity::Warning => emphasis(theme),
-            Severity::Notice => dim(theme),
-        };
+        let severity = if selected { style } else { severity_style(finding.severity, theme) };
         let address = finding.address.map_or_else(String::new, |address| format!("{address:016x}"));
         buf.set_style(line, style);
         Line::from(vec![

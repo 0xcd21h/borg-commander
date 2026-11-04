@@ -3,7 +3,7 @@
 //! shares the network screen's look.
 
 use crate::{
-    activity_view::{FOOTER_ROWS, body, dim, emphasis, heading, row, text, wrap},
+    activity_view::{FOOTER_ROWS, body, dim, emphasis, heading, row, severity_style, text, wrap},
     format,
     look::Look,
     network_view::{FilterLine, filter_line},
@@ -245,16 +245,6 @@ fn footer_note(state: &AppState) -> Option<String> {
     (!report.problems.is_empty()).then(|| tr!(rule_files_left_out, count = report.problems.len()))
 }
 
-/// The style of a rule's level: alerts stand out, notices recede.
-fn severity_style(severity: Severity, look: &Look<'_>) -> Style {
-    let theme = look.theme;
-    match severity {
-        Severity::Alert => theme.styles.notice.add_modifier(Modifier::BOLD),
-        Severity::Warning => emphasis(theme),
-        Severity::Notice => dim(theme),
-    }
-}
-
 /// What an item's row shows in `field`, and its style.
 fn value(
     item: &StartupItem,
@@ -290,7 +280,7 @@ fn value(
         Field::Rules => {
             let style = match item.worst() {
                 _ if selected => base,
-                Some(level) => severity_style(level.into(), look),
+                Some(level) => severity_style(level.into(), look.theme),
                 None => quiet,
             };
             (item.rule_names().join(RULE_JOIN), style)
@@ -423,7 +413,7 @@ fn draw_hit(hit: &RuleHit, look: &Look<'_>, area: Rect, mut y: u16, buf: &mut Bu
     };
     let source = rule_source(&hit.rule);
     let lines = [Some(title.as_str()), hit.rule.about(), hit.rule.caveat(), Some(source.as_str())];
-    let styles = [severity_style(severity, look), theme.styles.overlay, dim(theme), dim(theme)];
+    let styles = [severity_style(severity, look.theme), theme.styles.overlay, dim(theme), dim(theme)];
     for (value, style) in lines.into_iter().zip(styles) {
         for line in value.map(|value| wrap(value, usize::from(area.width))).unwrap_or_default() {
             text(buf, row(area, y), line, style);

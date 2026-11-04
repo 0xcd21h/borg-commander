@@ -20,6 +20,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
             tr!(network_close_for_files)
         } else if state.startup_items.is_open() {
             tr!(startup_close_for_files)
+        } else if state.alerts.is_open() {
+            tr!(watch_close_for_files)
         } else {
             tr!(activity_close_for_files)
         }

@@ -35,6 +35,18 @@ fn runs(pid: u32) -> bool {
     pid == RUNNING
 }
 
+/// The watcher's own files are the user's record of what happened on the machine, so no rule
+/// may take them away, however old they are.
+#[test]
+fn the_alert_log_and_the_baseline_are_never_left_over() {
+    let root = Path::new("/state");
+    let entries = [file(ALERT_LOG, STALE * 2), file(WATCH_BASELINE, STALE * 2)];
+    assert!(runtime_leftovers(root, &entries, &judge(false)).is_empty());
+    assert!(runtime_leftovers(root, &entries, &judge(true)).is_empty());
+    let lists = CacheLists { sizes: None, indexes: &HashSet::new() };
+    assert!(cache_leftovers(root, &entries, &lists, &judge(false)).is_empty());
+}
+
 fn judge(idle: bool) -> Judge<'static> {
     Judge { now: now(), version: VERSION, idle, runs: &runs }
 }

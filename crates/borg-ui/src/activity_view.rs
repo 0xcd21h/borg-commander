@@ -2,7 +2,7 @@
 //! searches, each page in a module of its own; the drawing they share is here.
 
 use crate::{Rgb, Theme, format, look::Look, spinner::Spinner};
-use borg_core::{Activity, ActivityPage, ActivityRequest, AppState, FindingsReport};
+use borg_core::{Activity, ActivityPage, ActivityRequest, AppState, FindingsReport, Severity};
 use borg_i18n::tr;
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -84,6 +84,15 @@ pub(crate) fn dim(theme: &Theme) -> Style {
 }
 
 /// Splits text into lines of at most `width` cells, breaking between words.
+/// The style of a finding's level: alerts stand out, notices recede.
+pub(crate) fn severity_style(severity: Severity, theme: &Theme) -> Style {
+    match severity {
+        Severity::Alert => theme.styles.notice.add_modifier(Modifier::BOLD),
+        Severity::Warning => emphasis(theme),
+        Severity::Notice => dim(theme),
+    }
+}
+
 pub(crate) fn wrap(value: &str, width: usize) -> Vec<String> {
     let mut lines = vec![String::new()];
     for word in value.split_whitespace() {
