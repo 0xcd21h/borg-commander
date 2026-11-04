@@ -1434,6 +1434,7 @@ catalog! {
     watch_spared_freeze_off => "Freezing is turned off in the configuration.",
     watch_spared_only_a_notice => "A notice is not worth stopping a program for.",
     watch_spared_enough_for_now => "Borg had already frozen as much as it may in one minute.",
+    watch_spared_unreviewed => "Freezing waits until you open Alerts and see what Borg would have frozen while it learned.",
     watch_rule_shell_from_service => "Shell from a service",
     watch_rule_shell_without_terminal => "Shell without a terminal",
     watch_rule_shell_on_socket => "Shell on a network socket",

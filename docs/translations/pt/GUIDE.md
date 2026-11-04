@@ -1729,6 +1729,12 @@ nada para reiniciar, e o que ele estava a ponto de fazer espera onde está até 
 Resposta diz **Congelado**, **C** deixa-o continuar e **K** termina-o. Terminar é definitivo, por
 isso o Borg pergunta primeiro.
 
+O congelamento só começa quando tiver visto todos os alertas da semana de aprendizagem que dizem
+**Teria congelado**. Abrir a página de alertas marca-os como lidos, e o observador nota-o no espaço
+de um minuto. Assim nada para antes de verificar o que a semana apanhou, e pode permitir primeiro um
+programa inofensivo com **A**. Até lá, os detalhes de um novo alerta dizem que o congelamento está à
+sua espera.
+
 O Borg nunca congela o primeiro processo do sistema, nem a si mesmo nem nada que tenha iniciado, nem
 um programa da lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` e
 semelhantes, mais qualquer nome que acrescente em `keep-running`), nem um processo num terminal em
@@ -1736,12 +1742,14 @@ que alguém iniciou sessão, nem um arranque que tenha permitido. Uma nota nunca
 detalhes dizem qual destes motivos manteve o processo a correr.
 
 Um programa da lista incorporada só é poupado onde o sistema guarda os seus programas, como `/usr` e
-`/bin`, por isso uma cópia chamada `sshd` noutra pasta é congelada como qualquer outro. Um terminal
-conta quando alguém iniciou sessão nele: por SSH, na consola, no `tmux` ou no `screen`, através do
-`sudo` ou do `su`, ou numa janela de terminal. Um terminal que um programa abriu para si próprio não
-conta, o que impede uma shell remota de se esconder atrás de um. Os terminais abertos pelo servidor
-remoto de um editor ou pelo `docker exec` também não contam, por isso, se o Borg congelar algo que
-correu aí, **C** deixa-o continuar e **A** permite-o.
+`/bin`, por isso uma cópia chamada `sshd` noutra pasta é congelada como qualquer outro. Os nomes que
+acrescenta em `keep-running` correspondem onde quer que o programa esteja. Um terminal conta quando
+alguém iniciou sessão nele: por SSH, na consola, no `tmux` ou no `screen`, através do `sudo` ou do
+`su`, ou numa janela de terminal. Um multiplexador de terminal só conta para o root e para contas de
+pessoas, numeradas a partir de 1000, porque uma conta de serviço também pode iniciar um. Um terminal
+que um programa abriu para si próprio não conta, o que impede uma shell remota de se esconder atrás
+de um. Os terminais abertos pelo servidor remoto de um editor ou pelo `docker exec` também não
+contam, por isso, se o Borg congelar algo que correu aí, **C** deixa-o continuar e **A** permite-o.
 
 O Borg verifica a identidade de um processo, o seu número junto com o momento em que arrancou,
 imediatamente antes de lhe enviar um sinal, para que um número que outro processo tenha tomado
@@ -1790,9 +1798,13 @@ Conheça-as antes de confiar nele.
 - Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
   em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
   como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+- Uma rajada de processos novos pode encher a fila entre o kernel e o Borg, e o kernel descarta
+  então eventos, por isso alguns arranques nunca são examinados.
 - Tudo o que corre como o utilizador do observador pode parar o observador, alterar os seus
   ficheiros na pasta de estado ou deixar continuar um processo congelado com `kill -CONT`. Congelar
   dá-lhe tempo para ver, e o dono do processo ainda o pode desfazer.
+- Um processo num terminal em que alguém iniciou sessão nunca é congelado, mesmo que a sessão tenha
+  usado uma palavra-passe ou chave roubada. As regras continuam a disparar e a escrever alertas.
 - Um processo que se desliga do seu pai antes de o Borg congelar o pai continua a correr.
 - Os alertas chegam até si quando abre a página. Por enquanto nada os envia para lado nenhum.
 

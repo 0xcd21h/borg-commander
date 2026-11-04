@@ -1421,6 +1421,7 @@
   "watch_spared_freeze_off": "La congelación está desactivada en la configuración.",
   "watch_spared_only_a_notice": "Una nota no justifica detener un programa.",
   "watch_spared_enough_for_now": "Borg ya congeló todo lo que puede en un minuto.",
+  "watch_spared_unreviewed": "La congelación espera a que abras Alertas y veas lo que Borg habría congelado mientras aprendía.",
   "watch_rule_shell_from_service": "Shell desde un servicio",
   "watch_rule_shell_without_terminal": "Shell sin terminal",
   "watch_rule_shell_on_socket": "Shell en un socket de red",

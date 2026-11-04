@@ -500,17 +500,28 @@ impl Watch {
                 own: std::process::id(),
                 keep_running: &self.settings.keep_running,
                 freeze: self.settings.freeze,
+                reviewed: self.log.reviewed(),
             };
             let outcomes = self.watcher.examine(&started, &guard, now);
             self.record(&started, outcomes, now).await?;
         }
     }
 
-    /// Writes down what the watcher has learned, and takes in the starts the user has allowed
-    /// since the last look.
+    /// Writes down what the watcher has learned, takes in the starts the user has allowed since
+    /// the last look, and reads the log again to see whether the user has read what the learning
+    /// week would have frozen.
     fn keep_up(&mut self) -> Result<()> {
         self.watcher.baseline.allowed = allowances(&self.settings, &self.state);
+        let watch = self.log.watch.clone();
+        self.log = log::read_log(&self.state);
+        self.log.watch = watch;
         log::write_baseline(&self.state, &self.watcher.baseline)
+    }
+
+    /// Changes the log as the state folder holds it now, with the watcher's own status.
+    fn change_log(&mut self, change: impl FnOnce(&mut AlertLog)) -> Result<()> {
+        self.log = change_log(&self.state, &self.log.watch, change)?;
+        Ok(())
     }
 
     /// Freezes what Borg decided to freeze, keeps the connections the process holds, and
@@ -536,33 +547,34 @@ impl Watch {
             ..Evidence::default()
         };
         let mut alerts = Vec::new();
-        for outcome in outcomes {
-            let id = self.log.add(now, outcome.finding, response.clone(), started.clone());
-            if let Some(alert) = self.log.find(id) {
-                alert.evidence = evidence.clone();
+        self.change_log(|log| {
+            for outcome in outcomes {
+                let id = log.add(now, outcome.finding, response.clone(), started.clone());
+                if let Some(alert) = log.find(id) {
+                    alert.evidence = evidence.clone();
+                }
+                alerts.push(id);
             }
-            alerts.push(id);
-        }
+        })?;
         if let Some(program) = program {
             let _ = self.jobs.send(Job { alerts, program });
         }
-        log::write_log(&self.state, &self.log)
+        Ok(())
     }
 
     /// Adds what the examiner found in a program to the alerts that waited for it.
     fn take_in(&mut self, found: Found) -> Result<()> {
-        let mut changed = false;
-        for id in &found.alerts {
-            if let Some(alert) = self.log.find(*id) {
-                alert.evidence.program_hash.clone_from(&found.program_hash);
-                alert.evidence.hits.clone_from(&found.hits);
-                if found.missing.is_some() {
-                    alert.evidence.missing.clone_from(&found.missing);
+        self.change_log(|log| {
+            for id in &found.alerts {
+                if let Some(alert) = log.find(*id) {
+                    alert.evidence.program_hash.clone_from(&found.program_hash);
+                    alert.evidence.hits.clone_from(&found.hits);
+                    if found.missing.is_some() {
+                        alert.evidence.missing.clone_from(&found.missing);
+                    }
                 }
-                changed = true;
             }
-        }
-        if changed { log::write_log(&self.state, &self.log) } else { Ok(()) }
+        })
     }
 
     /// Writes down what became of a process another Borg asked about, so the page shows it
@@ -575,15 +587,26 @@ impl Watch {
             (root::Act::Resume, _) => AlertState::Resumed,
             (root::Act::Kill, _) => AlertState::Killed,
         };
-        let mut changed = false;
-        for alert in &mut self.log.alerts {
-            if alert.process.key == process {
-                alert.state = state;
-                changed = true;
-            }
+        if !self.log.alerts.iter().any(|alert| alert.process.key == process) {
+            return Ok(());
         }
-        if changed { log::write_log(&self.state, &self.log) } else { Ok(()) }
+        self.change_log(|log| {
+            for alert in log.alerts.iter_mut().filter(|alert| alert.process.key == process) {
+                alert.state = state;
+            }
+        })
     }
+}
+
+/// Changes the log as the state folder holds it now, so what the Alerts page wrote since is kept:
+/// the alerts it marked read and the processes it resumed, killed or allowed. The watcher's
+/// status replaces whatever the page last saw of it.
+fn change_log(state: &Path, watch: &WatchStatus, change: impl FnOnce(&mut AlertLog)) -> Result<AlertLog> {
+    let mut log = log::read_log(state);
+    log.watch = watch.clone();
+    change(&mut log);
+    log::write_log(state, &log)?;
+    Ok(log)
 }
 
 /// Every start the user allows: the ones in the configuration and the ones the Alerts page has

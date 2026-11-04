@@ -68,6 +68,24 @@ async fn acting_on_a_process_that_has_gone_says_so_and_writes_it_down() {
     assert!(reply.notice.is_some_and(|notice| notice.contains("sh")));
 }
 
+#[tokio::test]
+async fn what_the_page_writes_survives_the_watchers_next_alert() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    log::write_log(state, &alert_log(1)).unwrap();
+    let watching = log::read_log(state).watch;
+    answer(state, &AlertsRequest::Open).await.unwrap();
+
+    let next = alert_log(1).alerts[0].clone();
+    let log = change_log(state, &watching, |log| {
+        log.add(SystemTime::UNIX_EPOCH, next.finding, next.response, next.process);
+    })
+    .unwrap();
+    assert_eq!(log.alerts.len(), 2);
+    assert_eq!(log.unread(), 1, "only the new alert is unread");
+    assert_eq!(log::read_log(state), log, "and that is what the state folder holds");
+}
+
 #[test]
 fn the_polling_source_reports_each_new_process_once_and_forgets_those_that_have_gone() {
     let folder = tempfile::tempdir().unwrap();

@@ -49,8 +49,6 @@ const LOGINS: &[&str] = &[
     "getty",
     "mingetty",
     "mosh-server",
-    "tmux",
-    "screen",
     "sudo",
     "su",
     "doas",
@@ -69,6 +67,14 @@ const LOGINS: &[&str] = &[
     "foot",
     "urxvt",
 ];
+/// Terminal multiplexers, which open a session for whoever starts them. A service account can
+/// start one as easily as a person can, so they count only for root and people's accounts.
+const MULTIPLEXERS: &[&str] = &["tmux", "screen"];
+/// The account of the machine's owner.
+const ROOT: u32 = 0;
+/// The first number Linux gives an account for a person; the ones below it belong to the system
+/// and its services.
+const FIRST_PERSON: u32 = 1000;
 /// Folders that only the machine's owner may write to, where a program Borg spares by its name
 /// must lie, so a copy named after it elsewhere is not spared.
 const SYSTEM_FOLDERS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/nix/store", "/snap"];
@@ -92,6 +98,8 @@ pub enum Protection {
     OnlyANotice,
     /// Borg had already frozen as much as it may in this minute.
     EnoughForNow,
+    /// The user has not yet seen what Borg would have frozen while it learned.
+    Unreviewed,
 }
 
 impl Protection {
@@ -106,6 +114,7 @@ impl Protection {
             Self::FreezeOff => tr!(watch_spared_freeze_off).into(),
             Self::OnlyANotice => tr!(watch_spared_only_a_notice).into(),
             Self::EnoughForNow => tr!(watch_spared_enough_for_now).into(),
+            Self::Unreviewed => tr!(watch_spared_unreviewed).into(),
         }
     }
 }
@@ -150,6 +159,9 @@ pub struct Guard<'a> {
     pub keep_running: &'a [String],
     /// Whether Borg may freeze at all.
     pub freeze: bool,
+    /// Whether the user has seen every alert that says Borg would have frozen a process while it
+    /// learned. Freezing waits until they have, so nothing stops before they have checked.
+    pub reviewed: bool,
 }
 
 /// How much the watcher does in a minute.
@@ -188,14 +200,20 @@ fn installed(program: Option<&Path>) -> bool {
     program.is_none_or(|program| SYSTEM_FOLDERS.iter().any(|folder| program.starts_with(folder)))
 }
 
-/// Whether somebody logged in to the terminal a process belongs to, rather than a program
-/// opening one for itself.
+/// Whether the account a process runs as belongs to root or to a person.
+fn personal(process: &StartedProcess) -> bool {
+    process.uid == ROOT || process.uid >= FIRST_PERSON
+}
+
+/// Whether somebody logged in to the terminal a process belongs to. A terminal a program opened
+/// for itself does not count.
 fn logged_in(process: &StartedProcess) -> bool {
     process.has_terminal()
-        && process
-            .session_parent
-            .as_ref()
-            .is_some_and(|opener| LOGINS.contains(&opener.program_name()) && installed(opener.program.as_deref()))
+        && process.session_parent.as_ref().is_some_and(|opener| {
+            let program = opener.program_name();
+            let login = LOGINS.contains(&program) || (MULTIPLEXERS.contains(&program) && personal(process));
+            login && installed(opener.program.as_deref())
+        })
 }
 
 /// Why a process is never frozen, whatever fired.
@@ -222,7 +240,7 @@ fn protection(process: &StartedProcess, baseline: &Baseline, guard: &Guard<'_>) 
 }
 
 /// What Borg does about one finding. Nothing is frozen while Borg is still learning; the log
-/// then says what it would have done.
+/// then says what it would have done, and freezing waits until the user has seen that.
 pub fn decide(
     finding: &Finding,
     process: &StartedProcess,
@@ -242,6 +260,7 @@ pub fn decide(
     }
     match spared {
         Some(protection) => Response::Spared(protection),
+        None if !guard.reviewed => Response::Spared(Protection::Unreviewed),
         None => Response::Frozen,
     }
 }

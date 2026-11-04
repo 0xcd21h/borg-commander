@@ -1421,6 +1421,7 @@
   "watch_spared_freeze_off": "Заморозка отключена в настройках.",
   "watch_spared_only_a_notice": "Из-за замечания останавливать программу не стоит.",
   "watch_spared_enough_for_now": "Borg уже заморозил столько, сколько допустимо за минуту.",
+  "watch_spared_unreviewed": "Заморозка ждёт, пока вы не откроете «Оповещения» и не увидите, что Borg заморозил бы за время обучения.",
   "watch_rule_shell_from_service": "Оболочка из службы",
   "watch_rule_shell_without_terminal": "Оболочка без терминала",
   "watch_rule_shell_on_socket": "Оболочка на сетевом сокете",

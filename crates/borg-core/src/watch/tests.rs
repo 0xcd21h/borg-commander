@@ -41,7 +41,7 @@ fn started(pid: u32, program: &str, parent: Option<Ancestor>) -> StartedProcess 
 }
 
 fn guard() -> Guard<'static> {
-    Guard { own: 777, keep_running: &[], freeze: true }
+    Guard { own: 777, keep_running: &[], freeze: true, reviewed: true }
 }
 
 fn learned() -> Baseline {
@@ -242,6 +242,34 @@ fn nothing_is_frozen_while_borg_learns_but_the_log_says_what_it_would_do() {
         "it would freeze once the learning period is over"
     );
     assert_eq!(decide(&finding, &shell, &baseline, &guard(), since + WEEK), Response::Frozen);
+
+    let waiting = Guard { reviewed: false, ..guard() };
+    assert_eq!(
+        decide(&finding, &shell, &baseline, &waiting, since),
+        Response::Learning { would_freeze: true },
+        "what the week would freeze is written down whether or not the user has looked"
+    );
+    assert_eq!(
+        decide(&finding, &shell, &baseline, &waiting, since + WEEK),
+        Response::Spared(Protection::Unreviewed),
+        "freezing waits until the user has seen what the week would have frozen"
+    );
+}
+
+#[test]
+fn the_week_is_reviewed_once_every_alert_that_would_have_frozen_is_read() {
+    let mut log = AlertLog::default();
+    assert!(log.reviewed(), "a week that would have frozen nothing needs no review");
+    let finding = Finding::ShellOnSocket { shell: "sh".into() };
+    let parent = ancestor(40, "/usr/sbin/nginx", false);
+    let quiet = Response::Learning { would_freeze: false };
+    log.add(moment(Duration::ZERO), finding.clone(), quiet, started(41, "/bin/sh", Some(parent.clone())));
+    assert!(log.reviewed(), "an alert Borg would not have frozen for waits on nobody");
+    let would = Response::Learning { would_freeze: true };
+    log.add(moment(Duration::ZERO), finding, would, started(42, "/bin/sh", Some(parent)));
+    assert!(!log.reviewed());
+    log.mark_seen();
+    assert!(log.reviewed(), "opening the page marks the week as seen");
 }
 
 #[test]
@@ -281,9 +309,16 @@ fn the_guardrails_keep_the_machine_and_its_people_running() {
     at_a_terminal.terminal = Some("pts/1".into());
     at_a_terminal.session_parent = Some(ancestor(30, "/usr/sbin/sshd", false));
     assert_eq!(spared(&at_a_terminal, &guard()), Some(Protection::Terminal));
-    let in_tmux =
-        StartedProcess { session_parent: Some(ancestor(31, "/usr/bin/tmux", false)), ..at_a_terminal.clone() };
+    let in_tmux = StartedProcess {
+        session_parent: Some(ancestor(31, "/usr/bin/tmux", false)),
+        uid: 1000,
+        ..at_a_terminal.clone()
+    };
     assert_eq!(spared(&in_tmux, &guard()), Some(Protection::Terminal));
+    let root_in_tmux = StartedProcess { uid: 0, ..in_tmux.clone() };
+    assert_eq!(spared(&root_in_tmux, &guard()), Some(Protection::Terminal));
+    let service_in_tmux = StartedProcess { uid: 33, ..in_tmux.clone() };
+    assert_eq!(spared(&service_in_tmux, &guard()), None, "a service account's multiplexer is nobody's login");
     for opener in [None, Some(ancestor(32, "/usr/bin/python3", false)), Some(ancestor(33, "/tmp/sshd", false))] {
         let opened_by_a_program = StartedProcess { session_parent: opener.clone(), ..at_a_terminal.clone() };
         assert_eq!(spared(&opened_by_a_program, &guard()), None, "nobody logged in to the terminal {opener:?} opened");

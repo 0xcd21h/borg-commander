@@ -361,11 +361,13 @@ to, preload variables, and the chain of parents), `examine` applies the ten rule
 and returns `Finding`s that say in plain words why they fired, `Baseline` holds which parent starts
 which program here and the learning period, `decide` says what to do about a finding with the
 guardrails that keep PID 1, Borg, terminals somebody logged in to and the never-frozen programs
-running (by name only where they lie in a system folder), and `Watcher` ties them together with the
-limits on alerts and freezes per minute. The alert limit never drops a finding Borg freezes for, and
-a start that a rule learning cannot quiet fired on stays out of the baseline. `Alerts` is the page:
-the log, the filter, the cursor and the keys. All of it is data in and data out, tested in
-`watch/tests.rs`.
+running (by name only where they lie in a system folder, and `tmux` or `screen` only for root and
+people's accounts), and `Watcher` ties them together with the limits on alerts and freezes per
+minute. The alert limit never drops a finding Borg freezes for, and a start that a rule learning
+cannot quiet fired on stays out of the baseline. Freezing waits until every alert from the learning
+week that would have frozen has been read: `AlertLog::reviewed` says when, and until then `decide`
+spares the process with a reason that says so. `Alerts` is the page: the log, the filter, the cursor
+and the keys. All of it is data in and data out, tested in `watch/tests.rs`.
 
 `borg-app::watch` does the watching. Events come from the kernel's proc connector over netlink
 (`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
@@ -380,12 +382,14 @@ its descendants, parents first, checking identity before each one. `watch::log` 
 owner-only, named by constants in `borg-core::storage` so the Borg's files window and the cleanup
 rules know them. The watcher writes the baseline and never the allowances, while the Alerts page
 writes the allowances and never the baseline, so neither can lose what the other wrote; the watcher
-takes in new allowances on its own tick, once a minute. A thread of its own hashes the program and
-runs the rules over it for each alert, so a large program does not hold up the processes that start
-meanwhile; the alerts are written with the connections first and take in the hash and matches when
-they come. The watcher runs inside `borg service run` and nowhere else, so one Borg decides and the
-others read the log; a Borg with the page closed follows the log every 5 seconds for the count of
-unread alerts.
+takes in new allowances on its own tick, once a minute. Both sides change `alerts.json` by reading
+it fresh, changing it and writing it back, so what the page marked read or let go on survives the
+watcher's next alert, and the watcher rereads the log once a minute to learn whether the week has
+been reviewed. A thread of its own hashes the program and runs the rules over it for each alert, so
+a large program does not hold up the processes that start meanwhile; the alerts are written with the
+connections first and take in the hash and matches when they come. The watcher runs inside
+`borg service run` and nowhere else, so one Borg decides and the others read the log; a Borg with
+the page closed follows the log every 5 seconds for the count of unread alerts.
 
 The watcher is Linux only in this release. macOS needs `eslogger` and is a separate change.
 

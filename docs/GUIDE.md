@@ -1599,18 +1599,25 @@ not exited, so its service keeps running, `systemd` and Docker have nothing to r
 whatever it was about to do waits where it is until you look. The Response column says **Frozen**,
 and **C** lets it go on while **K** ends it. Killing is final, so Borg asks first.
 
+Borg starts freezing only once you have seen every alert from the learning week that says **Would
+freeze**. Opening the Alerts page marks them read, and the watcher notices within a minute. That way
+nothing stops before you have checked what the week caught, and you can allow a harmless program
+with **A** first. Until then, the details of a new alert say that freezing is waiting for you.
+
 Borg never freezes the system's first process, itself or anything it started, a program on the list
 it never freezes (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` and the like, plus any name you
 add under `keep-running`), a process on a terminal somebody logged in to, or a start you have
 allowed. A notice never stops a program. The details say which of these kept a process running.
 
 A program on the built-in list is spared only where the system keeps its programs, such as `/usr`
-and `/bin`, so a copy named `sshd` in another folder is frozen like anything else. A terminal counts
-when somebody logged in to it: over SSH, at the console, in `tmux` or `screen`, through `sudo` or
-`su`, or in a terminal window. A terminal that a program opened for itself does not count, which
-keeps a remote shell from hiding behind one. Terminals opened by an editor's remote server or by
-`docker exec` do not count either, so if Borg freezes something you ran there, **C** lets it go on
-and **A** allows it.
+and `/bin`, so a copy named `sshd` in another folder is frozen like anything else. Names you add
+under `keep-running` match wherever the program lies. A terminal counts when somebody logged in to
+it: over SSH, at the console, in `tmux` or `screen`, through `sudo` or `su`, or in a terminal
+window. A terminal multiplexer counts only for root and for people's accounts, numbered from 1000
+up, because a service account can start one too. A terminal that a program opened for itself does
+not count, which keeps a remote shell from hiding behind one. Terminals opened by an editor's remote
+server or by `docker exec` do not count either, so if Borg freezes something you ran there, **C**
+lets it go on and **A** allows it.
 
 Borg checks a process's identity, its number together with the moment it started, right before it
 signals it, so a number another process has taken in the meantime is left alone.
@@ -1656,9 +1663,13 @@ before you rely on it.
 - Without the root watcher, Borg sees only your own processes, and a command that ends within a
   quarter of a second can be gone before Borg looks. Services that run as another user, such as
   `www-data` or `postgres`, need the root watcher.
+- A burst of new processes can fill the queue between the kernel and Borg, and the kernel then drops
+  events, so some starts are never looked at.
 - Anything running as the user the watcher runs as can stop the watcher, change its files in the
   state folder, or let a frozen process go on with `kill -CONT`. Freezing buys you time to look, and
   the process's owner can still undo it.
+- A process on a terminal somebody logged in to is never frozen, even when the login used a stolen
+  password or key. The rules still fire and write alerts.
 - A process that detaches from its parent before Borg freezes the parent keeps running.
 - Alerts reach you when you open the page. Nothing sends them anywhere yet.
 

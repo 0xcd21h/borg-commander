@@ -224,6 +224,12 @@ impl AlertLog {
         self.alerts.iter().filter(|alert| !alert.seen).count()
     }
 
+    /// Whether the user has seen every alert that says Borg would have frozen a process while
+    /// it learned.
+    pub fn reviewed(&self) -> bool {
+        !self.alerts.iter().any(|alert| !alert.seen && alert.response == Response::Learning { would_freeze: true })
+    }
+
     pub fn mark_seen(&mut self) {
         for alert in &mut self.alerts {
             alert.seen = true;
