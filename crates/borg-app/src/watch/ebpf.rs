@@ -83,16 +83,19 @@ impl Seen {
 
     /// Whether `/proc` shows a later program of the process: it took another name, and the file
     /// it runs is not where this path leads. A process may rename itself without starting
-    /// anything, and a script keeps its own name while it runs its interpreter.
+    /// anything, and a script keeps its own name while it runs its interpreter. A process that
+    /// runs a deleted file stays as `/proc` shows it, so renaming itself cannot hide that the
+    /// file is gone.
     fn moved_on(&self, process: &StartedProcess, processes: &Processes) -> bool {
-        process.name != self.name && processes.runs(process.key.pid, &self.program) != Some(true)
+        process.name != self.name
+            && !process.program_deleted
+            && processes.runs(process.key.pid, &self.program) != Some(true)
     }
 
     fn correct(&self, process: &mut StartedProcess, processes: &Processes) {
         if self.moved_on(process, processes) {
             process.name.clone_from(&self.name);
             process.program = self.program();
-            process.program_deleted = false;
             process.command = self.command.clone().unwrap_or_default();
             process.link = process.program.as_deref().and_then(|program| {
                 processes.started_by_link(process.key.pid, &process.name, &process.command, program)

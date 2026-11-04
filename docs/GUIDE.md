@@ -1776,9 +1776,10 @@ before you rely on it.
   events, so some starts are never looked at.
 - A command that ended before Borg could read `/proc` carries only what the programs read: its
   program, command line, parent and user. Its terminal, standard streams and preload variables ended
-  with it, so the rules about them cannot fire. Its program is the path it was started by, which can
-  be relative to its working folder or lead through a symbolic link, so **Program in a temporary
-  folder** can miss it.
+  with it, so the rules about them cannot fire. Nothing is left to show whether its file was
+  deleted, so **Program deleted while it runs** and **Program with no file** cannot fire either. Its
+  program is the path it was started by, which can be relative to its working folder or lead through
+  a symbolic link, so **Program in a temporary folder** can miss it.
 - The programs keep the first 4 KiB of a command line, and Borg takes a longer one from `/proc`
   while the process is still there. They find the command line through the type information the
   kernel publishes at `/sys/kernel/btf/vmlinux`. On a kernel built without it, the command line

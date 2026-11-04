@@ -291,6 +291,19 @@ fn a_process_that_started_another_program_since_is_reported_as_it_was() {
 }
 
 #[test]
+fn a_process_that_runs_a_deleted_file_and_renamed_itself_still_runs_a_deleted_file() {
+    let proc = FakeProc::new();
+    proc.process(300, "kworker", 1, EXEC_TICK, Path::new("/tmp/.x/payload (deleted)"), &["kworker"]);
+    let seen = seen("payload", "/tmp/.x/payload", Some(&["/tmp/.x/payload", "--beacon"]));
+
+    let started = seen.started(&proc.processes(), 300, SystemTime::UNIX_EPOCH);
+    assert!(started.program_deleted, "the file it runs is gone, whatever it calls itself");
+    assert_eq!(started.program.as_deref(), Some(Path::new("/tmp/.x/payload")));
+    assert_eq!(started.name, "kworker");
+    assert_eq!(started.command, ["/tmp/.x/payload", "--beacon"], "the command line it was started with");
+}
+
+#[test]
 fn a_process_that_renamed_itself_keeps_the_program_proc_resolved() {
     let proc = FakeProc::new();
     let program = proc.file("rootfs/opt/agent/agent");

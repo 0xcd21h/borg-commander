@@ -467,15 +467,16 @@ numbers.
 
 `watch::ebpf` reads records and merges what the programs read with `/proc`, all as pure functions
 tested on any system. `/proc` gives the streams, the terminal, the preload variables and the
-parents. The command line from the exec replaces one the process rewrote, unless the programs cut
-it short. A process whose `/proc` entry shows another name and runs another file has started a
-later program, so the programs' program and command line win. A `/proc` entry that started after
-the exec belongs to a later process with the same number, and a process gone from `/proc` is
-reported from the programs alone, its start counted in clock ticks from the fork.
-`watch::ebpf::load` (Linux, `cfg(borg_ebpf)`) loads and attaches the programs with `aya` and reads
-the ring buffer on a thread of its own, letting each record go before it waits for the watcher. The
-watcher tries eBPF first, then the proc connector, then looking at the process list, and
-`WatchSource::Ebpf` and `FromRoot::Ebpf` say when it is eBPF.
+parents. The command line from the exec replaces one the process rewrote, unless the programs cut it
+short. A process whose `/proc` entry shows another name and runs another file has started a later
+program, so the programs' program and command line win. A process that runs a deleted file never
+counts as one that moved on, so renaming itself cannot clear **Program deleted while it runs**. A
+`/proc` entry that started after the exec belongs to a later process with the same number, and a
+process gone from `/proc` is reported from the programs alone, its start counted in clock ticks from
+the fork. `watch::ebpf::load` (Linux, `cfg(borg_ebpf)`) loads and attaches the programs with `aya`
+and reads the ring buffer on a thread of its own, letting each record go before it waits for the
+watcher. The watcher tries eBPF first, then the proc connector, then looking at the process list,
+and `WatchSource::Ebpf` and `FromRoot::Ebpf` say when it is eBPF.
 
 The programs need Linux 5.8 for the ring buffer, `CAP_BPF` and `CAP_PERFMON`. The kernel lends its
 tracing helpers only to programs with a GPL-compatible license string, so the object declares
