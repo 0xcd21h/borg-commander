@@ -314,14 +314,19 @@ impl Watcher {
     /// While Borg learns, the start joins the baseline, so what a machine does becomes what it
     /// may do; a start a rule fired on that learning never quiets stays out of it.
     ///
+    /// A copy of its parent is no start of its own, so it neither counts as one nor teaches the
+    /// baseline anything, and only the rules that always fire judge it.
+    ///
     /// The limit on alerts only ever leaves out a finding Borg would not freeze for: a frozen
     /// process is always written down, or nobody would know to let it go on.
     pub fn examine(&mut self, process: &StartedProcess, guard: &Guard<'_>, now: SystemTime) -> Vec<Outcome> {
-        self.seen = self.seen.saturating_add(1);
         let findings = examine(process, &self.baseline, &self.history, now);
-        self.history.note(process);
-        if self.baseline.learning(now) && findings.iter().all(|finding| finding.rule().learnable()) {
-            self.baseline.note(process);
+        if !process.copy_of_parent() {
+            self.seen = self.seen.saturating_add(1);
+            self.history.note(process);
+            if self.baseline.learning(now) && findings.iter().all(|finding| finding.rule().learnable()) {
+                self.baseline.note(process);
+            }
         }
         let Some(worst) = findings.first() else { return Vec::new() };
         let mut response = decide(worst, process, &self.baseline, guard, now);

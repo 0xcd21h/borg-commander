@@ -513,9 +513,6 @@ impl Watch {
                 Heard::Number(pid) => self.processes.started(pid, now),
             };
             let Some(started) = started else { continue };
-            if started.copy_of_parent() {
-                continue;
-            }
             let guard = Guard {
                 own: std::process::id(),
                 keep_running: &self.settings.keep_running,

@@ -198,6 +198,45 @@ fn a_copy_of_its_parent_has_started_no_program_of_its_own() {
     assert!(!unreadable.copy_of_parent(), "without a program to compare, nothing is a copy");
 }
 
+/// The script's own shell, copied for a subshell.
+fn subshell_of_a_script() -> StartedProcess {
+    let mut parent = ancestor(17, "/usr/bin/bash", false);
+    parent.command = "bash /srv/backup.sh".into();
+    let mut subshell = started(73, "/usr/bin/bash", Some(parent));
+    subshell.command = vec!["bash".into(), "/srv/backup.sh".into()];
+    subshell
+}
+
+#[test]
+fn a_copy_of_its_parent_still_faces_the_rules_that_always_fire() {
+    let subshell = subshell_of_a_script();
+    assert_eq!(rules_of(&subshell, &learned()), Vec::new(), "a plain copy breaks no rule of its own");
+    let mut on_socket = subshell.clone();
+    on_socket.output = StreamKind::Socket;
+    assert_eq!(rules_of(&on_socket, &learned()), [WatchRule::ShellOnSocket]);
+    let mut forced = subshell.clone();
+    forced.preloads = vec![("LD_PRELOAD".into(), "/tmp/libhide.so".into())];
+    assert_eq!(rules_of(&forced, &learned()), [WatchRule::PreloadSet]);
+    let mut deleted = subshell;
+    deleted.program_deleted = true;
+    assert_eq!(rules_of(&deleted, &learned()), [WatchRule::ProgramDeleted]);
+}
+
+#[test]
+fn a_copy_of_its_parent_is_no_start_and_teaches_the_baseline_nothing() {
+    let since = moment(Duration::ZERO);
+    let mut watcher = Watcher::new(Baseline::started(since, WEEK), Limits::default());
+    let subshell = subshell_of_a_script();
+    assert!(watcher.examine(&subshell, &guard(), since).is_empty());
+    assert_eq!(watcher.seen(), 0);
+    assert!(!watcher.baseline.knows(&subshell));
+    let mut on_socket = subshell;
+    on_socket.output = StreamKind::Socket;
+    let outcomes = watcher.examine(&on_socket, &guard(), since);
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    assert_eq!(outcomes[0].finding.rule(), WatchRule::ShellOnSocket);
+}
+
 #[test]
 fn the_baseline_learns_pairs_for_a_week_and_then_flags_what_is_new() {
     let since = moment(Duration::ZERO);

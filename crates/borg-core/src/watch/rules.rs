@@ -308,9 +308,11 @@ fn shortened(name: &str) -> &str {
 }
 
 /// Every rule that fires on `process`, worst level first. `history` must already hold the
-/// starts before this one.
+/// starts before this one. A copy of its parent faces only the rules learning never quiets:
+/// its parent's start has been judged already, while a forced library or a socket can be the
+/// copy's own.
 pub fn examine(process: &StartedProcess, baseline: &Baseline, history: &History, now: SystemTime) -> Vec<Finding> {
-    let known = baseline.knows(process);
+    let known = baseline.knows(process) || process.copy_of_parent();
     let mut findings: Vec<Finding> = Vec::new();
     let program = process.program_name().to_owned();
     let parent_name = process.parent().map(|parent| parent.program_name().to_owned());

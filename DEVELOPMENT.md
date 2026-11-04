@@ -384,7 +384,9 @@ reader survives, when the watcher falls behind), from the root watcher once it c
 looking at the user's own process list four times a second (every process's when Borg runs as root,
 and in the root watcher on a kernel without the proc connector, which says so with
 `FromRoot::Polling`). Looking finds forks along with programs that start, so a copy of its parent
-(the same program and command) is no start. `Processes::started` gives nothing for the kernel's
+(the same program and command) is no start: it teaches the baseline nothing, and only the rules
+learning never quiets judge it, since a forced library or a socket can be the copy's own.
+`Processes::started` gives nothing for the kernel's
 threads and for a process that ended before Borg could read it, and keeps the link in a system
 folder a process was started by, such as `/usr/bin/awk` for `mawk`, resolved inside the process's
 own root, so the name rule leaves it alone. `watch::facts::Processes` reads `/proc` and takes its
