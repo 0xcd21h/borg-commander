@@ -908,6 +908,41 @@ fn mkdir_focuses_the_new_directory_after_it_is_created() {
     assert_eq!(hovered(&state), Some("fresh"));
 }
 
+fn list_from(state: &mut AppState, now: Instant, effects: Vec<Effect>, entries: &[Entry]) {
+    let Some(Effect::List { side, generation, .. }) = effects.into_iter().find(|e| matches!(e, Effect::List { .. }))
+    else {
+        panic!("expected a listing")
+    };
+    update(state, Msg::Batch { side, generation, entries: entries.to_vec() }, now);
+    update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+#[test]
+fn leaving_a_folder_shows_its_parent_scrolled_as_it_was() {
+    const FOLDERS: usize = 60;
+    let folders: Vec<Entry> = (0..FOLDERS).map(|i| dir(&format!("d{i:02}"))).collect();
+    let (mut state, now) = setup_with(folders.clone());
+    let rows = state.active_panel().rows();
+    for _ in 0..rows * 2 {
+        press(&mut state, now, key(KeyCode::Down));
+    }
+    for _ in 0..rows / 2 {
+        press(&mut state, now, key(KeyCode::Up));
+    }
+    let view = |state: &AppState| (hovered(state).map(str::to_owned), state.active_panel().scroll());
+    let before = view(&state);
+    assert!(before.1 > 0, "the listing is scrolled with the cursor mid-screen");
+
+    for leave in [key(KeyCode::Enter), key(KeyCode::Left), KeyEvent::new(KeyCode::PageUp, KeyModifiers::CONTROL)] {
+        let effects = press(&mut state, now, key(KeyCode::Enter));
+        list_from(&mut state, now, effects, &folders);
+        assert_eq!(state.active_panel().scroll(), 0, "a folder entered opens at the top");
+        let effects = press(&mut state, now, leave);
+        list_from(&mut state, now, effects, &folders);
+        assert_eq!(view(&state), before, "{leave:?} returns to the same screen");
+    }
+}
+
 #[test]
 fn operations_wait_for_an_idle_shell() {
     let (mut state, now) = setup_with(vec![file("a")]);

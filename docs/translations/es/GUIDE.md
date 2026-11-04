@@ -394,6 +394,11 @@ sin ejecutar el comando. Los comandos de varias líneas, escritos o recuperados 
 agrandan la zona del prompt y acortan los paneles, para que el cursor siempre quede visible. Todas
 las teclas habituales de edición y autocompletado de tu shell siguen funcionando.
 
+Al volver a la carpeta superior, el cursor queda sobre la carpeta de la que vienes, en la misma
+fila de la pantalla y con la lista desplazada igual que cuando entraste. Si mientras tanto
+aparecieron o desaparecieron archivos, o el panel cambió de altura, el cursor sigue en esa carpeta,
+tan cerca de su fila anterior como lo permita la lista.
+
 Alt-Enter escribe los nombres tal como los ve el shell desde la carpeta del panel. En `..` escribe
 la ruta completa de la carpeta superior, porque su nombre solo apuntaría dentro de la carpeta
 actual. En los resultados de búsqueda y en las colecciones escribe rutas completas, ya que sus

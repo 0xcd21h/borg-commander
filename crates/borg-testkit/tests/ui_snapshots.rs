@@ -27,6 +27,7 @@ const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
 const QUIET: Preferences = Preferences::DEFAULT;
+const RELEASES: usize = 40;
 
 fn at(secs: u64) -> Option<SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs))
@@ -762,6 +763,39 @@ fn entering_a_folder_shows_the_new_listing_at_once() -> Result<()> {
     let late = describe(&stage.render(stage.started + Motion::LOCAL.fade * 2)?);
     anyhow::ensure!(early == late, "the listing must not animate in:\n{early}");
     Ok(())
+}
+
+fn releases() -> Vec<Entry> {
+    (1..=RELEASES).map(|i| entry(&format!("release-{i:02}"), EntryKind::Dir, 4096, RECENT, false)).collect()
+}
+
+fn list_after(stage: &mut Stage, msg: Msg, entries: Vec<Entry>) -> Result<()> {
+    let effects = borg_core::update(&mut stage.state, msg, stage.started);
+    let Some(borg_core::Effect::List { side, generation, .. }) =
+        effects.into_iter().find(|effect| matches!(effect, borg_core::Effect::List { .. }))
+    else {
+        anyhow::bail!("the key must list a folder");
+    };
+    stage.send(Msg::Batch { side, generation, entries });
+    stage.send(Msg::Listed { side, generation, error: None });
+    Ok(())
+}
+
+#[test]
+fn leaving_a_folder_shows_the_parent_as_it_was_when_entered() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, releases(), CLOCK)?;
+    for _ in 0..RELEASES * 3 / 4 {
+        stage.send(key(KeyCode::Down));
+    }
+    for _ in 0..RELEASES / 8 {
+        stage.send(key(KeyCode::Up));
+    }
+    let entered = describe(&stage.render(stage.started)?);
+    list_after(&mut stage, key(KeyCode::Enter), logs())?;
+    list_after(&mut stage, key(KeyCode::Enter), releases())?;
+    let buffer = stage.render(stage.started)?;
+    anyhow::ensure!(describe(&buffer) == entered, "the parent must look as it did:\n{entered}");
+    check("returned_to_parent", &stage, buffer)
 }
 
 #[test]
