@@ -40,6 +40,12 @@ pub fn size(bytes: u64) -> String {
 }
 
 /// Bytes a second, or none.
+/// Bits per byte, to two decimals at most: 7.94, 7.2, 4.
+pub fn bits(entropy: borg_view::entropy::Entropy) -> String {
+    let shown = format!("{:.2}", entropy.bits());
+    shown.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
 pub fn rate(bytes: u64) -> String {
     if bytes == 0 { size(0) } else { tr!(network_rate, size = size(bytes)) }
 }

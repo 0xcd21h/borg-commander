@@ -1063,6 +1063,23 @@ recorren al instante un archivo de varios gigabytes. La barra de búsqueda tambi
 filas hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos
 Markdown y JSON muestran los bytes tal como están escritos.
 
+En el visor, una franja de entropía recorre el borde derecho de las filas hexadecimales. La entropía
+indica lo variados que son los bytes, desde 0 bits por byte para un solo byte repetido hasta 8 para
+bytes tan aleatorios como los datos comprimidos, cifrados o empaquetados. El texto suele rondar 4,5,
+y el código, entre 5 y 6,5. La franja cubre todo el archivo de arriba abajo. La barra de cada celda
+es tan larga como la entropía más alta de su parte del archivo, atenuada por debajo de 4 bits por
+byte y en rojo y negrita desde 7,2, y las celdas de los bytes que hay en pantalla se marcan como en
+una barra de desplazamiento. La línea de estado muestra la entropía en la página y si es **baja**,
+**típica** o **alta**. Pulsa `]` y `[` para saltar a la siguiente o a la anterior serie de bloques
+de entropía alta, o haz clic en la franja para ir a esa parte del archivo.
+
+Borg lee la entropía en segundo plano, en bloques de 4 KiB. Un archivo de hasta 256 MiB se lee
+entero, y uno mayor se muestrea en 65 536 bloques repartidos por igual, así que la memoria que usa
+es la misma sea cual sea su tamaño. Una entropía alta donde esperarías código, cabeceras o tablas
+puede indicar datos empaquetados o cifrados escondidos ahí. La multimedia comprimida, los archivos
+comprimidos, los volúmenes cifrados y los almacenes de claves tienen entropía alta de principio a
+fin, así que interpreta la franja según lo que debería contener el archivo.
+
 ### Archivos comprimidos
 
 Pulsa Enter sobre un archivo comprimido para abrirlo como una carpeta. Borg abre los archivos cuyo
@@ -1510,6 +1527,15 @@ regiones de más de 16 384 páginas se muestrean de forma uniforme. En Linux, el
 sistema qué páginas están en memoria y no lee las demás, así que ni recupera páginas del swap ni
 toca páginas nuevas; en macOS, las páginas que nunca se han tocado se leen como ceros. Los tipos se
 deducen solo a partir de los bytes, así que tómalos como una pista.
+
+Las páginas cuya entropía llega a 7,2 bits por byte se dibujan en rojo y negrita, o solo en negrita
+donde el rojo se leería mal, sea cual sea su tipo. Así destaca el código empaquetado o cifrado en
+una región ejecutable, donde Borg cuenta como código todas las páginas que no son ceros ni relleno.
+La leyenda muestra su proporción como **entropía alta**, la línea del cursor añade la entropía de la
+página bajo él, y la misma línea termina con la entropía más alta de la región. Una nota bajo la
+leyenda explica qué suelen significar la entropía alta y la baja. Las cachés comprimidas, las
+imágenes, los archivos comprimidos y las claves también tienen entropía alta, así que mira qué
+contiene la región antes de sospechar de ella.
 
 ### Búsqueda en memoria
 

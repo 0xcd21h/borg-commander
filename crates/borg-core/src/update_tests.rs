@@ -1362,6 +1362,90 @@ fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
     assert_eq!(shown(&state).rows()[0], row);
 }
 
+/// A binary file of zeros with random blocks at `high`, of `blocks` blocks, as the viewer opens it.
+fn packed_file(state: &mut AppState, now: Instant, blocks: u64, high: &[u64]) -> (Vec<u8>, Vec<Effect>) {
+    use borg_view::entropy::BLOCK;
+    let mut noise = 0x2545_f491_4f6c_dd1du64;
+    let bytes: Vec<u8> = (0..blocks * BLOCK)
+        .map(|at| {
+            noise ^= noise << 13;
+            noise ^= noise >> 7;
+            noise ^= noise << 17;
+            if high.contains(&(at / BLOCK)) { noise as u8 } else { 0 }
+        })
+        .collect();
+    let path = PathBuf::from("/home/packed.bin");
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let source = std::sync::Arc::new(bytes.clone());
+    let pager = borg_view::Pager::for_path(source, &path, width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(path.clone());
+    let effects = update(state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    (bytes, effects)
+}
+
+#[test]
+fn hex_rows_read_the_entropy_of_the_whole_file_and_jump_between_its_high_runs() {
+    use borg_view::{
+        HexLayout,
+        entropy::{BLOCK, Profile},
+    };
+
+    let (mut state, now) = setup();
+    let len = 13 * BLOCK;
+    state.resize(HexLayout::full(len).width() as u16, 30, now);
+    let (bytes, effects) = packed_file(&mut state, now, 13, &[1, 4, 5]);
+    let [Effect::ProfileViewer { id }] = effects[..] else { panic!("{effects:?}") };
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+    assert!(shown(&state).hex());
+    assert!(
+        shown(&state).rows()[0].starts_with("0000  00 00 00 00 00 00 00 00  "),
+        "the strip takes a column, so 16 bytes no longer fit: {:?}",
+        shown(&state).rows()[0]
+    );
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), 0, "nothing to jump to before the entropy was read");
+
+    let profile = Profile::read(&bytes, &|| true).unwrap().unwrap();
+    update(&mut state, Msg::ViewerProfiled { id: id + 1, profile: Ok(profile.clone()) }, now);
+    assert_eq!(state.viewer.as_ref().unwrap().profile(), None, "a read the viewer did not ask for is dropped");
+    update(&mut state, Msg::ViewerProfiled { id, profile: Ok(profile.clone()) }, now);
+    assert_eq!(state.viewer.as_ref().unwrap().profile(), Some(&profile));
+
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), BLOCK);
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), 4 * BLOCK, "the run of two blocks starts at the fifth");
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), 4 * BLOCK, "no run after the last");
+    press(&mut state, now, key(KeyCode::Char('[')));
+    assert_eq!(shown(&state).offset(), BLOCK);
+
+    let effects = update(&mut state, Msg::Pointer(crate::Pointer::EntropyStrip { cell: 1, cells: 4 }), now);
+    assert!(effects.is_empty());
+    assert_eq!(shown(&state).offset(), len / 4, "a click on the strip scrolls to where its cell starts");
+
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty());
+    assert!(!shown(&state).hex());
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty(), "the entropy is read once");
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+}
+
+#[test]
+fn closing_the_viewer_stops_reading_entropy_and_a_failed_read_says_why() {
+    let (mut state, now) = setup();
+    let (_, effects) = packed_file(&mut state, now, 2, &[1]);
+    assert!(matches!(effects[..], [Effect::ProfileViewer { .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopProfileViewer]);
+
+    let (_, effects) = packed_file(&mut state, now, 2, &[1]);
+    let [Effect::ProfileViewer { id }] = effects[..] else { panic!("{effects:?}") };
+    update(&mut state, Msg::ViewerProfiled { id, profile: Err("Input/output error".into()) }, now);
+    assert_eq!(state.notice.as_deref(), Some("viewer: Input/output error"));
+    assert!(state.viewer.is_some(), "the hex rows stay");
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty());
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty(), "a read that failed is not tried again");
+}
+
 #[test]
 fn a_binary_file_previews_as_hex_rows_and_h_switches_the_quick_view_and_the_viewer_it_opens() {
     use std::sync::Arc;

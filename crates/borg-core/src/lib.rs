@@ -127,7 +127,7 @@ pub use storage::{
     abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
-pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};
+pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
 pub use watch::{
     ALERTS_CHROME_ROWS, ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertLog, AlertState, Alerts, AlertsReply,
     AlertsRequest, Allowance, Ancestor, Baseline, Evidence, FIRST_PERSON, FREEZES_PER_MINUTE, Finding as WatchFinding,
@@ -148,7 +148,9 @@ pub use activity::{
     MemoryRegion, MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 
-pub use activity::{CENSUS_LEGEND, Indicator, MemoryCensus, PageClass, census_grid};
+pub use activity::{
+    CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, Indicator, MemoryCensus, PageClass, census_grid,
+};
 pub use activity::{
     CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
     PRIORITY_STEP, ProcessControl, ProcessSignal,

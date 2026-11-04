@@ -80,6 +80,15 @@ impl Pager {
         self.refresh()
     }
 
+    /// Puts the row of the byte at `offset` at the top of the hex rows, or as near to it as the
+    /// end of the source lets the page go.
+    pub fn show_byte(&mut self, offset: u64) -> io::Result<()> {
+        let Some(layout) = self.hex_layout() else { return Ok(()) };
+        let row = layout.row_start(offset.min(self.len().saturating_sub(1)));
+        self.top = Position { line: row, row: 0 }.min(self.last_hex_top(layout));
+        self.refresh()
+    }
+
     /// The row the page starts on when its last row is the source's last.
     pub(super) fn last_hex_top(&self, layout: HexLayout) -> Position {
         let rows = layout.rows(self.len()).saturating_sub(self.height.max(1) as u64);
