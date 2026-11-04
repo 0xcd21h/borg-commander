@@ -9,10 +9,11 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    Activity, ActivityPage, CENSUS_LEGEND, FindingKind, MemoryCensus, MemoryGroup, MemoryProtection, PageClass,
-    RegionRow, SnapshotRow, census_grid,
+    Activity, ActivityPage, CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, FindingKind, MemoryCensus,
+    MemoryGroup, MemoryProtection, PageClass, RegionRow, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
+use borg_view::entropy::Entropy;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
@@ -281,14 +282,27 @@ pub(super) fn page_look(class: PageClass, theme: &Theme) -> (char, Style) {
     (glyph, readable(theme, color).map_or_else(|| dim(theme), |color| theme.styles.overlay.fg(color)))
 }
 
+/// How the page map draws a page whose bytes look compressed, encrypted or packed, whatever it
+/// holds: its kind's glyph, bold, in the colour of dense data.
+fn high_look(theme: &Theme) -> Style {
+    page_look(PageClass::Dense, theme).1.add_modifier(Modifier::BOLD)
+}
+
+/// The glyph the legend shows high entropy with.
+const HIGH_SAMPLE: char = '█';
+/// The least room between the cursor's page and the region's highest entropy on their row.
+const HIGHEST_GAP: usize = 2;
+
 /// The class most of `pages` have, earlier classes winning ties.
-pub(super) fn majority(pages: &[PageClass]) -> PageClass {
-    let count = |class: &PageClass| pages.iter().filter(|page| *page == class).count();
+pub(super) fn majority(pages: &[CensusPage]) -> PageClass {
+    let count = |class: &PageClass| pages.iter().filter(|page| page.class == *class).count();
     PageClass::ALL.into_iter().rev().max_by_key(count).unwrap_or(PageClass::Unread)
 }
 
 /// The selected region's pages as a grid, a cell per page or per run of them, with a legend of
 /// what share of the region each class takes and, when focused, a cursor to open a page with.
+/// Pages of high entropy stand out whatever they hold, the cursor's row ends in the highest
+/// entropy of the region, and a note says what entropy means.
 pub(super) fn page_map(
     census: &MemoryCensus,
     cursor: usize,
@@ -312,23 +326,37 @@ pub(super) fn page_map(
     text(buf, row(body, 0), title, emphasis(theme));
     let height = usize::from(body.height.saturating_sub(2)).saturating_sub(CENSUS_LEGEND);
     let (columns, rows, span) = census_grid(census.pages.len(), usize::from(body.width), height);
-    let cell = |index: usize| majority(&census.pages[index * span..((index + 1) * span).min(census.pages.len())]);
+    let pages = |index: usize| &census.pages[index * span..((index + 1) * span).min(census.pages.len())];
+    let cell = |index: usize| majority(pages(index));
+    let highest = |index: usize| pages(index).iter().filter_map(|page| page.entropy).max();
     let at = (cursor / span).min(census.pages.len().saturating_sub(1) / span);
+    let mut cursor_width = 0;
     if focused && !census.pages.is_empty() {
         let line = tr!(census_cursor, address = census.address(at * span), class = cell(at).label());
+        let line = match highest(at) {
+            Some(entropy) => format!("{line} · {}", tr!(entropy_bits, bits = format::bits(entropy))),
+            None => line,
+        };
+        cursor_width = line.width();
         text(buf, row(body, 1), line, theme.styles.overlay);
     }
+    if let Some(entropy) = census.highest() {
+        let line = tr!(census_highest, bits = format::bits(entropy));
+        if cursor_width + HIGHEST_GAP + line.width() <= usize::from(body.width) {
+            Line::styled(line, dim(theme)).right_aligned().render(row(body, 1), buf);
+        }
+    }
+    let kinds = PageClass::ALL.into_iter().map(|class| (census.share(class), page_look(class, theme), class.label()));
+    let high = (census.high_share(), (HIGH_SAMPLE, high_look(theme)), tr!(page_high));
     let mut legend = vec![Vec::new()];
     let mut x = 0;
-    for class in PageClass::ALL {
-        let share = census.share(class);
+    for (share, (glyph, style), name) in kinds.chain([high]) {
         if share == 0.0 {
             continue;
         }
-        let (glyph, style) = page_look(class, theme);
-        let label = format!(" {} {:.0}%  ", class.label(), (share * 100.0).max(1.0));
+        let label = format!(" {name} {:.0}%  ", (share * 100.0).max(1.0));
         let width = 1 + label.width();
-        if x + width > usize::from(body.width) && x > 0 && legend.len() < CENSUS_LEGEND {
+        if x + width > usize::from(body.width) && x > 0 && legend.len() < CENSUS_KINDS {
             legend.push(Vec::new());
             x = 0;
         }
@@ -340,6 +368,10 @@ pub(super) fn page_map(
     for (y, spans) in legend.into_iter().enumerate() {
         Line::from(spans).render(row(body, 2 + y as u16), buf);
     }
+    let note = tr!(entropy_note, high = format::bits(Entropy::HIGH), low = format::bits(Entropy::LOW));
+    for (y, line) in wrap(&note, usize::from(body.width)).into_iter().take(CENSUS_ENTROPY).enumerate() {
+        text(buf, row(body, (2 + CENSUS_KINDS + y) as u16), line, dim(theme));
+    }
     for y in 0..rows.min(height) {
         let line = row(body, (2 + CENSUS_LEGEND + y) as u16);
         for x in 0..columns {
@@ -348,7 +380,13 @@ pub(super) fn page_map(
                 break;
             }
             let (glyph, style) = page_look(cell(index), theme);
-            let style = if focused && index == at { theme.styles.cursor } else { style };
+            let style = if focused && index == at {
+                theme.styles.cursor
+            } else if pages(index).iter().any(|page| page.high()) {
+                high_look(theme)
+            } else {
+                style
+            };
             if let Some(target) = buf.cell_mut(Position { x: line.x + x as u16, y: line.y }) {
                 target.set_char(glyph).set_style(style);
             }

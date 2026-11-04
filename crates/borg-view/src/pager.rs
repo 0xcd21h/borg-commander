@@ -311,6 +311,12 @@ impl Pager {
         self.top.line
     }
 
+    /// The bytes the page shows, from where its first row starts to where the row after its
+    /// last starts.
+    pub fn shown(&self) -> Range<u64> {
+        self.top.line..self.after_page.map_or(self.len(), |after| after.line)
+    }
+
     pub fn wrapped(&self) -> bool {
         self.wrap
     }

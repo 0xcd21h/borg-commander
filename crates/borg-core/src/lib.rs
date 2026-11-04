@@ -131,7 +131,7 @@ pub use storage::{
     runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
-pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};
+pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
 
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
@@ -145,7 +145,9 @@ pub use activity::{
     MemoryRegion, MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 
-pub use activity::{CENSUS_LEGEND, Indicator, MemoryCensus, PageClass, census_grid};
+pub use activity::{
+    CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, Indicator, MemoryCensus, PageClass, census_grid,
+};
 pub use activity::{
     CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
     PRIORITY_STEP, ProcessControl, ProcessSignal,
