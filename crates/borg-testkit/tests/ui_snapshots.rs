@@ -4676,6 +4676,7 @@ fn alert_log() -> borg_core::AlertLog {
         process(29_314, "/bin/sh", &["sh", "-i"], "www-data", vec![nginx.clone(), parent(1, "/sbin/init", false)]);
     shell.input = StreamKind::Socket;
     shell.output = StreamKind::Socket;
+    shell.errors = StreamKind::Socket;
     let id = log.add(
         at("2026-01-15T11:58:12Z"),
         WatchFinding::ShellOnSocket { shell: "sh".into() },

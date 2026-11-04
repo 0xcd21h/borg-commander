@@ -70,6 +70,13 @@ pub struct StartedProcess {
     pub terminal: Option<String>,
     pub input: StreamKind,
     pub output: StreamKind,
+    /// What its standard error leads to.
+    #[serde(default)]
+    pub errors: StreamKind,
+    /// The process that started the first one of its terminal's session: `sshd`, `login` or
+    /// `tmux` when somebody logged in to that terminal, or whatever program opened it.
+    #[serde(default)]
+    pub session_parent: Option<Ancestor>,
     /// Preload variables in its environment, each as its name and value.
     #[serde(default)]
     pub preloads: Vec<(String, String)>,
@@ -90,6 +97,8 @@ impl Default for StartedProcess {
             terminal: None,
             input: StreamKind::default(),
             output: StreamKind::default(),
+            errors: StreamKind::default(),
+            session_parent: None,
             preloads: Vec::new(),
             ancestors: Vec::new(),
             at: SystemTime::UNIX_EPOCH,
@@ -114,6 +123,11 @@ impl StartedProcess {
 
     pub fn has_terminal(&self) -> bool {
         self.terminal.is_some()
+    }
+
+    /// What its standard input, output and error lead to.
+    pub fn streams(&self) -> [StreamKind; 3] {
+        [self.input, self.output, self.errors]
     }
 
     /// Its command as one line, as a person would read it.

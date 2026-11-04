@@ -20,7 +20,7 @@ use std::{
 };
 use tokio::{
     sync::{
-        mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+        mpsc::{Receiver, UnboundedReceiver, UnboundedSender, channel, unbounded_channel},
         oneshot,
     },
     task::JoinHandle,
@@ -46,6 +46,9 @@ const LEARN_EVERY: Duration = Duration::from_secs(60);
 const HASH_LIMIT: u64 = 256 * 1024 * 1024;
 /// Connections of one process kept as evidence.
 const CONNECTIONS_KEPT: usize = 16;
+/// Process numbers the kernel's events may queue for the watcher. When the watcher falls this
+/// far behind, the kernel drops events instead of Borg's memory growing without end.
+const EVENTS_QUEUED: usize = 4096;
 
 /// What the configuration says the watcher does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,7 +233,7 @@ fn allow(state: &Path, log: &mut AlertLog, alert: u64, allowance: Allowance) -> 
 /// watcher may start at any time, so Borg keeps listening for it and stops polling once it
 /// speaks.
 struct Sources {
-    kernel: Option<UnboundedReceiver<u32>>,
+    kernel: Option<Receiver<u32>>,
     root: Option<UnboundedReceiver<StartedProcess>>,
     link: Option<root::RootLink>,
     own: Option<Polling>,
@@ -346,12 +349,52 @@ impl Polling {
 /// may reach processes the user may not signal.
 type Asked = (root::Act, ProcessKey, oneshot::Sender<ControlOutcome>);
 
+/// A program whose hash and rule matches the alerts with these numbers wait for.
+struct Job {
+    alerts: Vec<u64>,
+    program: PathBuf,
+}
+
+/// What the examiner found in one program, for the alerts that asked.
+#[derive(Debug)]
+struct Found {
+    alerts: Vec<u64>,
+    program_hash: Option<String>,
+    hits: Vec<borg_rules::RuleMatch>,
+    missing: Option<String>,
+}
+
+/// Hashes programs and runs Borg's rules and the user's over them on a thread of its own:
+/// reading a large program takes long enough to hold up the processes that start meanwhile.
+/// Jobs come only with alerts the watcher writes, so the per-minute limits bound the queue.
+fn examiner(rules: borg_rules::Rules) -> (UnboundedSender<Job>, UnboundedReceiver<Found>) {
+    let (jobs, mut waiting) = unbounded_channel::<Job>();
+    let (answers, found) = unbounded_channel();
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        while let Some(job) = waiting.blocking_recv() {
+            let mut answer =
+                Found { alerts: job.alerts, program_hash: hash_of(&job.program), hits: Vec::new(), missing: None };
+            match crate::rule_scan::scan_file(&rules, &job.program, &mut buffer) {
+                Ok(Some(hits)) => answer.hits = hits,
+                Ok(None) => {}
+                Err(error) => answer.missing = Some(format!("{error:#}")),
+            }
+            if answers.send(answer).is_err() {
+                return;
+            }
+        }
+    });
+    (jobs, found)
+}
+
 /// The watcher itself, as the background service runs it.
 pub struct Watch {
     processes: Processes,
     settings: Settings,
-    /// Borg's rules and the user's, compiled once for every alert's evidence.
-    rules: borg_rules::Rules,
+    /// Programs waiting for their hash and rule matches, and what came of them.
+    jobs: UnboundedSender<Job>,
+    found: UnboundedReceiver<Found>,
     state: PathBuf,
     watcher: Watcher,
     log: AlertLog,
@@ -419,8 +462,8 @@ impl Watch {
             suppressed: 0,
         };
         log::write_log(&state, &log)?;
-        let rules = crate::rule_scan::compile(crate::rule_scan::folder().as_deref());
-        Ok(Self { processes, settings, rules, state, watcher, log, sources, asked })
+        let (jobs, found) = examiner(crate::rule_scan::compile(crate::rule_scan::folder().as_deref()));
+        Ok(Self { processes, settings, jobs, found, state, watcher, log, sources, asked })
     }
 
     /// Watches until nothing reports processes any more. Each process that starts is looked at,
@@ -440,6 +483,10 @@ impl Watch {
                 }
                 _ = learning.tick() => {
                     self.keep_up()?;
+                    continue;
+                }
+                Some(found) = self.found.recv() => {
+                    self.take_in(found)?;
                     continue;
                 }
             };
@@ -466,7 +513,9 @@ impl Watch {
         log::write_baseline(&self.state, &self.watcher.baseline)
     }
 
-    /// Freezes what Borg decided to freeze, keeps the evidence, and writes the alerts.
+    /// Freezes what Borg decided to freeze, keeps the connections the process holds, and
+    /// writes the alerts. The program's hash and rule matches follow once the examiner has
+    /// read it.
     async fn record(&mut self, started: &StartedProcess, outcomes: Vec<Outcome>, now: SystemTime) -> Result<()> {
         self.log.watch.seen = self.watcher.seen();
         self.log.watch.suppressed = self.watcher.suppressed();
@@ -480,14 +529,40 @@ impl Watch {
         {
             response = Response::Alerted;
         }
-        let evidence = self.evidence(started);
+        let program = started.program.clone().filter(|_| !started.program_deleted);
+        let evidence = Evidence {
+            connections: connections(&self.processes, started.key.pid),
+            missing: program.is_none().then(|| tr!(watch_state_gone).into()),
+            ..Evidence::default()
+        };
+        let mut alerts = Vec::new();
         for outcome in outcomes {
             let id = self.log.add(now, outcome.finding, response.clone(), started.clone());
             if let Some(alert) = self.log.find(id) {
                 alert.evidence = evidence.clone();
             }
+            alerts.push(id);
+        }
+        if let Some(program) = program {
+            let _ = self.jobs.send(Job { alerts, program });
         }
         log::write_log(&self.state, &self.log)
+    }
+
+    /// Adds what the examiner found in a program to the alerts that waited for it.
+    fn take_in(&mut self, found: Found) -> Result<()> {
+        let mut changed = false;
+        for id in &found.alerts {
+            if let Some(alert) = self.log.find(*id) {
+                alert.evidence.program_hash.clone_from(&found.program_hash);
+                alert.evidence.hits.clone_from(&found.hits);
+                if found.missing.is_some() {
+                    alert.evidence.missing.clone_from(&found.missing);
+                }
+                changed = true;
+            }
+        }
+        if changed { log::write_log(&self.state, &self.log) } else { Ok(()) }
     }
 
     /// Writes down what became of a process another Borg asked about, so the page shows it
@@ -509,25 +584,6 @@ impl Watch {
         }
         if changed { log::write_log(&self.state, &self.log) } else { Ok(()) }
     }
-
-    /// What Borg keeps at the moment a rule fires: the program's hash, the connections the
-    /// process holds, and what the rules match in its program.
-    fn evidence(&self, started: &StartedProcess) -> Evidence {
-        let mut evidence = Evidence::default();
-        let Some(program) = started.program.as_deref().filter(|_| !started.program_deleted) else {
-            evidence.missing = Some(tr!(watch_state_gone).into());
-            return evidence;
-        };
-        evidence.program_hash = hash_of(program);
-        evidence.connections = connections(&self.processes, started.key.pid);
-        let mut buffer = Vec::new();
-        match crate::rule_scan::scan_file(&self.rules, program, &mut buffer) {
-            Ok(Some(hits)) => evidence.hits = hits,
-            Ok(None) => {}
-            Err(error) => evidence.missing = Some(format!("{error:#}")),
-        }
-        evidence
-    }
 }
 
 /// Every start the user allows: the ones in the configuration and the ones the Alerts page has
@@ -546,21 +602,29 @@ fn allowances(settings: &Settings, state: &Path) -> Vec<Allowance> {
 /// Only an exec counts: right after a fork a process still shows its parent's program, and
 /// looking then would both say the wrong thing and teach the baseline the wrong pair. A process
 /// that never execs runs the program its parent was already looked at for.
-fn kernel_events() -> Result<UnboundedReceiver<u32>> {
+///
+/// When processes start faster than the watcher looks at them, the queue fills, the kernel
+/// drops events and says so, and the reader carries on: stopping would leave the machine
+/// unwatched.
+fn kernel_events() -> Result<Receiver<u32>> {
+    use rustix::io::Errno;
     let socket = netlink::subscribe().context("hearing the kernel's process events needs root")?;
-    let (sender, receiver) = unbounded_channel();
+    let (sender, receiver) = channel(EVENTS_QUEUED);
     std::thread::spawn(move || {
         let mut buffer = [0_u8; netlink::DATAGRAM];
         loop {
-            let read = rustix::net::recv(&socket, &mut buffer, rustix::net::RecvFlags::empty());
-            let Ok((count, _)) = read else { break };
+            let count = match rustix::net::recv(&socket, &mut buffer, rustix::net::RecvFlags::empty()) {
+                Ok((count, _)) => count,
+                Err(Errno::NOBUFS | Errno::INTR) => continue,
+                Err(_) => break,
+            };
             for event in netlink::parse_events(&buffer[..count]) {
                 let pid = match event {
                     netlink::ProcEvent::Executed { pid } => Some(pid),
                     netlink::ProcEvent::Forked { .. } | netlink::ProcEvent::Exited { .. } => None,
                 };
                 if let Some(pid) = pid
-                    && sender.send(pid).is_err()
+                    && sender.blocking_send(pid).is_err()
                 {
                     return;
                 }

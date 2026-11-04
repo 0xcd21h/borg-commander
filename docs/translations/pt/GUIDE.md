@@ -1688,7 +1688,7 @@ está lá para o retrato ficar completo.
 
 | Regra | O que a faz disparar | Nível |
 | --- | --- | --- |
-| **Shell num socket de rede** | Uma shell cuja entrada e saída são um socket, que é o aspeto de uma shell remota | alerta |
+| **Shell num socket de rede** | Uma shell cuja entrada, saída ou erros vão para um socket, que é o aspeto de uma shell remota | alerta |
 | **Programa apagado enquanto corre** | O ficheiro do programa já não existe, por isso nada no disco diz o que o processo é | alerta |
 | **Programa sem ficheiro** | O Borg não encontra nenhum ficheiro de programa para o processo | alerta |
 | **Biblioteca imposta a um programa** | `LD_PRELOAD`, `LD_AUDIT` ou `DYLD_INSERT_LIBRARIES` está definido no seu ambiente | alerta |
@@ -1700,21 +1700,25 @@ está lá para o retrato ficar completo.
 | **O pai nunca o iniciou antes** | Este pai nunca iniciou este programa nesta máquina | nota |
 
 De cada processo o Borg lê o programa que corre e se o seu ficheiro foi apagado, o comando, o
-utilizador, o terminal a que pertence, para onde levam a sua entrada e saída padrão, as variáveis
-de pré-carregamento no seu ambiente e a cadeia de pais acima dele.
+utilizador, o terminal a que pertence e quem o abriu, para onde levam a sua entrada, saída e erros
+padrão, as variáveis de pré-carregamento no seu ambiente e a cadeia de pais acima dele.
 
-O Borg aprende a máquina antes de agir. Nos primeiros 7 dias registra qual pai inicia qual
-programa aqui e não congela nada, e a coluna Resposta diz **Teria congelado** onde o teria feito.
-Depois disso, um par que já viu fica em silêncio para as regras que se podem aprender: as duas
-regras das shells, a série de comandos, o nome diferente e o pai que nunca o iniciou. As quatro
-regras de nível alerta disparam sempre, porque uma shell num socket ou uma biblioteca imposta
-nunca se tornam normais por acontecerem muitas vezes.
+O Borg aprende a máquina antes de agir. Nos primeiros 7 dias regista qual pai inicia qual programa
+aqui e não congela nada, e a coluna Resposta diz **Teria congelado** onde o teria feito. Depois
+disso, um par que já viu fica em silêncio para as regras que se podem aprender: as duas regras das
+shells, a série de comandos, o nome diferente e o pai que nunca o iniciou. As quatro regras de nível
+alerta disparam sempre, porque uma shell num socket ou uma biblioteca imposta nunca se tornam
+normais por acontecerem muitas vezes. Tudo o que corre nessa semana conta como normal, por isso
+ligue o observador enquanto confia na máquina. Os arranques em que disparou uma regra que a
+aprendizagem não consegue silenciar ficam fora do que o Borg aprende.
 
 **A** num alerta permite arranques como aquele a partir daí, pelo seu programa e pelo seu pai.
 Essas permissões ficam em `watch-allowed.json` na pasta de estado, que o observador lê e adota no
 espaço de um minuto. A secção `[watch]` da configuração guarda o mesmo à mão (veja [Configuração](#configuration)). O
 Borg escreve no máximo 20 processos por minuto e congela no máximo 5, e a linha acima da lista diz
 quantas deteções deixou de fora quando mais dispararam ao mesmo tempo.
+Um processo que o Borg congela fica sempre registado, por muitos alertas que tenham vindo antes,
+para que o possa deixar continuar.
 
 ### Congelar um processo
 
@@ -1725,11 +1729,19 @@ nada para reiniciar, e o que ele estava a ponto de fazer espera onde está até 
 Resposta diz **Congelado**, **C** deixa-o continuar e **K** termina-o. Terminar é definitivo, por
 isso o Borg pergunta primeiro.
 
-O Borg nunca congela o primeiro processo do sistema, nem a si mesmo nem nada que tenha iniciado,
-nem um programa da lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` e
-semelhantes, mais qualquer nome que acrescente em `keep-running`), nem um processo que pertence a
-um terminal onde alguém pode estar a trabalhar, nem um arranque que tenha permitido. Uma nota
-nunca para um programa. Os detalhes dizem qual destes motivos manteve o processo a correr.
+O Borg nunca congela o primeiro processo do sistema, nem a si mesmo nem nada que tenha iniciado, nem
+um programa da lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` e
+semelhantes, mais qualquer nome que acrescente em `keep-running`), nem um processo num terminal em
+que alguém iniciou sessão, nem um arranque que tenha permitido. Uma nota nunca para um programa. Os
+detalhes dizem qual destes motivos manteve o processo a correr.
+
+Um programa da lista incorporada só é poupado onde o sistema guarda os seus programas, como `/usr` e
+`/bin`, por isso uma cópia chamada `sshd` noutra pasta é congelada como qualquer outro. Um terminal
+conta quando alguém iniciou sessão nele: por SSH, na consola, no `tmux` ou no `screen`, através do
+`sudo` ou do `su`, ou numa janela de terminal. Um terminal que um programa abriu para si próprio não
+conta, o que impede uma shell remota de se esconder atrás de um. Os terminais abertos pelo servidor
+remoto de um editor ou pelo `docker exec` também não contam, por isso, se o Borg congelar algo que
+correu aí, **C** deixa-o continuar e **A** permite-o.
 
 O Borg verifica a identidade de um processo, o seu número junto com o momento em que arrancou,
 imediatamente antes de lhe enviar um sinal, para que um número que outro processo tenha tomado
@@ -1764,6 +1776,25 @@ administrador o pode fazer.
 
 O observador é uma funcionalidade de Linux para já. No macOS a página abre e lê o seu registo, e a
 origem diz que nada está a observar.
+
+### O que o observador não consegue ver
+
+O observador avalia cada programa quando ele arranca, o que deixa algumas coisas fora da sua vista.
+Conheça-as antes de confiar nele.
+
+- Código que corre dentro de um programa que já está a correr não inicia nada de novo, por isso
+  nenhuma regra olha para ele. Uma aplicação web cujo próprio interpretador foi tomado mantém o nome
+  e o pai de sempre.
+- Os processos que já corriam antes de o observador arrancar nunca são examinados, e tudo o que
+  corre durante a semana de aprendizagem conta como normal.
+- Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
+  em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
+  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+- Tudo o que corre como o utilizador do observador pode parar o observador, alterar os seus
+  ficheiros na pasta de estado ou deixar continuar um processo congelado com `kill -CONT`. Congelar
+  dá-lhe tempo para ver, e o dono do processo ainda o pode desfazer.
+- Um processo que se desliga do seu pai antes de o Borg congelar o pai continua a correr.
+- Os alertas chegam até si quando abre a página. Por enquanto nada os envia para lado nenhum.
 
 ## Rede
 

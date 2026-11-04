@@ -1702,7 +1702,7 @@ está ahí para que el retrato quede completo.
 
 | Regla | Qué la dispara | Nivel |
 | --- | --- | --- |
-| **Shell en un socket de red** | Una shell cuya entrada y salida son un socket, que es el aspecto de una shell remota | alerta |
+| **Shell en un socket de red** | Una shell cuya entrada, salida o errores van a un socket, que es el aspecto de una shell remota | alerta |
 | **Programa borrado mientras corre** | El archivo del programa ya no existe, así que nada en el disco dice qué es el proceso | alerta |
 | **Programa sin archivo** | Borg no encuentra ningún archivo de programa para el proceso | alerta |
 | **Biblioteca forzada en un programa** | `LD_PRELOAD`, `LD_AUDIT` o `DYLD_INSERT_LIBRARIES` está fijado en su entorno | alerta |
@@ -1714,15 +1714,18 @@ está ahí para que el retrato quede completo.
 | **El padre nunca lo había iniciado** | Este padre nunca ha iniciado este programa en esta máquina | nota |
 
 De cada proceso Borg lee el programa que ejecuta y si su archivo se borró, el comando, el usuario,
-la terminal a la que pertenece, a dónde llevan su entrada y salida estándar, las variables de
-precarga de su entorno y la cadena de padres que tiene encima.
+el terminal al que pertenece y quién lo abrió, a dónde llevan su entrada, salida y errores estándar,
+las variables de precarga de su entorno y la cadena de padres que tiene encima.
 
 Borg aprende la máquina antes de actuar. Durante los primeros 7 días registra qué padre inicia qué
 programa aquí y no congela nada, y la columna Respuesta dice **Habría congelado** donde lo habría
-hecho. Después, un par que ya ha visto se queda en silencio para las reglas que se pueden
-aprender: las dos reglas de las shells, la serie de comandos, el nombre distinto y el padre que
-nunca lo había iniciado. Las cuatro reglas de nivel alerta se disparan siempre, porque una shell
-en un socket o una biblioteca forzada nunca se vuelven normales por ocurrir a menudo.
+hecho. Después, un par que ya ha visto se queda en silencio para las reglas que se pueden aprender:
+las dos reglas de las shells, la serie de comandos, el nombre distinto y el padre que nunca lo había
+iniciado. Las cuatro reglas de nivel alerta se disparan siempre, porque una shell en un socket o una
+biblioteca forzada nunca se vuelven normales por ocurrir a menudo. Todo lo que se ejecuta durante
+esa semana cuenta como normal, así que activa el vigilante mientras confías en la máquina. Los
+arranques en los que se disparó una regla que el aprendizaje no puede silenciar quedan fuera de lo
+que Borg aprende.
 
 **A** en una alerta permite arranques como ese desde entonces, por su programa y su padre. Esos
 permisos van a `watch-allowed.json` en la carpeta de estado, que el vigilante lee y adopta en
@@ -1730,6 +1733,8 @@ menos de un minuto. La sección `[watch]` de la configuración guarda lo mismo a
 [Configuración](#configuration)). Borg anota como máximo 20 procesos por minuto y congela como
 máximo 5, y la línea sobre la lista dice cuántos hallazgos omitió cuando se dispararon más a la
 vez.
+Un proceso que Borg congela siempre queda anotado, por muchas alertas que hayan llegado antes, para
+que puedas dejarlo continuar.
 
 ### Congelar un proceso
 
@@ -1742,9 +1747,17 @@ lo termina. Terminarlo es definitivo, así que Borg pregunta primero.
 
 Borg nunca congela el primer proceso del sistema, ni a sí mismo ni nada que haya iniciado, ni un
 programa de la lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` y
-parecidos, más cualquier nombre que añadas en `keep-running`), ni un proceso que pertenece a una
-terminal donde puede haber alguien trabajando, ni un arranque que hayas permitido. Una nota nunca
-detiene un programa. Los detalles dicen cuál de estos motivos mantuvo el proceso en marcha.
+parecidos, más cualquier nombre que añadas en `keep-running`), ni un proceso en un terminal en el
+que alguien inició sesión, ni un arranque que hayas permitido. Una nota nunca detiene un programa.
+Los detalles dicen cuál de estos motivos mantuvo el proceso en marcha.
+
+Un programa de la lista incorporada solo se respeta donde el sistema guarda sus programas, como
+`/usr` y `/bin`, así que una copia llamada `sshd` en otra carpeta se congela como cualquier otra
+cosa. Un terminal cuenta cuando alguien inició sesión en él: por SSH, en la consola, en `tmux` o
+`screen`, a través de `sudo` o `su`, o en una ventana de terminal. Un terminal que un programa abrió
+para sí mismo no cuenta, lo que impide que una shell remota se esconda detrás de uno. Los terminales
+que abre el servidor remoto de un editor o `docker exec` tampoco cuentan, así que si Borg congela
+algo que ejecutaste ahí, **C** lo deja continuar y **A** lo permite.
 
 Borg comprueba la identidad de un proceso, su número junto con el momento en que arrancó, justo
 antes de enviarle una señal, así que un número que otro proceso haya tomado entretanto se queda
@@ -1779,6 +1792,25 @@ que solo el propietario o un administrador puede hacerlo.
 
 El vigilante es por ahora una función de Linux. En macOS la página se abre y lee su registro, y el
 origen dice que nada está vigilando.
+
+### Lo que el vigilante no ve
+
+El vigilante juzga cada programa cuando arranca, y eso deja algunas cosas fuera de su vista.
+Conócelas antes de confiar en él.
+
+- El código que se ejecuta dentro de un programa que ya está en marcha no inicia nada nuevo, así que
+  ninguna regla lo mira. Una aplicación web cuyo propio intérprete ha sido tomado conserva el nombre
+  y el padre de siempre.
+- Los procesos que ya corrían antes de que arrancara el vigilante nunca se examinan, y todo lo que
+  se ejecuta durante la semana de aprendizaje cuenta como normal.
+- Sin el vigilante como root, Borg solo ve tus propios procesos, y un comando que termina en menos
+  de un cuarto de segundo puede desaparecer antes de que Borg mire. Los servicios que se ejecutan
+  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root.
+- Cualquier cosa que se ejecute como el usuario del vigilante puede detener el vigilante, cambiar
+  sus archivos en la carpeta de estado o dejar continuar un proceso congelado con `kill -CONT`.
+  Congelar te da tiempo para mirar, y el dueño del proceso todavía puede deshacerlo.
+- Un proceso que se separa de su padre antes de que Borg congele al padre sigue en marcha.
+- Las alertas te llegan cuando abres la página. Por ahora nada las envía a ningún sitio.
 
 ## Red
 

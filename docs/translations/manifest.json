@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "b216f475eff6bc6db55c8e7fdbf0bb8ec671a4027586ea3d968da49dfc321592",
+      "source": "a2582b92334f61c15c161e6fa420eaf04bf4df3795f5ccb840c66719ede1dc4f",
       "protected": {
         "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "2ba84a4d1b8de61587487f5f40e395716871cd92656d34c77e3a8feac4d96473",
+        "inline code": "e8b26e3d824906fdae7fed32d9306fc2b76855ba9aaeb77d8d8bd061498150bf",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "4a53abd7571718a1c4acb5296e241a018271ed94724cf2ff6cc162e4fc8169a9"
+        "heading levels": "470a18eb8c666529fb00ddc4bd0791d92d0287e4068de5ba138d78bf9533a005"
       },
       "headings": [
         {
@@ -212,6 +212,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
@@ -252,12 +256,12 @@
       ]
     },
     "pt": {
-      "source": "b216f475eff6bc6db55c8e7fdbf0bb8ec671a4027586ea3d968da49dfc321592",
+      "source": "a2582b92334f61c15c161e6fa420eaf04bf4df3795f5ccb840c66719ede1dc4f",
       "protected": {
         "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "2ba84a4d1b8de61587487f5f40e395716871cd92656d34c77e3a8feac4d96473",
+        "inline code": "e8b26e3d824906fdae7fed32d9306fc2b76855ba9aaeb77d8d8bd061498150bf",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "4a53abd7571718a1c4acb5296e241a018271ed94724cf2ff6cc162e4fc8169a9"
+        "heading levels": "470a18eb8c666529fb00ddc4bd0791d92d0287e4068de5ba138d78bf9533a005"
       },
       "headings": [
         {
@@ -463,6 +467,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
@@ -503,12 +511,12 @@
       ]
     },
     "es": {
-      "source": "b216f475eff6bc6db55c8e7fdbf0bb8ec671a4027586ea3d968da49dfc321592",
+      "source": "a2582b92334f61c15c161e6fa420eaf04bf4df3795f5ccb840c66719ede1dc4f",
       "protected": {
         "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "2ba84a4d1b8de61587487f5f40e395716871cd92656d34c77e3a8feac4d96473",
+        "inline code": "e8b26e3d824906fdae7fed32d9306fc2b76855ba9aaeb77d8d8bd061498150bf",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "4a53abd7571718a1c4acb5296e241a018271ed94724cf2ff6cc162e4fc8169a9"
+        "heading levels": "470a18eb8c666529fb00ddc4bd0791d92d0287e4068de5ba138d78bf9533a005"
       },
       "headings": [
         {
@@ -714,6 +722,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
@@ -754,12 +766,12 @@
       ]
     },
     "ru": {
-      "source": "b216f475eff6bc6db55c8e7fdbf0bb8ec671a4027586ea3d968da49dfc321592",
+      "source": "a2582b92334f61c15c161e6fa420eaf04bf4df3795f5ccb840c66719ede1dc4f",
       "protected": {
         "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "2ba84a4d1b8de61587487f5f40e395716871cd92656d34c77e3a8feac4d96473",
+        "inline code": "e8b26e3d824906fdae7fed32d9306fc2b76855ba9aaeb77d8d8bd061498150bf",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "4a53abd7571718a1c4acb5296e241a018271ed94724cf2ff6cc162e4fc8169a9"
+        "heading levels": "470a18eb8c666529fb00ddc4bd0791d92d0287e4068de5ba138d78bf9533a005"
       },
       "headings": [
         {
@@ -965,6 +977,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,

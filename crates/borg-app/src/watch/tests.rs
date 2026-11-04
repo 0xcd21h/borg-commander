@@ -106,6 +106,19 @@ fn the_hash_of_a_program_is_its_contents_and_nothing_else() {
     assert_eq!(hash_of(&folder.path().join("missing")), None);
 }
 
+#[tokio::test]
+async fn the_examiner_reads_a_program_away_from_the_watcher_and_says_which_alerts_it_was_for() {
+    let folder = tempfile::tempdir().unwrap();
+    let program = folder.path().join("miner");
+    std::fs::write(&program, b"borg").unwrap();
+    let (jobs, mut found) = examiner(crate::rule_scan::compile(None));
+    jobs.send(Job { alerts: vec![3, 4], program }).unwrap();
+    let found = found.recv().await.expect("the examiner answers");
+    assert_eq!(found.alerts, [3, 4]);
+    assert_eq!(found.program_hash.as_deref(), Some("8c98028bf435d0af5ab8074969a7e4f7e136b30b53df80685e5763ea415d8fbe"));
+    assert_eq!(found.missing, None);
+}
+
 #[test]
 fn an_alert_reads_as_one_line_for_the_command_line() {
     let log = alert_log(1);

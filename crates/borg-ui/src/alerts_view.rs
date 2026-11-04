@@ -385,6 +385,7 @@ fn draw_details(alerts: &Alerts, look: &Look<'_>, rect: Rect, clock: &Zoned, buf
         tr!(watch_user_label),
         tr!(watch_terminal_label),
         tr!(watch_streams_label),
+        tr!(watch_errors_label),
         tr!(watch_state_label),
     ];
     let label = labels.iter().map(|label| label.width() as u16).max().unwrap_or(0) + LABEL_GAP;
@@ -395,7 +396,8 @@ fn draw_details(alerts: &Alerts, look: &Look<'_>, rect: Rect, clock: &Zoned, buf
     facts.add(buf, labels[3], &alert.process.user, 1);
     facts.add(buf, labels[4], alert.process.terminal.as_deref().unwrap_or_default(), 1);
     facts.add(buf, labels[5], &streams(alert), 1);
-    facts.add(buf, labels[6], &state_and_response(alert), 1);
+    facts.add(buf, labels[6], alert.process.errors.label(), 1);
+    facts.add(buf, labels[7], &state_and_response(alert), 1);
     facts.section(buf, tr!(watch_tree_label), &tree(alert), TREE_ROWS);
     if !alert.evidence.connections.is_empty() {
         facts.section(buf, tr!(watch_connections_label), &alert.evidence.connections, CONNECTION_ROWS);

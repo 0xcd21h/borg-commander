@@ -72,6 +72,12 @@ fn a_service_that_starts_a_shell_is_a_warning_and_one_on_a_socket_is_an_alert() 
     assert_eq!(rules, [WatchRule::ShellOnSocket], "the socket fires although the pair is known");
     assert_eq!(findings[0].level(), Level::Alert);
     assert!(findings[0].reason().contains("sh"), "{}", findings[0].reason());
+
+    let mut errors_only = shell.clone();
+    errors_only.input = StreamKind::Terminal;
+    errors_only.output = StreamKind::Terminal;
+    errors_only.errors = StreamKind::Socket;
+    assert_eq!(rules_of(&errors_only, &baseline), [WatchRule::ShellOnSocket], "a socket on any stream counts");
 }
 
 #[test]
@@ -259,6 +265,10 @@ fn the_guardrails_keep_the_machine_and_its_people_running() {
 
     let sshd = started(101, "/usr/sbin/sshd", Some(parent.clone()));
     assert_eq!(spared(&sshd, &guard()), Some(Protection::NeverFrozen("sshd".into())));
+    let copy = started(105, "/tmp/sshd", Some(parent.clone()));
+    assert_eq!(spared(&copy, &guard()), None, "a copy named after a spared program elsewhere is frozen");
+    let unreadable = StartedProcess { program: None, name: "sshd".into(), ..sshd.clone() };
+    assert_eq!(spared(&unreadable, &guard()), Some(Protection::NeverFrozen("sshd".into())));
 
     let kept = ["backup-agent".to_owned()];
     let agent = started(102, "/usr/local/bin/backup-agent", Some(parent.clone()));
@@ -269,7 +279,15 @@ fn the_guardrails_keep_the_machine_and_its_people_running() {
 
     let mut at_a_terminal = started(103, "/bin/sh", Some(parent.clone()));
     at_a_terminal.terminal = Some("pts/1".into());
+    at_a_terminal.session_parent = Some(ancestor(30, "/usr/sbin/sshd", false));
     assert_eq!(spared(&at_a_terminal, &guard()), Some(Protection::Terminal));
+    let in_tmux =
+        StartedProcess { session_parent: Some(ancestor(31, "/usr/bin/tmux", false)), ..at_a_terminal.clone() };
+    assert_eq!(spared(&in_tmux, &guard()), Some(Protection::Terminal));
+    for opener in [None, Some(ancestor(32, "/usr/bin/python3", false)), Some(ancestor(33, "/tmp/sshd", false))] {
+        let opened_by_a_program = StartedProcess { session_parent: opener.clone(), ..at_a_terminal.clone() };
+        assert_eq!(spared(&opened_by_a_program, &guard()), None, "nobody logged in to the terminal {opener:?} opened");
+    }
 
     let shell = started(104, "/bin/sh", Some(parent.clone()));
     assert_eq!(spared(&shell, &Guard { freeze: false, ..guard() }), Some(Protection::FreezeOff));
@@ -318,14 +336,35 @@ fn the_watcher_freezes_a_few_a_minute_and_leaves_the_rest_running() {
 fn too_many_findings_at_once_are_counted_instead_of_written_down() {
     let now = moment(Duration::ZERO);
     let mut watcher = Watcher::new(learned(), Limits { alerts_per_minute: 2, freezes_per_minute: 10 });
-    let written = watcher.examine(&remote_shell(400), &guard(), now).len();
+    let alert_only = Guard { freeze: false, ..guard() };
+    let written = watcher.examine(&remote_shell(400), &alert_only, now).len();
     assert!(written > 1, "a shell on a socket from a service breaks several rules at once");
-    assert_eq!(watcher.examine(&remote_shell(401), &guard(), now).len(), written);
-    assert!(watcher.examine(&remote_shell(402), &guard(), now).is_empty(), "the third is only counted");
+    assert_eq!(watcher.examine(&remote_shell(401), &alert_only, now).len(), written);
+    assert!(watcher.examine(&remote_shell(402), &alert_only, now).is_empty(), "the third is only counted");
     assert_eq!(watcher.suppressed(), written as u64);
     assert_eq!(watcher.seen(), 3);
     let later = now + Duration::from_secs(61);
-    assert_eq!(watcher.examine(&remote_shell(403), &guard(), later).len(), written);
+    assert_eq!(watcher.examine(&remote_shell(403), &alert_only, later).len(), written);
+}
+
+#[test]
+fn a_flood_of_alerts_never_keeps_a_process_from_being_frozen() {
+    let now = moment(Duration::ZERO);
+    let mut watcher = Watcher::new(learned(), Limits { alerts_per_minute: 2, freezes_per_minute: 3 });
+    let alert_only = Guard { freeze: false, ..guard() };
+    for pid in 0..5 {
+        watcher.examine(&remote_shell(700 + pid), &alert_only, now);
+    }
+    let outcomes = watcher.examine(&remote_shell(710), &guard(), now);
+    assert!(!outcomes.is_empty(), "the alert about a frozen process is written however many came before");
+    assert_eq!(outcomes[0].response, Response::Frozen);
+    for pid in 0..2 {
+        assert_eq!(watcher.examine(&remote_shell(720 + pid), &guard(), now)[0].response, Response::Frozen);
+    }
+    assert!(
+        watcher.examine(&remote_shell(730), &guard(), now).is_empty(),
+        "past both limits a finding is only counted"
+    );
 }
 
 #[test]
@@ -336,6 +375,13 @@ fn the_watcher_learns_while_it_watches_so_a_second_start_is_no_longer_new() {
     let backup = started(500, "/usr/bin/rsync", Some(parent));
     assert!(watcher.examine(&backup, &guard(), since).is_empty());
     assert!(watcher.baseline.knows(&backup), "what the machine does becomes what it may do");
+
+    let dropped = started(501, "/tmp/backup", Some(ancestor(22, "/usr/sbin/cron", false)));
+    assert!(!watcher.examine(&dropped, &guard(), since).is_empty());
+    assert!(!watcher.baseline.knows(&dropped), "a start a rule always fires on is never learned");
+    let from_service = started(502, "/bin/sh", Some(ancestor(23, "/usr/sbin/postgres", false)));
+    watcher.examine(&from_service, &guard(), since);
+    assert!(watcher.baseline.knows(&from_service), "a start only learnable rules fired on is learned");
 }
 
 #[test]

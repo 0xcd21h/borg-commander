@@ -1559,7 +1559,7 @@ is there so the picture is complete.
 
 | Rule | What fires it | Level |
 | --- | --- | --- |
-| **Shell on a network socket** | A shell whose input and output are a socket, which is what a remote shell looks like | alert |
+| **Shell on a network socket** | A shell whose input, output or errors go to a socket, which is what a remote shell looks like | alert |
 | **Program deleted while it runs** | The program's file is gone, so nothing on disk says what the process is | alert |
 | **Program with no file** | Borg can find no program file for the process at all | alert |
 | **Library forced into a program** | `LD_PRELOAD`, `LD_AUDIT` or `DYLD_INSERT_LIBRARIES` is set in its environment | alert |
@@ -1571,22 +1571,25 @@ is there so the picture is complete.
 | **Parent never started it before** | This parent has never started this program on this machine | notice |
 
 For each process Borg reads the program it runs and whether its file was deleted, the command, the
-user, the terminal it belongs to, what its standard input and output lead to, the preload variables
-in its environment, and the chain of parents above it.
+user, the terminal it belongs to and who opened it, what its standard input, output and errors lead
+to, the preload variables in its environment, and the chain of parents above it.
 
 Borg learns the machine before it acts. For the first 7 days it records which parent starts which
-program here and freezes nothing, and the Response column says **Would freeze** where it would
-have. After that, a pair it has seen before stays quiet for the rules that can be learned: the two
-shell rules, the run of commands, the name that differs, and the parent that never started it. The
-four alert-level rules fire every time, because a shell on a socket or a forced library never
-becomes normal by happening often.
+program here and freezes nothing, and the Response column says **Would freeze** where it would have.
+After that, a pair it has seen before stays quiet for the rules that can be learned: the two shell
+rules, the run of commands, the name that differs, and the parent that never started it. The four
+alert-level rules fire every time, because a shell on a socket or a forced library never becomes
+normal by happening often. Whatever runs during that week counts as normal, so turn the watcher on
+while you trust the machine. Starts that a rule learning cannot quiet fired on stay out of what Borg
+learns.
 
 **A** on an alert allows starts like it from then on, by its program and its parent. Those
 allowances go in `watch-allowed.json` in the state folder, which the watcher reads and takes in
 within a minute. The `[watch]` section of the configuration holds the same thing by hand (see
 [Configuration](#configuration)).
 Borg writes down at most 20 processes a minute and freezes at most 5, and the line above the list
-says how many findings it left out when more fired at once.
+says how many findings it left out when more fired at once. A process Borg freezes is always written
+down, however many alerts came before it, so you can let it go on.
 
 ### Freezing a process
 
@@ -1598,9 +1601,16 @@ and **C** lets it go on while **K** ends it. Killing is final, so Borg asks firs
 
 Borg never freezes the system's first process, itself or anything it started, a program on the list
 it never freezes (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` and the like, plus any name you
-add under `keep-running`), a process that belongs to a terminal where somebody may be working, or
-a start you have allowed. A notice never stops a program. The details say which of these kept a
-process running.
+add under `keep-running`), a process on a terminal somebody logged in to, or a start you have
+allowed. A notice never stops a program. The details say which of these kept a process running.
+
+A program on the built-in list is spared only where the system keeps its programs, such as `/usr`
+and `/bin`, so a copy named `sshd` in another folder is frozen like anything else. A terminal counts
+when somebody logged in to it: over SSH, at the console, in `tmux` or `screen`, through `sudo` or
+`su`, or in a terminal window. A terminal that a program opened for itself does not count, which
+keeps a remote shell from hiding behind one. Terminals opened by an editor's remote server or by
+`docker exec` do not count either, so if Borg freezes something you ran there, **C** lets it go on
+and **A** allows it.
 
 Borg checks a process's identity, its number together with the moment it started, right before it
 signals it, so a number another process has taken in the meantime is left alone.
@@ -1633,6 +1643,24 @@ that.
 
 The watcher is a Linux feature for now. On macOS the page opens and reads its log, and the source
 says nothing is watching.
+
+### What the watcher cannot see
+
+The watcher judges each program as it starts, which leaves some things out of its sight. Know them
+before you rely on it.
+
+- Code that runs inside a program that is already running starts nothing new, so no rule looks at
+  it. A web application whose own interpreter is taken over keeps the name and parent it always had.
+- Processes running before the watcher started are never examined, and whatever runs during the
+  learning week counts as normal.
+- Without the root watcher, Borg sees only your own processes, and a command that ends within a
+  quarter of a second can be gone before Borg looks. Services that run as another user, such as
+  `www-data` or `postgres`, need the root watcher.
+- Anything running as the user the watcher runs as can stop the watcher, change its files in the
+  state folder, or let a frozen process go on with `kill -CONT`. Freezing buys you time to look, and
+  the process's owner can still undo it.
+- A process that detaches from its parent before Borg freezes the parent keeps running.
+- Alerts reach you when you open the page. Nothing sends them anywhere yet.
 
 ## Network
 

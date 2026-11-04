@@ -7,6 +7,7 @@ use borg_rules::Level;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
+    path::Path,
     time::{Duration, SystemTime},
 };
 
@@ -37,6 +38,40 @@ pub const NEVER_FROZEN: &[&str] = &[
     "polkitd",
     "borg",
 ];
+/// Programs that open a session on a terminal for somebody who logged in: over SSH, at the
+/// console, in a terminal multiplexer, as another user or in a terminal window. A terminal any
+/// other program opened for itself does not say that a person is working in it.
+const LOGINS: &[&str] = &[
+    "sshd",
+    "sshd-session",
+    "login",
+    "agetty",
+    "getty",
+    "mingetty",
+    "mosh-server",
+    "tmux",
+    "screen",
+    "sudo",
+    "su",
+    "doas",
+    "runuser",
+    "gnome-terminal-server",
+    "konsole",
+    "xterm",
+    "xfce4-terminal",
+    "mate-terminal",
+    "lxterminal",
+    "tilix",
+    "terminator",
+    "kitty",
+    "alacritty",
+    "wezterm-gui",
+    "foot",
+    "urxvt",
+];
+/// Folders that only the machine's owner may write to, where a program Borg spares by its name
+/// must lie, so a copy named after it elsewhere is not spared.
+const SYSTEM_FOLDERS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/nix/store", "/snap"];
 
 /// Why a process was left running although a rule fired.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,7 +80,7 @@ pub enum Protection {
     FirstProcess,
     /// Borg itself, or something Borg started.
     Borg,
-    /// It belongs to a terminal, so somebody may be working in it.
+    /// It belongs to a terminal somebody logged in to, so they may be working in it.
     Terminal,
     /// A program on the list Borg never freezes.
     NeverFrozen(String),
@@ -147,6 +182,22 @@ impl Rate {
     }
 }
 
+/// Whether a program lies where only the machine's owner could have put it. A program Borg
+/// could not read is judged by its name alone.
+fn installed(program: Option<&Path>) -> bool {
+    program.is_none_or(|program| SYSTEM_FOLDERS.iter().any(|folder| program.starts_with(folder)))
+}
+
+/// Whether somebody logged in to the terminal a process belongs to, rather than a program
+/// opening one for itself.
+fn logged_in(process: &StartedProcess) -> bool {
+    process.has_terminal()
+        && process
+            .session_parent
+            .as_ref()
+            .is_some_and(|opener| LOGINS.contains(&opener.program_name()) && installed(opener.program.as_deref()))
+}
+
 /// Why a process is never frozen, whatever fired.
 fn protection(process: &StartedProcess, baseline: &Baseline, guard: &Guard<'_>) -> Option<Protection> {
     if process.key.pid == FIRST_PROCESS {
@@ -156,10 +207,12 @@ fn protection(process: &StartedProcess, baseline: &Baseline, guard: &Guard<'_>) 
         return Some(Protection::Borg);
     }
     let program = process.program_name();
-    if NEVER_FROZEN.contains(&program) || guard.keep_running.iter().any(|kept| kept == program) {
+    if (NEVER_FROZEN.contains(&program) && installed(process.program.as_deref()))
+        || guard.keep_running.iter().any(|kept| kept == program)
+    {
         return Some(Protection::NeverFrozen(program.to_owned()));
     }
-    if process.has_terminal() {
+    if logged_in(process) {
         return Some(Protection::Terminal);
     }
     if baseline.allows(process) {
@@ -228,26 +281,27 @@ impl Watcher {
         self.suppressed
     }
 
-    /// Looks at a process that has just started: what fired, and what Borg does about it. The
-    /// start joins the baseline either way, so what a machine does becomes what it may do.
+    /// Looks at a process that has just started: what fired, and what Borg does about it.
+    /// While Borg learns, the start joins the baseline, so what a machine does becomes what it
+    /// may do; a start a rule fired on that learning never quiets stays out of it.
+    ///
+    /// The limit on alerts only ever leaves out a finding Borg would not freeze for: a frozen
+    /// process is always written down, or nobody would know to let it go on.
     pub fn examine(&mut self, process: &StartedProcess, guard: &Guard<'_>, now: SystemTime) -> Vec<Outcome> {
         self.seen = self.seen.saturating_add(1);
         let findings = examine(process, &self.baseline, &self.history, now);
         self.history.note(process);
-        if self.baseline.learning(now) {
+        if self.baseline.learning(now) && findings.iter().all(|finding| finding.rule().learnable()) {
             self.baseline.note(process);
         }
-        if findings.is_empty() {
-            return Vec::new();
-        }
-        if !self.alerts.allow(self.limits.alerts_per_minute, now) {
-            self.suppressed = self.suppressed.saturating_add(findings.len() as u64);
-            return Vec::new();
-        }
-        let worst = findings.first().expect("findings are not empty");
+        let Some(worst) = findings.first() else { return Vec::new() };
         let mut response = decide(worst, process, &self.baseline, guard, now);
         if response == Response::Frozen && !self.freezes.allow(self.limits.freezes_per_minute, now) {
             response = Response::Spared(Protection::EnoughForNow);
+        }
+        if !self.alerts.allow(self.limits.alerts_per_minute, now) && !response.froze() {
+            self.suppressed = self.suppressed.saturating_add(findings.len() as u64);
+            return Vec::new();
         }
         findings.into_iter().map(|finding| Outcome { finding, response: response.clone() }).collect()
     }

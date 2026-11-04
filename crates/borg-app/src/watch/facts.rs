@@ -24,7 +24,7 @@ const BLOCK: u64 = 64 * 1024;
 const ANCESTORS: usize = 8;
 /// What a program's link says when its file has been deleted.
 const DELETED: &str = " (deleted)";
-/// What the links of standard input and output say when they lead to a socket or a pipe.
+/// What the links of the standard streams say when they lead to a socket or a pipe.
 const SOCKET: &str = "socket:";
 const PIPE: &str = "pipe:";
 /// Where terminals are.
@@ -32,6 +32,7 @@ const TERMINALS: &[&str] = &["/dev/pts/", "/dev/tty", "/dev/console"];
 /// The fields of `stat` after the program's name: the state comes first.
 const STATE: usize = 0;
 const PARENT: usize = 1;
+const SESSION: usize = 3;
 const TERMINAL: usize = 4;
 const STARTED_AT: usize = 19;
 
@@ -41,6 +42,8 @@ pub struct Stat {
     /// The name the process calls itself.
     pub name: String,
     pub parent: u32,
+    /// The number of the first process of its session.
+    pub session: u32,
     /// The terminal it belongs to, as a device number; zero when it has none.
     pub terminal: u32,
     /// Clock ticks since the machine booted.
@@ -60,6 +63,7 @@ pub fn parse_stat(text: &str) -> Option<Stat> {
     Some(Stat {
         name,
         parent: fields[PARENT].parse().ok()?,
+        session: fields[SESSION].parse().ok()?,
         terminal: fields[TERMINAL].parse().ok()?,
         started_at: fields[STARTED_AT].parse().ok()?,
     })
@@ -211,6 +215,17 @@ impl Processes {
         Some((ancestor, stat.parent))
     }
 
+    /// The process that started the first one of the session a process's terminal belongs to.
+    /// It says who opened the terminal: `sshd` or `login` when somebody logged in, or the
+    /// program that opened it for itself.
+    fn session_parent(&self, stat: &Stat) -> Option<Ancestor> {
+        if stat.terminal == 0 || stat.session == 0 {
+            return None;
+        }
+        let leader = self.stat(stat.session)?;
+        self.ancestor(leader.parent).map(|(ancestor, _)| ancestor)
+    }
+
     /// Everything the watcher's rules need about a process that has just started, and about
     /// the processes that led to it. `at` is when Borg heard of it.
     pub fn started(&self, pid: u32, at: SystemTime) -> Option<StartedProcess> {
@@ -244,6 +259,8 @@ impl Processes {
             terminal: self.terminal(pid, &stat),
             input: self.stream(pid, "fd/0"),
             output: self.stream(pid, "fd/1"),
+            errors: self.stream(pid, "fd/2"),
+            session_parent: self.session_parent(&stat),
             preloads: preloads(&self.block(pid, "environ")),
             ancestors,
             at,

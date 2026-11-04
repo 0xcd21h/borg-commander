@@ -2,9 +2,18 @@ use super::*;
 use borg_core::StreamKind;
 use std::time::Duration;
 
+/// The device number of `/dev/pts/0`.
+const TERMINAL_DEVICE: u32 = 34816;
+
 /// A `stat` line as Linux writes it: the number, the name in brackets, the state, then the rest.
 fn stat_line(name: &str, parent: u32, terminal: u32, started_at: u64) -> String {
-    let mut fields = vec!["S".to_owned(), parent.to_string(), "100".to_owned(), "100".to_owned(), terminal.to_string()];
+    session_stat_line(name, parent, 100, terminal, started_at)
+}
+
+/// A `stat` line of a process in the session that `session` started.
+fn session_stat_line(name: &str, parent: u32, session: u32, terminal: u32, started_at: u64) -> String {
+    let mut fields =
+        vec!["S".to_owned(), parent.to_string(), session.to_string(), session.to_string(), terminal.to_string()];
     while fields.len() < STARTED_AT {
         fields.push("0".to_owned());
     }
@@ -16,7 +25,7 @@ fn stat_line(name: &str, parent: u32, terminal: u32, started_at: u64) -> String 
 fn a_program_name_with_spaces_and_brackets_does_not_move_the_fields() {
     let stat = parse_stat(&stat_line("Web Content (tab)", 1234, 0, 998877)).expect("a whole stat line");
     assert_eq!(stat.name, "Web Content (tab)");
-    assert_eq!((stat.parent, stat.terminal, stat.started_at), (1234, 0, 998877));
+    assert_eq!((stat.parent, stat.session, stat.terminal, stat.started_at), (1234, 100, 0, 998877));
 }
 
 #[test]
@@ -96,6 +105,13 @@ impl FakeProc {
         self
     }
 
+    /// Puts a process on a terminal, in the session that `session` started.
+    fn on_terminal(&self, pid: u32, name: &str, parent: u32, session: u32) -> &Self {
+        let line = session_stat_line(name, parent, session, TERMINAL_DEVICE, u64::from(pid) * 10);
+        fs::write(self.folder.path().join(pid.to_string()).join("stat"), line).expect("stat");
+        self
+    }
+
     /// What one of a process's standard streams leads to.
     fn stream(&self, pid: u32, stream: u32, target: &str) -> &Self {
         let at = self.folder.path().join(pid.to_string()).join("fd").join(stream.to_string());
@@ -110,7 +126,7 @@ fn a_process_reads_with_its_program_streams_and_the_parents_above_it() {
     proc.process(1, "systemd", 0, "/sbin/init", &["/sbin/init"]);
     proc.process(100, "nginx", 1, "/usr/sbin/nginx", &["nginx: worker process"]);
     proc.process(200, "sh", 100, "/bin/sh", &["sh", "-i"]);
-    proc.stream(200, 0, "socket:[4242]").stream(200, 1, "socket:[4242]");
+    proc.stream(200, 0, "socket:[4242]").stream(200, 1, "socket:[4242]").stream(200, 2, "/dev/null");
     let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
 
     let started = proc.processes().started(200, at).expect("the process is there");
@@ -121,11 +137,33 @@ fn a_process_reads_with_its_program_streams_and_the_parents_above_it() {
     assert_eq!(started.command, ["sh", "-i"]);
     assert_eq!(started.uid, 1000);
     assert_eq!(started.terminal, None, "a process with no terminal device belongs to none");
-    assert_eq!((started.input, started.output), (StreamKind::Socket, StreamKind::Socket));
+    assert_eq!(started.streams(), [StreamKind::Socket, StreamKind::Socket, StreamKind::File]);
+    assert_eq!(started.session_parent, None, "a process with no terminal opened none");
     assert_eq!(started.at, at);
     let parents: Vec<&str> = started.ancestors.iter().map(|parent| parent.name.as_str()).collect();
     assert_eq!(parents, ["nginx", "systemd"], "the chain stops at the first process");
     assert_eq!(started.parent().map(|parent| parent.command.as_str()), Some("nginx: worker process"));
+}
+
+#[test]
+fn a_terminal_says_which_program_started_its_session() {
+    let proc = FakeProc::new();
+    proc.process(1, "systemd", 0, "/sbin/init", &["/sbin/init"]);
+    proc.process(50, "sshd", 1, "/usr/sbin/sshd", &["sshd: me@pts/0"]);
+    proc.process(60, "bash", 50, "/usr/bin/bash", &["-bash"]).on_terminal(60, "bash", 50, 60);
+    proc.process(70, "vim", 60, "/usr/bin/vim", &["vim"]).on_terminal(70, "vim", 60, 60);
+    proc.stream(70, 0, "/dev/pts/0");
+    let at = SystemTime::UNIX_EPOCH;
+
+    let editor = proc.processes().started(70, at).expect("the process is there");
+    assert_eq!(editor.terminal.as_deref(), Some("/dev/pts/0"));
+    assert_eq!(editor.session_parent.map(|opener| opener.name), Some("sshd".into()));
+    let shell = proc.processes().started(60, at).expect("the session's first process is there");
+    assert_eq!(shell.session_parent.map(|opener| opener.pid), Some(50), "the first process counts too");
+
+    proc.process(80, "less", 1, "/usr/bin/less", &["less"]).on_terminal(80, "less", 1, 79);
+    let orphan = proc.processes().started(80, at).expect("the process is there");
+    assert_eq!(orphan.session_parent, None, "a session whose first process has gone says nothing");
 }
 
 #[test]

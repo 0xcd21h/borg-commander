@@ -315,7 +315,7 @@ pub fn examine(process: &StartedProcess, baseline: &Baseline, history: &History,
     let program = process.program_name().to_owned();
     let parent_name = process.parent().map(|parent| parent.program_name().to_owned());
     if is_shell(&program) {
-        if [process.input, process.output].contains(&StreamKind::Socket) {
+        if process.streams().contains(&StreamKind::Socket) {
             findings.push(Finding::ShellOnSocket { shell: program.clone() });
         }
         if let Some(parent) = process.parent() {

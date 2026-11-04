@@ -24,7 +24,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     sync::{
-        mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+        mpsc::{Receiver, UnboundedReceiver, UnboundedSender, unbounded_channel},
         oneshot,
     },
 };
@@ -192,7 +192,7 @@ pub async fn helper(args: &[String]) -> Result<()> {
 }
 
 /// Sends every process that starts, and does what Borg asks of one.
-async fn serve(stream: UnixStream, processes: Processes, mut events: UnboundedReceiver<u32>) -> Result<()> {
+async fn serve(stream: UnixStream, processes: Processes, mut events: Receiver<u32>) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut incoming = lines_of(reader);
     loop {

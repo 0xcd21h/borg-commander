@@ -5,20 +5,20 @@ expression: describe(&buffer)
 ╭ Alerts ────────────────────────────[+]─[-]╮╭ Shell on a network socket ─────────[+]─[-]╮
 │5 alerts · 4 unread                        ││alert · 2026-01-15 11:58:12 UTC            │
 │/ Filter by rule, program, parent or user  ││The shell sh has a network socket for its  │
-│Time       Rule                 Program    ││input and output, which is what a remote   │
-│2026-01-15 Shell on a network … sh         ││shell looks like.                          │
+│Time       Rule                 Program    ││input, output or errors, which is what a   │
+│2026-01-15 Shell on a network … sh         ││remote shell looks like.                   │
 │2026-01-15 Program in a tempor… kworker    ││                                           │
 │2026-01-15 Library forced into… curl       ││Command        sh -i                       │
 │2026-01-15 Looking around the … whoami     ││Program        /bin/sh                     │
 │2026-01-14 P╭──────────────────────── Kill process ────────────────────────╮            │
 │            │                                                              │            │
 │            │   Kill sh (29314)? A frozen process stays where it is until  │ network …  │
-│            │   you resume or kill it, and killing cannot be taken back.   │14          │
-│            │                                                              │            │
+│            │   you resume or kill it, and killing cannot be taken back.   │            │
+│            │                                                              │14          │
 │            │                       [ Yes ]   [ No ]                       │            │
 │            ╰──────────────────────────────────────────────────────────────╯            │
-│                                           ││  /usr/sbin/nginx (812)                    │
-│Watching every process on this machine, as ││    sh -i (29314)                          │
+│                                           ││/sbin/init (1)                             │
+│Watching every process on this machine, as ││  /usr/sbin/nginx (812)                    │
 ╰───────────────────────────────────────────╯╰───────────────────────────────────────────╯
 Shell on a network socket · sh · Frozen
 $
@@ -38,8 +38,8 @@ Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity monitor     ◈ Borg Com
  10: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
  11: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
  12: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
- 13: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-46 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 47-52 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 53-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(17, 72, 85) Rgb(25, 25, 25) BOLD | 79-88 Rgb(26, 110, 130) Rgb(38, 38, 38) BOLD | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
- 14: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 13: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-13 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 14-46 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 47-52 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 53-75 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 76-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
+ 14: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-12 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 13-76 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 77-78 Rgb(17, 72, 85) Rgb(25, 25, 25) BOLD | 79-88 Rgb(26, 110, 130) Rgb(38, 38, 38) BOLD | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
  15: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-14 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 15-43 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 44-44 Rgb(17, 72, 85) Rgb(25, 25, 25) NONE | 45-45 Rgb(47, 47, 47) Rgb(25, 25, 25) NONE | 46-76 Rgb(93, 93, 93) Rgb(25, 25, 25) NONE | 77-78 Rgb(60, 60, 60) Rgb(16, 16, 16) NONE | 79-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
  16: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-43 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 44-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-45 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 46-88 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 89-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
  17: 0-44 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 45-89 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
