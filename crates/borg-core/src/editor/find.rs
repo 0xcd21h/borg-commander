@@ -4,11 +4,10 @@ use super::{Editor, EditorPrompt, on_edit};
 use crate::{
     AppState, Effect, LineInput,
     find_bar::{BarKey, Direction, FindBar, FindNote},
-    viewer::Landing,
 };
 use borg_edit::Buffer;
 use borg_i18n::tr;
-use borg_view::{Search, Source};
+use borg_view::{Query, Search, Source};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// A match the editor opens on shows a third of the way down the screen.
@@ -55,14 +54,14 @@ pub(super) fn open_bar(editor: &mut Editor) {
     editor.find.open(seed);
 }
 
-/// Opens the find bar on the landing's query with the cursor where the match was found, and
-/// selects the match from there. A match below the first screen of `rows` lines scrolls into
-/// view as the viewer scrolls to one.
-pub(super) fn land(editor: &mut Editor, landing: &Landing, rows: usize) {
-    let at = editor.buffer.file_byte_to_char(usize::try_from(landing.offset).unwrap_or(usize::MAX));
+/// Opens the find bar on a contents search's `query` with the cursor where the match was found,
+/// at `offset`, and selects the match from there. A match below the first screen of `rows`
+/// lines scrolls into view as the viewer scrolls to one.
+pub(super) fn land(editor: &mut Editor, query: &Query, offset: u64, rows: usize) {
+    let at = editor.buffer.file_byte_to_char(usize::try_from(offset).unwrap_or(usize::MAX));
     editor.buffer.select(at..at);
     editor.origin = at;
-    editor.find.load(&landing.query);
+    editor.find.load(query);
     editor.find.open(None);
     seek_from_origin(editor);
     let (line, _) = editor.buffer.position();

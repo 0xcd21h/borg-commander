@@ -136,8 +136,8 @@ pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown,
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
-    COLLECTION_LIMIT, Collection, FirstMatch, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource, Results,
-    SearchProgress, SearchRequest, selected_paths,
+    COLLECTION_LIMIT, Collection, FirstMatch, PACKED_SHARE, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource,
+    Results, SearchProgress, SearchRequest, looks_packed, selected_paths,
 };
 
 pub use activity::{
@@ -151,6 +151,9 @@ pub use activity::{
 pub use activity::{
     CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
     PRIORITY_STEP, ProcessControl, ProcessSignal,
+};
+pub use activity::{
+    EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
 };
 pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity, chrome_rows};
 pub use activity::{FindingsReport, RulesReport, evidence_text, problem_finding, rule_finding, rule_source};

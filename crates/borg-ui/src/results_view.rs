@@ -109,9 +109,10 @@ pub(crate) fn match_column(panel: &Panel, area: Rect) -> Option<Rect> {
     (!panel.is_tree() && shows_matches(results)).then(|| layout(area, has_totals(panel), true).1).flatten()
 }
 
-/// Whether the results show where each file matched: a contents search's line, or the rules.
+/// Whether the results show where each file matched: a contents search's line, the rules, or
+/// how packed a program's code looks.
 fn shows_matches(results: &Results) -> bool {
-    results.contents().is_some() || results.by_rules()
+    results.contents().is_some() || results.by_rules() || results.by_entropy()
 }
 
 pub(crate) fn has_totals(panel: &Panel) -> bool {
@@ -277,6 +278,13 @@ fn search_summary(panel: &Panel, progress: &SearchProgress, options: &SearchOpti
             files = format::count(progress.read, format::Count::File),
             rules = progress.rules,
             unread = progress.unread,
+            errors = errors
+        ),
+        None if options.kind == borg_core::SearchKind::Packed => tr!(
+            packed_search_progress,
+            state = state,
+            programs = format::count(progress.read, format::Count::Program),
+            others = progress.unread,
             errors = errors
         ),
         None if options.contents.is_some() => tr!(

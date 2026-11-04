@@ -13,6 +13,7 @@ mod config;
 mod docker;
 mod document;
 mod edit_file;
+mod entropy_scan;
 mod index;
 mod integrity;
 mod launch;

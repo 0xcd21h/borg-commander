@@ -19,12 +19,14 @@ use tokio::{io::AsyncReadExt, process::Command};
 
 /// The longest signal or priority change the helper reads from its arguments.
 const CONTROL_LIMIT: usize = 64;
-const HELPER_FLAG: &str = "--inspect-process";
+pub(super) const HELPER_FLAG: &str = "--inspect-process";
 /// An agent's scan of a process: integrity, rules or both in one run, so the password is asked
 /// for once.
 const SCAN: &str = "scan";
 /// The longest scan request the helper reads: rule text at its longest with every byte escaped.
 const SCAN_REQUEST_LIMIT: usize = 8 * borg_rules::INLINE_LIMIT;
+/// The entropy scan of the processes Borg could not read.
+pub(super) const ENTROPY: &str = "entropy";
 
 pub(super) async fn bounded_output(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
     command
@@ -112,7 +114,7 @@ pub(super) async fn elevate_scan(request: &ScanRequest) -> Result<ProcessScan> {
 }
 
 /// Runs Borg's helper with `args` as administrator and reads what it answers.
-async fn elevated<T: DeserializeOwned>(args: Vec<String>) -> Result<T> {
+pub(super) async fn elevated<T: DeserializeOwned>(args: Vec<String>) -> Result<T> {
     let exe = std::env::current_exe()?;
     #[cfg(target_os = "macos")]
     let command = {
@@ -158,6 +160,13 @@ pub async fn helper(args: &[String]) -> Result<()> {
                     .map(ActivityData::Search);
             }
             bail!(tr!(activity_request_invalid));
+        }
+        if kind == ENTROPY && args.len() == 2 {
+            if args[1].len() > super::entropy::JOB_LIMIT {
+                bail!(tr!(activity_request_invalid));
+            }
+            let job: super::entropy::Job = serde_json::from_str(&args[1])?;
+            return Ok(ActivityData::Entropy(super::entropy::scan_as_helper(job).await));
         }
 
         let number =

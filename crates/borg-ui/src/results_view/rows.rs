@@ -5,6 +5,7 @@ use borg_core::{LineMatch, Panel, Results, Row, SortKey, evidence_text};
 use borg_i18n::tr;
 use borg_rules::RuleMatch;
 use borg_vfs::Entry;
+use borg_view::entropy::Tally;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -113,6 +114,8 @@ fn draw_entry(
         first_match(line, usize::from(width), style, found)
     } else if let Some(hits) = results.rule_hits(entry.identity()) {
         rule_hits(hits, usize::from(width), style, found)
+    } else if let Some(tally) = results.code_tally(entry.identity()) {
+        packed(tally, usize::from(width), found)
     } else {
         return;
     };
@@ -129,6 +132,13 @@ fn rule_hits(hits: &[RuleMatch], width: usize, style: Style, found: Style) -> Li
     let room = width.saturating_sub(rule.width());
     let rest = format::truncate_end(&format!("{more}{evidence}"), room);
     Line::from(vec![Span::styled(rule, found), Span::styled(rest, style)])
+}
+
+/// How much of a program's code has high entropy, and the highest it reaches.
+fn packed(tally: &Tally, width: usize, found: Style) -> Line<'static> {
+    let share = format::percent(tally.share());
+    let text = tr!(packed_match, share = share, bits = format::bits(tally.highest));
+    Line::from(Span::styled(format::truncate_end(&text, width), found))
 }
 
 /// A contents search's first match in a file: its line number, then the line with the match

@@ -49,6 +49,7 @@ impl Activity {
             ActivityPage::Search => self.search_cursor,
             ActivityPage::Findings => self.finding_cursor,
             ActivityPage::Files => self.file_cursor,
+            ActivityPage::Entropy => self.entropy.as_ref().map_or(0, |scan| scan.cursor),
             _ => self.region_cursor,
         }
     }
@@ -254,6 +255,12 @@ impl Activity {
             ActivityPage::Findings => {
                 let findings = self.findings.as_ref().map_or(0, |report| report.findings().len());
                 self.finding_cursor = self.finding_cursor.saturating_add_signed(delta).min(findings.saturating_sub(1))
+            }
+            ActivityPage::Entropy => {
+                if let Some(scan) = self.entropy.as_mut() {
+                    let last = scan.report.hits.len().saturating_sub(1);
+                    scan.cursor = scan.cursor.saturating_add_signed(delta).min(last);
+                }
             }
             ActivityPage::Snapshot => {
                 let end = self.snapshot_rows(self.snapshot_columns(width)).len().saturating_sub(page_rows.max(1));

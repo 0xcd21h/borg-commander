@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use borg_core::{CensusPage, MemoryCensus, MemoryRegion, PageClass, ProcessKey};
-use borg_view::entropy::{BLOCK, Entropy};
+use borg_view::entropy::{BLOCK, Entropy, stride};
 
 const PAGE: u64 = BLOCK;
 /// Entries a census reports at most; a larger region is sampled evenly.
@@ -68,7 +68,7 @@ pub fn census(
 ) -> MemoryCensus {
     let start = region.start - region.start % PAGE;
     let total = region.end.saturating_sub(start).div_ceil(PAGE);
-    let stride = total.div_ceil(ENTRIES).max(1);
+    let stride = stride(total, ENTRIES);
     let executable = region.permissions.contains('x');
     let mut residency = false;
     let pages = (0..total.div_ceil(stride))

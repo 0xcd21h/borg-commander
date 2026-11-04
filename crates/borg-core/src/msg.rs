@@ -28,6 +28,12 @@ pub enum Msg {
         total: u64,
         hits: usize,
     },
+    /// What a run of the entropy scan found since its last message; `done` with its last.
+    EntropyScan {
+        id: u64,
+        found: Result<crate::EntropyReport, String>,
+        done: bool,
+    },
     SizeChildren {
         side: Side,
         generation: u64,
@@ -163,6 +169,12 @@ pub enum Msg {
         generation: u64,
         found: Vec<(Entry, Vec<borg_rules::RuleMatch>)>,
     },
+    /// Programs a search for packed ones found, each with the entropy of its code.
+    PackedHits {
+        side: Side,
+        generation: u64,
+        found: Vec<(Entry, borg_view::entropy::Tally)>,
+    },
     Listed {
         side: Side,
         generation: u64,
@@ -275,6 +287,15 @@ pub enum Effect {
     },
     CancelMeasure,
     CancelMemorySearch,
+    /// Reads the memory of `processes` for the entropy scan, as administrator with `admin`.
+    EntropyScan {
+        id: u64,
+        scope: crate::EntropyScope,
+        processes: Vec<crate::ProcessKey>,
+        admin: bool,
+    },
+    /// Stops the entropy scan, which reports the processes it did not reach.
+    StopEntropyScan,
     SizeChildren {
         side: Side,
         generation: u64,

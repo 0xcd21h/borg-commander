@@ -203,6 +203,28 @@ herramientas de seguridad y sus datos de prueba también coinciden, y un archivo
 coincide ninguna regla puede ser malicioso igualmente. Toma las coincidencias como pistas. [Analizar
 la memoria con reglas](#scanning-memory-with-rules) explica lo que un análisis no puede ver.
 
+### Encontrar ejecutables empaquetados
+
+Pon **Buscar** en **Ejecutables empaquetados** en el diálogo de Ctrl-F para listar los programas
+bajo la carpeta cuyo código es tan denso como los bytes comprimidos o cifrados. Los empaquetadores
+y los protectores dejan código así, igual que el malware que oculta su código hasta que se ejecuta.
+Borg lee las partes de cada archivo ELF, Mach-O y PE que el cargador mapea como ejecutables,
+incluida cada parte de un binario Mach-O universal, y mide la entropía de hasta 1024 bloques de
+4 KiB repartidos de forma uniforme por ellas. Un programa aparece en la lista cuando al menos el
+70 % de esos bloques llega a 7,2 bits por byte. El código compilado de la forma habitual queda muy
+por debajo. El patrón de nombre, el **Tamaño mínimo** y **Omitir resultados de compilación, cachés
+y archivos ignorados** siguen aplicándose, y el diálogo deja de mostrar **Con el texto** y
+**Mínimo de archivos**.
+
+La columna **Coincidencia** indica la proporción de bloques con entropía alta y la entropía más
+alta encontrada, como "97% alta · máx. 8". F3 abre el programa en las filas hexadecimales del visor,
+en el primer bloque con entropía alta, con la franja de entropía que describe [Visor y vista
+rápida](#viewer-and-quick-view) al lado. La línea de contexto cuenta los programas leídos y los
+demás archivos, en los que Borg no sabe encontrar código. Ctrl-C detiene la búsqueda, que se para en
+20.000 archivos como cualquier búsqueda. Un programa empaquetado solo muestra su código real
+mientras se ejecuta, y el [Análisis de entropía de todos los
+procesos](#entropy-scan-of-every-process) examina los programas de esa forma.
+
 ### Trabajar con los resultados
 
 Haz clic en el encabezado de una columna para ordenar por ella, y otra vez para invertir el orden.
@@ -1429,6 +1451,7 @@ segunda muestra.
 | I / O | Ordenar por velocidad de lectura / escritura |
 | T | Mostrar u ocultar el árbol de procesos |
 | K | Enviar una señal o cambiar la prioridad |
+| E | Buscar entropía alta en todos los procesos |
 | Alt-N | Mostrar el tráfico del proceso seleccionado en la pantalla de red |
 | Space | Pausar o reanudar el muestreo |
 | R | Actualizar la vista actual |
@@ -1659,15 +1682,66 @@ herramientas eBPF y los clientes de Endpoint Security de macOS, pueden registrar
 todos modos. Un análisis de archivos abre cada archivo que lee, y `inotify` y `fanotify` lo
 notifican. En Linux, deja intacta la hora de acceso de los archivos que son tuyos.
 
+### Análisis de entropía de todos los procesos
+
+**E** en la lista de procesos abre el **Análisis de entropía**, que lee una muestra de las páginas
+de todos los procesos en busca de bytes tan densos como el código empaquetado. Pulsa la letra de una
+opción, o muévete hasta ella y pulsa Enter. Esc cierra el diálogo.
+
+| Tecla | Opción | Qué lee |
+| --- | --- | --- |
+| C | **Código de todos los procesos** | Las regiones ejecutables, donde aparece el código empaquetado o cifrado |
+| M | **Toda la memoria de todos los procesos** | Todas las regiones legibles, así que también datos como claves y archivos comprimidos |
+| L | **Últimos resultados** | Nada nuevo: vuelve a mostrar los hallazgos del último análisis |
+
+Borg lee hasta 1024 páginas de 4 KiB de una región y 32 768 de un proceso, repartidas de forma
+uniforme. Un proceso con muchas regiones recibe menos páginas por región, pero nunca menos de 16.
+Una región con al menos una página de 7,2 bits por byte o más es un hallazgo. Los hallazgos ocupan
+el panel de la lista: primero el código, luego la memoria que escribió el proceso y por último los
+archivos mapeados tal como están en el disco, y dentro de cada grupo primero la región con mayor
+proporción de páginas con entropía alta. El código con el 70 % o más de sus páginas con entropía
+alta aparece en negrita, según la misma regla que la búsqueda de [ejecutables
+empaquetados](#finding-packed-executables). Cada fila indica el tipo (**código**, **escrita** o
+**archivo**), esa proporción con la entropía más alta, y el nombre del proceso, el PID y la región.
+El otro panel muestra las direcciones, el tamaño y el acceso de la región, cuántas páginas de la
+muestra tienen entropía alta, dónde empieza la primera de ellas y qué suelen ser esos bytes. Se
+conservan los 2000 hallazgos más fuertes, y el resumen cuenta los más débiles que se omitieron.
+
+**Enter** en un hallazgo abre el mapa de memoria del proceso en esa región, con el mapa de páginas
+activado y el cursor en la primera página densa de la muestra, para que veas los bytes que la
+rodean. **Esc** vuelve al mapa y, otra vez, a los hallazgos.
+
+Borg lee 4 procesos a la vez. Una región sin ninguna página en memoria ni en swap no se lee, y en
+Linux las tablas de páginas muestran qué páginas están en memoria, así que el análisis no toca
+páginas nuevas ni recupera las que están en swap. Se omiten las cachés que todos los procesos
+mapean igual: la caché compartida de dyld en macOS y las páginas que el kernel mapea en todos los
+procesos en Linux. Un archivo mapeado sin cambios, como una biblioteca compartida, solo se lee en
+el primer proceso que lo mapea.
+
+Un análisis se detiene a los 90 segundos y deja el resto para **N**, que sigue con los procesos a
+los que no llegó. **Ctrl-C** lo detiene antes y conserva los hallazgos, y **R** vuelve a analizar
+desde el principio. Encima de los hallazgos, una línea cuenta los procesos analizados y los
+hallazgos, y la siguiente los procesos omitidos: ilegibles, protegidos y no alcanzados. En macOS,
+vmmap tarda unos segundos en listar las regiones de un proceso, así que analizar todos los procesos
+puede requerir varias rondas de **N**.
+
+Los procesos cuya memoria protege macOS se cuentan y se omiten, porque nadie puede leerlos. Para los
+procesos que Borg no pudo leer, ofrece **A Administrador**, que los analiza en el programa auxiliar
+durante un máximo de 60 segundos, para que el auxiliar termine dentro de su límite de 2 minutos
+incluso tras una petición de contraseña lenta. Los bytes densos son habituales: las cachés
+comprimidas, las imágenes, las fuentes y las claves tienen entropía alta por naturaleza, así que toma
+los hallazgos como pistas y lee los detalles antes de sospechar de un proceso.
+
 ### Acceso de administrador
 
 Cuando la lectura de un mapa de memoria o de una captura está restringida, una búsqueda no pudo
-leer parte de la memoria, o el sistema rechaza una señal o un cambio de prioridad, Borg ofrece
+leer parte de la memoria, un análisis de entropía no pudo leer algunos procesos, o el sistema
+rechaza una señal o un cambio de prioridad, Borg ofrece
 **A Administrador**. En macOS, esto abre la petición de
 autorización del sistema; en Linux usa `pkexec` y necesita que haya un agente de autorización en
 ejecución. Solo un asistente de corta duración se ejecuta con privilegios elevados. Borg sigue
-ejecutándose con normalidad, y el asistente solo devuelve datos del mapa o una cantidad limitada de
-bytes, o envía la señal o la prioridad que elegiste.
+ejecutándose con normalidad, y el asistente solo devuelve datos del mapa, una cantidad limitada de
+bytes o los hallazgos de un análisis, o envía la señal o la prioridad que elegiste.
 
 macOS protege la memoria de sus propios programas (Protección de la Integridad del Sistema) y de los
 programas compilados con Hardened Runtime frente a cualquier otro programa, administradores

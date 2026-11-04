@@ -18,9 +18,8 @@ mod rules;
 use compare::{compare, scan};
 pub(crate) use findings::untouched;
 use findings::{Stretch, executable, hex, label, map_findings, process_findings, size, stretches, unbacked};
-use rules::{
-    CODE_FILES, INTERPRETERS, KERNEL_PAGES, KERNEL_THREADS, LIBRARY_PATHS, PRELOADS, compiles_code, temporary,
-};
+pub(crate) use rules::KERNEL_PAGES;
+use rules::{CODE_FILES, INTERPRETERS, KERNEL_THREADS, LIBRARY_PATHS, PRELOADS, compiles_code, temporary};
 
 const PAGE: u64 = 4096;
 const CHUNK: u64 = 1024 * 1024;

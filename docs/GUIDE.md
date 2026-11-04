@@ -185,6 +185,25 @@ Rules match patterns of bytes and know nothing of intent. Installers, security t
 test data match too, and a file that no rule matches can still be malicious. Treat matches as
 leads. [Scanning memory with rules](#scanning-memory-with-rules) says what a scan cannot see.
 
+### Finding packed executables
+
+Set **Look for** to **Packed executables** in the Ctrl-F dialog to list the programs below the
+folder whose code is as dense as compressed or encrypted bytes. Packers and protectors leave code
+like that, and so does malware that hides its code until it runs. Borg reads the parts of each
+ELF, Mach-O and PE file that the loader maps executable, every slice of a universal Mach-O binary
+included, and measures the entropy of up to 1,024 blocks of 4 KiB spread evenly over them. A
+program is listed when at least 70% of those blocks reach 7.2 bits per byte. Code compiled the
+usual way stays well below that. The name pattern, **Minimum size** and **Leave out build output,
+caches and ignored files** still apply, and the dialog drops **Containing** and **Minimum files**.
+
+The **Match** column gives the share of high blocks and the highest entropy found, such as
+"97% high · max 8". F3 opens the program in the viewer's hex rows at the first high block, with
+the entropy strip described under [Viewer and quick view](#viewer-and-quick-view) beside them.
+The context line counts the programs read and the other files, which hold no code Borg knows how
+to find. Ctrl-C stops the search, and it stops at 20,000 files like any search. A packed program
+shows its real code only while it runs, and [Entropy scan of every
+process](#entropy-scan-of-every-process) looks at programs that way.
+
 ### Working with results
 
 Click a column heading to sort by it, and click again to reverse the order. The Left and Right
@@ -1310,6 +1329,7 @@ second sample on.
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
 | K | Send a signal or change the priority |
+| E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
 | Space | Pause or resume sampling |
 | R | Refresh the current view |
@@ -1519,13 +1539,60 @@ Monitors that run as administrator, such as auditd, eBPF tools and macOS Endpoin
 clients, can still log the reads. A file scan opens every file it reads, which `inotify` and
 `fanotify` report. On Linux, it leaves the access time of the files you own as it was.
 
+### Entropy scan of every process
+
+**E** in the process list opens **Entropy scan**, which reads sampled pages of every process for
+bytes as dense as packed code. Press a choice's letter, or move to it and press Enter. Esc closes
+the dialog.
+
+| Key | Choice | What it reads |
+| --- | --- | --- |
+| C | **Code of all processes** | The executable regions, where packed or encrypted code shows |
+| M | **All memory of all processes** | Every readable region, so data such as keys and compressed files too |
+| L | **Last results** | Nothing new: it shows the hits of the last scan again |
+
+Borg reads up to 1,024 pages of 4 KiB from a region and 32,768 from a process, spread evenly. A
+process with many regions gets fewer from each, but never fewer than 16. A region with at least
+one page of 7.2 bits per byte or more is a hit. Hits take the list pane: code first, then memory
+the process wrote, then files mapped as they are on disk, and within each the region with the
+larger share of high pages first. Code with 70% or more of its pages high stands out in bold, by
+the same rule as the search for [packed executables](#finding-packed-executables). Each row gives
+the kind (**code**, **written** or **file**), that share with the highest entropy, and the process
+name, PID and region. The other pane shows the region's addresses, size and access, how many
+sampled pages are high, where the first of them starts, and what such bytes usually are. The
+2,000 strongest hits are kept, and the summary counts the weaker ones left out.
+
+**Enter** on a hit opens the process's memory map at that region, with the page map on and its
+cursor on the first dense page sampled, so you can look at the bytes around it. **Esc** goes back
+to the map, and again to the hits.
+
+Borg reads 4 processes at once. A region with no page in memory or in swap is not read, and on
+Linux the page tables show which pages are in memory, so the scan neither touches new pages nor
+brings swapped ones back. Caches every process maps alike are left out: the dyld shared cache on
+macOS, and the pages the kernel maps into every process on Linux. A file mapped unchanged, such
+as a shared library, is read in the first process that maps it only.
+
+A scan stops after 90 seconds and leaves the rest for **N**, which goes on with the processes it
+did not reach. **Ctrl-C** stops it sooner and keeps the hits, and **R** scans again from the
+start. Above the hits, one line counts the processes scanned and the hits, and the next the
+processes left out: unreadable, protected and not reached. On macOS, vmmap takes a few
+seconds to list a process's regions, so a scan of every process can take a few rounds of **N**.
+
+Processes whose memory macOS protects are counted and skipped, since nobody can read them. For
+the processes Borg could not read, it offers **A Administrator**, which scans them in the helper
+for at most 60 seconds, so the helper finishes within its 2-minute limit even after a slow
+password prompt. Dense bytes are common: compressed caches, images, fonts and keys are high by
+nature, so treat hits as leads and read the details before you suspect a process.
+
 ### Administrator access
 
 When reading a memory map or a capture is restricted, a search could not read part of the
-memory, or the system refuses a signal or priority change, Borg offers **A Administrator**. On macOS this opens the system's authorization prompt;
+memory, an entropy scan could not read some processes, or the system refuses a signal or priority
+change, Borg offers **A Administrator**. On macOS this opens the system's authorization prompt;
 on Linux it uses `pkexec` and needs an authorization agent to be running. Only a short-lived
 helper runs with elevated rights. Borg itself keeps running normally, and the helper only returns
-map data or a limited number of bytes, or sends the one signal or priority you chose.
+map data, a limited number of bytes or the hits of a scan, or sends the one signal or priority
+you chose.
 
 macOS shields the memory of its own programs (System Integrity Protection) and of programs built
 with the Hardened Runtime from every other program, administrators included. Borg reads this from
