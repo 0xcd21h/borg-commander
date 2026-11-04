@@ -84,6 +84,16 @@ struct Incoming {
     generation: u64,
     focus: Option<Anchor>,
     refresh: bool,
+    row: Option<usize>,
+}
+
+/// Where the cursor stood in a folder the panel went down from: on which entry, and on which row
+/// of the screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Viewport {
+    dir: PathBuf,
+    entry: String,
+    row: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +112,12 @@ pub struct Panel {
     listing: Listing,
     incoming: Option<Incoming>,
     focus: Option<Anchor>,
+    /// The folders above this one, each as the panel left it, so going back up looks the same.
+    trail: Vec<Viewport>,
+    /// The container whose folders the trail holds, or none for this machine's.
+    trail_mount: Option<String>,
+    /// The screen row the cursor keeps while the folder it returned to lists.
+    return_row: Option<usize>,
     replacing: bool,
     pub git: crate::GitPanel,
     pub backup: crate::BackupPanel,
@@ -139,6 +155,9 @@ impl Panel {
             listing: Listing::Loading,
             incoming: None,
             focus: None,
+            trail: Vec::new(),
+            trail_mount: None,
+            return_row: None,
             replacing: false,
             git: crate::GitPanel::default(),
             backup: crate::BackupPanel::default(),
@@ -276,14 +295,18 @@ impl Panel {
         if self.marks.is_empty() { self.hovered_entry().into_iter().collect() } else { self.marked().collect() }
     }
 
+    fn page_step(&self) -> usize {
+        match self.mode {
+            ListingMode::Full => 1,
+            ListingMode::Brief => self.rows.max(1),
+        }
+    }
+
     fn clamp(&mut self) {
         self.cursor = self.cursor.min(self.len().saturating_sub(1));
         let capacity = self.capacity();
         let column = self.rows.max(1);
-        let page_step = match self.mode {
-            ListingMode::Full => 1,
-            ListingMode::Brief => column,
-        };
+        let page_step = self.page_step();
         if self.cursor < self.scroll {
             self.scroll = self.cursor - self.cursor % page_step;
         } else if self.cursor >= self.scroll + capacity {

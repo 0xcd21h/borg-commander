@@ -1,0 +1,29 @@
+---
+source: crates/borg-testkit/tests/ui_snapshots.rs
+expression: describe(&buffer)
+---
+  ╭─────────── Borg sessions ────────────╮
+  │                                      │
+  │ Session       Last used         Sta… │
+  │ web           2026-01-10 09:30  ● K… │
+  │ Default       2026-01-10 08:30  ● O… │
+  │ scratch       2024-06-01 00:00       │
+  │ migration-2…  unknown                │
+  │                                      │
+  │ The background service keeps this    │
+  │ session running. Enter attaches to   │
+  ╰en · F7 new · F8 remove · Esc quit ───╯
+                    ◈ Borg Commander v0.9.6
+--- styles ---
+  0: 0-1 Reset Rgb(30, 30, 30) NONE | 2-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  1: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  2: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-3 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 4-39 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 40-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  3: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-3 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 4-39 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 40-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  4: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-35 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 36-39 Rgb(255, 255, 255) Rgb(38, 38, 38) NONE | 40-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  5: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-35 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 36-39 Rgb(255, 255, 255) Rgb(38, 38, 38) NONE | 40-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  6: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-35 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 36-39 Rgb(255, 255, 255) Rgb(38, 38, 38) NONE | 40-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  7: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  8: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+  9: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+ 10: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-37 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 38-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
+ 11: 0-18 Reset Rgb(30, 30, 30) NONE | 19-19 Rgb(0, 0, 0) Rgb(95, 175, 215) BOLD | 20-20 Rgb(0, 0, 0) Rgb(97, 172, 215) BOLD | 21-21 Rgb(0, 0, 0) Rgb(98, 168, 215) BOLD | 22-22 Rgb(0, 0, 0) Rgb(100, 165, 215) BOLD | 23-23 Rgb(0, 0, 0) Rgb(102, 162, 215) BOLD | 24-24 Rgb(0, 0, 0) Rgb(103, 158, 215) BOLD | 25-25 Rgb(0, 0, 0) Rgb(105, 155, 215) BOLD | 26-26 Rgb(0, 0, 0) Rgb(107, 152, 215) BOLD | 27-27 Rgb(0, 0, 0) Rgb(108, 148, 215) BOLD | 28-28 Rgb(0, 0, 0) Rgb(110, 145, 215) BOLD | 29-29 Rgb(0, 0, 0) Rgb(112, 142, 215) BOLD | 30-30 Rgb(255, 255, 255) Rgb(113, 138, 215) BOLD | 31-31 Rgb(255, 255, 255) Rgb(115, 135, 215) BOLD | 32-32 Rgb(255, 255, 255) Rgb(117, 132, 215) BOLD | 33-33 Rgb(255, 255, 255) Rgb(118, 128, 215) BOLD | 34-34 Rgb(255, 255, 255) Rgb(120, 125, 215) BOLD | 35-35 Rgb(255, 255, 255) Rgb(122, 122, 215) BOLD | 36-36 Rgb(255, 255, 255) Rgb(123, 118, 215) BOLD | 37-37 Rgb(255, 255, 255) Rgb(125, 115, 215) BOLD | 38-38 Rgb(255, 255, 255) Rgb(127, 112, 215) BOLD | 39-39 Rgb(255, 255, 255) Rgb(128, 108, 215) BOLD | 40-40 Rgb(255, 255, 255) Rgb(130, 105, 215) BOLD | 41-41 Rgb(255, 255, 255) Rgb(132, 102, 215) BOLD | 42-42 Rgb(255, 255, 255) Rgb(133, 98, 215) BOLD | 43-43 Rgb(255, 255, 255) Rgb(135, 95, 215) BOLD

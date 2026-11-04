@@ -187,6 +187,8 @@ pub enum Overlay {
     TimeMachine,
     /// The signals and priority changes for a process in the monitor.
     ProcessControl(crate::ControlDialog),
+    /// What the entropy scan of every process reads, or its last hits.
+    EntropyScan(crate::EntropyDialog),
     /// What to capture from the network screen, where and for how long.
     Capture(crate::CaptureDialog),
     /// The command that installs a missing program, before it runs in the shell.

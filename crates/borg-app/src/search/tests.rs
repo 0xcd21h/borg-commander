@@ -107,6 +107,73 @@ async fn a_rules_search_lists_the_files_rules_match_and_passes_over_pipes() {
     assert_eq!(left_out, [rules.path().join("broken.yar")]);
 }
 
+/// A 64-bit ELF program whose code segment, from the second block on, holds `code`.
+fn program(code: &[u8]) -> Vec<u8> {
+    let block = borg_view::entropy::BLOCK;
+    let mut file = vec![0; block as usize];
+    file[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+    file[0x10..0x12].copy_from_slice(&2u16.to_le_bytes());
+    file[0x20..0x28].copy_from_slice(&64u64.to_le_bytes());
+    file[0x36..0x38].copy_from_slice(&56u16.to_le_bytes());
+    file[0x38..0x3a].copy_from_slice(&1u16.to_le_bytes());
+    file[64..68].copy_from_slice(&1u32.to_le_bytes());
+    file[68..72].copy_from_slice(&5u32.to_le_bytes());
+    file[72..80].copy_from_slice(&block.to_le_bytes());
+    file[96..104].copy_from_slice(&(code.len() as u64).to_le_bytes());
+    file.extend_from_slice(code);
+    file
+}
+
+fn noise(len: usize) -> Vec<u8> {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_search_for_packed_programs_lists_those_whose_code_is_mostly_high_entropy() {
+    let block = borg_view::entropy::BLOCK as usize;
+    let root = tempfile::tempdir().unwrap();
+    let packed = [noise(3 * block), vec![0x90; block]].concat();
+    fs::write(root.path().join("packed"), program(&packed)).unwrap();
+    fs::write(root.path().join("plain"), program(&[vec![0x90; 3 * block], noise(block)].concat())).unwrap();
+    fs::write(root.path().join("archive.zip"), noise(4 * block)).unwrap();
+    let mut worker = Search::with_cache(crate::size_cache::SizeCache::at(None));
+    worker.search(
+        Side::Left,
+        5,
+        SearchRequest {
+            skip: None,
+            root: root.path().into(),
+            query: "*".into(),
+            hidden: false,
+            options: borg_core::SearchOptions { kind: SearchKind::Packed, ..Default::default() },
+        },
+    );
+    let (mut found, mut progress) = (Vec::new(), SearchProgress::default());
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), worker.incoming.recv()).await.unwrap().unwrap() {
+            Msg::PackedHits { found: batch, .. } => found.extend(batch),
+            Msg::Batch { entries, .. } => assert!(entries.is_empty(), "every program comes with its entropy"),
+            Msg::SearchProgress { progress: latest, .. } => progress = latest,
+            Msg::Listed { error, .. } => {
+                assert!(error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let hits: Vec<_> = found.iter().map(|(entry, tally)| (entry.name.as_str(), tally.high, tally.first_high)).collect();
+    assert_eq!(hits, [("packed", 3, Some(block as u64))], "the first high block is where the code starts");
+    assert_eq!((progress.read, progress.unread, progress.errors), (2, 1, 0), "the archive is no program");
+}
+
 #[tokio::test]
 async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
     let root = tempfile::tempdir().unwrap();
@@ -535,6 +602,7 @@ async fn cancelled_tree_refresh_never_replaces_the_previous_saved_scan() {
             batch: Vec::new(),
             found: Vec::new(),
             rule_hits: Vec::new(),
+            packed: Vec::new(),
             background: false,
         };
         scan_sizes(&request, &mut stream, &worker_cache);

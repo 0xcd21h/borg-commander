@@ -106,12 +106,21 @@ impl Viewer {
     }
 }
 
-/// Where a file about to open shows a contents search's match, with the find bar on its query.
+/// What a file about to open shows first.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Landing {
-    pub path: PathBuf,
-    pub query: Query,
-    pub offset: u64,
+pub(crate) enum Landing {
+    /// A contents search's match at `offset`, with the find bar on its query.
+    Match { path: PathBuf, query: Query, offset: u64 },
+    /// The bytes from `offset` on, as hex rows.
+    Bytes { path: PathBuf, offset: u64 },
+}
+
+impl Landing {
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Match { path, .. } | Self::Bytes { path, .. } => path,
+        }
+    }
 }
 
 /// What a search through the viewer's file found.
@@ -183,7 +192,13 @@ pub(crate) fn open(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
 /// Opens `path` on the match a contents search found at `offset`, the find bar ready with
 /// `query` to step on through the others.
 pub(crate) fn open_at(state: &mut AppState, path: PathBuf, query: Query, offset: u64) -> Vec<Effect> {
-    state.landing = Some(Landing { path: path.clone(), query, offset });
+    state.landing = Some(Landing::Match { path: path.clone(), query, offset });
+    show(state, path)
+}
+
+/// Opens `path` as hex rows from the block at `offset` on.
+pub(crate) fn open_on_bytes(state: &mut AppState, path: PathBuf, offset: u64) -> Vec<Effect> {
+    state.landing = Some(Landing::Bytes { path: path.clone(), offset });
     show(state, path)
 }
 
@@ -218,9 +233,12 @@ pub(crate) fn open_bytes(state: &mut AppState, name: String, bytes: Vec<u8>) -> 
 /// Asks to load `path` for the viewer, on the match it lands on, so that the load colours the
 /// page around it; of the loads asked for, only the latest is shown.
 pub(crate) fn request(state: &mut AppState, path: PathBuf) -> Effect {
-    state.landing = state.landing.take().filter(|landing| landing.path == path);
+    state.landing = state.landing.take().filter(|landing| landing.path() == path);
     state.opening = Some(path.clone());
-    let at = state.landing.as_ref().map(|landing| FirstMatch { query: landing.query.clone(), offset: landing.offset });
+    let at = match &state.landing {
+        Some(Landing::Match { query, offset, .. }) => Some(FirstMatch { query: query.clone(), offset: *offset }),
+        _ => None,
+    };
     Effect::View { path, at }
 }
 
@@ -263,21 +281,32 @@ pub(crate) fn failed(state: &mut AppState, path: PathBuf, notice: String) {
     }
 }
 
-/// Opens the find bar on the landing's query and looks for the match from where it was found,
-/// in the file's source, where the offset was counted.
+/// Opens the find bar on a match landing's query and looks for the match from where it was
+/// found, in the file's source, where the offset was counted. A bytes landing shows the file as
+/// hex rows from its offset.
 fn land(state: &mut AppState) -> Vec<Effect> {
     let Some(landing) = state.landing.take() else { return Vec::new() };
-    let Some(viewer) = state.viewer.as_mut().filter(|viewer| viewer.path() == Some(landing.path.as_path())) else {
+    let Some(viewer) = state.viewer.as_mut().filter(|viewer| viewer.path() == Some(landing.path())) else {
         return Vec::new();
     };
     let Content::Text(pager) = &mut viewer.content else { return Vec::new() };
-    viewer.find.load(&landing.query);
-    viewer.find.open(None);
-    viewer.origin = landing.offset;
-    let source = if pager.formatted() { pager.toggle_source() } else { Ok(()) };
-    let shown = source.and_then(|()| pager.show_matches(viewer.find.search().cloned())).map(|()| true);
-    finish(state, shown);
-    search(state, Direction::Forward, Some(landing.offset))
+    match landing {
+        Landing::Match { query, offset, .. } => {
+            viewer.find.load(&query);
+            viewer.find.open(None);
+            viewer.origin = offset;
+            let source = if pager.formatted() { pager.toggle_source() } else { Ok(()) };
+            let shown = source.and_then(|()| pager.show_matches(viewer.find.search().cloned())).map(|()| true);
+            finish(state, shown);
+            search(state, Direction::Forward, Some(offset))
+        }
+        Landing::Bytes { offset, .. } => {
+            let hex = if pager.hex() { Ok(()) } else { pager.toggle_hex() };
+            let shown = hex.and_then(|()| pager.show_byte(offset)).map(|()| true);
+            finish(state, shown);
+            Vec::new()
+        }
+    }
 }
 
 fn close(state: &mut AppState) {

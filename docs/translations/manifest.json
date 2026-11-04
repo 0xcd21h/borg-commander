@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "4dc1b7e7326e933d91533253beb9b5f29c9e7eef6f6470c8496ffb3e7e17207d",
+      "source": "0854f09a955658e0dfc8676c559e14f73d18e6f184e8521451453cece52b3d0e",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "8d46884e65742c27c3fdcb35ee76d4c452f60c2f685524758fb1b36e83a8292b",
+        "inline code": "0a9b6fa42693a23f4d89901d31c36d8fc77390011546aa2aa0d1520f9aec9bed",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "744a68f84bdadf423a0640e6981e63b92866ffea70326ebb9cdb8490ba0ffb90"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -28,6 +28,10 @@
         {
           "level": 3,
           "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -192,6 +196,10 @@
         {
           "level": 3,
           "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
         },
         {
           "level": 3,
@@ -260,12 +268,12 @@
       ]
     },
     "pt": {
-      "source": "4dc1b7e7326e933d91533253beb9b5f29c9e7eef6f6470c8496ffb3e7e17207d",
+      "source": "0854f09a955658e0dfc8676c559e14f73d18e6f184e8521451453cece52b3d0e",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "8d46884e65742c27c3fdcb35ee76d4c452f60c2f685524758fb1b36e83a8292b",
+        "inline code": "0a9b6fa42693a23f4d89901d31c36d8fc77390011546aa2aa0d1520f9aec9bed",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "744a68f84bdadf423a0640e6981e63b92866ffea70326ebb9cdb8490ba0ffb90"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -287,6 +295,10 @@
         {
           "level": 3,
           "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -451,6 +463,10 @@
         {
           "level": 3,
           "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
         },
         {
           "level": 3,
@@ -519,12 +535,12 @@
       ]
     },
     "es": {
-      "source": "4dc1b7e7326e933d91533253beb9b5f29c9e7eef6f6470c8496ffb3e7e17207d",
+      "source": "0854f09a955658e0dfc8676c559e14f73d18e6f184e8521451453cece52b3d0e",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "8d46884e65742c27c3fdcb35ee76d4c452f60c2f685524758fb1b36e83a8292b",
+        "inline code": "0a9b6fa42693a23f4d89901d31c36d8fc77390011546aa2aa0d1520f9aec9bed",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "744a68f84bdadf423a0640e6981e63b92866ffea70326ebb9cdb8490ba0ffb90"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -546,6 +562,10 @@
         {
           "level": 3,
           "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -710,6 +730,10 @@
         {
           "level": 3,
           "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
         },
         {
           "level": 3,
@@ -778,12 +802,12 @@
       ]
     },
     "ru": {
-      "source": "4dc1b7e7326e933d91533253beb9b5f29c9e7eef6f6470c8496ffb3e7e17207d",
+      "source": "0854f09a955658e0dfc8676c559e14f73d18e6f184e8521451453cece52b3d0e",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "8d46884e65742c27c3fdcb35ee76d4c452f60c2f685524758fb1b36e83a8292b",
+        "inline code": "0a9b6fa42693a23f4d89901d31c36d8fc77390011546aa2aa0d1520f9aec9bed",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "744a68f84bdadf423a0640e6981e63b92866ffea70326ebb9cdb8490ba0ffb90"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -805,6 +829,10 @@
         {
           "level": 3,
           "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -969,6 +997,10 @@
         {
           "level": 3,
           "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
         },
         {
           "level": 3,

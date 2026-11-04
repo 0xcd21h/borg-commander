@@ -56,6 +56,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::results::found_by_rules(state, side, generation, found);
             Vec::new()
         }
+        Msg::PackedHits { side, generation, found } => {
+            crate::results::found_packed(state, side, generation, found);
+            Vec::new()
+        }
         Msg::Listed { side, generation, error } => listed(state, side, generation, error),
         Msg::ArchiveReading { side, generation, read, total } => {
             crate::archive::reading(state, side, generation, read, total);
@@ -141,6 +145,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 
         Msg::Activity { id, result } => {
             crate::activity::receive(state, id, result, now);
+            Vec::new()
+        }
+        Msg::EntropyScan { id, found, done } => {
+            crate::activity::receive_entropy(&mut state.activity, id, found, done);
             Vec::new()
         }
         Msg::MemorySearchProgress { id, scanned, total, hits } => {

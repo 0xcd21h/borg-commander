@@ -117,21 +117,27 @@ pub(crate) fn prompt_field_at(prompt: &Prompt, screen: Rect, point: Position) ->
 }
 
 pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
+    draw_yes_no(confirm.title, &confirm.message, confirm.accept, theme, screen, buf)
+}
+
+/// A question with Yes and No buttons, Yes chosen while `accept` is true.
+pub(crate) fn draw_yes_no(
+    title: &str,
+    message: &str,
+    accept: bool,
+    theme: &Theme,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Rect {
     let styles = &theme.styles;
-    let rect = confirm_rect(confirm, screen);
-    let inner = frame(confirm.title, None, theme, rect, buf);
-    let [message, _, buttons] =
+    let rect = confirm_rect(message, screen);
+    let inner = frame(title, None, theme, rect, buf);
+    let [lines, _, buttons] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 
-    Paragraph::new(message_lines(&confirm.message, message.width))
-        .style(styles.overlay)
-        .centered()
-        .render(message, buf);
-    let (yes, no) = if confirm.accept {
-        (styles.overlay_selected, styles.overlay)
-    } else {
-        (styles.overlay, styles.overlay_selected)
-    };
+    Paragraph::new(message_lines(message, lines.width)).style(styles.overlay).centered().render(lines, buf);
+    let (yes, no) =
+        if accept { (styles.overlay_selected, styles.overlay) } else { (styles.overlay, styles.overlay_selected) };
     Line::from(vec![Span::styled(tr!(yes), yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(tr!(no), no)])
         .centered()
         .render(buttons, buf);
@@ -170,16 +176,21 @@ pub(crate) fn message_lines(message: &str, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-fn confirm_rect(confirm: &Confirm, screen: Rect) -> Rect {
+fn confirm_rect(message: &str, screen: Rect) -> Rect {
     let width = dialog_width(screen);
-    let lines = message_lines(&confirm.message, width.saturating_sub(4)).len();
+    let lines = message_lines(message, width.saturating_sub(4)).len();
     let height =
         CONFIRM_HEIGHT.saturating_add(u16::try_from(lines.saturating_sub(1)).unwrap_or(u16::MAX)).min(screen.height);
     centered(screen, width, height)
 }
 
 pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Option<bool> {
-    let rect = confirm_rect(confirm, screen);
+    yes_no_at(&confirm.message, screen, point)
+}
+
+/// The button of the question asking `message` at `point`: true for Yes, false for No.
+pub(crate) fn yes_no_at(message: &str, screen: Rect, point: Position) -> Option<bool> {
+    let rect = confirm_rect(message, screen);
     if !rect.contains(point)
         || rect.width < (tr!(yes).width() + BUTTON_GAP.len() + tr!(no).width()) as u16
         || rect.height < CONFIRM_HEIGHT
@@ -202,7 +213,7 @@ pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Op
     }
 }
 
-fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut Buffer) -> Rect {
+pub(crate) fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut Buffer) -> Rect {
     let styles = &theme.styles;
     Clear.render(rect, buf);
     let block = Block::bordered()
@@ -217,6 +228,11 @@ fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut B
     let inner = block.inner(rect);
     block.render(rect, buf);
     padded(inner)
+}
+
+/// Where a dialog framed in `rect` puts its content.
+pub(crate) fn content(rect: Rect) -> Rect {
+    padded(Block::bordered().inner(rect))
 }
 
 fn padded(inner: Rect) -> Rect {
@@ -286,7 +302,7 @@ mod localized_button_tests {
                     accept: false,
                 };
                 let screen = Rect::new(0, 0, 80, 24);
-                let rect = confirm_rect(&confirm, screen);
+                let rect = confirm_rect(&confirm.message, screen);
                 let yes = tr!(yes).width() as u16;
                 let gap = BUTTON_GAP.width() as u16;
                 let no = tr!(no).width() as u16;

@@ -93,6 +93,28 @@ pub(crate) fn answer(key: &KeyEvent) -> Option<bool> {
     }
 }
 
+/// What a key does to a question with Yes and No buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum YesNo {
+    /// The other button becomes the chosen one.
+    Switch,
+    /// The question closes with this answer, or with none for a letter that names neither button.
+    Close(Option<bool>),
+    Ignore,
+}
+
+/// The way a question with Yes and No buttons takes `key` while `accept` is the chosen one:
+/// Enter takes the chosen button, Esc says No, a letter answers, and the arrows and Tab switch.
+pub(crate) fn yes_no(accept: bool, key: &KeyEvent) -> YesNo {
+    match key.code {
+        KeyCode::Char(_) => YesNo::Close(answer(key)),
+        KeyCode::Esc => YesNo::Close(Some(false)),
+        KeyCode::Enter => YesNo::Close(Some(accept)),
+        KeyCode::Left | KeyCode::Right | KeyCode::Tab => YesNo::Switch,
+        _ => YesNo::Ignore,
+    }
+}
+
 /// The first letter of a button's label, without its brackets.
 fn initial(label: &str) -> Option<char> {
     label.chars().find(|c| c.is_alphabetic()).map(lowercase)

@@ -207,6 +207,15 @@ fn a_rules_search_takes_no_text_or_file_count_and_lists_files() {
             && request.options.reads_files()));
 }
 
+#[test]
+fn packed_executables_come_after_rule_matches_and_take_the_same_fields() {
+    assert_eq!(SearchKind::Rules.step(false), SearchKind::Packed);
+    assert_eq!(SearchKind::Packed.step(false), SearchKind::All);
+    assert_eq!(SearchKind::Packed.label(), "Packed executables");
+    let options = crate::SearchOptions { kind: SearchKind::Packed, ..Default::default() };
+    assert!(options.reads_files() && SearchKind::Packed.judges_files() && !SearchKind::Files.judges_files());
+}
+
 fn search_key_of(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
     let Some(Overlay::Search(form)) = state.overlay.take() else { panic!("search window") };
     search_key(state, form, &key)
