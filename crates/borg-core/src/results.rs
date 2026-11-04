@@ -6,10 +6,15 @@ use std::{
 
 use borg_rules::{Problem, RuleMatch};
 use borg_vfs::Entry;
+use borg_view::entropy::Tally;
 
 use crate::{Action, AppState, Effect, LineInput, Overlay, Panel, Prompt, PromptPurpose, Side};
 
 pub const RESULT_LIMIT: usize = 20_000;
+/// The share of a program's code blocks with high entropy from which a search lists it as
+/// packed. Code compiled the usual way stays well below; packed or encrypted code fills nearly
+/// all of it.
+pub const PACKED_SHARE: f64 = 0.7;
 pub const COLLECTION_LIMIT: usize = 64;
 const COLLECTION_NAME_LIMIT: usize = 80;
 
@@ -99,6 +104,8 @@ pub struct Results {
     pub lines: HashMap<PathBuf, crate::LineMatch>,
     /// The rules each file a rules search found matched, worst first, by the file's path.
     pub rule_hits: HashMap<PathBuf, Vec<RuleMatch>>,
+    /// The entropy of the code of each program a search for packed ones found, by its path.
+    pub packed: HashMap<PathBuf, Tally>,
 }
 
 /// Where a contents search found its first match in a file, and the query it found it with.
@@ -147,6 +154,7 @@ impl Results {
             collapsed: HashSet::new(),
             lines: HashMap::new(),
             rule_hits: HashMap::new(),
+            packed: HashMap::new(),
         }
     }
 
@@ -166,6 +174,21 @@ impl Results {
     /// Whether the results come from scanning files with rules.
     pub fn by_rules(&self) -> bool {
         matches!(&self.source, ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Rules)
+    }
+
+    /// Whether the results come from looking for packed programs.
+    pub fn by_entropy(&self) -> bool {
+        matches!(&self.source, ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Packed)
+    }
+
+    /// The entropy of the code of the program at `path`, when a search for packed ones found it.
+    pub fn code_tally(&self, path: &Path) -> Option<&Tally> {
+        self.packed.get(path)
+    }
+
+    /// Where the first block of high entropy in the code of the program at `path` starts.
+    pub fn first_high(&self, path: &Path) -> Option<u64> {
+        self.code_tally(path)?.first_high
     }
 
     /// The rules the file at `path` matched, worst first.
@@ -194,6 +217,9 @@ impl Results {
             }
             ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Rules => {
                 tr!(rules_search_title, query = request.query)
+            }
+            ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Packed => {
+                tr!(packed_search_title, query = request.query)
             }
             ResultSource::Search { request, .. } if let Some(contents) = &request.options.contents => {
                 tr!(contents_search_title, query = request.query, contents = contents.text)
@@ -645,6 +671,26 @@ pub(crate) fn found_by_rules(state: &mut AppState, side: Side, generation: u64, 
         })
         .collect();
     panel.receive(generation, entries, show_hidden);
+}
+
+/// Programs a search for packed ones found, each with the entropy of its code.
+pub(crate) fn found_packed(state: &mut AppState, side: Side, generation: u64, found: Vec<(Entry, Tally)>) {
+    let show_hidden = state.settings.preferences.show_hidden;
+    let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let Some(results) = panel.results.as_mut() else { return };
+    let entries = found
+        .into_iter()
+        .map(|(entry, tally)| {
+            results.packed.insert(entry.identity().to_path_buf(), tally);
+            entry
+        })
+        .collect();
+    panel.receive(generation, entries, show_hidden);
+}
+
+/// Whether the code a program's `tally` sums up looks packed or encrypted.
+pub fn looks_packed(tally: &Tally) -> bool {
+    tally.share() >= PACKED_SHARE
 }
 
 /// The query that finds a rule's evidence in the viewer, which looks within one line at a time:

@@ -908,6 +908,41 @@ fn mkdir_focuses_the_new_directory_after_it_is_created() {
     assert_eq!(hovered(&state), Some("fresh"));
 }
 
+fn list_from(state: &mut AppState, now: Instant, effects: Vec<Effect>, entries: &[Entry]) {
+    let Some(Effect::List { side, generation, .. }) = effects.into_iter().find(|e| matches!(e, Effect::List { .. }))
+    else {
+        panic!("expected a listing")
+    };
+    update(state, Msg::Batch { side, generation, entries: entries.to_vec() }, now);
+    update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+#[test]
+fn leaving_a_folder_shows_its_parent_scrolled_as_it_was() {
+    const FOLDERS: usize = 60;
+    let folders: Vec<Entry> = (0..FOLDERS).map(|i| dir(&format!("d{i:02}"))).collect();
+    let (mut state, now) = setup_with(folders.clone());
+    let rows = state.active_panel().rows();
+    for _ in 0..rows * 2 {
+        press(&mut state, now, key(KeyCode::Down));
+    }
+    for _ in 0..rows / 2 {
+        press(&mut state, now, key(KeyCode::Up));
+    }
+    let view = |state: &AppState| (hovered(state).map(str::to_owned), state.active_panel().scroll());
+    let before = view(&state);
+    assert!(before.1 > 0, "the listing is scrolled with the cursor mid-screen");
+
+    for leave in [key(KeyCode::Enter), key(KeyCode::Left), KeyEvent::new(KeyCode::PageUp, KeyModifiers::CONTROL)] {
+        let effects = press(&mut state, now, key(KeyCode::Enter));
+        list_from(&mut state, now, effects, &folders);
+        assert_eq!(state.active_panel().scroll(), 0, "a folder entered opens at the top");
+        let effects = press(&mut state, now, leave);
+        list_from(&mut state, now, effects, &folders);
+        assert_eq!(view(&state), before, "{leave:?} returns to the same screen");
+    }
+}
+
 #[test]
 fn operations_wait_for_an_idle_shell() {
     let (mut state, now) = setup_with(vec![file("a")]);
@@ -1608,6 +1643,46 @@ fn a_rules_search_lists_files_with_the_rules_they_match_and_f3_lands_on_the_evid
         press(&mut state, now, key(KeyCode::F(3))),
         [Effect::View { path: PathBuf::from("/home/install.sh"), at }]
     );
+}
+
+#[test]
+fn a_search_for_packed_programs_shows_their_code_entropy_and_f3_opens_the_first_high_block_as_hex() {
+    use borg_view::entropy::{BLOCK, Entropy, Tally};
+
+    let (mut state, now) = setup();
+    let request = crate::SearchRequest {
+        root: "/home".into(),
+        query: "*".into(),
+        hidden: false,
+        options: crate::SearchOptions { kind: crate::SearchKind::Packed, ..Default::default() },
+        skip: None,
+    };
+    let effects = crate::results::start_search(&mut state, request);
+    let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
+    let noise = borg_view::entropy::Entropy::of(&(0..=255u8).cycle().take(4096).collect::<Vec<_>>());
+    let mut tally = Tally::default();
+    (1..5).for_each(|block| tally.add(block * BLOCK, if block == 1 { Entropy::default() } else { noise }));
+    assert!(crate::looks_packed(&tally));
+    let mut tool = file("tool");
+    tool.source = Some(PathBuf::from("/home/tool"));
+    update(&mut state, Msg::PackedHits { side, generation, found: vec![(tool, tally)] }, now);
+    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert!(results.by_entropy() && !results.by_rules());
+    assert_eq!(results.title(), "Packed executables: *");
+    assert_eq!(results.first_high(Path::new("/home/tool")), Some(2 * BLOCK));
+    assert_eq!(results.first_match(Path::new("/home/tool")), None, "no query to find");
+
+    let path = PathBuf::from("/home/tool");
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View { path: path.clone(), at: None }]);
+    let bytes: Vec<u8> = (0..BLOCK * 6).map(|at| (at % 7) as u8).collect();
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(std::sync::Arc::new(bytes), width, height).unwrap();
+    update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    let viewer = state.viewer.as_ref().unwrap();
+    assert!(text(viewer).hex(), "shown as hex rows");
+    assert_eq!(text(viewer).offset(), 2 * BLOCK, "from the first high block");
 }
 
 #[test]

@@ -39,6 +39,14 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
                 _ => None,
             })
         }
+        Overlay::EntropyScan(dialog) => {
+            let (rect, at) = crate::activity_view::entropy::choice_at(dialog, screen, point);
+            Some(match (click, at) {
+                (true, Some(at)) => Some(pick_row(at, dialog.selected)),
+                (true, None) => hinted(rect, tr!(entropy_dialog_keys), true, point),
+                _ => None,
+            })
+        }
         Overlay::Capture(dialog) => {
             let (rect, at) = crate::network_view::capture_field_at(dialog, &state.network, screen, point);
             Some(match (click, at) {
@@ -120,6 +128,7 @@ fn scrolls(overlay: &Overlay) -> bool {
         | Overlay::Folders(_)
         | Overlay::Remotes(_)
         | Overlay::ProcessControl(_)
+        | Overlay::EntropyScan(_)
         | Overlay::Storage(_)
         | Overlay::TimeMachine => true,
         Overlay::Exclusions(editor) => editor.editing.is_none(),

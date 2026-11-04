@@ -378,7 +378,7 @@ pub(crate) fn open(state: &mut AppState, path: PathBuf, slot: EditorSlot) -> Vec
 /// ready with `query` to step on through the others. A file the editor leaves to the viewer
 /// opens there on the match.
 pub(crate) fn open_at(state: &mut AppState, path: PathBuf, slot: EditorSlot, query: Query, offset: u64) -> Vec<Effect> {
-    state.landing = Some(Landing { path: path.clone(), query, offset });
+    state.landing = Some(Landing::Match { path: path.clone(), query, offset });
     vec![Effect::OpenEditor { path, slot }]
 }
 
@@ -402,13 +402,13 @@ pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<Edit
     let beside = state.beside.take_if(|(side, _)| slot == EditorSlot::Panel(*side)).map(|(_, beside)| beside);
     match result {
         Ok(file) => {
-            let landing = state.landing.take_if(|landing| landing.path == file.path);
+            let landing = state.landing.take_if(|landing| landing.path() == file.path);
             let mut editor = Editor::new(file, slot);
             let reread = holder(state, slot).as_ref().and_then(|held| held.beside);
             editor.beside = beside.or(reread);
             let (rows, columns) = text_size(state, &editor);
-            if let Some(landing) = landing {
-                land(&mut editor, &landing, rows);
+            if let Some(Landing::Match { query, offset, .. }) = &landing {
+                land(&mut editor, query, *offset, rows);
             }
             editor.follow(rows, columns);
             editor.paint(rows);
@@ -430,7 +430,7 @@ pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<Edit
             vec![crate::viewer::request(state, path)]
         }
         Err(OpenError::Failed(path, error)) => {
-            state.landing.take_if(|landing| landing.path == path);
+            state.landing.take_if(|landing| landing.path() == path);
             state.notice = Some(tr!(editor_open_failed, name = display_name(&path), error = error));
             Vec::new()
         }

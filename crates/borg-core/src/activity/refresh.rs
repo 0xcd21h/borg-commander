@@ -197,6 +197,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.region_cursor = selected.and_then(|key| activity.find_row(&key)).unwrap_or(0);
             activity.retry = None;
             activity.schedule_preview(now);
+            super::entropy::land_on_region(activity, now);
         }
         Ok(ActivityData::Files(files)) => {
             let selected = activity.files.get(activity.file_cursor).map(|f| (f.descriptor.clone(), f.name.clone()));
@@ -212,8 +213,10 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.census_cursor = activity.census_cursor.min(census.pages.len().saturating_sub(1));
             activity.census = Some(census);
             activity.retry = None;
+            super::entropy::land_on_page(activity);
         }
         Ok(ActivityData::Control(report)) => notice = super::control::receive(activity, request, report),
+        Ok(ActivityData::Entropy(_)) => {}
         Ok(ActivityData::Snapshot(snapshot)) => {
             activity.previous = activity
                 .snapshot

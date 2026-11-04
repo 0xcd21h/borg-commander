@@ -30,8 +30,11 @@ pub(super) fn view(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect
     if crate::network::is_capture(&path) && state.settings.preferences.system_plugin {
         return vec![Effect::OpenCapture(path)];
     }
-    match first_match(state.panel(side), &path) {
-        Some(FirstMatch { query, offset }) => crate::viewer::open_at(state, path, query, offset),
+    if let Some(FirstMatch { query, offset }) = first_match(state.panel(side), &path) {
+        return crate::viewer::open_at(state, path, query, offset);
+    }
+    match first_high(state.panel(side), &path) {
+        Some(offset) => crate::viewer::open_on_bytes(state, path, offset),
         None => crate::viewer::open(state, path),
     }
 }
@@ -39,6 +42,11 @@ pub(super) fn view(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect
 /// Where a contents search found its first match in the file at `path`.
 fn first_match(panel: &Panel, path: &Path) -> Option<FirstMatch> {
     panel.results.as_ref()?.first_match(path)
+}
+
+/// Where a search for packed programs found the first high-entropy code in the one at `path`.
+fn first_high(panel: &Panel, path: &Path) -> Option<u64> {
+    panel.results.as_ref()?.first_high(path)
 }
 
 pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
