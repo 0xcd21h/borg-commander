@@ -27,6 +27,7 @@ borg-testkit = { path = "crates/borg-testkit" }
 borg-ui   = { path = "crates/borg-ui" }
 borg-vfs  = { path = "crates/borg-vfs" }
 borg-view = { path = "crates/borg-view" }
+borg-watch-ebpf = { path = "crates/borg-watch-ebpf" }
 
 alacritty_terminal = "0.26"
 anyhow             = "1"
@@ -90,6 +91,9 @@ two-face           = { version = "0.5.2", default-features = false, features = [
 pulldown-cmark     = "0.13"
 boreal             = { version = "1.4", default-features = false, features = ["hash", "object"] }
 uzers              = "0.12"
+aya                = { version = "0.14", default-features = false }
+aya-ebpf           = "0.2"
+aya-build          = "0.2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

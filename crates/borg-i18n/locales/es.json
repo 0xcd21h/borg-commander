@@ -1449,6 +1449,7 @@
   "watch_stream_file": "archivo",
   "watch_stream_socket": "socket de red",
   "watch_stream_other": "otra cosa",
+  "watch_source_ebpf": "todos los procesos de esta máquina, leídos dentro del kernel en el momento en que arranca cada programa",
   "watch_source_kernel": "todos los procesos de esta máquina, según los informa el kernel",
   "watch_source_own": "solo tus propios procesos, así que los comandos breves pueden escaparse",
   "watch_source_polled": "todos los procesos de esta máquina, mirados cuatro veces por segundo, así que los comandos breves pueden escaparse",

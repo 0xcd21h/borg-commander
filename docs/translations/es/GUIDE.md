@@ -1911,15 +1911,23 @@ Para saber de cada proceso en el momento en que arranca, instala la parte que co
 borg service watch install
 ```
 
-Esto pide tu contraseña una vez e instala una unidad aparte,
-`borg-commander-watch.service`, que ejecuta `borg --watch-root`. Esa parte lee los eventos de
-procesos del kernel, lee `/proc` y detiene, continúa o termina un proceso cuando Borg se lo pide.
-No hace nada más: la unidad renuncia a todas las capacidades que no necesita, y la interfaz de
-Borg sigue corriendo como tú. Los dos lados hablan por un socket de la carpeta de estado al que
-solo llega su propietario, Borg acepta una conexión únicamente de un proceso que corre como root,
-y la parte root se conecta únicamente a un socket que pertenece al usuario para el que se instaló.
-`borg service watch uninstall` la quita, y `borg service watch status` imprime de dónde vienen los
-eventos y qué se ha encontrado.
+Esto pide tu contraseña una vez e instala una unidad aparte, `borg-commander-watch.service`, que
+ejecuta `borg --watch-root`. Esa parte carga en el kernel unos pequeños programas propios de Borg,
+que leen cada arranque de programa antes de que el programa nuevo se ejecute: el programa, la línea
+de comandos tal como se pasó, el proceso que lo inició y el usuario. Un comando que termina al
+instante se informa igualmente, y también la línea de comandos de un proceso que la reescribe
+después. La parte root lee `/proc` para el resto, y detiene, continúa o termina un proceso cuando
+Borg se lo pide. No hace nada más: la unidad renuncia a todas las capacidades que no necesita, y la
+interfaz de Borg sigue corriendo como tú. Los dos lados hablan por un socket de la carpeta de estado
+al que solo llega su propietario, Borg acepta una conexión únicamente de un proceso que corre como
+root, y la parte root se conecta únicamente a un socket que pertenece al usuario para el que se
+instaló. `borg service watch uninstall` la quita, y `borg service watch status` imprime de dónde
+vienen los eventos y qué se ha encontrado.
+
+Los programas necesitan Linux 5.8 o posterior. En un kernel más antiguo, o donde la parte root no
+puede cargarlos, escucha los eventos de procesos del kernel y lee todo de `/proc`, y la página lo
+indica bajo la lista. Después de actualizar Borg, vuelve a ejecutar `borg service watch install`
+para que la unidad reciba los permisos que necesite la nueva versión.
 
 Las alertas de cualquiera de los dos lados son las mismas alertas, en el mismo registro. Un
 proceso de otro usuario solo lo puede congelar la parte root, así que reanudarlo o terminarlo
@@ -2010,11 +2018,26 @@ Conócelas antes de confiar en él.
 - Sin el vigilante como root, Borg solo ve tus propios procesos, y un comando que termina en menos
   de un cuarto de segundo puede desaparecer antes de que Borg mire. Los servicios que se ejecutan
   como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root.
+- Antes de Linux 5.8, o donde la parte root no puede cargar sus programas, Borg lee cada proceso
+  nuevo en `/proc` después de que el kernel lo informa. Un comando que termina al instante puede
+  haber desaparecido para entonces, y un proceso puede cambiar antes su línea de comandos.
 - Algunos kernels no envían eventos de procesos, como en ciertas máquinas virtuales y entornos de
   contenedores. Borg ejecutándose como root y el vigilante como root miran entonces todos los
   procesos cuatro veces por segundo, y un comando breve puede terminar antes de que miren.
 - Una ráfaga de procesos nuevos puede llenar la cola entre el kernel y Borg, y entonces el kernel
   descarta eventos, así que algunos arranques nunca se examinan.
+- Un comando que terminó antes de que Borg pudiera leer `/proc` lleva solo lo que leyeron los
+  programas: su programa, su línea de comandos, su proceso padre y su usuario. Su terminal, sus
+  flujos estándar y sus variables de precarga terminaron con él, así que las reglas sobre ellos no
+  pueden activarse. **Programa borrado mientras corre** solo se activa con él cuando su archivo ya
+  no existía al arrancar, como en un programa ejecutado desde la memoria.
+- Los programas guardan los primeros 4 KiB de una línea de comandos, y Borg toma una más larga de
+  `/proc` mientras el proceso sigue ahí. Encuentran la línea de comandos y el archivo del programa
+  gracias a la información de tipos que el kernel publica en `/sys/kernel/btf/vmlinux`. En un kernel
+  compilado sin ella, la línea de comandos también sale de `/proc`. Un comando que terminó antes se
+  nombra entonces por la ruta con la que se inició, que puede ser relativa a su carpeta de trabajo o
+  pasar por un enlace simbólico, así que **Programa en una carpeta temporal** puede pasarlo por
+  alto.
 - Cualquier cosa que se ejecute como el usuario del vigilante puede detener el vigilante, cambiar
   sus archivos en la carpeta de estado o dejar continuar un proceso congelado con `kill -CONT`.
   Congelar te da tiempo para mirar, y el dueño del proceso todavía puede deshacerlo.

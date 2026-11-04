@@ -1,0 +1,27 @@
+[package]
+name                   = "borg-watch-ebpf"
+description            = "The process watcher's eBPF programs, which run inside the Linux kernel, and the layout of what they report"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+publish                = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "borg-watch-ebpf"
+path = "src/main.rs"
+
+[target.'cfg(target_arch = "bpf")'.dependencies]
+aya-ebpf = { workspace = true }
+
+# The programs that run in the kernel cannot do without `unsafe`: every read the kernel allows
+# them goes through a raw pointer. The kernel's verifier checks each of those reads before it
+# loads a program. The layout the rest of Borg reads stays free of `unsafe` (see lib.rs).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

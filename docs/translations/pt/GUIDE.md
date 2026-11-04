@@ -1897,14 +1897,22 @@ borg service watch install
 ```
 
 Isto pede a sua palavra-passe uma vez e instala uma unidade separada,
-`borg-commander-watch.service`, que corre `borg --watch-root`. Essa parte lê os eventos de
-processo do kernel, lê `/proc` e para, continua ou termina um processo quando o Borg pede. Não faz
-mais nada: a unidade abdica de todas as capacidades de que não precisa, e a interface do Borg
-continua a correr como você. Os dois lados falam por um socket na pasta de estado a que só o dono
-chega, o Borg aceita uma ligação apenas de um processo que corre como root, e a parte root liga-se
-apenas a um socket que pertence ao utilizador para quem foi instalada.
-`borg service watch uninstall` remove-a, e `borg service watch status` imprime de onde vêm os
-eventos e o que foi encontrado.
+`borg-commander-watch.service`, que corre `borg --watch-root`. Essa parte carrega no kernel pequenos
+programas do próprio Borg, que leem cada arranque de programa antes de o programa novo correr: o
+programa, a linha de comandos tal como foi passada, o processo que o iniciou e o utilizador. Um
+comando que termina de imediato é comunicado na mesma, e também a linha de comandos de um processo
+que a reescreve depois. A parte root lê `/proc` para o resto, e para, continua ou termina um
+processo quando o Borg pede. Não faz mais nada: a unidade abdica de todas as capacidades de que não
+precisa, e a interface do Borg continua a correr como você. Os dois lados falam por um socket na
+pasta de estado a que só o dono chega, o Borg aceita uma ligação apenas de um processo que corre
+como root, e a parte root liga-se apenas a um socket que pertence ao utilizador para quem foi
+instalada. `borg service watch uninstall` remove-a, e `borg service watch status` imprime de onde
+vêm os eventos e o que foi encontrado.
+
+Os programas precisam do Linux 5.8 ou posterior. Num kernel mais antigo, ou onde a parte root não os
+pode carregar, ela ouve os eventos de processo do kernel e lê tudo de `/proc`, e a página indica-o
+por baixo da lista. Depois de atualizar o Borg, execute de novo `borg service watch install`, para
+que a unidade receba os direitos de que a nova versão precise.
 
 Os alertas de qualquer dos lados são os mesmos alertas, no mesmo registo. Um processo de outro
 utilizador só pode ser congelado pela parte root, por isso retomá-lo ou terminá-lo a partir da
@@ -1994,11 +2002,26 @@ Conheça-as antes de confiar nele.
 - Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
   em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
   como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+- Antes do Linux 5.8, ou onde a parte root não consegue carregar os seus programas, o Borg lê cada
+  processo novo em `/proc` depois de o kernel o comunicar. Um comando que termina de imediato pode
+  já ter desaparecido, e um processo pode mudar antes a sua linha de comandos.
 - Alguns kernels não enviam eventos de processos, como em certas máquinas virtuais e ambientes de
   contentores. O Borg a correr como root e o observador como root veem então todos os processos
   quatro vezes por segundo, e um comando curto pode terminar antes de olharem.
 - Uma rajada de processos novos pode encher a fila entre o kernel e o Borg, e o kernel descarta
   então eventos, por isso alguns arranques nunca são examinados.
+- Um comando que terminou antes de o Borg conseguir ler `/proc` traz apenas o que os programas
+  leram: o seu programa, a linha de comandos, o processo pai e o utilizador. O seu terminal, os
+  fluxos padrão e as variáveis de pré-carregamento terminaram com ele, por isso as regras sobre eles
+  não podem disparar. **Programa apagado enquanto corre** só dispara com ele quando o seu ficheiro
+  já não existia ao arrancar, como num programa executado a partir da memória.
+- Os programas guardam os primeiros 4 KiB de uma linha de comandos, e o Borg vai buscar uma mais
+  longa a `/proc` enquanto o processo ainda lá está. Encontram a linha de comandos e o ficheiro do
+  programa através da informação de tipos que o kernel publica em `/sys/kernel/btf/vmlinux`. Num
+  kernel compilado sem ela, a linha de comandos também vem de `/proc`. Um comando que terminou antes
+  é então identificado pelo caminho com que foi iniciado, que pode ser relativo à sua pasta de
+  trabalho ou passar por uma ligação simbólica, por isso **Programa numa pasta temporária** pode não
+  o apanhar.
 - Tudo o que corre como o utilizador do observador pode parar o observador, alterar os seus
   ficheiros na pasta de estado ou deixar continuar um processo congelado com `kill -CONT`. Congelar
   dá-lhe tempo para ver, e o dono do processo ainda o pode desfazer.
