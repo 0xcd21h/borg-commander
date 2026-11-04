@@ -1934,14 +1934,15 @@ Conócelas antes de confiar en él.
 - Un comando que terminó antes de que Borg pudiera leer `/proc` lleva solo lo que leyeron los
   programas: su programa, su línea de comandos, su proceso padre y su usuario. Su terminal, sus
   flujos estándar y sus variables de precarga terminaron con él, así que las reglas sobre ellos no
-  pueden activarse. Ya no queda nada que muestre si su archivo se borró, así que **Programa borrado
-  mientras corre** y **Programa sin archivo** tampoco pueden activarse. Su programa es la ruta con
-  la que se inició, que puede ser relativa a su carpeta de trabajo o pasar por un enlace simbólico,
-  así que **Programa en una carpeta temporal** puede pasarlo por alto.
+  pueden activarse. **Programa borrado mientras corre** solo se activa con él cuando su archivo ya
+  no existía al arrancar, como en un programa ejecutado desde la memoria.
 - Los programas guardan los primeros 4 KiB de una línea de comandos, y Borg toma una más larga de
-  `/proc` mientras el proceso sigue ahí. Encuentran la línea de comandos gracias a la información de
-  tipos que el kernel publica en `/sys/kernel/btf/vmlinux`. En un kernel compilado sin ella, la
-  línea de comandos también sale de `/proc`.
+  `/proc` mientras el proceso sigue ahí. Encuentran la línea de comandos y el archivo del programa
+  gracias a la información de tipos que el kernel publica en `/sys/kernel/btf/vmlinux`. En un kernel
+  compilado sin ella, la línea de comandos también sale de `/proc`. Un comando que terminó antes se
+  nombra entonces por la ruta con la que se inició, que puede ser relativa a su carpeta de trabajo o
+  pasar por un enlace simbólico, así que **Programa en una carpeta temporal** puede pasarlo por
+  alto.
 - Cualquier cosa que se ejecute como el usuario del vigilante puede detener el vigilante, cambiar
   sus archivos en la carpeta de estado o dejar continuar un proceso congelado con `kill -CONT`.
   Congelar te da tiempo para mirar, y el dueño del proceso todavía puede deshacerlo.

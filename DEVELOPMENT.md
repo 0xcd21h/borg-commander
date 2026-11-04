@@ -448,33 +448,42 @@ raw pointer, and the kernel's verifier checks each one before it loads the progr
 
 Three programs run at tracepoints. `sched_process_fork` remembers each new task's parent and start
 time in an LRU map and `sched_process_exit` forgets it. `sched_process_exec` sends the program start
-with the process, its parent, its user, the name it took, the path it was started by and the first
-4 KiB of its command line. It reads the command line from `mm->arg_start` to `mm->arg_end` of the
-current task, where the kernel has just copied it into the new program's memory, so the pages are
-there to read. Reading the caller's `argv` at `sys_enter_execve` fails whenever those pages need a
-fault first, which `bpf_probe_read_user` cannot take, and a forked child often starts that way.
-Records go through one 4 MiB ring buffer, a counter on each processor counts the records that found
-no room, and the reader says so in the service's log at most once a minute.
+with the process, its parent, its user, the name it took, the path it was started by, the file the
+kernel ran and the first 4 KiB of its command line. It reads the command line from `mm->arg_start`
+to `mm->arg_end` of the current task, where the kernel has just copied it into the new program's
+memory, so the pages are there to read. Reading the caller's `argv` at `sys_enter_execve` fails
+whenever those pages need a fault first, which `bpf_probe_read_user` cannot take, and a forked child
+often starts that way. It names the file by climbing from `mm->exe_file` through each `dentry`'s
+parent to the root of the mount namespace, crossing from a mount's root to its mount point, as
+`d_path` does; it writes the names from the file up and Borg puts them in order. A file whose inode
+has no links (a memfd, or a file deleted before the exec) is marked as one. Records go through one 4
+MiB ring buffer, a counter on each processor counts the records that found no room, and the reader
+says so in the service's log at most once a minute.
 
 The programs take what they need to know about the running kernel as globals, which `watch::ebpf`
 fills in before it loads them, so they hold across kernel versions. The offsets of the tracepoint
-fields come from the kernel's own `format` files in tracefs. The offsets of `task_struct.mm`,
-`mm_struct.arg_start` and `mm_struct.arg_end` come from `/sys/kernel/btf/vmlinux`, which
-`watch::ebpf::btf` reads with its own small parser, following anonymous structs and unions the way
-C does. Without BTF those offsets stay zero and the command line comes from `/proc`. Where Borg
-runs in a pid namespace of its own, the programs report only that namespace's processes, by its
-numbers.
+fields come from the kernel's own `format` files in tracefs. The offsets of the members the programs
+follow (`task_struct.mm`, the argument area and `exe_file` of `mm_struct`, and the members of
+`file`, `path`, `dentry`, `qstr`, `inode`, `vfsmount` and `mount` the climb needs) come from
+`/sys/kernel/btf/vmlinux`, which `watch::ebpf::btf` reads with its own small parser, following
+anonymous structs and unions the way C does. Without BTF those offsets stay zero: the command line
+comes from `/proc`, and the program is the path it was started by. The climb keeps its byte count in
+the record, where the verifier tracks no value, so every way through a step looks the same to it and
+it checks each step once; with the count in a register the verifier gives up after a million
+instructions. Where Borg runs in a pid namespace of its own, the programs report only that
+namespace's processes, by its numbers.
 
 `watch::ebpf` reads records and merges what the programs read with `/proc`, all as pure functions
 tested on any system. `/proc` gives the streams, the terminal, the preload variables and the
 parents. The command line from the exec replaces one the process rewrote, unless the programs cut it
-short. A process whose `/proc` entry shows another name and runs another file has started a later
-program, so the programs' program and command line win. A process that runs a deleted file never
-counts as one that moved on, so renaming itself cannot clear **Program deleted while it runs**. A
-`/proc` entry that started after the exec belongs to a later process with the same number, and a
-process gone from `/proc` is reported from the programs alone, its start counted in clock ticks from
-the fork. `watch::ebpf::load` (Linux, `cfg(borg_ebpf)`) loads and attaches the programs with `aya`
-and reads the ring buffer on a thread of its own, letting each record go before it waits for the
+short. A process whose `/proc` entry runs another file than the one the kernel ran has started a
+later program, so the programs' program and command line win; without that file, another name and
+another file than the path leads to say the same. A process that runs a deleted file never counts as
+one that moved on, so renaming itself cannot clear **Program deleted while it runs**. A `/proc`
+entry that started after the exec belongs to a later process with the same number, and a process
+gone from `/proc` is reported from the programs alone, its start counted in clock ticks from the
+fork. `watch::ebpf::load` (Linux, `cfg(borg_ebpf)`) loads and attaches the programs with `aya` and
+reads the ring buffer on a thread of its own, letting each record go before it waits for the
 watcher. The watcher tries eBPF first, then the proc connector, then looking at the process list,
 and `WatchSource::Ebpf` and `FromRoot::Ebpf` say when it is eBPF.
 

@@ -49,8 +49,14 @@ fn load() -> Result<Loaded> {
     };
     if layout.is_none() {
         eprintln!("borg watch: the kernel does not say where it keeps command lines; they come from /proc");
+    } else if layout.is_some_and(|layout| layout.exe.is_none()) {
+        eprintln!(
+            "borg watch: the kernel does not say where it keeps the file each program came from; a command that \
+             ends at once is named by the path it was started by"
+        );
     }
-    let layout = layout.unwrap_or(Layout { task_mm: 0, mm_arg_start: 0, mm_arg_end: 0 });
+    let layout = layout.unwrap_or_default();
+    let exe = layout.exe.unwrap_or_default();
     raise_memlock();
     let mut ebpf = EbpfLoader::new()
         .override_global("EXEC_FILENAME", &offsets.exec_filename, true)
@@ -58,6 +64,17 @@ fn load() -> Result<Loaded> {
         .override_global("TASK_MM", &layout.task_mm, true)
         .override_global("MM_ARG_START", &layout.mm_arg_start, true)
         .override_global("MM_ARG_END", &layout.mm_arg_end, true)
+        .override_global("MM_EXE_FILE", &exe.mm_exe_file, true)
+        .override_global("FILE_MNT", &exe.file_mnt, true)
+        .override_global("FILE_DENTRY", &exe.file_dentry, true)
+        .override_global("DENTRY_PARENT", &exe.dentry_parent, true)
+        .override_global("DENTRY_NAME", &exe.dentry_name, true)
+        .override_global("VFSMOUNT_ROOT", &exe.vfsmount_root, true)
+        .override_global("MOUNT_MNT", &exe.mount_mnt, true)
+        .override_global("MOUNT_PARENT", &exe.mount_parent, true)
+        .override_global("MOUNT_MOUNTPOINT", &exe.mount_mountpoint, true)
+        .override_global("FILE_INODE", &exe.file_inode, true)
+        .override_global("INODE_NLINK", &exe.inode_nlink, true)
         .override_global("PIDNS_DEV", &namespace.dev, true)
         .override_global("PIDNS_INO", &namespace.ino, true)
         .load(aya::include_bytes_aligned!(concat!(env!("OUT_DIR"), "/borg-watch-ebpf")))?;

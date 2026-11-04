@@ -17,7 +17,7 @@
 
 use anyhow::{Context, Result, bail};
 use borg_core::{ProcessKey, StartedProcess};
-use borg_watch_ebpf::{ARGS_BYTES, COMM_BYTES, EXEC, Exec, FILENAME_BYTES};
+use borg_watch_ebpf::{ARGS_BYTES, COMM_BYTES, EXE_BYTES, EXEC, Exec, FILENAME_BYTES};
 use std::{
     collections::HashMap,
     fs,
@@ -54,6 +54,12 @@ pub struct Seen {
     /// The path the program was started by, as it was passed: absolute, or relative to the
     /// process's working folder.
     pub program: PathBuf,
+    /// The file the kernel ran, as `/proc/<pid>/exe` names it, when the programs read it. For a
+    /// script it is the interpreter, as in `/proc`.
+    pub executable: Option<PathBuf>,
+    /// The file had no name left on disk as the program started: run from memory, or from a
+    /// file deleted first.
+    pub unlinked: bool,
     /// The command line as the kernel copied it into the new program, when the programs read it.
     pub command: Option<Vec<String>>,
     /// The command line had more than the programs keep.
@@ -81,21 +87,30 @@ impl Seen {
         key.start <= ticks(self.exec_ns) + 1
     }
 
-    /// Whether `/proc` shows a later program of the process: it took another name, and the file
-    /// it runs is not where this path leads. A process may rename itself without starting
+    /// Whether `/proc` shows a later program of the process: the file it runs is not the one the
+    /// kernel ran. Without that file, the process took another name and runs something other
+    /// than where the path it was started by leads: a process may rename itself without starting
     /// anything, and a script keeps its own name while it runs its interpreter. A process that
     /// runs a deleted file stays as `/proc` shows it, so renaming itself cannot hide that the
     /// file is gone.
     fn moved_on(&self, process: &StartedProcess, processes: &Processes) -> bool {
-        process.name != self.name
-            && !process.program_deleted
-            && processes.runs(process.key.pid, &self.program) != Some(true)
+        if process.program_deleted {
+            return false;
+        }
+        let pid = process.key.pid;
+        match &self.executable {
+            Some(executable) => {
+                process.program.as_ref() != Some(executable) && processes.runs(pid, executable) != Some(true)
+            }
+            None => process.name != self.name && processes.runs(pid, &self.program) != Some(true),
+        }
     }
 
     fn correct(&self, process: &mut StartedProcess, processes: &Processes) {
         if self.moved_on(process, processes) {
             process.name.clone_from(&self.name);
             process.program = self.program();
+            process.program_deleted = self.unlinked;
             process.command = self.command.clone().unwrap_or_default();
             process.link = process.program.as_deref().and_then(|program| {
                 processes.started_by_link(process.key.pid, &process.name, &process.command, program)
@@ -115,6 +130,7 @@ impl Seen {
             key: ProcessKey { pid, start: ticks(started) },
             name: self.name.clone(),
             program: self.program(),
+            program_deleted: self.unlinked,
             command: self.command.clone().unwrap_or_default(),
             user: super::user_name(self.uid),
             uid: self.uid,
@@ -124,8 +140,10 @@ impl Seen {
         }
     }
 
+    /// The file the kernel ran where the programs read it, and otherwise the path the program
+    /// was started by.
     fn program(&self) -> Option<PathBuf> {
-        (!self.program.as_os_str().is_empty()).then(|| self.program.clone())
+        self.executable.clone().or_else(|| (!self.program.as_os_str().is_empty()).then(|| self.program.clone()))
     }
 }
 
@@ -149,6 +167,22 @@ fn text_at(bytes: &[u8], at: usize, length: usize) -> Option<String> {
     Some(String::from_utf8_lossy(&field[..end]).into_owned())
 }
 
+/// The path the programs climbed from a file to the root, which they write from the file up:
+/// `true`, `bin`, `usr` is `/usr/bin/true`. Nothing when they wrote no name.
+fn path_of(names: &[u8]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let names: Vec<&[u8]> = names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).collect();
+    if names.is_empty() {
+        return None;
+    }
+    let mut path = Vec::new();
+    for name in names.iter().rev() {
+        path.push(b'/');
+        path.extend_from_slice(name);
+    }
+    Some(PathBuf::from(std::ffi::OsStr::from_bytes(&path)))
+}
+
 /// Reads a program start as the programs lay it out: the process and what they read. A record
 /// that is short or of a kind Borg does not know is nothing.
 pub fn parse(bytes: &[u8]) -> Option<(u32, Seen)> {
@@ -162,6 +196,8 @@ pub fn parse(bytes: &[u8]) -> Option<(u32, Seen)> {
     } else {
         None
     };
+    let exe_length = usize::try_from(u32_at(bytes, offset_of!(Exec, exe_length))?).ok()?.min(EXE_BYTES);
+    let exe = offset_of!(Exec, exe);
     let seen = Seen {
         parent: u32_at(bytes, offset_of!(Exec, parent))?,
         uid: u32_at(bytes, offset_of!(Exec, uid))?,
@@ -169,6 +205,8 @@ pub fn parse(bytes: &[u8]) -> Option<(u32, Seen)> {
         exec_ns: u64_at(bytes, offset_of!(Exec, exec_ns))?,
         name: text_at(bytes, offset_of!(Exec, comm), COMM_BYTES)?,
         program: PathBuf::from(text_at(bytes, offset_of!(Exec, filename), FILENAME_BYTES)?),
+        executable: path_of(bytes.get(exe..exe + exe_length)?),
+        unlinked: u32_at(bytes, offset_of!(Exec, exe_unlinked))? != 0,
         command,
         truncated: u32_at(bytes, offset_of!(Exec, args_truncated))? != 0,
     };

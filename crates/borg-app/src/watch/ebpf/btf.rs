@@ -1,8 +1,9 @@
-//! Reads where the running kernel keeps the fields the programs follow to a command line, from
-//! the type information the kernel publishes at `/sys/kernel/btf/vmlinux`.
+//! Reads where the running kernel keeps the fields the programs follow to a command line and to
+//! the file a program came from, from the type information the kernel publishes at
+//! `/sys/kernel/btf/vmlinux`.
 //!
-//! The layout of `task_struct` and `mm_struct` changes with every kernel build and configuration,
-//! so no offset can be built into Borg. BTF describes each type as a list of records, and this
+//! The layout of `task_struct`, `mm_struct` and the file system's structs changes with every
+//! kernel build and configuration, so no offset can be built into Borg. BTF describes each type as a list of records, and this
 //! reader walks them for the few members it needs, following anonymous structs and unions the
 //! way C does.
 
@@ -30,17 +31,43 @@ const KIND_ENUM64: u32 = 19;
 const KINDS_KNOWN: u32 = 19;
 
 /// Where the programs find a process's command line: the task's memory, and the start and end
-/// of the arguments in it. Byte offsets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// of the arguments in it. Byte offsets; zero tells the programs the kernel did not say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Layout {
     pub task_mm: u32,
     pub mm_arg_start: u32,
     pub mm_arg_end: u32,
+    /// How to name the file a program came from, when the kernel describes all of it.
+    pub exe: Option<ExeLayout>,
+}
+
+/// Where the programs find the file a program came from, and how they climb from it to the
+/// root: byte offsets, each from the start of the struct named first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExeLayout {
+    /// `mm_struct.exe_file`.
+    pub mm_exe_file: u32,
+    /// `file.f_path.mnt` and `file.f_path.dentry`.
+    pub file_mnt: u32,
+    pub file_dentry: u32,
+    /// `dentry.d_parent` and `dentry.d_name.name`.
+    pub dentry_parent: u32,
+    pub dentry_name: u32,
+    /// `vfsmount.mnt_root`.
+    pub vfsmount_root: u32,
+    /// `mount.mnt`, the `vfsmount` inside each mount, and `mount.mnt_parent` and
+    /// `mount.mnt_mountpoint`.
+    pub mount_mnt: u32,
+    pub mount_parent: u32,
+    pub mount_mountpoint: u32,
+    /// `file.f_inode` and `inode.i_nlink`, the count of names the file has on disk.
+    pub file_inode: u32,
+    pub inode_nlink: u32,
 }
 
 impl Layout {
     /// Reads the layout from a kernel's BTF. Nothing when the BTF is not one Borg can read or
-    /// lacks a member.
+    /// lacks a member the command line needs.
     pub fn read(btf: &[u8]) -> Option<Self> {
         let types = Types::parse(btf)?;
         let task = types.structure("task_struct")?;
@@ -49,6 +76,33 @@ impl Layout {
             task_mm: types.member(task, "mm", 0)?,
             mm_arg_start: types.member(mm, "arg_start", 0)?,
             mm_arg_end: types.member(mm, "arg_end", 0)?,
+            exe: ExeLayout::read(&types, mm),
+        })
+    }
+}
+
+impl ExeLayout {
+    fn read(types: &Types<'_>, mm: u32) -> Option<Self> {
+        let file = types.structure("file")?;
+        let path = types.structure("path")?;
+        let dentry = types.structure("dentry")?;
+        let qstr = types.structure("qstr")?;
+        let vfsmount = types.structure("vfsmount")?;
+        let mount = types.structure("mount")?;
+        let inode = types.structure("inode")?;
+        let f_path = types.member(file, "f_path", 0)?;
+        Some(Self {
+            mm_exe_file: types.member(mm, "exe_file", 0)?,
+            file_mnt: f_path.checked_add(types.member(path, "mnt", 0)?)?,
+            file_dentry: f_path.checked_add(types.member(path, "dentry", 0)?)?,
+            dentry_parent: types.member(dentry, "d_parent", 0)?,
+            dentry_name: types.member(dentry, "d_name", 0)?.checked_add(types.member(qstr, "name", 0)?)?,
+            vfsmount_root: types.member(vfsmount, "mnt_root", 0)?,
+            mount_mnt: types.member(mount, "mnt", 0)?,
+            mount_parent: types.member(mount, "mnt_parent", 0)?,
+            mount_mountpoint: types.member(mount, "mnt_mountpoint", 0)?,
+            file_inode: types.member(file, "f_inode", 0)?,
+            inode_nlink: types.member(inode, "i_nlink", 0)?,
         })
     }
 }
@@ -284,6 +338,11 @@ mod tests {
     /// `mm_struct` with its members inside an anonymous struct behind a typedef and a volatile
     /// qualifier, and bit-field offsets on the outer struct.
     fn kernel() -> Vec<u8> {
+        kernel_types().0.bytes()
+    }
+
+    /// The types of [`kernel`], and the id of its `unsigned long`.
+    fn kernel_types() -> (Blob, u32) {
         let mut blob = Blob::new();
         let long = blob.int("unsigned long");
         blob.forward("task_struct");
@@ -299,13 +358,80 @@ mod tests {
         let union = blob.aggregate(KIND_UNION, "", false, &[("padding", long, 0), ("", arguments, 0)]);
         let wrapped = blob.typedef("wrapped", union);
         let volatile = blob.record("", KIND_VOLATILE, 0, false, wrapped);
-        blob.aggregate(KIND_STRUCT, "mm_struct", true, &[("count", long, 3 << 24), ("", volatile, 64)]);
+        blob.aggregate(
+            KIND_STRUCT,
+            "mm_struct",
+            true,
+            &[("count", long, 3 << 24), ("", volatile, 64), ("exe_file", long, 960 * 8)],
+        );
+        (blob, long)
+    }
+
+    /// The kernel above with the file system's structs, laid out as later kernels have them:
+    /// `f_path` and `d_name` each in an anonymous union with a private copy.
+    fn kernel_with_files() -> Vec<u8> {
+        let (mut blob, long) = kernel_types();
+        let path = blob.aggregate(KIND_STRUCT, "path", false, &[("mnt", long, 0), ("dentry", long, 64)]);
+        let f_path = blob.aggregate(KIND_UNION, "", false, &[("f_path", path, 0), ("__f_path", path, 0)]);
+        blob.aggregate(
+            KIND_STRUCT,
+            "file",
+            false,
+            &[("f_mode", long, 0), ("f_inode", long, 32 * 8), ("", f_path, 64 * 8)],
+        );
+        let nlink = blob.aggregate(KIND_UNION, "", false, &[("i_nlink", long, 0), ("__i_nlink", long, 0)]);
+        blob.aggregate(KIND_STRUCT, "inode", false, &[("i_mode", long, 0), ("", nlink, 72 * 8)]);
+        let qstr = blob.aggregate(KIND_STRUCT, "qstr", false, &[("hash_len", long, 0), ("name", long, 64)]);
+        let d_name = blob.aggregate(KIND_UNION, "", false, &[("d_name", qstr, 0), ("__d_name", qstr, 0)]);
+        blob.aggregate(
+            KIND_STRUCT,
+            "dentry",
+            false,
+            &[("d_flags", long, 0), ("d_parent", long, 24 * 8), ("", d_name, 32 * 8)],
+        );
+        let vfsmount = blob.aggregate(KIND_STRUCT, "vfsmount", false, &[("mnt_root", long, 0), ("mnt_sb", long, 64)]);
+        blob.aggregate(
+            KIND_STRUCT,
+            "mount",
+            false,
+            &[
+                ("mnt_hash", long, 0),
+                ("mnt_parent", long, 16 * 8),
+                ("mnt_mountpoint", long, 24 * 8),
+                ("mnt", vfsmount, 32 * 8),
+            ],
+        );
         blob.bytes()
     }
 
     #[test]
     fn finds_the_command_line_inside_anonymous_members() {
-        assert_eq!(Layout::read(&kernel()), Some(Layout { task_mm: 2_048, mm_arg_start: 304, mm_arg_end: 312 }));
+        assert_eq!(
+            Layout::read(&kernel()),
+            Some(Layout { task_mm: 2_048, mm_arg_start: 304, mm_arg_end: 312, exe: None }),
+            "a kernel that does not describe its file system still gives the command line"
+        );
+    }
+
+    #[test]
+    fn finds_the_path_to_the_program_through_the_file_system() {
+        let layout = Layout::read(&kernel_with_files()).expect("a layout");
+        assert_eq!(
+            layout.exe,
+            Some(ExeLayout {
+                mm_exe_file: 960,
+                file_mnt: 64,
+                file_dentry: 72,
+                dentry_parent: 24,
+                dentry_name: 40,
+                vfsmount_root: 0,
+                mount_mnt: 32,
+                mount_parent: 16,
+                mount_mountpoint: 24,
+                file_inode: 32,
+                inode_nlink: 72,
+            })
+        );
     }
 
     #[test]
@@ -340,5 +466,7 @@ mod tests {
         let layout = Layout::read(&btf).expect("the kernel's own BTF has task_struct and mm_struct");
         assert!(layout.mm_arg_start < layout.mm_arg_end);
         assert_eq!(layout.mm_arg_end - layout.mm_arg_start, 8);
+        let exe = layout.exe.expect("and the file system's structs");
+        assert_eq!(exe.file_dentry - exe.file_mnt, 8, "a path is a mount and an entry");
     }
 }

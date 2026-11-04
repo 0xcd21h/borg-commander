@@ -1918,14 +1918,15 @@ Conheça-as antes de confiar nele.
 - Um comando que terminou antes de o Borg conseguir ler `/proc` traz apenas o que os programas
   leram: o seu programa, a linha de comandos, o processo pai e o utilizador. O seu terminal, os
   fluxos padrão e as variáveis de pré-carregamento terminaram com ele, por isso as regras sobre eles
-  não podem disparar. Já não resta nada que mostre se o seu ficheiro foi apagado, por isso
-  **Programa apagado enquanto corre** e **Programa sem ficheiro** também não podem disparar. O seu
-  programa é o caminho com que foi iniciado, que pode ser relativo à sua pasta de trabalho ou passar
-  por uma ligação simbólica, por isso **Programa numa pasta temporária** pode não o apanhar.
+  não podem disparar. **Programa apagado enquanto corre** só dispara com ele quando o seu ficheiro
+  já não existia ao arrancar, como num programa executado a partir da memória.
 - Os programas guardam os primeiros 4 KiB de uma linha de comandos, e o Borg vai buscar uma mais
-  longa a `/proc` enquanto o processo ainda lá está. Encontram a linha de comandos através da
-  informação de tipos que o kernel publica em `/sys/kernel/btf/vmlinux`. Num kernel compilado sem
-  ela, a linha de comandos também vem de `/proc`.
+  longa a `/proc` enquanto o processo ainda lá está. Encontram a linha de comandos e o ficheiro do
+  programa através da informação de tipos que o kernel publica em `/sys/kernel/btf/vmlinux`. Num
+  kernel compilado sem ela, a linha de comandos também vem de `/proc`. Um comando que terminou antes
+  é então identificado pelo caminho com que foi iniciado, que pode ser relativo à sua pasta de
+  trabalho ou passar por uma ligação simbólica, por isso **Programa numa pasta temporária** pode não
+  o apanhar.
 - Tudo o que corre como o utilizador do observador pode parar o observador, alterar os seus
   ficheiros na pasta de estado ou deixar continuar um processo congelado com `kill -CONT`. Congelar
   dá-lhe tempo para ver, e o dono do processo ainda o pode desfazer.

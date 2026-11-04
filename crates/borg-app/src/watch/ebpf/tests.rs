@@ -29,6 +29,8 @@ fn exec_record(pid: u32, parent: u32, name: &str, program: &str, command: Option
     put_u32(&mut record, offset_of!(Exec, args_length), 0);
     put_u32(&mut record, offset_of!(Exec, args_read), 0);
     put_u32(&mut record, offset_of!(Exec, args_truncated), 0);
+    put_u32(&mut record, offset_of!(Exec, exe_length), 0);
+    put_u32(&mut record, offset_of!(Exec, exe_unlinked), 0);
     put_u64(&mut record, offset_of!(Exec, forked_ns), EXEC_NS - 2_000_000);
     put_u64(&mut record, offset_of!(Exec, exec_ns), EXEC_NS);
     for field in
@@ -47,6 +49,14 @@ fn exec_record(pid: u32, parent: u32, name: &str, program: &str, command: Option
     record
 }
 
+/// Gives a record the file the kernel ran, as the programs write it: each name from the file up.
+fn with_exe(mut record: Vec<u8>, names: &[&str]) -> Vec<u8> {
+    let bytes: Vec<u8> = names.iter().flat_map(|name| name.bytes().chain([0])).collect();
+    put_u32(&mut record, offset_of!(Exec, exe_length), bytes.len() as u32);
+    record[offset_of!(Exec, exe)..offset_of!(Exec, exe) + bytes.len()].copy_from_slice(&bytes);
+    record
+}
+
 fn seen(name: &str, program: &str, command: Option<&[&str]>) -> Seen {
     Seen {
         parent: 0,
@@ -55,6 +65,8 @@ fn seen(name: &str, program: &str, command: Option<&[&str]>) -> Seen {
         exec_ns: EXEC_NS,
         name: name.into(),
         program: program.into(),
+        executable: None,
+        unlinked: false,
         command: command.map(|command| command.iter().map(|argument| (*argument).to_owned()).collect()),
         truncated: false,
     }
@@ -75,8 +87,21 @@ fn records_read_as_the_kernel_side_lays_them_out() {
     );
     assert!(!seen.truncated);
 
+    assert_eq!(seen.executable, None, "the programs did not name the file");
+
     let (_, unread) = parse(&exec_record(300, 200, "curl", "/usr/bin/curl", None)).expect("a start");
     assert_eq!(unread.command, None, "a command line the programs could not read comes from /proc");
+
+    let named = with_exe(exec_record(300, 200, "quick", "./quick", None), &["quick", "tmp"]);
+    let (_, named) = parse(&named).expect("a start");
+    assert_eq!(named.program, Path::new("./quick"), "the path it was started by");
+    assert_eq!(named.executable.as_deref(), Some(Path::new("/tmp/quick")), "and the file the kernel ran");
+    let mut memory = with_exe(exec_record(300, 200, "3", "/dev/fd/3", None), &["memfd:payload"]);
+    put_u32(&mut memory, offset_of!(Exec, exe_unlinked), 1);
+    let (_, memory) = parse(&memory).expect("a start");
+    assert_eq!(memory.executable.as_deref(), Some(Path::new("/memfd:payload")), "a file with no folder");
+    assert!(memory.unlinked, "and no name on disk");
+    assert!(!named.unlinked);
 
     let mut cut = exec_record(300, 200, "curl", "/usr/bin/curl", Some(&["curl", "-s"]));
     put_u32(&mut cut, offset_of!(Exec, args_truncated), 1);
@@ -94,10 +119,13 @@ fn a_short_record_or_one_of_an_unknown_kind_is_nothing() {
     put_u32(&mut unknown, 0, 99);
     assert_eq!(parse(&unknown), None);
 
-    let mut lying = whole;
+    let mut lying = with_exe(whole, &["sh", "bin"]);
     put_u32(&mut lying, offset_of!(Exec, args_length), u32::MAX);
+    put_u32(&mut lying, offset_of!(Exec, exe_length), u32::MAX);
     let (_, seen) = parse(&lying).expect("a length past the record is cut to it");
     assert_eq!(seen.command.as_deref().and_then(<[String]>::first).map(String::as_str), Some("sh"));
+    let executable = seen.executable.expect("a path");
+    assert!(executable.ends_with("bin/sh"), "the bytes past what was written are cut to the field: {executable:?}");
 }
 
 const SCHED_PROCESS_EXEC: &str = "name: sched_process_exec\nID: 312\nformat:\n\
@@ -256,6 +284,52 @@ fn a_command_that_ended_before_borg_could_read_it_is_still_reported() {
 }
 
 #[test]
+fn a_command_that_ended_is_named_by_the_file_the_kernel_ran() {
+    let proc = FakeProc::new();
+    let mut seen = seen("quick", "./quick", Some(&["./quick", "--now"]));
+    seen.executable = Some(PathBuf::from("/tmp/quick"));
+    let started = seen.started(&proc.processes(), 300, SystemTime::UNIX_EPOCH);
+    assert_eq!(started.program.as_deref(), Some(Path::new("/tmp/quick")), "where the relative path led");
+
+    assert!(!started.program_deleted);
+
+    seen.unlinked = true;
+    let started = seen.started(&proc.processes(), 300, SystemTime::UNIX_EPOCH);
+    assert!(started.program_deleted, "a file that was gone as it started is still a deleted program");
+
+    seen.executable = None;
+    seen.unlinked = false;
+    let started = seen.started(&proc.processes(), 300, SystemTime::UNIX_EPOCH);
+    assert_eq!(started.program.as_deref(), Some(Path::new("./quick")), "the path it was started by, without it");
+}
+
+#[test]
+fn a_process_that_renamed_itself_after_a_relative_start_keeps_its_program() {
+    let proc = FakeProc::new();
+    let program = proc.file("opt/agent/agent");
+    proc.process(300, "agent: worker", 1, EXEC_TICK, &program, &["agent: worker"]);
+    let mut seen = seen("agent", "./agent", Some(&["./agent", "--worker"]));
+    seen.executable = Some(program.clone());
+
+    let started = seen.started(&proc.processes(), 300, SystemTime::UNIX_EPOCH);
+    assert_eq!(started.program.as_deref(), Some(program.as_path()), "the same file, so the same program");
+    assert_eq!(started.name, "agent: worker");
+    assert_eq!(started.command, ["./agent", "--worker"]);
+}
+
+#[test]
+fn a_process_that_runs_another_file_than_the_kernel_ran_has_moved_on() {
+    let proc = FakeProc::new();
+    proc.process(300, "env", 1, EXEC_TICK, &proc.file("bin/sleep"), &["sleep", "60"]);
+    let mut seen = seen("env", "/usr/bin/env", Some(&["env", "sleep", "60"]));
+    seen.executable = Some(PathBuf::from("/usr/bin/env"));
+
+    let started = seen.started(&proc.processes(), 300, SystemTime::UNIX_EPOCH);
+    assert_eq!(started.program.as_deref(), Some(Path::new("/usr/bin/env")), "even under the same name");
+    assert_eq!(started.command, ["env", "sleep", "60"]);
+}
+
+#[test]
 fn the_command_line_as_it_was_passed_wins_over_one_the_process_rewrote() {
     let proc = FakeProc::new();
     let program = proc.file("usr/bin/python3");
@@ -340,7 +414,7 @@ async fn the_programs_load_and_report_a_command_that_ends_at_once() {
     let mut child = std::process::Command::new("/bin/sh").args(["-c", "exit 0", &marker]).spawn().unwrap();
     let pid = child.id();
     assert!(child.wait().unwrap().success());
-    let command_lines = fs::read(KERNEL_BTF).ok().and_then(|btf| btf::Layout::read(&btf)).is_some();
+    let layout = fs::read(KERNEL_BTF).ok().and_then(|btf| btf::Layout::read(&btf));
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
     let executed = loop {
         let executed = tokio::time::timeout_at(deadline, events.recv())
@@ -355,12 +429,44 @@ async fn the_programs_load_and_report_a_command_that_ends_at_once() {
     assert_eq!(seen.program, Path::new("/bin/sh"));
     assert_eq!(seen.parent, std::process::id(), "the test started it");
     assert!(seen.forked_ns > 0 && seen.forked_ns <= seen.exec_ns);
-    if command_lines {
+    if let Some(layout) = layout {
         let command = ["/bin/sh", "-c", "exit 0", &marker].map(str::to_owned);
         assert_eq!(seen.command.as_deref(), Some(&command[..]));
+        if layout.exe.is_some() {
+            let shell = fs::canonicalize("/bin/sh").unwrap();
+            assert_eq!(seen.executable.as_deref(), Some(shell.as_path()), "the file /bin/sh leads to");
+        }
     }
     let started = executed.started(&Processes::default(), SystemTime::now()).expect("it is reported");
     assert_eq!(started.key.pid, pid);
-    assert_eq!(started.program.as_deref(), Some(Path::new("/bin/sh")), "the command has already ended");
+    let program = seen.executable.as_deref().unwrap_or(Path::new("/bin/sh"));
+    assert_eq!(started.program.as_deref(), Some(program), "the command has already ended");
     assert_eq!(started.ancestors.first().map(|parent| parent.pid), Some(std::process::id()));
+
+    if layout.is_some_and(|layout| layout.exe.is_some()) {
+        // A program run from memory: no folder, and no name on disk.
+        use std::os::fd::AsRawFd;
+        let memory = rustix::fs::memfd_create("borg-ebpf-check", rustix::fs::MemfdFlags::CLOEXEC).unwrap();
+        let mut writer = fs::File::from(memory);
+        std::io::Write::write_all(&mut writer, &fs::read("/bin/true").unwrap()).unwrap();
+        let reader = fs::File::open(format!("/proc/self/fd/{}", writer.as_raw_fd())).unwrap();
+        drop(writer);
+        let mut child =
+            std::process::Command::new(format!("/proc/self/fd/{}", reader.as_raw_fd())).arg(&marker).spawn().unwrap();
+        let pid = child.id();
+        assert!(child.wait().unwrap().success());
+        let executed = loop {
+            let executed = tokio::time::timeout_at(deadline, events.recv())
+                .await
+                .expect("the start from memory is reported in time")
+                .expect("the programs keep sending");
+            if executed.pid == pid {
+                break executed;
+            }
+        };
+        let seen = executed.seen.as_deref().expect("the programs read it");
+        let executable = seen.executable.as_deref().expect("the programs name the file");
+        assert!(executable.starts_with("/memfd:borg-ebpf-check"), "{executable:?}");
+        assert!(seen.unlinked, "a file in memory has no name on disk");
+    }
 }
