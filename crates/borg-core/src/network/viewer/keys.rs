@@ -158,10 +158,10 @@ fn scroll_details(view: &mut TrafficView, code: KeyCode, width: usize) {
 /// F3 shows the selected conversation's stream, or the selected packet's bytes, in the viewer
 /// as hex rows.
 fn view_bytes(state: &mut AppState) -> Vec<Effect> {
-    if let Some((name, bytes)) = state.network.viewer.as_deref().and_then(selected_bytes) {
-        crate::viewer::open_bytes(state, name, bytes);
+    match state.network.viewer.as_deref().and_then(selected_bytes) {
+        Some((name, bytes)) => crate::viewer::open_bytes(state, name, bytes),
+        None => Vec::new(),
     }
-    Vec::new()
 }
 
 /// The bytes F3 shows, named for where they come from: a conversation by its ends, a packet

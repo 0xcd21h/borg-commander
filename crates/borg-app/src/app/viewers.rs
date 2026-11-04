@@ -1,5 +1,5 @@
-//! Opening files in the viewer, from this machine or a paired server, and searching them off
-//! the event loop.
+//! Opening files in the viewer, from this machine or a paired server, and searching them and
+//! reading their entropy off the event loop.
 
 use super::App;
 use anyhow::{Context, Result};
@@ -63,6 +63,34 @@ impl App {
 
     pub(super) fn stop_viewer_search(&mut self) {
         if let Some(stop) = self.viewer_search.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Reads the entropy along the viewer's source on a thread of its own, for the strip beside
+    /// its hex rows.
+    pub(super) fn profile_viewer(&mut self, id: u64) {
+        self.stop_viewer_profile();
+        let Some(borg_core::Content::Text(pager)) = self.state.viewer.as_ref().map(|viewer| &viewer.content) else {
+            return;
+        };
+        let source = pager.source();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.viewer_profile = Some(stop.clone());
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let profile = borg_view::entropy::Profile::read(&*source, &|| !stop.load(Ordering::Relaxed));
+            let profile = match profile {
+                Ok(Some(profile)) => Ok(profile),
+                Ok(None) => return,
+                Err(error) => Err(error.to_string()),
+            };
+            let _ = messages.send(Msg::ViewerProfiled { id, profile });
+        });
+    }
+
+    pub(super) fn stop_viewer_profile(&mut self) {
+        if let Some(stop) = self.viewer_profile.take() {
             stop.store(true, Ordering::Relaxed);
         }
     }

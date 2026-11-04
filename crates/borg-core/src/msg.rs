@@ -231,6 +231,11 @@ pub enum Msg {
         id: u64,
         percent: u8,
     },
+    /// The entropy of the viewer's source that `id` asked for, or why it could not be read.
+    ViewerProfiled {
+        id: u64,
+        profile: Result<borg_view::entropy::Profile, String>,
+    },
     ShellExited,
     Notice(String),
     /// An index for instant search was built, with this many entries, or failed.
@@ -414,6 +419,12 @@ pub enum Effect {
         count: bool,
     },
     StopFindInViewer,
+    /// Reads the entropy of the viewer's source in the background, for the strip beside its
+    /// hex rows, stopping any read before.
+    ProfileViewer {
+        id: u64,
+    },
+    StopProfileViewer,
     /// Reads a file for the built-in editor in `slot`.
     OpenEditor {
         path: PathBuf,

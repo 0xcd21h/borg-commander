@@ -332,6 +332,86 @@ fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() 
     check("viewer_hex_find", &stage, buffer)
 }
 
+/// Sends `msg`, reading the entropy the viewer asks for as the app does.
+fn send_and_profile(stage: &mut Stage, msg: Msg) {
+    for effect in borg_core::update(&mut stage.state, msg, stage.started) {
+        let borg_core::Effect::ProfileViewer { id } = effect else { continue };
+        let Some(borg_core::Content::Text(pager)) = stage.state.viewer.as_ref().map(|viewer| &viewer.content) else {
+            continue;
+        };
+        let profile = borg_view::entropy::Profile::read(&*pager.source(), &|| true).map_err(|e| e.to_string());
+        let profile = profile.and_then(|profile| profile.ok_or_else(|| "stopped".to_owned()));
+        stage.send(Msg::ViewerProfiled { id, profile });
+    }
+}
+
+/// A made-up packed program, a few 4 KiB blocks of each part: a header, code, zeros, a
+/// compressed payload and the text of its help.
+fn packed_sample() -> Vec<u8> {
+    let block = borg_view::entropy::BLOCK as usize;
+    let mut noise = 0x2545_f491_4f6c_dd1du64;
+    let mut random = move || {
+        noise ^= noise << 13;
+        noise ^= noise >> 7;
+        noise ^= noise << 17;
+        noise as u8
+    };
+    let opcodes: Vec<u8> = (0x40..0x58).collect();
+    let mut bytes = b"BORGPAK\0\x01\x02\x00\x00\x10\x00\x00\x00".to_vec();
+    bytes.resize(block, 0);
+    bytes.extend((0..4 * block).map(|_| opcodes[usize::from(random()) % opcodes.len()]));
+    bytes.extend(vec![0; 2 * block]);
+    bytes.extend((0..6 * block).map(|_| random()));
+    bytes.extend(b"usage: tool [--verbose] <file>\n".iter().cycle().take(3 * block));
+    bytes
+}
+
+#[test]
+fn viewer_hex_rows_show_the_files_entropy_beside_them() -> Result<()> {
+    use std::sync::Arc;
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let path = PathBuf::from("/opt/tool/tool.pak");
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::for_path(Arc::new(packed_sample()), &path, width, height)?;
+    stage.state.opening = Some(path.clone());
+    send_and_profile(&mut stage, Msg::Opened(borg_core::Viewer::new(path, borg_core::Content::Text(pager))));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "hex · entropy 0.03, low")?;
+    check("viewer_hex_entropy", &stage, buffer)?;
+
+    send_and_profile(&mut stage, key(KeyCode::Char(']')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "7000  ")?;
+    ensure_text(&buffer, ", high")?;
+    check("viewer_hex_entropy_high", &stage, buffer)?;
+
+    let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap();
+    stage.state.appearance.select(classic, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("viewer_hex_entropy_classic", &stage, buffer)?;
+
+    let click = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        column: SIZE.cols - 1,
+        row: SIZE.rows - 4,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, click, false, stage.started);
+    anyhow::ensure!(
+        matches!(msg, Some(Msg::Pointer(borg_core::Pointer::EntropyStrip { cell: 18, cells: 21 }))),
+        "{msg:?}"
+    );
+    stage.send(msg.unwrap());
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "db60  ")?;
+    for (cols, rows) in [(0, 0), (1, 1), (12, 6), (44, 14)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
+}
+
 #[test]
 fn viewer_lays_out_json_written_on_one_line() -> Result<()> {
     use std::sync::Arc;
@@ -2657,9 +2737,15 @@ fn memory_macos_protects_is_marked_explained_and_offers_no_administrator() -> Re
     Ok(())
 }
 
+/// Bytes as varied as `bits` bits each, near enough: `2^bits` values taken in turn.
+fn entropy_of(bits: u32) -> Option<borg_view::entropy::Entropy> {
+    let values: Vec<u8> = (0..1u32 << bits).map(|value| value as u8).collect();
+    Some(borg_view::entropy::Entropy::of(&values))
+}
+
 #[test]
 fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
-    use borg_core::{ActivityData, ActivityRequest, MemoryCensus, MemoryRegion, PageClass};
+    use borg_core::{ActivityData, ActivityRequest, CensusPage, MemoryCensus, MemoryRegion, PageClass};
     let mut stage = activity_stage()?;
     stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
     let id = stage.state.activity.pending.as_ref().unwrap().0;
@@ -2677,16 +2763,19 @@ fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
         panic!("the map should ask for a census")
     };
     let runs = [
-        (PageClass::Pointers, 8),
-        (PageClass::Text, 12),
-        (PageClass::Wide, 4),
-        (PageClass::Zero, 16),
-        (PageClass::Dense, 4),
-        (PageClass::Data, 12),
-        (PageClass::Filler, 4),
-        (PageClass::Absent, 4),
+        (PageClass::Pointers, 8, entropy_of(5)),
+        (PageClass::Text, 12, entropy_of(4)),
+        (PageClass::Wide, 4, entropy_of(4)),
+        (PageClass::Zero, 16, entropy_of(0)),
+        (PageClass::Dense, 4, entropy_of(8)),
+        (PageClass::Data, 12, entropy_of(6)),
+        (PageClass::Filler, 4, entropy_of(0)),
+        (PageClass::Absent, 4, None),
     ];
-    let pages = runs.iter().flat_map(|&(class, count)| std::iter::repeat_n(class, count)).collect();
+    let pages = runs
+        .iter()
+        .flat_map(|&(class, count, entropy)| std::iter::repeat_n(CensusPage { class, entropy }, count))
+        .collect();
     let census =
         MemoryCensus { process, start: region.start, end: region.end, page: 4096, stride: 1, pages, residency: true };
     stage.send(Msg::Activity { id, result: Ok(ActivityData::Census(census)) });
@@ -2694,7 +2783,10 @@ fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
         stage.send(key(KeyCode::Right));
     }
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "0x10000a000 · text")?;
+    ensure_text(&buffer, "0x10000a000 · text · 4 bits per byte")?;
+    ensure_text(&buffer, "high entropy 6%")?;
+    ensure_text(&buffer, "media, archives and keys")?;
+    ensure_text(&buffer, "highest 8 bits per byte")?;
     check("activity_page_map", &stage, buffer)?;
     let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap();
     stage.state.appearance.select(classic, stage.started, Duration::ZERO);
@@ -2705,6 +2797,47 @@ fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
         stage.render(stage.started)?;
     }
     Ok(())
+}
+
+#[test]
+fn activity_page_map_marks_packed_code_whatever_its_kind() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, CensusPage, MemoryCensus, MemoryRegion, PageClass};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100000000 + 64 * 4096,
+        permissions: "r-x".into(),
+        name: "/opt/tool/bin/tool".into(),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![region.clone()])) });
+    stage.send(key(KeyCode::Char('m'))).send(key(KeyCode::Enter)).send(key(KeyCode::Enter));
+    let Some((id, ActivityRequest::Census { .. })) = stage.state.activity.pending.clone() else {
+        panic!("the map should ask for a census")
+    };
+    let runs = [
+        (PageClass::Code, 24, entropy_of(6)),
+        (PageClass::Code, 28, Some(borg_view::entropy::Entropy::of(&(0..=255).collect::<Vec<u8>>()))),
+        (PageClass::Zero, 8, entropy_of(0)),
+        (PageClass::Absent, 4, None),
+    ];
+    let pages = runs
+        .iter()
+        .flat_map(|&(class, count, entropy)| std::iter::repeat_n(CensusPage { class, entropy }, count))
+        .collect();
+    let census =
+        MemoryCensus { process, start: region.start, end: region.end, page: 4096, stride: 1, pages, residency: true };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Census(census)) });
+    for _ in 0..30 {
+        stage.send(key(KeyCode::Right));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0x10001e000 · code · 8 bits per byte")?;
+    ensure_text(&buffer, "high entropy 44%")?;
+    check("activity_page_map_packed_code", &stage, buffer)
 }
 
 #[test]

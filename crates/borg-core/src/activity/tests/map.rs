@@ -176,7 +176,7 @@ fn the_page_map_takes_a_census_of_the_region_and_opens_the_page_under_its_cursor
     assert_eq!(region.start, start);
     assert_eq!(*mapped, [(heap.start, heap.end), (code.start, code.end)], "only readable mappings count");
     let process = state.activity.selected.unwrap();
-    let pages = [vec![PageClass::Zero; 32], vec![PageClass::Text; 32]].concat();
+    let pages = [vec![CensusPage::unread(PageClass::Zero); 32], vec![CensusPage::unread(PageClass::Text); 32]].concat();
     let census = MemoryCensus { process, start, end: heap.end, page: PAGE, stride: 1, pages, residency: true };
     receive(&mut state, *id, Ok(ActivityData::Census(census)), now);
     assert!(state.activity.census.is_some() && !state.activity.preview_waiting());

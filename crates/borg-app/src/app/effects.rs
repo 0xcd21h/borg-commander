@@ -95,6 +95,8 @@ impl App {
                 self.find_in_viewer(id, query, from, direction, count)
             }
             Effect::StopFindInViewer => self.stop_viewer_search(),
+            Effect::ProfileViewer { id } => self.profile_viewer(id),
+            Effect::StopProfileViewer => self.stop_viewer_profile(),
             Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),
             Effect::SetLanguage(locale) => borg_i18n::set_locale(locale),
             Effect::SaveConfig => self.save_config(),
