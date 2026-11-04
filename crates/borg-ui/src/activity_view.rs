@@ -63,8 +63,14 @@ fn colors(theme: &Theme) -> (Rgb, Rgb) {
 }
 
 pub(crate) fn readable(theme: &Theme, color: Option<Color>) -> Option<Color> {
-    let (_, background) = colors(theme);
-    color.filter(|&c| crate::Palette::default().foreground_of(c).contrast(background) >= READABLE)
+    readable_on(theme.styles.overlay, color)
+}
+
+/// `color`, when text in it reads well on the background of `base`.
+pub(crate) fn readable_on(base: Style, color: Option<Color>) -> Option<Color> {
+    let palette = crate::Palette::default();
+    let background = palette.background_of(base.bg.unwrap_or(Color::Reset));
+    color.filter(|&c| palette.foreground_of(c).contrast(background) >= READABLE)
 }
 
 /// Accented text: values and summaries that should stand out from body text.

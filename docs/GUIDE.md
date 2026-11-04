@@ -970,6 +970,21 @@ reads only the rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and
 file of several gigabytes at once. The find bar works in hex rows too and marks each match in both
 columns. In hex, Markdown and JSON files show their bytes as written.
 
+In the viewer, an entropy strip runs down the right edge of the hex rows. Entropy says how varied
+the bytes are, from 0 bits per byte for one byte repeated to 8 for bytes as random as compressed,
+encrypted or packed data. Text is usually near 4.5, and code between 5 and 6.5. The strip covers
+the whole file from top to bottom. Each cell's bar is as long as the highest entropy in its part of
+the file, faint below 4 bits per byte and bold red from 7.2, and the cells of the bytes on the
+screen are marked as on a scrollbar. The status line gives the entropy at the page and whether it
+is **low**, **typical** or **high**. Press `]` and `[` to jump to the next and previous run of
+high-entropy blocks, or click the strip to go to that part of the file.
+
+Borg reads the entropy in the background in blocks of 4 KiB. A file up to 256 MiB is read whole,
+and a larger one is sampled at 65,536 evenly spaced blocks, so memory use stays the same however
+big the file is. High entropy where you expect code, headers or tables can mean packed or
+encrypted data hidden there. Compressed media, archives, encrypted volumes and key stores are high
+all the way through, so read the strip against what the file should hold.
+
 ### Archives
 
 Press Enter on an archive to open it as a folder. Borg opens files whose names end in `.zip`,
@@ -1374,6 +1389,14 @@ under it as bytes. Regions larger than 16,384 pages are sampled evenly. On Linux
 system which pages are in memory and does not read the rest, so it neither brings swapped pages
 back nor touches new ones; on macOS, pages that were never touched read as zeros. Kinds are
 guessed from the bytes alone, so treat them as a hint.
+
+Pages whose entropy reaches 7.2 bits per byte are drawn in bold red, or bold alone where red would
+be hard to read, whatever their kind. Packed or encrypted code stands out that way in an
+executable region, where Borg counts every page that is not zeros or filler as code. The legend
+gives their share as **high entropy**, the cursor's line adds the entropy of the page under it, and
+the same line ends with the highest entropy in the region. A note under the legend says what high and low entropy usually
+mean. Compressed caches, images, archives and keys are high too, so look at what the region holds
+before you suspect it.
 
 ### Memory search
 

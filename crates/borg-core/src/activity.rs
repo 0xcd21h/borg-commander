@@ -7,8 +7,8 @@ mod process;
 pub use process::{MemoryProtection, ProcessInfo, ProcessKey, SystemSample};
 mod memory;
 pub use memory::{
-    CENSUS_LEGEND, MemoryCensus, MemoryGroup, MemoryRegion, MemorySnapshot, MemoryTotals, PageClass, ProcessFile,
-    ProcessFiles, RegionItem, RegionRow, census_grid,
+    CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, MemoryCensus, MemoryGroup, MemoryRegion, MemorySnapshot,
+    MemoryTotals, PageClass, ProcessFile, ProcessFiles, RegionItem, RegionRow, census_grid,
 };
 use memory::{GroupEntry, Member};
 mod integrity;

@@ -7,7 +7,10 @@ use std::{
 };
 
 use borg_gfx::{Picture, is_picture};
-use borg_view::{Count, Pager, Query, Source};
+use borg_view::{
+    Count, Pager, Query, Source,
+    entropy::{Profile, strip_cell},
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
@@ -29,6 +32,10 @@ const NEXT_MATCH_KEY: char = 'n';
 const PREVIOUS_MATCH_KEY: char = 'N';
 /// Files up to this size have their matches counted, which reads all of a file on every step.
 const COUNT_LIMIT: u64 = 64 * 1024 * 1024;
+/// Columns the entropy strip takes beside the hex rows.
+pub const ENTROPY_STRIP: u16 = 1;
+const NEXT_HIGH_KEY: char = ']';
+const PREVIOUS_HIGH_KEY: char = '[';
 
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -42,6 +49,16 @@ pub struct Image {
 pub enum Content {
     Text(Pager),
     Image(Image),
+}
+
+/// The entropy along the viewer's source, read in the background once its hex rows show.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Profiling {
+    #[default]
+    Unread,
+    Reading(u64),
+    Read(Arc<Profile>),
+    Failed,
 }
 
 /// What the viewer shows: a file, or bytes another screen hands it, by what they are.
@@ -60,6 +77,7 @@ pub struct Viewer {
     pub(crate) searching: Option<u64>,
     /// Where the page started when the find bar opened, which a changed query searches on from.
     origin: u64,
+    pub(crate) profiling: Profiling,
 }
 
 impl Viewer {
@@ -68,7 +86,15 @@ impl Viewer {
     }
 
     fn showing(shown: Shown, content: Content) -> Self {
-        Self { shown, content, find: FindBar::default(), searching: None, origin: 0 }
+        Self { shown, content, find: FindBar::default(), searching: None, origin: 0, profiling: Profiling::Unread }
+    }
+
+    /// The entropy along the source, once it was read.
+    pub fn profile(&self) -> Option<&Profile> {
+        match &self.profiling {
+            Profiling::Read(profile) => Some(profile),
+            _ => None,
+        }
     }
 
     /// The file shown, when it is one.
@@ -173,15 +199,20 @@ fn show(state: &mut AppState, path: PathBuf) -> Vec<Effect> {
 }
 
 /// Shows `bytes` another screen hands the viewer, named `name`, as hex rows.
-pub(crate) fn open_bytes(state: &mut AppState, name: String, bytes: Vec<u8>) {
+pub(crate) fn open_bytes(state: &mut AppState, name: String, bytes: Vec<u8>) -> Vec<Effect> {
     let (width, height) = viewer_size(state.cols, state.rows);
     state.opening = None;
     state.landing = None;
     let hex = Pager::new(Arc::new(bytes), width, height).and_then(|mut pager| pager.toggle_hex().map(|()| pager));
     match hex {
-        Ok(pager) => state.viewer = Some(Viewer::showing(Shown::Bytes(name), Content::Text(pager))),
+        Ok(pager) => {
+            state.viewer = Some(Viewer::showing(Shown::Bytes(name), Content::Text(pager)));
+            resize(state);
+            return profile(state);
+        }
         Err(error) => state.notice = Some(tr!(viewer_error, error = error)),
     }
+    Vec::new()
 }
 
 /// Asks to load `path` for the viewer, on the match it lands on, so that the load colours the
@@ -219,7 +250,9 @@ fn present(state: &mut AppState, viewer: Viewer) -> Vec<Effect> {
     state.opening = None;
     state.viewer = Some(viewer);
     resize(state);
-    land(state)
+    let mut effects = land(state);
+    effects.extend(profile(state));
+    effects
 }
 
 pub(crate) fn failed(state: &mut AppState, path: PathBuf, notice: String) {
@@ -287,15 +320,75 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     }
     if is_close(key.code) {
         effects.extend(stop(viewer));
+        effects.extend(stop_profile(viewer));
     }
     let Content::Text(pager) = &mut viewer.content else { return effects };
     let result = match key.code {
         code if is_close(code) => Ok(false),
         code if is_hex_key(code) => pager.toggle_hex().map(|()| true),
+        KeyCode::Char(c @ (NEXT_HIGH_KEY | PREVIOUS_HIGH_KEY)) if pager.hex() => {
+            let profile = match &viewer.profiling {
+                Profiling::Read(profile) => Some(profile.as_ref()),
+                _ => None,
+            };
+            jump_to_high(pager, profile, c == NEXT_HIGH_KEY).map(|()| true)
+        }
         code => scroll(pager, code).map(|()| true),
     };
     finish(state, result);
+    resize(state);
+    effects.extend(profile(state));
     effects
+}
+
+/// Brings the next or the previous run of high-entropy blocks to the top of the hex rows, once
+/// the source's entropy was read.
+fn jump_to_high(pager: &mut Pager, profile: Option<&Profile>, forward: bool) -> io::Result<()> {
+    let at = pager.offset();
+    let target = profile.and_then(|profile| if forward { profile.next_high(at) } else { profile.previous_high(at) });
+    target.map_or(Ok(()), |offset| pager.show_byte(offset))
+}
+
+/// Scrolls the hex rows to where the `cell`th of the entropy strip's `cells` starts.
+pub(crate) fn show_strip_cell(state: &mut AppState, cell: usize, cells: usize) {
+    let Some(Viewer { content: Content::Text(pager), .. }) = state.viewer.as_mut() else { return };
+    let shown = pager.show_byte(strip_cell(pager.len(), cells, cell).start).map(|()| true);
+    finish(state, shown);
+}
+
+/// Asks for the entropy along the source once the page shows it as hex rows, unless it was read
+/// or is being read.
+fn profile(state: &mut AppState) -> Vec<Effect> {
+    let Some(viewer) = state.viewer.as_mut() else { return Vec::new() };
+    let Content::Text(pager) = &viewer.content else { return Vec::new() };
+    if !pager.hex() || pager.is_empty() || viewer.profiling != Profiling::Unread {
+        return Vec::new();
+    }
+    state.next_profile += 1;
+    viewer.profiling = Profiling::Reading(state.next_profile);
+    vec![Effect::ProfileViewer { id: state.next_profile }]
+}
+
+fn stop_profile(viewer: &mut Viewer) -> Vec<Effect> {
+    if !matches!(viewer.profiling, Profiling::Reading(_)) {
+        return Vec::new();
+    }
+    viewer.profiling = Profiling::Unread;
+    vec![Effect::StopProfileViewer]
+}
+
+/// Keeps the entropy read `id` found, when the viewer still waits for it.
+pub(crate) fn profiled(state: &mut AppState, id: u64, profile: Result<Profile, String>) {
+    let Some(viewer) = state.viewer.as_mut().filter(|viewer| viewer.profiling == Profiling::Reading(id)) else {
+        return;
+    };
+    match profile {
+        Ok(profile) => viewer.profiling = Profiling::Read(Arc::new(profile)),
+        Err(error) => {
+            viewer.profiling = Profiling::Failed;
+            state.notice = Some(tr!(viewer_error, error = error));
+        }
+    }
 }
 
 /// Closes the viewer when a key asked to, or with the error a key ran into.
@@ -474,10 +567,14 @@ fn sibling(state: &mut AppState, step: Step) -> Option<PathBuf> {
     Some(target)
 }
 
+/// Lays the page out for the screen: as wide as it, less the entropy strip beside hex rows.
 pub(crate) fn resize(state: &mut AppState) {
     let (width, height) = viewer_size(state.cols, state.rows);
     let failed = state.viewer.as_mut().and_then(|viewer| match &mut viewer.content {
-        Content::Text(pager) => pager.resize(width, height).err(),
+        Content::Text(pager) => {
+            let strip = if pager.hex() { usize::from(ENTROPY_STRIP) } else { 0 };
+            pager.resize(width.saturating_sub(strip), height).err()
+        }
         Content::Image(_) => None,
     });
     if let Some(error) = failed {
