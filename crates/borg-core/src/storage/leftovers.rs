@@ -46,6 +46,15 @@ const SQLITE_SIDE_FILES: [&str; 3] = ["-journal", "-wal", "-shm"];
 /// The folder of name indexes in the cache folder.
 pub const INDEX_DIR: &str = "index";
 pub const INDEX_SUFFIX: &str = ".idx";
+/// The process watcher's alerts, in the state folder. The watcher writes it and every Borg on
+/// the machine reads it; nothing cleans it up, since it is the user's record of what happened.
+pub const ALERT_LOG: &str = "alerts.json";
+/// What the process watcher has learned about this machine, in the state folder, and kept for
+/// the same reason.
+pub const WATCH_BASELINE: &str = "watch-baseline.json";
+/// The starts the user has allowed on the Alerts page, in the state folder. The page writes it
+/// and the watcher reads it, so neither can lose what the other wrote.
+pub const WATCH_ALLOWED: &str = "watch-allowed.json";
 /// A file Borg is replacing, written next to it first.
 pub const STAGING_SUFFIX: &str = "part";
 pub const SOCKET_SUFFIX: &str = ".sock";

@@ -102,6 +102,7 @@ pub struct App {
     docker: crate::docker::Docker,
     network: crate::network::Network,
     startup_items: crate::startup_items::StartupItems,
+    alerts: crate::watch::Alerts,
     storage: crate::storage::Storage,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.

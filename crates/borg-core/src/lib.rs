@@ -49,6 +49,7 @@ mod state;
 mod storage;
 mod update;
 mod viewer;
+mod watch;
 
 #[cfg(test)]
 mod update_tests;
@@ -124,14 +125,21 @@ pub use state::{
     PromptPurpose, Saver, ShellStatus, ShellView, Side, Startup, View,
 };
 pub use storage::{
-    ARCHIVE_VIEWS, CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR,
-    INDEX_SUFFIX, Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX,
-    SIZES_PREFIX, SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport, StorageRow,
-    StorageWindow, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, abandoned_leftover, cache_leftovers, leftover_lines,
-    runtime_leftovers, socket_leftovers,
+    ALERT_LOG, ARCHIVE_VIEWS, CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind,
+    INDEX_DIR, INDEX_SUFFIX, Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE,
+    SIZES_INDEX, SIZES_PREFIX, SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport,
+    StorageRow, StorageWindow, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, WATCH_ALLOWED, WATCH_BASELINE,
+    abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
 pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
+pub use watch::{
+    ALERTS_CHROME_ROWS, ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertLog, AlertState, Alerts, AlertsReply,
+    AlertsRequest, Allowance, Ancestor, Baseline, Evidence, FIRST_PERSON, FREEZES_PER_MINUTE, Finding as WatchFinding,
+    Guard, History, LEARNING_DAYS, Limits, NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild,
+    Protection, Response, StartedProcess, StreamKind, WatchRule, WatchSource, WatchStatus, Watcher, alerts_filtered,
+    decide as decide_response, examine as examine_start,
+};
 
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};

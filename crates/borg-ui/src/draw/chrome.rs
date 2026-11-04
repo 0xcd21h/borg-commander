@@ -104,6 +104,9 @@ impl Drawing<'_, '_> {
         if state.network.is_open() {
             crate::network_view::draw(state, &self.look, self.layout.panels, now, &mut self.buf);
         }
+        if state.alerts.is_open() {
+            crate::alerts_view::draw(state, &self.look, self.layout.panels, self.scene.clock, now, &mut self.buf);
+        }
         if state.startup_items.is_open() {
             crate::startup_view::draw(state, &self.look, self.layout.panels, self.scene.clock, now, &mut self.buf);
         }
@@ -215,6 +218,8 @@ impl Drawing<'_, '_> {
             Line::styled(crate::docker_view::status(&state.docker), styles.status).render(status, &mut self.buf);
         } else if state.network.is_open() {
             Line::styled(crate::network_view::status(&state.network), styles.status).render(status, &mut self.buf);
+        } else if state.alerts.is_open() {
+            Line::styled(crate::alerts_view::status(&state.alerts), styles.status).render(status, &mut self.buf);
         } else if state.startup_items.is_open() {
             Line::styled(crate::startup_view::status(&state.startup_items), styles.status)
                 .render(status, &mut self.buf);
@@ -273,6 +278,8 @@ impl Drawing<'_, '_> {
             crate::docker_view::keybar(state, area, self.theme, &mut self.buf);
         } else if state.network.is_open() {
             crate::network_view::keybar(state, area, self.theme, &mut self.buf);
+        } else if state.alerts.is_open() {
+            crate::alerts_view::keybar(state, area, self.theme, &mut self.buf);
         } else if state.startup_items.is_open() {
             crate::startup_view::keybar(state, area, self.theme, &mut self.buf);
         } else if self.focused.is_some() {

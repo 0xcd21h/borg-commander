@@ -264,6 +264,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     state.activity.side = None;
     crate::docker::close(state);
     crate::network::close(state);
+    crate::watch::close(state);
     let startup = &mut state.startup_items;
     startup.side = Some(state.active);
     startup.error = None;

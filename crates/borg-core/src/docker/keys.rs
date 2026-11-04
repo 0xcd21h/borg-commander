@@ -197,6 +197,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             KeyCode::Char('m') => return crate::actions::perform(state, crate::Action::Activity, now),
             KeyCode::Char('n') => return crate::actions::perform(state, crate::Action::Network, now),
             KeyCode::Char('u') => return crate::actions::perform(state, crate::Action::StartupItems, now),
+            KeyCode::Char('l') => return crate::actions::perform(state, crate::Action::Alerts, now),
             _ => {}
         }
         return Vec::new();

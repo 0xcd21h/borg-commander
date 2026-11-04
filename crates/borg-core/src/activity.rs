@@ -393,6 +393,11 @@ impl Activity {
             self.select();
         }
     }
+    /// Whether the monitor is waiting for the next sample to select `pid`.
+    pub fn reveals(&self, pid: u32) -> bool {
+        self.revealing.is_some_and(|(waiting, _)| waiting == pid)
+    }
+
     /// Selects the process with `pid` once the next sample lists it, clearing a filter that
     /// would hide it, and with `control` offers its signals and priority then.
     pub(crate) fn reveal(&mut self, pid: u32, control: bool) {

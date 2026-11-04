@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
+      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
       "protected": {
-        "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
+        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
+        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
+        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
       },
       "headings": [
         {
@@ -204,6 +204,26 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
@@ -244,12 +264,12 @@
       ]
     },
     "pt": {
-      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
+      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
       "protected": {
-        "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
+        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
+        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
+        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
       },
       "headings": [
         {
@@ -447,6 +467,26 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
@@ -487,12 +527,12 @@
       ]
     },
     "es": {
-      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
+      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
       "protected": {
-        "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
+        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
+        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
+        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
       },
       "headings": [
         {
@@ -690,6 +730,26 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
@@ -730,12 +790,12 @@
       ]
     },
     "ru": {
-      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
+      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
       "protected": {
-        "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
+        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
+        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
+        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
       },
       "headings": [
         {
@@ -933,6 +993,26 @@
         {
           "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,

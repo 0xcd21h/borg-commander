@@ -365,6 +365,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-C | Docker: Compose projects and containers |
 | Alt-N | Network: ports, connections and traffic |
 | Alt-U | Startup items: what starts on its own, newest change first |
+| Alt-L | Alerts: what the process watcher found |
 | Alt-T | Time Machine: what backups leave out, on macOS |
 | Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
@@ -1212,6 +1213,18 @@ history = true              # remember the folders the panels open
 [network]
 proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
 keep-free-mib = 1024        # stop captures before the disk has less than this free
+
+[watch]
+on = false                  # watch what starts, in the background service
+freeze = true               # stop a process a rule is sure about
+learning-days = 7           # learn what is normal here before freezing anything
+alerts-per-minute = 20      # processes written about before Borg only counts them
+freezes-per-minute = 5
+keep-running = ["backup-agent"]  # programs Borg never freezes
+
+[[watch.allow]]
+program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
+parent = "nginx"
 ```
 
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any
@@ -1606,6 +1619,174 @@ A process is identified together with its start time, so a new process that reus
 not inherit another process's history. Memory maps, inspection results, captures, and history
 all have size limits. The Borg Commander name stays visible in the bottom-right corner
 everywhere, including the console, viewer, monitor, dialogs, and screensaver.
+
+### Alerts
+
+Borg can watch what starts on a machine and tell you when something looks wrong. Turn on **Watch:
+unusual process starts** in F9 → Options → Plugins, then start the background service with
+`borg service start`. The watcher lives in that service, so it keeps watching with no terminal
+open, and every Borg on the machine reads the same alerts.
+
+**Alt-L** or **Command → Alerts** opens the page. The list takes the active pane, newest alert
+first, and the other pane shows the selected alert in full. Each row shows the time, the rule that
+fired, the program, the parent that started it, the user it ran as, and what has become of the
+process. The line above the list counts the alerts and how many nobody has read yet.
+
+The details say in one sentence why the rule fired, then the command, the program, the parent, the
+user, what the standard streams led to, and where the process stands now. Under **Process tree**
+each parent appears above its child, so you can read the path from a service down to the command
+that worries you. **Connections** lists the sockets the process held at that moment, **Program
+hash** is the SHA-256 of its program, and **Rules** shows what Borg's rules and yours matched in
+that program (see [Scanning files with rules](#scanning-files-with-rules)).
+
+| Key | Action |
+| --- | --- |
+| Enter | Show the process in the activity monitor |
+| C | Let a frozen process go on running |
+| K | End the process, after a question |
+| A | Allow starts like this one from now on |
+| `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
+| R | Read the log again |
+| Ctrl-C | Copy the command the process ran |
+| Alt-W | Maximize the list |
+| Esc | Clear the filter, then close the page |
+
+The filter keeps the alerts that contain every word you type, in the rule, its short name, the
+reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
+leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
+
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. The
+**Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)). Opening
+the page marks what it holds as read, and the count of unread alerts follows the log while Borg
+is open, whether or not the page is.
+
+### What the watcher looks for
+
+Each rule names one thing that is odd about a process that has just started. The level says how
+much it means: **alert** is seldom innocent, **warning** often has an ordinary reason, **notice**
+is there so the picture is complete.
+
+| Rule | What fires it | Level |
+| --- | --- | --- |
+| **Shell on a network socket** | A shell whose input, output or errors go to a socket, which is what a remote shell looks like | alert |
+| **Program deleted while it runs** | The program's file is gone, so nothing on disk says what the process is | alert |
+| **Program with no file** | Borg can find no program file for the process at all | alert |
+| **Library forced into a program** | `LD_PRELOAD`, `LD_AUDIT` or `DYLD_INSERT_LIBRARIES` is set in its environment | alert |
+| **Shell from a service** | A web server, application runtime or database started a shell | warning |
+| **Shell without a terminal** | A shell with no terminal on either side, so nobody typed it | warning |
+| **Looking around the machine** | Four different commands such as `whoami`, `id`, `uname` and `ss` from one parent without a terminal, within 20 seconds | warning |
+| **Program in a temporary folder** | The program lies under `/tmp`, `/var/tmp`, `/dev/shm` or `/run/shm` | warning |
+| **Name differs from the program** | The process calls itself one thing and runs another | warning |
+| **Parent never started it before** | This parent has never started this program on this machine | notice |
+
+For each process Borg reads the program it runs and whether its file was deleted, the command, the
+user, the terminal it belongs to and who opened it, what its standard input, output and errors lead
+to, the preload variables in its environment, and the chain of parents above it.
+
+Borg learns the machine before it acts. For the first 7 days it records which parent starts which
+program here and freezes nothing, and the Response column says **Would freeze** where it would have.
+After that, a pair it has seen before stays quiet for the rules that can be learned: the two shell
+rules, the run of commands, the name that differs, and the parent that never started it. The four
+alert-level rules fire every time, because a shell on a socket or a forced library never becomes
+normal by happening often. Whatever runs during that week counts as normal, so turn the watcher on
+while you trust the machine. Starts that a rule learning cannot quiet fired on stay out of what Borg
+learns.
+
+**A** on an alert allows starts like it from then on, by its program and its parent. Those
+allowances go in `watch-allowed.json` in the state folder, which the watcher reads and takes in
+within a minute. The `[watch]` section of the configuration holds the same thing by hand (see
+[Configuration](#configuration)). Borg writes down at most 20 processes a minute and freezes at most
+5, and the line above the list says how many findings it left out when more fired at once. A process
+Borg freezes is always written down, however many alerts came before it, so you can let it go on.
+Notices are counted apart, so a run of them never takes the room of a warning, and up to 20
+processes a minute that Borg would have frozen past its limit of 5 are written down too.
+
+### Freezing a process
+
+Once the learning period is over, Borg freezes the process an alert-level or warning-level rule
+fired on. Freezing sends a stop signal to the process and everything below it. A frozen process has
+not exited, so its service keeps running, `systemd` and Docker have nothing to restart, and
+whatever it was about to do waits where it is until you look. The Response column says **Frozen**,
+and **C** lets it go on while **K** ends it. Killing is final, so Borg asks first.
+
+Borg starts freezing once you have seen every alert from the learning week that says **Would
+freeze**, or 3 days after the week ends, whichever comes first. Opening the Alerts page marks them
+read, and the watcher notices within a minute. That way you can check what the week caught and allow
+a harmless program with **A** before anything stops, and a machine nobody looks at is still
+protected. Until then, the page's footer says how long freezing waits, and the details of a new
+alert say that it is waiting.
+
+Borg never freezes the system's first process, itself or anything it started, a program on the list
+it never freezes (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` and the like, plus any name you
+add under `keep-running`), a process on a terminal somebody logged in to, or a start you have
+allowed. A notice never stops a program. The details say which of these kept a process running.
+
+A program on the built-in list is spared only where the system keeps its programs, such as `/usr`
+and `/bin`, so a copy named `sshd` in another folder is frozen like anything else. Names you add
+under `keep-running` match wherever the program lies. A terminal counts when somebody logged in to
+it: over SSH, at the console, in `tmux` or `screen`, through `sudo` or `su`, or in a terminal
+window. A terminal multiplexer counts only for root and for people's accounts, numbered from
+`UID_MIN` in `/etc/login.defs` (1000 on most systems), because a service account can start one too.
+A terminal that a program opened for itself does not count, which keeps a remote shell from hiding
+behind one. Terminals opened by an editor's remote server or by `docker exec` do not count either,
+so if Borg freezes something you ran there, **C** lets it go on and **A** allows it.
+
+Borg checks a process's identity, its number together with the moment it started, right before it
+signals it, so a number another process has taken in the meantime is left alone.
+
+### The watcher as root
+
+Without more rights, Borg hears only about its own user's processes, by looking at the process
+list four times a second, and the page says so under the list. A short command can be gone before
+the next look.
+
+To hear about every process the moment it starts, install the part that runs as root:
+
+```sh
+borg service watch install
+```
+
+This asks for your password once and installs a separate unit, `borg-commander-watch.service`,
+which runs `borg --watch-root`. That part reads the kernel's process events, reads `/proc`, and
+stops, continues or ends a process when Borg asks. It does nothing else: the unit drops every
+capability it does not need, and Borg's own interface keeps running as you. The two sides talk
+over a socket in the state folder that only its owner can reach, Borg accepts a connection only
+from a process running as root, and the root part connects only to a socket that belongs to the
+user it was installed for. `borg service watch uninstall` removes it, and
+`borg service watch status` prints where the events come from and what has been found.
+
+Alerts from either side are the same alerts, in the same log. A process another user owns can be
+frozen only by the root part, so resuming or killing one from the page goes through the watcher in
+the service. When nothing can reach it, the page says only the owner or an administrator may do
+that.
+
+The watcher is a Linux feature for now. On macOS the page opens and reads its log, and the source
+says nothing is watching.
+
+### What the watcher cannot see
+
+The watcher judges each program as it starts, which leaves some things out of its sight. Know them
+before you rely on it.
+
+- Code that runs inside a program that is already running starts nothing new, so no rule looks at
+  it. A web application whose own interpreter is taken over keeps the name and parent it always had.
+- Processes running before the watcher started are never examined, and whatever runs during the
+  learning week counts as normal.
+- Without the root watcher, Borg sees only your own processes, and a command that ends within a
+  quarter of a second can be gone before Borg looks. Services that run as another user, such as
+  `www-data` or `postgres`, need the root watcher.
+- Some kernels send no process events, as on some virtual machines and container hosts. Borg running
+  as root and the root watcher then look at every process four times a second, and a short command
+  can be gone before they look.
+- A burst of new processes can fill the queue between the kernel and Borg, and the kernel then drops
+  events, so some starts are never looked at.
+- Anything running as the user the watcher runs as can stop the watcher, change its files in the
+  state folder, or let a frozen process go on with `kill -CONT`. Freezing buys you time to look, and
+  the process's owner can still undo it.
+- A process on a terminal somebody logged in to is never frozen, even when the login used a stolen
+  password or key. The rules still fire and write alerts.
+- A process that detaches from its parent before Borg freezes the parent keeps running.
+- Alerts reach you when you open the page. Nothing sends them anywhere yet.
 
 ## Network
 

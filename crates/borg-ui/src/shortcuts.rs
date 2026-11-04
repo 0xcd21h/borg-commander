@@ -23,6 +23,13 @@ fn jobs(state: &AppState) -> Option<(String, bool)> {
     Some((tr!(alt_j_jobs, status = status), waiting))
 }
 
+/// The Alerts shortcut while alerts nobody has read are waiting, counting them.
+fn alerts(state: &AppState) -> Option<String> {
+    let unread = state.alerts.unread;
+    let watching = state.settings.preferences.system_plugin && state.settings.preferences.process_watch;
+    (watching && unread > 0).then(|| tr!(alt_l_alerts, count = unread))
+}
+
 /// The Docker shortcut, counting the container shells still open.
 fn docker_label(state: &AppState) -> String {
     match state.docker.shells.len() {
@@ -101,6 +108,9 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         items.insert(0, (tr!(agent_approve_all_chip).to_owned(), Action::ApprovalModeOff, true));
     }
     items.insert(0, (tr!(alt_h_remote_hosts).to_owned(), Action::BrowseRemotes, false));
+    if let Some(label) = alerts(state) {
+        items.insert(0, (label, Action::Alerts, true));
+    }
     let mut x = area.x;
     items
         .into_iter()

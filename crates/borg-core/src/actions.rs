@@ -38,6 +38,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         crate::docker::close(state);
         crate::network::close(state);
         crate::startup_items::close(state);
+        crate::watch::close(state);
     }
     if let Some(notice) = refusals::refusal(state, action) {
         state.notice = Some(notice);
@@ -49,7 +50,9 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Activity => crate::activity::open(state),
         Action::Network => crate::network::toggle(state),
         Action::StartupItems => crate::startup_items::toggle(state),
+        Action::Alerts => crate::watch::toggle(state),
         Action::ToggleSystemPlugin => settings::flip(state, |prefs| &mut prefs.system_plugin),
+        Action::ToggleProcessWatch => settings::flip(state, |prefs| &mut prefs.process_watch),
         Action::Docker => crate::docker::toggle(state, now),
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),

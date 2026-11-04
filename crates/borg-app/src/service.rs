@@ -257,7 +257,7 @@ async fn frame_when_ready(call: Call, child: Arc<Mutex<Child>>) -> Reply {
     mirror_child(&call, &child)
 }
 
-async fn request(value: Value) -> Result<Value> {
+async fn request_json(value: Value) -> Result<Value> {
     let mut stream = UnixStream::connect(service_socket()).await.context("Borg service is not running")?;
     stream.write_all(format!("{value}\n").as_bytes()).await?;
     let mut line = String::new();
@@ -269,9 +269,20 @@ pub async fn available() -> bool {
     UnixStream::connect(service_socket()).await.is_ok()
 }
 
+/// Asks the service's watcher to stop, continue or end a process, which it may be able to do
+/// where the user may not. Nothing comes back when no service is running.
+pub async fn watch_act(
+    act: crate::watch::WatchAct,
+    process: borg_core::ProcessKey,
+) -> Option<borg_core::ControlOutcome> {
+    let request = json!({"mode": "watch-act", "act": act, "pid": process.pid, "start": process.start});
+    let reply = request_json(request).await.ok()?;
+    serde_json::from_value(reply.get("outcome")?.clone()).ok()
+}
+
 /// The IDs of the sessions the service keeps running, none when no service answers.
 pub async fn running_sessions() -> HashSet<String> {
-    let Ok(Ok(reply)) = tokio::time::timeout(STATUS_WAIT, request(json!({"mode": "status"}))).await else {
+    let Ok(Ok(reply)) = tokio::time::timeout(STATUS_WAIT, request_json(json!({"mode": "status"}))).await else {
         return HashSet::new();
     };
     reply["sessions"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
@@ -302,7 +313,7 @@ pub async fn attach_session(id: &str, take: bool) -> Result<()> {
             _ = resize.tick() => {
                 let size = crossterm::terminal::size()?;
                 if last_size != Some(size)
-                    && request(json!({"mode":"resize", "session": id, "cols":size.0, "rows":size.1}))
+                    && request_json(json!({"mode":"resize", "session": id, "cols":size.0, "rows":size.1}))
                         .await.is_ok_and(|reply| reply["ok"] == true) {
                         last_size = Some(size);
                 }
@@ -321,6 +332,19 @@ pub async fn attach_session(id: &str, take: bool) -> Result<()> {
     Ok(())
 }
 
+/// The watcher's own subcommands: installing the part that runs as root, and what it found.
+async fn watch_command(args: &[String]) -> Result<()> {
+    match args {
+        [action] if action == "install" => crate::watch::install_root(),
+        [action] if action == "uninstall" => crate::watch::uninstall_root(),
+        [action] if action == "status" => {
+            println!("{}", crate::watch::report()?);
+            Ok(())
+        }
+        _ => bail!("usage: borg service watch install|uninstall|status"),
+    }
+}
+
 pub async fn command(args: &[String]) -> Result<()> {
     match args {
         [action] if action == "install" => crate::service_install::install(),
@@ -331,11 +355,12 @@ pub async fn command(args: &[String]) -> Result<()> {
         [action] if action == "stop" => crate::service_install::stop(),
         [action] if action == "run" => server::run().await,
         [action] if action == "status" => {
-            println!("{}", request(json!({"mode": "status"})).await?);
+            println!("{}", request_json(json!({"mode": "status"})).await?);
             Ok(())
         }
+        [action, rest @ ..] if action == "watch" => watch_command(rest).await,
         [action] if action == "pair" => {
-            let reply = request(json!({"mode": "pair"})).await?;
+            let reply = request_json(json!({"mode": "pair"})).await?;
             if reply["ok"] != true {
                 bail!("{}", reply["error"].as_str().unwrap_or("pairing failed"));
             }

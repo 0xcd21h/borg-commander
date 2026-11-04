@@ -64,6 +64,13 @@ pub enum Pointer {
         open: bool,
     },
     StartupControl(crossterm::event::KeyCode),
+    AlertsExpand(bool),
+    AlertsHide,
+    AlertsRow {
+        index: usize,
+        open: bool,
+    },
+    AlertsControl(crossterm::event::KeyCode),
     TreeNode {
         side: Side,
         index: usize,
@@ -264,6 +271,11 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
             if state.startup_items.is_open() =>
         {
             monitors::startup(state, pointer, now)
+        }
+        Pointer::AlertsExpand(_) | Pointer::AlertsHide | Pointer::AlertsRow { .. } | Pointer::AlertsControl(_)
+            if state.alerts.is_open() =>
+        {
+            monitors::alerts(state, pointer, now)
         }
         Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),
         Pointer::ResultControl { side, action }

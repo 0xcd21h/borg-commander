@@ -79,6 +79,50 @@ pub struct Config {
     pub index: Option<Index>,
     pub folders: Option<Folders>,
     pub network: Option<Network>,
+    pub watch: Option<Watch>,
+}
+
+/// `[watch]`: what the process watcher does. It watches nothing until `on` is true, which the
+/// Watch switch in Options sets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Watch {
+    pub on: bool,
+    /// Whether Borg may stop a process it is sure about, once it has learned the machine.
+    pub freeze: bool,
+    /// Days Borg learns what is normal here before it freezes anything.
+    pub learning_days: u64,
+    pub alerts_per_minute: usize,
+    pub freezes_per_minute: usize,
+    /// Starts Borg leaves alone: a program, the parent that starts it, the user it runs as, or
+    /// any of those together.
+    pub allow: Vec<Allowed>,
+    /// Programs Borg never freezes, besides the ones it never freezes anyway.
+    pub keep_running: Vec<String>,
+}
+
+impl Default for Watch {
+    fn default() -> Self {
+        let limits = borg_core::Limits::default();
+        Self {
+            on: borg_core::Preferences::DEFAULT.process_watch,
+            freeze: true,
+            learning_days: borg_core::LEARNING_DAYS,
+            alerts_per_minute: limits.alerts_per_minute,
+            freezes_per_minute: limits.freezes_per_minute,
+            allow: Vec::new(),
+            keep_running: Vec::new(),
+        }
+    }
+}
+
+/// One start the watcher leaves alone. Every field that is given must match.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Allowed {
+    pub program: Option<String>,
+    pub parent: Option<String>,
+    pub user: Option<String>,
 }
 
 /// `[network]`: the development CA that signs the certificates of Borg's capture proxy, and
@@ -194,6 +238,7 @@ impl Config {
             language: self.language.as_deref().and_then(borg_i18n::Locale::parse).unwrap_or(base.language),
             git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             system_plugin: self.plugins.as_ref().map_or(base.system_plugin, |plugins| plugins.system),
+            process_watch: self.watch.as_ref().map_or(base.process_watch, |watch| watch.on),
             docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
             docker_console: self.plugins.as_ref().map_or(base.docker_console, |plugins| plugins.docker_console),
             agent_log: self.plugins.as_ref().map_or(base.agent_log, |plugins| plugins.agent_log),
@@ -254,6 +299,30 @@ impl Config {
     pub fn proxy_authority(&self) -> borg_core::Authority {
         let folder = self.network.as_ref().and_then(|network| network.proxy_ca.clone());
         expand_home(folder.as_slice()).pop().map_or(borg_core::Authority::Temporary, borg_core::Authority::Folder)
+    }
+
+    /// What the process watcher does, as the watcher's own settings.
+    pub fn watch(&self) -> crate::watch::Settings {
+        let watch = self.watch.clone().unwrap_or_default();
+        crate::watch::Settings {
+            on: watch.on,
+            freeze: watch.freeze,
+            learning: Duration::from_secs(watch.learning_days * 24 * 60 * 60),
+            limits: borg_core::Limits {
+                alerts_per_minute: watch.alerts_per_minute,
+                freezes_per_minute: watch.freezes_per_minute,
+            },
+            allow: watch
+                .allow
+                .into_iter()
+                .map(|allowed| borg_core::Allowance {
+                    program: allowed.program,
+                    parent: allowed.parent,
+                    user: allowed.user,
+                })
+                .collect(),
+            keep_running: watch.keep_running,
+        }
     }
 
     /// The MiB captures leave free on their folder's disk, from `keep-free-mib`.
@@ -329,6 +398,7 @@ impl Config {
             index: self.index.clone(),
             folders: self.folders.clone(),
             network: self.network.clone(),
+            watch: Some(Watch { on: prefs.process_watch, ..self.watch.clone().unwrap_or_default() }),
         }
     }
 }

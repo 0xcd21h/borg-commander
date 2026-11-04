@@ -80,7 +80,8 @@ fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Ef
             && state.view == View::Panels
             && (state.activity.search_form.is_some() || state.activity.filtering))
         || (state.network.typing() && state.network.is_open() && state.view == View::Panels)
-        || (state.startup_items.typing() && state.startup_items.is_open() && state.view == View::Panels);
+        || (state.startup_items.typing() && state.startup_items.is_open() && state.view == View::Panels)
+        || (state.alerts.typing() && state.alerts.is_open() && state.view == View::Panels);
     if field
         && crate::clipboard::is_paste(key)
         && let Some(text) = state.clipboard.latest().map(str::to_owned)
@@ -99,6 +100,9 @@ fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Ef
     }
     if state.network.is_open() && panels {
         return Some(crate::network::route_key(state, key, now));
+    }
+    if state.alerts.is_open() && panels {
+        return Some(crate::watch::route_key(state, key, now));
     }
     if state.startup_items.is_open() && panels {
         return Some(crate::startup_items::route_key(state, key, now));
@@ -231,6 +235,10 @@ pub(super) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     }
     if state.network.is_open() && state.view == View::Panels && state.overlay.is_none() {
         crate::network::paste(state, text);
+        return Vec::new();
+    }
+    if state.alerts.is_open() && state.view == View::Panels && state.overlay.is_none() {
+        crate::watch::paste(state, text);
         return Vec::new();
     }
     if state.startup_items.is_open() && state.view == View::Panels && state.overlay.is_none() {

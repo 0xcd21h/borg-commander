@@ -129,6 +129,11 @@ pub enum ConfirmPurpose {
         action: borg_docker::Action,
         ids: Vec<String>,
     },
+    /// Killing the process an alert is about, which cannot be taken back.
+    AlertKill {
+        alert: u64,
+        process: crate::ProcessKey,
+    },
     /// A capture the system refused: Yes runs it again as administrator.
     Capture {
         request: Box<crate::CaptureRequest>,

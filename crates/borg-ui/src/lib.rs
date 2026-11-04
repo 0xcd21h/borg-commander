@@ -1,5 +1,6 @@
 mod activity_view;
 mod agent_view;
+mod alerts_view;
 mod art_view;
 mod aside_view;
 mod backup_view;

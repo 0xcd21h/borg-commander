@@ -43,6 +43,7 @@ impl App {
             Effect::DockerWatch(on) => self.docker.watch(on),
             Effect::Network { id } => self.network.request(id),
             Effect::StartupItems { id } => self.startup_items.request(id),
+            Effect::Alerts { id, request } => self.alerts.request(id, request),
             Effect::ResolveHosts(addresses) => self.network.resolve(addresses),
             Effect::Capture { id, request } => self.network.capture(id, request),
             Effect::StopCapture { id } => self.network.stop_capture(id),

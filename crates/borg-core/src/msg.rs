@@ -56,6 +56,12 @@ pub enum Msg {
         id: u64,
         result: Result<crate::StartupReport, String>,
     },
+    Alerts {
+        id: u64,
+        result: Result<crate::AlertsReply, String>,
+    },
+    /// The alert log changed under Borg: the watcher wrote one, or another Borg read them.
+    AlertsChanged(Box<crate::AlertLog>),
     /// Names for addresses the network screen asked about; `None` where there is none.
     HostNames(Vec<(std::net::IpAddr, Option<String>)>),
     /// How far the running capture got.
@@ -318,6 +324,11 @@ pub enum Effect {
     /// Reads the places programs start from for the startup items screen.
     StartupItems {
         id: u64,
+    },
+    /// Reads the alert log, or does what the Alerts page asks of a process.
+    Alerts {
+        id: u64,
+        request: crate::AlertsRequest,
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),

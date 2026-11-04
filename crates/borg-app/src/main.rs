@@ -46,6 +46,7 @@ mod store;
 mod subfolders;
 mod tools;
 mod update;
+mod watch;
 
 use std::{env, io::stdout, process::ExitCode};
 
@@ -128,6 +129,7 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
             network::capture_helper(&args).await?;
             ExitCode::SUCCESS
         }
+        "--watch-root" => finished("borg --watch-root", watch::root_helper(&args).await),
         "mcp" => return mcp(&args).await,
         "pair" => finished("borg pair", link::pair_command(&args).await),
         "get" => finished("borg get", link::get_command(&args).await),

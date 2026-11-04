@@ -75,6 +75,8 @@ struct Service {
     /// Sessions being removed, whose PTYs must not start again meanwhile.
     removing: HashSet<String>,
     removed: UnboundedSender<String>,
+    /// The process watcher, while the settings ask for it.
+    watcher: Option<crate::watch::Handle>,
     /// Held while the service runs, so that only one does.
     _lock: fs::File,
 }
@@ -117,6 +119,7 @@ impl Service {
         let consoles = remote_console::Server::new(borg_term::user_shell(), runtime.clone());
         let (events, events_rx) = unbounded_channel();
         let (removed, removed_rx) = unbounded_channel();
+        let watcher = crate::watch::start(config.watch());
         let service = Self {
             state,
             runtime,
@@ -127,6 +130,7 @@ impl Service {
             children: Children::new(),
             removing: HashSet::new(),
             removed,
+            watcher,
             _lock: lock,
         };
         Ok((service, Inbox { listener, calls, notices, events: events_rx, removed: removed_rx }))
@@ -138,6 +142,9 @@ impl Service {
         if let Ok(Some(current)) = ConfigDir::locate().map(|dir| dir.load()).transpose() {
             if current.relay != self.config.relay {
                 self.cloud.set_relay(relay(&current));
+            }
+            if current.watch() != self.config.watch() {
+                self.watcher = crate::watch::start(current.watch());
             }
             self.config = current;
         }
@@ -265,6 +272,10 @@ impl Service {
                 let ok = self.resize(&request);
                 stream.write_all(format!("{}\n", json!({"ok": ok})).as_bytes()).await?;
             }
+            Some("watch-act") => {
+                let reply = self.watch_act(&request).await;
+                stream.write_all(format!("{reply}\n").as_bytes()).await?;
+            }
             _ => {
                 let _ = stream.write_all(b"Unknown service request\n").await;
             }
@@ -287,6 +298,21 @@ impl Service {
             tokio::spawn(attach(stream, child.clone(), request["take"] == true));
         } else {
             let _ = stream.write_all(b"Session is offline\n").await;
+        }
+    }
+
+    /// Stops, continues or ends a process for a Borg that may not signal it itself. Only the
+    /// watcher does it, and only to a process it is watching.
+    async fn watch_act(&self, request: &Value) -> Value {
+        let Some(watcher) = &self.watcher else { return json!({"ok": false}) };
+        let act = serde_json::from_value(request["act"].clone());
+        let (Ok(act), Some(pid), Some(start)) = (act, request["pid"].as_u64(), request["start"].as_u64()) else {
+            return json!({"ok": false});
+        };
+        let process = borg_core::ProcessKey { pid: pid as u32, start };
+        match watcher.act(act, process).await {
+            Some(outcome) => json!({"ok": true, "outcome": outcome}),
+            None => json!({"ok": false}),
         }
     }
 

@@ -212,6 +212,7 @@ fn command_menu(state: &AppState) -> Menu {
             when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
             when(item(tr!(network_title), "M-n", Action::Network), state.settings.preferences.system_plugin),
             when(item(tr!(startup_title), "M-u", Action::StartupItems), state.settings.preferences.system_plugin),
+            when(item(tr!(watch_title), "M-l", Action::Alerts), state.settings.preferences.system_plugin),
             when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
         ]
         .into_iter()
@@ -302,6 +303,13 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 action: Action::ToggleSystemPlugin,
                 checked: Some(state.settings.preferences.system_plugin),
                 enabled: true,
+            },
+            MenuItem {
+                label: tr!(watch_plugin_label),
+                hint: "",
+                action: Action::ToggleProcessWatch,
+                checked: Some(state.settings.preferences.process_watch),
+                enabled: state.settings.preferences.system_plugin,
             },
             MenuItem {
                 label: tr!(docker_plugin_label),
