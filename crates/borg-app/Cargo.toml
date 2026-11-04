@@ -60,6 +60,14 @@ tempfile  = { workspace = true }
 toml      = { workspace = true }
 uzers     = { workspace = true }
 unicode-width = { workspace = true }
+borg-watch-ebpf = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = { workspace = true }
+
+# The watcher's eBPF programs are built for Linux, on a Linux machine (see build.rs).
+[target.'cfg(target_os = "linux")'.build-dependencies]
+aya-build = { workspace = true }
 
 [dev-dependencies]
 anyhow       = { workspace = true }

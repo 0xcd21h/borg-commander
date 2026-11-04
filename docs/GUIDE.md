@@ -1664,14 +1664,22 @@ To hear about every process the moment it starts, install the part that runs as 
 borg service watch install
 ```
 
-This asks for your password once and installs a separate unit, `borg-commander-watch.service`,
-which runs `borg --watch-root`. That part reads the kernel's process events, reads `/proc`, and
-stops, continues or ends a process when Borg asks. It does nothing else: the unit drops every
-capability it does not need, and Borg's own interface keeps running as you. The two sides talk
-over a socket in the state folder that only its owner can reach, Borg accepts a connection only
-from a process running as root, and the root part connects only to a socket that belongs to the
-user it was installed for. `borg service watch uninstall` removes it, and
-`borg service watch status` prints where the events come from and what has been found.
+This asks for your password once and installs a separate unit, `borg-commander-watch.service`, which
+runs `borg --watch-root`. That part loads Borg's own small programs into the kernel, which read each
+program start before the new program runs: the program, the command line exactly as it was passed,
+the process that started it and the user. A command that ends at once is still reported, and so is
+the command line of a process that rewrites it afterwards. The root part reads `/proc` for the rest,
+and stops, continues or ends a process when Borg asks. It does nothing else: the unit drops every
+capability it does not need, and Borg's own interface keeps running as you. The two sides talk over
+a socket in the state folder that only its owner can reach, Borg accepts a connection only from a
+process running as root, and the root part connects only to a socket that belongs to the user it was
+installed for. `borg service watch uninstall` removes it, and `borg service watch status` prints
+where the events come from and what has been found.
+
+The programs need Linux 5.8 or later. On an older kernel, or where the root part may not load them,
+it hears the kernel's process events and reads everything from `/proc`, and the page says so under
+the list. After updating Borg, run `borg service watch install` again, so the unit gets any rights
+the new version needs.
 
 Alerts from either side are the same alerts, in the same log. A process another user owns can be
 frozen only by the root part, so resuming or killing one from the page goes through the watcher in
@@ -1758,11 +1766,21 @@ before you rely on it.
 - Without the root watcher, Borg sees only your own processes, and a command that ends within a
   quarter of a second can be gone before Borg looks. Services that run as another user, such as
   `www-data` or `postgres`, need the root watcher.
+- Before Linux 5.8, or where the root part cannot load its programs, Borg reads each new process in
+  `/proc` after the kernel reports it. A command that ends at once can be gone by then, and a
+  process can change its command line first.
 - Some kernels send no process events, as on some virtual machines and container hosts. Borg running
   as root and the root watcher then look at every process four times a second, and a short command
   can be gone before they look.
 - A burst of new processes can fill the queue between the kernel and Borg, and the kernel then drops
   events, so some starts are never looked at.
+- A command that ended before Borg could read `/proc` carries only what the programs read: its
+  program, command line, parent and user. Its terminal, standard streams and preload variables ended
+  with it, so the rules about them cannot fire.
+- The programs keep the first 4 KiB of a command line, and Borg takes a longer one from `/proc`
+  while the process is still there. They find the command line through the type information the
+  kernel publishes at `/sys/kernel/btf/vmlinux`. On a kernel built without it, the command line
+  comes from `/proc` as well.
 - Anything running as the user the watcher runs as can stop the watcher, change its files in the
   state folder, or let a frozen process go on with `kill -CONT`. Freezing buys you time to look, and
   the process's owner can still undo it.

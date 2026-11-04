@@ -18,6 +18,10 @@ Requirements:
 - For the end-to-end tests: `bash`, and optionally `zsh`, `fish` and `less` (tests for shells
   that are not installed are skipped).
 - macOS or Linux. borg is Unix-only: it relies on PTYs and `termios`.
+- On Linux, the process watcher's eBPF programs build with a pinned nightly compiler and
+  `bpf-linker`. `scripts/install-ebpf-tools.sh` installs both, and checks `bpf-linker` against its
+  SHA-256 before it runs. Build with `BORG_NO_EBPF=1` to leave the programs out: the watcher then
+  hears the kernel's process events instead.
 
 Before pushing, run what CI runs:
 
@@ -377,7 +381,8 @@ when the week has been read, and until then `decide` spares the process with a r
 `Alerts` is the page: the log, the filter, the cursor and the keys. All of it is data in and data
 out, tested in `watch/tests.rs`.
 
-`borg-app::watch` does the watching. Events come from the kernel's proc connector over netlink
+`borg-app::watch` does the watching. Events come from Borg's own eBPF programs where it may load
+them ([The eBPF programs](#the-ebpf-programs)), else from the kernel's proc connector over netlink
 (`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
 fixtures, so its tests run on macOS, and a bounded queue lets the kernel drop events, which the
 reader survives, when the watcher falls behind), from the root watcher once it connects, or from
@@ -429,15 +434,67 @@ post to a server on `127.0.0.1`. `borg service watch notify` sends a test messag
 
 The watcher is Linux only in this release. macOS needs `eslogger` and is a separate change.
 
+### The eBPF programs
+
+`crates/borg-watch-ebpf` holds the programs the watcher loads into the Linux kernel, and the layout
+of what they send. `crates/borg-app/build.rs` builds `src/kernel.rs` for `bpfel-unknown-none`
+through `aya-build`, with the nightly compiler it names, and the `borg` binary embeds the result.
+Built for anything else, the crate's binary is empty, so the workspace builds and lints on stable
+everywhere. `src/lib.rs` is the layout both sides share: `Exec` and `Parent` are `#[repr(C)]`, and
+Borg reads records by `offset_of!` on them, so the reader cannot drift from what the kernel writes.
+`kernel.rs` is the only `unsafe` code in Borg: every read the kernel allows a program goes through a
+raw pointer, and the kernel's verifier checks each one before it loads the program. The crate denies
+`unsafe_code`, and only `kernel.rs` allows it.
+
+Three programs run at tracepoints. `sched_process_fork` remembers each new task's parent and start
+time in an LRU map and `sched_process_exit` forgets it. `sched_process_exec` sends the program start
+with the process, its parent, its user, the name it took, the path it was started by and the first
+4 KiB of its command line. It reads the command line from `mm->arg_start` to `mm->arg_end` of the
+current task, where the kernel has just copied it into the new program's memory, so the pages are
+there to read. Reading the caller's `argv` at `sys_enter_execve` fails whenever those pages need a
+fault first, which `bpf_probe_read_user` cannot take, and a forked child often starts that way.
+Records go through one 4 MiB ring buffer, a counter on each processor counts the records that found
+no room, and the reader says so in the service's log at most once a minute.
+
+The programs take what they need to know about the running kernel as globals, which `watch::ebpf`
+fills in before it loads them, so they hold across kernel versions. The offsets of the tracepoint
+fields come from the kernel's own `format` files in tracefs. The offsets of `task_struct.mm`,
+`mm_struct.arg_start` and `mm_struct.arg_end` come from `/sys/kernel/btf/vmlinux`, which
+`watch::ebpf::btf` reads with its own small parser, following anonymous structs and unions the way
+C does. Without BTF those offsets stay zero and the command line comes from `/proc`. Where Borg
+runs in a pid namespace of its own, the programs report only that namespace's processes, by its
+numbers.
+
+`watch::ebpf` reads records and merges what the programs read with `/proc`, all as pure functions
+tested on any system. `/proc` gives the streams, the terminal, the preload variables and the
+parents. The command line from the exec replaces one the process rewrote, unless the programs cut
+it short. A process whose `/proc` entry shows another name and runs another file has started a
+later program, so the programs' program and command line win. A `/proc` entry that started after
+the exec belongs to a later process with the same number, and a process gone from `/proc` is
+reported from the programs alone, its start counted in clock ticks from the fork.
+`watch::ebpf::load` (Linux, `cfg(borg_ebpf)`) loads and attaches the programs with `aya` and reads
+the ring buffer on a thread of its own, letting each record go before it waits for the watcher. The
+watcher tries eBPF first, then the proc connector, then looking at the process list, and
+`WatchSource::Ebpf` and `FromRoot::Ebpf` say when it is eBPF.
+
+The programs need Linux 5.8 for the ring buffer, `CAP_BPF` and `CAP_PERFMON`. The kernel lends its
+tracing helpers only to programs with a GPL-compatible license string, so the object declares
+`Dual MIT/GPL`. CI loads them on the runner's kernel with `sudo` in
+`the_programs_load_and_report_a_command_that_ends_at_once`. To try them by hand, run that test
+binary as root, or in a container with `--cap-add BPF --cap-add PERFMON` and `/sys/kernel/tracing`
+mounted. Run it in the container's own pid namespace, since the programs see every process of the
+machine they run on.
+
 ### The part that runs as root
 
 The watcher is the first part of Borg that may run as root for a long time, so it is kept as small
 as it can be. `borg service watch install` installs `borg-commander-watch.service`, which runs
-`borg --watch-root SOCKET UID` (`borg-app::watch::root`). That process reads the kernel's process
-events and `/proc`, and stops, continues or ends a process when Borg asks it to. It does nothing
-else: no file manager commands, no reading of file contents, no network, and the unit sets
-`NoNewPrivileges` and bounds its capabilities to `CAP_NET_ADMIN`, `CAP_KILL`, `CAP_SYS_PTRACE` and
-`CAP_DAC_READ_SEARCH`.
+`borg --watch-root SOCKET UID` (`borg-app::watch::root`). That process loads the eBPF programs, or
+hears the kernel's process events where it cannot, reads `/proc`, and stops, continues or ends a
+process when Borg asks it to. It does nothing else: no file manager commands, no reading of file
+contents, no network, and the unit sets `NoNewPrivileges` and bounds its capabilities to
+`CAP_NET_ADMIN`, `CAP_KILL`, `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH`, `CAP_BPF` and `CAP_PERFMON`.
+`LimitMEMLOCK=64M` covers kernels before 5.11, which count the programs' memory as locked memory.
 
 The two sides talk in lines of JSON over a Unix socket in the user's state folder, mode 0600.
 Borg accepts a connection only from a peer whose user is root, and the root part connects only to
@@ -656,7 +713,8 @@ its own, and the `ci` profile in `.config/nextest.toml` retries a failed test up
 test that fails all 3 attempts fails the job and shows as an error on the run. A test that
 passes on a retry keeps the job green and shows as a warning, with the output of the attempt
 that failed. A warning still means the test depends on timing somewhere, so fix it when you see
-one. To run the suite the way CI does, install nextest with `cargo install cargo-nextest
+one. On Linux, CI installs the eBPF tools with `scripts/install-ebpf-tools.sh` and then runs the
+test that loads the watcher's programs into the runner's kernel with `sudo`. To run the suite the way CI does, install nextest with `cargo install cargo-nextest
 --locked` and run the same command.
 
 ### Screenshots
@@ -756,7 +814,8 @@ default, so they cannot download a larger archive and update by installing again
 - No comments in code: names, types and small functions carry the meaning.
 - No magic values: name constants, keep them next to their use.
 - Prefer pure functions and data in, data out. Side effects belong in `borg-app`.
-- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints).
+- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints). The eBPF programs are the
+  one exception ([The eBPF programs](#the-ebpf-programs)).
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
 

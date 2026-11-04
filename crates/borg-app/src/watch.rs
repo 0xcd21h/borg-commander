@@ -3,9 +3,9 @@
 //! the background service, so it keeps watching with no terminal open, and every Borg on the
 //! machine reads the same log.
 //!
-//! Events come from the kernel when Borg has the right to hear them, and otherwise from looking
-//! at the user's own processes again and again, which can miss a command that is gone before
-//! the next look.
+//! Events come from Borg's own programs inside the kernel where it may load them, from the
+//! kernel's process events where it may hear those, and otherwise from looking at the user's
+//! own processes again and again, which can miss a command that is gone before the next look.
 
 use anyhow::{Context, Result};
 use borg_core::{
@@ -26,6 +26,7 @@ use tokio::{
     task::JoinHandle,
 };
 
+mod ebpf;
 pub mod facts;
 mod freeze;
 mod log;
@@ -236,7 +237,9 @@ fn allow(state: &Path, log: &mut AlertLog, alert: u64, allowance: Allowance) -> 
 /// watcher may start at any time, so Borg keeps listening for it and stops polling once it
 /// speaks.
 struct Sources {
-    kernel: Option<Receiver<u32>>,
+    kernel: Option<Receiver<Executed>>,
+    /// How the kernel's events reach Borg itself.
+    kernel_source: WatchSource,
     root: Option<UnboundedReceiver<StartedProcess>>,
     link: Option<root::RootLink>,
     own: Option<Polling>,
@@ -252,18 +255,42 @@ struct Polling {
     queue: VecDeque<u32>,
 }
 
-/// A process Borg has heard of: its number, or everything the root watcher read about it.
+/// A process Borg has heard of: a program the kernel started, or everything the root watcher
+/// read about one.
 enum Heard {
-    Number(u32),
+    Executed(Executed),
     Facts(Box<StartedProcess>),
+}
+
+/// A process that started a program, by its number, with what Borg's programs inside the kernel
+/// read at that moment where they reported it.
+pub struct Executed {
+    pid: u32,
+    seen: Option<Box<ebpf::Seen>>,
+}
+
+impl Executed {
+    fn number(pid: u32) -> Self {
+        Self { pid, seen: None }
+    }
+
+    /// Everything the watcher's rules need about the process. With what the programs read, a
+    /// command that has already ended is still reported.
+    fn started(&self, processes: &Processes, at: SystemTime) -> Option<StartedProcess> {
+        match &self.seen {
+            Some(seen) => Some(seen.started(processes, self.pid, at)),
+            None => processes.started(self.pid, at),
+        }
+    }
 }
 
 impl Sources {
     fn label(&self) -> WatchSource {
-        let root_polls = self.link.as_ref().is_some_and(root::RootLink::polls);
-        if self.kernel.is_some() || (self.heard_root && !root_polls) {
-            WatchSource::Kernel
-        } else if self.heard_root || self.own.as_ref().is_some_and(|own| own.uid.is_none()) {
+        if self.kernel.is_some() {
+            self.kernel_source
+        } else if self.heard_root {
+            self.link.as_ref().map_or(WatchSource::Kernel, root::RootLink::source)
+        } else if self.own.as_ref().is_some_and(|own| own.uid.is_none()) {
             WatchSource::Polled
         } else if self.own.is_some() {
             WatchSource::OwnProcesses
@@ -276,8 +303,8 @@ impl Sources {
     /// it sees everything the polling could and more.
     async fn next(&mut self, processes: &Processes) -> Result<Heard> {
         if let Some(kernel) = &mut self.kernel {
-            let pid = kernel.recv().await.context("the kernel stopped sending process events")?;
-            return Ok(Heard::Number(pid));
+            let executed = kernel.recv().await.context("the kernel stopped sending process events")?;
+            return Ok(Heard::Executed(executed));
         }
         loop {
             match (&mut self.root, &mut self.own) {
@@ -293,7 +320,7 @@ impl Sources {
                         }
                         () = tokio::time::sleep(LOOK_EVERY) => {
                             if let Some(pid) = own.started(processes) {
-                                return Ok(Heard::Number(pid));
+                                return Ok(Heard::Executed(Executed::number(pid)));
                             }
                         }
                     }
@@ -306,7 +333,7 @@ impl Sources {
                 (None, Some(own)) => {
                     tokio::time::sleep(LOOK_EVERY).await;
                     if let Some(pid) = own.started(processes) {
-                        return Ok(Heard::Number(pid));
+                        return Ok(Heard::Executed(Executed::number(pid)));
                     }
                 }
                 (None, None) => anyhow::bail!("nothing is reporting processes any more"),
@@ -459,7 +486,13 @@ impl Watch {
                 baseline
             },
         );
-        let kernel = kernel_events().map_err(|error| eprintln!("borg watch: {error:#}")).ok();
+        let (kernel, kernel_source) = match kernel_events() {
+            Ok((events, source)) => (Some(events), source),
+            Err(error) => {
+                eprintln!("borg watch: {error:#}");
+                (None, WatchSource::Off)
+            }
+        };
         let (link, root) = match kernel {
             Some(_) => (None, None),
             None => match root::RootLink::listen(&state).await {
@@ -472,7 +505,7 @@ impl Watch {
         };
         let user = rustix::process::getuid();
         let own = kernel.is_none().then(|| Polling::new((!user.is_root()).then_some(user.as_raw()), &processes));
-        let sources = Sources { kernel, root, link, own, heard_root: false };
+        let sources = Sources { kernel, kernel_source, root, link, own, heard_root: false };
         let mut watcher = Watcher::new(baseline, settings.limits);
         watcher.baseline.allowed = allowances(&settings, &state);
         let mut log = log::read_log(&state);
@@ -562,7 +595,7 @@ impl Watch {
             let now = SystemTime::now();
             let started = match heard {
                 Heard::Facts(process) => Some(*process),
-                Heard::Number(pid) => self.processes.started(pid, now),
+                Heard::Executed(executed) => executed.started(&self.processes, now),
             };
             let Some(started) = started else { continue };
             let guard = Guard {
@@ -726,6 +759,22 @@ fn allowances(settings: &Settings, state: &Path) -> Vec<Allowance> {
     allowed
 }
 
+/// Every program the kernel starts: from Borg's own programs inside the kernel where it may load
+/// them, and otherwise from the kernel's process events. Says which it is.
+fn kernel_events() -> Result<(Receiver<Executed>, WatchSource)> {
+    let ebpf = match ebpf::listen() {
+        Ok(events) => return Ok((events, WatchSource::Ebpf)),
+        Err(error) => error,
+    };
+    match process_events() {
+        Ok(events) => {
+            eprintln!("borg watch: {ebpf:#}; hearing the kernel's process events instead");
+            Ok((events, WatchSource::Kernel))
+        }
+        Err(error) => Err(anyhow::anyhow!("{ebpf:#}; {error:#}")),
+    }
+}
+
 /// The kernel's process events, read on a thread of their own and sent on as process numbers.
 /// Only an exec counts: right after a fork a process still shows its parent's program, and
 /// looking then would both say the wrong thing and teach the baseline the wrong pair. A process
@@ -734,7 +783,7 @@ fn allowances(settings: &Settings, state: &Path) -> Vec<Allowance> {
 /// When processes start faster than the watcher looks at them, the queue fills, the kernel
 /// drops events and says so, and the reader carries on: stopping would leave the machine
 /// unwatched.
-fn kernel_events() -> Result<Receiver<u32>> {
+fn process_events() -> Result<Receiver<Executed>> {
     use rustix::io::Errno;
     let socket = netlink::subscribe().context("hearing the kernel's process events")?;
     let (sender, receiver) = channel(EVENTS_QUEUED);
@@ -755,7 +804,7 @@ fn kernel_events() -> Result<Receiver<u32>> {
                     netlink::ProcEvent::Forked { .. } | netlink::ProcEvent::Exited { .. } => None,
                 };
                 if let Some(pid) = pid
-                    && sender.blocking_send(pid).is_err()
+                    && sender.blocking_send(Executed::number(pid)).is_err()
                 {
                     return;
                 }
@@ -767,14 +816,14 @@ fn kernel_events() -> Result<Receiver<u32>> {
 
 /// Every process that starts, from looking at the whole process list four times a second, for a
 /// kernel that sends no process events.
-fn polled(processes: Processes) -> Receiver<u32> {
+fn polled(processes: Processes) -> Receiver<Executed> {
     let (sender, receiver) = channel(EVENTS_QUEUED);
     tokio::spawn(async move {
         let mut polling = Polling::new(None, &processes);
         loop {
             tokio::time::sleep(LOOK_EVERY).await;
             while let Some(pid) = polling.started(&processes) {
-                if sender.send(pid).await.is_err() {
+                if sender.send(Executed::number(pid)).await.is_err() {
                     return;
                 }
             }

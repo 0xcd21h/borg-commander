@@ -1421,6 +1421,7 @@ catalog! {
     watch_stream_file => "file",
     watch_stream_socket => "network socket",
     watch_stream_other => "something else",
+    watch_source_ebpf => "every process on this machine, read inside the kernel the moment each program starts",
     watch_source_kernel => "every process on this machine, as the kernel reports it",
     watch_source_own => "your own processes only, so short commands can be missed",
     watch_source_polled => "every process on this machine, looked at four times a second, so short commands can be missed",

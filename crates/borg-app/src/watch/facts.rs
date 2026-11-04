@@ -319,16 +319,7 @@ impl Processes {
         let uid = self.user(pid).unwrap_or_default();
         let command = command_of(&self.block(pid, "cmdline"));
         let link = program.as_deref().and_then(|program| self.started_by_link(pid, &stat.name, &command, program));
-        let mut ancestors = Vec::new();
-        let mut parent = stat.parent;
-        while ancestors.len() < ANCESTORS && parent > 0 {
-            let Some((ancestor, grandparent)) = self.ancestor(parent) else { break };
-            ancestors.push(ancestor);
-            if grandparent == parent {
-                break;
-            }
-            parent = grandparent;
-        }
+        let ancestors = self.ancestors(stat.parent);
         Some(StartedProcess {
             key: ProcessKey { pid, start: stat.started_at },
             name: stat.name.clone(),
@@ -347,6 +338,34 @@ impl Processes {
             ancestors,
             at,
         })
+    }
+
+    /// A process and the ones that led to it, the process first, up to [`ANCESTORS`] of them.
+    pub fn ancestors(&self, parent: u32) -> Vec<Ancestor> {
+        let mut ancestors = Vec::new();
+        let mut parent = parent;
+        while ancestors.len() < ANCESTORS && parent > 0 {
+            let Some((ancestor, grandparent)) = self.ancestor(parent) else { break };
+            ancestors.push(ancestor);
+            if grandparent == parent {
+                break;
+            }
+            parent = grandparent;
+        }
+        ancestors
+    }
+
+    /// Whether a process runs the file a path leads to, as the process sees its files: a path
+    /// from its root folder, or from its working folder when the path is relative. Nothing when
+    /// either is gone.
+    pub fn runs(&self, pid: u32, path: &Path) -> Option<bool> {
+        let running = fs::metadata(self.folder(pid).join("exe")).ok()?;
+        let (from, path) = match path.strip_prefix("/") {
+            Ok(inside) => ("root", inside),
+            Err(_) => ("cwd", path),
+        };
+        let asked = fs::metadata(self.folder(pid).join(from).join(path)).ok()?;
+        Some(running.dev() == asked.dev() && running.ino() == asked.ino())
     }
 
     /// Every process the folder lists, by number.

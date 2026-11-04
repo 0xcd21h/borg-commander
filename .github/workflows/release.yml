@@ -40,6 +40,10 @@ jobs:
           pip3 install ziglang
           cargo install --locked cargo-zigbuild
 
+      - name: Install the eBPF tools (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/install-ebpf-tools.sh
+
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: cargo zigbuild --release --locked -p borg-app -p borg-relay --target ${{ matrix.target }}

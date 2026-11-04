@@ -17,6 +17,9 @@ const EXCLUDE: char = '!';
 /// Where the watcher's events come from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WatchSource {
+    /// Every process on the machine, from Borg's own programs inside the kernel, which read
+    /// each program start before the process can do anything.
+    Ebpf,
     /// Every process on the machine, from the kernel, which needs the root watcher.
     Kernel,
     /// The user's own processes, by looking at the process list again and again.
@@ -31,6 +34,7 @@ pub enum WatchSource {
 impl WatchSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Ebpf => tr!(watch_source_ebpf),
             Self::Kernel => tr!(watch_source_kernel),
             Self::OwnProcesses => tr!(watch_source_own),
             Self::Polled => tr!(watch_source_polled),
