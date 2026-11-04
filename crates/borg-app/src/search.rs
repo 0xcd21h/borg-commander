@@ -11,6 +11,7 @@ use std::{
 use borg_core::{LineMatch, Msg, RESULT_LIMIT, Scan, SearchKind, SearchProgress, SearchQuery, SearchRequest, Side};
 use borg_rules::{RuleMatch, Rules};
 use borg_vfs::Entry;
+use borg_view::entropy::{Tally, code_tally};
 use tokio::{
     sync::{mpsc, watch},
     task::JoinHandle,
@@ -167,6 +168,7 @@ fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stor
         batch: Vec::with_capacity(BATCH_SIZE),
         found: Vec::new(),
         rule_hits: Vec::new(),
+        packed: Vec::new(),
         background,
     };
     match request.work {
@@ -204,6 +206,8 @@ enum Inspect {
     Contents(borg_view::Search),
     /// Borg's rules and those in the user's folder, with the bytes of the file being read.
     Rules(Rules, Vec<u8>),
+    /// The entropy of each program's code.
+    Packed,
 }
 
 /// Streams the entries below the search folder whose names match, leaving out what the request
@@ -230,7 +234,7 @@ fn search_names(search: &SearchRequest, rules: Option<&Path>, stream: &mut Outpu
     let metadata = query.needs_metadata() || search.options.minimum > 0;
     let wanted = |entry: &Entry, path: &Path| {
         let kind = match search.options.kind {
-            SearchKind::Files | SearchKind::Rules => entry.kind == borg_vfs::EntryKind::File,
+            SearchKind::Files | SearchKind::Rules | SearchKind::Packed => entry.kind == borg_vfs::EntryKind::File,
             SearchKind::Folders => entry.kind == borg_vfs::EntryKind::Dir,
             _ => true,
         };
@@ -239,13 +243,15 @@ fn search_names(search: &SearchRequest, rules: Option<&Path>, stream: &mut Outpu
     };
     let depth = |path: &Path| path.strip_prefix(&search.root).map_or(0, |rest| rest.components().count());
     let mut progress = SearchProgress::default();
-    let mut inspect = if search.options.kind == SearchKind::Rules {
-        let rules = crate::rule_scan::compile(rules);
-        progress.rules = rules.count();
-        progress.left_out = rules.problems().to_vec();
-        Some(Inspect::Rules(rules, Vec::new()))
-    } else {
-        contents.map(Inspect::Contents)
+    let mut inspect = match search.options.kind {
+        SearchKind::Rules => {
+            let rules = crate::rule_scan::compile(rules);
+            progress.rules = rules.count();
+            progress.left_out = rules.problems().to_vec();
+            Some(Inspect::Rules(rules, Vec::new()))
+        }
+        SearchKind::Packed => Some(Inspect::Packed),
+        _ => contents.map(Inspect::Contents),
     };
     let mut found = 0;
     let mut last = Instant::now();
@@ -326,6 +332,11 @@ fn search_names(search: &SearchRequest, rules: Option<&Path>, stream: &mut Outpu
                             Inside::Stopped => return false,
                         }
                     }
+                    Some(Inspect::Packed) => match judge_code(&path, stream, &mut progress) {
+                        Inside::Found(tally) => stream.push_packed(entry, tally),
+                        Inside::Passed => continue,
+                        Inside::Stopped => return false,
+                    },
                     None => stream.push(entry),
                 };
                 if !pushed {
@@ -404,6 +415,27 @@ fn read_with_rules(
         Ok(Some(hits)) => {
             progress.read += 1;
             if hits.is_empty() { Inside::Passed } else { Inside::Found(hits) }
+        }
+        Ok(None) => {
+            progress.unread += 1;
+            Inside::Passed
+        }
+        Err(_) if stream.stopped() => Inside::Stopped,
+        Err(_) => {
+            progress.errors += 1;
+            Inside::Passed
+        }
+    }
+}
+
+/// Reads the code of the program at `path`, counting it as read, as another file when it is no
+/// program, or as failed. A program whose code looks packed is found.
+fn judge_code(path: &Path, stream: &Output<'_>, progress: &mut SearchProgress) -> Inside<Tally> {
+    let judged = borg_view::FileSource::open(path).and_then(|source| code_tally(&source, &|| !stream.stopped()));
+    match judged {
+        Ok(Some(tally)) => {
+            progress.read += 1;
+            if borg_core::looks_packed(&tally) { Inside::Found(tally) } else { Inside::Passed }
         }
         Ok(None) => {
             progress.unread += 1;
@@ -530,6 +562,8 @@ struct Output<'a> {
     found: Vec<(Entry, LineMatch)>,
     /// Files a rules search found, with the rules each matched.
     rule_hits: Vec<(Entry, Vec<RuleMatch>)>,
+    /// Programs a search for packed ones found, with the entropy of their code.
+    packed: Vec<(Entry, Tally)>,
     background: bool,
 }
 
@@ -580,7 +614,17 @@ impl Output<'_> {
         self.rule_hits.push((entry, hits));
         self.rule_hits.len() < BATCH_SIZE || self.flush()
     }
+    fn push_packed(&mut self, entry: Entry, tally: Tally) -> bool {
+        self.packed.push((entry, tally));
+        self.packed.len() < BATCH_SIZE || self.flush()
+    }
     fn flush(&mut self) -> bool {
+        if !self.packed.is_empty() {
+            let found = std::mem::take(&mut self.packed);
+            if !self.send(Msg::PackedHits { side: self.side, generation: self.generation, found }) {
+                return false;
+            }
+        }
         if !self.rule_hits.is_empty() {
             let found = std::mem::take(&mut self.rule_hits);
             if !self.send(Msg::RuleHits { side: self.side, generation: self.generation, found }) {

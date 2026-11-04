@@ -27,6 +27,8 @@ pub enum SearchKind {
     FolderTree,
     /// Files that Borg's rules or the user's match.
     Rules,
+    /// Programs whose code is mostly high entropy, as packed or encrypted code is.
+    Packed,
 }
 
 impl SearchKind {
@@ -38,10 +40,17 @@ impl SearchKind {
             Self::FolderTotals => tr!(folder_totals),
             Self::FolderTree => tr!(folder_size_tree),
             Self::Rules => tr!(rule_matches),
+            Self::Packed => tr!(packed_executables),
         }
     }
+    /// Whether the search lists the files it judges by what they hold, with rules or by the
+    /// entropy of their code, rather than by text it is given.
+    pub fn judges_files(self) -> bool {
+        matches!(self, Self::Rules | Self::Packed)
+    }
     fn step(self, reverse: bool) -> Self {
-        let kinds = [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree, Self::Rules];
+        let kinds =
+            [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree, Self::Rules, Self::Packed];
         let index = kinds.iter().position(|kind| *kind == self).unwrap_or(0);
         kinds[(index + if reverse { kinds.len() - 1 } else { 1 }) % kinds.len()]
     }
@@ -58,9 +67,10 @@ pub struct SearchOptions {
 }
 
 impl SearchOptions {
-    /// Whether the search reads the files it finds, for text or with rules, which no index answers.
+    /// Whether the search reads the files it finds, for text, with rules or for packed code,
+    /// which no index answers.
     pub fn reads_files(&self) -> bool {
-        self.contents.is_some() || self.kind == SearchKind::Rules
+        self.contents.is_some() || self.kind.judges_files()
     }
 }
 
@@ -118,14 +128,15 @@ impl SearchForm {
     }
 
     /// Whether the dialog shows `field`. Size scans measure folders and read everything, so
-    /// they look inside no file and have no switch for leaving things out. Rule scans look for
-    /// what the rules describe and list files, so they take no text and no count of files.
+    /// they look inside no file and have no switch for leaving things out. Rule scans and the
+    /// search for packed programs judge what files hold and list files, so they take no text
+    /// and no count of files.
     pub fn shows(&self, field: usize) -> bool {
         let sizes = matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree);
-        let rules = self.kind == SearchKind::Rules;
+        let judges = self.kind.judges_files();
         field < SEARCH_FIELDS
             && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD))
-            && !(rules && matches!(field, CONTENTS_FIELD | FILES_FIELD))
+            && !(judges && matches!(field, CONTENTS_FIELD | FILES_FIELD))
     }
 
     /// The field Tab goes to, or Shift-Tab when `back`, passing over those not shown.

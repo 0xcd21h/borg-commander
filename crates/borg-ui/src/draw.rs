@@ -342,6 +342,9 @@ fn paint_overlay(
         Overlay::ProcessControl(dialog) => {
             (crate::activity_view::control::draw(dialog, theme, screen, buf), None, Unfold::FromCenter)
         }
+        Overlay::EntropyScan(dialog) => {
+            (crate::activity_view::entropy::draw_dialog(dialog, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Capture(dialog) => (
             crate::network_view::draw_capture_dialog(dialog, &state.network, theme, screen, buf),
             None,

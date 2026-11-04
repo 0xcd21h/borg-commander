@@ -1,7 +1,7 @@
 //! How varied bytes are, in bits per byte: near 8 for compressed, encrypted or packed data,
 //! near 4.5 for text, and 0 for one byte repeated.
 
-use crate::Source;
+use crate::{Source, executable::code_ranges};
 use serde::{Deserialize, Serialize};
 use std::{io, ops::Range};
 
@@ -10,6 +10,8 @@ pub const BLOCK: u64 = 4096;
 /// Blocks a profile holds at most, so that a source of any size takes the same memory; a
 /// larger source is sampled evenly.
 const PROFILE_BLOCKS: u64 = 65_536;
+/// Blocks of a program's code judged at most, so a large program is read 4 MiB at most.
+const CODE_BLOCKS: u64 = 1024;
 const BYTE_VALUES: usize = 256;
 const HUNDREDTHS: f64 = 100.0;
 /// Below this, bytes repeat a lot, as in sparse tables, padding and fill patterns.
@@ -84,7 +86,7 @@ impl Profile {
     pub fn read(source: &dyn Source, go_on: &dyn Fn() -> bool) -> io::Result<Option<Self>> {
         let len = source.len();
         let total = len.div_ceil(BLOCK);
-        let stride = total.div_ceil(PROFILE_BLOCKS).max(1);
+        let stride = stride(total, PROFILE_BLOCKS);
         let mut block = vec![0; BLOCK as usize];
         let mut blocks = Vec::with_capacity(total.div_ceil(stride) as usize);
         for entry in 0..total.div_ceil(stride) {
@@ -138,6 +140,74 @@ impl Profile {
     fn entry(&self, offset: u64) -> usize {
         usize::try_from(offset / BLOCK / self.stride.max(1)).unwrap_or(usize::MAX)
     }
+}
+
+/// Every how many blocks one is judged, so that at most `most` of `blocks` are read and the rest
+/// stand for the ones they follow.
+pub fn stride(blocks: u64, most: u64) -> u64 {
+    blocks.div_ceil(most.max(1)).max(1)
+}
+
+/// What the blocks judged in a region of memory or in a program's code add up to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tally {
+    pub blocks: u32,
+    pub high: u32,
+    pub highest: Entropy,
+    /// Where the first block with high entropy starts.
+    pub first_high: Option<u64>,
+}
+
+impl Tally {
+    /// Counts the block at `at`, judged `entropy`.
+    pub fn add(&mut self, at: u64, entropy: Entropy) {
+        self.blocks = self.blocks.saturating_add(1);
+        self.highest = self.highest.max(entropy);
+        if entropy.high() {
+            self.high = self.high.saturating_add(1);
+            self.first_high = Some(self.first_high.map_or(at, |first| first.min(at)));
+        }
+    }
+
+    /// The share of the blocks judged with high entropy.
+    pub fn share(&self) -> f64 {
+        f64::from(self.high) / f64::from(self.blocks.max(1))
+    }
+}
+
+/// The blocks judged across `ranges`, at most `most` of them, spread evenly over all the blocks
+/// the ranges hold together. A block ends where its range does.
+pub fn sampled(ranges: &[Range<u64>], most: u64) -> impl Iterator<Item = Range<u64>> + '_ {
+    let blocks = |range: &Range<u64>| range.end.saturating_sub(range.start).div_ceil(BLOCK);
+    let stride = stride(ranges.iter().map(blocks).sum(), most);
+    let mut before = 0u64;
+    ranges.iter().flat_map(move |range| {
+        let first = before.next_multiple_of(stride) - before;
+        before += blocks(range);
+        let range = range.clone();
+        (first..blocks(&range)).step_by(usize::try_from(stride).unwrap_or(usize::MAX)).map(move |index| {
+            let start = range.start + index * BLOCK;
+            start..(start + BLOCK).min(range.end)
+        })
+    })
+}
+
+/// The entropy of the code in the program `source`, sampled evenly, or `None` when it is no
+/// program `code_ranges` knows or holds no code. Stopping when `go_on` says so is an error of
+/// kind `Interrupted`.
+pub fn code_tally(source: &dyn Source, go_on: &dyn Fn() -> bool) -> io::Result<Option<Tally>> {
+    let Some(ranges) = code_ranges(source)?.filter(|ranges| !ranges.is_empty()) else { return Ok(None) };
+    let mut tally = Tally::default();
+    let mut block = vec![0; BLOCK as usize];
+    for range in sampled(&ranges, CODE_BLOCKS) {
+        if !go_on() || source.is_cancelled() {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        let wanted = usize::try_from(range.end - range.start).unwrap_or(block.len()).min(block.len());
+        let read = source.read_at(range.start, &mut block[..wanted])?;
+        tally.add(range.start, Entropy::of(&block[..read]));
+    }
+    Ok(Some(tally))
 }
 
 /// The bytes the `index`th of `cells` cells stands for, when a source of `len` bytes is laid

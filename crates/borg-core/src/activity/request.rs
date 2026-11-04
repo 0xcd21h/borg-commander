@@ -112,4 +112,6 @@ pub enum ActivityData {
     Integrity(IntegrityReport),
     Rules(RulesReport),
     Control(ControlReport),
+    /// What the helper's part of the entropy scan found, which never comes back as a request's.
+    Entropy(super::EntropyReport),
 }

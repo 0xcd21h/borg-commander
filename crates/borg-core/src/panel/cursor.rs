@@ -6,13 +6,18 @@ use borg_vfs::Entry;
 use std::path::PathBuf;
 
 impl Panel {
+    pub(super) fn drop_landing(&mut self) {
+        self.focus = None;
+        self.return_row = None;
+    }
+
     pub fn set_rows(&mut self, rows: usize) {
         self.rows = rows;
         self.clamp();
     }
 
     pub fn move_by(&mut self, delta: isize) {
-        self.focus = None;
+        self.drop_landing();
         self.cursor = self.cursor.saturating_add_signed(delta);
         self.clamp();
     }
@@ -28,13 +33,13 @@ impl Panel {
     }
 
     pub fn to_start(&mut self) {
-        self.focus = None;
+        self.drop_landing();
         self.cursor = 0;
         self.clamp();
     }
 
     pub fn to_end(&mut self) {
-        self.focus = None;
+        self.drop_landing();
         self.cursor = self.len().saturating_sub(1);
         self.clamp();
     }
@@ -57,7 +62,7 @@ impl Panel {
             (0..count).map(|step| if forward { (start + step) % count } else { (start + count - step) % count });
         let found = order.into_iter().find(|index| self.entries.get(*index).is_some_and(&accept));
         if let Some(index) = found {
-            self.focus = None;
+            self.drop_landing();
             self.cursor = index + offset;
             self.clamp();
         }
@@ -65,12 +70,12 @@ impl Panel {
     }
 
     pub fn point_at_path(&mut self, path: PathBuf) {
-        self.focus = None;
+        self.drop_landing();
         self.restore(Some(Anchor::Path(path)));
     }
 
     pub fn point_at(&mut self, name: &str) {
-        self.focus = None;
+        self.drop_landing();
         self.restore(Some(Anchor::Name(name.to_owned())));
     }
 
