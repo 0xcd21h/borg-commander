@@ -398,6 +398,11 @@ executar o comando. Os comandos com várias linhas, escritos ou recuperados do h
 área do prompt mais alta e os painéis mais baixos, para que o cursor fique sempre visível. Todas
 as teclas habituais de edição e de conclusão da sua shell continuam a funcionar.
 
+Quando volta à pasta pai, o cursor fica na pasta de onde veio, na mesma linha do ecrã e com a
+lista na mesma posição em que estava quando entrou. Se entretanto surgiram ou desapareceram
+ficheiros, ou se o painel mudou de altura, o cursor fica na mesma pasta, tão perto da linha anterior
+quanto a lista permitir.
+
 Alt-Enter escreve os nomes tal como a shell os vê a partir da pasta do painel. Em `..` escreve o
 caminho completo da pasta pai, porque o nome da pasta pai, sozinho, apontaria para dentro da pasta
 atual. Nos resultados de pesquisa e nas coleções escreve caminhos completos, já que os ficheiros vêm

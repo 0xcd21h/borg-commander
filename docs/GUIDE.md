@@ -365,6 +365,11 @@ command. Multi-line commands, typed or recalled from history, make the prompt ar
 the panels shorter, so the cursor always stays visible. All of your shell's usual editing and
 completion keys keep working.
 
+Going back to the parent folder puts the cursor on the folder you came from, on the same screen
+row, with the list scrolled as it was when you went in. If files came or went in the meantime, or
+the panel changed height, the cursor still lands on that folder, as close to its old row as the
+list allows.
+
 Alt-Enter types names as the shell sees them from the panel's folder. On `..` it types the full path
 of the parent folder, because the parent's name alone would point inside the current folder. In
 search results and collections it types full paths, since their files come from different folders.

@@ -41,7 +41,7 @@ impl Panel {
         self.mode = ListingMode::Full;
         self.cursor = 0;
         self.scroll = 0;
-        self.focus = None;
+        self.drop_landing();
         self.marks.clear();
         self.set_sort(self.sort);
     }
