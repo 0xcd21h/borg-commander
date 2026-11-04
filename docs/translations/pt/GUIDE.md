@@ -1918,7 +1918,9 @@ Conheça-as antes de confiar nele.
 - Um comando que terminou antes de o Borg conseguir ler `/proc` traz apenas o que os programas
   leram: o seu programa, a linha de comandos, o processo pai e o utilizador. O seu terminal, os
   fluxos padrão e as variáveis de pré-carregamento terminaram com ele, por isso as regras sobre eles
-  não podem disparar.
+  não podem disparar. O seu programa é o caminho com que foi iniciado, que pode ser relativo à sua
+  pasta de trabalho ou passar por uma ligação simbólica, por isso **Programa numa pasta temporária**
+  pode não o apanhar.
 - Os programas guardam os primeiros 4 KiB de uma linha de comandos, e o Borg vai buscar uma mais
   longa a `/proc` enquanto o processo ainda lá está. Encontram a linha de comandos através da
   informação de tipos que o kernel publica em `/sys/kernel/btf/vmlinux`. Num kernel compilado sem
