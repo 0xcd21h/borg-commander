@@ -1225,6 +1225,10 @@ keep-running = ["backup-agent"]  # programs Borg never freezes
 [[watch.allow]]
 program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
 parent = "nginx"
+
+[watch.notify.telegram]     # send alerts as they happen, see Alerts off the machine
+token = "123456:ABC"
+chat = "123456789"
 ```
 
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any
@@ -1763,6 +1767,71 @@ that.
 The watcher is a Linux feature for now. On macOS the page opens and reads its log, and the source
 says nothing is watching.
 
+### Alerts off the machine
+
+The Alerts page lives on the machine it watches, so whoever takes that machine over can delete the
+log. Send each alert somewhere else as it happens: a copy that has arrived is out of their reach,
+and a heartbeat tells you when the watcher goes quiet. Add `[watch.notify]` to the configuration on
+the server, with any of these places or several. Every address uses `https://`, or `http://` to the
+server itself:
+
+```toml
+[watch.notify]
+name = "web-01"             # how messages name this machine, its host name otherwise
+level = "warning"           # the least an alert needs to be sent: alert, warning or notice
+
+[watch.notify.telegram]
+token = "123456:ABC-your-bot-token"
+chat = "123456789"
+
+[watch.notify.ntfy]
+url = "https://ntfy.sh/a-long-random-topic"
+token = "tk_your_token"     # where the topic needs one
+
+[watch.notify.webhook]
+url = "https://example.com/borg"
+secret = "a long random string"
+
+[watch.notify.heartbeat]
+url = "https://hc-ping.com/your-check-id"
+minutes = 5
+```
+
+Then run `borg service watch notify`. It sends a test message to each place and prints what each
+one answered.
+
+- **Telegram**: create a bot with @BotFather, which gives you the token. Send the bot a message,
+  then open `https://api.telegram.org/bot<token>/getUpdates` and take `chat.id` from the answer.
+- **ntfy**: subscribe in the ntfy app to a topic with a long name nobody can guess, or to one on
+  your own ntfy server.
+- **Webhook**: Borg posts every message to the address as JSON. With `secret`, each request
+  carries `X-Borg-Signature: t=<time>,v1=<signature>`: the HMAC-SHA256, under the secret, of the
+  time, a dot and the body, so your receiver can tell Borg's messages from forged ones.
+  `X-Borg-Event` says what the message is: `alert`, `evidence` (the program's SHA-256 and rule
+  matches, which follow an alert once Borg has read the program), `started`, `armed` or `test`.
+- **Heartbeat**: Borg calls the address every `minutes` while the watcher runs and adds `/fail`
+  when something is wrong: the thread that hashes programs stopped, a place has not taken a
+  message for 30 minutes, or Borg gave up on one. A service such as healthchecks.io tells you when
+  the calls stop, which is what happens when someone kills the watcher.
+
+The service sends each alert within seconds of writing it down, and also says when the watcher
+starts and when freezing begins. Notices stay on the page unless `level` is `notice`. A message a
+place refuses waits in `watch-outbox.json` in the state folder and is tried again, 5 seconds later
+at first and every 30 minutes at most. Borg keeps up to 500 waiting messages and tries each for 48
+hours, and the next message says how many it gave up on.
+
+Each place numbers its messages from 1, and every message's JSON carries the SHA-256 of the one
+before it in `previous`. A gap in the numbers, or a `previous` that does not match, means a message
+went missing or was changed on the way. The numbering happens on the server, so it cannot catch
+someone who controls the server.
+
+The tokens sit in the configuration, which anyone running as your user on the server can read. With
+them, someone can send messages that look like Borg's and carry the numbering on without a gap, and
+a Telegram bot can delete what it sent in the last 48 hours. Whoever takes over the server can also
+delete the messages still waiting to leave. What arrived before that stays as it was, and a webhook
+to a machine you control keeps it as it arrived. When the watcher goes quiet, the heartbeat is what
+tells you.
+
 ### What the watcher cannot see
 
 The watcher judges each program as it starts, which leaves some things out of its sight. Know them
@@ -1786,7 +1855,9 @@ before you rely on it.
 - A process on a terminal somebody logged in to is never frozen, even when the login used a stolen
   password or key. The rules still fire and write alerts.
 - A process that detaches from its parent before Borg freezes the parent keeps running.
-- Alerts reach you when you open the page. Nothing sends them anywhere yet.
+- Without `[watch.notify]`, alerts reach you only when you open the page. With it, someone who
+  takes over the machine in the seconds after an alert can still stop the message before it
+  leaves, and then the heartbeat's silence is what tells you.
 
 ## Network
 

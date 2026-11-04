@@ -1339,6 +1339,10 @@ keep-running = ["backup-agent"]  # programs Borg never freezes
 [[watch.allow]]
 program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
 parent = "nginx"
+
+[watch.notify.telegram]     # send alerts as they happen, see Alerts off the machine
+token = "123456:ABC"
+chat = "123456789"
 ```
 
 En un terminal local con color verdadero, Borg arranca con una breve animación de su logotipo con
@@ -1925,6 +1929,74 @@ que solo el propietario o un administrador puede hacerlo.
 El vigilante es por ahora una función de Linux. En macOS la página se abre y lee su registro, y el
 origen dice que nada está vigilando.
 
+### Alertas fuera de la máquina
+
+La página Alertas vive en la máquina que vigila, así que quien se haga con esa máquina puede borrar
+el registro. Envía cada alerta a otro sitio en cuanto ocurre: una copia que ya llegó queda fuera de
+su alcance, y el latido te avisa cuando el vigilante se queda callado. Añade `[watch.notify]` a la
+configuración del servidor, con cualquiera de estos destinos o con varios. Todas las direcciones
+usan `https://`, o `http://` hacia el propio servidor:
+
+```toml
+[watch.notify]
+name = "web-01"             # how messages name this machine, its host name otherwise
+level = "warning"           # the least an alert needs to be sent: alert, warning or notice
+
+[watch.notify.telegram]
+token = "123456:ABC-your-bot-token"
+chat = "123456789"
+
+[watch.notify.ntfy]
+url = "https://ntfy.sh/a-long-random-topic"
+token = "tk_your_token"     # where the topic needs one
+
+[watch.notify.webhook]
+url = "https://example.com/borg"
+secret = "a long random string"
+
+[watch.notify.heartbeat]
+url = "https://hc-ping.com/your-check-id"
+minutes = 5
+```
+
+Luego ejecuta `borg service watch notify`. Envía un mensaje de prueba a cada destino y muestra lo
+que respondió cada uno.
+
+- **Telegram**: crea un bot con @BotFather, que te da el token. Envía un mensaje al bot, abre
+  `https://api.telegram.org/bot<token>/getUpdates` y toma `chat.id` de la respuesta.
+- **ntfy**: suscríbete en la app de ntfy a un tema con un nombre largo que nadie pueda adivinar, o
+  a uno de tu propio servidor ntfy.
+- **Webhook**: Borg envía cada mensaje a la dirección como JSON. Con `secret`, cada petición lleva
+  `X-Borg-Signature: t=<time>,v1=<signature>`: el HMAC-SHA256, con el secreto, de la hora, un punto
+  y el cuerpo, para que tu receptor distinga los mensajes de Borg de los falsificados.
+  `X-Borg-Event` dice qué es el mensaje: `alert`, `evidence` (el SHA-256 del programa y las
+  coincidencias de reglas, que siguen a una alerta cuando Borg ha leído el programa), `started`,
+  `armed` o `test`.
+- **Latido**: Borg llama a la dirección cada `minutes` minutos mientras el vigilante funciona y
+  añade `/fail` cuando algo va mal: el hilo que calcula el hash de los programas se detuvo, un
+  destino lleva 30 minutos sin aceptar mensajes, o Borg abandonó uno. Un servicio como
+  healthchecks.io te avisa cuando las llamadas se detienen, que es lo que ocurre cuando alguien
+  mata al vigilante.
+
+El servicio envía cada alerta pocos segundos después de anotarla, y también avisa cuando el
+vigilante arranca y cuando empieza la congelación. Las alertas de nivel nota se quedan en la
+página salvo que `level` sea `notice`. Un mensaje que un destino rechaza espera en
+`watch-outbox.json`, en la carpeta de estado, y se reintenta, a los 5 segundos la primera vez y
+cada 30 minutos como máximo. Borg guarda hasta 500 mensajes en espera e intenta cada uno durante 48
+horas, y el mensaje siguiente dice cuántos abandonó.
+
+Cada destino numera sus mensajes desde 1, y el JSON de cada mensaje lleva en `previous` el SHA-256
+del anterior. Un salto en la numeración, o un `previous` que no coincide, significa que un mensaje
+se perdió o se cambió por el camino. La numeración se hace en el servidor, así que no detecta a
+quien controla el servidor.
+
+Los tokens están en la configuración, que cualquier cosa que se ejecute como tu usuario en el
+servidor puede leer. Con ellos, alguien puede enviar mensajes que parecen de Borg y seguir la
+numeración sin saltos, y un bot de Telegram puede borrar lo que envió en las últimas 48 horas. Quien
+se haga con el servidor también puede borrar los mensajes que aún esperan para salir. Lo que llegó
+antes queda como estaba, y un webhook a una máquina que controlas lo conserva tal como llegó. Cuando
+el vigilante se queda callado, es el latido el que te avisa.
+
 ### Lo que el vigilante no ve
 
 El vigilante juzga cada programa cuando arranca, y eso deja algunas cosas fuera de su vista.
@@ -1949,7 +2021,9 @@ Conócelas antes de confiar en él.
 - Un proceso en un terminal en el que alguien inició sesión nunca se congela, aunque la sesión usara
   una contraseña o clave robada. Las reglas siguen disparándose y anotando alertas.
 - Un proceso que se separa de su padre antes de que Borg congele al padre sigue en marcha.
-- Las alertas te llegan cuando abres la página. Por ahora nada las envía a ningún sitio.
+- Sin `[watch.notify]`, las alertas solo te llegan cuando abres la página. Con él, quien se haga
+  con la máquina en los segundos que siguen a una alerta todavía puede frenar el mensaje antes de
+  que salga, y entonces es el silencio del latido lo que te avisa.
 
 ## Red
 

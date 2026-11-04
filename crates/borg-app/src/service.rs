@@ -341,7 +341,8 @@ async fn watch_command(args: &[String]) -> Result<()> {
             println!("{}", crate::watch::report()?);
             Ok(())
         }
-        _ => bail!("usage: borg service watch install|uninstall|status"),
+        [action] if action == "notify" => crate::watch::test_notify(),
+        _ => bail!("usage: borg service watch install|uninstall|status|notify"),
     }
 }
 

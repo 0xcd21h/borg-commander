@@ -30,6 +30,7 @@ pub mod facts;
 mod freeze;
 mod log;
 mod netlink;
+pub mod notify;
 mod root;
 
 pub use root::{Act as WatchAct, helper as root_helper, install as install_root, uninstall as uninstall_root};
@@ -59,6 +60,7 @@ pub struct Settings {
     pub limits: Limits,
     pub allow: Vec<Allowance>,
     pub keep_running: Vec<String>,
+    pub notify: notify::Settings,
 }
 
 impl Default for Settings {
@@ -70,6 +72,7 @@ impl Default for Settings {
             limits: Limits::default(),
             allow: Vec::new(),
             keep_running: Vec::new(),
+            notify: notify::Settings::default(),
         }
     }
 }
@@ -415,6 +418,10 @@ pub struct Watch {
     asked: UnboundedReceiver<Asked>,
     /// The first account number the system gives a person.
     first_person: u32,
+    /// Where alerts go as they happen, when the configuration names anywhere.
+    notifier: Option<notify::Notifier>,
+    /// Whether Borg freezes what it is sure about, as last told off the machine.
+    armed: bool,
 }
 
 /// The service's hold on a running watcher.
@@ -480,7 +487,52 @@ impl Watch {
         log::write_log(&state, &log)?;
         let (jobs, found) = examiner(crate::rule_scan::compile(crate::rule_scan::folder().as_deref()));
         let first_person = facts::first_person();
-        Ok(Self { processes, settings, jobs, found, state, watcher, log, sources, asked, first_person })
+        let host = settings.notify.name.clone().unwrap_or_else(host_name);
+        let notifier = notify::Notifier::start(settings.notify.clone(), host, state.clone());
+        let armed = armed(&settings, &watcher, &log, SystemTime::now());
+        if let Some(notifier) = &notifier {
+            notifier.send(notify::Event::Started { source: log.watch.source, freezing: armed });
+        }
+        let watch = Self {
+            processes,
+            settings,
+            jobs,
+            found,
+            state,
+            watcher,
+            log,
+            sources,
+            asked,
+            first_person,
+            notifier,
+            armed,
+        };
+        watch.report_health();
+        Ok(watch)
+    }
+
+    /// Tells the heartbeat how the watcher is doing.
+    fn report_health(&self) {
+        if let Some(notifier) = &self.notifier {
+            notifier.health(notify::Health {
+                source: self.sources.label(),
+                seen: self.watcher.seen(),
+                suppressed: self.watcher.suppressed(),
+                examiner: !self.jobs.is_closed(),
+            });
+        }
+    }
+
+    /// Says off the machine when freezing begins.
+    fn report_armed(&mut self, now: SystemTime) {
+        let armed = armed(&self.settings, &self.watcher, &self.log, now);
+        if armed
+            && !self.armed
+            && let Some(notifier) = &self.notifier
+        {
+            notifier.send(notify::Event::Armed);
+        }
+        self.armed = armed;
     }
 
     /// Watches until nothing reports processes any more. Each process that starts is looked at,
@@ -533,6 +585,8 @@ impl Watch {
         let watch = self.log.watch.clone();
         self.log = log::read_log(&self.state);
         self.log.watch = watch;
+        self.report_health();
+        self.report_armed(SystemTime::now());
         log::write_baseline(&self.state, &self.watcher.baseline)
     }
 
@@ -574,6 +628,13 @@ impl Watch {
                 alerts.push(id);
             }
         })?;
+        if let Some(notifier) = &self.notifier {
+            for alert in self.log.alerts.iter().filter(|alert| alerts.contains(&alert.id)) {
+                if notifier.takes(alert.level()) {
+                    notifier.send(notify::Event::Alert(Box::new(notify::AlertReport::of(alert))));
+                }
+            }
+        }
         if let Some(program) = program {
             let _ = self.jobs.send(Job { alerts, program });
         }
@@ -592,7 +653,22 @@ impl Watch {
                     }
                 }
             }
-        })
+        })?;
+        if let Some(notifier) = &self.notifier {
+            let matches: Vec<String> =
+                found.hits.iter().take(notify::MATCHES_SENT).map(|hit| hit.rule.clone()).collect();
+            for alert in self.log.alerts.iter().filter(|alert| found.alerts.contains(&alert.id)) {
+                if notifier.takes(alert.level()) {
+                    notifier.send(notify::Event::Evidence {
+                        alert: alert.id,
+                        level: alert.level(),
+                        program_hash: found.program_hash.clone(),
+                        matches: matches.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Writes down what became of a process another Borg asked about, so the page shows it
@@ -625,6 +701,17 @@ fn change_log(state: &Path, watch: &WatchStatus, change: impl FnOnce(&mut AlertL
     change(&mut log);
     log::write_log(state, &log)?;
     Ok(log)
+}
+
+/// Whether Borg freezes what it is sure about: freezing is on, learning is over and the review
+/// of the learning week no longer holds it back.
+fn armed(settings: &Settings, watcher: &Watcher, log: &AlertLog, now: SystemTime) -> bool {
+    settings.freeze && !watcher.baseline.learning(now) && log.freezing_waits(now).is_none()
+}
+
+/// This machine's name, as alerts give it.
+fn host_name() -> String {
+    sysinfo::System::host_name().unwrap_or_else(|| tr!(notify_unnamed_host).to_owned())
 }
 
 /// Every start the user allows: the ones in the configuration and the ones the Alerts page has
@@ -751,6 +838,31 @@ pub fn start(settings: Settings) -> Option<Handle> {
 /// What one alert says in a line, for `borg service watch`.
 pub fn describe(alert: &Alert) -> String {
     format!("{} · {} · {}", alert.rule().label(), alert.program(), alert.state.label())
+}
+
+/// `borg service watch notify`: sends a test message to every place alerts go, and says how
+/// each went.
+pub fn test_notify() -> Result<()> {
+    let config = crate::config::ConfigDir::locate().map(|dir| dir.load()).transpose()?.unwrap_or_default();
+    let settings = config.watch().notify;
+    if !settings.any() {
+        anyhow::bail!("{}", tr!(notify_none));
+    }
+    let host = settings.name.clone().unwrap_or_else(host_name);
+    let mut refused = 0;
+    for (place, result) in notify::test(&settings, &host) {
+        match result {
+            Ok(()) => println!("{}", tr!(notify_test_sent, place = place)),
+            Err(error) => {
+                refused += 1;
+                println!("{}", tr!(notify_test_refused, place = place, error = error));
+            }
+        }
+    }
+    if refused > 0 {
+        anyhow::bail!("{}", tr!(notify_test_failed));
+    }
+    Ok(())
 }
 
 /// `borg service watch`: where the watcher's events come from, and what it has found.

@@ -521,6 +521,7 @@ dependencies = [
  "dns-lookup",
  "futures",
  "getrandom 0.3.4",
+ "hmac 0.12.1",
  "httparse",
  "ignore",
  "jiff",
@@ -546,6 +547,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
+ "ureq",
  "uzers",
  "zip",
 ]

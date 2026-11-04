@@ -55,6 +55,9 @@ pub const WATCH_BASELINE: &str = "watch-baseline.json";
 /// The starts the user has allowed on the Alerts page, in the state folder. The page writes it
 /// and the watcher reads it, so neither can lose what the other wrote.
 pub const WATCH_ALLOWED: &str = "watch-allowed.json";
+/// Messages the process watcher has yet to send off the machine, in the state folder. Nothing
+/// cleans it up, so a message waits however long the place it goes is away.
+pub const WATCH_OUTBOX: &str = "watch-outbox.json";
 /// A file Borg is replacing, written next to it first.
 pub const STAGING_SUFFIX: &str = "part";
 pub const SOCKET_SUFFIX: &str = ".sock";

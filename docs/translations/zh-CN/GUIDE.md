@@ -546,6 +546,10 @@ keep-running = ["backup-agent"]  # programs Borg never freezes
 [[watch.allow]]
 program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
 parent = "nginx"
+
+[watch.notify.telegram]     # send alerts as they happen, see Alerts off the machine
+token = "123456:ABC"
+chat = "123456789"
 ```
 
 在支持真彩色的本地终端中，Borg 启动时会播放一段简短的 logo 故障风格动画；按任意键或单击即可跳过。通过 SSH 连接时，以及在不支持真彩色的终端中，会直接打开面板。
@@ -825,6 +829,45 @@ borg service watch install
 
 目前监视器只是 Linux 的功能。在 macOS 上页面会打开并读取它的记录，来源则显示没有任何监视。
 
+### 把警报发到机器之外
+
+警报页面位于它所监视的机器上，因此接管那台机器的人可以删除记录。在每条警报出现时就把它发送到别处：已经送达的副本不在他们的掌控之中，而心跳会在监视器沉默时告诉你。在服务器的配置中添加 `[watch.notify]`，填写下面任意一个或几个位置。所有地址都使用 `https://`，发往服务器本机时也可以用 `http://`：
+
+```toml
+[watch.notify]
+name = "web-01"             # how messages name this machine, its host name otherwise
+level = "warning"           # the least an alert needs to be sent: alert, warning or notice
+
+[watch.notify.telegram]
+token = "123456:ABC-your-bot-token"
+chat = "123456789"
+
+[watch.notify.ntfy]
+url = "https://ntfy.sh/a-long-random-topic"
+token = "tk_your_token"     # where the topic needs one
+
+[watch.notify.webhook]
+url = "https://example.com/borg"
+secret = "a long random string"
+
+[watch.notify.heartbeat]
+url = "https://hc-ping.com/your-check-id"
+minutes = 5
+```
+
+然后运行 `borg service watch notify`。它会向每个位置发送一条测试消息，并打印每个位置的回应。
+
+- **Telegram**：用 @BotFather 创建一个机器人，它会给你令牌。给机器人发一条消息，然后打开 `https://api.telegram.org/bot<token>/getUpdates`，从回应中取出 `chat.id`。
+- **ntfy**：在 ntfy 应用中订阅一个名字很长、无人能猜到的主题，或者订阅你自己的 ntfy 服务器上的主题。
+- **Webhook**：Borg 把每条消息以 JSON 形式发送到该地址。设置了 `secret` 时，每个请求都带有 `X-Borg-Signature: t=<time>,v1=<signature>`：用该密钥对时间、一个点和消息正文计算的 HMAC-SHA256，这样接收方就能分辨 Borg 的消息和伪造的消息。`X-Borg-Event` 说明消息的类型：`alert`、`evidence`（程序的 SHA-256 和规则匹配，在 Borg 读取程序之后紧随警报发出）、`started`、`armed` 或 `test`。
+- **心跳**：监视器运行期间，Borg 每隔 `minutes` 分钟调用一次该地址，出现问题时会在地址后加上 `/fail`：计算程序哈希的线程停止了，某个位置 30 分钟没有接收消息，或者 Borg 放弃了某条消息。healthchecks.io 之类的服务会在调用停止时通知你，有人杀掉监视器时就会出现这种情况。
+
+服务写下警报后几秒内就会发送它，还会在监视器启动和开始冻结时告诉你。除非 `level` 设为 `notice`，提示级警报只留在页面上。某个位置拒收的消息会在状态文件夹中的 `watch-outbox.json` 里等待并重试，第一次在 5 秒后，之后最长每 30 分钟一次。Borg 最多保留 500 条等待中的消息，每条尝试 48 小时，下一条消息会说明它放弃了多少条。
+
+每个位置的消息从 1 开始编号，每条消息的 JSON 在 `previous` 中带有上一条消息的 SHA-256。编号出现空缺，或者 `previous` 对不上，就说明有消息在途中丢失或被改动。编号是在服务器上生成的，所以它发现不了控制着服务器的人。
+
+令牌保存在配置中，服务器上以你的用户身份运行的任何程序都能读取。拿到令牌的人可以发送看起来像 Borg 发出的消息，并且接着编号发下去而不留空缺，而 Telegram 机器人可以删除它在过去 48 小时内发送的消息。接管服务器的人还可以删除仍在等待发送的消息。在此之前送达的内容保持原样，发往你自己控制的机器的 Webhook 会按送达时的样子保存它。监视器沉默时，是心跳告诉你。
+
 ### 监视器看不到什么
 
 监视器在每个程序启动时对它作出判断，这让一些事情落在它的视线之外。在依赖它之前，请先了解这些。
@@ -837,7 +880,7 @@ borg service watch install
 - 以监视器所用用户身份运行的任何东西，都可以停止监视器、修改它在状态文件夹中的文件，或者用 `kill -CONT` 让被冻结的进程继续运行。冻结为你争取查看的时间，而进程的所有者仍然可以撤销它。
 - 有人登录的终端上的进程永远不会被冻结，即使登录用的是被盗的密码或密钥。规则仍会触发并写下警报。
 - 在 Borg 冻结父进程之前就脱离父进程的进程会继续运行。
-- 警报要等你打开页面时才会看到。目前还没有任何东西会把它们发送到别处。
+- 没有 `[watch.notify]` 时，警报要等你打开页面时才会看到。有了它，在警报出现后几秒内接管机器的人仍可能在消息离开之前拦下它，这时心跳的沉默会告诉你出了事。
 
 ## 网络
 

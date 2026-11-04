@@ -99,6 +99,108 @@ pub struct Watch {
     pub allow: Vec<Allowed>,
     /// Programs Borg never freezes, besides the ones it never freezes anyway.
     pub keep_running: Vec<String>,
+    /// Where alerts go as they happen, besides the Alerts page.
+    pub notify: Option<Notify>,
+}
+
+/// `[watch.notify]`: the places alerts go as they happen, and the heartbeat.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Notify {
+    /// How messages name this machine; its host name otherwise.
+    pub name: Option<String>,
+    /// The least level an alert needs to be sent: `alert`, `warning` or `notice`.
+    pub level: Option<NotifyLevel>,
+    pub telegram: Option<Telegram>,
+    pub ntfy: Option<Ntfy>,
+    pub webhook: Option<Webhook>,
+    pub heartbeat: Option<Heartbeat>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotifyLevel {
+    Alert,
+    Warning,
+    Notice,
+}
+
+/// A Telegram bot's token and the chat it writes to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Telegram {
+    pub token: String,
+    pub chat: String,
+}
+
+/// An ntfy topic's whole address, and the access token where the topic needs one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Ntfy {
+    #[serde(deserialize_with = "ntfy_address")]
+    pub url: String,
+    pub token: Option<String>,
+}
+
+/// An address that takes every message as JSON, signed with `secret` when one is given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Webhook {
+    #[serde(deserialize_with = "notify_address")]
+    pub url: String,
+    pub secret: Option<String>,
+}
+
+/// An address Borg calls every few minutes while the watcher runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Heartbeat {
+    #[serde(deserialize_with = "notify_address")]
+    pub url: String,
+    pub minutes: Option<u64>,
+}
+
+/// An address alerts may go to: HTTPS, or plain HTTP to this machine itself.
+fn notify_address<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let url = String::deserialize(deserializer)?;
+    if crate::watch::notify::safe_address(&url) {
+        Ok(url)
+    } else {
+        Err(serde::de::Error::custom(crate::watch::notify::UNSAFE_ADDRESS))
+    }
+}
+
+/// An ntfy topic's address, which names the topic at its end.
+fn ntfy_address<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let url = notify_address(deserializer)?;
+    if crate::watch::notify::ntfy_parts(&url).is_some() {
+        Ok(url)
+    } else {
+        Err(serde::de::Error::custom(crate::watch::notify::NO_TOPIC))
+    }
+}
+
+impl Notify {
+    /// The sender's own settings. A heartbeat comes at least once a minute.
+    fn settings(self) -> crate::watch::notify::Settings {
+        use crate::watch::notify;
+        let level = match self.level {
+            Some(NotifyLevel::Alert) => borg_rules::Level::Alert,
+            Some(NotifyLevel::Notice) => borg_rules::Level::Notice,
+            Some(NotifyLevel::Warning) | None => borg_rules::Level::Warning,
+        };
+        notify::Settings {
+            name: self.name.filter(|name| !name.trim().is_empty()),
+            level,
+            telegram: self.telegram.map(|telegram| notify::Telegram { token: telegram.token, chat: telegram.chat }),
+            ntfy: self.ntfy.map(|ntfy| notify::Ntfy { url: ntfy.url, token: ntfy.token }),
+            webhook: self.webhook.map(|webhook| notify::Webhook { url: webhook.url, secret: webhook.secret }),
+            heartbeat: self.heartbeat.map(|heartbeat| notify::Heartbeat {
+                url: heartbeat.url,
+                every: Duration::from_secs(heartbeat.minutes.unwrap_or(notify::HEARTBEAT_MINUTES).max(1) * 60),
+            }),
+        }
+    }
 }
 
 impl Default for Watch {
@@ -112,6 +214,7 @@ impl Default for Watch {
             freezes_per_minute: limits.freezes_per_minute,
             allow: Vec::new(),
             keep_running: Vec::new(),
+            notify: None,
         }
     }
 }
@@ -322,6 +425,7 @@ impl Config {
                 })
                 .collect(),
             keep_running: watch.keep_running,
+            notify: watch.notify.map(Notify::settings).unwrap_or_default(),
         }
     }
 

@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
+      "source": "15283e37d55730f78253634a8746a92e25233d50e4bf7a4641bfe8ad2e5efcd9",
       "protected": {
-        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
+        "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
+        "inline code": "66b1ef8465804fa566f152ad17bbba8fa2d8152918c449315b386f4fbfbd861d",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -220,6 +220,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
         },
         {
           "level": 3,
@@ -264,12 +268,12 @@
       ]
     },
     "pt": {
-      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
+      "source": "15283e37d55730f78253634a8746a92e25233d50e4bf7a4641bfe8ad2e5efcd9",
       "protected": {
-        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
+        "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
+        "inline code": "66b1ef8465804fa566f152ad17bbba8fa2d8152918c449315b386f4fbfbd861d",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -483,6 +487,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
         },
         {
           "level": 3,
@@ -527,12 +535,12 @@
       ]
     },
     "es": {
-      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
+      "source": "15283e37d55730f78253634a8746a92e25233d50e4bf7a4641bfe8ad2e5efcd9",
       "protected": {
-        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
+        "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
+        "inline code": "66b1ef8465804fa566f152ad17bbba8fa2d8152918c449315b386f4fbfbd861d",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -746,6 +754,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
         },
         {
           "level": 3,
@@ -790,12 +802,12 @@
       ]
     },
     "ru": {
-      "source": "2b56180ee6e84f46d8c11de25b4d8254fbf7fc52e71c871e26a473070b608523",
+      "source": "15283e37d55730f78253634a8746a92e25233d50e4bf7a4641bfe8ad2e5efcd9",
       "protected": {
-        "code blocks": "f8ac106a21bfbd2d12ef229e41e01b10a3c3b3f526b56c50220d1a59204b4d63",
-        "inline code": "bf1b49435ee8aeab824cd61f296dc4b4fb3be368d2f4adb939d89b8c8e0bf617",
+        "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
+        "inline code": "66b1ef8465804fa566f152ad17bbba8fa2d8152918c449315b386f4fbfbd861d",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "a2219f38752e740fe5725d6e912b9d280fc3bdfb31549a8ffb9865f5a949cd3e"
+        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
       },
       "headings": [
         {
@@ -1009,6 +1021,10 @@
         {
           "level": 3,
           "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
         },
         {
           "level": 3,
