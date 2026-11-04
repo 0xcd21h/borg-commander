@@ -1288,6 +1288,10 @@ keep-running = ["backup-agent"]  # programs Borg never freezes
 [[watch.allow]]
 program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
 parent = "nginx"
+
+[watch.notify.telegram]     # send alerts as they happen, see Alerts off the machine
+token = "123456:ABC"
+chat = "123456789"
 ```
 
 Num terminal local com cor verdadeira, o Borg arranca com uma breve animação do logótipo com
@@ -1815,6 +1819,69 @@ administrador o pode fazer.
 O observador é uma funcionalidade de Linux para já. No macOS a página abre e lê o seu registo, e a
 origem diz que nada está a observar.
 
+### Alertas fora da máquina
+
+A página Alertas vive na máquina que observa, por isso quem tomar conta dessa máquina pode apagar o
+registo. Envie cada alerta para outro lado no momento em que acontece, e essa cópia fica fora do
+seu alcance. Adicione `[watch.notify]` à configuração no servidor, com qualquer um destes destinos
+ou com vários:
+
+```toml
+[watch.notify]
+name = "web-01"             # how messages name this machine, its host name otherwise
+level = "warning"           # the least an alert needs to be sent: alert, warning or notice
+
+[watch.notify.telegram]
+token = "123456:ABC-your-bot-token"
+chat = "123456789"
+
+[watch.notify.ntfy]
+url = "https://ntfy.sh/a-long-random-topic"
+token = "tk_your_token"     # where the topic needs one
+
+[watch.notify.webhook]
+url = "https://example.com/borg"
+secret = "a long random string"
+
+[watch.notify.heartbeat]
+url = "https://hc-ping.com/your-check-id"
+minutes = 5
+```
+
+Depois execute `borg service watch notify`. Envia uma mensagem de teste a cada destino e mostra o
+que cada um respondeu.
+
+- **Telegram**: crie um bot com o @BotFather, que lhe dá o token. Envie uma mensagem ao bot, abra
+  `https://api.telegram.org/bot<token>/getUpdates` e tire `chat.id` da resposta.
+- **ntfy**: subscreva na aplicação ntfy um tópico com um nome longo que ninguém adivinhe, ou um
+  tópico no seu próprio servidor ntfy.
+- **Webhook**: o Borg envia cada mensagem para o endereço em JSON. Com `secret`, cada pedido leva
+  `X-Borg-Signature: t=<time>,v1=<signature>`: o HMAC-SHA256, sob o segredo, da hora, de um ponto
+  e do corpo, para que o recetor distinga as mensagens do Borg das forjadas. `X-Borg-Event` diz o
+  que é a mensagem: `alert`, `evidence` (o SHA-256 do programa e as correspondências de regras,
+  que seguem um alerta depois de o Borg ler o programa), `started`, `armed` ou `test`.
+- **Sinal de vida**: o Borg chama o endereço a cada `minutes` minutos enquanto o observador corre e
+  acrescenta `/fail` quando algo está errado: a thread que calcula o hash dos programas parou, um
+  destino não aceita mensagens há 30 minutos, ou o Borg desistiu de uma. Um serviço como o
+  healthchecks.io avisa-o quando as chamadas param, que é o que acontece quando alguém mata o
+  observador.
+
+O serviço envia cada alerta poucos segundos depois de o registar e diz também quando o observador
+arranca e quando o congelamento começa. Os alertas de nível nota ficam só na página, a menos que
+`level` seja `notice`. Uma mensagem que um destino recusa espera em `watch-outbox.json`, na pasta
+de estado, e volta a ser tentada, 5 segundos depois da primeira vez e a cada 30 minutos no máximo.
+O Borg guarda até 500 mensagens em espera e tenta cada uma durante 48 horas, e a mensagem seguinte
+diz de quantas desistiu.
+
+Cada destino numera as suas mensagens a partir de 1, e o JSON de cada mensagem leva em `previous` o
+SHA-256 da anterior. Um salto na numeração, ou um `previous` que não bate certo, quer dizer que uma
+mensagem se perdeu ou foi alterada pelo caminho.
+
+Os tokens ficam na configuração, que qualquer coisa a correr como o seu utilizador no servidor pode
+ler. Com eles, alguém pode enviar mensagens que parecem do Borg, e um bot de Telegram pode apagar o
+que enviou nas últimas 48 horas. Um webhook para uma máquina que controla mantém o que chegou tal
+como chegou.
+
 ### O que o observador não consegue ver
 
 O observador avalia cada programa quando ele arranca, o que deixa algumas coisas fora da sua vista.
@@ -1839,7 +1906,9 @@ Conheça-as antes de confiar nele.
 - Um processo num terminal em que alguém iniciou sessão nunca é congelado, mesmo que a sessão tenha
   usado uma palavra-passe ou chave roubada. As regras continuam a disparar e a escrever alertas.
 - Um processo que se desliga do seu pai antes de o Borg congelar o pai continua a correr.
-- Os alertas chegam até si quando abre a página. Por enquanto nada os envia para lado nenhum.
+- Sem `[watch.notify]`, os alertas só chegam até si quando abre a página. Com ele, quem tomar conta
+  da máquina nos segundos depois de um alerta ainda pode travar a mensagem antes de ela sair, e aí
+  é o silêncio do sinal de vida que o avisa.
 
 ## Rede
 

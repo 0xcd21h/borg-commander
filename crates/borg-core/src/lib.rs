@@ -123,7 +123,7 @@ pub use storage::{
     ALERT_LOG, ARCHIVE_VIEWS, CAPTURE_RECORDS, CONSOLE_PREFIX, CacheLists, Cleanup, DOCKER_SCRATCH, Found, FoundKind,
     INDEX_DIR, INDEX_SUFFIX, Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE,
     SIZES_INDEX, SIZES_PREFIX, SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture, StorageReport,
-    StorageRow, StorageWindow, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, WATCH_ALLOWED, WATCH_BASELINE,
+    StorageRow, StorageWindow, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, WATCH_ALLOWED, WATCH_BASELINE, WATCH_OUTBOX,
     abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
 };
 pub use update::update;
