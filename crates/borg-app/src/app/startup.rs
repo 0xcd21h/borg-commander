@@ -48,6 +48,7 @@ impl App {
         state.network.keep_free_mib = launch.config.capture_keep_free_mib();
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone(), launch.runtime_dir.clone());
+        let startup_items = crate::startup_items::StartupItems::new(messages.clone());
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
@@ -94,6 +95,7 @@ impl App {
             backup,
             docker,
             network,
+            startup_items,
             storage,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,

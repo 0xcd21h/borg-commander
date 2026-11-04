@@ -10,6 +10,7 @@ use crate::{
     actions::{self, run_operation},
     input::Edit,
     jobs,
+    keyboard::YesNo,
     menu::menus,
     ops::{self, ArchiveFormat},
 };
@@ -289,15 +290,13 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
 }
 
 fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Instant) -> Vec<Effect> {
-    let decided = match key.code {
-        KeyCode::Char(_) => crate::keyboard::answer(key),
-        KeyCode::Esc => Some(false),
-        KeyCode::Enter => Some(confirm.accept),
-        KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
+    let decided = match crate::keyboard::yes_no(confirm.accept, key) {
+        YesNo::Close(decided) => decided,
+        YesNo::Switch => {
             state.overlay = Some(Overlay::Confirm(Confirm { accept: !confirm.accept, ..confirm }));
             return Vec::new();
         }
-        _ => return Vec::new(),
+        YesNo::Ignore => return Vec::new(),
     };
 
     state.overlay = None;

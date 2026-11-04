@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
+      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
+        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
+        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
       },
       "headings": [
         {
@@ -228,16 +228,28 @@
         {
           "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     },
     "pt": {
-      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
+      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
+        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
+        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
       },
       "headings": [
         {
@@ -459,16 +471,28 @@
         {
           "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     },
     "es": {
-      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
+      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
+        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
+        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
       },
       "headings": [
         {
@@ -690,16 +714,28 @@
         {
           "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     },
     "ru": {
-      "source": "f04196583490da9c0ad70a486901330d28ac5ffbce3d252abe750ea48d156d99",
+      "source": "c07624decb70c9e5279e426379d73177ad57bc432f5ae6f4780f3390be1dbb86",
       "protected": {
         "code blocks": "b70aa27f2923d73ad0a5a8d57594c2295661558bd4a7c0d89f41040d30598c5f",
-        "inline code": "cfac21d66207b87ebd6c18d63220ee103b695fdf8c132d7fd62a27efc496cb4e",
+        "inline code": "d693ef79b36f1ce64e1a07c031318d7073ff71e292b4b57c1b78b4f7e94a6688",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "fdf1da01049b369660892225dd45e68289257b110d4a3379b98188bdaf3dfa61"
+        "heading levels": "d49522184216fced91ab79ac5e32feaf2343b938ebf6c6986f248ff82ebe7cda"
       },
       "headings": [
         {
@@ -921,6 +957,18 @@
         {
           "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     }

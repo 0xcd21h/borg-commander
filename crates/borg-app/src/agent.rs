@@ -43,7 +43,7 @@ use tokio::{
 
 pub use answers::{
     ConsoleText, connections, containers, find_container, home_relative, host_dir, interfaces, locate, memory_report,
-    place, ports, processes, screen, shell_output, typable,
+    place, ports, processes, screen, shell_output, startup_items, typable,
 };
 pub use capture::{capture_call, packet_number, summary_rows};
 pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};

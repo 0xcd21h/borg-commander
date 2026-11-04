@@ -396,6 +396,7 @@ momento.
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
 | Alt-N | Red: puertos, conexiones y tráfico |
+| Alt-U | Elementos de inicio: lo que arranca solo, el cambio más reciente primero |
 | Alt-T | Time Machine: qué dejan fuera las copias de seguridad, en macOS |
 | Alt-E | Editar el archivo seleccionado en este panel, en lugar de sus archivos, o en el otro panel junto a los resultados |
 | F1 | Acerca de |
@@ -414,6 +415,11 @@ Ctrl-R usan el historial de comandos de tu shell. Shift-Enter (o Ctrl-J) inserta
 sin ejecutar el comando. Los comandos de varias líneas, escritos o recuperados del historial,
 agrandan la zona del prompt y acortan los paneles, para que el cursor siempre quede visible. Todas
 las teclas habituales de edición y autocompletado de tu shell siguen funcionando.
+
+Al volver a la carpeta superior, el cursor queda sobre la carpeta de la que vienes, en la misma
+fila de la pantalla y con la lista desplazada igual que cuando entraste. Si mientras tanto
+aparecieron o desaparecieron archivos, o el panel cambió de altura, el cursor sigue en esa carpeta,
+tan cerca de su fila anterior como lo permita la lista.
 
 Alt-Enter escribe los nombres tal como los ve el shell desde la carpeta del panel. En `..` escribe
 la ruta completa de la carpeta superior, porque su nombre solo apuntaría dentro de la carpeta
@@ -671,6 +677,9 @@ rango de líneas, o solo las líneas que contienen cierto texto), ver los proces
 contenedores, y mostrar un archivo o una carpeta en tu otro panel. También puede listar los puertos
 abiertos, las conexiones y las interfaces de red con su tráfico, medido durante un segundo y acotado
 con las mismas palabras que el filtro de la pantalla de red (consulta [Filtrar](#filtering)).
+También puede listar los elementos de inicio, con el cambio más reciente primero, con sus programas
+y las reglas con las que coincidieron, acotados con las mismas palabras que el filtro de esa
+pantalla (consulta [Elementos de inicio](#startup-items)).
 
 Todo lo que modifica la máquina espera tu respuesta en un diálogo que muestra el cambio completo:
 un comando y dónde se ejecutará, un archivo nuevo o una edición en forma de diff. Desplaza los
@@ -812,6 +821,22 @@ Con espacios de trabajo con nombre, `borg sessions list` muestra sus ID y nombre
 llamar a `list_sessions`, `list_remote_sessions` y `use_session` para elegir con qué sesión trabaja
 esa conexión. Una sola llamada a una herramienta también puede pasar un ID de `session` para
 dirigirse a otra sesión solo esa vez. La sesión elegida solo se aplica a esa conexión MCP.
+
+Con más de una sesión, `borg` empieza por la ventana **Sesiones de Borg**. Sus primeras líneas
+explican qué es una sesión, y la lista muestra cada sesión con la fecha en que se usó por última
+vez. Una sesión activa en este momento aparece marcada con su estado: **Abierta en otro terminal**,
+o **Mantenida por el servicio** cuando la ejecuta el servicio en segundo plano. Queda elegida la
+sesión usada por última vez, salvo que otro terminal la tenga abierta. Enter abre la sesión elegida
+donde la dejaste; una sesión que mantiene el servicio se abre conectada a él, como con
+`borg service attach NAME`. Un clic elige una sesión y un segundo clic la abre. **F7** pone nombre a
+una sesión nueva y la abre, y Esc o F10 sale sin abrir ninguna. Mientras la ventana está abierta,
+comprueba cada 2 segundos qué sesiones están activas.
+
+**F8** o **Delete** elimina la sesión elegida, tras una confirmación cuya opción predeterminada es
+**No**. Esto borra sus paneles guardados y su historial de terminal; tus archivos y carpetas se
+conservan. La sesión predeterminada (Default) siempre se queda, igual que una sesión activa en este
+momento: sal antes de Borg en el otro terminal, o ejecuta `borg service stop` para eliminar una
+sesión que mantiene el servicio.
 
 `borg service install`, `enable` y `start` configuran el servicio opcional en segundo plano. Este
 mantiene la conexión de emparejamiento de la máquina y deja las sesiones con nombre en marcha
@@ -2116,3 +2141,99 @@ propios procesos, así que los sockets de otros usuarios muestran **Proceso desc
 recuentos de bytes de TCP vienen de `ss` cuando está instalado; los sockets UDP y los equipos sin
 `ss` muestran **—** en las velocidades, y los detalles dicen **El sistema no informa recuentos de
 bytes aquí**. Los totales y las velocidades de las interfaces funcionan siempre.
+
+## Elementos de inicio
+
+**Alt-U** o **Comando → Elementos de inicio** lista todo lo que está configurado para arrancar solo:
+al iniciar el sistema, al iniciar sesión, según un horario, o cada vez que arranca un shell o una
+sesión SSH. El cambio más reciente va primero, así que lo que se añadió o editó hace poco queda
+arriba. Igual que el monitor de actividad, viene del complemento Sistema incluido. La lista ocupa el
+panel activo, y el otro panel muestra el elemento seleccionado en detalle.
+
+Cada fila muestra cuándo cambió su archivo por última vez, su lugar y lo que ejecuta. Un panel más
+ancho añade el propietario del archivo y si su programa está ahí: **existe**, o **falta** cuando la
+ruta que indica no existe. Un programa que falta merece una mirada, porque cualquier archivo que
+alguien ponga ahí más tarde se ejecuta con los derechos del elemento. La columna **Reglas** nombra
+las reglas con las que coincidió el elemento, coloreadas según su nivel, y aparece en cuanto algún
+elemento coincide con una. La línea sobre la lista cuenta los elementos y cuántos coincidieron con
+una regla.
+
+Los detalles muestran el archivo y su línea, lo que ejecuta el elemento, el programa y dónde lo
+encontró Borg, cuándo se ejecuta con las palabras del propio archivo (`RunAtLoad`, `@reboot`, un
+calendario o un objetivo de systemd), el usuario con el que se ejecuta, el propietario del archivo y
+la hora exacta del cambio. En **Reglas**, cada coincidencia dice si fue **en su archivo** o
+**en su programa**, con lo que busca la regla, cuándo coincide con cosas inofensivas y de dónde
+viene la regla. Un elemento que su propio archivo desactiva aparece atenuado, y sus detalles dicen
+**Desactivado en su propio archivo, así que no arranca.**
+
+| Tecla | Acción |
+| --- | --- |
+| Enter | Cerrar la pantalla y mostrar el archivo del elemento en el panel |
+| F3 / F4 | Ver / editar el archivo del elemento |
+| `/` | Filtrar las filas; ↑↓ siguen moviendo, Enter conserva el filtro, Esc lo borra |
+| R | Volver a leer todos los lugares |
+| Ctrl-C | Copiar lo que ejecuta el elemento |
+| Alt-W | Maximizar la lista |
+| Esc | Borrar el filtro y después cerrar la pantalla |
+
+Haz doble clic en una fila para mostrar su archivo en el panel. El filtro conserva los elementos que
+contienen todas las palabras que escribas, en el lugar, el nombre, lo que ejecuta, la ruta del
+archivo, el propietario, el usuario con el que se ejecuta, cuándo se ejecuta, **existe** o
+**falta**, y los nombres de las reglas con las que coincidió. Pon `!` delante de una palabra para
+excluir lo que encuentre: `root !timer` conserva los elementos de root que no son timers. Cada lugar
+tiene además un nombre corto para el filtro y para los agentes, como `launch-daemon`,
+`systemd-timer` o `ssh-authorized-key`.
+
+### Dónde busca Borg
+
+En macOS:
+
+- **Agente de usuario**: `~/Library/LaunchAgents`.
+- **Agente launchd** y **Daemon launchd**: `/Library/LaunchAgents` y `/Library/LaunchDaemons`.
+- **Agente del sistema** y **Daemon del sistema**: `/System/Library/LaunchAgents` y
+  `/System/Library/LaunchDaemons`, en el volumen de sistema sellado.
+- **Tarea cron**: los crontabs de `/usr/lib/cron/tabs`, y `/etc/crontab`.
+- **Script periodic**: los scripts diarios, semanales y mensuales de `/etc/periodic` y
+  `/usr/local/etc/periodic`.
+
+En Linux:
+
+- **Servicio** y **Timer**: unidades de systemd en `/etc/systemd/system`,
+  `/usr/local/lib/systemd/system`, `/usr/lib/systemd/system` y `/lib/systemd/system`, y las unidades
+  a las que apuntan sus carpetas `.wants` y `.requires` desde cualquier otro lugar.
+- **Servicio de usuario** y **Timer de usuario**: `/etc/systemd/user`,
+  `/usr/local/lib/systemd/user`, `/usr/lib/systemd/user`, `~/.config/systemd/user` y
+  `~/.local/share/systemd/user`.
+- **Inicio automático**: entradas de escritorio en `~/.config/autostart` y `/etc/xdg/autostart`.
+- **Tarea cron**: `/etc/crontab`, `/etc/cron.d` y los crontabs de `/var/spool/cron/crontabs` o
+  `/var/spool/cron`.
+- **Script cron**: `/etc/cron.hourly`, `/etc/cron.daily`, `/etc/cron.weekly` y `/etc/cron.monthly`.
+- **Tarea anacron**: `/etc/anacrontab`.
+- **rc.local**: `/etc/rc.local`.
+- **Precarga**: `/etc/ld.so.preload`, las bibliotecas que se cargan en cada programa que arranca.
+- **Inicio del shell**: los scripts de `/etc/profile.d`, además de los archivos de abajo.
+
+En ambos, **Inicio del shell** abarca los archivos de inicio de zsh, bash y fish de tu carpeta
+personal, como `~/.zshrc`, `~/.bashrc`, `~/.profile` y `~/.config/fish/config.fish`, y sus versiones
+para todo el sistema en `/etc`. **Clave SSH** lista cada clave de `~/.ssh/authorized_keys` y
+`~/.ssh/authorized_keys2` con su comentario, y con el comando que impone cuando tiene uno.
+
+Borg lee estos lugares con tus permisos. Un lugar que existe pero está cerrado para ti aparece al
+final de la lista como **No se pudo leer** con su ruta; ejecuta Borg como administrador para ver
+dentro. Tu propio crontab es la excepción: cuando la carpeta de crontabs está cerrada para ti, como
+en macOS, Borg se lo pide a `crontab -l`.
+
+Un programa indicado con una ruta completa o `~/` se marca como **falta** cuando ahí no hay nada. Un
+nombre sin carpeta se busca en `/usr/local/sbin`, `/usr/local/bin`, `/usr/sbin`, `/usr/bin`, `/sbin`
+y `/bin`, donde buscan cron y launchd. Una ruta relativa, o un nombre que no está en ninguna de esas
+carpetas, muestra **—**, porque el elemento puede definir su propia ruta de búsqueda.
+
+### Reglas en los elementos de inicio
+
+Borg aplica sus propias reglas y las tuyas (consulta
+[Analizar archivos con reglas](#scanning-files-with-rules)) al primer 1 MiB de cada archivo de
+inicio y a cada programa de hasta 64 MiB. Un programa que ejecutan muchos elementos se analiza una
+sola vez. Los programas de los elementos **Agente del sistema** y **Daemon del sistema** no se
+analizan, porque nada puede cambiar el volumen de sistema sellado mientras macOS está en marcha, y
+sus detalles lo indican. Cuando un archivo de reglas no compila, el final de la lista dice cuántos
+quedaron fuera.

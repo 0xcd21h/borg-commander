@@ -364,6 +364,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-N | Network: ports, connections and traffic |
+| Alt-U | Startup items: what starts on its own, newest change first |
 | Alt-T | Time Machine: what backups leave out, on macOS |
 | Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
@@ -382,6 +383,11 @@ shell's command history. Shift-Enter (or Ctrl-J) inserts a line break without ru
 command. Multi-line commands, typed or recalled from history, make the prompt area taller and
 the panels shorter, so the cursor always stays visible. All of your shell's usual editing and
 completion keys keep working.
+
+Going back to the parent folder puts the cursor on the folder you came from, on the same screen
+row, with the list scrolled as it was when you went in. If files came or went in the meantime, or
+the panel changed height, the cursor still lands on that folder, as close to its old row as the
+list allows.
 
 Alt-Enter types names as the shell sees them from the panel's folder. On `..` it types the full path
 of the parent folder, because the parent's name alone would point inside the current folder. In
@@ -618,7 +624,9 @@ active panel. Without asking, it can read folders and files (by line range, or o
 contain some text), see the busiest processes and the containers, and show a file or folder in
 your other panel. It can also list the open ports, the connections, and the network interfaces
 with their traffic, measured over one second and narrowed with the same words as the network
-screen's filter (see [Filtering](#filtering)).
+screen's filter (see [Filtering](#filtering)). It can list the startup items too, newest change
+first, with their programs and the rules they matched, narrowed with the same words as that
+screen's filter (see [Startup items](#startup-items)).
 
 Anything that changes the machine waits for you in a dialog that shows the whole change: a
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
@@ -747,6 +755,20 @@ With named workspaces, `borg sessions list` shows their IDs and names,
 call `list_sessions`, `list_remote_sessions`, and `use_session` to choose which session that
 connection works with. A single tool call can also pass a `session` ID to target another session
 just once. The chosen session applies only to that MCP connection.
+
+With more than one session, `borg` starts with the **Borg sessions** window. Its first lines say
+what a session is, and the list shows each session with when it was last used. A session that is
+active right now is marked with its status: **Open in another terminal**, or
+**Kept running by the service** when the background service runs it. The session used last is
+chosen, unless another terminal has it open. Enter opens the chosen session where you left off; one
+the service keeps opens attached, as with `borg service attach NAME`. A click chooses a session and
+a second click opens it. **F7** names a new session and opens it, and Esc or F10 quits without
+opening one. While the window is open, it checks every 2 seconds which sessions are active.
+
+**F8** or **Delete** removes the chosen session after a confirmation that defaults to **No**. This
+deletes its saved panels and terminal history; your files and folders are kept. The Default session
+always stays, and so does a session that is active right now: quit Borg in the other terminal first,
+or run `borg service stop` to remove a session the service keeps.
 
 `borg service install`, `enable`, and `start` set up the optional background service. It holds
 the machine's pairing connection and keeps named sessions running after their terminals close.
@@ -1942,3 +1964,94 @@ processes' open files. Without administrator rights it can only look into your o
 other users' sockets show **Unknown process**. TCP byte counts come from `ss` when it is
 installed; UDP sockets and machines without `ss` show **—** for rates, and the details say
 **The system reports no byte counts here**. Interface totals and rates always work.
+
+## Startup items
+
+**Alt-U** or **Command → Startup items** lists everything set to start on its own: at boot, at
+login, on a schedule, or whenever a shell or an SSH login starts. The newest change comes first,
+so whatever was added or edited lately sits at the top. Like the activity monitor, it comes from
+the bundled System plugin. The list takes the active pane, and the other pane shows the selected
+item in detail.
+
+Each row shows when its file last changed, its place, and what it runs. A wider pane adds who owns
+the file and whether its program is there: **found**, or **missing** when the path it names does
+not exist. A missing program is worth a look, since whatever puts a file there later runs with
+the item's rights. The **Rules** column names the rules an item matched, colored by their level,
+and appears once any item matched one. The line above the list counts the items and how many
+matched a rule.
+
+The details show the file and its line, what the item runs, the program and where Borg found it,
+when it runs in the file's own words (`RunAtLoad`, `@reboot`, a calendar or a systemd target),
+the user it runs as, the file's owner and the exact time of the change. Under **Rules**, each
+match says whether it was **in its file** or **in its program**, with what the rule looks for, when
+it matches harmless things, and where the rule comes from. An item its file turns off is dimmed,
+and its details say **Turned off in its own file, so it does not start.**
+
+| Key | Action |
+| --- | --- |
+| Enter | Close the screen and show the item's file in the panel |
+| F3 / F4 | View / edit the item's file |
+| `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
+| R | Read every place again |
+| Ctrl-C | Copy what the item runs |
+| Alt-W | Maximize the list |
+| Esc | Clear the filter, then close the screen |
+
+Double-click a row to show its file in the panel. The filter keeps the items that contain every
+word you type, in the place, the name, what it runs, the file's path, the owner, the user it runs
+as, when it runs, **found** or **missing**, and the names of the rules it matched. Put `!` before a
+word to leave out what it matches: `root !timer` keeps root's items other than timers. Each place
+also has a short name for the filter and for agents, such as `launch-daemon`, `systemd-timer` or
+`ssh-authorized-key`.
+
+### Where Borg looks
+
+On macOS:
+
+- **User agent**: `~/Library/LaunchAgents`.
+- **Launch agent** and **Launch daemon**: `/Library/LaunchAgents` and `/Library/LaunchDaemons`.
+- **System agent** and **System daemon**: `/System/Library/LaunchAgents` and
+  `/System/Library/LaunchDaemons`, on the sealed system volume.
+- **Cron job**: the crontabs in `/usr/lib/cron/tabs`, and `/etc/crontab`.
+- **Periodic script**: the daily, weekly and monthly scripts in `/etc/periodic` and
+  `/usr/local/etc/periodic`.
+
+On Linux:
+
+- **Service** and **Timer**: systemd units in `/etc/systemd/system`, `/usr/local/lib/systemd/system`,
+  `/usr/lib/systemd/system` and `/lib/systemd/system`, and the units their `.wants` and
+  `.requires` folders link to from anywhere else.
+- **User service** and **User timer**: `/etc/systemd/user`, `/usr/local/lib/systemd/user`,
+  `/usr/lib/systemd/user`, `~/.config/systemd/user` and `~/.local/share/systemd/user`.
+- **Autostart**: desktop entries in `~/.config/autostart` and `/etc/xdg/autostart`.
+- **Cron job**: `/etc/crontab`, `/etc/cron.d`, and the crontabs in `/var/spool/cron/crontabs` or
+  `/var/spool/cron`.
+- **Cron script**: `/etc/cron.hourly`, `/etc/cron.daily`, `/etc/cron.weekly` and
+  `/etc/cron.monthly`.
+- **Anacron job**: `/etc/anacrontab`.
+- **rc.local**: `/etc/rc.local`.
+- **Preload**: `/etc/ld.so.preload`, the libraries loaded into every program that starts.
+- **Shell startup**: the scripts in `/etc/profile.d`, besides the files below.
+
+On both, **Shell startup** covers the zsh, bash and fish startup files in your home folder, such
+as `~/.zshrc`, `~/.bashrc`, `~/.profile` and `~/.config/fish/config.fish`, and their system-wide
+versions in `/etc`. **SSH key** lists each key in `~/.ssh/authorized_keys` and
+`~/.ssh/authorized_keys2` with its comment, and with the command it forces when it has one.
+
+Borg reads these places as you. A place that is there but closed to you shows at the bottom of
+the list as **Could not read** with its path; run Borg as administrator to see inside. Your own
+crontab is the exception: when the folder of crontabs is closed to you, as it is on macOS, Borg
+asks `crontab -l` for it.
+
+A program named with a full path or `~/` counts as **missing** when nothing is there. A bare name
+is looked up in `/usr/local/sbin`, `/usr/local/bin`, `/usr/sbin`, `/usr/bin`, `/sbin` and `/bin`,
+where cron and launchd look. A relative path, or a name found in none of them, shows **—**, since
+the item may set its own search path.
+
+### Rules on startup items
+
+Borg runs its own rules and yours (see [Scanning files with rules](#scanning-files-with-rules))
+over the first 1 MiB of each startup file and over each program up to 64 MiB. A program many items
+run is scanned once. Programs of **System agent** and **System daemon** items are left unscanned,
+because nothing can change the sealed system volume while macOS runs, and their details say so.
+When a rule file fails to compile, the bottom of the list says how many were left out.

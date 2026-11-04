@@ -23,6 +23,7 @@ const pages = [
   ['remote-access', 'Remote access & MCP', 'Connect Borg sessions, browse remote files, and pair an assistant.', ['Claude and other agents (MCP)']],
   ['activity', 'Activity & memory', 'Inspect processes, resource use, and memory maps.', ['Activity and memory']],
   ['network', 'Network', 'See open ports, connections, and traffic by process and interface.', ['Network']],
+  ['startup-items', 'Startup items', 'See what starts on its own, newest change first, and what it runs.', ['Startup items']],
   ['themes', 'Themes & icons', 'Choose a theme and configure terminal fonts and file icons.', ['Themes and icons']],
   ['configuration', 'Configuration', 'Find settings, state, and command-line options.', ['Configuration']],
 ];

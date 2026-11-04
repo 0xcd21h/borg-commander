@@ -1,0 +1,4 @@
+# keys for sam
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyExampleKeyExampleKeyExample sam@laptop
+from="198.51.100.0/24",command="/usr/local/bin/backup-receive \"--dir=/srv/backup\"",no-pty ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQExample backup@nas
+ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYExample

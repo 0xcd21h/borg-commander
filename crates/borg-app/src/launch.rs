@@ -150,7 +150,7 @@ pub fn terminal(preference: Preference) -> Terminal {
     Terminal { capabilities, colors: replies.colors, wide_emoji: replies.wide_emoji == Some(true) }
 }
 
-fn truecolor() -> bool {
+pub(crate) fn truecolor() -> bool {
     env::var(ENV_COLORTERM).is_ok_and(|value| TRUECOLOR_MARKERS.contains(&value.as_str()))
 }
 

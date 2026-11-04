@@ -61,8 +61,8 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
 - **Pair once.** F1 then C shows a link. Run `borg pair` with it on your computer and approve
   the computer in borg. Claude Code then reaches that borg whenever it is open.
 - **Claude sees what you see.** The screen, both panels, the console and what is typed at the
-  prompt. It reads files, folders, processes, containers and the network's ports and connections,
-  and shows you files in a panel.
+  prompt. It reads files, folders, processes, containers, startup items and the network's ports
+  and connections, and shows you files in a panel.
 - **You approve every change.** Commands, new files and edits wait in a dialog that shows the
   whole command or the diff. For a paired computer, Approve all can temporarily accept its
   changes for one session until you turn it off or disconnect. Commands run in your console, where you watch them and answer
@@ -72,7 +72,8 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
 - **Help at the prompt.** Claude can type a command at your prompt, or a script into vim or
   nano, for you to check and run yourself.
 
-`borg sessions` manages named workspaces. `borg service install` prepares a background service;
+`borg sessions` manages named workspaces, and with more than one, `borg` starts with a window to
+open, create or remove them. `borg service install` prepares a background service;
 `borg service enable` starts it at boot, and `borg service start` starts it now. The service keeps
 session shells and the pairing connection alive when no terminal is attached. Open a workspace
 with `borg --session NAME`; Ctrl-] detaches. One `borg mcp` connection can list and select local
@@ -160,6 +161,9 @@ Ctrl-O switches between the panels and the console.
 - **Look inside.** Preview any readable region as hex or text, compare two captures, search a
   process's memory for text or bytes, and list its open files. Administrator access is only
   requested when you ask for it.
+- **What starts on its own.** Alt-U lists launch agents and daemons, systemd units and timers,
+  cron jobs, shell startup files and SSH keys in one list, newest change first, with the program
+  each one runs, whether that program is there, and the rules it matched.
 
 <p align="center">
   <img src="docs/showcase/memory-map.png" alt="Memory map grouped by purpose with footprint, resident and mapped columns, explaining that shared libraries are not the process's own cost" width="1100">

@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, collections::BTreeMap, path::PathBuf};
+use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use borg_core::{ListingMode, Panel, Row, Sort, SortKey, order};
 use borg_vfs::{Entry, EntryKind};
@@ -6,6 +10,9 @@ use proptest::prelude::*;
 
 const ROWS: usize = 7;
 const GENERATION: u64 = 1;
+const INSIDE: u64 = 2;
+const RETURNED: u64 = 3;
+const PARENT: &str = "/data";
 
 #[derive(Debug, Clone)]
 enum Op {
@@ -134,6 +141,58 @@ proptest! {
 
         if let Some(before) = before {
             prop_assert_eq!(panel.hovered(), Some(Row::Entry(&before)));
+        }
+    }
+
+    #[test]
+    fn returning_from_a_folder_keeps_the_cursor_on_its_row_as_far_as_the_list_allows(
+        before in entries(),
+        after in entries(),
+        steps in 0isize..80,
+        changed in any::<bool>(),
+        rows in 1usize..2 * ROWS,
+        (sort, mode) in layout(),
+    ) {
+        let mut panel = Panel::new(PathBuf::from("/"), ROWS, mode, sort);
+        panel.navigate(PathBuf::from(PARENT), GENERATION, None);
+        panel.receive(GENERATION, before.clone(), true);
+        panel.finish(GENERATION, None);
+        panel.settle();
+        panel.move_by(steps);
+        let entered = match panel.hovered() {
+            Some(Row::Entry(entry)) if entry.is_dir() && Path::new(&entry.name).file_name().is_some() => entry.clone(),
+            _ => return Ok(()),
+        };
+        let left = (panel.cursor(), panel.scroll());
+        let row = left.0 - left.1;
+
+        panel.navigate(PathBuf::from(PARENT).join(&entered.name), INSIDE, None);
+        panel.finish(INSIDE, None);
+        panel.settle();
+        prop_assert_eq!((panel.cursor(), panel.scroll()), (0, 0));
+
+        let listing = if changed {
+            after.into_iter().filter(|entry| entry.name != entered.name).chain([entered.clone()]).collect()
+        } else {
+            before
+        };
+        let height = if changed { rows } else { ROWS };
+        panel.set_rows(height);
+        panel.navigate(PathBuf::from(PARENT), RETURNED, Some(entered.name.clone()));
+        panel.receive(RETURNED, listing, true);
+        panel.finish(RETURNED, None);
+        panel.settle();
+
+        prop_assert_eq!(panel.hovered(), Some(Row::Entry(&entered)));
+        check_invariants(&panel)?;
+        if !changed {
+            prop_assert_eq!((panel.cursor(), panel.scroll()), left);
+        }
+        if mode == ListingMode::Full {
+            let capacity = panel.capacity();
+            let last = panel.len().saturating_sub(capacity);
+            let wanted = panel.cursor().saturating_sub(row.min(capacity - 1)).min(last);
+            prop_assert_eq!(panel.scroll(), wanted);
         }
     }
 }

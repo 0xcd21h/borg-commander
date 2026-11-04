@@ -42,7 +42,9 @@ mod pointer;
 mod query;
 mod remote;
 mod results;
+mod session_picker;
 mod settings;
+mod startup_items;
 mod state;
 mod storage;
 mod update;
@@ -104,8 +106,18 @@ pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
 pub use query::{Candidate, Problem as QueryProblem, QueryError, SearchQuery};
+pub use session_picker::{
+    DEFAULT_SESSION, PickerInput, PickerStep, SESSION_NAME_LIMIT, SessionChoice, SessionEntry, SessionPicker,
+    SessionUse,
+};
 pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, SearchSettings, Settings,
+};
+pub use startup_items::{
+    COMMAND_SEPARATOR, ProgramPresence, RuleHit, STARTUP_CHROME_ROWS, StartupEntry, StartupFormat, StartupItem,
+    StartupItems, StartupPlace, StartupReport, StartupSpot, StartupSystem, UNIT_LINK_FOLDERS,
+    filtered as startup_filtered, newest_first, parse as parse_startup, program_of, shell_words,
+    spots as startup_spots,
 };
 pub use state::{
     AppState, Confirm, ConfirmPurpose, Console, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,

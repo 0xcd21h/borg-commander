@@ -535,6 +535,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     state.overlay = None;
     state.activity.side = None;
     crate::docker::close(state);
+    crate::startup_items::close(state);
     let network = &mut state.network;
     network.side = Some(state.active);
     network.details_focused = false;
@@ -558,6 +559,7 @@ pub(crate) fn resume(state: &mut AppState) -> Vec<Effect> {
     state.overlay = None;
     state.activity.side = None;
     crate::docker::close(state);
+    crate::startup_items::close(state);
     let network = &mut state.network;
     network.side = Some(state.active);
     network.details_focused = false;
