@@ -38,6 +38,7 @@ mod service_install;
 mod session;
 mod sessions;
 mod size_cache;
+mod start_window;
 mod startup_items;
 mod storage;
 mod store;
@@ -62,6 +63,9 @@ use ratatui::DefaultTerminal;
 use crate::{app::App, launch::Launch};
 
 const USAGE_ERROR: u8 = 2;
+/// Set for the Borg the background service runs for a session, which opens that session without
+/// counting as a use of it.
+const SERVICE_CHILD: &str = "BORG_SERVICE_CHILD";
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
@@ -193,8 +197,8 @@ fn usage(text: &str) -> ExitCode {
     ExitCode::from(USAGE_ERROR)
 }
 
-/// Opens Borg in this terminal, on the session asked for or a remote Borg's. A session the
-/// background service keeps is attached to instead.
+/// Opens Borg in this terminal, on the session asked for or a remote Borg's, or on the one
+/// chosen in the start window. A session the background service keeps is attached to instead.
 async fn open(requested_session: Option<String>, requested_remote: Option<String>) -> Result<ExitCode> {
     if env::var_os(borg_term::SESSION_MARKER).is_some() {
         eprintln!("{}", tr!(cli_already_running));
@@ -204,16 +208,21 @@ async fn open(requested_session: Option<String>, requested_remote: Option<String
         Some(target) => Some(remote::resolve(&target).await?),
         None => None,
     };
+    let service_child = env::var_os(SERVICE_CHILD).is_some();
     let selected_id = if let Some(target) = &remote {
         Some(remote::viewer_id(target))
+    } else if let Some(state) = session::StateDir::locate() {
+        let chosen = match requested_session.as_deref() {
+            Some(id) if service_child => Some(sessions::find(&state, id)?),
+            requested => sessions::choose(&state, requested).await?,
+        };
+        let Some(session) = chosen else { return Ok(ExitCode::SUCCESS) };
+        Some(session.id)
     } else {
-        session::StateDir::locate()
-            .map(|state| sessions::choose(&state, requested_session.as_deref()))
-            .transpose()?
-            .map(|session| session.id)
+        None
     };
     if remote.is_none()
-        && env::var_os("BORG_SERVICE_CHILD").is_none()
+        && !service_child
         && service::available().await
         && let Some(session) = &selected_id
     {

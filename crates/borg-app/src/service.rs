@@ -2,7 +2,7 @@
 //! without a terminal, and lets terminal clients attach to those same workspaces.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -38,6 +38,8 @@ mod server;
 const SOCKET: &str = "service.sock";
 const LOCK: &str = "service.lock";
 const REPLAY_LIMIT: usize = 1024 * 1024;
+/// How long the service has to say which sessions it keeps running.
+const STATUS_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 
 struct Child {
     pty: Pty,
@@ -265,6 +267,14 @@ async fn request(value: Value) -> Result<Value> {
 
 pub async fn available() -> bool {
     UnixStream::connect(service_socket()).await.is_ok()
+}
+
+/// The IDs of the sessions the service keeps running, none when no service answers.
+pub async fn running_sessions() -> HashSet<String> {
+    let Ok(Ok(reply)) = tokio::time::timeout(STATUS_WAIT, request(json!({"mode": "status"}))).await else {
+        return HashSet::new();
+    };
+    reply["sessions"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
 }
 
 /// Attaches this terminal to the persistent workspace owned by the service. Ctrl-] leaves

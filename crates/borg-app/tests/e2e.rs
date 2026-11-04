@@ -4528,3 +4528,75 @@ fn an_unavailable_host_can_be_forgotten_without_contacting_it_or_changing_the_cl
     ensure!(restored.wait_exit()?.success());
     Ok(())
 }
+
+/// With several named sessions, `borg` opens the start window. It marks the session another
+/// terminal has open, refuses to open or remove that one, removes an old one only after a
+/// confirmation that starts on No, and keeps the files on the machine.
+#[test]
+fn the_start_window_marks_open_sessions_and_removes_an_old_one_after_asking() -> Result<()> {
+    const OLD: &str = "0123456789abcdef0123456789abcdef";
+    const WORK: &str = "fedcba9876543210fedcba9876543210";
+    let fixture = fixture()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    let registry = serde_json::json!([
+        {"id": "default", "name": "Default", "last_opened": now - 3_600},
+        {"id": OLD, "name": "Old", "last_opened": 1_717_200_000_u64},
+        {"id": WORK, "name": "Work", "last_opened": now - 60},
+    ]);
+    fs::create_dir_all(fixture.state())?;
+    fs::write(fixture.state().join("sessions.json"), serde_json::to_vec(&registry)?)?;
+    let old = fixture.state().join("sessions").join(OLD);
+    fs::create_dir_all(&old)?;
+    fs::write(old.join("terminal.ansi"), b"old history")?;
+    fs::write(fixture.home().join("keep.txt"), b"keep")?;
+
+    let mut work = Session::builder(BORG, &fixture).args(&["--session", "Work"]).label("start-window-work").spawn()?;
+    work.wait_text(READY)?;
+    let mut window = Session::builder(BORG, &fixture).size(100, 30).label("start-window").spawn()?;
+    window.wait_text("A session is a saved workspace")?;
+    window.wait_text("● Open in another terminal")?;
+    window.wait_text("2024-06-01")?;
+
+    window.send(keys::up())?;
+    window.send(keys::enter())?.wait_text("\"Work\" is open in another terminal.")?;
+    window.send(keys::f(8))?.wait_text("Quit Borg there before removing it.")?;
+
+    window.send(keys::key(KeyCode::End))?.send(keys::f(8))?.wait_text("Remove session \"Old\"?")?;
+    window.send(keys::enter())?.wait_gone("Remove session \"Old\"?")?;
+    ensure!(old.exists(), "Enter takes No and keeps the session");
+    window.send(keys::f(8))?.wait_text("Remove session \"Old\"?")?;
+    window.send("y")?.wait_text("Session \"Old\" removed.")?;
+    ensure!(!old.exists(), "removal deletes the saved state");
+    ensure!(holds(&fixture.home().join("keep.txt"), "keep"), "files on the machine stay");
+    let registry = fs::read_to_string(fixture.state().join("sessions.json"))?;
+    ensure!(!registry.contains(OLD) && registry.contains(WORK));
+
+    window.send(keys::key(KeyCode::End))?.send(keys::enter())?.wait_text(READY)?;
+    for borg in [&mut window, &mut work] {
+        borg.send(keys::f(10))?.send("y")?;
+        ensure!(borg.wait_exit()?.success());
+    }
+    Ok(())
+}
+
+/// While the background service runs, the start window says that it keeps each session running
+/// and leaves those sessions in place.
+#[test]
+fn the_start_window_names_the_sessions_the_background_service_keeps_running() -> Result<()> {
+    const KEPT: &str = "● Kept running by the service";
+    let fixture = fixture()?;
+    let made = std::process::Command::new(BORG)
+        .args(["sessions", "create", "Spare"])
+        .env("BORG_STATE_DIR", fixture.state())
+        .output()?;
+    ensure!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    let _service = Session::builder(BORG, &fixture).args(&["service", "run"]).label("start-window-service").spawn()?;
+    let mut window = Session::builder(BORG, &fixture).size(100, 30).label("start-window-service-client").spawn()?;
+    window.wait_until("both sessions kept by the service", |screen| screen.text().matches(KEPT).count() == 2)?;
+    window.send(keys::key(KeyCode::End))?.send(keys::f(8))?.wait_text("keeps \"Spare\" running.")?;
+    let registry = fs::read_to_string(fixture.state().join("sessions.json"))?;
+    ensure!(registry.contains("Spare"), "the service's session stays");
+    window.send(keys::esc())?;
+    ensure!(window.wait_exit()?.success(), "Esc quits without opening a session");
+    Ok(())
+}
