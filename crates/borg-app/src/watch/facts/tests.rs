@@ -210,3 +210,11 @@ fn a_process_that_claims_to_be_its_own_parent_does_not_loop() {
     parents.insert(5, 6);
     assert_eq!(descendants(&parents, 5), [5, 6]);
 }
+
+#[test]
+fn the_first_account_for_a_person_comes_from_login_defs() {
+    let defs = "# UID_MIN 100 in a comment counts for nothing\nMAIL_DIR /var/mail\n  UID_MIN   500\nUID_MAX 60000\n";
+    assert_eq!(parse_uid_min(defs), Some(500));
+    assert_eq!(parse_uid_min("UID_MAX 60000\n"), None, "a system that does not say leaves Borg's default");
+    assert_eq!(parse_uid_min("UID_MIN lots\n"), None);
+}

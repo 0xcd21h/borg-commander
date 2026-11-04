@@ -18,6 +18,9 @@ use std::{
 
 /// Where Linux keeps what it knows about each process.
 pub const PROC: &str = "/proc";
+/// Where the system says which account numbers it gives people.
+pub const LOGIN_DEFS: &str = "/etc/login.defs";
+const UID_MIN: &str = "UID_MIN";
 /// Bytes of a command line or an environment Borg reads.
 const BLOCK: u64 = 64 * 1024;
 /// Generations of parents an alert keeps.
@@ -76,6 +79,19 @@ pub fn parse_uid(status: &str) -> Option<u32> {
         .find_map(|line| line.strip_prefix("Uid:"))
         .and_then(|values| values.split_whitespace().next())
         .and_then(|uid| uid.parse().ok())
+}
+
+/// The first account number the system gives a person, from the `UID_MIN` line of `login.defs`.
+pub fn parse_uid_min(text: &str) -> Option<u32> {
+    text.lines().map(str::trim).filter(|line| !line.starts_with('#')).find_map(|line| {
+        let mut words = line.split_whitespace();
+        if words.next() == Some(UID_MIN) { words.next()?.parse().ok() } else { None }
+    })
+}
+
+/// The first account number this system gives a person.
+pub fn first_person() -> u32 {
+    fs::read_to_string(LOGIN_DEFS).ok().as_deref().and_then(parse_uid_min).unwrap_or(borg_core::FIRST_PERSON)
 }
 
 /// The preload variables in an environment, which `/proc` gives as `name=value` with a zero

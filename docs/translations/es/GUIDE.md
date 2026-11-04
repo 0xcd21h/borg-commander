@@ -1745,11 +1745,12 @@ debajo de él. Un proceso congelado no ha terminado, así que su servicio sigue 
 está hasta que lo mires. La columna Respuesta dice **Congelado**, **C** lo deja continuar y **K**
 lo termina. Terminarlo es definitivo, así que Borg pregunta primero.
 
-La congelación solo empieza cuando hayas visto todas las alertas de la semana de aprendizaje que
-dicen **Habría congelado**. Abrir la página de alertas las marca como leídas, y el vigilante lo nota
-en menos de un minuto. Así nada se detiene antes de que revises lo que encontró la semana, y puedes
-permitir antes un programa inofensivo con **A**. Mientras tanto, los detalles de una alerta nueva
-dicen que la congelación te está esperando.
+La congelación empieza cuando hayas visto todas las alertas de la semana de aprendizaje que dicen
+**Habría congelado**, o 3 días después de que termine la semana, lo que ocurra primero. Abrir la
+página de alertas las marca como leídas, y el vigilante lo nota en menos de un minuto. Así puedes
+revisar lo que encontró la semana y permitir un programa inofensivo con **A** antes de que nada se
+detenga, y una máquina que nadie mira sigue protegida. Mientras tanto, el pie de la página dice
+hasta cuándo espera la congelación, y los detalles de una alerta nueva dicen que está esperando.
 
 Borg nunca congela el primer proceso del sistema, ni a sí mismo ni nada que haya iniciado, ni un
 programa de la lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` y
@@ -1762,11 +1763,11 @@ Un programa de la lista incorporada solo se respeta donde el sistema guarda sus 
 cosa. Los nombres que añadas en `keep-running` coinciden esté donde esté el programa. Un terminal
 cuenta cuando alguien inició sesión en él: por SSH, en la consola, en `tmux` o `screen`, a través de
 `sudo` o `su`, o en una ventana de terminal. Un multiplexor de terminal solo cuenta para root y para
-las cuentas de personas, numeradas desde 1000, porque una cuenta de servicio también puede iniciar
-uno. Un terminal que un programa abrió para sí mismo no cuenta, lo que impide que una shell remota
-se esconda detrás de uno. Los terminales que abre el servidor remoto de un editor o `docker exec`
-tampoco cuentan, así que si Borg congela algo que ejecutaste ahí, **C** lo deja continuar y **A** lo
-permite.
+las cuentas de personas, numeradas desde `UID_MIN` en `/etc/login.defs` (1000 en la mayoría de los
+sistemas), porque una cuenta de servicio también puede iniciar uno. Un terminal que un programa
+abrió para sí mismo no cuenta, lo que impide que una shell remota se esconda detrás de uno. Los
+terminales que abre el servidor remoto de un editor o `docker exec` tampoco cuentan, así que si Borg
+congela algo que ejecutaste ahí, **C** lo deja continuar y **A** lo permite.
 
 Borg comprueba la identidad de un proceso, su número junto con el momento en que arrancó, justo
 antes de enviarle una señal, así que un número que otro proceso haya tomado entretanto se queda

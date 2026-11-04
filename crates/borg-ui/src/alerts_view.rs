@@ -265,6 +265,9 @@ fn footer_note(state: &AppState, clock: &Zoned) -> Option<String> {
         let until = format::stamp(Some(watch.learned_at), clock);
         return Some(tr!(watch_learning_until, until = until));
     }
+    if let Some(until) = state.alerts.log.freezing_waits(std::time::SystemTime::now()) {
+        return Some(tr!(watch_review_until, until = format::stamp(Some(until), clock)));
+    }
     let mut note = tr!(watch_watching, source = watch.source.label());
     if watch.seen > 0 {
         note = format!("{note}{SEPARATOR}{}", tr!(watch_seen, count = watch.seen));

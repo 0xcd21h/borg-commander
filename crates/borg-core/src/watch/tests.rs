@@ -41,7 +41,7 @@ fn started(pid: u32, program: &str, parent: Option<Ancestor>) -> StartedProcess 
 }
 
 fn guard() -> Guard<'static> {
-    Guard { own: 777, keep_running: &[], freeze: true, reviewed: true }
+    Guard { own: 777, keep_running: &[], freeze: true, reviewed: true, first_person: FIRST_PERSON }
 }
 
 fn learned() -> Baseline {
@@ -254,6 +254,11 @@ fn nothing_is_frozen_while_borg_learns_but_the_log_says_what_it_would_do() {
         Response::Spared(Protection::Unreviewed),
         "freezing waits until the user has seen what the week would have frozen"
     );
+    assert_eq!(
+        decide(&finding, &shell, &baseline, &waiting, baseline.review_ends()),
+        Response::Frozen,
+        "a machine nobody looks at is protected once the days for a review are over"
+    );
 }
 
 #[test]
@@ -319,6 +324,14 @@ fn the_guardrails_keep_the_machine_and_its_people_running() {
     assert_eq!(spared(&root_in_tmux, &guard()), Some(Protection::Terminal));
     let service_in_tmux = StartedProcess { uid: 33, ..in_tmux.clone() };
     assert_eq!(spared(&service_in_tmux, &guard()), None, "a service account's multiplexer is nobody's login");
+    let older_numbering = Guard { first_person: 500, ..guard() };
+    let person_from_500 = StartedProcess { uid: 500, ..in_tmux.clone() };
+    assert_eq!(spared(&person_from_500, &guard()), None);
+    assert_eq!(
+        spared(&person_from_500, &older_numbering),
+        Some(Protection::Terminal),
+        "a system that numbers people from 500 says so, and Borg follows it"
+    );
     for opener in [None, Some(ancestor(32, "/usr/bin/python3", false)), Some(ancestor(33, "/tmp/sshd", false))] {
         let opened_by_a_program = StartedProcess { session_parent: opener.clone(), ..at_a_terminal.clone() };
         assert_eq!(spared(&opened_by_a_program, &guard()), None, "nobody logged in to the terminal {opener:?} opened");

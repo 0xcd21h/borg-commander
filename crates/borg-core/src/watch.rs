@@ -19,11 +19,12 @@ pub use alerts::{
     ALERTS_KEPT, Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Evidence, WatchSource, WatchStatus,
     filtered as alerts_filtered,
 };
-pub use baseline::{Allowance, Baseline, LEARNING_DAYS, PAIRS_LIMIT, ParentChild};
+pub use baseline::{Allowance, Baseline, LEARNING_DAYS, PAIRS_LIMIT, ParentChild, review_ends};
 pub use event::{Ancestor, StartedProcess, StreamKind};
 pub(crate) use keys::{click, kill, paste, route_key};
 pub use response::{
-    ALERTS_PER_MINUTE, FREEZES_PER_MINUTE, Guard, Limits, NEVER_FROZEN, Outcome, Protection, Response, Watcher, decide,
+    ALERTS_PER_MINUTE, FIRST_PERSON, FREEZES_PER_MINUTE, Guard, Limits, NEVER_FROZEN, Outcome, Protection, Response,
+    Watcher, decide,
 };
 pub use rules::{Finding, History, PRELOAD_VARIABLES, WatchRule, examine};
 

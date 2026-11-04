@@ -12,6 +12,10 @@ use super::StartedProcess;
 
 /// Days Borg learns before it freezes anything.
 pub const LEARNING_DAYS: u64 = 7;
+/// Days after learning ends that freezing waits for the user to see what Borg would have frozen
+/// meanwhile. After that it starts anyway, so a machine nobody looks at is still protected.
+pub const REVIEW_DAYS: u64 = 3;
+const DAY_SECONDS: u64 = 24 * 60 * 60;
 /// Pairs the baseline holds; a machine that starts more than this has stopped being a baseline.
 pub const PAIRS_LIMIT: usize = 20_000;
 
@@ -61,6 +65,11 @@ fn names_of(process: &StartedProcess) -> Vec<String> {
     names
 }
 
+/// When freezing starts on its own for a machine that finished learning at `learned_at`.
+pub fn review_ends(learned_at: SystemTime) -> SystemTime {
+    learned_at + Duration::from_secs(REVIEW_DAYS * DAY_SECONDS)
+}
+
 /// How a program is written in the baseline: its path, or the name it calls itself.
 fn written(program: Option<&std::path::Path>, name: &str) -> String {
     program.map_or_else(|| name.to_owned(), |path| path.display().to_string())
@@ -78,7 +87,7 @@ pub struct Baseline {
 
 impl Default for Baseline {
     fn default() -> Self {
-        Self::started(SystemTime::UNIX_EPOCH, Duration::from_secs(LEARNING_DAYS * 24 * 60 * 60))
+        Self::started(SystemTime::UNIX_EPOCH, Duration::from_secs(LEARNING_DAYS * DAY_SECONDS))
     }
 }
 
@@ -94,6 +103,11 @@ impl Baseline {
 
     pub fn learning(&self, now: SystemTime) -> bool {
         now < self.learned_at()
+    }
+
+    /// When freezing starts even if nobody has seen what Borg would have frozen while it learned.
+    pub fn review_ends(&self) -> SystemTime {
+        review_ends(self.learned_at())
     }
 
     /// How much of the learning period is left.

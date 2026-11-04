@@ -72,9 +72,9 @@ const LOGINS: &[&str] = &[
 const MULTIPLEXERS: &[&str] = &["tmux", "screen"];
 /// The account of the machine's owner.
 const ROOT: u32 = 0;
-/// The first number Linux gives an account for a person; the ones below it belong to the system
-/// and its services.
-const FIRST_PERSON: u32 = 1000;
+/// The first number Linux gives an account for a person where the system does not say otherwise;
+/// the ones below it belong to the system and its services.
+pub const FIRST_PERSON: u32 = 1000;
 /// Folders that only the machine's owner may write to, where a program Borg spares by its name
 /// must lie, so a copy named after it elsewhere is not spared.
 const SYSTEM_FOLDERS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/nix/store", "/snap"];
@@ -162,6 +162,8 @@ pub struct Guard<'a> {
     /// Whether the user has seen every alert that says Borg would have frozen a process while it
     /// learned. Freezing waits until they have, so nothing stops before they have checked.
     pub reviewed: bool,
+    /// The first account number the system gives a person.
+    pub first_person: u32,
 }
 
 /// How much the watcher does in a minute.
@@ -201,17 +203,18 @@ fn installed(program: Option<&Path>) -> bool {
 }
 
 /// Whether the account a process runs as belongs to root or to a person.
-fn personal(process: &StartedProcess) -> bool {
-    process.uid == ROOT || process.uid >= FIRST_PERSON
+fn personal(process: &StartedProcess, first_person: u32) -> bool {
+    process.uid == ROOT || process.uid >= first_person
 }
 
 /// Whether somebody logged in to the terminal a process belongs to. A terminal a program opened
 /// for itself does not count.
-fn logged_in(process: &StartedProcess) -> bool {
+fn logged_in(process: &StartedProcess, first_person: u32) -> bool {
     process.has_terminal()
         && process.session_parent.as_ref().is_some_and(|opener| {
             let program = opener.program_name();
-            let login = LOGINS.contains(&program) || (MULTIPLEXERS.contains(&program) && personal(process));
+            let login =
+                LOGINS.contains(&program) || (MULTIPLEXERS.contains(&program) && personal(process, first_person));
             login && installed(opener.program.as_deref())
         })
 }
@@ -230,7 +233,7 @@ fn protection(process: &StartedProcess, baseline: &Baseline, guard: &Guard<'_>) 
     {
         return Some(Protection::NeverFrozen(program.to_owned()));
     }
-    if logged_in(process) {
+    if logged_in(process, guard.first_person) {
         return Some(Protection::Terminal);
     }
     if baseline.allows(process) {
@@ -260,7 +263,7 @@ pub fn decide(
     }
     match spared {
         Some(protection) => Response::Spared(protection),
-        None if !guard.reviewed => Response::Spared(Protection::Unreviewed),
+        None if !guard.reviewed && now < baseline.review_ends() => Response::Spared(Protection::Unreviewed),
         None => Response::Frozen,
     }
 }

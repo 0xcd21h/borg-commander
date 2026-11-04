@@ -1599,10 +1599,12 @@ not exited, so its service keeps running, `systemd` and Docker have nothing to r
 whatever it was about to do waits where it is until you look. The Response column says **Frozen**,
 and **C** lets it go on while **K** ends it. Killing is final, so Borg asks first.
 
-Borg starts freezing only once you have seen every alert from the learning week that says **Would
-freeze**. Opening the Alerts page marks them read, and the watcher notices within a minute. That way
-nothing stops before you have checked what the week caught, and you can allow a harmless program
-with **A** first. Until then, the details of a new alert say that freezing is waiting for you.
+Borg starts freezing once you have seen every alert from the learning week that says **Would
+freeze**, or 3 days after the week ends, whichever comes first. Opening the Alerts page marks them
+read, and the watcher notices within a minute. That way you can check what the week caught and allow
+a harmless program with **A** before anything stops, and a machine nobody looks at is still
+protected. Until then, the page's footer says how long freezing waits, and the details of a new
+alert say that it is waiting.
 
 Borg never freezes the system's first process, itself or anything it started, a program on the list
 it never freezes (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` and the like, plus any name you
@@ -1613,11 +1615,11 @@ A program on the built-in list is spared only where the system keeps its program
 and `/bin`, so a copy named `sshd` in another folder is frozen like anything else. Names you add
 under `keep-running` match wherever the program lies. A terminal counts when somebody logged in to
 it: over SSH, at the console, in `tmux` or `screen`, through `sudo` or `su`, or in a terminal
-window. A terminal multiplexer counts only for root and for people's accounts, numbered from 1000
-up, because a service account can start one too. A terminal that a program opened for itself does
-not count, which keeps a remote shell from hiding behind one. Terminals opened by an editor's remote
-server or by `docker exec` do not count either, so if Borg freezes something you ran there, **C**
-lets it go on and **A** allows it.
+window. A terminal multiplexer counts only for root and for people's accounts, numbered from
+`UID_MIN` in `/etc/login.defs` (1000 on most systems), because a service account can start one too.
+A terminal that a program opened for itself does not count, which keeps a remote shell from hiding
+behind one. Terminals opened by an editor's remote server or by `docker exec` do not count either,
+so if Borg freezes something you ran there, **C** lets it go on and **A** allows it.
 
 Borg checks a process's identity, its number together with the moment it started, right before it
 signals it, so a number another process has taken in the meantime is left alone.

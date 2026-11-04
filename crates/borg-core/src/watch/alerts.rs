@@ -230,6 +230,14 @@ impl AlertLog {
         !self.alerts.iter().any(|alert| !alert.seen && alert.response == Response::Learning { would_freeze: true })
     }
 
+    /// Until when freezing waits for the user to see what Borg would have frozen while it
+    /// learned, while it does.
+    pub fn freezing_waits(&self, now: SystemTime) -> Option<SystemTime> {
+        let ends = super::review_ends(self.watch.learned_at);
+        let waits = self.watch.freeze && !self.watch.learning(now) && now < ends && !self.reviewed();
+        waits.then_some(ends)
+    }
+
     pub fn mark_seen(&mut self) {
         for alert in &mut self.alerts {
             alert.seen = true;

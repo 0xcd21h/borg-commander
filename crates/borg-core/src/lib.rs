@@ -130,9 +130,9 @@ pub use update::update;
 pub use viewer::{Content, FoundInViewer, Image, Shown, Viewer, find_in, viewer_size};
 pub use watch::{
     ALERTS_CHROME_ROWS, ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertLog, AlertState, Alerts, AlertsReply,
-    AlertsRequest, Allowance, Ancestor, Baseline, Evidence, FREEZES_PER_MINUTE, Finding as WatchFinding, Guard,
-    History, LEARNING_DAYS, Limits, NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection,
-    Response, StartedProcess, StreamKind, WatchRule, WatchSource, WatchStatus, Watcher, alerts_filtered,
+    AlertsRequest, Allowance, Ancestor, Baseline, Evidence, FIRST_PERSON, FREEZES_PER_MINUTE, Finding as WatchFinding,
+    Guard, History, LEARNING_DAYS, Limits, NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild,
+    Protection, Response, StartedProcess, StreamKind, WatchRule, WatchSource, WatchStatus, Watcher, alerts_filtered,
     decide as decide_response, examine as examine_start,
 };
 

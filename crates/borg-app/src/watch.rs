@@ -400,6 +400,8 @@ pub struct Watch {
     log: AlertLog,
     sources: Sources,
     asked: UnboundedReceiver<Asked>,
+    /// The first account number the system gives a person.
+    first_person: u32,
 }
 
 /// The service's hold on a running watcher.
@@ -463,7 +465,8 @@ impl Watch {
         };
         log::write_log(&state, &log)?;
         let (jobs, found) = examiner(crate::rule_scan::compile(crate::rule_scan::folder().as_deref()));
-        Ok(Self { processes, settings, jobs, found, state, watcher, log, sources, asked })
+        let first_person = facts::first_person();
+        Ok(Self { processes, settings, jobs, found, state, watcher, log, sources, asked, first_person })
     }
 
     /// Watches until nothing reports processes any more. Each process that starts is looked at,
@@ -501,6 +504,7 @@ impl Watch {
                 keep_running: &self.settings.keep_running,
                 freeze: self.settings.freeze,
                 reviewed: self.log.reviewed(),
+                first_person: self.first_person,
             };
             let outcomes = self.watcher.examine(&started, &guard, now);
             self.record(&started, outcomes, now).await?;

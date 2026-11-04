@@ -1370,6 +1370,7 @@ catalog! {
     watch_summary => "{alerts} · {unread} unread",
     watch_watching => "Watching {source}",
     watch_learning_until => "Learning what is normal here until {until}, and freezing nothing meanwhile",
+    watch_review_until => "Freezing waits until {until}, or until you have seen what Borg would have frozen while it learned",
     watch_seen => "{count} starts seen",
     watch_suppressed => "{count} findings left out because too many fired at once",
 
@@ -1434,7 +1435,7 @@ catalog! {
     watch_spared_freeze_off => "Freezing is turned off in the configuration.",
     watch_spared_only_a_notice => "A notice is not worth stopping a program for.",
     watch_spared_enough_for_now => "Borg had already frozen as much as it may in one minute.",
-    watch_spared_unreviewed => "Freezing waits until you open Alerts and see what Borg would have frozen while it learned.",
+    watch_spared_unreviewed => "Freezing waits until you have seen in Alerts what Borg would have frozen while it learned, or until the date the page gives.",
     watch_rule_shell_from_service => "Shell from a service",
     watch_rule_shell_without_terminal => "Shell without a terminal",
     watch_rule_shell_on_socket => "Shell on a network socket",

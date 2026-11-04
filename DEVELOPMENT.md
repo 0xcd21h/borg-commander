@@ -362,12 +362,14 @@ and returns `Finding`s that say in plain words why they fired, `Baseline` holds 
 which program here and the learning period, `decide` says what to do about a finding with the
 guardrails that keep PID 1, Borg, terminals somebody logged in to and the never-frozen programs
 running (by name only where they lie in a system folder, and `tmux` or `screen` only for root and
-people's accounts), and `Watcher` ties them together with the limits on alerts and freezes per
-minute. The alert limit never drops a finding Borg freezes for, and a start that a rule learning
-cannot quiet fired on stays out of the baseline. Freezing waits until every alert from the learning
-week that would have frozen has been read: `AlertLog::reviewed` says when, and until then `decide`
-spares the process with a reason that says so. `Alerts` is the page: the log, the filter, the cursor
-and the keys. All of it is data in and data out, tested in `watch/tests.rs`.
+people's accounts, numbered from the `UID_MIN` the app reads in `/etc/login.defs`), and `Watcher`
+ties them together with the limits on alerts and freezes per minute. The alert limit never drops a
+finding Borg freezes for, and a start that a rule learning cannot quiet fired on stays out of the
+baseline. Freezing waits until every alert from the learning week that would have frozen has been
+read, or until `REVIEW_DAYS` after learning ends, whichever comes first: `AlertLog::reviewed` says
+when the week has been read, and until then `decide` spares the process with a reason that says so.
+`Alerts` is the page: the log, the filter, the cursor and the keys. All of it is data in and data
+out, tested in `watch/tests.rs`.
 
 `borg-app::watch` does the watching. Events come from the kernel's proc connector over netlink
 (`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
