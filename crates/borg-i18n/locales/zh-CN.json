@@ -1402,6 +1402,7 @@
   "watch_stream_other": "其他",
   "watch_source_kernel": "本机的每个进程，由内核报告",
   "watch_source_own": "仅你自己的进程，因此可能漏掉短暂的命令",
+  "watch_source_polled": "本机的每个进程，每秒查看四次，因此可能漏掉短暂的命令",
   "watch_source_off": "无",
   "watch_state_running": "运行中",
   "watch_state_frozen": "已冻结",

@@ -17,7 +17,10 @@ use std::{
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{
@@ -50,6 +53,9 @@ enum FromRoot {
     Started(Box<StartedProcess>),
     /// What became of a process Borg asked about.
     Outcome { id: u64, outcome: ControlOutcome },
+    /// The kernel sends no process events here, so the root watcher looks at every process
+    /// four times a second instead, and short commands can be missed.
+    Polling,
 }
 
 /// What Borg asks the root watcher to do to a process.
@@ -72,6 +78,8 @@ pub struct RootLink {
     acts: UnboundedSender<ToRoot>,
     waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<ControlOutcome>>>>,
     next_id: u64,
+    /// Whether the root watcher said it looks at the process list instead of hearing the kernel.
+    polls: Arc<AtomicBool>,
 }
 
 impl RootLink {
@@ -87,6 +95,8 @@ impl RootLink {
         let (acts, mut outgoing) = unbounded_channel();
         let waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<ControlOutcome>>>> = Arc::new(Mutex::new(HashMap::new()));
         let answers = Arc::clone(&waiting);
+        let polls = Arc::new(AtomicBool::new(false));
+        let polling = Arc::clone(&polls);
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 if !runs_as_root(&stream) {
@@ -99,7 +109,7 @@ impl RootLink {
                 loop {
                     tokio::select! {
                         line = incoming.recv() => match line {
-                            Some(line) => receive(&line, &started, &answers),
+                            Some(line) => receive(&line, &started, &answers, &polling),
                             None => break,
                         },
                         act = outgoing.recv() => match act {
@@ -116,10 +126,15 @@ impl RootLink {
                 }
             }
         });
-        Ok((Self { acts, waiting, next_id: 0 }, processes))
+        Ok((Self { acts, waiting, next_id: 0, polls }, processes))
     }
 
     /// Asks the root watcher to stop, continue or end a process, and waits for its answer.
+    /// Whether the root watcher looks at the process list instead of hearing the kernel.
+    pub fn polls(&self) -> bool {
+        self.polls.load(Ordering::Relaxed)
+    }
+
     pub async fn act(&mut self, act: Act, process: ProcessKey) -> ControlOutcome {
         self.next_id += 1;
         let id = self.next_id;
@@ -157,11 +172,13 @@ fn receive(
     line: &str,
     started: &UnboundedSender<StartedProcess>,
     waiting: &Arc<Mutex<HashMap<u64, oneshot::Sender<ControlOutcome>>>>,
+    polls: &AtomicBool,
 ) {
     match serde_json::from_str(line) {
         Ok(FromRoot::Started(process)) => {
             let _ = started.send(*process);
         }
+        Ok(FromRoot::Polling) => polls.store(true, Ordering::Relaxed),
         Ok(FromRoot::Outcome { id, outcome }) => {
             if let Some(answer) = waiting.lock().expect("waiting acts").remove(&id) {
                 let _ = answer.send(outcome);
@@ -187,13 +204,22 @@ pub async fn helper(args: &[String]) -> Result<()> {
     }
     let stream = UnixStream::connect(&socket).await.context("connecting to Borg")?;
     let processes = Processes::default();
-    let events = super::kernel_events()?;
-    serve(stream, processes, events).await
+    let (events, polling) = match super::kernel_events() {
+        Ok(events) => (events, false),
+        Err(error) => {
+            eprintln!("borg --watch-root: {error:#}; looking at every process four times a second instead");
+            (super::polled(processes.clone()), true)
+        }
+    };
+    serve(stream, processes, events, polling).await
 }
 
 /// Sends every process that starts, and does what Borg asks of one.
-async fn serve(stream: UnixStream, processes: Processes, mut events: Receiver<u32>) -> Result<()> {
+async fn serve(stream: UnixStream, processes: Processes, mut events: Receiver<u32>, polling: bool) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
+    if polling {
+        send(&mut writer, &FromRoot::Polling).await?;
+    }
     let mut incoming = lines_of(reader);
     loop {
         tokio::select! {
@@ -302,10 +328,10 @@ mod tests {
         assert!(text.contains("ExecStart=\"/tmp/bo\\\"rg\""), "{text}");
     }
 
-    /// Borg takes processes only from a connection that runs as root, so this test, which cannot
-    /// be root, stands for every other program on the machine.
+    /// Borg takes processes only from a connection that runs as root. Run as anyone else, this
+    /// test stands for every other program on the machine; run as root, it is the root watcher.
     #[tokio::test]
-    async fn borg_takes_no_processes_from_a_connection_that_is_not_root() {
+    async fn borg_takes_processes_only_from_a_connection_that_runs_as_root() {
         let folder = tempfile::tempdir().unwrap();
         let (_link, mut processes) = RootLink::listen(folder.path()).await.unwrap();
         let socket = folder.path().join(SOCKET);
@@ -321,7 +347,11 @@ mod tests {
         text.push('\n');
         let _ = writer.write_all(text.as_bytes()).await;
         let heard = tokio::time::timeout(Duration::from_millis(200), processes.recv()).await;
-        assert!(heard.is_err(), "nothing that is not the root watcher may report a process");
+        if rustix::process::getuid().is_root() {
+            assert!(heard.is_ok_and(|process| process.is_some()), "a connection that runs as root is heard");
+        } else {
+            assert!(heard.is_err(), "nothing that is not the root watcher may report a process");
+        }
     }
 
     #[tokio::test]
@@ -330,19 +360,19 @@ mod tests {
         let waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<ControlOutcome>>>> = Arc::new(Mutex::new(HashMap::new()));
         let started = StartedProcess { name: "sh".into(), ..StartedProcess::default() };
         let line = serde_json::to_string(&FromRoot::Started(Box::new(started))).unwrap();
-        receive(&line, &sender, &waiting);
+        receive(&line, &sender, &waiting, &AtomicBool::new(false));
         assert_eq!(processes.recv().await.map(|process| process.name), Some("sh".into()));
 
         let (answer, wait) = oneshot::channel();
         waiting.lock().expect("waiting acts").insert(7, answer);
         let line = serde_json::to_string(&FromRoot::Outcome { id: 7, outcome: ControlOutcome::Done }).unwrap();
-        receive(&line, &sender, &waiting);
+        receive(&line, &sender, &waiting, &AtomicBool::new(false));
         assert_eq!(wait.await, Ok(ControlOutcome::Done));
         assert!(waiting.lock().expect("waiting acts").is_empty(), "an answer is waited for once");
 
-        receive("not json at all", &sender, &waiting);
+        receive("not json at all", &sender, &waiting, &AtomicBool::new(false));
         let stray = serde_json::to_string(&FromRoot::Outcome { id: 9, outcome: ControlOutcome::Gone }).unwrap();
-        receive(&stray, &sender, &waiting);
+        receive(&stray, &sender, &waiting, &AtomicBool::new(false));
     }
 
     #[tokio::test]

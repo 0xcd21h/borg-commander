@@ -282,7 +282,14 @@ pub struct Watcher {
     pub baseline: Baseline,
     pub limits: Limits,
     history: History,
+    /// Processes written about for a warning or an alert this minute.
     alerts: Rate,
+    /// Processes written about for a notice, counted apart so a run of them never uses up the
+    /// room for warnings and alerts.
+    notices: Rate,
+    /// Processes Borg would have frozen past the freeze limit, counted apart so none of them is
+    /// lost among the others.
+    unfrozen: Rate,
     freezes: Rate,
     suppressed: u64,
     seen: u64,
@@ -318,10 +325,18 @@ impl Watcher {
         }
         let Some(worst) = findings.first() else { return Vec::new() };
         let mut response = decide(worst, process, &self.baseline, guard, now);
-        if response == Response::Frozen && !self.freezes.allow(self.limits.freezes_per_minute, now) {
+        let wanted = response == Response::Frozen;
+        if wanted && !self.freezes.allow(self.limits.freezes_per_minute, now) {
             response = Response::Spared(Protection::EnoughForNow);
         }
-        if !self.alerts.allow(self.limits.alerts_per_minute, now) && !response.froze() {
+        let room = if wanted {
+            &mut self.unfrozen
+        } else if worst.level() == Level::Notice {
+            &mut self.notices
+        } else {
+            &mut self.alerts
+        };
+        if !response.froze() && !room.allow(self.limits.alerts_per_minute, now) {
             self.suppressed = self.suppressed.saturating_add(findings.len() as u64);
             return Vec::new();
         }

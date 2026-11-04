@@ -1712,13 +1712,15 @@ normais por acontecerem muitas vezes. Tudo o que corre nessa semana conta como n
 ligue o observador enquanto confia na máquina. Os arranques em que disparou uma regra que a
 aprendizagem não consegue silenciar ficam fora do que o Borg aprende.
 
-**A** num alerta permite arranques como aquele a partir daí, pelo seu programa e pelo seu pai.
-Essas permissões ficam em `watch-allowed.json` na pasta de estado, que o observador lê e adota no
-espaço de um minuto. A secção `[watch]` da configuração guarda o mesmo à mão (veja [Configuração](#configuration)). O
-Borg escreve no máximo 20 processos por minuto e congela no máximo 5, e a linha acima da lista diz
-quantas deteções deixou de fora quando mais dispararam ao mesmo tempo.
-Um processo que o Borg congela fica sempre registado, por muitos alertas que tenham vindo antes,
-para que o possa deixar continuar.
+**A** num alerta permite arranques como aquele a partir daí, pelo seu programa e pelo seu pai. Essas
+permissões ficam em `watch-allowed.json` na pasta de estado, que o observador lê e adota no espaço
+de um minuto. A secção `[watch]` da configuração guarda o mesmo à mão (veja
+[Configuração](#configuration)). O Borg escreve no máximo 20 processos por minuto e congela no
+máximo 5, e a linha acima da lista diz quantas deteções deixou de fora quando mais dispararam ao
+mesmo tempo. Um processo que o Borg congela fica sempre registado, por muitos alertas que tenham
+vindo antes, para que o possa deixar continuar. As notas contam à parte, para que uma série delas
+nunca ocupe o lugar de um aviso, e até 20 processos por minuto que o Borg teria congelado além do
+limite de 5 também ficam registados.
 
 ### Congelar um processo
 
@@ -1800,6 +1802,9 @@ Conheça-as antes de confiar nele.
 - Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
   em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
   como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+- Alguns kernels não enviam eventos de processos, como em certas máquinas virtuais e ambientes de
+  contentores. O Borg a correr como root e o observador como root veem então todos os processos
+  quatro vezes por segundo, e um comando curto pode terminar antes de olharem.
 - Uma rajada de processos novos pode encher a fila entre o kernel e o Borg, e o kernel descarta
   então eventos, por isso alguns arranques nunca são examinados.
 - Tudo o que corre como o utilizador do observador pode parar o observador, alterar os seus

@@ -1402,6 +1402,7 @@
   "watch_stream_other": "outra coisa",
   "watch_source_kernel": "todos os processos desta máquina, tal como o kernel os comunica",
   "watch_source_own": "apenas os seus próprios processos, pelo que comandos curtos podem passar",
+  "watch_source_polled": "todos os processos desta máquina, vistos quatro vezes por segundo, pelo que comandos curtos podem passar",
   "watch_source_off": "nada",
   "watch_state_running": "A correr",
   "watch_state_frozen": "Congelado",

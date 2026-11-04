@@ -352,7 +352,11 @@ pub fn examine(process: &StartedProcess, baseline: &Baseline, history: &History,
             value: value.clone(),
         });
     }
-    if process.program.is_some() && !runs_scripts(&program) && shortened(&program) != shortened(&process.name) {
+    if process.program.is_some()
+        && process.link.is_none()
+        && !runs_scripts(&program)
+        && shortened(&program) != shortened(&process.name)
+    {
         findings.push(Finding::NameDiffersFromProgram { name: process.name.clone(), program: program.clone() });
     }
     if !known

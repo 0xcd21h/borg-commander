@@ -1728,13 +1728,14 @@ arranques en los que se disparó una regla que el aprendizaje no puede silenciar
 que Borg aprende.
 
 **A** en una alerta permite arranques como ese desde entonces, por su programa y su padre. Esos
-permisos van a `watch-allowed.json` en la carpeta de estado, que el vigilante lee y adopta en
-menos de un minuto. La sección `[watch]` de la configuración guarda lo mismo a mano (consulta
+permisos van a `watch-allowed.json` en la carpeta de estado, que el vigilante lee y adopta en menos
+de un minuto. La sección `[watch]` de la configuración guarda lo mismo a mano (consulta
 [Configuración](#configuration)). Borg anota como máximo 20 procesos por minuto y congela como
-máximo 5, y la línea sobre la lista dice cuántos hallazgos omitió cuando se dispararon más a la
-vez.
+máximo 5, y la línea sobre la lista dice cuántos hallazgos omitió cuando se dispararon más a la vez.
 Un proceso que Borg congela siempre queda anotado, por muchas alertas que hayan llegado antes, para
-que puedas dejarlo continuar.
+que puedas dejarlo continuar. Las notas se cuentan aparte, así que una serie de ellas nunca ocupa el
+lugar de un aviso, y también quedan anotados hasta 20 procesos por minuto que Borg habría congelado
+por encima del límite de 5.
 
 ### Congelar un proceso
 
@@ -1816,6 +1817,9 @@ Conócelas antes de confiar en él.
 - Sin el vigilante como root, Borg solo ve tus propios procesos, y un comando que termina en menos
   de un cuarto de segundo puede desaparecer antes de que Borg mire. Los servicios que se ejecutan
   como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root.
+- Algunos kernels no envían eventos de procesos, como en ciertas máquinas virtuales y entornos de
+  contenedores. Borg ejecutándose como root y el vigilante como root miran entonces todos los
+  procesos cuatro veces por segundo, y un comando breve puede terminar antes de que miren.
 - Una ráfaga de procesos nuevos puede llenar la cola entre el kernel y Borg, y entonces el kernel
   descarta eventos, así que algunos arranques nunca se examinan.
 - Cualquier cosa que se ejecute como el usuario del vigilante puede detener el vigilante, cambiar

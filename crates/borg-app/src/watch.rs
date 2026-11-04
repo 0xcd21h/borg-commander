@@ -240,10 +240,11 @@ struct Sources {
     heard_root: bool,
 }
 
-/// What the user's own process list looked like last time Borg looked, and what it has yet to
-/// report from that look.
+/// What the process list looked like last time Borg looked, and what it has yet to report from
+/// that look.
 struct Polling {
-    uid: u32,
+    /// Whose processes Borg looks at: one user's, or everyone's when it runs as root.
+    uid: Option<u32>,
     seen: HashSet<u32>,
     queue: VecDeque<u32>,
 }
@@ -256,8 +257,11 @@ enum Heard {
 
 impl Sources {
     fn label(&self) -> WatchSource {
-        if self.kernel.is_some() || self.heard_root {
+        let root_polls = self.link.as_ref().is_some_and(root::RootLink::polls);
+        if self.kernel.is_some() || (self.heard_root && !root_polls) {
             WatchSource::Kernel
+        } else if self.heard_root || self.own.as_ref().is_some_and(|own| own.uid.is_none()) {
+            WatchSource::Polled
         } else if self.own.is_some() {
             WatchSource::OwnProcesses
         } else {
@@ -324,8 +328,17 @@ impl Sources {
 }
 
 impl Polling {
-    fn new(uid: u32, processes: &Processes) -> Self {
-        Self { uid, seen: processes.of_user(uid).into_iter().collect(), queue: VecDeque::new() }
+    fn new(uid: Option<u32>, processes: &Processes) -> Self {
+        let mut polling = Self { uid, seen: HashSet::new(), queue: VecDeque::new() };
+        polling.seen = polling.running(processes).into_iter().collect();
+        polling
+    }
+
+    fn running(&self, processes: &Processes) -> Vec<u32> {
+        match self.uid {
+            Some(uid) => processes.of_user(uid),
+            None => processes.all(),
+        }
     }
 
     /// The next process that is new since the last look. One look reports everything it found,
@@ -335,7 +348,7 @@ impl Polling {
         if let Some(pid) = self.queue.pop_front() {
             return Some(pid);
         }
-        let running: HashSet<u32> = processes.of_user(self.uid).into_iter().collect();
+        let running: HashSet<u32> = self.running(processes).into_iter().collect();
         let mut started: Vec<u32> = running.difference(&self.seen).copied().collect();
         started.sort_unstable();
         self.seen.retain(|pid| running.contains(pid));
@@ -439,7 +452,7 @@ impl Watch {
                 baseline
             },
         );
-        let kernel = kernel_events().ok();
+        let kernel = kernel_events().map_err(|error| eprintln!("borg watch: {error:#}")).ok();
         let (link, root) = match kernel {
             Some(_) => (None, None),
             None => match root::RootLink::listen(&state).await {
@@ -450,7 +463,8 @@ impl Watch {
                 }
             },
         };
-        let own = kernel.is_none().then(|| Polling::new(rustix::process::getuid().as_raw(), &processes));
+        let user = rustix::process::getuid();
+        let own = kernel.is_none().then(|| Polling::new((!user.is_root()).then_some(user.as_raw()), &processes));
         let sources = Sources { kernel, root, link, own, heard_root: false };
         let mut watcher = Watcher::new(baseline, settings.limits);
         watcher.baseline.allowed = allowances(&settings, &state);
@@ -499,6 +513,9 @@ impl Watch {
                 Heard::Number(pid) => self.processes.started(pid, now),
             };
             let Some(started) = started else { continue };
+            if started.copy_of_parent() {
+                continue;
+            }
             let guard = Guard {
                 own: std::process::id(),
                 keep_running: &self.settings.keep_running,
@@ -635,7 +652,7 @@ fn allowances(settings: &Settings, state: &Path) -> Vec<Allowance> {
 /// unwatched.
 fn kernel_events() -> Result<Receiver<u32>> {
     use rustix::io::Errno;
-    let socket = netlink::subscribe().context("hearing the kernel's process events needs root")?;
+    let socket = netlink::subscribe().context("hearing the kernel's process events")?;
     let (sender, receiver) = channel(EVENTS_QUEUED);
     std::thread::spawn(move || {
         let mut buffer = [0_u8; netlink::DATAGRAM];
@@ -643,7 +660,10 @@ fn kernel_events() -> Result<Receiver<u32>> {
             let count = match rustix::net::recv(&socket, &mut buffer, rustix::net::RecvFlags::empty()) {
                 Ok((count, _)) => count,
                 Err(Errno::NOBUFS | Errno::INTR) => continue,
-                Err(_) => break,
+                Err(error) => {
+                    eprintln!("borg watch: the kernel's process events stopped: {error}");
+                    break;
+                }
             };
             for event in netlink::parse_events(&buffer[..count]) {
                 let pid = match event {
@@ -659,6 +679,24 @@ fn kernel_events() -> Result<Receiver<u32>> {
         }
     });
     Ok(receiver)
+}
+
+/// Every process that starts, from looking at the whole process list four times a second, for a
+/// kernel that sends no process events.
+fn polled(processes: Processes) -> Receiver<u32> {
+    let (sender, receiver) = channel(EVENTS_QUEUED);
+    tokio::spawn(async move {
+        let mut polling = Polling::new(None, &processes);
+        loop {
+            tokio::time::sleep(LOOK_EVERY).await;
+            while let Some(pid) = polling.started(&processes) {
+                if sender.send(pid).await.is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    receiver
 }
 
 /// The SHA-256 of a program, which says whether the same file turns up again elsewhere.

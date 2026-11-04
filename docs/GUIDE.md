@@ -1586,10 +1586,11 @@ learns.
 **A** on an alert allows starts like it from then on, by its program and its parent. Those
 allowances go in `watch-allowed.json` in the state folder, which the watcher reads and takes in
 within a minute. The `[watch]` section of the configuration holds the same thing by hand (see
-[Configuration](#configuration)).
-Borg writes down at most 20 processes a minute and freezes at most 5, and the line above the list
-says how many findings it left out when more fired at once. A process Borg freezes is always written
-down, however many alerts came before it, so you can let it go on.
+[Configuration](#configuration)). Borg writes down at most 20 processes a minute and freezes at most
+5, and the line above the list says how many findings it left out when more fired at once. A process
+Borg freezes is always written down, however many alerts came before it, so you can let it go on.
+Notices are counted apart, so a run of them never takes the room of a warning, and up to 20
+processes a minute that Borg would have frozen past its limit of 5 are written down too.
 
 ### Freezing a process
 
@@ -1665,6 +1666,9 @@ before you rely on it.
 - Without the root watcher, Borg sees only your own processes, and a command that ends within a
   quarter of a second can be gone before Borg looks. Services that run as another user, such as
   `www-data` or `postgres`, need the root watcher.
+- Some kernels send no process events, as on some virtual machines and container hosts. Borg running
+  as root and the root watcher then look at every process four times a second, and a short command
+  can be gone before they look.
 - A burst of new processes can fill the queue between the kernel and Borg, and the kernel then drops
   events, so some starts are never looked at.
 - Anything running as the user the watcher runs as can stop the watcher, change its files in the

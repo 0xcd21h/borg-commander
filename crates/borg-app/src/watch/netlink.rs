@@ -127,7 +127,9 @@ pub fn listen_message() -> Vec<u8> {
 #[cfg(target_os = "linux")]
 pub fn subscribe() -> io::Result<std::os::fd::OwnedFd> {
     use rustix::net::{
-        AddressFamily, SendFlags, SocketAddrNetlink, SocketFlags, SocketType, bind, netlink, send, socket_with,
+        AddressFamily, SendFlags, SocketFlags, SocketType, bind,
+        netlink::{self, SocketAddrNetlink},
+        send, socket_with,
     };
     let socket =
         socket_with(AddressFamily::NETLINK, SocketType::DGRAM, SocketFlags::CLOEXEC, Some(netlink::CONNECTOR))?;

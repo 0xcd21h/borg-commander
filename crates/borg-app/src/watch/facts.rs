@@ -10,14 +10,20 @@ use borg_core::{Ancestor, PRELOAD_VARIABLES, ProcessKey, StartedProcess, StreamK
 use std::{
     collections::BTreeMap,
     fs,
-    io::Read,
+    io::{self, Read},
     os::unix::fs::MetadataExt,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::SystemTime,
 };
 
 /// Where Linux keeps what it knows about each process.
 pub const PROC: &str = "/proc";
+/// Folders where the system keeps the links programs are started by, such as `awk` for `mawk`.
+const LINK_FOLDERS: &[&str] = &["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"];
+/// Links followed from one to the next before Borg gives up on a path.
+const LINK_HOPS: usize = 8;
+/// Bytes of a program's name the system keeps as the name a process calls itself.
+const NAME_BYTES: usize = 15;
 /// Where the system says which account numbers it gives people.
 pub const LOGIN_DEFS: &str = "/etc/login.defs";
 const UID_MIN: &str = "UID_MIN";
@@ -37,13 +43,20 @@ const STATE: usize = 0;
 const PARENT: usize = 1;
 const SESSION: usize = 3;
 const TERMINAL: usize = 4;
+const FLAGS: usize = 6;
 const STARTED_AT: usize = 19;
+/// The flag the kernel sets on its own threads, which run no program.
+const KERNEL_THREAD: u32 = 0x0020_0000;
+/// The states of a process that has ended: a zombie waiting for its parent, and a dead one.
+const ENDED: &[char] = &['Z', 'X'];
 
 /// What `/proc/<pid>/stat` says, as far as the watcher needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stat {
     /// The name the process calls itself.
     pub name: String,
+    /// One letter: `R` running, `S` sleeping, `T` stopped, `Z` ended and waiting for its parent.
+    pub state: char,
     pub parent: u32,
     /// The number of the first process of its session.
     pub session: u32,
@@ -51,6 +64,19 @@ pub struct Stat {
     pub terminal: u32,
     /// Clock ticks since the machine booted.
     pub started_at: u64,
+    /// The kernel's flags for the process.
+    pub flags: u32,
+}
+
+impl Stat {
+    /// Whether it is one of the kernel's own threads, which run no program.
+    pub fn kernel_thread(&self) -> bool {
+        self.flags & KERNEL_THREAD != 0
+    }
+
+    pub fn ended(&self) -> bool {
+        ENDED.contains(&self.state)
+    }
 }
 
 /// `stat` holds the program's name in brackets, and the name may hold brackets and spaces of
@@ -65,10 +91,12 @@ pub fn parse_stat(text: &str) -> Option<Stat> {
     }
     Some(Stat {
         name,
+        state: fields[STATE].chars().next()?,
         parent: fields[PARENT].parse().ok()?,
         session: fields[SESSION].parse().ok()?,
         terminal: fields[TERMINAL].parse().ok()?,
         started_at: fields[STARTED_AT].parse().ok()?,
+        flags: fields[FLAGS].parse().ok()?,
     })
 }
 
@@ -242,18 +270,55 @@ impl Processes {
         self.ancestor(leader.parent).map(|(ancestor, _)| ancestor)
     }
 
+    /// The link in a system folder, as the process sees its files, that the process was started
+    /// by: one named as the process calls itself, or as its command's first word where that
+    /// name agrees, which leads to its program.
+    pub fn started_by_link(&self, pid: u32, name: &str, command: &[String], program: &Path) -> Option<PathBuf> {
+        let root = self.folder(pid).join("root");
+        let first = command.first().and_then(|word| Path::new(word).file_name()).and_then(|word| word.to_str());
+        let explains =
+            |candidate: &&str| *candidate == name || (name.len() == NAME_BYTES && candidate.starts_with(name));
+        [name].into_iter().chain(first).filter(explains).find_map(|candidate| {
+            LINK_FOLDERS.iter().map(|folder| Path::new(folder).join(candidate)).find(|link| {
+                let inside = root.join(link.strip_prefix("/").unwrap_or(link));
+                fs::symlink_metadata(inside).is_ok_and(|metadata| metadata.file_type().is_symlink())
+                    && resolve(&root, link).as_deref() == Some(program)
+            })
+        })
+    }
+
+    /// Whether a process whose program Borg cannot find is on its way out: gone, ended, or so far
+    /// into ending that its memory is gone, which takes its command with it.
+    fn exiting(&self, pid: u32, stat: &Stat) -> bool {
+        let same = self.stat(pid).is_some_and(|now| now.started_at == stat.started_at && !now.ended());
+        !same || command_of(&self.block(pid, "cmdline")).is_empty()
+    }
+
     /// Everything the watcher's rules need about a process that has just started, and about
-    /// the processes that led to it. `at` is when Borg heard of it.
+    /// the processes that led to it. `at` is when Borg heard of it. Nothing for one of the
+    /// kernel's threads, for a process that ended before Borg could read it, and for one Borg
+    /// may not read, since there is nothing to judge.
     pub fn started(&self, pid: u32, at: SystemTime) -> Option<StartedProcess> {
         let stat = self.stat(pid)?;
-        let (program, program_deleted) = match self.link(pid, "exe") {
-            Some(link) => {
-                let (path, deleted) = program_of(&link);
+        if stat.kernel_thread() || stat.ended() {
+            return None;
+        }
+        let (program, program_deleted) = match fs::read_link(self.folder(pid).join("exe")) {
+            Ok(link) => {
+                let (path, deleted) = program_of(&link.to_string_lossy());
                 (Some(path), deleted)
             }
-            None => (None, false),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if self.exiting(pid, &stat) {
+                    return None;
+                }
+                (None, false)
+            }
+            Err(_) => return None,
         };
         let uid = self.user(pid).unwrap_or_default();
+        let command = command_of(&self.block(pid, "cmdline"));
+        let link = program.as_deref().and_then(|program| self.started_by_link(pid, &stat.name, &command, program));
         let mut ancestors = Vec::new();
         let mut parent = stat.parent;
         while ancestors.len() < ANCESTORS && parent > 0 {
@@ -269,7 +334,7 @@ impl Processes {
             name: stat.name.clone(),
             program,
             program_deleted,
-            command: command_of(&self.block(pid, "cmdline")),
+            command,
             user: crate::watch::user_name(uid),
             uid,
             terminal: self.terminal(pid, &stat),
@@ -278,6 +343,7 @@ impl Processes {
             errors: self.stream(pid, "fd/2"),
             session_parent: self.session_parent(&stat),
             preloads: preloads(&self.block(pid, "environ")),
+            link,
             ancestors,
             at,
         })
@@ -312,6 +378,36 @@ impl Processes {
     pub fn root(&self) -> &Path {
         &self.root
     }
+}
+
+/// Where a path leads inside a process's root folder, following links from one to the next. A
+/// link that points to an absolute path points inside that root, as the process sees it.
+fn resolve(root: &Path, path: &Path) -> Option<PathBuf> {
+    let mut current = path.to_path_buf();
+    for _ in 0..LINK_HOPS {
+        let inside = root.join(current.strip_prefix("/").ok()?);
+        match fs::read_link(inside) {
+            Ok(target) if target.is_absolute() => current = normalized(&target),
+            Ok(target) => current = normalized(&current.parent()?.join(target)),
+            Err(_) => return Some(current),
+        }
+    }
+    None
+}
+
+/// A path with its `.` and `..` worked out.
+fn normalized(path: &Path) -> PathBuf {
+    let mut clean = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                clean.pop();
+            }
+            Component::CurDir => {}
+            other => clean.push(other),
+        }
+    }
+    clean
 }
 
 /// `pid` and everything descended from it, each generation after the one above it.

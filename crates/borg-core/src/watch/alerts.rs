@@ -21,6 +21,9 @@ pub enum WatchSource {
     Kernel,
     /// The user's own processes, by looking at the process list again and again.
     OwnProcesses,
+    /// Every process on the machine, by looking at the process list again and again, where the
+    /// kernel sends no process events.
+    Polled,
     #[default]
     Off,
 }
@@ -30,6 +33,7 @@ impl WatchSource {
         match self {
             Self::Kernel => tr!(watch_source_kernel),
             Self::OwnProcesses => tr!(watch_source_own),
+            Self::Polled => tr!(watch_source_polled),
             Self::Off => tr!(watch_source_off),
         }
     }

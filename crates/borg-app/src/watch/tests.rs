@@ -98,7 +98,8 @@ fn the_polling_source_reports_each_new_process_once_and_forgets_those_that_have_
         std::fs::write(at.join("status"), format!("Uid:\t{uid}\t{uid}\t{uid}\t{uid}\n")).unwrap();
     };
     add(10);
-    let mut polling = Polling::new(uid, &processes);
+    let mut polling = Polling::new(Some(uid), &processes);
+    let mut everyone = Polling::new(None, &processes);
     assert_eq!(polling.started(&processes), None, "what is already running has not just started");
     add(20);
     add(30);
@@ -109,6 +110,11 @@ fn the_polling_source_reports_each_new_process_once_and_forgets_those_that_have_
     assert_eq!(polling.started(&processes), None, "a process that has gone is forgotten");
     add(20);
     assert_eq!(polling.started(&processes), Some(20), "and its number counts as new if it comes back");
+    assert_eq!(
+        (everyone.started(&processes), everyone.started(&processes)),
+        (Some(20), Some(30)),
+        "run as root, Borg looks at every process the same way"
+    );
 }
 
 #[test]

@@ -22,6 +22,33 @@ fn session_stat_line(name: &str, parent: u32, session: u32, terminal: u32, start
 }
 
 #[test]
+fn a_kernel_thread_and_an_ended_process_have_started_no_program() {
+    let line = |state: &str, flags: u32| {
+        let mut fields: Vec<String> = vec![state.into(), "2".into(), "0".into(), "0".into(), "0".into(), "-1".into()];
+        fields.push(flags.to_string());
+        while fields.len() < STARTED_AT {
+            fields.push("0".to_owned());
+        }
+        fields.push("5".into());
+        format!("90 (kworker/0:2) {}\n", fields.join(" "))
+    };
+    let thread = parse_stat(&line("I", KERNEL_THREAD)).expect("a stat line");
+    assert!(thread.kernel_thread() && !thread.ended());
+    let zombie = parse_stat(&line("Z", 0)).expect("a stat line");
+    assert!(zombie.ended() && !zombie.kernel_thread());
+
+    let folder = tempfile::tempdir().unwrap();
+    for (pid, state, flags) in [(91, "I", KERNEL_THREAD), (92, "Z", 0)] {
+        let at = folder.path().join(pid.to_string());
+        std::fs::create_dir_all(&at).unwrap();
+        std::fs::write(at.join("stat"), line(state, flags)).unwrap();
+    }
+    let processes = Processes::at(folder.path());
+    assert!(processes.started(91, SystemTime::UNIX_EPOCH).is_none(), "the kernel's threads start no program");
+    assert!(processes.started(92, SystemTime::UNIX_EPOCH).is_none(), "a process that has ended is no start to judge");
+}
+
+#[test]
 fn a_program_name_with_spaces_and_brackets_does_not_move_the_fields() {
     let stat = parse_stat(&stat_line("Web Content (tab)", 1234, 0, 998877)).expect("a whole stat line");
     assert_eq!(stat.name, "Web Content (tab)");
@@ -217,4 +244,28 @@ fn the_first_account_for_a_person_comes_from_login_defs() {
     assert_eq!(parse_uid_min(defs), Some(500));
     assert_eq!(parse_uid_min("UID_MAX 60000\n"), None, "a system that does not say leaves Borg's default");
     assert_eq!(parse_uid_min("UID_MIN lots\n"), None);
+}
+
+#[test]
+fn a_name_given_by_a_system_link_is_found_inside_the_process_root() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path().join("77").join("root");
+    std::fs::create_dir_all(root.join("usr/bin")).unwrap();
+    std::fs::create_dir_all(root.join("etc/alternatives")).unwrap();
+    std::os::unix::fs::symlink("/etc/alternatives/awk", root.join("usr/bin/awk")).unwrap();
+    std::os::unix::fs::symlink("../../usr/bin/mawk", root.join("etc/alternatives/awk")).unwrap();
+    std::fs::write(root.join("usr/bin/mawk"), b"").unwrap();
+    let processes = Processes::at(folder.path());
+    let mawk = Path::new("/usr/bin/mawk");
+    assert_eq!(
+        processes.started_by_link(77, "awk", &["awk".into()], mawk).as_deref(),
+        Some(Path::new("/usr/bin/awk")),
+        "Debian starts mawk as awk through its alternatives"
+    );
+    assert_eq!(processes.started_by_link(77, "kworker", &["kworker".into()], mawk), None, "a made-up name has no link");
+    assert_eq!(
+        processes.started_by_link(77, "kworker", &["awk".into()], mawk),
+        None,
+        "a command's first word explains nothing when the name the process calls itself differs"
+    );
 }

@@ -80,6 +80,10 @@ pub struct StartedProcess {
     /// Preload variables in its environment, each as its name and value.
     #[serde(default)]
     pub preloads: Vec<(String, String)>,
+    /// The link in a system folder it was started by, which gives it its name: `/usr/bin/awk`
+    /// for `/usr/bin/mawk` on Debian, for one.
+    #[serde(default)]
+    pub link: Option<PathBuf>,
     pub ancestors: Vec<Ancestor>,
     pub at: SystemTime,
 }
@@ -100,6 +104,7 @@ impl Default for StartedProcess {
             errors: StreamKind::default(),
             session_parent: None,
             preloads: Vec::new(),
+            link: None,
             ancestors: Vec::new(),
             at: SystemTime::UNIX_EPOCH,
         }
@@ -128,6 +133,15 @@ impl StartedProcess {
     /// What its standard input, output and error lead to.
     pub fn streams(&self) -> [StreamKind; 3] {
         [self.input, self.output, self.errors]
+    }
+
+    /// Whether it is a copy of its parent that has not started a program of its own: the same
+    /// program with the same command. Looking at the process list finds these copies along with
+    /// the programs that start.
+    pub fn copy_of_parent(&self) -> bool {
+        self.parent().is_some_and(|parent| {
+            parent.program.is_some() && parent.program == self.program && parent.command == self.command.join(" ")
+        })
     }
 
     /// Its command as one line, as a person would read it.

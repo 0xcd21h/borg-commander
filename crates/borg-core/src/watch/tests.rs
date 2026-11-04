@@ -167,12 +167,35 @@ fn a_name_that_does_not_match_its_program_fires_unless_the_program_runs_scripts(
     masked.name = "kworker/2:1".into();
     assert!(rules_of(&masked, &learned()).contains(&WatchRule::NameDiffersFromProgram));
 
-    let mut script = started(71, "/bin/sh", Some(parent));
+    let mut script = started(71, "/bin/sh", Some(parent.clone()));
     script.name = "backup.sh".into();
     assert!(
         !rules_of(&script, &learned()).contains(&WatchRule::NameDiffersFromProgram),
         "a shell is named after the script it runs"
     );
+
+    let mut linked = started(72, "/usr/bin/mawk", Some(parent));
+    linked.name = "awk".into();
+    linked.link = Some("/usr/bin/awk".into());
+    assert!(
+        !rules_of(&linked, &learned()).contains(&WatchRule::NameDiffersFromProgram),
+        "a program started through a link in a system folder carries the link's name"
+    );
+}
+
+#[test]
+fn a_copy_of_its_parent_has_started_no_program_of_its_own() {
+    let mut parent = ancestor(17, "/usr/bin/bash", false);
+    parent.command = "bash /srv/backup.sh".into();
+    let mut subshell = started(73, "/usr/bin/bash", Some(parent.clone()));
+    subshell.command = vec!["bash".into(), "/srv/backup.sh".into()];
+    assert!(subshell.copy_of_parent(), "a subshell is the script's own shell, copied");
+    let mut child = subshell.clone();
+    child.command = vec!["bash".into(), "-c".into(), "id".into()];
+    assert!(!child.copy_of_parent(), "a new command is a start of its own");
+    let unreadable =
+        StartedProcess { program: None, ancestors: vec![Ancestor { program: None, ..parent }], ..subshell };
+    assert!(!unreadable.copy_of_parent(), "without a program to compare, nothing is a copy");
 }
 
 #[test]
@@ -409,10 +432,38 @@ fn a_flood_of_alerts_never_keeps_a_process_from_being_frozen() {
     for pid in 0..2 {
         assert_eq!(watcher.examine(&remote_shell(720 + pid), &guard(), now)[0].response, Response::Frozen);
     }
+    for pid in 0..2 {
+        assert_eq!(
+            watcher.examine(&remote_shell(730 + pid), &guard(), now)[0].response,
+            Response::Spared(Protection::EnoughForNow),
+            "a process Borg would have frozen past the freeze limit is still written down"
+        );
+    }
     assert!(
-        watcher.examine(&remote_shell(730), &guard(), now).is_empty(),
-        "past both limits a finding is only counted"
+        watcher.examine(&remote_shell(740), &guard(), now).is_empty(),
+        "past every limit a finding is only counted"
     );
+}
+
+#[test]
+fn a_run_of_notices_leaves_room_for_warnings_and_alerts() {
+    let now = moment(Duration::ZERO);
+    let mut watcher = Watcher::new(learned(), Limits { alerts_per_minute: 2, freezes_per_minute: 10 });
+    let alert_only = Guard { freeze: false, ..guard() };
+    let parent = ancestor(23, "/usr/bin/make", false);
+    let new_pairs: Vec<usize> = (0..5)
+        .map(|index| {
+            watcher
+                .examine(
+                    &started(800 + index, &format!("/usr/bin/tool{index}"), Some(parent.clone())),
+                    &alert_only,
+                    now,
+                )
+                .len()
+        })
+        .collect();
+    assert_eq!(new_pairs, [1, 1, 0, 0, 0], "notices have a limit of their own");
+    assert!(!watcher.examine(&remote_shell(810), &alert_only, now).is_empty(), "the notices took none of its room");
 }
 
 #[test]
