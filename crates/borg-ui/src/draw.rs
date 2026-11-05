@@ -105,18 +105,29 @@ fn draw_localized(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, 
 }
 
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
+    let under = compose_under_approval(buf, scene, theme, area);
+    let Some(approval) = &scene.state.approval else { return under };
+    draw_approval_on_top(buf, scene, approval);
+    (None, Vec::new())
+}
+
+fn compose_under_approval(
+    buf: &mut Buffer,
+    scene: &Scene<'_>,
+    theme: &Theme,
+    area: Rect,
+) -> (Option<Position>, Vec<Placement>) {
     let state = scene.state;
     if let Some(editor) = &state.editor {
         let cursor = crate::editor_view::draw_editor(editor, theme, area, buf);
-        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+        if state.question_shows() {
             return (console_overlay(buf, scene), Vec::new());
         }
         return (cursor, Vec::new());
     }
     if let Some(viewer) = &state.viewer {
         let (placements, cursor) = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
-        // An agent's approval shows over the viewer too; pictures under it would cover it.
-        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+        if state.question_shows() {
             return (console_overlay(buf, scene), Vec::new());
         }
         return (cursor, placements);
@@ -131,6 +142,14 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         return (None, Vec::new());
     }
     draw_main(buf, scene, area)
+}
+
+fn draw_approval_on_top(buf: &mut Buffer, scene: &Scene<'_>, approval: &borg_core::Approval) {
+    let theme = scene.theme_at(scene.state.appearance.current());
+    let screen = scene.state.layout(scene.now).screen;
+    fx::fade_to_background(buf, screen, BACKDROP, scene.palette);
+    let rect = crate::agent_view::draw_approval(approval, theme, screen, buf);
+    fx::shadow(buf, rect, scene.palette);
 }
 
 fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Position>, Vec<Placement>) {
@@ -353,9 +372,6 @@ fn paint_overlay(
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Storage(window) => {
             (crate::storage_view::draw(state, window, scene.clock, theme, screen, buf), None, Unfold::FromCenter)
-        }
-        Overlay::Approval(approval) => {
-            (crate::agent_view::draw_approval(approval, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::AgentLog { scroll } => {
             (crate::agent_view::draw_log(state, *scroll, theme, screen, buf), None, Unfold::FromCenter)

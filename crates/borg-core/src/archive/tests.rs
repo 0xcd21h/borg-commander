@@ -358,6 +358,55 @@ fn f4_edits_a_file_of_the_archive_and_each_save_writes_it_back() {
 }
 
 #[test]
+fn a_long_job_question_for_a_save_shows_over_the_editor_and_takes_its_keys() {
+    let (mut state, now) = opened(&[file("readme.md")]);
+    hover(&mut state, "readme.md");
+    let shown = PathBuf::from("/home/site.zip/readme.md");
+    let slot = EditorSlot::Screen;
+    crate::actions::perform(&mut state, Action::Edit, now);
+    let scratch = PathBuf::from("/run/borg/archive-view/edit-1/readme.md");
+    let text = String::from("hello");
+    let stamp = FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let packed = PackedFile { archive: ARCHIVE.into(), password: None, entry: "readme.md".into(), shown };
+    update(
+        &mut state,
+        Msg::ArchiveEditorOpened { slot, packed, result: Ok(EditorFile { path: scratch, text, stamp }) },
+        now,
+    );
+    press(&mut state, KeyCode::F(2), KeyModifiers::NONE, now);
+    let effects = update(&mut state, Msg::EditorSaved(slot, Ok(stamp)), now);
+    let Some(id) = effects.iter().find_map(|effect| match effect {
+        Effect::StartRewrite { id, .. } => Some(*id),
+        _ => None,
+    }) else {
+        panic!("a save into the archive: {effects:?}")
+    };
+    let ask = Ask::Slow {
+        path: ARCHIVE.into(),
+        file: true,
+        bytes: 1 << 33,
+        estimate: std::time::Duration::from_secs(600),
+        kind: DriveKind::HardDrive,
+    };
+    update(&mut state, Msg::Job { id, event: Event::Asking(ask) }, now);
+    assert!(state.editor.is_some(), "the editor stays open under the question");
+    assert!(state.question_shows());
+
+    let text_before = state.editor.as_ref().map(|editor| editor.buffer.text());
+    let effects = press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE, now);
+    assert_eq!(effects, vec![Effect::JobControl { id, command: JobCommand::Answer(Decision::Proceed) }]);
+    assert_eq!(state.editor.as_ref().map(|editor| editor.buffer.text()), text_before, "the answer is not typed");
+    assert!(!state.question_shows());
+
+    press(&mut state, KeyCode::Char('!'), KeyModifiers::NONE, now);
+    assert_eq!(
+        state.editor.as_ref().map(|editor| editor.buffer.text()),
+        Some("!hello".into()),
+        "the editor has the keys again"
+    );
+}
+
+#[test]
 fn a_long_job_asks_and_an_always_answer_can_be_undone_from_the_menu() {
     let (mut state, now) = opened(&[file("readme.md")]);
     hover(&mut state, "readme.md");

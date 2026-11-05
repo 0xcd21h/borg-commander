@@ -688,6 +688,10 @@ completa: um comando e o sítio onde vai ser executado, um ficheiro novo ou uma 
 de diff. Percorra as alterações longas com as setas, PgUp e PgDn ou a roda do rato, e prima F3
 para ver a caixa de diálogo em ecrã inteiro. A opção Não mantém-se selecionada até escolher Sim, e uma edição é
 recusada se o ficheiro tiver mudado enquanto decidia.
+A caixa de diálogo aparece por cima de tudo, incluindo o editor, o visualizador, outra caixa de
+diálogo e o protetor de ecrã, e recebe todas as teclas até responder. O que ela tapava volta a
+aparecer depois. Se o agente deixar de esperar antes disso, a caixa de diálogo fecha-se e um aviso
+indica-o.
 Para um computador emparelhado, `approval_mode` pede-lhe confirmação uma vez antes de ativar
 Aprovar tudo nessa sessão. Enquanto estiver ativo, fica visível um distintivo; clique nele ou prima
 Ctrl+Alt+A para o desativar de imediato. Desativa-se também quando essa ligação emparelhada fecha.
@@ -784,8 +788,10 @@ ligam a um relay, e o relay junta-os.
    apresentado um código de emparelhamento: seis emojis, cada um com o seu nome, como
    `🐱 Cat · 🦁 Lion · 🐎 Horse`.
 3. O borg do servidor pergunta se quer emparelhar, mostrando o nome do seu computador e o código.
+   A pergunta aparece de imediato, mesmo enquanto F3 mostra o comando em texto simples.
    Escolha Sim se os códigos coincidirem. Em seguida, `borg pair` propõe acrescentar o servidor ao
-   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`.
+   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`. Espera 5 minutos pela sua
+   resposta; quando desiste ou o interrompe, a pergunta fecha-se e a ligação deixa de funcionar.
 
 O código deriva do handshake cifrado que os dois borgs acabaram de concluir, pelo que só é igual
 nos dois ecrãs se for o seu computador a comunicar com o servidor. Alguém que tivesse obtido a
@@ -1047,6 +1053,9 @@ aproximadamente, e em que tipo de disco, e espera:
 - **Sempre neste tipo de disco** (`d`) corre-a e deixa de perguntar sobre trabalho em discos deste
   tipo.
 - **Cancelar** (`c`) para antes da primeira escrita.
+
+Uma gravação do editor num arquivo pergunta por cima do editor, que volta a receber as teclas assim
+que responder.
 
 Enquanto o Borg não tiver medido um disco, conta com a velocidade habitual do seu tipo: cerca de
 120 MB/s para um disco rígido, 900 MB/s para um SSD, 4 GB/s para um disco em RAM, 60 MB/s para uma
@@ -1346,7 +1355,8 @@ escolhido ao acaso: um cubo a girar num campo de estrelas, o logótipo com efeit
 relógio nas letras de blocos do logótipo que se desfaz a cada novo minuto, o logótipo a rodopiar
 até formar uma galáxia em espiral e a regressar, ou o logótipo reconstruído tábua a tábua enquanto
 as tábuas antigas formam um segundo logótipo por baixo. Qualquer tecla ou clique traz os painéis
-de volta, e essa tecla não faz mais nada.
+de volta, e essa tecla não faz mais nada. A aprovação pedida por um agente termina o protetor de
+ecrã por si, por isso nunca fica à espera por trás dele.
 
 Os temas personalizados ficam em `~/.config/borg-commander/themes/`. Um tema pode estender um dos
 temas incluídos:
