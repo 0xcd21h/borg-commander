@@ -5,7 +5,7 @@
 use borg_i18n::tr;
 use borg_rules::{Level, RuleMatch};
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::{path::PathBuf, time::SystemTime};
 
 use super::{Allowance, Finding, Response, StartedProcess, WatchRule};
 use crate::ProcessKey;
@@ -203,6 +203,10 @@ pub struct AlertLog {
     pub alerts: Vec<Alert>,
     #[serde(default)]
     next_id: u64,
+    /// Where an earlier log went that Borg could not read, kept whole beside this one while
+    /// that file is there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_aside: Option<PathBuf>,
 }
 
 impl AlertLog {
@@ -211,13 +215,28 @@ impl AlertLog {
         Self { watch, ..Self::default() }
     }
 
+    /// A new log beside one Borg could not read, which it kept at `aside`.
+    pub fn beside(aside: PathBuf) -> Self {
+        Self { kept_aside: Some(aside), ..Self::default() }
+    }
+
     /// Puts an alert among the others under an id of its own, newest first, and drops the oldest
-    /// over the limit.
+    /// over the limit. The alert keeps the process with its commands cut to
+    /// [`super::COMMAND_KEPT`] bytes.
     pub fn add(&mut self, at: SystemTime, finding: Finding, response: Response, process: StartedProcess) -> u64 {
         self.next_id = self.next_id.saturating_add(1);
         let id = self.next_id;
         let state = if response.froze() { AlertState::Frozen } else { AlertState::Running };
-        let alert = Alert { id, at, finding, response, process, evidence: Evidence::default(), state, seen: false };
+        let alert = Alert {
+            id,
+            at,
+            finding,
+            response,
+            process: process.kept(),
+            evidence: Evidence::default(),
+            state,
+            seen: false,
+        };
         let place = self.alerts.iter().position(|other| other.at <= at).unwrap_or(self.alerts.len());
         self.alerts.insert(place, alert);
         self.alerts.truncate(ALERTS_KEPT);

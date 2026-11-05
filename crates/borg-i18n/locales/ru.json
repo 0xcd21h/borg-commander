@@ -1445,6 +1445,7 @@
   "watch_allowed": "Теперь такие запуски разрешены",
   "watch_act_gone": "{name} ({pid}) уже завершился",
   "watch_act_denied": "Это может только владелец {name} ({pid}) или администратор",
+  "watch_log_kept_aside": "Borg не смог прочитать журнал оповещений, поэтому сохранил его как {path} и начал новый.",
   "watch_stream_terminal": "терминал",
   "watch_stream_pipe": "канал",
   "watch_stream_file": "файл",

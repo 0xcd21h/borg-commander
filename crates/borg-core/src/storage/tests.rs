@@ -40,7 +40,7 @@ fn runs(pid: u32) -> bool {
 #[test]
 fn the_alert_log_and_the_baseline_are_never_left_over() {
     let root = Path::new("/state");
-    let entries = [file(ALERT_LOG, STALE * 2), file(WATCH_BASELINE, STALE * 2)];
+    let entries = [file(ALERT_LOG, STALE * 2), file(ALERT_LOG_ASIDE, STALE * 2), file(WATCH_BASELINE, STALE * 2)];
     assert!(runtime_leftovers(root, &entries, &judge(false)).is_empty());
     assert!(runtime_leftovers(root, &entries, &judge(true)).is_empty());
     let lists = CacheLists { sizes: None, indexes: &HashSet::new() };

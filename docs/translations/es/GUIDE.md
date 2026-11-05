@@ -1812,6 +1812,12 @@ proceso tenía en ese momento, **Hash del programa** es el SHA-256 de su program
 muestra lo que las reglas de Borg y las tuyas encontraron en ese programa (consulta
 [Analizar archivos con reglas](#scanning-files-with-rules)).
 
+Un comando de más de 2 KiB conserva su principio y su final, 2 KiB en total, con `…` entre ambos.
+Los comandos de sus procesos padre y los valores de sus variables de precarga se cortan del mismo
+modo. Así las 200 alertas más recientes caben en el registro por largos que sean sus comandos, y un
+primer argumento largo no puede sacar de la vista el final de un comando. Ctrl-C copia el comando
+tal como lo guarda el registro.
+
 | Tecla | Acción |
 | --- | --- |
 | Enter | Mostrar el proceso en el monitor de actividad |
@@ -1830,10 +1836,17 @@ Pon `!` delante de una palabra para dejar fuera lo que encuentra: `shell-on-sock
 las shells remotas de todos los demás usuarios.
 
 Las alertas viven en `alerts.json` en la carpeta de estado, accesible solo a su propietario, las
-200 más recientes. La ventana **Archivos de Borg** las cuenta en **Estado** (consulta
-[Archivos de Borg](#borgs-files)). Abrir la página marca como leídas las alertas que muestra, y la
-cuenta de alertas sin leer sigue al registro mientras Borg esté abierto, con la página abierta o
-sin ella.
+200 más recientes. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
+fuera las alertas más antiguas cuando no caben. La ventana **Archivos de Borg** las cuenta en
+**Estado** (consulta [Archivos de Borg](#borgs-files)). Abrir la página marca como leídas las
+alertas que muestra, y la cuenta de alertas sin leer sigue al registro mientras Borg esté abierto,
+con la página abierta o sin ella.
+
+Cuando Borg encuentra un `alerts.json` que no puede leer, como uno que una versión anterior dejó
+crecer por encima de 8 MiB, le cambia el nombre a `alerts-unreadable.json` antes de escribir un
+registro nuevo, así que las alertas que contiene siguen en el disco. Uno posterior recibe un nombre
+numerado como `alerts-unreadable (2).json`. La página de alertas indica el archivo debajo de la
+lista mientras siga ahí, así que bórralo cuando lo hayas revisado.
 
 ### Qué busca el vigilante
 

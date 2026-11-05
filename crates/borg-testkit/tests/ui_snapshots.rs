@@ -28,6 +28,8 @@ const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
 const QUIET: Preferences = Preferences::DEFAULT;
 const RELEASES: usize = 40;
+/// Alerts in a new log beside one Borg kept aside.
+const KEPT_ASIDE_ALERTS: usize = 2;
 
 fn at(secs: u64) -> Option<SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs))
@@ -5195,6 +5197,25 @@ fn alerts_ask_before_killing_a_frozen_process() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Kill process")?;
     check("alerts_confirm_kill", &stage, buffer)?;
+    Ok(())
+}
+
+/// A log Borg could not read was kept aside, and the page says where below the list, the path
+/// broken over lines when the pane is narrower.
+#[test]
+fn alerts_say_where_a_log_borg_could_not_read_went() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let aside = PathBuf::from(format!("{HOME}/.local/state/borg/{}", borg_core::ALERT_LOG_ASIDE));
+    let mut log = alert_log();
+    log.alerts.truncate(KEPT_ASIDE_ALERTS);
+    log.kept_aside = Some(aside);
+    stage.send(Msg::Alerts { id, result: Ok(borg_core::AlertsReply { log, notice: None }) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "could not read the alert log")?;
+    ensure_text(&buffer, "/home/me/.local/state/borg/alerts-unread")?;
+    check("alerts_log_kept_aside", &stage, buffer)?;
     Ok(())
 }
 

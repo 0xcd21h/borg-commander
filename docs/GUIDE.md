@@ -1659,6 +1659,11 @@ that worries you. **Connections** lists the sockets the process held at that mom
 hash** is the SHA-256 of its program, and **Rules** shows what Borg's rules and yours matched in
 that program (see [Scanning files with rules](#scanning-files-with-rules)).
 
+A command longer than 2 KiB keeps its start and its end, 2 KiB together, with `…` between them. The
+commands of its parents and the values of its preload variables are cut the same way. That keeps the
+newest 200 alerts inside the log however long their commands run, and a long first argument cannot
+push the end of a command out of view. Ctrl-C copies the command as the log keeps it.
+
 | Key | Action |
 | --- | --- |
 | Enter | Show the process in the activity monitor |
@@ -1675,10 +1680,17 @@ The filter keeps the alerts that contain every word you type, in the rule, its s
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
 leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
 
-Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. The
-**Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)). Opening
-the page marks what it holds as read, and the count of unread alerts follows the log while Borg
-is open, whether or not the page is.
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. Borg keeps
+the file within 8 MiB, the most it reads back, and leaves out the oldest alerts when they would not
+fit. The **Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)).
+Opening the page marks what it holds as read, and the count of unread alerts follows the log while
+Borg is open, whether or not the page is.
+
+When Borg finds an `alerts.json` it cannot read, such as one an older version let grow past 8 MiB,
+it renames the file to `alerts-unreadable.json` before it writes a new log, so the alerts in it
+stay on disk. A later one gets a numbered name such as `alerts-unreadable (2).json`. The Alerts page
+names the file below the list for as long as it is there, so delete it once you have looked
+through it.
 
 ### What the watcher looks for
 

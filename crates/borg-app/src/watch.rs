@@ -153,13 +153,16 @@ impl Drop for Alerts {
 /// What the page asked for, done: the log as it stands now, and what to tell the user.
 async fn answer(state: &Path, request: &AlertsRequest) -> Result<AlertsReply> {
     let processes = Processes::default();
-    let mut log = log::read_log(state);
+    let mut log = match request {
+        AlertsRequest::Read => log::read_log(state),
+        _ => log::load_log(state)?.0,
+    };
     let notice = match request {
         AlertsRequest::Read => None,
         AlertsRequest::Open => {
             if log.unread() > 0 {
                 log.mark_seen();
-                log::write_log(state, &log)?;
+                log::write_log(state, &mut log)?;
             }
             None
         }
@@ -508,7 +511,7 @@ impl Watch {
         let sources = Sources { kernel, kernel_source, root, link, own, heard_root: false };
         let mut watcher = Watcher::new(baseline, settings.limits);
         watcher.baseline.allowed = allowances(&settings, &state);
-        let mut log = log::read_log(&state);
+        let mut log = loaded(&state)?;
         log.watch = WatchStatus {
             source: sources.label(),
             since: watcher.baseline.since,
@@ -517,7 +520,7 @@ impl Watch {
             seen: 0,
             suppressed: 0,
         };
-        log::write_log(&state, &log)?;
+        log::write_log(&state, &mut log)?;
         let (jobs, found) = examiner(crate::rule_scan::compile(crate::rule_scan::folder().as_deref()));
         let first_person = facts::first_person();
         let host = settings.notify.name.clone().unwrap_or_else(host_name);
@@ -729,10 +732,20 @@ impl Watch {
 /// the alerts it marked read and the processes it resumed, killed or allowed. The watcher's
 /// status replaces whatever the page last saw of it.
 fn change_log(state: &Path, watch: &WatchStatus, change: impl FnOnce(&mut AlertLog)) -> Result<AlertLog> {
-    let mut log = log::read_log(state);
+    let mut log = loaded(state)?;
     log.watch = watch.clone();
     change(&mut log);
-    log::write_log(state, &log)?;
+    log::write_log(state, &mut log)?;
+    Ok(log)
+}
+
+/// The log to change, as [`log::load_log`] gives it, saying in the watcher's output where a log
+/// Borg could not read went.
+fn loaded(state: &Path) -> Result<AlertLog> {
+    let (log, aside) = log::load_log(state)?;
+    if let Some(aside) = aside {
+        eprintln!("borg watch: {}", tr!(watch_log_kept_aside, path = aside.display()));
+    }
     Ok(log)
 }
 

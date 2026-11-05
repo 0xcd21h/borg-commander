@@ -569,6 +569,37 @@ fn the_log_keeps_the_newest_alerts_under_their_own_ids() {
     assert!(read.alerts[0].frozen() && read.alerts[0].resumable());
 }
 
+/// A build's Java daemon runs with every library on its command line, and a script it starts
+/// carries that line in each alert as the command of its parent.
+#[test]
+fn the_log_keeps_the_start_and_the_end_of_every_long_command() {
+    let classpath = "/opt/lib/x.jar:".repeat(COMMAND_KEPT);
+    let words = ["java", "-cp", classpath.as_str(), "org.gradle.launcher.Daemon", "--then-this"];
+    let wide = "ж".repeat(COMMAND_KEPT);
+    let mut process = started(800, "/tmp/ci/build.sh", Some(ancestor(10, "/usr/bin/java", false)));
+    process.command = words.iter().map(|word| (*word).to_owned()).collect();
+    process.ancestors[0].command = words.join(" ");
+    process.ancestors.push(Ancestor { command: wide.clone(), ..ancestor(1, "/usr/bin/env", false) });
+    process.session_parent = Some(Ancestor { command: format!("sshd {wide}"), ..ancestor(2, "/usr/sbin/sshd", true) });
+    process.preloads = vec![("LD_PRELOAD".into(), format!("{classpath}/tmp/x.so"))];
+    let mut log = log_with(0);
+    log.add(moment(Duration::ZERO), Finding::ShellOnSocket { shell: "sh".into() }, Response::Alerted, process.clone());
+    let kept = &log.alerts[0].process;
+    let line = kept.command_line();
+    assert!(line.len() <= COMMAND_KEPT && line.contains(COMMAND_CUT), "{} bytes", line.len());
+    assert!(line.starts_with("java -cp /opt/lib/x.jar:") && line.ends_with("org.gradle.launcher.Daemon --then-this"));
+    let parents = kept.ancestors.iter().chain(kept.session_parent.as_ref());
+    for command in parents.map(|ancestor| ancestor.command.as_str()).chain([kept.preloads[0].1.as_str()]) {
+        assert!(command.len() <= COMMAND_KEPT && command.contains(COMMAND_CUT), "{command}");
+    }
+    assert!(kept.ancestors[1].command.starts_with('ж') && kept.ancestors[1].command.ends_with('ж'));
+    assert!(kept.preloads[0].1.ends_with("/tmp/x.so"));
+    assert_eq!((kept.name.as_str(), kept.program.as_ref()), (process.name.as_str(), process.program.as_ref()));
+    let short = started(801, "/bin/ls", None);
+    log.add(moment(Duration::ZERO), Finding::ShellOnSocket { shell: "sh".into() }, Response::Alerted, short.clone());
+    assert_eq!(log.alerts[0].process, short, "a short command stays word for word");
+}
+
 #[test]
 fn the_filter_keeps_the_alerts_that_hold_every_word_and_drops_what_follows_a_bang() {
     let log = log_with(4);

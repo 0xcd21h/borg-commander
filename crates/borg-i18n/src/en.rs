@@ -1458,6 +1458,7 @@ catalog! {
     watch_allowed => "Starts like this one are allowed from now on",
     watch_act_gone => "{name} ({pid}) is gone already",
     watch_act_denied => "Only {name}'s owner or an administrator may do that ({pid})",
+    watch_log_kept_aside => "Borg could not read the alert log, so it kept it as {path} and started a new one.",
     watch_stream_terminal => "terminal",
     watch_stream_pipe => "pipe",
     watch_stream_file => "file",

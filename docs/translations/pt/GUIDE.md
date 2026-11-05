@@ -1800,6 +1800,12 @@ tinha naquele momento, **Hash do programa** é o SHA-256 do seu programa e **Reg
 as regras do Borg e as suas encontraram nesse programa (veja
 [Analisar ficheiros com regras](#scanning-files-with-rules)).
 
+Um comando com mais de 2 KiB guarda o início e o fim, 2 KiB ao todo, com `…` entre eles. Os comandos
+dos processos-pai e os valores das variáveis de pré-carregamento são cortados da mesma forma. Assim os
+200 alertas mais recentes cabem no registo, por mais longos que sejam os comandos, e um primeiro
+argumento comprido não consegue tirar de vista o fim de um comando. Ctrl-C copia o comando tal como o
+registo o guarda.
+
 | Tecla | Ação |
 | --- | --- |
 | Enter | Mostrar o processo no monitor de atividade |
@@ -1818,9 +1824,17 @@ antes de uma palavra para deixar de fora o que ela apanha: `shell-on-socket !roo
 shells remotas de todos os outros utilizadores.
 
 Os alertas vivem em `alerts.json` na pasta de estado, acessível só ao dono, os 200 mais recentes.
-A janela **Ficheiros do Borg** conta-os em **Estado** (veja [Ficheiros do Borg](#borgs-files)).
-Abrir a página marca como lidos os alertas que ela mostra, e a contagem de alertas não lidos
-acompanha o registo enquanto o Borg estiver aberto, esteja a página aberta ou não.
+O Borg mantém o ficheiro dentro de 8 MiB, o máximo que lê de volta, e deixa de fora os alertas mais
+antigos quando não cabem. A janela **Ficheiros do Borg** conta-os em **Estado** (veja
+[Ficheiros do Borg](#borgs-files)). Abrir a página marca como lidos os alertas que ela mostra, e a
+contagem de alertas não lidos acompanha o registo enquanto o Borg estiver aberto, esteja a página
+aberta ou não.
+
+Quando o Borg encontra um `alerts.json` que não consegue ler, como um que uma versão anterior deixou
+passar dos 8 MiB, muda o nome do ficheiro para `alerts-unreadable.json` antes de escrever um registo
+novo, para que os alertas nele fiquem no disco. Um seguinte recebe um nome numerado como
+`alerts-unreadable (2).json`. A página de alertas indica o ficheiro por baixo da lista enquanto ele
+lá estiver, por isso apague-o depois de o rever.
 
 ### O que o observador procura
 

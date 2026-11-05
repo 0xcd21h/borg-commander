@@ -1445,6 +1445,7 @@
   "watch_allowed": "Desde ahora se permiten arranques como este",
   "watch_act_gone": "{name} ({pid}) ya terminó",
   "watch_act_denied": "Solo el propietario de {name} ({pid}) o un administrador puede hacerlo",
+  "watch_log_kept_aside": "Borg no pudo leer el registro de alertas, así que lo guardó como {path} y empezó uno nuevo.",
   "watch_stream_terminal": "terminal",
   "watch_stream_pipe": "tubería",
   "watch_stream_file": "archivo",
