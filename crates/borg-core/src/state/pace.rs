@@ -30,6 +30,7 @@ impl AppState {
             && self.intro.is_none()
             && self.jobs.is_empty()
             && self.overlay.is_none()
+            && self.approval.is_none()
             && self.viewer.is_none()
             && !self.monitor_open()
             && self.sizing.is_none()

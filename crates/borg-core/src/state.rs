@@ -129,6 +129,7 @@ pub struct AppState {
     pub notice: Option<String>,
     pub appearance: Appearance,
     pub overlay: Option<Overlay>,
+    pub approval: Option<crate::Approval>,
     pub operation: Option<Operation>,
     /// The program the shell is installing, whose end gives a notice.
     pub(crate) installing: Option<crate::Tool>,
@@ -236,6 +237,7 @@ impl AppState {
             notice: None,
             appearance,
             overlay: None,
+            approval: None,
             operation: None,
             installing: None,
             sizing: None,
@@ -304,6 +306,10 @@ impl AppState {
             || self.network.is_open()
             || self.startup_items.is_open()
             || self.alerts.is_open()
+    }
+
+    pub fn question_shows(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Question(_)))
     }
 
     pub fn effective_view(&self) -> View {

@@ -1041,6 +1041,46 @@ fn an_archive_reads_opens_asks_for_its_password_and_warns_before_unpacking() -> 
     check("archive_password", &stage, buffer)
 }
 
+#[test]
+fn a_long_job_question_for_a_save_shows_over_the_full_screen_editor() -> Result<()> {
+    use borg_core::{EditorFile, EditorSlot, FileStamp, PackedFile};
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveOpened { side, generation, format: borg_archive::Format::Zip, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    stage.send(key(KeyCode::End)).send(key(KeyCode::F(4)));
+    let slot = EditorSlot::Screen;
+    let scratch = PathBuf::from("/run/borg/archive-view/edit-1/readme.md");
+    let text = "# Site\n\nRead me first.\n";
+    let stamp = FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let shown = PathBuf::from(ARCHIVE).join("readme.md");
+    let packed = PackedFile { archive: PathBuf::from(ARCHIVE), password: None, entry: "readme.md".into(), shown };
+    let file = EditorFile { path: scratch, text: text.into(), stamp };
+    stage.send(Msg::ArchiveEditorOpened { slot, packed, result: Ok(file) });
+    stage.send(key(KeyCode::F(2)));
+    let effects = borg_core::update(&mut stage.state, Msg::EditorSaved(slot, Ok(stamp)), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::StartRewrite { id, .. } => Some(*id),
+            _ => None,
+        })
+        .context("a save in an archive must start a job")?;
+    let slow = borg_jobs::Ask::Slow {
+        path: PathBuf::from(ARCHIVE),
+        file: true,
+        bytes: 42_000_000,
+        estimate: Duration::from_secs(3 * 60),
+        kind: borg_drives::DriveKind::Network,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(slow) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Read me first.")?;
+    ensure_text(&buffer, "Always for this file")?;
+    check("archive_save_slow_over_editor", &stage, buffer)
+}
+
 /// The password prompt after typing `password`, drawn once its flare has passed.
 fn typed_password(password: &str) -> Result<(Stage, Buffer)> {
     let mut stage = archive_stage()?;
@@ -1051,6 +1091,33 @@ fn typed_password(password: &str) -> Result<(Stage, Buffer)> {
     }
     let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
     Ok((stage, buffer))
+}
+
+#[test]
+fn leaving_a_folder_of_an_archive_that_went_away_returns_beside_it() -> Result<()> {
+    const GONE: &str = "No such file or directory (os error 2)";
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveOpened { side, generation, format: borg_archive::Format::Zip, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    stage.send(key(KeyCode::Home)).send(key(KeyCode::Down));
+    list_after(&mut stage, key(KeyCode::Enter), vec![entry("guide.md", EntryKind::File, 2_100, RECENT, false)])?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Left), stage.started);
+    let (side, generation) = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::List { side, generation, .. } => Some((side, generation)),
+            _ => None,
+        })
+        .context("leaving the folder must list the archive's top")?;
+    let left = vec![entry("docs", EntryKind::Dir, 4096, OLD, false)];
+    list_after(&mut stage, Msg::Listed { side, generation, error: Some(GONE.into()) }, left)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, GONE)?;
+    anyhow::ensure!(!describe(&buffer).contains("▤ zip"), "the panel must leave the archive");
+    check("archive_gone", &stage, buffer)
 }
 
 fn running_copy(stage: &mut Stage) -> Result<u64> {
@@ -4115,6 +4182,31 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
     check("pairing_code", &stage, buffer)
+}
+
+#[test]
+fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
+    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;
+    stage.state.agent.connect = borg_core::ConnectInfo {
+        name: "borg-web1".into(),
+        program: "/home/deploy/.local/bin/borg".into(),
+        ssh: Some("deploy@203.0.113.9".into()),
+        relay: "wss://relay.example.com".into(),
+    };
+    stage.send(key(KeyCode::F(1))).send(key(KeyCode::Char('c')));
+    let link = format!("borg://relay.example.com/{}#{}", "ab".repeat(32), "cd".repeat(16));
+    stage.send(Msg::Agent(AgentEvent::Pairing(Ok(link))));
+    let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
+    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
+    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
+    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
+    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Pair this computer with borg?")?;
+    ensure_text(&buffer, "Tab picks · Enter copies")?;
+    check("pairing_over_remote_access", &stage, buffer)
 }
 
 #[test]

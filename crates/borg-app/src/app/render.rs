@@ -21,6 +21,9 @@ use std::{io::Write as _, path::Path, time::Instant};
 
 impl App {
     pub(super) fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
+        if self.state.approval.is_some() {
+            self.plain = self.plain.take().and_then(Plain::interrupted);
+        }
         match self.plain.take() {
             Some(Plain::Waiting(text)) => {
                 show_plain(terminal.backend_mut(), &text)?;
@@ -195,6 +198,15 @@ pub(super) enum Plain {
     Waiting(String),
     Shown,
     Ending,
+}
+
+impl Plain {
+    fn interrupted(self) -> Option<Self> {
+        match self {
+            Self::Waiting(_) => None,
+            Self::Shown | Self::Ending => Some(Self::Ending),
+        }
+    }
 }
 
 /// Leaves borg's screen and lets the mouse select again, then prints `text` as one line, which

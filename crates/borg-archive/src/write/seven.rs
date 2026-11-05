@@ -243,8 +243,12 @@ fn add(writer: &mut ArchiveWriter<File>, plan: &Plan, meter: &Meter<'_, '_>) -> 
     for added in &plan.added {
         let entry = entry(added);
         let reader: Option<Reader<'_>> = match &added.adding {
-            Adding::File { size: 0, .. } | Adding::Folder => None,
-            Adding::File { source, .. } => Some(Box::new(Counted { inner: File::open(source)?, meter })),
+            Adding::Folder => None,
+            Adding::File { source, .. } => {
+                let file = File::open(source)?;
+                let empty = file.metadata()?.len() == 0;
+                (!empty).then(|| Box::new(Counted { inner: file, meter }) as Reader<'_>)
+            }
             Adding::Symlink(target) => Some(Box::new(io::Cursor::new(target.clone().into_bytes()))),
         };
         match reader {

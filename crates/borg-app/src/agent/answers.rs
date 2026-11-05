@@ -147,7 +147,7 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         "the panels"
     };
     let mut text = format!("Borg on {}. The user is looking at {looking}.\n", hostname());
-    if matches!(state.overlay, Some(borg_core::Overlay::Approval(_))) {
+    if state.approval.is_some() {
         text.push_str("A dialog asks the user to approve a request.\n");
     }
     let _ = writeln!(text, "Active panel: {}", side_name(state.active));
