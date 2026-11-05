@@ -10,6 +10,16 @@ use std::{
 
 use crate::ProcessKey;
 
+/// Bytes the alert log keeps of a command, of the process and of each one it descends from.
+/// A longer command keeps its start and its end with [`COMMAND_CUT`] between them, so a long first
+/// argument cannot push what the command ends with out of sight, and [`crate::ALERTS_KEPT`]
+/// alerts fit the log however long their commands are.
+pub const COMMAND_KEPT: usize = 2 * 1024;
+/// What stands where Borg cut a command it kept.
+pub const COMMAND_CUT: &str = "…";
+/// What separates the words of a command written as one line.
+const WORD_SEPARATOR: &str = " ";
+
 /// What a process's standard input or output leads to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StreamKind {
@@ -140,14 +150,44 @@ impl StartedProcess {
     /// the programs that start.
     pub fn copy_of_parent(&self) -> bool {
         self.parent().is_some_and(|parent| {
-            parent.program.is_some() && parent.program == self.program && parent.command == self.command.join(" ")
+            parent.program.is_some()
+                && parent.program == self.program
+                && parent.command == self.command.join(WORD_SEPARATOR)
         })
     }
 
     /// Its command as one line, as a person would read it.
     pub fn command_line(&self) -> String {
-        if self.command.is_empty() { self.program_name().to_owned() } else { self.command.join(" ") }
+        if self.command.is_empty() { self.program_name().to_owned() } else { self.command.join(WORD_SEPARATOR) }
     }
+
+    /// The process as the alert log keeps it: its command, the commands of the processes it
+    /// descends from and its preload values each cut to [`COMMAND_KEPT`] bytes.
+    pub fn kept(mut self) -> Self {
+        let line = self.command.join(WORD_SEPARATOR);
+        if line.len() > COMMAND_KEPT {
+            self.command = vec![kept(&line)];
+        }
+        for ancestor in self.ancestors.iter_mut().chain(self.session_parent.as_mut()) {
+            ancestor.command = kept(&ancestor.command);
+        }
+        for (_, value) in &mut self.preloads {
+            *value = kept(value);
+        }
+        self
+    }
+}
+
+/// The text whole when it fits [`COMMAND_KEPT`] bytes, or else its start and its end around
+/// [`COMMAND_CUT`], together no longer than that.
+fn kept(text: &str) -> String {
+    if text.len() <= COMMAND_KEPT {
+        return text.to_owned();
+    }
+    let side = (COMMAND_KEPT - COMMAND_CUT.len()) / 2;
+    let start = text.floor_char_boundary(side);
+    let end = text.ceil_char_boundary(text.len() - side);
+    format!("{}{COMMAND_CUT}{}", &text[..start], &text[end..])
 }
 
 fn program_name(program: Option<&Path>) -> Option<&str> {

@@ -1444,6 +1444,7 @@
   "watch_allowed": "从现在起允许这样的启动",
   "watch_act_gone": "{name}（{pid}）已经结束",
   "watch_act_denied": "只有 {name}（{pid}）的所有者或管理员才能执行此操作",
+  "watch_log_kept_aside": "Borg 无法读取警报记录，已将其保留为 {path}，并开始了新的记录。",
   "watch_stream_terminal": "终端",
   "watch_stream_pipe": "管道",
   "watch_stream_file": "文件",

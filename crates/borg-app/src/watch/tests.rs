@@ -22,7 +22,7 @@ fn alert_log(alerts: usize) -> AlertLog {
 async fn opening_the_page_reads_the_log_and_marks_it_read_while_reading_again_does_not() {
     let folder = tempfile::tempdir().unwrap();
     let state = folder.path();
-    log::write_log(state, &alert_log(3)).unwrap();
+    log::write_log(state, &mut alert_log(3)).unwrap();
 
     let read = answer(state, &AlertsRequest::Read).await.unwrap();
     assert_eq!(read.log.alerts.len(), 3);
@@ -38,7 +38,7 @@ async fn opening_the_page_reads_the_log_and_marks_it_read_while_reading_again_do
 async fn allowing_an_alert_writes_an_allowance_the_watcher_takes_in() {
     let folder = tempfile::tempdir().unwrap();
     let state = folder.path();
-    log::write_log(state, &alert_log(1)).unwrap();
+    log::write_log(state, &mut alert_log(1)).unwrap();
     let alert = log::read_log(state).alerts[0].clone();
     let request = AlertsRequest::Allow { alert: alert.id, allowance: alert.allowance() };
 
@@ -60,7 +60,7 @@ async fn allowing_an_alert_writes_an_allowance_the_watcher_takes_in() {
 async fn acting_on_a_process_that_has_gone_says_so_and_writes_it_down() {
     let folder = tempfile::tempdir().unwrap();
     let state = folder.path();
-    log::write_log(state, &alert_log(1)).unwrap();
+    log::write_log(state, &mut alert_log(1)).unwrap();
     let alert = log::read_log(state).alerts[0].clone();
     let request = AlertsRequest::Resume { alert: alert.id, process: alert.process.key };
     let reply = answer(state, &request).await.unwrap();
@@ -72,7 +72,7 @@ async fn acting_on_a_process_that_has_gone_says_so_and_writes_it_down() {
 async fn what_the_page_writes_survives_the_watchers_next_alert() {
     let folder = tempfile::tempdir().unwrap();
     let state = folder.path();
-    log::write_log(state, &alert_log(1)).unwrap();
+    log::write_log(state, &mut alert_log(1)).unwrap();
     let watching = log::read_log(state).watch;
     answer(state, &AlertsRequest::Open).await.unwrap();
 
@@ -84,6 +84,37 @@ async fn what_the_page_writes_survives_the_watchers_next_alert() {
     assert_eq!(log.alerts.len(), 2);
     assert_eq!(log.unread(), 1, "only the new alert is unread");
     assert_eq!(log::read_log(state), log, "and that is what the state folder holds");
+}
+
+/// A log Borg cannot read shows as an empty page. Opening the page keeps it aside under a name
+/// of its own, and the new log says where while that file is there, whoever wrote it next.
+#[tokio::test]
+async fn a_log_borg_cannot_read_is_kept_aside_and_the_new_log_says_where() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    let damaged = b"{\"alerts\":[{\"id\":1,".to_vec();
+    std::fs::write(log::log_path(state), &damaged).unwrap();
+
+    let read = answer(state, &AlertsRequest::Read).await.unwrap();
+    assert_eq!((read.log, read.notice), (AlertLog::default(), None));
+    assert_eq!(std::fs::read(log::log_path(state)).unwrap(), damaged, "reading again moves nothing");
+
+    let opened = answer(state, &AlertsRequest::Open).await.unwrap();
+    let aside = state.join(borg_core::ALERT_LOG_ASIDE);
+    assert_eq!(opened.log.kept_aside.as_ref(), Some(&aside));
+    assert_eq!(std::fs::read(&aside).unwrap(), damaged);
+
+    let next = alert_log(1).alerts[0].clone();
+    let log = change_log(state, &opened.log.watch, |log| {
+        log.add(SystemTime::UNIX_EPOCH, next.finding, next.response, next.process);
+    })
+    .unwrap();
+    assert_eq!(log.kept_aside.as_ref(), Some(&aside), "the watcher's next alert keeps saying where");
+    assert_eq!(log::read_log(state), log, "the new log holds the new alert");
+    assert_eq!(std::fs::read(&aside).unwrap(), damaged, "and the old one is still there as it was");
+
+    std::fs::remove_file(&aside).unwrap();
+    assert_eq!(log::read_log(state).kept_aside, None, "once the user removes that file the page stops saying so");
 }
 
 #[test]

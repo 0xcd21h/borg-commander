@@ -1444,6 +1444,7 @@
   "watch_allowed": "A partir de agora, arranques como este são permitidos",
   "watch_act_gone": "{name} ({pid}) já terminou",
   "watch_act_denied": "Só o dono de {name} ({pid}) ou um administrador o pode fazer",
+  "watch_log_kept_aside": "O Borg não conseguiu ler o registo de alertas, por isso guardou-o como {path} e começou um novo.",
   "watch_stream_terminal": "terminal",
   "watch_stream_pipe": "pipe",
   "watch_stream_file": "ficheiro",

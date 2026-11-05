@@ -20,7 +20,7 @@ use ratatui::{
     widgets::{Block, Clear, Widget},
 };
 use std::time::Instant;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 mod controls;
 
@@ -32,6 +32,8 @@ const HEADER_ROW: u16 = 2;
 /// What a value Borg could not find out shows as.
 const UNKNOWN: &str = "—";
 const SEPARATOR: &str = " · ";
+/// Blank rows between the list and the note about a log Borg kept aside.
+const KEPT_ASIDE_GAP: usize = 1;
 /// Panes at least this wide show who the process ran as.
 const USER_FROM: u16 = 100;
 /// Panes at least this wide show the parent that started it.
@@ -189,6 +191,7 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
         }
     }
     let body = body(rect);
+    let mut taken = 0;
     if let Some(error) = &alerts.error {
         for (offset, line) in wrap(error, usize::from(body.width)).into_iter().enumerate() {
             text(buf, row(body, offset as u16), line, styles.notice);
@@ -198,7 +201,9 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
             spinner.draw_centered(tr!(watch_loading), look, dim(theme), body, buf);
         }
     } else if alerts.is_empty() {
-        for (offset, line) in wrap(&nothing_here(state), usize::from(body.width)).into_iter().enumerate() {
+        let lines = wrap(&nothing_here(state), usize::from(body.width));
+        taken = lines.len();
+        for (offset, line) in lines.into_iter().enumerate() {
             text(buf, row(body, offset as u16), line, dim(theme));
         }
     }
@@ -215,6 +220,20 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
             Line::from(Span::styled(format::truncate_end(&value, usize::from(cell.width)), style)).render(cell, buf);
         }
     }
+    taken = taken.max(end - start);
+    if alerts.loaded
+        && alerts.error.is_none()
+        && let Some(aside) = &alerts.log.kept_aside
+    {
+        let note = tr!(watch_log_kept_aside, path = aside.display());
+        let lines = broken(&note, usize::from(body.width));
+        let first = taken + KEPT_ASIDE_GAP;
+        if first + lines.len() <= usize::from(body.height) {
+            for (offset, line) in lines.into_iter().enumerate() {
+                text(buf, row(body, (first + offset) as u16), line, dim(theme));
+            }
+        }
+    }
     let footer = Rect {
         y: inner.bottom().saturating_sub(FOOTER_ROWS.min(inner.height)),
         height: FOOTER_ROWS.min(inner.height),
@@ -223,6 +242,27 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
     if let Some(note) = footer_note(state, clock) {
         text(buf, row(footer, 0), note, dim(theme));
     }
+}
+
+/// The text in lines no wider than `width`, a word too long for a line of its own, such as a
+/// path, broken where the line runs out.
+fn broken(value: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in wrap(value, width) {
+        if line.width() <= width {
+            lines.push(line);
+            continue;
+        }
+        let mut piece = String::new();
+        for character in line.chars() {
+            if !piece.is_empty() && piece.width() + character.width().unwrap_or_default() > width {
+                lines.push(std::mem::take(&mut piece));
+            }
+            piece.push(character);
+        }
+        lines.push(piece);
+    }
+    lines
 }
 
 /// How many alerts there are, how many nobody has read, and what was left out.

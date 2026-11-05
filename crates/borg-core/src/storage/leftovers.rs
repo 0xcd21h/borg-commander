@@ -49,6 +49,9 @@ pub const INDEX_SUFFIX: &str = ".idx";
 /// The process watcher's alerts, in the state folder. The watcher writes it and every Borg on
 /// the machine reads it; nothing cleans it up, since it is the user's record of what happened.
 pub const ALERT_LOG: &str = "alerts.json";
+/// An alert log Borg could not read, renamed so the watcher can start a new one, and kept for
+/// the same reason.
+pub const ALERT_LOG_ASIDE: &str = "alerts-unreadable.json";
 /// What the process watcher has learned about this machine, in the state folder, and kept for
 /// the same reason.
 pub const WATCH_BASELINE: &str = "watch-baseline.json";

@@ -4600,3 +4600,32 @@ fn the_start_window_names_the_sessions_the_background_service_keeps_running() ->
     ensure!(window.wait_exit()?.success(), "Esc quits without opening a session");
     Ok(())
 }
+
+/// An alert log Borg cannot read, such as one an older Borg let grow past what it reads back,
+/// is kept whole under a name of its own when the Alerts page opens. The page says where, and
+/// opening it again leaves both files as they are.
+#[test]
+fn the_alerts_page_keeps_a_log_borg_cannot_read_and_says_where() -> Result<()> {
+    const DAMAGED: &str = "{\"alerts\":[{\"id\":1,";
+    const WIDE: (u16, u16) = (120, 40);
+    let fixture = fixture()?;
+    let state = fixture.state();
+    fs::create_dir_all(&state)?;
+    fs::write(state.join(borg_core::ALERT_LOG), DAMAGED)?;
+    let mut app = Session::builder(BORG, &fixture).size(WIDE.0, WIDE.1).label("alerts-kept-aside").spawn()?;
+    app.wait_text(READY)?;
+    let open = keys::alt(KeyCode::Char('l'));
+    app.send(&open)?.wait_text("could not read the alert log")?;
+    let aside = state.join(borg_core::ALERT_LOG_ASIDE);
+    ensure!(holds(&aside, DAMAGED), "the log Borg could not read is kept whole");
+    let log = fs::read_to_string(state.join(borg_core::ALERT_LOG))?;
+    ensure!(log.contains(borg_core::ALERT_LOG_ASIDE), "the new log says where the old one went: {log}");
+
+    app.send(keys::esc())?.wait_until("the page closed", |s| !s.text().contains("could not read"))?;
+    app.send(&open)?.wait_text("could not read the alert log")?;
+    ensure!(holds(&aside, DAMAGED), "opening the page again leaves the kept log alone");
+    ensure!(fs::read_to_string(state.join(borg_core::ALERT_LOG))? == log, "and the new log too");
+    app.send(keys::esc())?.send(keys::f(10))?.send("y")?;
+    ensure!(app.wait_exit()?.success());
+    Ok(())
+}
