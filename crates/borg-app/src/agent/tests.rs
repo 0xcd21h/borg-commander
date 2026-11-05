@@ -226,3 +226,18 @@ fn screen_calls_an_archive_read_only_only_when_borg_cannot_change_it() {
     );
     assert_eq!(place("big.7z", None, ""), "inside the archive /srv/big.7z, at /", "unknown until it opens");
 }
+
+#[tokio::test]
+async fn an_ask_is_withdrawn_once_its_asker_stops_waiting() {
+    let mut waiting = Waiting::default();
+    let (pairing, given_up) = oneshot::channel();
+    let (reading, still_waiting) = oneshot::channel();
+    waiting.0.insert(1, (pairing, Work::Pair { name: "me@laptop".into() }));
+    waiting.0.insert(2, (reading, Work::Pair { name: "you@desk".into() }));
+    drop(given_up);
+    assert_eq!(waiting.withdrawn().await, 1);
+    assert!(!waiting.0.contains_key(&1), "the withdrawn ask is forgotten");
+    let pending = tokio::time::timeout(std::time::Duration::from_millis(50), waiting.withdrawn()).await;
+    assert!(pending.is_err(), "an ask whose asker still waits stays");
+    drop(still_waiting);
+}

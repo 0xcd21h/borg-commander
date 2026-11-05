@@ -162,7 +162,10 @@ impl Served {
         let code = channel.pairing_code();
         let ask = Call::new(PAIR_CALL, json!({ "name": name, "code": code.rows(true), "names": code.rows(false) }));
         self.calls.send((ask, reply)).context("borg closed")?;
-        let approved = matches!(tokio::time::timeout(APPROVAL_WAIT, answer).await, Ok(Ok(reply)) if reply.ok);
+        let approved = tokio::select! {
+            answered = tokio::time::timeout(APPROVAL_WAIT, answer) => matches!(answered, Ok(Ok(reply)) if reply.ok),
+            _ = channel.recv() => false,
+        };
         // The pairing lasts until the computer has its answer: with it gone and no computer
         // paired, borg would leave the relay and end this session first.
         if !approved {

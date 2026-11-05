@@ -173,8 +173,6 @@ pub enum Overlay {
     Menu(MenuCursor),
     Prompt(Prompt),
     Confirm(Confirm),
-    /// An agent's command, new file or edit, waiting for the user's approval.
-    Approval(crate::agent::Approval),
     /// The log of what agents did; `scroll` is `None` while it follows the newest entries.
     AgentLog {
         scroll: Option<usize>,

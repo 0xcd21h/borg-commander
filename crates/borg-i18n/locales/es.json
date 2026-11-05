@@ -972,6 +972,7 @@
   "agent_plain_intro": "Selecciona el comando de abajo y pégalo en un terminal de tu computadora:",
   "agent_plain_return": "Pulsa cualquier tecla para volver a borg.",
   "agent_connect_copied": "Copiado; pégalo en un terminal de tu computadora",
+  "agent_withdrawn": "El agente remoto dejó de esperar tu respuesta: {summary}",
   "remote_menu_title": "Remoto",
   "remote_colony_title": " Colonia remota ",
   "remote_colony_keys": " Enter archivos  M espejo  F2: nombre  S-F2 sesión  F8 quitar  Tab clientes  R actualizar  Esc cerrar ",

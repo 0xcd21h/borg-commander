@@ -130,8 +130,25 @@ pub struct Agent {
     messages: UnboundedSender<Msg>,
     /// Agents connected now: through the socket here, and from paired computers.
     clients: Arc<AtomicUsize>,
-    waiting: HashMap<u64, (oneshot::Sender<Reply>, Work)>,
+    pub waiting: Waiting,
     next_id: u64,
+}
+
+#[derive(Default)]
+pub struct Waiting(HashMap<u64, (oneshot::Sender<Reply>, Work)>);
+
+impl Waiting {
+    pub async fn withdrawn(&mut self) -> u64 {
+        let asks = &mut self.0;
+        let id = std::future::poll_fn(|context| {
+            asks.iter_mut()
+                .find_map(|(id, (reply, _))| reply.poll_closed(context).is_ready().then_some(*id))
+                .map_or(std::task::Poll::Pending, std::task::Poll::Ready)
+        })
+        .await;
+        asks.remove(&id);
+        id
+    }
 }
 
 /// What an agent asked to do, waiting for the user's approval.
@@ -243,7 +260,7 @@ impl Agent {
             tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service_child));
             Some(socket)
         });
-        Self { incoming, requeue: calls, socket, messages, clients, waiting: HashMap::new(), next_id: 0 }
+        Self { incoming, requeue: calls, socket, messages, clients, waiting: Waiting::default(), next_id: 0 }
     }
 
     /// Adds an entry to the log of what agents did.
@@ -264,14 +281,14 @@ impl Agent {
     /// Notes an ask waiting for the user's answer.
     pub fn ask(&mut self, reply: oneshot::Sender<Reply>, work: Work) -> u64 {
         self.next_id += 1;
-        self.waiting.insert(self.next_id, (reply, work));
+        self.waiting.0.insert(self.next_id, (reply, work));
         self.next_id
     }
 
     /// Takes an answered ask: an approved one is returned to carry out, a declined one is
     /// answered here.
     pub fn answer(&mut self, id: u64, approved: bool) -> Option<Approved> {
-        let (reply, work) = self.waiting.remove(&id)?;
+        let (reply, work) = self.waiting.0.remove(&id)?;
         if approved {
             return Some(Approved { id, reply, work });
         }

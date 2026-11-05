@@ -318,6 +318,38 @@ fn an_archive_opens_as_a_folder_views_deletes_and_copies_files_out() -> Result<(
 }
 
 #[test]
+fn a_long_job_question_for_a_save_in_an_archive_shows_over_the_editor() -> Result<()> {
+    let fixture = fixture()?;
+    site_zip(&fixture)?;
+    crawling_drives(&fixture)?;
+    let mut app = Session::builder(BORG, &fixture).shell(Shell::Bash).label("archive-save-question").spawn()?;
+    app.wait_text("5 items")?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_until("cursor on the archive", |s| highlighted(s, " site.zip"))?;
+    app.send(keys::enter())?;
+    app.wait_until("the archive's files", |s| s.contains("▤ zip") && s.contains("readme.md"))?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_until("cursor on readme", |s| highlighted(s, " readme.md"))?;
+    app.send(keys::f(4))?;
+    app.wait_text("Long job")?;
+    app.send("s")?;
+    app.wait_text("read me from the zip")?;
+    app.send("edited ")?;
+    app.send(keys::f(2))?;
+    app.wait_until("the question over the editor", |s| s.contains("Long job") && s.contains("edited read me"))?;
+    app.send("s")?;
+    app.wait_gone("Long job")?;
+    let saved = fixture.work().join("site.zip");
+    app.wait_until("the edit in the archive", |_| {
+        zip::ZipArchive::new(fs::File::open(&saved).expect("the archive"))
+            .ok()
+            .and_then(|mut zip| std::io::read_to_string(zip.by_name("readme.md").ok()?).ok())
+            .is_some_and(|text| text == "edited read me from the zip\n")
+    })?;
+    Ok(())
+}
+
+#[test]
 fn typed_command_runs_in_shell_and_ctrl_o_returns() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "command")?;
@@ -2882,6 +2914,39 @@ fn f3_shows_the_pairing_command_alone_to_select_where_the_clipboard_does_not_wor
 }
 
 #[test]
+fn a_pairing_approval_shows_over_the_command_shown_plainly_and_the_connect_dialog_comes_back() -> Result<()> {
+    let relay = relay()?;
+    let fixture = fixture()?;
+    fixture.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut app = Session::builder(BORG, &fixture).size(130, 34).label("pair-over-plain").spawn()?;
+    app.wait_text(READY)?;
+    let link = show_pairing_link(&mut app)?;
+    app.send(keys::f(3))?;
+    app.wait_text("Press any key to return to borg")?;
+    pair_with_link(&mut app, &fixture, &link)?;
+    app.wait_text("Tab picks")?;
+    ensure!(!app.snapshot().contains("Press any key to return to borg"), "the plain command stays gone");
+    Ok(())
+}
+
+#[test]
+fn a_pairing_approval_closes_with_a_notice_once_borg_pair_stops_waiting() -> Result<()> {
+    let relay = relay()?;
+    let fixture = fixture()?;
+    fixture.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut app = Session::builder(BORG, &fixture).size(130, 34).label("pair-withdrawn").spawn()?;
+    app.wait_text(READY)?;
+    let link = show_pairing_link(&mut app)?;
+    let mut pairing = ask_to_pair(&mut app, &fixture.root().join("computer"), &link)?;
+    pairing.kill()?;
+    pairing.wait()?;
+    app.wait_text("Remote stopped waiting for your answer")?;
+    app.wait_gone("Pair this computer with borg?")?;
+    app.wait_text("Tab picks")?;
+    Ok(())
+}
+
+#[test]
 fn an_agent_edits_container_files_and_works_in_a_container_shell_the_user_watches() -> Result<()> {
     let fixture = fixture()?;
     let bin = fake_docker(&fixture)?;
@@ -3181,59 +3246,27 @@ fn pairing_link(snapshot: &Snapshot) -> Option<String> {
 /// `app` through the Connect dialog's link, approving it there: the computer's folder and the
 /// name it knows the server by.
 fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::PathBuf, String)> {
-    // The server shows a link; the computer pairs with it, and the user approves it here.
+    let link = show_pairing_link(app)?;
+    app.send(keys::esc())?;
+    pair_with_link(app, fixture, &link)
+}
+
+/// Opens the Connect dialog and waits for the pairing link it shows.
+fn show_pairing_link(app: &mut Session) -> Result<String> {
     app.send(keys::f(1))?;
     app.wait_text("Remote access to this borg")?;
     app.send("c")?;
     let shown = app.wait_until("the pairing link", |s| pairing_link(s).is_some())?;
     let link = pairing_link(&shown).unwrap();
     ensure!(link.starts_with("borg+ws://127.0.0.1:"), "{link}");
-    app.send(keys::esc())?;
-    let target = borg_link::PairingLink::parse(&link).expect("the dialog shows a valid pairing link");
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let registration_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        match runtime.block_on(borg_link::relay::dial(&target.relay, &target.server)) {
-            Ok(socket) => {
-                drop(socket);
-                break;
-            }
-            Err(_) if std::time::Instant::now() < registration_deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(error) => {
-                anyhow::bail!("the test server did not register at its relay: {error:#}\n{}", app.snapshot().text())
-            }
-        }
-    }
+    Ok(link)
+}
+
+/// Pairs a computer with the link, and approves the pairing in the server's borg once it asks,
+/// without a key first.
+fn pair_with_link(app: &mut Session, fixture: &Fixture, link: &str) -> Result<(std::path::PathBuf, String)> {
     let computer = fixture.root().join("computer");
-    let mut pairing = std::process::Command::new(BORG)
-        .args(["pair", &link])
-        .env("BORG_STATE_DIR", &computer)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        if app.snapshot().contains("Pair this computer with borg?") {
-            break;
-        }
-        if let Some(status) = pairing.try_wait()? {
-            let output = pairing.wait_with_output()?;
-            anyhow::bail!(
-                "borg pair exited {status} before asking for approval: {}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for pairing approval\n{}",
-            app.snapshot().lines().join("\n")
-        );
-        app.pump(std::time::Duration::from_millis(100))?;
-    }
+    let pairing = ask_to_pair(app, &computer, link)?;
     let dialog = app.wait_until("the pairing code", |s| s.contains("shows this code"))?.lines().join("\n");
     approve(app)?;
     let paired = pairing.wait_with_output()?;
@@ -3259,6 +3292,56 @@ fn pair_computer(app: &mut Session, fixture: &Fixture) -> Result<(std::path::Pat
     ensure!(said.contains(&format!("mcp remote {name}")), "it shows the line for Claude Code: {said}");
 
     Ok((computer, name))
+}
+
+/// Runs `borg pair` with the link on a computer whose borg keeps its state in `computer`, once
+/// the server's borg is at its relay, and waits until the server's borg asks to pair.
+fn ask_to_pair(app: &mut Session, computer: &Path, link: &str) -> Result<std::process::Child> {
+    let target = borg_link::PairingLink::parse(link).expect("the dialog shows a valid pairing link");
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let registration_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match runtime.block_on(borg_link::relay::dial(&target.relay, &target.server)) {
+            Ok(socket) => {
+                drop(socket);
+                break;
+            }
+            Err(_) if std::time::Instant::now() < registration_deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(error) => {
+                anyhow::bail!("the test server did not register at its relay: {error:#}\n{}", app.snapshot().text())
+            }
+        }
+    }
+    let mut pairing = std::process::Command::new(BORG)
+        .args(["pair", link])
+        .env("BORG_STATE_DIR", computer)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        if app.snapshot().contains("Pair this computer with borg?") {
+            break;
+        }
+        if let Some(status) = pairing.try_wait()? {
+            let output = pairing.wait_with_output()?;
+            anyhow::bail!(
+                "borg pair exited {status} before asking for approval: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for pairing approval\n{}",
+            app.snapshot().lines().join("\n")
+        );
+        app.pump(std::time::Duration::from_millis(100))?;
+    }
+    Ok(pairing)
 }
 
 /// `borg mcp remote NAME` on a computer whose borg keeps its key in `state`.

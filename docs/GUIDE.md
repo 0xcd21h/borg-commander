@@ -633,6 +633,9 @@ Anything that changes the machine waits for you in a dialog that shows the whole
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
 keys, PgUp and PgDn, or the mouse wheel, and press F3 to see the dialog full screen. No stays
 selected until you choose Yes, and an edit is refused if the file changed while you were deciding.
+The dialog shows on top of everything, including the editor, the viewer, another dialog and the
+screensaver, and it takes every key until you answer. What it covered comes back afterward. If
+the agent stops waiting first, the dialog closes and a notice says so.
 For a paired computer, `approval_mode` asks you once before turning on Approve all for that
 session. While it is on, a badge stays visible; click it or press Ctrl+Alt+A to turn it off at
 once. It also turns off when that paired connection closes. Pairing approvals are separate.
@@ -719,9 +722,11 @@ joins them.
    relay, paste its address there and press Enter to save it and get a link through it.
 2. Run the command in a terminal on your computer, where borg is installed too. It prints a
    pairing code: six emoji, each with its name, such as `🐱 Cat · 🦁 Lion · 🐎 Horse`.
-3. Borg on the server asks whether to pair, showing your computer's name and the code. Choose
-   Yes if the codes match. `borg pair` then offers to add the server to Claude Code, as
-   `claude mcp add borg-NAME -- borg mcp remote NAME`.
+3. Borg on the server asks whether to pair, showing your computer's name and the code. The
+   question comes up at once, even while F3 shows the command as plain text. Choose Yes if the
+   codes match. `borg pair` then offers to add the server to Claude Code, as
+   `claude mcp add borg-NAME -- borg mcp remote NAME`. It waits 5 minutes for your answer; when it
+   gives up or you stop it, the question closes and the link stops working.
 
 The code comes from the encrypted handshake the two borgs have just completed, so it is the same
 on both screens only if your computer is the one talking to the server. Someone who got hold of
@@ -961,6 +966,9 @@ unpack would take more than 2 minutes, or a change to an archive more than 20 se
 - **Always on this kind of drive** (`d`) runs it and stops asking about work on drives of this
   kind.
 - **Cancel** (`c`) stops before the first write.
+
+A save from the editor into an archive asks over the editor, which gets the keys back once you
+answer.
 
 Until Borg has measured a drive, it expects the usual speed of its kind: about 120 MB/s for a hard
 drive, 900 MB/s for an SSD, 4 GB/s for a RAM disk, 60 MB/s for a network share and 10 MB/s for a
@@ -1246,7 +1254,8 @@ After `screensaver-after` seconds without input, Borg shows one of five screensa
 random: a cube spinning in a starfield, the glitching logo, a clock in the logo's block letters
 that tears apart as each minute turns, the logo swirling out into a spiral galaxy and back, or
 the logo rebuilt plank by plank while the old planks gather into a second logo below it. Any key
-or click brings the panels back, and that key does nothing else.
+or click brings the panels back, and that key does nothing else. An agent's approval ends the
+screensaver by itself, so it never waits behind one.
 
 Custom themes go in `~/.config/borg-commander/themes/`. A theme can extend a built-in one:
 

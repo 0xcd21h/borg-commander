@@ -158,6 +158,9 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     let resting = state.screensaver;
     state.screensaver = false;
     state.escaped = None;
+    if let Some(approval) = state.approval.take() {
+        return crate::agent::on_approval_pointer(state, approval, pointer, now);
+    }
     if let Pointer::ScrollDocument(delta) = pointer {
         if !resting && state.overlay.is_none() && !state.shell.captured() {
             scroll_document(state, delta);
@@ -170,8 +173,8 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         }
         return Vec::new();
     }
-    // An agent's dialogs show over the editor and the viewer, and take their clicks.
-    let agent = matches!(state.overlay, Some(Overlay::Approval(_) | Overlay::AgentLog { .. }));
+    // An agent's log and a job's question show over the editor and the viewer, and take their clicks.
+    let agent = state.question_shows() || matches!(state.overlay, Some(Overlay::AgentLog { .. }));
     if state.editor.is_some() && !agent {
         return if resting { Vec::new() } else { crate::editor::on_pointer(state, crate::EditorSlot::Screen, pointer) };
     }

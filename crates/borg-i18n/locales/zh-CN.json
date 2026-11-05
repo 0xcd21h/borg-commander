@@ -972,6 +972,7 @@
   "agent_plain_intro": "选中下面的命令，粘贴到你计算机上的终端中：",
   "agent_plain_return": "按任意键返回 borg。",
   "agent_connect_copied": "已复制；请将其粘贴到你计算机上的终端中",
+  "agent_withdrawn": "远程已不再等待你的答复：{summary}",
   "remote_menu_title": "远程",
   "remote_colony_title": " 远程主机 ",
   "remote_colony_keys": " Enter 文件  M 镜像  F2：重命名主机  S-F2 会话  F8 删除  Tab 客户端  R 刷新  Esc 关闭 ",
