@@ -1058,9 +1058,13 @@ al menos 64 MiB le enseña a Borg la velocidad real del disco, y entonces la fil
 **velocidad medida**. Una tarea que pasa su tiempo comprimiendo no le enseña nada sobre el disco.
 
 Borg guarda las velocidades y tus respuestas en `drives.json`, en su carpeta de estado, con hasta 256
-archivos comprimidos. La fila **Tareas largas** de Ctrl-L dice si Borg pregunta primero en ese
-disco. **F9 → Opciones → Volver a preguntar antes de tareas largas** olvida todas las respuestas
-Siempre.
+archivos comprimidos. Solo tú puedes leer el archivo, porque nombra los archivos comprimidos sobre los
+que respondiste. Todos los Borg que tengas abiertos lo comparten: cada uno lo lee al arrancar y otra
+vez justo antes de escribir, así que lo que un Borg aprendió o le dijiste se mantiene cuando otro
+escribe. La fila **Tareas largas** de Ctrl-L dice si Borg pregunta primero en ese disco.
+**F9 → Opciones → Volver a preguntar antes de tareas largas** olvida todas las respuestas Siempre,
+también las dadas en otros Borg. Un Borg que ya esté abierto conserva las respuestas que tiene hasta
+que vuelva a escribir el archivo o lo inicies de nuevo.
 
 ### Visor y vista rápida
 
