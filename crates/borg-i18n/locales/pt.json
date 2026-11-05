@@ -1590,6 +1590,8 @@
   "archive_name_taken": "O arquivo já contém {path}.",
   "archive_kind_taken": "{path} é um ficheiro de um lado e uma pasta do outro.",
   "archive_missing_entry": "O arquivo já não contém {path}.",
+  "archive_source_shrank": "{path} ficou mais curto enquanto o Borg o adicionava, por isso o arquivo fica como estava.",
+  "archive_read_back": "O Borg escreveu {written} e leu de volta {found}.",
   "count_second_one": "{count} segundo",
   "count_second_few": "{count} segundos",
   "count_second_many": "{count} segundos",

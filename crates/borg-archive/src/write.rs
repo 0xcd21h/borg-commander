@@ -161,11 +161,12 @@ impl Rewrite<'_> {
         }
         let started = Instant::now();
         let copied = if strategy == Strategy::Append && drive.clones { 0 } else { index.bytes };
-        let total = Totals { files: (plan.kept.len() + plan.added.len()) as u64, bytes: copied + plan.added_bytes() };
+        let bytes = copied + plan.added_bytes() + read_back(index.format, &index, &plan);
+        let total = Totals { files: (plan.kept.len() + plan.added.len()) as u64, bytes };
         let meter = Meter::new(control, emit, total, self.archive.path.to_path_buf());
         meter.report(true);
-        let (partial, mut file) = write(&real, index.format, strategy, &plan, password, drive.clones, &meter)?;
-        verify(&mut file, index.format, password)?;
+        let (partial, mut file, written) = write(&real, index.format, strategy, &plan, password, drive.clones, &meter)?;
+        verify(&mut file, index.format, password, written, &meter)?;
         partial.place(file, &real)?;
         meter.report(true);
         pace.learn(started);
@@ -192,12 +193,24 @@ fn strategy(format: Format, plan: &Plan) -> Strategy {
     }
 }
 
+/// The bytes the new archive is read back through before it takes the original's place: a
+/// compressed tar is unpacked to its end, which is about as large as the archive and the files
+/// added. Other formats are read back by their list of entries.
+fn read_back(format: Format, index: &Index, plan: &Plan) -> u64 {
+    match format {
+        Format::Tar(Some(_)) => index.bytes + plan.added_bytes(),
+        _ => 0,
+    }
+}
+
 /// What the change reads and writes, and the time it spends compressing: `touched` bytes of a
-/// 7z archive are unpacked and packed again.
+/// 7z archive are unpacked and packed again, and a compressed tar is unpacked once more when it
+/// is read back.
 fn work(drives: &Drives, drive: &Drive, index: &Index, plan: &Plan, strategy: Strategy, touched: u64) -> Work {
     let added = plan.added_bytes();
     let copied = if strategy == Strategy::Append && drive.clones { 0 } else { index.bytes };
-    let mut work = Work::default().read(drive, copied).write(drive, copied + added);
+    let read_back = read_back(index.format, index, plan);
+    let mut work = Work::default().read(drive, copied + read_back).write(drive, copied + added);
     if let Some(source) = plan.source() {
         work = work.read(&drives.drive(source), added);
     }
@@ -205,7 +218,7 @@ fn work(drives: &Drives, drive: &Drive, index: &Index, plan: &Plan, strategy: St
     let compute = match index.format {
         Format::Tar(Some(_)) => {
             let unpacked = index.totals().bytes;
-            unpacking(codec, unpacked) + packing(codec, unpacked + added)
+            unpacking(codec, unpacked) + packing(codec, unpacked + added) + unpacking(codec, unpacked + added)
         }
         Format::SevenZip => unpacking(codec, touched) + packing(codec, touched + added),
         _ => packing(codec, added),
@@ -226,6 +239,8 @@ fn room(real: &Path, work: &Work, drive: &Drive, control: &Control, emit: &mut d
     }
 }
 
+/// Writes the new archive beside the original, with the number of entries a tar archive's read
+/// back looks for.
 fn write(
     real: &Path,
     format: Format,
@@ -234,31 +249,42 @@ fn write(
     password: Option<&str>,
     clones: bool,
     meter: &Meter<'_, '_>,
-) -> Result<(Partial, File), Error> {
+) -> Result<(Partial, File, Option<usize>), Error> {
     if strategy == Strategy::Append {
         let (partial, file) = Partial::copy(real, clones, meter)?;
-        let file = match format {
-            Format::Zip => zip::append(file, plan, password, meter)?,
-            _ => tar::append(file, plan, meter)?,
-        };
-        return Ok((partial, file));
+        return Ok(match format {
+            Format::Zip => (partial, zip::append(file, plan, password, meter)?, None),
+            _ => {
+                let (file, written) = tar::append(file, plan, meter)?;
+                (partial, file, Some(written))
+            }
+        });
     }
     let (partial, file) = Partial::fresh(real)?;
-    let file = match format {
-        Format::Zip => zip::rewrite(real, plan, password, file, meter)?,
-        Format::SevenZip => seven::rewrite(real, plan, password, file, meter)?,
-        Format::Tar(compression) => tar::rewrite(real, compression, plan, file, meter)?,
+    Ok(match format {
+        Format::Zip => (partial, zip::rewrite(real, plan, password, file, meter)?, None),
+        Format::SevenZip => (partial, seven::rewrite(real, plan, password, file, meter)?, None),
+        Format::Tar(compression) => {
+            let (file, written) = tar::rewrite(real, compression, plan, file, meter)?;
+            (partial, file, Some(written))
+        }
         Format::Rar | Format::Compressed(_) => return Err(Error::Unknown),
-    };
-    Ok((partial, file))
+    })
 }
 
-/// Reads back the list of entries of formats that keep one, before the new archive takes the
-/// original's place.
-fn verify(file: &mut File, format: Format, password: Option<&str>) -> Result<(), Error> {
-    match format {
-        Format::Zip => zip::verify(file),
-        Format::SevenZip => seven::verify(file, password),
+/// Reads the new archive back before it takes the original's place: the list of entries of
+/// formats that keep one, and every entry a tar change wrote.
+fn verify(
+    file: &mut File,
+    format: Format,
+    password: Option<&str>,
+    written: Option<usize>,
+    meter: &Meter<'_, '_>,
+) -> Result<(), Error> {
+    match (format, written) {
+        (Format::Zip, _) => zip::verify(file),
+        (Format::SevenZip, _) => seven::verify(file, password),
+        (Format::Tar(compression), Some(written)) => tar::verify(file, compression, written, meter),
         _ => Ok(()),
     }
 }

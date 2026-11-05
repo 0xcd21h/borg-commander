@@ -994,6 +994,125 @@ fn compresses_selection_and_extracts_archives() -> Result<()> {
     Ok(())
 }
 
+/// Makes `archive` in the fixture's folder from `files` there with the system's tar, as
+/// Compress does.
+fn system_tar(fixture: &Fixture, flags: &str, archive: &str, files: &[&str]) -> Result<PathBuf> {
+    let status = std::process::Command::new("tar")
+        .env("COPYFILE_DISABLE", "1")
+        .current_dir(fixture.work())
+        .arg(flags)
+        .arg(archive)
+        .args(files)
+        .status()?;
+    ensure!(status.success(), "tar could not make {archive}");
+    Ok(fixture.work().join(archive))
+}
+
+/// The sizes of the entries named `name` that Borg lists in `archive`, or `None` while it does
+/// not list.
+fn stored_sizes(archive: &Path, name: &str) -> Option<Vec<u64>> {
+    let archive = borg_archive::Archive { path: archive, password: None, tool: None };
+    let index = archive.index(&mut |_, _| true).ok()?;
+    Some(index.list("")?.filter(|item| item.name() == name).map(|item| item.size).collect())
+}
+
+/// Opens `archive` in the right panel and comes back to the left one.
+fn open_on_the_right(app: &mut Session, archive: &str, holds: &str) -> Result<()> {
+    app.send(keys::tab())?.send(keys::ctrl('s'))?.send(archive)?.send(keys::enter())?;
+    app.wait_until("cursor on the archive", |s| status(s).ends_with(archive))?;
+    app.send(keys::enter())?;
+    app.wait_until("the archive's files", |s| s.contains("▤ ") && s.contains(holds))?;
+    app.send(keys::tab())?;
+    Ok(())
+}
+
+#[test]
+fn a_file_that_grows_while_a_copy_into_a_tar_waits_goes_in_whole() -> Result<()> {
+    const GROWTH: usize = 700;
+    const ALPHA: &str = "alpha\n";
+    let fixture = fixture()?;
+    fixture.file("a.txt", ALPHA)?;
+    let archive = system_tar(&fixture, "-czf", "backup.tar.gz", &["a.txt"])?;
+    let log = fixture.file("log.txt", "first line\n")?;
+    crawling_drives(&fixture)?;
+    let mut app = start_like(&fixture, "tar-grows", 7)?;
+    open_on_the_right(&mut app, "backup.tar.gz", "a.txt")?;
+    app.send(keys::ctrl('s'))?.send("log")?.send(keys::enter())?;
+    app.wait_until("cursor on the log", |s| status(s).ends_with("log.txt"))?;
+    app.send(keys::f(5))?;
+    app.wait_text("Copy \"log.txt\" to")?;
+    app.send(keys::enter())?;
+    app.wait_text("Long job")?;
+    fs::OpenOptions::new().append(true).open(&log)?.write_all("x".repeat(GROWTH).as_bytes())?;
+    let grown = fs::metadata(&log)?.len();
+    app.send("s")?;
+    let stored = app.wait_until("the log in the archive", |_| {
+        stored_sizes(&archive, "log.txt").is_some_and(|sizes| !sizes.is_empty())
+    });
+    ensure!(stored.is_ok(), "the archive never listed log.txt: {:?}", stored_sizes(&archive, "log.txt"));
+    ensure!(stored_sizes(&archive, "log.txt") == Some(vec![grown]), "{:?}", stored_sizes(&archive, "log.txt"));
+    ensure!(stored_sizes(&archive, "a.txt") == Some(vec![ALPHA.len() as u64]), "the archive lost a.txt");
+    Ok(())
+}
+
+#[test]
+fn moving_two_files_of_one_name_into_a_tar_asks_and_keeps_the_one_left_out() -> Result<()> {
+    let fixture = fixture()?;
+    let work = fixture.work();
+    fixture.file("beta/one.txt", "BETA source\n")?;
+    fixture.file("readme.txt", "evidence\n")?;
+    let archive = system_tar(&fixture, "-cf", "evidence.tar", &["readme.txt"])?;
+    let mut app = start_like(&fixture, "move-one-name", 6)?;
+    open_on_the_right(&mut app, "evidence.tar", "readme.txt")?;
+    app.send(keys::ctrl('f'))?;
+    app.wait_text("Name or glob")?;
+    app.send(keys::ctrl('u'))?.send("one.txt")?.send(keys::enter())?;
+    app.wait_until("both matches", |s| {
+        s.contains("Search: one.txt") && s.contains("2/2 items") && s.contains("finished")
+    })?;
+    app.send(keys::key(KeyCode::Home))?.send(keys::ctrl('t'))?.send(keys::ctrl('t'))?;
+    app.wait_text("2 marked")?;
+    app.send(keys::f(6))?;
+    app.wait_text("Move")?;
+    app.send(keys::enter())?;
+    app.wait_text("Already exists")?;
+    app.send("s")?;
+    let originals = [work.join("alpha/one.txt"), work.join("beta/one.txt")];
+    app.wait_until("one original moved in", |_| originals.iter().filter(|original| original.exists()).count() == 1)?;
+    let kept = originals.iter().find(|original| original.exists()).context("one original stays")?;
+    let moved = if *kept == originals[0] { "BETA source\n" } else { "1\n" };
+    ensure!(
+        stored_sizes(&archive, "one.txt") == Some(vec![moved.len() as u64]),
+        "{:?}",
+        stored_sizes(&archive, "one.txt")
+    );
+    ensure!(fs::read_to_string(kept)? != moved, "the original left out holds the other file");
+    Ok(())
+}
+
+#[test]
+fn dot_dot_leaves_a_folder_of_an_archive_that_went_away() -> Result<()> {
+    let fixture = fixture()?;
+    site_zip(&fixture)?;
+    let mut app = start_like(&fixture, "archive-gone", 5)?;
+    app.send(keys::key(KeyCode::End))?;
+    app.wait_until("cursor on the archive", |s| highlighted(s, " site.zip"))?;
+    app.send(keys::enter())?;
+    app.wait_until("the archive's files", |s| s.contains("▤ zip") && s.contains("/ docs"))?;
+    app.send(keys::key(KeyCode::End))?.send(keys::up())?;
+    app.wait_until("cursor on docs", |s| highlighted(s, "/ docs"))?;
+    app.send(keys::enter())?;
+    app.wait_until("inside docs", |s| left_panel(s).contains("guide.md"))?;
+    fs::remove_file(fixture.work().join("site.zip"))?;
+    app.send(keys::left())?;
+    app.wait_until("back in the folder that held the archive", |s| {
+        !s.contains("▤ zip") && left_panel(s).contains("notes.txt")
+    })?;
+    app.send(keys::key(KeyCode::Home))?.send(keys::down())?.send(keys::enter())?;
+    app.wait_until("panel still moves", |s| left_panel(s).contains("one.txt"))?;
+    Ok(())
+}
+
 #[test]
 fn viewer_shows_files_wraps_and_handles_huge_files() -> Result<()> {
     const HUGE: u64 = 2 << 30;

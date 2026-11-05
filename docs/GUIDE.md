@@ -1041,7 +1041,9 @@ folder holding the one file. Ctrl-PgDn opens an archive too, and F3 on the archi
 shows its bytes in the viewer. The panel's title gets a badge such as **▤ zip** that names the
 format Borg found in the file's first bytes, and the path goes on inside the archive. Folders
 inside show the size of what they hold. Left, Enter on `..` or Ctrl-PgUp at the archive's top
-takes you back to the folder that holds it, with the cursor on the archive.
+takes you back to the folder that holds it, with the cursor on the archive. When the archive was
+deleted or no longer reads, going up from any folder of it takes you back there too, and the
+notice says why.
 
 To list an archive, Borg reads what it holds, which for a compressed tar means reading the whole
 file. While a large archive is read, the panel's footer shows how far Borg got, and Esc stops
@@ -1072,18 +1074,23 @@ copies or moves the marked files into the archive the other panel shows, or into
 you type in the dialog. F7 makes a folder in the archive, and F8 deletes the marked entries after
 asking. F6 to a name in the same archive renames or moves the entries there, and F6 to a folder of
 this machine moves them out: they unpack there and then leave the archive. Names that already exist
-in the archive are asked about as a copy asks, and a rename to a name the archive holds stops with
-a notice. A move deletes only what arrived whole, so a file you skip stays where it was.
+in the archive are asked about as a copy asks, and so are names two of the files you copy share,
+as files from search results or a collection can. A rename to a name the archive holds stops with
+a notice. A move deletes only what arrived whole, so a file you skip stays where it was, and so
+does one that a later file of the same name replaced.
 
 Each change runs as a job in Alt-J. Borg writes the changed archive beside the original under a
-temporary name, reads a zip's or 7z's list of entries back, and then puts it in the original's
-place with the same permissions. A change that fails or that you cancel leaves the archive as it
-was. Entries the change keeps are copied as they are stored: a zip copies their compressed data,
-and a 7z copies every solid block that keeps all its entries and packs again only the blocks that
-lose one. A compressed tar is unpacked and packed again whole, so changing a large `.tar.xz` takes
-about as long as making it. A zip or plain tar that only gains entries is copied and the new
-entries follow the last one, and on APFS, Btrfs, XFS and bcachefs that copy is instant. Before a
-change that would take long, Borg asks first (see [Long jobs and drives](#long-jobs-and-drives)).
+temporary name, reads it back, and then puts it in the original's place with the same permissions.
+The read-back checks a zip's or 7z's list of entries and every entry of a tar. A file goes in as it
+is when Borg writes it, so a file you save again while the job waits for your answer goes in with
+its latest contents. A change that fails or that you cancel leaves the archive as it was. Entries
+the change keeps are copied as they are stored: a zip copies their compressed data, and a 7z copies
+every solid block that keeps all its entries and packs again only the blocks that lose one. A
+compressed tar is unpacked and packed again whole, then unpacked once more to read it back, so
+changing a large `.tar.xz` takes about as long as making it and unpacking it. A zip or plain tar
+that only gains entries is copied and the new entries follow the last one, and on APFS, Btrfs, XFS
+and bcachefs that copy is instant. Before a change that would take long, Borg asks first (see [Long
+jobs and drives](#long-jobs-and-drives)).
 
 In an encrypted zip or 7z archive, new entries are encrypted with AES-256 and the password you
 opened the archive with, and a 7z that hides its list of entries keeps it hidden. Entries the change

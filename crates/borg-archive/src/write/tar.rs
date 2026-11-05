@@ -1,6 +1,8 @@
 //! Tar, compressed or not: the archive is read through once and written again, each kept entry
 //! with its header and extended records, so long names, owners and times stay. A plain tar that
-//! only gains entries is copied and the new entries follow the last one.
+//! only gains entries is copied and the new entries follow the last one. A file added takes the
+//! size it has once it is open, whatever it had when the change was planned, and the new archive
+//! is read back before it takes the original's place.
 
 use std::{
     ffi::OsStr,
@@ -11,6 +13,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use borg_i18n::{Count, count, tr};
 use tar::{Builder, EntryType, Header};
 
 use super::plan::{Added, Adding, Plan};
@@ -31,14 +34,15 @@ const BZIP2_LEVEL: u32 = 6;
 const XZ_PRESET: u32 = 6;
 const ZSTD_LEVEL: i32 = 3;
 
-/// Writes the archive at `real`, changed as `plan` says, into `out`.
+/// Writes the archive at `real`, changed as `plan` says, into `out`, with the number of entries
+/// it holds.
 pub(crate) fn rewrite(
     real: &Path,
     compression: Option<Compression>,
     plan: &Plan,
     out: File,
     meter: &Meter<'_, '_>,
-) -> Result<File, Error> {
+) -> Result<(File, usize), Error> {
     let source = Counted { inner: BufReader::new(File::open(real)?), meter };
     let reader: Box<dyn Read + '_> = match compression {
         Some(compression) => decoder(compression, source)?,
@@ -46,6 +50,7 @@ pub(crate) fn rewrite(
     };
     let mut builder = Builder::new(encoder(compression, BufWriter::new(out))?);
     let mut archive = tar::Archive::new(reader);
+    let mut entries = 0;
     for (slot, entry) in archive.entries().map_err(damaged)?.enumerate() {
         let entry = entry.map_err(damaged)?;
         match plan.kept.get(&slot) {
@@ -54,39 +59,90 @@ pub(crate) fn rewrite(
             None if !plan.known.contains(&slot) => copy(&mut builder, entry, None, None)?,
             None => continue,
         }
+        entries += 1;
         meter.entry();
     }
     add(&mut builder, plan, meter)?;
     let encoder = builder.into_inner()?;
-    let out = encoder.finish()?;
-    Ok(out.into_inner().map_err(io::IntoInnerError::into_error)?)
+    let out = encoder.finish()?.into_inner().map_err(io::IntoInnerError::into_error)?;
+    Ok((out, entries + plan.added.len()))
 }
 
-/// Adds the plan's new entries to `out`, a copy of a plain tar archive, after its last entry.
-pub(crate) fn append(mut out: File, plan: &Plan, meter: &Meter<'_, '_>) -> Result<File, Error> {
+/// Adds the plan's new entries to `out`, a copy of a plain tar archive, after its last entry,
+/// with the number of entries it then holds.
+pub(crate) fn append(mut out: File, plan: &Plan, meter: &Meter<'_, '_>) -> Result<(File, usize), Error> {
     out.seek(SeekFrom::Start(0))?;
-    let end = end(&mut out)?;
+    let (entries, end) = end(&mut out)?;
     out.set_len(end)?;
     out.seek(SeekFrom::Start(end))?;
     let mut builder = Builder::new(BufWriter::new(out));
     add(&mut builder, plan, meter)?;
-    Ok(builder.into_inner()?.into_inner().map_err(io::IntoInnerError::into_error)?)
+    let out = builder.into_inner()?.into_inner().map_err(io::IntoInnerError::into_error)?;
+    Ok((out, entries + plan.added.len()))
 }
 
-/// Where the last entry of a plain tar archive ends.
-fn end(file: &mut File) -> Result<u64, Error> {
-    let mut archive = tar::Archive::new(BufReader::new(file));
-    let mut end = 0;
-    for entry in archive.entries_with_seek().map_err(damaged)? {
-        let entry = entry.map_err(damaged)?;
-        let stored = if entry.header().entry_type() == EntryType::GNUSparse {
-            entry.header().entry_size().map_err(damaged)?
-        } else {
-            entry.size()
-        };
-        end = entry.raw_file_position() + stored.div_ceil(BLOCK) * BLOCK;
+/// Reads the archive in `file` back and checks that it holds the `written` entries, each whole:
+/// a plain archive by its headers, which say where each entry's data ends, and a compressed one
+/// by unpacking it to its end.
+pub(crate) fn verify(
+    file: &mut File,
+    compression: Option<Compression>,
+    written: usize,
+    meter: &Meter<'_, '_>,
+) -> Result<(), Error> {
+    file.seek(SeekFrom::Start(0))?;
+    let found = match compression {
+        None => {
+            let length = file.metadata()?.len();
+            let mut archive = tar::Archive::new(BufReader::new(&mut *file));
+            let mut found = 0;
+            for entry in archive.entries_with_seek().map_err(damaged)? {
+                let entry = entry.map_err(damaged)?;
+                if data_end(&entry)? > length {
+                    let path = String::from_utf8_lossy(&entry.path_bytes()).into_owned();
+                    return Err(Error::Damaged(tr!(archive_entry_short, path = path)));
+                }
+                found += 1;
+            }
+            found
+        }
+        Some(compression) => {
+            let source = Counted { inner: BufReader::new(&mut *file), meter };
+            let mut archive = tar::Archive::new(decoder(compression, source)?);
+            let mut found = 0;
+            for entry in archive.entries().map_err(damaged)? {
+                entry.map_err(damaged)?;
+                found += 1;
+            }
+            found
+        }
+    };
+    if found == written {
+        return Ok(());
     }
-    Ok(end)
+    let (written, found) = (count(written, Count::Item), count(found, Count::Item));
+    Err(Error::Damaged(tr!(archive_read_back, written = written, found = found)))
+}
+
+/// How many entries a plain tar archive holds, and where the last one ends.
+fn end(file: &mut File) -> Result<(usize, u64), Error> {
+    let mut archive = tar::Archive::new(BufReader::new(file));
+    let (mut entries, mut end) = (0, 0);
+    for entry in archive.entries_with_seek().map_err(damaged)? {
+        end = data_end(&entry.map_err(damaged)?)?;
+        entries += 1;
+    }
+    Ok((entries, end))
+}
+
+/// Where the data of `entry` ends.
+fn data_end<R: Read>(entry: &tar::Entry<'_, R>) -> Result<u64, Error> {
+    let stored = if entry.header().entry_type() == EntryType::GNUSparse {
+        entry.header().entry_size().map_err(damaged)?
+    } else {
+        entry.size()
+    };
+    Ok(entry.raw_file_position() + stored.div_ceil(BLOCK) * BLOCK)
 }
 
 /// The target a kept link names once folders it points into have moved.
@@ -160,12 +216,14 @@ fn expanded(sparse: &Header) -> Header {
 
 fn add<W: Write>(builder: &mut Builder<W>, plan: &Plan, meter: &Meter<'_, '_>) -> Result<(), Error> {
     for added in &plan.added {
-        let mut header = header(added);
         match &added.adding {
-            Adding::Folder => builder.append_data(&mut header, &added.path, io::empty())?,
-            Adding::Symlink(target) => builder.append_link(&mut header, &added.path, target)?,
+            Adding::Folder => builder.append_data(&mut header(added, 0), &added.path, io::empty())?,
+            Adding::Symlink(target) => builder.append_link(&mut header(added, 0), &added.path, target)?,
             Adding::File { source, .. } => {
-                builder.append_data(&mut header, &added.path, Counted { inner: File::open(source)?, meter })?;
+                let file = File::open(source)?;
+                let size = file.metadata()?.len();
+                let data = Exact { inner: Counted { inner: file, meter }, left: size, source };
+                builder.append_data(&mut header(added, size), &added.path, data)?;
             }
         }
         meter.entry();
@@ -173,14 +231,38 @@ fn add<W: Write>(builder: &mut Builder<W>, plan: &Plan, meter: &Meter<'_, '_>) -
     Ok(())
 }
 
-fn header(added: &Added) -> Header {
+/// The first `left` bytes of a file, which fail to read when the file ends sooner, so an entry
+/// always holds as much data as its header says.
+struct Exact<'p, R> {
+    inner: R,
+    left: u64,
+    source: &'p Path,
+}
+
+impl<R: Read> Read for Exact<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let wanted = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
+        if wanted == 0 {
+            return Ok(0);
+        }
+        let read = self.inner.read(&mut buf[..wanted])?;
+        if read == 0 {
+            let message = tr!(archive_source_shrank, path = self.source.display());
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, message));
+        }
+        self.left -= read as u64;
+        Ok(read)
+    }
+}
+
+fn header(added: &Added, size: u64) -> Header {
     let mut header = Header::new_gnu();
     header.set_entry_type(match added.adding {
         Adding::Folder => EntryType::Directory,
         Adding::Symlink(_) => EntryType::Symlink,
         Adding::File { .. } => EntryType::Regular,
     });
-    header.set_size(added.size());
+    header.set_size(size);
     header.set_mode(added.mode);
     let seconds = added.modified.and_then(|time| time.duration_since(UNIX_EPOCH).ok());
     header.set_mtime(seconds.map_or(0, |seconds| seconds.as_secs()));
@@ -245,3 +327,6 @@ impl<W: Write> Write for Encoder<W> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1590,6 +1590,8 @@
   "archive_name_taken": "El archivo comprimido ya contiene {path}.",
   "archive_kind_taken": "{path} es un archivo en un lado y una carpeta en el otro.",
   "archive_missing_entry": "El archivo comprimido ya no contiene {path}.",
+  "archive_source_shrank": "{path} se acortó mientras Borg lo añadía, así que el archivo comprimido queda como estaba.",
+  "archive_read_back": "Borg escribió {written} y leyó de vuelta {found}.",
   "count_second_one": "{count} segundo",
   "count_second_few": "{count} segundos",
   "count_second_many": "{count} segundos",

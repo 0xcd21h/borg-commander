@@ -206,6 +206,46 @@ fn an_archive_that_does_not_open_leaves_the_panel_where_it_was() {
 }
 
 #[test]
+fn dot_dot_leaves_a_folder_of_an_archive_that_went_away() {
+    let gone = "No such file or directory (os error 2)";
+    let (mut state, now) = opened(&[folder("docs")]);
+    hover(&mut state, "docs");
+    let effects = crate::actions::perform(&mut state, Action::Open, now);
+    list(&mut state, &effects, &[file("guide.md")], now);
+
+    let effects = crate::actions::perform(&mut state, Action::Leave, now);
+    let (side, generation, dir) = listing(&effects).expect("the archive's top is listed");
+    assert_eq!(dir, Path::new(ARCHIVE));
+    let effects = update(&mut state, Msg::Listed { side, generation, error: Some(gone.into()) }, now);
+    assert_eq!(listing(&effects).map(|(_, _, dir)| dir), Some(Path::new(HOME)), "the panel leaves the archive");
+    assert!(mount(&state).is_none());
+    assert_eq!(state.notice.as_deref(), Some(gone));
+    list(&mut state, &effects, &[file("notes.txt")], now);
+    assert_eq!(state.panel(Side::Left).dir(), Path::new(HOME));
+}
+
+#[test]
+fn a_folder_an_archive_no_longer_holds_keeps_the_archive_open() {
+    let missing = "This archive holds no folder docs.";
+    let (mut state, now) = opened(&[folder("docs")]);
+    hover(&mut state, "docs");
+    let effects = crate::actions::perform(&mut state, Action::Open, now);
+    list(&mut state, &effects, &[file("guide.md")], now);
+
+    let effect = state.reload(Side::Left);
+    let (side, generation, _) = listing(std::slice::from_ref(&effect)).expect("the folder is listed again");
+    let effects = update(&mut state, Msg::Listed { side, generation, error: Some(missing.into()) }, now);
+    assert!(listing(&effects).is_none());
+    assert_eq!(state.panel(Side::Left).dir(), Path::new("/home/site.zip/docs"));
+    assert!(mount(&state).is_some());
+
+    let effects = crate::actions::perform(&mut state, Action::Leave, now);
+    list(&mut state, &effects, &[folder("other")], now);
+    assert_eq!(state.panel(Side::Left).dir(), Path::new(ARCHIVE));
+    assert!(mount(&state).is_some());
+}
+
+#[test]
 fn an_encrypted_archive_asks_for_its_password_and_never_shows_it() {
     let (mut state, now) = setup();
     hover(&mut state, "site.zip");

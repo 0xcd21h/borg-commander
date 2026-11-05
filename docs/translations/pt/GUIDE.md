@@ -1139,6 +1139,8 @@ arquivo continua a mostrar os seus bytes no visualizador. O título do painel ga
 **▤ zip**, que indica o formato que o Borg encontrou nos primeiros bytes do ficheiro, e o caminho
 continua dentro do arquivo. As pastas lá dentro mostram o tamanho do que contêm. Left, Enter em `..`
 ou Ctrl-PgUp no topo do arquivo levam-no de volta à pasta que o contém, com o cursor no arquivo.
+Quando o arquivo foi eliminado ou já não se lê, subir a partir de qualquer pasta dele também o leva
+de volta para lá, e o aviso diz porquê.
 
 Para listar um arquivo, o Borg lê o que ele contém, o que num tar comprimido significa ler o
 ficheiro inteiro. Enquanto um arquivo grande é lido, o rodapé do painel mostra até onde o Borg
@@ -1165,24 +1167,29 @@ como uma cópia, escreve cada ficheiro com um nome temporário até estar comple
 no tamanho que o arquivo lhe atribui.
 
 O Borg altera arquivos zip, 7z e tar, comprimidos ou não. F5 ou F6 a partir de uma pasta desta
-máquina copia ou move os ficheiros marcados para o arquivo que o outro painel mostra, ou para a pasta
-dele que escrever na caixa de diálogo. F7 cria uma pasta no arquivo, e F8 elimina as entradas
+máquina copia ou move os ficheiros marcados para o arquivo que o outro painel mostra, ou para a
+pasta dele que escrever na caixa de diálogo. F7 cria uma pasta no arquivo, e F8 elimina as entradas
 marcadas depois de perguntar. F6 para um nome no mesmo arquivo muda o nome das entradas ou move-as
 para lá, e F6 para uma pasta desta máquina move-as para fora: são descompactadas lá e depois saem do
-arquivo. Quando um nome já existe no arquivo, o Borg pergunta o que fazer tal como numa cópia, e uma
-mudança de nome para um nome que o arquivo já tem para com um aviso. Uma movimentação só elimina o
-que chegou inteiro, por isso um ficheiro que ignore fica onde estava.
+arquivo. Quando um nome já existe no arquivo, o Borg pergunta o que fazer tal como numa cópia, e faz
+o mesmo quando dois dos ficheiros que copia têm o mesmo nome, como pode acontecer com ficheiros de
+resultados de pesquisa ou de uma coleção. Uma mudança de nome para um nome que o arquivo já tem para
+com um aviso. Uma movimentação só elimina o que chegou inteiro, por isso um ficheiro que ignore fica
+onde estava, tal como um ficheiro que outro posterior com o mesmo nome substituiu.
 
 Cada alteração corre como uma tarefa em Alt-J. O Borg escreve o arquivo alterado ao lado do original
-com um nome temporário, volta a ler a lista de entradas de um zip ou de um 7z e só então o põe no
-lugar do original, com as mesmas permissões. Uma alteração que falhe ou que cancele deixa o arquivo
-como estava. As entradas que a alteração mantém são copiadas tal como estão guardadas: um zip copia
-os seus dados comprimidos, e um 7z copia cada bloco sólido que mantém todas as suas entradas e só
-volta a comprimir os blocos que perdem alguma. Um tar comprimido é descompactado e comprimido de novo
-por inteiro, por isso alterar um `.tar.xz` grande demora quase tanto como criá-lo. Um zip ou um tar
-simples que só ganha entradas é copiado e as novas entradas seguem-se à última, e em APFS, Btrfs, XFS
-e bcachefs essa cópia é instantânea. Antes de uma alteração que demoraria muito, o Borg pergunta
-primeiro (consulte [Tarefas longas e discos](#long-jobs-and-drives)).
+com um nome temporário, volta a lê-lo e só então o põe no lugar do original, com as mesmas
+permissões. A releitura verifica a lista de entradas de um zip ou de um 7z e cada entrada de um tar.
+Um ficheiro entra tal como está quando o Borg o escreve, por isso um ficheiro que volte a guardar
+enquanto a tarefa espera pela sua resposta entra com o conteúdo mais recente. Uma alteração que
+falhe ou que cancele deixa o arquivo como estava. As entradas que a alteração mantém são copiadas
+tal como estão guardadas: um zip copia os seus dados comprimidos, e um 7z copia cada bloco sólido
+que mantém todas as suas entradas e só volta a comprimir os blocos que perdem alguma. Um tar
+comprimido é descompactado e comprimido de novo por inteiro, e descompactado mais uma vez para o
+reler, por isso alterar um `.tar.xz` grande demora quase tanto como criá-lo e descompactá-lo. Um zip
+ou um tar simples que só ganha entradas é copiado e as novas entradas seguem-se à última, e em APFS,
+Btrfs, XFS e bcachefs essa cópia é instantânea. Antes de uma alteração que demoraria muito, o Borg
+pergunta primeiro (consulte [Tarefas longas e discos](#long-jobs-and-drives)).
 
 Num arquivo zip ou 7z cifrado, as novas entradas são cifradas com AES-256 e com a palavra-passe com
 que abriu o arquivo, e um 7z que esconde a sua lista de entradas continua a escondê-la. As entradas

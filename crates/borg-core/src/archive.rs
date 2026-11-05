@@ -170,6 +170,15 @@ pub(crate) fn at_top(state: &AppState, side: Side) -> bool {
     panel.archive.as_ref().is_some_and(|mount| panel.dir() == mount.archive)
 }
 
+/// Whether the listing `generation` on `side` reads the archive's top while the panel shows a
+/// folder of it, as `..` and Ctrl-R do. When that listing fails, the archive itself went away
+/// or no longer reads, and the panel leaves it.
+pub(crate) fn lists_top_from_inside(state: &AppState, side: Side, generation: u64) -> bool {
+    let panel = state.panel(side);
+    panel.generation() == generation
+        && panel.archive.as_ref().is_some_and(|mount| panel.destination() == mount.archive && mount.holds(panel.dir()))
+}
+
 /// Forgets the archive once the panel's folder is no longer in it, as after a listing of the
 /// archive failed and the panel kept the folder it showed.
 pub(crate) fn settle(state: &mut AppState, side: Side) {
