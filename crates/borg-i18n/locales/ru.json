@@ -1589,6 +1589,8 @@
   "archive_name_taken": "В архиве уже есть {path}.",
   "archive_kind_taken": "{path} с одной стороны файл, а с другой папка.",
   "archive_missing_entry": "В архиве больше нет {path}.",
+  "archive_source_shrank": "{path} стал короче, пока Borg его добавлял, поэтому архив остался прежним.",
+  "archive_read_back": "Borg записал {written}, а прочитал обратно {found}.",
   "count_second_one": "{count} секунда",
   "count_second_few": "{count} секунды",
   "count_second_many": "{count} секунд",

@@ -1133,7 +1133,9 @@ un archivo comprimido, y F3 sobre el propio archivo comprimido sigue mostrando s
 visor. El título del panel muestra una marca como **▤ zip** con el formato que Borg encontró en los
 primeros bytes del archivo, y la ruta continúa dentro del archivo comprimido. Las carpetas de dentro
 muestran el tamaño de lo que contienen. Left, Enter en `..` o Ctrl-PgUp en la raíz del archivo
-comprimido te devuelven a la carpeta que lo contiene, con el cursor sobre él.
+comprimido te devuelven a la carpeta que lo contiene, con el cursor sobre él. Si el archivo
+comprimido se borró o ya no se puede leer, subir desde cualquiera de sus carpetas también te
+devuelve allí, y el aviso dice por qué.
 
 Para listar un archivo comprimido, Borg lee lo que contiene, lo que en un tar comprimido significa
 leer el archivo entero. Mientras lee uno grande, el pie del panel muestra hasta dónde ha llegado
@@ -1166,21 +1168,26 @@ carpeta de él que escribas en el diálogo. F7 crea una carpeta en el archivo co
 las entradas marcadas después de preguntar. F6 hacia un nombre del mismo archivo comprimido cambia
 el nombre de las entradas o las mueve allí, y F6 hacia una carpeta de esta máquina las saca: se
 descomprimen allí y luego salen del archivo comprimido. Cuando un nombre ya existe en el archivo
-comprimido, Borg pregunta igual que una copia, y un cambio de nombre a un nombre que el archivo
-comprimido ya tiene se detiene con un aviso. Un movimiento solo borra lo que llegó entero, así que
-un archivo que omites se queda donde estaba.
+comprimido, Borg pregunta igual que una copia, y también pregunta cuando dos de los archivos que
+copias comparten nombre, como puede pasar con archivos de resultados de búsqueda o de una colección.
+Un cambio de nombre a un nombre que el archivo comprimido ya tiene se detiene con un aviso. Un
+movimiento solo borra lo que llegó entero, así que un archivo que omites se queda donde estaba,
+igual que uno que reemplazó otro archivo posterior con el mismo nombre.
 
 Cada cambio se ejecuta como una tarea en Alt-J. Borg escribe el archivo comprimido modificado junto
-al original con un nombre temporal, vuelve a leer la lista de entradas de un zip o un 7z y solo
-entonces lo pone en el lugar del original con los mismos permisos. Un cambio que falla o que
-cancelas deja el archivo comprimido como estaba. Las entradas que el cambio conserva se copian tal
-como están guardadas: un zip copia sus datos comprimidos, y un 7z copia cada bloque sólido que
-conserva todas sus entradas y vuelve a comprimir solo los bloques que pierden alguna. Un tar
-comprimido se descomprime y se vuelve a comprimir entero, así que cambiar un `.tar.xz` grande tarda
-casi lo mismo que crearlo. Un zip o un tar sin comprimir que solo gana entradas se copia y las
-entradas nuevas van detrás de la última, y en APFS, Btrfs, XFS y bcachefs esa copia es instantánea.
-Antes de un cambio que tardaría mucho, Borg pregunta primero (consulta
-[Tareas largas y discos](#long-jobs-and-drives)).
+al original con un nombre temporal, lo vuelve a leer y solo entonces lo pone en el lugar del
+original con los mismos permisos. La relectura comprueba la lista de entradas de un zip o un 7z y
+cada entrada de un tar. Un archivo entra tal como está cuando Borg lo escribe, así que un archivo
+que vuelves a guardar mientras la tarea espera tu respuesta entra con su contenido más reciente. Un
+cambio que falla o que cancelas deja el archivo comprimido como estaba. Las entradas que el cambio
+conserva se copian tal como están guardadas: un zip copia sus datos comprimidos, y un 7z copia cada
+bloque sólido que conserva todas sus entradas y vuelve a comprimir solo los bloques que pierden
+alguna. Un tar comprimido se descomprime y se vuelve a comprimir entero, y se descomprime una vez
+más para releerlo, así que cambiar un `.tar.xz` grande tarda casi lo mismo que crearlo y
+descomprimirlo. Un zip o un tar sin comprimir que solo gana entradas se copia y las entradas nuevas
+van detrás de la última, y en APFS, Btrfs, XFS y bcachefs esa copia es instantánea. Antes de un
+cambio que tardaría mucho, Borg pregunta primero (consulta [Tareas largas y
+discos](#long-jobs-and-drives)).
 
 En un archivo zip o 7z cifrado, las entradas nuevas se cifran con AES-256 y con la contraseña con la
 que abriste el archivo comprimido, y un 7z que oculta su lista de entradas la sigue ocultando. Las

@@ -1051,6 +1051,33 @@ fn typed_password(password: &str) -> Result<(Stage, Buffer)> {
     Ok((stage, buffer))
 }
 
+#[test]
+fn leaving_a_folder_of_an_archive_that_went_away_returns_beside_it() -> Result<()> {
+    const GONE: &str = "No such file or directory (os error 2)";
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveOpened { side, generation, format: borg_archive::Format::Zip, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    stage.send(key(KeyCode::Home)).send(key(KeyCode::Down));
+    list_after(&mut stage, key(KeyCode::Enter), vec![entry("guide.md", EntryKind::File, 2_100, RECENT, false)])?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Left), stage.started);
+    let (side, generation) = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::List { side, generation, .. } => Some((side, generation)),
+            _ => None,
+        })
+        .context("leaving the folder must list the archive's top")?;
+    let left = vec![entry("docs", EntryKind::Dir, 4096, OLD, false)];
+    list_after(&mut stage, Msg::Listed { side, generation, error: Some(GONE.into()) }, left)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, GONE)?;
+    anyhow::ensure!(!describe(&buffer).contains("▤ zip"), "the panel must leave the archive");
+    check("archive_gone", &stage, buffer)
+}
+
 fn running_copy(stage: &mut Stage) -> Result<u64> {
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
     stage.send(key(KeyCode::F(5)));

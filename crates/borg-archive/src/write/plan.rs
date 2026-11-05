@@ -149,7 +149,7 @@ impl<'a, 'e> Asker<'a, 'e> {
         Self { control, emit, shown, overwrite: None, skip_errors: false, reported: None }
     }
 
-    fn conflict(&mut self, source: &Path, local: &Metadata, item: &Item) -> Result<Decision, Halt> {
+    fn conflict(&mut self, source: &Path, local: &Metadata, path: &str, there: &There) -> Result<Decision, Halt> {
         match self.overwrite {
             Some(true) => return Ok(Decision::Overwrite),
             Some(false) => return Ok(Decision::Skip),
@@ -158,9 +158,9 @@ impl<'a, 'e> Asker<'a, 'e> {
         let modified = local.modified().ok();
         (self.emit)(Event::Asking(Ask::Conflict {
             source: source.to_path_buf(),
-            target: self.shown.join(&item.path),
-            sizes: (local.len(), item.size),
-            newer: modified.zip(item.modified).is_some_and(|(local, stored)| local > stored),
+            target: self.shown.join(path),
+            sizes: (local.len(), there.size),
+            newer: modified.zip(there.modified).is_some_and(|(local, there)| local > there),
         }));
         let decision = self.control.decide();
         match decision {
@@ -280,6 +280,16 @@ fn replace(index: &Index, path: &str, source: &Path) -> Result<Plan, Halt> {
     Ok(plan)
 }
 
+/// What already takes a path the change adds an entry under: an entry of the archive, or one
+/// the same change added before.
+struct There {
+    folder: bool,
+    size: u64,
+    modified: Option<SystemTime>,
+    /// The place in `added` of an entry the change added.
+    added: Option<usize>,
+}
+
 /// Adds files and folders of this machine, walking each folder.
 struct Adder<'i, 'q, 'a, 'e> {
     index: &'i Index,
@@ -288,6 +298,8 @@ struct Adder<'i, 'q, 'a, 'e> {
     taken: HashSet<String>,
     dropped: HashSet<String>,
     added: Vec<Added>,
+    /// The file or folder of this machine each added path comes from.
+    sources: HashMap<String, PathBuf>,
     skipped: u64,
     left: Vec<PathBuf>,
     found: Totals,
@@ -302,6 +314,7 @@ impl<'i, 'q, 'a, 'e> Adder<'i, 'q, 'a, 'e> {
             taken,
             dropped: HashSet::new(),
             added: Vec::new(),
+            sources: HashMap::new(),
             skipped: 0,
             left: Vec::new(),
             found: Totals::default(),
@@ -338,8 +351,8 @@ impl<'i, 'q, 'a, 'e> Adder<'i, 'q, 'a, 'e> {
         }
         let Some(path) = self.settle(source, &local, path)? else { return Ok(()) };
         if kind.is_dir() {
-            if !self.index.item(&path).is_some_and(Item::is_folder) {
-                self.push(path.clone(), Adding::Folder, &local);
+            if self.there(&path).is_none() {
+                self.push(source, path.clone(), Adding::Folder, &local);
             }
             let mut children: Vec<PathBuf> = match fs::read_dir(source) {
                 Ok(children) => children.filter_map(|child| child.ok().map(|child| child.path())).collect(),
@@ -355,7 +368,7 @@ impl<'i, 'q, 'a, 'e> Adder<'i, 'q, 'a, 'e> {
             }
         } else if kind.is_symlink() {
             match fs::read_link(source) {
-                Ok(target) => self.push(path, Adding::Symlink(target.to_string_lossy().into_owned()), &local),
+                Ok(target) => self.push(source, path, Adding::Symlink(target.to_string_lossy().into_owned()), &local),
                 Err(error) => {
                     self.leave(source);
                     return self.asker.failure(source, error.to_string());
@@ -364,30 +377,47 @@ impl<'i, 'q, 'a, 'e> Adder<'i, 'q, 'a, 'e> {
         } else {
             let adding = Adding::File { source: source.to_path_buf(), size: local.len() };
             self.found = Totals { files: self.found.files + 1, bytes: self.found.bytes + local.len() };
-            self.push(path, adding, &local);
+            self.push(source, path, adding, &local);
         }
         self.asker.scanning(self.found)
+    }
+
+    /// What takes `path` already: an entry this change added, or else one of the archive it
+    /// keeps.
+    fn there(&self, path: &str) -> Option<There> {
+        if self.sources.contains_key(path) {
+            let place = self.added.iter().position(|added| added.path == path)?;
+            let added = &self.added[place];
+            let folder = matches!(added.adding, Adding::Folder);
+            return Some(There { folder, size: added.size(), modified: added.modified, added: Some(place) });
+        }
+        let item = self.index.item(path).filter(|item| !self.dropped.contains(&item.path))?;
+        Some(There { folder: item.is_folder(), size: item.size, modified: item.modified, added: None })
     }
 
     /// The path an entry is added under, once a name already there is settled; `None` leaves it
     /// out.
     fn settle(&mut self, source: &Path, local: &Metadata, path: String) -> Result<Option<String>, Halt> {
-        let Some(existing) = self.index.item(&path).filter(|item| !self.dropped.contains(&item.path)) else {
+        let Some(there) = self.there(&path) else {
             return Ok(Some(path));
         };
         let folder = local.file_type().is_dir();
-        if folder && existing.is_folder() {
+        if folder && there.folder {
             return Ok(Some(path));
         }
-        if folder != existing.is_folder() {
+        if folder != there.folder {
             self.leave(source);
             self.asker.failure(source, tr!(archive_kind_taken, path = path))?;
             return Ok(None);
         }
-        let existing = existing.clone();
-        Ok(match self.asker.conflict(source, local, &existing)? {
+        Ok(match self.asker.conflict(source, local, &path, &there)? {
             Decision::Overwrite | Decision::OverwriteAll => {
-                self.dropped.insert(path.clone());
+                match there.added {
+                    Some(place) => self.replaced(place),
+                    None => {
+                        self.dropped.insert(path.clone());
+                    }
+                }
                 Some(path)
             }
             Decision::KeepBoth => {
@@ -403,14 +433,24 @@ impl<'i, 'q, 'a, 'e> Adder<'i, 'q, 'a, 'e> {
         })
     }
 
+    /// Takes back the entry at `place` in `added`, which a later source of the same name
+    /// replaces, and keeps its source out of what the change took whole.
+    fn replaced(&mut self, place: usize) {
+        let earlier = self.added.remove(place);
+        if let Some(source) = self.sources.remove(&earlier.path) {
+            self.left.push(source);
+        }
+    }
+
     /// Leaves `source` out of the archive.
     fn leave(&mut self, source: &Path) {
         self.skipped += 1;
         self.left.push(source.to_path_buf());
     }
 
-    fn push(&mut self, path: String, adding: Adding, local: &Metadata) {
+    fn push(&mut self, source: &Path, path: String, adding: Adding, local: &Metadata) {
         self.taken.insert(path.clone());
+        self.sources.insert(path.clone(), source.to_path_buf());
         let mode = local.permissions().mode() & PERMISSIONS;
         self.added.push(Added { path, adding, mode, modified: local.modified().ok() });
     }

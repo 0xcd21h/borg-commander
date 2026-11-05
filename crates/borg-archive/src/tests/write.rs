@@ -425,3 +425,169 @@ fn moves_go_into_a_folder_the_archive_holds() {
     let (outcome, _) = change(&path, None, add(&local, "../up"), &[]);
     assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
 }
+
+const FIRST_SAVE: &str = "alpha, first save";
+const LONGER_SAVE: &str = "alpha, second save with a fixed typo and a longer line";
+const SHORTER_SAVE: &str = "alpha";
+/// A save longer than one tar block, which used to spill into where the next header goes.
+const SAVE_PAST_A_BLOCK: usize = 2000;
+const GROWTH: usize = 700;
+
+/// Changes the archive on a drive slow enough that Borg asks first, runs `meanwhile` while the
+/// question waits, and then goes ahead.
+fn change_while_asked(path: &Path, change: Change, meanwhile: impl FnOnce()) -> (Report<PathBuf>, Vec<Ask>) {
+    let control = Control::default();
+    let mut meanwhile = Some(meanwhile);
+    let mut asked = Vec::new();
+    let job = Rewrite { archive: Archive { path, password: None, tool: None }, change: &change };
+    let report = job.run(&listed, &on(DriveKind::HardDrive, CRAWLING), &control, &mut |event| {
+        if let Event::Asking(ask) = event {
+            asked.push(ask);
+            if let Some(meanwhile) = meanwhile.take() {
+                meanwhile();
+            }
+            control.answer(Decision::Proceed);
+        }
+    });
+    (report, asked)
+}
+
+fn slow_question(asked: &[Ask]) -> bool {
+    matches!(asked, [Ask::Slow { .. }])
+}
+
+#[test]
+fn a_file_saved_again_while_a_tar_change_waits_goes_in_as_it_is_then() {
+    let plain = sample_tar(&long_name());
+    let past_a_block = "y".repeat(SAVE_PAST_A_BLOCK);
+    for (name, bytes) in [("backup.tar", plain.clone()), ("backup.tar.gz", gzip(&plain))] {
+        for second in [LONGER_SAVE, SHORTER_SAVE, past_a_block.as_str()] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join(name);
+            fs::write(&path, &bytes).unwrap();
+            let edit = dir.path().join("a.txt");
+            fs::write(&edit, FIRST_SAVE).unwrap();
+            let replace = Change::Replace { path: "a.txt".into(), source: edit.clone() };
+            let (report, asked) = change_while_asked(&path, replace, || fs::write(&edit, second).unwrap());
+            done(&report.outcome);
+            assert!(slow_question(&asked), "{asked:?}");
+            let after = contents(&path, None);
+            assert_eq!(after["a.txt"], second, "{name}");
+            assert_eq!(after["docs/b.txt"], "beta", "{name}");
+            assert_eq!(index(&path).item("a.txt").map(|item| item.size), Some(second.len() as u64), "{name}");
+            no_partials(dir.path());
+        }
+    }
+}
+
+#[test]
+fn a_file_that_grows_while_a_plain_tar_waits_goes_in_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plain.tar");
+    fs::write(&path, sample_tar(&long_name())).unwrap();
+    let log = dir.path().join("log.txt");
+    fs::write(&log, NOTES).unwrap();
+    let grown = format!("{NOTES}{}", "x".repeat(GROWTH));
+    let adding = Change::Add { sources: vec![log.clone()], into: String::new() };
+    let (report, asked) = change_while_asked(&path, adding, || fs::write(&log, &grown).unwrap());
+    done(&report.outcome);
+    assert!(slow_question(&asked), "{asked:?}");
+    let after = contents(&path, None);
+    assert_eq!(after["log.txt"], grown);
+    assert_eq!(after["a.txt"], "alpha");
+}
+
+#[test]
+fn an_empty_file_saved_again_while_a_7z_change_waits_goes_in_as_it_is_then() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.7z");
+    sevenz_rust2::compress_to_path(seven_zip_source(dir.path()), &path).unwrap();
+    let edit = dir.path().join("top.txt");
+    fs::write(&edit, "").unwrap();
+    let replace = Change::Replace { path: "top.txt".into(), source: edit.clone() };
+    let (report, asked) = change_while_asked(&path, replace, || fs::write(&edit, LONGER_SAVE).unwrap());
+    done(&report.outcome);
+    assert!(slow_question(&asked), "{asked:?}");
+    assert_eq!(contents(&path, None)["top.txt"], LONGER_SAVE);
+}
+
+/// `a/config.json` and `b/config.json`, as a list of search results gives them.
+fn two_of_one_name(dir: &Path) -> Vec<PathBuf> {
+    ["a", "b"]
+        .iter()
+        .map(|folder| {
+            let source = dir.join(folder).join("config.json");
+            fs::create_dir_all(source.parent().unwrap()).unwrap();
+            fs::write(&source, folder).unwrap();
+            source
+        })
+        .collect()
+}
+
+fn small_archive(path: &Path) {
+    if path.extension().is_some_and(|ending| ending == "zip") {
+        sample_zip(path);
+    } else {
+        fs::write(path, sample_tar(&long_name())).unwrap();
+    }
+}
+
+fn named(path: &Path, name: &str) -> usize {
+    let index = index(path);
+    index.entries().filter(|item| item.path == name).count() + index.shadowed().len()
+}
+
+#[test]
+fn two_sources_of_one_name_are_asked_about_like_a_copy_into_a_folder() {
+    for name in ["evidence.zip", "evidence.tar"] {
+        for decision in [Decision::Skip, Decision::KeepBoth, Decision::Overwrite] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join(name);
+            small_archive(&path);
+            let sources = two_of_one_name(dir.path());
+            let adding = Change::Add { sources: sources.clone(), into: String::new() };
+            let (report, asked) = report_on(&quick(), &path, None, adding, &[decision]);
+            let conflict = |ask: &Ask| matches!(ask, Ask::Conflict { source, target, .. } if *source == sources[1] && *target == path.join("config.json"));
+            assert!(matches!(&asked[..], [ask] if conflict(ask)), "{name} {decision:?}: {asked:?}");
+            done(&report.outcome);
+            let after = contents(&path, None);
+            assert_eq!(named(&path, "config.json"), 1, "{name} {decision:?}");
+            match decision {
+                Decision::Skip => {
+                    assert_eq!(after["config.json"], "a", "{name}");
+                    assert_eq!(report.kept, vec![sources[1].clone()], "{name}");
+                }
+                Decision::KeepBoth => {
+                    assert_eq!(after["config.json"], "a", "{name}");
+                    assert_eq!(after["config (2).json"], "b", "{name}");
+                    assert!(report.kept.is_empty(), "{name}: {:?}", report.kept);
+                }
+                _ => {
+                    assert_eq!(after["config.json"], "b", "{name}");
+                    assert_eq!(report.kept, vec![sources[0].clone()], "{name}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn two_folders_of_one_name_merge_and_ask_about_the_files_they_share() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("evidence.zip");
+    sample_zip(&path);
+    for (folder, file) in [("x", "one.txt"), ("y", "two.txt"), ("y", "one.txt")] {
+        let source = dir.path().join(folder).join("logs").join(file);
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, folder).unwrap();
+    }
+    let sources = vec![dir.path().join("x/logs"), dir.path().join("y/logs")];
+    let (report, asked) =
+        report_on(&quick(), &path, None, Change::Add { sources, into: String::new() }, &[Decision::Skip]);
+    assert!(matches!(&asked[..], [Ask::Conflict { target, .. }] if *target == path.join("logs/one.txt")), "{asked:?}");
+    done(&report.outcome);
+    let after = contents(&path, None);
+    assert_eq!(after["logs/one.txt"], "x");
+    assert_eq!(after["logs/two.txt"], "y");
+    assert_eq!(report.kept, vec![dir.path().join("y/logs")]);
+}

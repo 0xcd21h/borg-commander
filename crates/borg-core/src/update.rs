@@ -294,6 +294,7 @@ fn batch(state: &mut AppState, side: crate::Side, generation: u64, entries: Vec<
 fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Option<String>) -> Vec<Effect> {
     let visible = state.panel(side).generation() == generation;
     let failed = error.is_some();
+    let unreadable = failed && crate::archive::lists_top_from_inside(state, side, generation);
     if let Some(panel) = state.receiving_panel(side, generation) {
         let notice = panel.finish(generation, error);
         panel.settle();
@@ -309,6 +310,9 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
         state.notice = notice.or(state.notice.take());
     }
     crate::archive::settle(state, side);
+    if unreadable {
+        return crate::archive::unmount(state, side).into_iter().collect();
+    }
     if !visible {
         return Vec::new();
     }

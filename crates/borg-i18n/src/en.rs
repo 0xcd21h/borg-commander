@@ -1602,6 +1602,8 @@ catalog! {
     archive_name_taken => "The archive already holds {path}.",
     archive_kind_taken => "{path} is a file on one side and a folder on the other.",
     archive_missing_entry => "The archive no longer holds {path}.",
+    archive_source_shrank => "{path} got shorter while Borg added it, so the archive stays as it was.",
+    archive_read_back => "Borg wrote {written} and read back {found}.",
     count_second_one => "{count} second",
     count_second_few => "{count} seconds",
     count_second_many => "{count} seconds",
