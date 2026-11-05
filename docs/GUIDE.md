@@ -633,6 +633,9 @@ Anything that changes the machine waits for you in a dialog that shows the whole
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
 keys, PgUp and PgDn, or the mouse wheel, and press F3 to see the dialog full screen. No stays
 selected until you choose Yes, and an edit is refused if the file changed while you were deciding.
+The dialog shows on top of everything, including the editor, the viewer, another dialog and the
+screensaver, and it takes every key until you answer. What it covered comes back afterward. If
+the agent stops waiting first, the dialog closes and a notice says so.
 For a paired computer, `approval_mode` asks you once before turning on Approve all for that
 session. While it is on, a badge stays visible; click it or press Ctrl+Alt+A to turn it off at
 once. It also turns off when that paired connection closes. Pairing approvals are separate.
@@ -719,9 +722,11 @@ joins them.
    relay, paste its address there and press Enter to save it and get a link through it.
 2. Run the command in a terminal on your computer, where borg is installed too. It prints a
    pairing code: six emoji, each with its name, such as `🐱 Cat · 🦁 Lion · 🐎 Horse`.
-3. Borg on the server asks whether to pair, showing your computer's name and the code. Choose
-   Yes if the codes match. `borg pair` then offers to add the server to Claude Code, as
-   `claude mcp add borg-NAME -- borg mcp remote NAME`.
+3. Borg on the server asks whether to pair, showing your computer's name and the code. The
+   question comes up at once, even while F3 shows the command as plain text. Choose Yes if the
+   codes match. `borg pair` then offers to add the server to Claude Code, as
+   `claude mcp add borg-NAME -- borg mcp remote NAME`. It waits 5 minutes for your answer; when it
+   gives up or you stop it, the question closes and the link stops working.
 
 The code comes from the encrypted handshake the two borgs have just completed, so it is the same
 on both screens only if your computer is the one talking to the server. Someone who got hold of
@@ -962,6 +967,9 @@ unpack would take more than 2 minutes, or a change to an archive more than 20 se
   kind.
 - **Cancel** (`c`) stops before the first write.
 
+A save from the editor into an archive asks over the editor, which gets the keys back once you
+answer.
+
 Until Borg has measured a drive, it expects the usual speed of its kind: about 120 MB/s for a hard
 drive, 900 MB/s for an SSD, 4 GB/s for a RAM disk, 60 MB/s for a network share and 10 MB/s for a
 remote machine. Every job that runs for at least 2 seconds and moves at least 64 MiB teaches Borg
@@ -1037,7 +1045,9 @@ folder holding the one file. Ctrl-PgDn opens an archive too, and F3 on the archi
 shows its bytes in the viewer. The panel's title gets a badge such as **▤ zip** that names the
 format Borg found in the file's first bytes, and the path goes on inside the archive. Folders
 inside show the size of what they hold. Left, Enter on `..` or Ctrl-PgUp at the archive's top
-takes you back to the folder that holds it, with the cursor on the archive.
+takes you back to the folder that holds it, with the cursor on the archive. When the archive was
+deleted or no longer reads, going up from any folder of it takes you back there too, and the
+notice says why.
 
 To list an archive, Borg reads what it holds, which for a compressed tar means reading the whole
 file. While a large archive is read, the panel's footer shows how far Borg got, and Esc stops
@@ -1068,18 +1078,23 @@ copies or moves the marked files into the archive the other panel shows, or into
 you type in the dialog. F7 makes a folder in the archive, and F8 deletes the marked entries after
 asking. F6 to a name in the same archive renames or moves the entries there, and F6 to a folder of
 this machine moves them out: they unpack there and then leave the archive. Names that already exist
-in the archive are asked about as a copy asks, and a rename to a name the archive holds stops with
-a notice. A move deletes only what arrived whole, so a file you skip stays where it was.
+in the archive are asked about as a copy asks, and so are names two of the files you copy share,
+as files from search results or a collection can. A rename to a name the archive holds stops with
+a notice. A move deletes only what arrived whole, so a file you skip stays where it was, and so
+does one that a later file of the same name replaced.
 
 Each change runs as a job in Alt-J. Borg writes the changed archive beside the original under a
-temporary name, reads a zip's or 7z's list of entries back, and then puts it in the original's
-place with the same permissions. A change that fails or that you cancel leaves the archive as it
-was. Entries the change keeps are copied as they are stored: a zip copies their compressed data,
-and a 7z copies every solid block that keeps all its entries and packs again only the blocks that
-lose one. A compressed tar is unpacked and packed again whole, so changing a large `.tar.xz` takes
-about as long as making it. A zip or plain tar that only gains entries is copied and the new
-entries follow the last one, and on APFS, Btrfs, XFS and bcachefs that copy is instant. Before a
-change that would take long, Borg asks first (see [Long jobs and drives](#long-jobs-and-drives)).
+temporary name, reads it back, and then puts it in the original's place with the same permissions.
+The read-back checks a zip's or 7z's list of entries and every entry of a tar. A file goes in as it
+is when Borg writes it, so a file you save again while the job waits for your answer goes in with
+its latest contents. A change that fails or that you cancel leaves the archive as it was. Entries
+the change keeps are copied as they are stored: a zip copies their compressed data, and a 7z copies
+every solid block that keeps all its entries and packs again only the blocks that lose one. A
+compressed tar is unpacked and packed again whole, then unpacked once more to read it back, so
+changing a large `.tar.xz` takes about as long as making it and unpacking it. A zip or plain tar
+that only gains entries is copied and the new entries follow the last one, and on APFS, Btrfs, XFS
+and bcachefs that copy is instant. Before a change that would take long, Borg asks first (see [Long
+jobs and drives](#long-jobs-and-drives)).
 
 In an encrypted zip or 7z archive, new entries are encrypted with AES-256 and the password you
 opened the archive with, and a 7z that hides its list of entries keeps it hidden. Entries the change
@@ -1243,7 +1258,8 @@ After `screensaver-after` seconds without input, Borg shows one of five screensa
 random: a cube spinning in a starfield, the glitching logo, a clock in the logo's block letters
 that tears apart as each minute turns, the logo swirling out into a spiral galaxy and back, or
 the logo rebuilt plank by plank while the old planks gather into a second logo below it. Any key
-or click brings the panels back, and that key does nothing else.
+or click brings the panels back, and that key does nothing else. An agent's approval ends the
+screensaver by itself, so it never waits behind one.
 
 Custom themes go in `~/.config/borg-commander/themes/`. A theme can extend a built-in one:
 
@@ -1647,6 +1663,11 @@ that worries you. **Connections** lists the sockets the process held at that mom
 hash** is the SHA-256 of its program, and **Rules** shows what Borg's rules and yours matched in
 that program (see [Scanning files with rules](#scanning-files-with-rules)).
 
+A command longer than 2 KiB keeps its start and its end, 2 KiB together, with `…` between them. The
+commands of its parents and the values of its preload variables are cut the same way. That keeps the
+newest 200 alerts inside the log however long their commands run, and a long first argument cannot
+push the end of a command out of view. Ctrl-C copies the command as the log keeps it.
+
 | Key | Action |
 | --- | --- |
 | Enter | Show the process in the activity monitor |
@@ -1663,10 +1684,17 @@ The filter keeps the alerts that contain every word you type, in the rule, its s
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
 leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
 
-Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. The
-**Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)). Opening
-the page marks what it holds as read, and the count of unread alerts follows the log while Borg
-is open, whether or not the page is.
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. Borg keeps
+the file within 8 MiB, the most it reads back, and leaves out the oldest alerts when they would not
+fit. The **Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)).
+Opening the page marks what it holds as read, and the count of unread alerts follows the log while
+Borg is open, whether or not the page is.
+
+When Borg finds an `alerts.json` it cannot read, such as one an older version let grow past 8 MiB,
+it renames the file to `alerts-unreadable.json` before it writes a new log, so the alerts in it
+stay on disk. A later one gets a numbered name such as `alerts-unreadable (2).json`. The Alerts page
+names the file below the list for as long as it is there, so delete it once you have looked
+through it.
 
 ### What the watcher looks for
 

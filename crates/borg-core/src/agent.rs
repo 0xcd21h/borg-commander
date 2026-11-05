@@ -32,6 +32,8 @@ pub enum AgentEvent {
     Connected { clients: usize },
     /// An agent asks to do something that changes the machine.
     Ask { id: u64, ask: Ask },
+    /// The agent stopped waiting for the answer to an ask.
+    Withdrawn { id: u64 },
     /// An entry for the log of what agents did.
     Note(String),
     /// An approved command is about to run in a container's shell: the Docker view shows it.
@@ -183,6 +185,7 @@ pub(crate) fn receive(state: &mut AppState, event: AgentEvent) -> Vec<Effect> {
             state.agent.clients = clients;
         }
         AgentEvent::Ask { id, ask } => state.agent.asks.push((id, ask)),
+        AgentEvent::Withdrawn { id } => withdraw(state, id),
         AgentEvent::Note(entry) => {
             if state.settings.preferences.agent_log {
                 let log = &mut state.agent.log;
@@ -253,15 +256,24 @@ fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     vec![Effect::Write(borg_term::encode_paste(text, state.shell.observed.mode))]
 }
 
-/// Asks about the oldest waiting request once nothing else is on screen.
+/// Asks about the oldest waiting request over whatever is on screen.
 pub(crate) fn surface(state: &mut AppState, now: Instant) {
-    if state.overlay.is_some() || state.agent.asks.is_empty() {
+    if state.approval.is_some() || state.agent.asks.is_empty() {
         return;
     }
     let (id, ask) = state.agent.asks.remove(0);
     let typing = now.saturating_duration_since(state.idle_since) < APPROVAL_GRACE;
     let guarded_until = typing.then(|| now + APPROVAL_GRACE);
-    state.overlay = Some(Overlay::Approval(Approval { id, ask, scroll: 0, accept: false, full: false, guarded_until }));
+    state.screensaver = false;
+    state.intro = None;
+    state.approval = Some(Approval { id, ask, scroll: 0, accept: false, full: false, guarded_until });
+}
+
+fn withdraw(state: &mut AppState, id: u64) {
+    state.agent.asks.retain(|(waiting, _)| *waiting != id);
+    if let Some(approval) = state.approval.take_if(|approval| approval.id == id) {
+        state.notice = Some(tr!(agent_withdrawn, summary = approval.ask.summary));
+    }
 }
 
 pub(crate) fn on_approval_key(
@@ -277,11 +289,10 @@ pub(crate) fn on_approval_key(
         _ => None,
     };
     if decided == Some(true) && approval.guarded_until.is_some_and(|until| now < until) {
-        state.overlay = Some(Overlay::Approval(approval));
+        state.approval = Some(approval);
         return Vec::new();
     }
     if let Some(approved) = decided {
-        state.overlay = None;
         // The footer shows a command, a write or a capture until borg reports it done; a pairing,
         // a read or an upload is answered at once, and nothing would clear it.
         if approved && matches!(approval.ask.kind, AskKind::Run | AskKind::Create | AskKind::Edit | AskKind::Capture) {
@@ -305,28 +316,49 @@ pub(crate) fn on_approval_key(
         _ => {}
     }
     approval.scroll = approval.scroll.min(last);
-    state.overlay = Some(Overlay::Approval(approval));
+    state.approval = Some(approval);
     Vec::new()
+}
+
+pub(crate) fn on_approval_pointer(
+    state: &mut AppState,
+    approval: Approval,
+    pointer: crate::Pointer,
+    now: Instant,
+) -> Vec<Effect> {
+    match pointer {
+        crate::Pointer::Confirm(accept) => {
+            let answer = KeyCode::Char(if accept { crate::keyboard::YES_KEY } else { crate::keyboard::NO_KEY });
+            on_approval_key(state, approval, &answer.into(), now)
+        }
+        crate::Pointer::DialogScroll(delta) => {
+            state.approval = Some(approval);
+            scroll_dialog(state, delta);
+            Vec::new()
+        }
+        _ => {
+            state.approval = Some(approval);
+            Vec::new()
+        }
+    }
 }
 
 /// Scrolls the approval dialog or the log by `delta` rows, as the mouse wheel does.
 pub(crate) fn scroll_dialog(state: &mut AppState, delta: isize) {
     let screen = Rect::new(0, 0, state.cols, state.rows);
-    match state.overlay.as_mut() {
-        Some(Overlay::Approval(approval)) => {
-            let (_, body) = approval_layout(approval, screen);
-            let last = approval_rows(&approval.ask.body, body.width).len().saturating_sub(usize::from(body.height));
-            approval.scroll = approval.scroll.saturating_add_signed(delta).min(last);
+    if let Some(approval) = state.approval.as_mut() {
+        let (_, body) = approval_layout(approval, screen);
+        let last = approval_rows(&approval.ask.body, body.width).len().saturating_sub(usize::from(body.height));
+        approval.scroll = approval.scroll.saturating_add_signed(delta).min(last);
+        return;
+    }
+    if let Some(Overlay::AgentLog { scroll }) = state.overlay.as_mut() {
+        let body = log_layout(screen).1;
+        let last = log_rows(&state.agent.log, body.width).len().saturating_sub(usize::from(body.height));
+        *scroll = scroll.unwrap_or(last).saturating_add_signed(delta).min(last).into();
+        if *scroll == Some(last) {
+            *scroll = None;
         }
-        Some(Overlay::AgentLog { scroll }) => {
-            let body = log_layout(screen).1;
-            let last = log_rows(&state.agent.log, body.width).len().saturating_sub(usize::from(body.height));
-            *scroll = scroll.unwrap_or(last).saturating_add_signed(delta).min(last).into();
-            if *scroll == Some(last) {
-                *scroll = None;
-            }
-        }
-        _ => {}
     }
 }
 

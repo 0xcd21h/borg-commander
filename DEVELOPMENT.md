@@ -424,7 +424,11 @@ allowances and never the baseline, so neither can lose what the other wrote; the
 new allowances on its own tick, once a minute. Both sides change `alerts.json` by reading it fresh,
 changing it and writing it back, so what the page marked read or let go on survives the watcher's
 next alert, and the watcher rereads the log once a minute to learn whether the week has been
-reviewed. A thread of its own hashes the program and runs the rules over it for each alert, so a
+reviewed. `AlertLog::add` keeps each command at most `COMMAND_KEPT` bytes, its start and its end, and
+`watch::log::write_log` drops the oldest alerts until the file fits the bytes Borg reads back, so
+nothing a process puts on its command line can make the log unreadable. A writer that finds a log it
+cannot read renames it to `alerts-unreadable.json` first (`load_log`), and the new log names that
+file while it exists; reading for the page never moves anything. A thread of its own hashes the program and runs the rules over it for each alert, so a
 large program does not hold up the processes that start meanwhile; the alerts are written with the
 connections first and take in the hash and matches when they come. The watcher runs inside
 `borg service run` and nowhere else, so one Borg decides and the others read the log; a Borg with

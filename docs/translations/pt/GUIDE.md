@@ -688,6 +688,10 @@ completa: um comando e o sítio onde vai ser executado, um ficheiro novo ou uma 
 de diff. Percorra as alterações longas com as setas, PgUp e PgDn ou a roda do rato, e prima F3
 para ver a caixa de diálogo em ecrã inteiro. A opção Não mantém-se selecionada até escolher Sim, e uma edição é
 recusada se o ficheiro tiver mudado enquanto decidia.
+A caixa de diálogo aparece por cima de tudo, incluindo o editor, o visualizador, outra caixa de
+diálogo e o protetor de ecrã, e recebe todas as teclas até responder. O que ela tapava volta a
+aparecer depois. Se o agente deixar de esperar antes disso, a caixa de diálogo fecha-se e um aviso
+indica-o.
 Para um computador emparelhado, `approval_mode` pede-lhe confirmação uma vez antes de ativar
 Aprovar tudo nessa sessão. Enquanto estiver ativo, fica visível um distintivo; clique nele ou prima
 Ctrl+Alt+A para o desativar de imediato. Desativa-se também quando essa ligação emparelhada fecha.
@@ -784,8 +788,10 @@ ligam a um relay, e o relay junta-os.
    apresentado um código de emparelhamento: seis emojis, cada um com o seu nome, como
    `🐱 Cat · 🦁 Lion · 🐎 Horse`.
 3. O borg do servidor pergunta se quer emparelhar, mostrando o nome do seu computador e o código.
+   A pergunta aparece de imediato, mesmo enquanto F3 mostra o comando em texto simples.
    Escolha Sim se os códigos coincidirem. Em seguida, `borg pair` propõe acrescentar o servidor ao
-   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`.
+   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`. Espera 5 minutos pela sua
+   resposta; quando desiste ou o interrompe, a pergunta fecha-se e a ligação deixa de funcionar.
 
 O código deriva do handshake cifrado que os dois borgs acabaram de concluir, pelo que só é igual
 nos dois ecrãs se for o seu computador a comunicar com o servidor. Alguém que tivesse obtido a
@@ -1048,6 +1054,9 @@ aproximadamente, e em que tipo de disco, e espera:
   tipo.
 - **Cancelar** (`c`) para antes da primeira escrita.
 
+Uma gravação do editor num arquivo pergunta por cima do editor, que volta a receber as teclas assim
+que responder.
+
 Enquanto o Borg não tiver medido um disco, conta com a velocidade habitual do seu tipo: cerca de
 120 MB/s para um disco rígido, 900 MB/s para um SSD, 4 GB/s para um disco em RAM, 60 MB/s para uma
 partilha de rede e 10 MB/s para uma máquina remota. Cada tarefa que corre durante pelo menos 2
@@ -1136,6 +1145,8 @@ arquivo continua a mostrar os seus bytes no visualizador. O título do painel ga
 **▤ zip**, que indica o formato que o Borg encontrou nos primeiros bytes do ficheiro, e o caminho
 continua dentro do arquivo. As pastas lá dentro mostram o tamanho do que contêm. Left, Enter em `..`
 ou Ctrl-PgUp no topo do arquivo levam-no de volta à pasta que o contém, com o cursor no arquivo.
+Quando o arquivo foi eliminado ou já não se lê, subir a partir de qualquer pasta dele também o leva
+de volta para lá, e o aviso diz porquê.
 
 Para listar um arquivo, o Borg lê o que ele contém, o que num tar comprimido significa ler o
 ficheiro inteiro. Enquanto um arquivo grande é lido, o rodapé do painel mostra até onde o Borg
@@ -1162,24 +1173,29 @@ como uma cópia, escreve cada ficheiro com um nome temporário até estar comple
 no tamanho que o arquivo lhe atribui.
 
 O Borg altera arquivos zip, 7z e tar, comprimidos ou não. F5 ou F6 a partir de uma pasta desta
-máquina copia ou move os ficheiros marcados para o arquivo que o outro painel mostra, ou para a pasta
-dele que escrever na caixa de diálogo. F7 cria uma pasta no arquivo, e F8 elimina as entradas
+máquina copia ou move os ficheiros marcados para o arquivo que o outro painel mostra, ou para a
+pasta dele que escrever na caixa de diálogo. F7 cria uma pasta no arquivo, e F8 elimina as entradas
 marcadas depois de perguntar. F6 para um nome no mesmo arquivo muda o nome das entradas ou move-as
 para lá, e F6 para uma pasta desta máquina move-as para fora: são descompactadas lá e depois saem do
-arquivo. Quando um nome já existe no arquivo, o Borg pergunta o que fazer tal como numa cópia, e uma
-mudança de nome para um nome que o arquivo já tem para com um aviso. Uma movimentação só elimina o
-que chegou inteiro, por isso um ficheiro que ignore fica onde estava.
+arquivo. Quando um nome já existe no arquivo, o Borg pergunta o que fazer tal como numa cópia, e faz
+o mesmo quando dois dos ficheiros que copia têm o mesmo nome, como pode acontecer com ficheiros de
+resultados de pesquisa ou de uma coleção. Uma mudança de nome para um nome que o arquivo já tem para
+com um aviso. Uma movimentação só elimina o que chegou inteiro, por isso um ficheiro que ignore fica
+onde estava, tal como um ficheiro que outro posterior com o mesmo nome substituiu.
 
 Cada alteração corre como uma tarefa em Alt-J. O Borg escreve o arquivo alterado ao lado do original
-com um nome temporário, volta a ler a lista de entradas de um zip ou de um 7z e só então o põe no
-lugar do original, com as mesmas permissões. Uma alteração que falhe ou que cancele deixa o arquivo
-como estava. As entradas que a alteração mantém são copiadas tal como estão guardadas: um zip copia
-os seus dados comprimidos, e um 7z copia cada bloco sólido que mantém todas as suas entradas e só
-volta a comprimir os blocos que perdem alguma. Um tar comprimido é descompactado e comprimido de novo
-por inteiro, por isso alterar um `.tar.xz` grande demora quase tanto como criá-lo. Um zip ou um tar
-simples que só ganha entradas é copiado e as novas entradas seguem-se à última, e em APFS, Btrfs, XFS
-e bcachefs essa cópia é instantânea. Antes de uma alteração que demoraria muito, o Borg pergunta
-primeiro (consulte [Tarefas longas e discos](#long-jobs-and-drives)).
+com um nome temporário, volta a lê-lo e só então o põe no lugar do original, com as mesmas
+permissões. A releitura verifica a lista de entradas de um zip ou de um 7z e cada entrada de um tar.
+Um ficheiro entra tal como está quando o Borg o escreve, por isso um ficheiro que volte a guardar
+enquanto a tarefa espera pela sua resposta entra com o conteúdo mais recente. Uma alteração que
+falhe ou que cancele deixa o arquivo como estava. As entradas que a alteração mantém são copiadas
+tal como estão guardadas: um zip copia os seus dados comprimidos, e um 7z copia cada bloco sólido
+que mantém todas as suas entradas e só volta a comprimir os blocos que perdem alguma. Um tar
+comprimido é descompactado e comprimido de novo por inteiro, e descompactado mais uma vez para o
+reler, por isso alterar um `.tar.xz` grande demora quase tanto como criá-lo e descompactá-lo. Um zip
+ou um tar simples que só ganha entradas é copiado e as novas entradas seguem-se à última, e em APFS,
+Btrfs, XFS e bcachefs essa cópia é instantânea. Antes de uma alteração que demoraria muito, o Borg
+pergunta primeiro (consulte [Tarefas longas e discos](#long-jobs-and-drives)).
 
 Num arquivo zip ou 7z cifrado, as novas entradas são cifradas com AES-256 e com a palavra-passe com
 que abriu o arquivo, e um 7z que esconde a sua lista de entradas continua a escondê-la. As entradas
@@ -1352,7 +1368,8 @@ escolhido ao acaso: um cubo a girar num campo de estrelas, o logótipo com efeit
 relógio nas letras de blocos do logótipo que se desfaz a cada novo minuto, o logótipo a rodopiar
 até formar uma galáxia em espiral e a regressar, ou o logótipo reconstruído tábua a tábua enquanto
 as tábuas antigas formam um segundo logótipo por baixo. Qualquer tecla ou clique traz os painéis
-de volta, e essa tecla não faz mais nada.
+de volta, e essa tecla não faz mais nada. A aprovação pedida por um agente termina o protetor de
+ecrã por si, por isso nunca fica à espera por trás dele.
 
 Os temas personalizados ficam em `~/.config/borg-commander/themes/`. Um tema pode estender um dos
 temas incluídos:
@@ -1789,6 +1806,12 @@ tinha naquele momento, **Hash do programa** é o SHA-256 do seu programa e **Reg
 as regras do Borg e as suas encontraram nesse programa (veja
 [Analisar ficheiros com regras](#scanning-files-with-rules)).
 
+Um comando com mais de 2 KiB guarda o início e o fim, 2 KiB ao todo, com `…` entre eles. Os comandos
+dos processos-pai e os valores das variáveis de pré-carregamento são cortados da mesma forma. Assim os
+200 alertas mais recentes cabem no registo, por mais longos que sejam os comandos, e um primeiro
+argumento comprido não consegue tirar de vista o fim de um comando. Ctrl-C copia o comando tal como o
+registo o guarda.
+
 | Tecla | Ação |
 | --- | --- |
 | Enter | Mostrar o processo no monitor de atividade |
@@ -1807,9 +1830,17 @@ antes de uma palavra para deixar de fora o que ela apanha: `shell-on-socket !roo
 shells remotas de todos os outros utilizadores.
 
 Os alertas vivem em `alerts.json` na pasta de estado, acessível só ao dono, os 200 mais recentes.
-A janela **Ficheiros do Borg** conta-os em **Estado** (veja [Ficheiros do Borg](#borgs-files)).
-Abrir a página marca como lidos os alertas que ela mostra, e a contagem de alertas não lidos
-acompanha o registo enquanto o Borg estiver aberto, esteja a página aberta ou não.
+O Borg mantém o ficheiro dentro de 8 MiB, o máximo que lê de volta, e deixa de fora os alertas mais
+antigos quando não cabem. A janela **Ficheiros do Borg** conta-os em **Estado** (veja
+[Ficheiros do Borg](#borgs-files)). Abrir a página marca como lidos os alertas que ela mostra, e a
+contagem de alertas não lidos acompanha o registo enquanto o Borg estiver aberto, esteja a página
+aberta ou não.
+
+Quando o Borg encontra um `alerts.json` que não consegue ler, como um que uma versão anterior deixou
+passar dos 8 MiB, muda o nome do ficheiro para `alerts-unreadable.json` antes de escrever um registo
+novo, para que os alertas nele fiquem no disco. Um seguinte recebe um nome numerado como
+`alerts-unreadable (2).json`. A página de alertas indica o ficheiro por baixo da lista enquanto ele
+lá estiver, por isso apague-o depois de o rever.
 
 ### O que o observador procura
 

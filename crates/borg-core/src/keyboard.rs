@@ -40,8 +40,8 @@ const THAI: Layout = with_capitals("`ๅ23ภถุึคตจขชๆไำ�
 /// The layouts in the order they are tried: a letter that two layouts put on different keys
 /// stands for its key in the first one.
 const LAYOUTS: &[Layout] = &[RUSSIAN, UKRAINIAN, BELARUSIAN, KAZAKH, GREEK, HEBREW, ARABIC, GEORGIAN, KOREAN, THAI];
-const YES_KEY: char = 'y';
-const NO_KEY: char = 'n';
+pub(crate) const YES_KEY: char = 'y';
+pub(crate) const NO_KEY: char = 'n';
 
 /// The key as the US layout names it, for a letter a non-Latin layout typed. Other keys stay
 /// as they are.
