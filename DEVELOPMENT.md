@@ -443,12 +443,16 @@ old one finishes, and a counter of senders started tells the old one to stop sen
 message in hand. Each place has its own chain: a message's `seq` is one higher than the last one to
 that place and `previous` is the SHA-256 of that message's exact body, which is why the outbox
 (`watch-outbox.json`, owner-only, at most 500 messages, each tried for 48 hours) keeps bodies as
-sent. The chain shows loss and changes on the way; it lives on the watched machine, so it cannot
+sent. A message cuts a command line, a program's path and an alert's reason to 1,000 bytes, keeping
+the start and the end. The writer gives up on the oldest messages until the file fits the 16 MiB it
+reads back, and an outbox the sender cannot read is renamed to `watch-outbox-unreadable.json`
+before it starts a new one, so nothing waiting in it is overwritten. The chain shows loss and changes on the way; it lives on the watched machine, so it cannot
 show what someone who controls that machine does before a message leaves. A place's messages go
 oldest first and stop at its first refusal, so they arrive in order, and a place taken out of the
 configuration leaves nothing waiting. The program's hash and rule matches follow an alert to the
 webhook alone, as `evidence`. The heartbeat adds `/fail` when the examiner's channel is closed, a
-message has waited 30 minutes, or Borg gave up on one since the last beat, and names each refusing
+message has waited 30 minutes, Borg gave up on one since the last beat, or it found an outbox it
+could not read, and names each refusing
 place with its HTTP status only, since the heartbeat goes to a service of its own. Building
 messages, the chain and the waits are pure functions; `watch::notify::deliver` does the HTTPS with
 `ureq` and takes each place's token and the key part of its address out of every error. Its tests

@@ -1518,6 +1518,8 @@
   "notify_beat_examiner": "O exame dos programas parou, por isso os novos alertas chegam sem o hash do programa nem as correspondências de regras.",
   "notify_beat_waiting": "Mensagens à espera de envio: {count}. Mensagens abandonadas: {dropped}.",
   "notify_beat_no_answer": "sem resposta",
+  "notify_beat_kept_aside": "O Borg não conseguiu ler a caixa de saída e começou uma nova. As mensagens que esperavam na antiga não vão ser enviadas, e a numeração de cada destino recomeça em 1.",
+  "notify_outbox_kept_aside": "O Borg não conseguiu ler a caixa de saída das notificações, por isso guardou-a como {path} e começou uma nova.",
   "notify_none": "Não está definido nenhum destino para os alertas. Adicione [watch.notify] à configuração.",
   "notify_test_sent": "{place}: enviado",
   "notify_test_refused": "{place}: {error}",

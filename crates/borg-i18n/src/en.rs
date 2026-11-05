@@ -1531,6 +1531,8 @@ catalog! {
     notify_beat_examiner => "The examiner has stopped, so new alerts come without the program's hash and rule matches.",
     notify_beat_waiting => "Messages waiting to be sent: {count}. Messages given up on: {dropped}.",
     notify_beat_no_answer => "no answer",
+    notify_beat_kept_aside => "Borg could not read its outbox and started a new one. Messages waiting in the old one will not be sent, and each place's numbering starts again at 1.",
+    notify_outbox_kept_aside => "Borg could not read the notification outbox, so it kept it as {path} and started a new one.",
     notify_none => "No place to send alerts is set up. Add [watch.notify] to the configuration.",
     notify_test_sent => "{place}: sent",
     notify_test_refused => "{place}: {error}",

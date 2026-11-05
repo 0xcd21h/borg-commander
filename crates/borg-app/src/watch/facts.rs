@@ -30,7 +30,7 @@ const UID_MIN: &str = "UID_MIN";
 /// Bytes of a command line or an environment Borg reads.
 const BLOCK: u64 = 64 * 1024;
 /// Generations of parents an alert keeps.
-const ANCESTORS: usize = 8;
+pub(crate) const ANCESTORS: usize = 8;
 /// What a program's link says when its file has been deleted.
 const DELETED: &str = " (deleted)";
 /// What the links of the standard streams say when they lead to a socket or a pipe.

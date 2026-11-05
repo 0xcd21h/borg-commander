@@ -1518,6 +1518,8 @@
   "notify_beat_examiner": "检查程序的线程已停止，因此新的警报不再附带程序哈希和规则匹配。",
   "notify_beat_waiting": "等待发送的消息：{count}。已放弃的消息：{dropped}。",
   "notify_beat_no_answer": "无应答",
+  "notify_beat_kept_aside": "Borg 无法读取发件箱，已开始使用新的发件箱。旧发件箱中等待的消息不会再发送，每个位置的编号都从 1 重新开始。",
+  "notify_outbox_kept_aside": "Borg 无法读取通知发件箱，已将其保留为 {path}，并开始使用新的发件箱。",
   "notify_none": "尚未设置警报的发送位置。请在配置中添加 [watch.notify]。",
   "notify_test_sent": "{place}：已发送",
   "notify_test_refused": "{place}：{error}",

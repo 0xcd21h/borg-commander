@@ -2003,16 +2003,26 @@ que cada um respondeu.
   que seguem um alerta depois de o Borg ler o programa), `started`, `armed` ou `test`.
 - **Sinal de vida**: o Borg chama o endereço a cada `minutes` minutos enquanto o observador corre e
   acrescenta `/fail` quando algo está errado: a thread que calcula o hash dos programas parou, um
-  destino não aceita mensagens há 30 minutos, ou o Borg desistiu de uma. Um serviço como o
-  healthchecks.io avisa-o quando as chamadas param, que é o que acontece quando alguém mata o
-  observador.
+  destino não aceita mensagens há 30 minutos, o Borg desistiu de uma, ou o Borg não conseguiu ler a
+  sua caixa de saída. Um serviço como o healthchecks.io avisa-o quando as chamadas param, que é o
+  que acontece quando alguém mata o observador.
 
 O serviço envia cada alerta poucos segundos depois de o registar e diz também quando o observador
 arranca e quando o congelamento começa. Os alertas de nível nota ficam só na página, a menos que
 `level` seja `notice`. Uma mensagem que um destino recusa espera em `watch-outbox.json`, na pasta
 de estado, e volta a ser tentada, 5 segundos depois da primeira vez e a cada 30 minutos no máximo.
-O Borg guarda até 500 mensagens em espera e tenta cada uma durante 48 horas, e a mensagem seguinte
-diz de quantas desistiu.
+O Borg guarda até 500 mensagens em espera, menos quando as longas fariam o ficheiro passar de
+16 MiB, e tenta cada uma durante 48 horas. A mensagem seguinte diz de quantas desistiu.
+
+Uma mensagem leva no máximo 1000 bytes da linha de comandos, do caminho do programa e do motivo do
+alerta. Uma mais longa guarda o início e o fim, com reticências entre eles, para que encher o início
+de um comando não esconda o que ele faz.
+
+Quando o Borg encontra um `watch-outbox.json` que não consegue ler, muda o nome do ficheiro para
+`watch-outbox-unreadable.json` e começa uma nova caixa de saída. Um posterior recebe um nome
+numerado, como `watch-outbox-unreadable (2).json`. As mensagens que esperavam ficam nesse ficheiro e
+nunca são enviadas, por isso o sinal de vida falha uma vez e diz porquê, e a numeração de cada
+destino recomeça em 1. Veja o ficheiro e depois apague-o.
 
 Cada destino numera as suas mensagens a partir de 1, e o JSON de cada mensagem leva em `previous` o
 SHA-256 da anterior. Um salto na numeração, ou um `previous` que não bate certo, quer dizer que uma

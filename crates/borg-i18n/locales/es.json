@@ -1518,6 +1518,8 @@
   "notify_beat_examiner": "El examen de programas se detuvo, así que las nuevas alertas llegan sin el hash del programa ni las coincidencias de reglas.",
   "notify_beat_waiting": "Mensajes en espera de envío: {count}. Mensajes abandonados: {dropped}.",
   "notify_beat_no_answer": "sin respuesta",
+  "notify_beat_kept_aside": "Borg no pudo leer la bandeja de salida y empezó una nueva. Los mensajes que esperaban en la anterior no se enviarán, y la numeración de cada destino vuelve a empezar en 1.",
+  "notify_outbox_kept_aside": "Borg no pudo leer la bandeja de salida de las notificaciones, así que la guardó como {path} y empezó una nueva.",
   "notify_none": "No hay ningún destino para las alertas. Añade [watch.notify] a la configuración.",
   "notify_test_sent": "{place}: enviado",
   "notify_test_refused": "{place}: {error}",

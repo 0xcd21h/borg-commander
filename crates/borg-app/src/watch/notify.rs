@@ -14,7 +14,7 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     fmt, fs,
-    io::Read,
+    io::{ErrorKind, Read},
     path::{Path, PathBuf},
     sync::{
         Mutex, PoisonError,
@@ -25,8 +25,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::Result;
-use borg_core::{Alert, Severity, WATCH_OUTBOX, WatchRule, WatchSource};
+use anyhow::{Context, Result};
+use borg_core::{Alert, Severity, WATCH_OUTBOX, WATCH_OUTBOX_ASIDE, WatchRule, WatchSource, kept_within};
 use borg_i18n::tr;
 use borg_rules::Level;
 use hmac::{Hmac, Mac};
@@ -53,12 +53,15 @@ const LATE: Duration = Duration::from_secs(30 * 60);
 pub const HEARTBEAT_MINUTES: u64 = 5;
 /// How long the sender waits for news when nothing is due.
 const IDLE: Duration = Duration::from_secs(60);
-/// Bytes of the outbox Borg reads.
-const OUTBOX_BYTES: u64 = 16 * 1024 * 1024;
+/// Bytes of the outbox Borg reads and writes; [`OUTBOX_LIMIT`] messages about everyday commands
+/// fit well inside this.
+const OUTBOX_BYTES: usize = 16 * 1024 * 1024;
 /// Connections a message names; the alert in the log keeps them all.
 const CONNECTIONS_SENT: usize = 8;
-/// Characters of a command line a message carries.
-const COMMAND_CHARS: usize = 1000;
+/// Bytes a message carries of a command line, a program's path or the reason for an alert. A
+/// longer one keeps its start and its end, since padding the start is how a command hides what
+/// it does.
+const TEXT_SENT: usize = 1000;
 /// Rule matches a message names.
 pub const MATCHES_SENT: usize = 8;
 /// Why the configuration refuses an address. It stays in English, as the configuration's other
@@ -257,26 +260,19 @@ impl AlertReport {
             rule: alert.rule(),
             level: alert.level(),
             title: alert.rule().label().to_owned(),
-            reason: alert.finding.reason(),
+            reason: kept_within(&alert.finding.reason(), TEXT_SENT),
             response: alert.response.label().to_owned(),
             frozen: alert.frozen(),
             pid: process.key.pid,
             name: process.name.clone(),
-            program: process.program.as_ref().map(|program| program.to_string_lossy().into_owned()),
-            command: shortened(&process.command_line()),
+            program: process.program.as_ref().map(|program| kept_within(&program.to_string_lossy(), TEXT_SENT)),
+            command: kept_within(&process.command_line(), TEXT_SENT),
             user: process.user.clone(),
             uid: process.uid,
             parent: alert.parent().map(str::to_owned),
-            ancestors: process.ancestors.iter().map(|ancestor| shortened(&ancestor.command)).collect(),
+            ancestors: process.ancestors.iter().map(|ancestor| kept_within(&ancestor.command, TEXT_SENT)).collect(),
             connections: alert.evidence.connections.iter().take(CONNECTIONS_SENT).cloned().collect(),
         }
-    }
-}
-
-fn shortened(text: &str) -> String {
-    match text.char_indices().nth(COMMAND_CHARS) {
-        Some((end, _)) => format!("{}…", &text[..end]),
-        None => text.to_owned(),
     }
 }
 
@@ -348,6 +344,10 @@ pub struct Outbox {
     /// What went wrong the last time a place refused a message, until it takes one again.
     #[serde(default)]
     pub errors: BTreeMap<Channel, Refused>,
+    /// Whether Borg found an outbox it could not read and kept it aside, until a heartbeat that
+    /// saw the watcher has said so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept_aside: bool,
 }
 
 impl Outbox {
@@ -412,6 +412,24 @@ impl Outbox {
     /// Whether a message has waited so long that a place must have stopped taking them.
     pub fn late(&self, now: SystemTime) -> bool {
         self.waiting.iter().any(|waiting| now.duration_since(waiting.since).is_ok_and(|age| age >= LATE))
+    }
+
+    /// The outbox as its file holds it, without the oldest messages it takes for the file to fit
+    /// [`OUTBOX_BYTES`], each of which counts as given up on. An outbox Borg wrote always reads
+    /// back whole.
+    pub fn fitted(&mut self) -> Result<Vec<u8>> {
+        let mut bytes = serde_json::to_vec(self)?;
+        while bytes.len() > OUTBOX_BYTES && !self.waiting.is_empty() {
+            let mut over = bytes.len() - OUTBOX_BYTES;
+            while over > 0
+                && let Some(oldest) = self.waiting.pop_front()
+            {
+                over = over.saturating_sub(serde_json::to_vec(&oldest)?.len());
+                self.dropped += 1;
+            }
+            bytes = serde_json::to_vec(self)?;
+        }
+        Ok(bytes)
     }
 }
 
@@ -484,7 +502,8 @@ pub struct Health {
 }
 
 /// The heartbeat: whether all is well, and what it says. Something is wrong when the examiner
-/// stopped, a place stopped taking messages, or Borg gave up on one since the last heartbeat.
+/// stopped, a place stopped taking messages, Borg gave up on one since the last heartbeat, or it
+/// found an outbox it could not read.
 /// A refusal shows only as its status: what a place answered stays on this machine, since the
 /// heartbeat goes to a service of its own.
 pub fn beat(
@@ -505,12 +524,15 @@ pub fn beat(
     if !outbox.waiting.is_empty() || outbox.dropped > 0 {
         lines.push(tr!(notify_beat_waiting, count = outbox.waiting.len(), dropped = outbox.dropped));
     }
+    if outbox.kept_aside {
+        lines.push(tr!(notify_beat_kept_aside).into());
+    }
     for (channel, refused) in &outbox.errors {
         let why =
             refused.status.map_or_else(|| tr!(notify_beat_no_answer).to_owned(), |status| format!("HTTP {status}"));
         lines.push(format!("{}: {why}", channel.label()));
     }
-    let fine = health.examiner && !outbox.late(now) && outbox.dropped == dropped_before;
+    let fine = health.examiner && !outbox.late(now) && outbox.dropped == dropped_before && !outbox.kept_aside;
     (fine, lines.join("\n"))
 }
 
@@ -568,7 +590,13 @@ fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Messag
     let current = || STARTED.load(Ordering::SeqCst) == generation;
     let channels = settings.channels();
     let agent = deliver::agent();
-    let mut outbox = read_outbox(state);
+    let mut outbox = match load_outbox(state) {
+        Ok(outbox) => outbox,
+        Err(error) => {
+            eprintln!("borg watch: {error:#}");
+            return;
+        }
+    };
     outbox.keep_only(&channels);
     let mut health = None;
     let mut next_beat = SystemTime::now();
@@ -592,10 +620,10 @@ fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Messag
             Err(RecvTimeoutError::Disconnected) => return,
         }
         if changed {
-            write_outbox(state, &outbox);
+            write_outbox(state, &mut outbox);
         }
         if send_due(settings, &agent, &channels, &mut outbox, &current) {
-            write_outbox(state, &outbox);
+            write_outbox(state, &mut outbox);
         }
         let now = SystemTime::now();
         if let Some(heartbeat) = &settings.heartbeat
@@ -607,6 +635,9 @@ fn run(settings: &Settings, host: &str, state: &Path, received: &Receiver<Messag
                 eprintln!("borg watch: heartbeat: {error}");
             }
             dropped_before = outbox.dropped;
+            if health.is_some() && std::mem::take(&mut outbox.kept_aside) {
+                write_outbox(state, &mut outbox);
+            }
             next_beat = now + heartbeat.every;
         }
     }
@@ -670,16 +701,37 @@ pub fn outbox_path(state: &Path) -> PathBuf {
     state.join(WATCH_OUTBOX)
 }
 
-fn read_outbox(state: &Path) -> Outbox {
+/// The outbox the state folder holds. One that is there but that Borg cannot read is renamed
+/// aside first, so a new one never overwrites the messages still waiting in it. The new one is
+/// written at once and keeps the fact for the next heartbeat.
+fn load_outbox(state: &Path) -> Result<Outbox> {
+    let path = outbox_path(state);
+    if fs::symlink_metadata(&path).is_err_and(|error| error.kind() == ErrorKind::NotFound) {
+        return Ok(Outbox::default());
+    }
     let mut bytes = Vec::new();
-    let read = fs::File::open(outbox_path(state)).and_then(|file| file.take(OUTBOX_BYTES).read_to_end(&mut bytes));
-    read.ok().and_then(|_| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    let read = fs::File::open(&path).and_then(|file| file.take(OUTBOX_BYTES as u64).read_to_end(&mut bytes));
+    if let Some(outbox) = read.ok().and_then(|_| serde_json::from_slice(&bytes).ok()) {
+        return Ok(outbox);
+    }
+    let taken = |name: &Path| fs::symlink_metadata(name).is_ok();
+    let aside = state.join(WATCH_OUTBOX_ASIDE);
+    let aside = if taken(&aside) { borg_jobs::unique_by(&aside, taken) } else { aside };
+    match fs::rename(&path, &aside) {
+        Ok(()) => eprintln!("borg watch: {}", tr!(notify_outbox_kept_aside, path = aside.display())),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Outbox::default()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("keeping {} as {}", path.display(), aside.display()));
+        }
+    }
+    let mut outbox = Outbox { kept_aside: true, ..Outbox::default() };
+    write_outbox(state, &mut outbox);
+    Ok(outbox)
 }
 
-fn write_outbox(state: &Path, outbox: &Outbox) {
-    let written = serde_json::to_vec(outbox)
-        .map_err(anyhow::Error::from)
-        .and_then(|bytes| crate::store::write_privately(&outbox_path(state), &bytes));
+/// Writes the outbox, without the oldest messages it takes for the file to fit what Borg reads.
+fn write_outbox(state: &Path, outbox: &mut Outbox) {
+    let written = outbox.fitted().and_then(|bytes| crate::store::write_privately(&outbox_path(state), &bytes));
     if let Err(error) = written {
         eprintln!("borg watch: writing the outbox: {error:#}");
     }

@@ -1,5 +1,5 @@
 use super::*;
-use borg_core::{AlertLog, Ancestor, ProcessKey, Response, StartedProcess, WatchFinding, WatchStatus};
+use borg_core::{AlertLog, Ancestor, COMMAND_CUT, ProcessKey, Response, StartedProcess, WatchFinding, WatchStatus};
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpListener,
@@ -7,14 +7,19 @@ use std::{
 };
 
 const NOW: Duration = Duration::from_secs(1_800_000_000);
+/// How often the heartbeat goes in the test of the whole sender.
+const BEAT_EVERY: Duration = Duration::from_millis(100);
+/// Requests the place in that test answers, well over what it needs.
+const ANSWERS: usize = 50;
+/// How long that test waits for the sender's next request.
+const QUIET: Duration = Duration::from_secs(10);
 
 fn moment(after: Duration) -> SystemTime {
     SystemTime::UNIX_EPOCH + NOW + after
 }
 
-fn alert(command: &str) -> Alert {
-    let mut log = AlertLog::watching(WatchStatus { source: WatchSource::Kernel, ..WatchStatus::default() });
-    let process = StartedProcess {
+fn process(command: &str) -> StartedProcess {
+    StartedProcess {
         key: ProcessKey { pid: 4242, start: 10 },
         name: "sh".into(),
         program: Some("/bin/sh".into()),
@@ -29,12 +34,19 @@ fn alert(command: &str) -> Alert {
             command: "nginx: worker process".into(),
         }],
         ..StartedProcess::default()
-    };
-    let id =
-        log.add(moment(Duration::ZERO), WatchFinding::ShellOnSocket { shell: "sh".into() }, Response::Frozen, process);
+    }
+}
+
+fn alert_about(finding: WatchFinding, process: StartedProcess) -> Alert {
+    let mut log = AlertLog::watching(WatchStatus { source: WatchSource::Kernel, ..WatchStatus::default() });
+    let id = log.add(moment(Duration::ZERO), finding, Response::Frozen, process);
     let found = log.find(id).unwrap();
     found.evidence.connections = (0..20).map(|socket| format!("socket:[{socket}]")).collect();
     found.clone()
+}
+
+fn alert(command: &str) -> Alert {
+    alert_about(WatchFinding::ShellOnSocket { shell: "sh".into() }, process(command))
 }
 
 fn alert_event() -> Event {
@@ -151,14 +163,127 @@ fn an_alert_reads_as_a_title_and_the_facts_a_person_needs() {
 
 #[test]
 fn a_report_keeps_a_message_small() {
-    let long = format!("sh -c {}", "x".repeat(COMMAND_CHARS * 2));
+    let long = format!("sh -c {} /tmp/.x/run", "x".repeat(TEXT_SENT * 2));
     let report = AlertReport::of(&alert(&long));
-    assert_eq!(report.command.chars().count(), COMMAND_CHARS + 1);
-    assert!(report.command.ends_with('…'));
+    assert!(report.command.len() <= TEXT_SENT, "{} bytes", report.command.len());
+    assert!(report.command.starts_with("sh -c xxx") && report.command.contains(COMMAND_CUT));
+    assert!(report.command.ends_with("x /tmp/.x/run"), "padding the start hides nothing: {}", report.command);
     assert_eq!(report.connections.len(), CONNECTIONS_SENT);
     assert_eq!(report.parent.as_deref(), Some("nginx"));
     assert_eq!(report.ancestors, ["nginx: worker process"]);
     assert!(report.frozen);
+    assert_eq!(AlertReport::of(&alert("sh -i")).command, "sh -i", "a short command goes whole");
+    let wide = AlertReport::of(&alert(&"€".repeat(TEXT_SENT))).command;
+    assert!(wide.len() <= TEXT_SENT && wide.contains(COMMAND_CUT), "a cut never splits a character");
+
+    let value = format!("{}/tmp/.x/hook.so", " ".repeat(TEXT_SENT * 64));
+    let finding = WatchFinding::PreloadSet { program: "/usr/bin/curl".into(), variable: "LD_PRELOAD".into(), value };
+    let whole = finding.reason();
+    let report = AlertReport::of(&alert_about(finding, process("curl -s example.com")));
+    assert!(report.reason.len() <= TEXT_SENT, "a preload value is as long as the environment: {}", report.reason.len());
+    assert!(report.reason.starts_with(&whole[..TEXT_SENT / 4]));
+    assert!(report.reason.ends_with(&whole[whole.len() - TEXT_SENT / 4..]));
+    assert!(report.reason.contains("/tmp/.x/hook.so"), "{}", report.reason);
+}
+
+/// Control characters grow sevenfold on their way into the outbox: six bytes each in a
+/// message's JSON, and a backslash more in the outbox's own. A full outbox of alerts about
+/// commands made of them used to pass the bytes Borg reads, so the sender started from an empty
+/// outbox and wrote it over the messages still waiting.
+#[test]
+fn a_full_outbox_of_long_control_character_commands_reads_back_without_its_oldest() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    let control = "\u{1}".repeat(TEXT_SENT);
+    let parent = Ancestor { pid: 40, name: "sh".into(), command: control.clone(), ..Ancestor::default() };
+    let noisy = StartedProcess {
+        command: vec![control],
+        ancestors: vec![parent; crate::watch::facts::ANCESTORS],
+        ..process("sh")
+    };
+    let report = AlertReport::of(&alert_about(WatchFinding::ShellOnSocket { shell: "sh".into() }, noisy));
+    let event = Event::Alert(Box::new(report));
+    let mut outbox = Outbox::default();
+    for _ in 0..OUTBOX_LIMIT {
+        outbox.add("web-01", &event, &[Channel::Webhook], moment(Duration::ZERO)).unwrap();
+    }
+    let newest = outbox.waiting.back().unwrap().seq;
+    let one = serde_json::to_vec(&outbox.waiting[0]).unwrap().len();
+    write_outbox(state, &mut outbox);
+    let written = fs::metadata(outbox_path(state)).unwrap().len() as usize;
+    assert!(written <= OUTBOX_BYTES, "{written} bytes");
+    assert!(OUTBOX_BYTES - written < 2 * one, "only the messages it takes go: {} left", outbox.waiting.len());
+    assert!(outbox.dropped > 0);
+    assert_eq!(outbox.waiting.len() + outbox.dropped as usize, OUTBOX_LIMIT, "each one counts as given up on");
+    assert_eq!(outbox.waiting.back().unwrap().seq, newest, "the newest message stays");
+    assert_eq!(load_outbox(state).unwrap(), outbox, "what is written reads back, and the outbox in hand is the same");
+}
+
+#[test]
+fn an_outbox_borg_cannot_read_is_kept_aside_and_the_next_heartbeat_says_so() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    let now = moment(Duration::ZERO);
+    assert_eq!(load_outbox(state).unwrap(), Outbox::default(), "no outbox yet is an empty one");
+    let mut outbox = Outbox::default();
+    outbox.add("web-01", &Event::Armed, &[Channel::Webhook], now).unwrap();
+    write_outbox(state, &mut outbox);
+    assert_eq!(load_outbox(state).unwrap(), outbox, "an outbox Borg reads stays where it is");
+
+    let nonsense = b"not json".to_vec();
+    let huge = Waiting { body: "x".repeat(OUTBOX_BYTES), ..outbox.waiting[0].clone() };
+    let too_long = serde_json::to_vec(&Outbox { waiting: VecDeque::from([huge]), ..Outbox::default() }).unwrap();
+    let first = state.join(WATCH_OUTBOX_ASIDE);
+    let second = borg_jobs::unique_by(&first, |_| false);
+    let kept = Outbox { kept_aside: true, ..Outbox::default() };
+    for (contents, aside) in [(&nonsense, &first), (&too_long, &second)] {
+        fs::write(outbox_path(state), contents).unwrap();
+        assert_eq!(load_outbox(state).unwrap(), kept);
+        assert_eq!(&fs::read(aside).unwrap(), contents, "the old outbox is kept whole");
+        assert_eq!(load_outbox(state).unwrap(), kept, "the new one is written at once and remembers it");
+    }
+    let healthy = Health { source: WatchSource::Kernel, seen: 1, suppressed: 0, examiner: true };
+    let (fine, body) = beat("web-01", Some(&healthy), &kept, 0, now);
+    assert!(!fine, "the messages waiting in it are lost to every place");
+    assert!(body.contains(tr!(notify_beat_kept_aside)), "{body}");
+    assert!(!body.contains(WATCH_OUTBOX_ASIDE), "where it went stays on this machine: {body}");
+}
+
+/// The whole sender, from the file in the state folder to a place on this machine.
+#[test]
+fn a_sender_that_cannot_read_its_outbox_keeps_it_aside_and_carries_on() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().to_path_buf();
+    fs::write(outbox_path(&state), b"not json").unwrap();
+    let (address, received) = server(vec![200; ANSWERS]);
+    let settings = Settings {
+        webhook: Some(Webhook { url: format!("{address}/hook"), secret: None }),
+        heartbeat: Some(Heartbeat { url: format!("{address}/ping"), every: BEAT_EVERY }),
+        ..Settings::default()
+    };
+    let notifier = Notifier::start(settings, "web-01".into(), state.clone()).unwrap();
+    notifier.health(Health { source: WatchSource::Kernel, seen: 1, suppressed: 0, examiner: true });
+    notifier.send(Event::Armed);
+    let (mut sent, mut failed, mut fine_again) = (None, None, None);
+    while sent.is_none() || fine_again.is_none() {
+        let request = received.recv_timeout(QUIET).expect("the sender went quiet");
+        match request.line.as_str() {
+            "POST /hook HTTP/1.1" => sent = Some(envelope(&request.body)),
+            "POST /ping/fail HTTP/1.1" => failed = Some(request.body),
+            "POST /ping HTTP/1.1" if failed.is_some() => fine_again = Some(request.body),
+            _ => {}
+        }
+    }
+    drop(notifier);
+    assert_eq!(sent.unwrap().seq, 1, "messages still leave, numbered from 1 again");
+    let failed = failed.unwrap();
+    assert!(
+        failed.contains(tr!(notify_beat_kept_aside)),
+        "the first heartbeat that saw the watcher says why: {failed}"
+    );
+    assert!(!fine_again.unwrap().contains(tr!(notify_beat_kept_aside)), "and once said, it is old news");
+    assert_eq!(fs::read(state.join(WATCH_OUTBOX_ASIDE)).unwrap(), b"not json");
+    assert!(!load_outbox(&state).unwrap().kept_aside);
 }
 
 #[test]
