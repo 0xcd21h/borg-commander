@@ -1,8 +1,14 @@
-use std::{path::Path, time::Duration};
+use std::{os::unix::fs::PermissionsExt, path::Path, time::Duration};
 
 use crate::{Drive, DriveKind, Drives, Remember, Work};
 
 const GIGABYTE: u64 = 1_000_000_000;
+/// Borgs writing `drives.json` at the same moment, and the writes each makes.
+const WRITERS: usize = 4;
+const WRITES: usize = 25;
+const PERMISSIONS: u32 = 0o777;
+const OWNER_ONLY: u32 = 0o600;
+const EVERYONE_READS: u32 = 0o644;
 
 fn drive(id: &str, kind: DriveKind) -> Drive {
     Drive { id: id.into(), kind, filesystem: "test".into(), clones: false }
@@ -75,6 +81,83 @@ fn answers_keep_borg_from_asking_about_a_file_or_a_kind_of_drive() -> std::io::R
     again.ask_again();
     assert!(again.asks(Some(archive), DriveKind::Network) && again.kept() == 0);
     assert!(Drives::load(state.path()).asks(None, DriveKind::Network));
+    Ok(())
+}
+
+/// Two Borgs open on one machine read `drives.json` once each. What one answers or learns must
+/// survive the other's next write, and forgetting the answers in one must not come back with it.
+#[test]
+fn two_borgs_keep_what_the_other_answered_and_learned() -> std::io::Result<()> {
+    let state = tempfile::tempdir()?;
+    let archive = state.path().join("big.zip");
+    let first = Drives::load(state.path());
+    let second = Drives::load(state.path());
+    first.remember(Remember::File, Some(&archive), DriveKind::HardDrive);
+    second.remember(Remember::Kind, None, DriveKind::Network);
+    let hard = drive("/dev/disk9", DriveKind::HardDrive);
+    let work = Work::default().write(&hard, 10 * GIGABYTE);
+    second.learn(&work, second.estimate(&work) * 4);
+    let slower = second.rates(&hard).write;
+    first.remember(Remember::Kind, None, DriveKind::Remote);
+
+    let both = Drives::load(state.path());
+    assert!(!both.asks(Some(&archive), DriveKind::HardDrive), "the first Borg's answer about the archive");
+    assert!(!both.asks(None, DriveKind::Network), "the second Borg's answer about network shares");
+    assert_eq!(both.rates(&hard).write, slower, "and the speed the second one learned");
+    assert_eq!(first.rates(&hard).write, slower, "the first Borg took them in as it wrote");
+
+    first.ask_again();
+    second.remember(Remember::Kind, None, DriveKind::Memory);
+    let after = Drives::load(state.path());
+    assert!(after.asks(Some(&archive), DriveKind::HardDrive) && after.asks(None, DriveKind::Network));
+    assert!(!after.asks(None, DriveKind::Memory), "only what was answered since");
+    assert_eq!(after.kept(), 1);
+    Ok(())
+}
+
+#[test]
+fn drives_json_belongs_to_its_owner_alone() -> std::io::Result<()> {
+    let state = tempfile::tempdir()?;
+    let file = state.path().join("drives.json");
+    let mode = |file: &Path| std::fs::metadata(file).map(|meta| meta.permissions().mode() & PERMISSIONS);
+    Drives::load(state.path()).remember(Remember::Kind, None, DriveKind::Network);
+    assert_eq!(mode(&file)?, OWNER_ONLY);
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(EVERYONE_READS))?;
+    let again = Drives::load(state.path());
+    assert_eq!(mode(&file)?, OWNER_ONLY, "a file an older Borg left readable to others");
+    assert!(!again.asks(None, DriveKind::Network));
+    Ok(())
+}
+
+/// Several Borgs writing at once each stage under a name of their own, so the file always reads
+/// whole and nothing staged stays behind.
+#[test]
+fn borgs_writing_at_once_never_leave_a_half_written_file() -> std::io::Result<()> {
+    let state = tempfile::tempdir()?;
+    let file = state.path().join("drives.json");
+    assert_ne!(crate::drives::staging(&file), crate::drives::staging(&file));
+    std::thread::scope(|scope| {
+        for writer in 0..WRITERS {
+            let folder = state.path();
+            scope.spawn(move || {
+                let drives = Drives::load(folder);
+                for write in 0..WRITES {
+                    let archive = folder.join(format!("{writer}-{write}.zip"));
+                    drives.remember(Remember::File, Some(&archive), DriveKind::HardDrive);
+                }
+            });
+        }
+        scope.spawn(|| {
+            for _ in 0..WRITERS * WRITES {
+                if let Ok(bytes) = std::fs::read(&file) {
+                    assert!(serde_json::from_slice::<serde_json::Value>(&bytes).is_ok(), "a half-written file");
+                }
+            }
+        });
+    });
+    let names: Vec<_> = std::fs::read_dir(state.path())?.flatten().map(|entry| entry.file_name()).collect();
+    assert_eq!(names, ["drives.json"], "nothing staged stays behind");
+    assert!(Drives::load(state.path()).kept() > 0);
     Ok(())
 }
 

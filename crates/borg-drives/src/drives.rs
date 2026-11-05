@@ -1,13 +1,17 @@
 //! The drives Borg met, shared by its jobs: what each is, how fast it turned out to be, and the
-//! answers given about long work, kept in `drives.json` in Borg's state folder.
+//! answers given about long work, kept in `drives.json` in Borg's state folder. Every Borg on
+//! the machine reads and writes that file, so each change starts from what the file holds then.
 
 use std::{
     collections::HashMap,
     fs,
-    io::{self, Read},
-    os::unix::fs::MetadataExt,
+    io::{self, Read, Write},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -20,6 +24,13 @@ use crate::{
 const FILE: &str = "drives.json";
 const STAGING_SUFFIX: &str = "staging";
 const MAX_BYTES: u64 = 1024 * 1024;
+/// Who may read and write the file: its owner alone, since it names the archives the user
+/// answered about.
+const PRIVATE: u32 = 0o600;
+/// The permission bits of a file's mode.
+const PERMISSIONS: u32 = 0o777;
+/// Writes this process has staged, so each one stages under a name of its own.
+static STAGED: AtomicU64 = AtomicU64::new(0);
 const REMOTE_PREFIX: &str = "remote:";
 /// Work shorter than this, or smaller, says little about a drive's speed, since caches hide it.
 const LEARN_SHORTEST: Duration = Duration::from_secs(2);
@@ -58,9 +69,15 @@ impl std::fmt::Debug for Drives {
 }
 
 impl Drives {
-    /// The drives Borg knows from earlier runs, kept in the state folder `state`.
+    /// The drives Borg knows from earlier runs, kept in the state folder `state`. A file others
+    /// could read becomes its owner's alone.
     pub fn load(state: &Path) -> Self {
         let file = state.join(FILE);
+        if let Ok(meta) = fs::metadata(&file)
+            && meta.permissions().mode() & PERMISSIONS != PRIVATE
+        {
+            let _ = fs::set_permissions(&file, fs::Permissions::from_mode(PRIVATE));
+        }
         let known = read(&file).unwrap_or_default();
         Self(Arc::new(Shared { file: Some(file), known: Mutex::new(known), ..Shared::default() }))
     }
@@ -148,11 +165,10 @@ impl Drives {
             return;
         }
         let factor = expected.as_secs_f64() / spent.as_secs_f64();
-        let mut known = self.known();
-        let rates = self.measured(&known, &drive).0;
+        let rates = self.measured(&self.known(), &drive).0;
         let scaled = |rate: u64, bytes: u64| (bytes > 0).then_some((rate as f64 * factor) as u64);
-        known.learn(&drive.id, drive.kind, scaled(rates.read, read), scaled(rates.write, write));
-        self.save(&known);
+        let (read, write) = (scaled(rates.read, read), scaled(rates.write, write));
+        self.change(|known| known.learn(&drive.id, drive.kind, read, write));
     }
 
     /// Whether to ask before long work on `file`, on a drive of this kind.
@@ -161,16 +177,12 @@ impl Drives {
     }
 
     pub fn remember(&self, remember: Remember, file: Option<&Path>, kind: DriveKind) {
-        let mut known = self.known();
-        known.remember(remember, file, kind);
-        self.save(&known);
+        self.change(|known| known.remember(remember, file, kind));
     }
 
     /// Forgets every answer, so Borg asks before long work again.
     pub fn ask_again(&self) {
-        let mut known = self.known();
-        known.quiet = Default::default();
-        self.save(&known);
+        self.change(|known| known.quiet = Default::default());
     }
 
     /// How many answers keep Borg from asking: files and kinds of drive.
@@ -183,9 +195,19 @@ impl Drives {
         lock(&self.0.known)
     }
 
-    fn save(&self, known: &Known) {
-        let Some(file) = &self.0.file else { return };
-        let _ = write(file, known);
+    /// Changes what Borg knows as the file holds it now, so what another Borg wrote there since
+    /// this one read it stays, then writes the result and keeps it here too.
+    fn change(&self, change: impl FnOnce(&mut Known)) {
+        let mut known = self.known();
+        let Some(file) = &self.0.file else {
+            change(&mut known);
+            return;
+        };
+        if let Some(fresh) = read(file) {
+            *known = fresh;
+        }
+        change(&mut known);
+        let _ = write(file, &known);
     }
 }
 
@@ -206,11 +228,29 @@ fn read(file: &Path) -> Option<Known> {
     serde_json::from_slice::<Known>(&bytes).ok().filter(|known| known.format == FORMAT)
 }
 
+/// Writes the file whole and owner-only, staged under a name no other write uses, so two Borgs
+/// writing at once never rename a half-written file into place.
 fn write(file: &Path, known: &Known) -> io::Result<()> {
     if let Some(folder) = file.parent() {
         fs::create_dir_all(folder)?;
     }
-    let staging = file.with_extension(STAGING_SUFFIX);
-    fs::write(&staging, serde_json::to_vec_pretty(known)?)?;
-    fs::rename(&staging, file)
+    let bytes = serde_json::to_vec_pretty(known)?;
+    let staging = staging(file);
+    let written = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(PRIVATE)
+        .open(&staging)
+        .and_then(|mut out| out.write_all(&bytes))
+        .and_then(|()| fs::rename(&staging, file));
+    if written.is_err() {
+        let _ = fs::remove_file(&staging);
+    }
+    written
+}
+
+/// A name beside `file` for this process's next write, which no other write shares.
+pub(crate) fn staging(file: &Path) -> PathBuf {
+    let write = STAGED.fetch_add(1, Ordering::Relaxed);
+    file.with_extension(format!("{}.{write}.{STAGING_SUFFIX}", std::process::id()))
 }

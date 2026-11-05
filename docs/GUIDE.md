@@ -977,8 +977,12 @@ the drive's real speed, and the **Drive** row then says **measured speed**. A jo
 time compressing teaches it nothing about the drive.
 
 Borg keeps the speeds and your answers in `drives.json` in its state folder, with up to 256
-archives. The **Long jobs** row of Ctrl-L says whether Borg asks first on that drive.
-**F9 → Options → Ask before long jobs again** forgets every Always answer.
+archives. The file is readable by you alone, since it names the archives you answered about. Every
+Borg you have open shares it: each one reads it when it starts and again right before it writes, so
+what one Borg learned or was told stays when another writes. The **Long jobs** row of Ctrl-L says
+whether Borg asks first on that drive. **F9 → Options → Ask before long jobs again** forgets every
+Always answer, those given in other Borgs too. A Borg that is already open keeps the answers it has
+until it next writes the file or you start it again.
 
 ### Viewer and quick view
 

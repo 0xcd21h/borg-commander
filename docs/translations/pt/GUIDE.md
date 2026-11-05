@@ -1065,8 +1065,14 @@ passa a dizer **velocidade medida**. Uma tarefa que passa o tempo a comprimir n�
 sobre o disco.
 
 O Borg guarda as velocidades e as suas respostas em `drives.json`, na pasta de estado, com até 256
-arquivos. A linha **Tarefas longas** de Ctrl-L diz se o Borg pergunta primeiro nesse disco.
-**F9 → Opções → Voltar a perguntar antes de tarefas longas** esquece todas as respostas Sempre.
+arquivos. O ficheiro só pode ser lido pelo seu dono, porque indica os arquivos sobre os quais
+respondeu. Todos os Borg que tiver abertos partilham-no: cada um lê-o ao arrancar e outra vez mesmo
+antes de escrever, por isso o que um Borg aprendeu e as respostas que recebeu mantêm-se quando outro
+escreve. A linha
+**Tarefas longas** de Ctrl-L diz se o Borg pergunta primeiro nesse disco.
+**F9 → Opções → Voltar a perguntar antes de tarefas longas** esquece todas as respostas Sempre,
+incluindo as dadas noutros Borg. Um Borg que já esteja aberto mantém as respostas que tem até voltar
+a escrever o ficheiro ou até o reiniciar.
 
 ### Visualizador e pré-visualização
 

@@ -1155,6 +1155,45 @@ fn start_like(fixture: &Fixture, label: &str, items: usize) -> Result<Session> {
     Ok(session)
 }
 
+/// Two Borgs open at once each answer the Long job question for a file in an archive. The
+/// answer the first gave about the archive survives the second one's answer about the kind of
+/// drive, and `drives.json` stays its owner's alone.
+#[test]
+fn two_borgs_keep_each_others_long_job_answers() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    const PERMISSIONS: u32 = 0o777;
+    const OWNER_ONLY: u32 = 0o600;
+    let fixture = fixture()?;
+    site_zip(&fixture)?;
+    crawling_drives(&fixture)?;
+    let mut first = start_like(&fixture, "drives-first", 5)?;
+    let made = std::process::Command::new(BORG)
+        .args(["sessions", "create", "Second"])
+        .env("BORG_STATE_DIR", fixture.state())
+        .output()?;
+    ensure!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    let mut second = Session::builder(BORG, &fixture).args(&["--session", "Second"]).label("drives-second").spawn()?;
+    second.wait_text("5 items")?;
+    for (borg, always) in [(&mut first, "f"), (&mut second, "d")] {
+        borg.send(keys::key(KeyCode::End))?;
+        borg.wait_until("cursor on the archive", |s| highlighted(s, " site.zip"))?;
+        borg.send(keys::enter())?;
+        borg.wait_until("the archive's files", |s| s.contains("▤ zip") && s.contains("readme.md"))?;
+        borg.send(keys::key(KeyCode::End))?;
+        borg.wait_until("cursor on readme", |s| highlighted(s, " readme.md"))?;
+        borg.send(keys::f(4))?.wait_text("Long job")?;
+        borg.send(always)?.wait_text("read me from the zip")?;
+    }
+    let file = fixture.state().join("drives.json");
+    let known: serde_json::Value = serde_json::from_slice(&fs::read(&file)?)?;
+    let quiet = &known["quiet"];
+    let archive = quiet["files"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str);
+    ensure!(archive.into_iter().any(|path| path.ends_with("/site.zip")), "the first Borg's answer stays: {known}");
+    ensure!(quiet["kinds"].as_array().is_some_and(|kinds| !kinds.is_empty()), "beside the second's: {known}");
+    ensure!(fs::metadata(&file)?.permissions().mode() & PERMISSIONS == OWNER_ONLY, "owner-only");
+    Ok(())
+}
+
 #[test]
 fn status_line_shows_details_and_can_be_hidden() -> Result<()> {
     let fixture = fixture()?;

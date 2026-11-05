@@ -136,7 +136,10 @@ on each drive plus the time spent compressing, and asks `Ask::Slow` when the est
 job's patience: 2 minutes for copies and unpacks, 20 seconds for archive changes. `borg-drives`
 finds the drive kind with statfs, `diskutil` and `hdiutil` on macOS and `/proc/self/mountinfo`
 and `/sys` on Linux. It learns measured speeds from jobs of at least 2 seconds and 64 MiB and keeps
-them with the Always answers in `drives.json` in the state folder.
+them with the Always answers in `drives.json` in the state folder. Every Borg on the machine writes
+that file, so each change reads it again first and applies itself to what is there, and each write
+stages under a name of its own (the process ID and a count) with mode 0600 before it renames the
+file into place.
 
 ### Rendering pipeline
 
