@@ -61,6 +61,9 @@ pub const WATCH_ALLOWED: &str = "watch-allowed.json";
 /// Messages the process watcher has yet to send off the machine, in the state folder. Nothing
 /// cleans it up, so a message waits however long the place it goes is away.
 pub const WATCH_OUTBOX: &str = "watch-outbox.json";
+/// An outbox Borg could not read, renamed so the sender can start a new one, and kept so the
+/// messages still waiting in it are there to read.
+pub const WATCH_OUTBOX_ASIDE: &str = "watch-outbox-unreadable.json";
 /// A file Borg is replacing, written next to it first.
 pub const STAGING_SUFFIX: &str = "part";
 pub const SOCKET_SUFFIX: &str = ".sock";

@@ -2015,16 +2015,27 @@ que respondió cada uno.
   `armed` o `test`.
 - **Latido**: Borg llama a la dirección cada `minutes` minutos mientras el vigilante funciona y
   añade `/fail` cuando algo va mal: el hilo que calcula el hash de los programas se detuvo, un
-  destino lleva 30 minutos sin aceptar mensajes, o Borg abandonó uno. Un servicio como
-  healthchecks.io te avisa cuando las llamadas se detienen, que es lo que ocurre cuando alguien
-  mata al vigilante.
+  destino lleva 30 minutos sin aceptar mensajes, Borg abandonó uno, o Borg no pudo leer su bandeja
+  de salida. Un servicio como healthchecks.io te avisa cuando las llamadas se detienen, que es lo
+  que ocurre cuando alguien mata al vigilante.
 
 El servicio envía cada alerta pocos segundos después de anotarla, y también avisa cuando el
 vigilante arranca y cuando empieza la congelación. Las alertas de nivel nota se quedan en la
 página salvo que `level` sea `notice`. Un mensaje que un destino rechaza espera en
 `watch-outbox.json`, en la carpeta de estado, y se reintenta, a los 5 segundos la primera vez y
-cada 30 minutos como máximo. Borg guarda hasta 500 mensajes en espera e intenta cada uno durante 48
-horas, y el mensaje siguiente dice cuántos abandonó.
+cada 30 minutos como máximo. Borg guarda hasta 500 mensajes en espera, menos cuando los largos
+harían que el archivo pasara de 16 MiB, e intenta cada uno durante 48 horas. El mensaje siguiente
+dice cuántos abandonó.
+
+Un mensaje lleva como máximo 1000 bytes de la línea de comandos, de la ruta del programa y del
+motivo de la alerta. Uno más largo conserva el principio y el final, con puntos suspensivos entre
+ambos, así que rellenar el principio de un comando no oculta lo que hace.
+
+Cuando Borg encuentra un `watch-outbox.json` que no puede leer, cambia el nombre del archivo a
+`watch-outbox-unreadable.json` y empieza una bandeja de salida nueva. Uno posterior recibe un nombre
+numerado, como `watch-outbox-unreadable (2).json`. Los mensajes que esperaban se quedan en ese
+archivo y nunca se envían, así que el latido falla una vez y dice por qué, y la numeración de cada
+destino vuelve a empezar en 1. Revisa el archivo y luego bórralo.
 
 Cada destino numera sus mensajes desde 1, y el JSON de cada mensaje lleva en `previous` el SHA-256
 del anterior. Un salto en la numeración, o un `previous` que no coincide, significa que un mensaje

@@ -129,7 +129,8 @@ pub use storage::{
     Found, FoundKind, INDEX_DIR, INDEX_SUFFIX, Judge, Leftover, Place, PlaceUsage, REMOTE_PREVIEWS, SCAN_PREFIX,
     SCRATCH_AGE, SETTLE, SIZES_INDEX, SIZES_PREFIX, SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, SavedCapture,
     StorageReport, StorageRow, StorageWindow, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, WATCH_ALLOWED, WATCH_BASELINE,
-    WATCH_OUTBOX, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers, socket_leftovers,
+    WATCH_OUTBOX, WATCH_OUTBOX_ASIDE, abandoned_leftover, cache_leftovers, leftover_lines, runtime_leftovers,
+    socket_leftovers,
 };
 pub use update::update;
 pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
@@ -139,6 +140,7 @@ pub use watch::{
     FREEZES_PER_MINUTE, Finding as WatchFinding, Guard, History, LEARNING_DAYS, Limits, NEVER_FROZEN, Outcome,
     PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess, StreamKind, WatchRule,
     WatchSource, WatchStatus, Watcher, alerts_filtered, decide as decide_response, examine as examine_start,
+    kept_within,
 };
 
 pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};

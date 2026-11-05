@@ -166,25 +166,25 @@ impl StartedProcess {
     pub fn kept(mut self) -> Self {
         let line = self.command.join(WORD_SEPARATOR);
         if line.len() > COMMAND_KEPT {
-            self.command = vec![kept(&line)];
+            self.command = vec![kept_within(&line, COMMAND_KEPT)];
         }
         for ancestor in self.ancestors.iter_mut().chain(self.session_parent.as_mut()) {
-            ancestor.command = kept(&ancestor.command);
+            ancestor.command = kept_within(&ancestor.command, COMMAND_KEPT);
         }
         for (_, value) in &mut self.preloads {
-            *value = kept(value);
+            *value = kept_within(value, COMMAND_KEPT);
         }
         self
     }
 }
 
-/// The text whole when it fits [`COMMAND_KEPT`] bytes, or else its start and its end around
-/// [`COMMAND_CUT`], together no longer than that.
-fn kept(text: &str) -> String {
-    if text.len() <= COMMAND_KEPT {
+/// The text whole when it fits `bytes`, or else its start and its end around [`COMMAND_CUT`],
+/// together no longer than that.
+pub fn kept_within(text: &str, bytes: usize) -> String {
+    if text.len() <= bytes {
         return text.to_owned();
     }
-    let side = (COMMAND_KEPT - COMMAND_CUT.len()) / 2;
+    let side = (bytes - COMMAND_CUT.len()) / 2;
     let start = text.floor_char_boundary(side);
     let end = text.ceil_char_boundary(text.len() - side);
     format!("{}{COMMAND_CUT}{}", &text[..start], &text[end..])

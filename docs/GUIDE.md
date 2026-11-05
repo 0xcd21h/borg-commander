@@ -1851,14 +1851,26 @@ one answered.
   matches, which follow an alert once Borg has read the program), `started`, `armed` or `test`.
 - **Heartbeat**: Borg calls the address every `minutes` while the watcher runs and adds `/fail`
   when something is wrong: the thread that hashes programs stopped, a place has not taken a
-  message for 30 minutes, or Borg gave up on one. A service such as healthchecks.io tells you when
-  the calls stop, which is what happens when someone kills the watcher.
+  message for 30 minutes, Borg gave up on one, or Borg could not read its outbox. A service such as
+  healthchecks.io tells you when the calls stop, which is what happens when someone kills the
+  watcher.
 
 The service sends each alert within seconds of writing it down, and also says when the watcher
 starts and when freezing begins. Notices stay on the page unless `level` is `notice`. A message a
 place refuses waits in `watch-outbox.json` in the state folder and is tried again, 5 seconds later
-at first and every 30 minutes at most. Borg keeps up to 500 waiting messages and tries each for 48
-hours, and the next message says how many it gave up on.
+at first and every 30 minutes at most. Borg keeps up to 500 waiting messages, fewer when long ones
+would take the file past 16 MiB, and tries each for 48 hours. The next message says how many it
+gave up on.
+
+A message carries at most 1,000 bytes of the command line, the program's path and the reason for
+the alert. A longer one keeps its start and its end with an ellipsis between them, so padding the
+start of a command cannot hide what it does.
+
+When Borg finds a `watch-outbox.json` it cannot read, it renames the file to
+`watch-outbox-unreadable.json` and starts a new outbox. A later one gets a numbered name such as
+`watch-outbox-unreadable (2).json`. The messages that were waiting stay in that file and are never
+sent, so the heartbeat fails once and says why, and each place's numbering starts again at 1. Look
+through the file, then delete it.
 
 Each place numbers its messages from 1, and every message's JSON carries the SHA-256 of the one
 before it in `previous`. A gap in the numbers, or a `previous` that does not match, means a message

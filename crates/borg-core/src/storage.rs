@@ -15,7 +15,8 @@ pub use leftovers::{
     ALERT_LOG, ALERT_LOG_ASIDE, ARCHIVE_VIEWS, CONSOLE_PREFIX, CacheLists, DOCKER_SCRATCH, Found, FoundKind, INDEX_DIR,
     INDEX_SUFFIX, Judge, Leftover, REMOTE_PREVIEWS, SCAN_PREFIX, SCRATCH_AGE, SETTLE, SIZES_INDEX, SIZES_PREFIX,
     SOCKET_SUFFIX, SQLITE_SUFFIX, STAGING_SUFFIX, STALE, TRUST_EXTENSION, TRUST_PREFIX, TTL_FILE, WATCH_ALLOWED,
-    WATCH_BASELINE, WATCH_OUTBOX, abandoned_leftover, cache_leftovers, runtime_leftovers, socket_leftovers,
+    WATCH_BASELINE, WATCH_OUTBOX, WATCH_OUTBOX_ASIDE, abandoned_leftover, cache_leftovers, runtime_leftovers,
+    socket_leftovers,
 };
 
 /// Captures Borg remembers having saved, newest first.

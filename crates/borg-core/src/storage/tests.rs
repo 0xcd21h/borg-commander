@@ -47,6 +47,16 @@ fn the_alert_log_and_the_baseline_are_never_left_over() {
     assert!(cache_leftovers(root, &entries, &lists, &judge(false)).is_empty());
 }
 
+#[test]
+fn the_outbox_and_an_outbox_borg_could_not_read_are_never_left_over() {
+    let root = Path::new("/state");
+    let entries = [file(WATCH_OUTBOX, STALE * 2), file(WATCH_OUTBOX_ASIDE, STALE * 2)];
+    assert!(runtime_leftovers(root, &entries, &judge(false)).is_empty());
+    assert!(runtime_leftovers(root, &entries, &judge(true)).is_empty());
+    let lists = CacheLists { sizes: None, indexes: &HashSet::new() };
+    assert!(cache_leftovers(root, &entries, &lists, &judge(false)).is_empty());
+}
+
 fn judge(idle: bool) -> Judge<'static> {
     Judge { now: now(), version: VERSION, idle, runs: &runs }
 }
