@@ -19,6 +19,9 @@ pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
     if resting {
         return Vec::new();
     }
+    if let Some(approval) = state.approval.take() {
+        return crate::agent::on_approval_key(state, approval, key, now);
+    }
     // A full-screen program gets the keys, unless a dialog shows over it.
     if state.shell.captured() && state.overlay.is_none() {
         return forward(state, key, now);
@@ -63,15 +66,15 @@ fn console_scroll(state: &AppState, key: &KeyEvent) -> Option<Scroll> {
     }
 }
 
-/// The key for what shows in front of the panels: the editor or the viewer, unless an agent's
-/// approval shows over them, a field that pastes, the open window, a monitor beside the panels,
+/// The key for what shows in front of the panels: the editor or the viewer, unless a job's
+/// question shows over them, a field that pastes, the open window, a monitor beside the panels,
 /// or the editor in a panel.
 fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Effect>> {
-    let approval = matches!(state.overlay, Some(crate::Overlay::Approval(_)));
-    if state.editor.is_some() && !approval {
+    let asking = state.question_shows();
+    if state.editor.is_some() && !asking {
         return Some(crate::editor::on_key(state, crate::EditorSlot::Screen, key));
     }
-    if state.viewer.is_some() && !approval {
+    if state.viewer.is_some() && !asking {
         return Some(crate::viewer::on_key(state, key));
     }
     // Borg's own fields paste what was copied in Borg; elsewhere Ctrl-V stays the shell's.
@@ -223,6 +226,9 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 
 pub(super) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     state.intro = None;
+    if state.approval.is_some() {
+        return Vec::new();
+    }
     if let Some(slot) = crate::editor::focused(state).filter(|_| state.overlay.is_none()) {
         return crate::editor::paste(state, slot, text);
     }

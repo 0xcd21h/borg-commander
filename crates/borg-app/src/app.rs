@@ -199,6 +199,7 @@ impl App {
                 Some((key, event)) = self.remote_consoles.incoming.recv() => self.on_remote_console(key, event)?,
                 Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
                 Some((call, reply)) = self.agent.incoming.recv() => self.on_agent(call, reply)?,
+                id = self.agent.waiting.withdrawn() => self.dispatch(Msg::Agent(borg_core::AgentEvent::Withdrawn { id }))?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 connected = async {

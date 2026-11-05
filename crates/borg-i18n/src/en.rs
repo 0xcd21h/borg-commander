@@ -987,6 +987,7 @@ catalog! {
     agent_plain_intro => "Select the command below and paste it into a terminal on your computer:",
     agent_plain_return => "Press any key to return to borg.",
     agent_connect_copied => "Copied; paste it into a terminal on your computer",
+    agent_withdrawn => "Remote stopped waiting for your answer: {summary}",
     remote_menu_title => "Remote",
     remote_colony_title => " Remote colony ",
     remote_colony_keys => " Enter files  M mirror  F2: rename host  S-F2 session  F8 remove  Tab clients  R refresh  Esc close ",

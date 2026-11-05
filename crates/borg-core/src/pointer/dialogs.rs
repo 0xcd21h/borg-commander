@@ -17,7 +17,7 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             }
             show(state, Overlay::Prompt(prompt))
         }
-        (Pointer::DialogScroll(delta), Overlay::Approval(_) | Overlay::AgentLog { .. }) => {
+        (Pointer::DialogScroll(delta), Overlay::AgentLog { .. }) => {
             crate::agent::scroll_dialog(state, delta);
             Vec::new()
         }
@@ -35,8 +35,9 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             Vec::new()
         }
         (Pointer::DismissDialog, _) => press(state, KeyCode::Esc, now),
-        (Pointer::Confirm(accept), Overlay::Confirm(_) | Overlay::Approval(_)) => {
-            press(state, KeyCode::Char(if accept { 'y' } else { 'n' }), now)
+        (Pointer::Confirm(accept), Overlay::Confirm(_)) => {
+            let answer = if accept { crate::keyboard::YES_KEY } else { crate::keyboard::NO_KEY };
+            press(state, KeyCode::Char(answer), now)
         }
         (Pointer::Collection { index, open }, Overlay::Collections(picker)) if picker.creating.is_none() => {
             pick_collection(state, picker, index, open, now)

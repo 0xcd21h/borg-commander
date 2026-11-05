@@ -3177,14 +3177,14 @@ fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() 
     let body = (1..=200).map(|n| DiffLine::plain(format!("echo {n}"))).collect();
     let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), body };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask }), now);
-    let Some(Overlay::Approval(approval)) = state.overlay.clone() else { panic!("{:?}", state.overlay) };
+    let Some(approval) = state.approval.clone() else { panic!("{:?}", state.overlay) };
     assert!(!approval.accept, "No is chosen until the user picks Yes");
     press(&mut state, now, key(KeyCode::PageDown));
     press(&mut state, now, key(KeyCode::End));
-    let Some(Overlay::Approval(scrolled)) = state.overlay.clone() else { panic!() };
+    let Some(scrolled) = state.approval.clone() else { panic!() };
     assert!(scrolled.scroll > 100, "End shows the last lines: {}", scrolled.scroll);
     press(&mut state, now, key(KeyCode::Down));
-    assert_eq!(state.overlay, Some(Overlay::Approval(scrolled.clone())), "it stops at the end");
+    assert_eq!(state.approval, Some(scrolled.clone()), "it stops at the end");
 
     // Asked as the test starts, which counts as typing: Yes counts after the grace.
     let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
@@ -3206,6 +3206,94 @@ fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
         assert_eq!(effects, vec![Effect::AgentAnswer { id, approved: true }]);
         assert_eq!(state.agent.running, None, "{kind:?} is answered at once, so the footer shows no work");
     }
+}
+
+fn pairing_ask() -> crate::Ask {
+    crate::Ask { kind: crate::AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body: Vec::new() }
+}
+
+#[test]
+fn a_pairing_approval_shows_over_the_command_shown_plainly_and_the_connect_dialog_comes_back() {
+    use crate::AgentEvent;
+    use std::time::Duration;
+    let (mut state, now) = setup_with(Vec::new());
+    crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    update(&mut state, Msg::Agent(AgentEvent::Pairing(Ok("borg://relay.example.com/ab#cd".into()))), now);
+    let shown = press(&mut state, now, key(KeyCode::F(3)));
+    assert_eq!(shown, vec![Effect::ShowPlain("borg pair 'borg://relay.example.com/ab#cd'".into())]);
+
+    let asked = now + Duration::from_secs(5);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask: pairing_ask() }), asked);
+    assert!(state.approval.is_some(), "the approval shows at once, over the Connect dialog");
+    assert!(matches!(state.overlay, Some(Overlay::Connect(_))));
+    assert_eq!(press(&mut state, asked, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 7, approved: true }]);
+    assert!(state.approval.is_none());
+    assert!(matches!(state.overlay, Some(Overlay::Connect(_))), "the Connect dialog comes back");
+
+    let again = asked + Duration::from_secs(5);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 8, ask: pairing_ask() }), again);
+    let clicked = update(&mut state, Msg::Pointer(crate::Pointer::Confirm(true)), again);
+    assert_eq!(clicked, vec![Effect::AgentAnswer { id: 8, approved: true }], "a click on Yes answers it too");
+}
+
+#[test]
+fn an_approval_shows_over_any_dialog_and_takes_every_key_until_answered() {
+    use crate::AgentEvent;
+    use std::time::Duration;
+    for opener in [KeyCode::F(9), KeyCode::F(1), KeyCode::F(7)] {
+        let (mut state, now) = setup();
+        press(&mut state, now, key(opener));
+        type_text(&mut state, now, "ab");
+        let open = state.overlay.clone();
+        assert!(open.is_some(), "{opener:?} opens a dialog");
+
+        let asked = now + Duration::from_secs(5);
+        update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), asked);
+        assert!(state.approval.is_some(), "the approval shows over {opener:?}");
+        assert!(press(&mut state, asked, key(KeyCode::Char('x'))).is_empty());
+        assert!(update(&mut state, Msg::Paste("pasted".into()), asked).is_empty());
+        assert_eq!(state.overlay, open, "keys and pastes for the approval leave {opener:?} as it was");
+        assert_eq!(press(&mut state, asked, key(KeyCode::Esc)), vec![Effect::AgentAnswer { id: 1, approved: false }]);
+        assert_eq!(state.overlay, open, "{opener:?} comes back");
+    }
+}
+
+#[test]
+fn an_approval_ends_the_screensaver_and_the_intro() {
+    use crate::AgentEvent;
+    let mut settings = quiet();
+    settings.preferences.screensaver = true;
+    let (mut state, now) = setup_from(vec![dir("me")], settings);
+    let due = now + state.settings.screensaver_after;
+    update(&mut state, Msg::Tick, due);
+    assert!(state.screensaver);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), due);
+    assert!(!state.screensaver, "the approval wakes the screen");
+    assert!(state.approval.is_some());
+    assert!(!state.can_screensave(), "no screensaver starts over it");
+    assert_eq!(press(&mut state, due, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 1, approved: true }]);
+
+    state.intro = Some(due);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: pairing_ask() }), due);
+    assert_eq!(state.intro, None);
+    assert!(state.approval.is_some());
+}
+
+#[test]
+fn a_withdrawn_ask_closes_its_approval_with_a_notice_and_a_queued_one_never_shows() {
+    use crate::{AgentEvent, Ask, AskKind, DiffLine};
+    let (mut state, now) = setup_with(Vec::new());
+    let run =
+        Ask { kind: AskKind::Run, summary: "make".into(), place: "~".into(), body: vec![DiffLine::plain("make")] };
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: run }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 2 }), now);
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(1));
+    assert_eq!(state.notice, None, "the queued ask goes without a word");
+
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 1 }), now);
+    assert_eq!(state.approval, None, "nothing else waits");
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_withdrawn, summary = "me@laptop")));
 }
 
 #[test]
@@ -3317,10 +3405,10 @@ fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears
     // The user is typing in a full-screen editor when Claude asks.
     press(&mut state, now, key(KeyCode::Char('i')));
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: ask("make") }), now);
-    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    assert!(state.approval.is_some());
     let typed_on = press(&mut state, now + Duration::from_millis(100), key(KeyCode::Char('y')));
     assert!(typed_on.is_empty(), "a y typed as the dialog appears neither approves nor reaches the editor");
-    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    assert!(state.approval.is_some());
     let approved = press(&mut state, now + APPROVAL_GRACE, key(KeyCode::Char('y')));
     assert_eq!(approved, vec![Effect::AgentAnswer { id: 1, approved: true }]);
 

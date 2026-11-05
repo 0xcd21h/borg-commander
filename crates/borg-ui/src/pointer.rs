@@ -43,14 +43,14 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
     let mouse = Mouse { event, point, click, double };
     // An agent's dialogs show over the console and the viewer too, and take the mouse there.
-    if matches!(state.overlay, Some(Overlay::Approval(_) | Overlay::AgentLog { .. })) {
+    if state.approval.is_some() || matches!(state.overlay, Some(Overlay::AgentLog { .. })) {
         return agent_dialog_mouse(state, &mouse, state.layout(now).screen);
     }
-    if let Some(editor) = &state.editor {
+    if let Some(editor) = state.editor.as_ref().filter(|_| !state.question_shows()) {
         let screen = state.layout(now).screen;
         return crate::editor_view::mouse(editor, event, double, (screen, screen), WHEEL_ROWS);
     }
-    if let Some(viewer) = state.viewer.as_ref().filter(|_| !state.shell.captured()) {
+    if let Some(viewer) = state.viewer.as_ref().filter(|_| !state.shell.captured() && !state.question_shows()) {
         return match mouse.wheel() {
             Some(delta) => Some(Msg::Pointer(Pointer::ScrollDocument(delta))),
             None if click => crate::viewer_view::click(viewer, state.layout(now).screen, point),
@@ -91,7 +91,7 @@ fn agent_dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<M
     if !mouse.click {
         return None;
     }
-    if let Some(Overlay::Approval(approval)) = &state.overlay {
+    if let Some(approval) = &state.approval {
         return crate::agent_view::approval_button_at(approval, screen, mouse.point)
             .map(|accept| Msg::Pointer(Pointer::Confirm(accept)));
     }

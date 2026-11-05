@@ -686,7 +686,10 @@ Todo lo que modifica la máquina espera tu respuesta en un diálogo que muestra 
 un comando y dónde se ejecutará, un archivo nuevo o una edición en forma de diff. Desplaza los
 largos con las flechas, PgUp y PgDn, o la rueda del ratón, y pulsa F3 para ver el diálogo a
 pantalla completa. La opción No sigue seleccionada hasta que eliges Sí, y una edición se rechaza si el
-archivo cambió mientras decidías. Con una computadora emparejada, `approval_mode` te pregunta una
+archivo cambió mientras decidías. El diálogo aparece encima de todo, incluidos el editor, el visor,
+otro diálogo y el salvapantallas, y recibe todas las teclas hasta que respondas. Lo que tapaba vuelve
+a aparecer después. Si el agente deja de esperar antes, el diálogo se cierra y un aviso lo indica.
+Con una computadora emparejada, `approval_mode` te pregunta una
 vez antes de activar Aprobar todo para esa sesión. Mientras está activo, se mantiene visible una
 insignia; haz clic en ella o pulsa Ctrl+Alt+A para desactivarlo al instante. También se desactiva
 cuando se cierra esa conexión emparejada. Las aprobaciones de emparejamiento son aparte.
@@ -782,8 +785,10 @@ hacia fuera a un relay, y el relay los une.
    un código de emparejamiento: seis emojis, cada uno con su nombre, como
    `🐱 Cat · 🦁 Lion · 🐎 Horse`.
 3. El borg del servidor pregunta si quieres emparejar, y muestra el nombre de tu computadora y el
-   código. Elige Sí si los códigos coinciden. Después, `borg pair` ofrece añadir el servidor a
-   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`.
+   código. La pregunta aparece enseguida, incluso mientras F3 muestra el comando como texto. Elige
+   Sí si los códigos coinciden. Después, `borg pair` ofrece añadir el servidor a
+   Claude Code, como `claude mcp add borg-NAME -- borg mcp remote NAME`. Espera tu respuesta 5
+   minutos; cuando se rinde o lo detienes, la pregunta se cierra y el enlace deja de funcionar.
 
 El código procede del intercambio cifrado que los dos borgs acaban de completar, así que solo es
 el mismo en ambas pantallas si es tu computadora la que está hablando con el servidor. Alguien que
@@ -1050,6 +1055,9 @@ espera:
 - **Siempre en este tipo de disco** (`d`) la ejecuta y deja de preguntar por el trabajo en discos de
   este tipo.
 - **Cancelar** (`c`) se detiene antes de la primera escritura.
+
+Al guardar desde el editor en un archivo comprimido, la pregunta aparece encima del editor, que
+recupera las teclas en cuanto respondes.
 
 Mientras Borg no haya medido un disco, cuenta con la velocidad habitual de su tipo: unos 120 MB/s
 para un disco duro, 900 MB/s para un SSD, 4 GB/s para un disco en RAM, 60 MB/s para un recurso
@@ -1354,7 +1362,8 @@ al azar: un cubo que gira en un campo de estrellas, el logotipo con efecto glitc
 letras de bloques del logotipo que se desgarra con cada nuevo minuto, el logotipo que gira en
 espiral hasta formar una galaxia y vuelve, o el logotipo reconstruido tabla a tabla mientras las
 tablas viejas forman un segundo logotipo debajo. Cualquier tecla o clic devuelve los paneles, y
-esa tecla no hace nada más.
+esa tecla no hace nada más. La aprobación que pide un agente termina el salvapantallas por sí sola,
+así que nunca espera detrás de él.
 
 Los temas personalizados van en `~/.config/borg-commander/themes/`. Un tema puede extender uno de
 los integrados:
