@@ -487,14 +487,16 @@ copiar habitual.
 Escreva `cd ` na linha de comandos e o Borg mostra, logo acima dela, as pastas para onde pode
 saltar: primeiro as favoritas, marcadas com ★, depois as pastas que os painéis abriram, das mais
 recentes para as mais antigas. Cada palavra que acrescenta restringe a lista e pode corresponder a
-qualquer parte do caminho, por isso `cd pro bo` encontra `~/Projects/borg`. As pastas cujo nome
-corresponde à última palavra ficam em primeiro lugar, junto à linha de comandos. Prima Up para
-entrar na lista. Enquanto a lista está visível, Up e Down só se movem nela e param nas duas pontas,
-por isso o cursor do painel mantém a posição. Enter abre a pasta escolhida no painel ativo. Tab
-coloca-a na linha de comandos a seguir a `cd ` sem executar o comando, com escapes nos espaços e
-noutros caracteres que a shell dividiria ou expandiria, e a lista passa para as pastas que ela
-contém. Um clique numa pasta também a abre. Para executar o seu próprio `cd`, continue a escrever e
-prima Enter.
+qualquer parte do caminho tal como a lista o mostra, por isso `cd pro bo` encontra
+`~/Projects/borg`. A pasta pessoal aparece como `~`, por isso uma palavra do caminho dela, como `me`
+em `/home/me`, não corresponde a nenhuma pasta lá dentro. Uma palavra que comece por `/` corresponde
+ao caminho completo. As pastas cujo nome corresponde à última palavra ficam em primeiro lugar, junto
+à linha de comandos. Prima Up para entrar na lista. Enquanto a lista está visível, Up e Down só se
+movem nela e param nas duas pontas, por isso o cursor do painel mantém a posição. Enter abre a pasta
+escolhida no painel ativo. Tab coloca-a na linha de comandos a seguir a `cd ` sem executar o
+comando, com escapes nos espaços e noutros caracteres que a shell dividiria ou expandiria, e a lista
+passa para as pastas que ela contém. Um clique numa pasta também a abre. Para executar o seu próprio
+`cd`, continue a escrever e prima Enter.
 
 Escreva um caminho e a lista começa pelas pastas que ele contém. `cd /Volumes` mostra os volumes
 montados, e `cd ~/Projects/bo` restringe a lista às pastas de `~/Projects` com `bo` no nome,
