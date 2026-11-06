@@ -4788,6 +4788,15 @@ fn an_unavailable_host_can_be_forgotten_without_contacting_it_or_changing_the_cl
     Ok(())
 }
 
+const START_WINDOW_ABOUT: &str = "A session is a saved workspace";
+
+fn session_chosen(screen: &Snapshot, name: &str) -> bool {
+    match (screen.style_of(name), screen.style_of(START_WINDOW_ABOUT)) {
+        (Some(row), Some(about)) => row.bg != about.bg,
+        _ => false,
+    }
+}
+
 /// With several named sessions, `borg` opens the start window. It marks the session another
 /// terminal has open, refuses to open or remove that one, removes an old one only after a
 /// confirmation that starts on No, and keeps the files on the machine.
@@ -4812,7 +4821,7 @@ fn the_start_window_marks_open_sessions_and_removes_an_old_one_after_asking() ->
     let mut work = Session::builder(BORG, &fixture).args(&["--session", "Work"]).label("start-window-work").spawn()?;
     work.wait_text(READY)?;
     let mut window = Session::builder(BORG, &fixture).size(100, 30).label("start-window").spawn()?;
-    window.wait_text("A session is a saved workspace")?;
+    window.wait_text(START_WINDOW_ABOUT)?;
     window.wait_text("● Open in another terminal")?;
     window.wait_text("2024-06-01")?;
 
@@ -4843,18 +4852,24 @@ fn the_start_window_marks_open_sessions_and_removes_an_old_one_after_asking() ->
 #[test]
 fn the_start_window_names_the_sessions_the_background_service_keeps_running() -> Result<()> {
     const KEPT: &str = "● Kept running by the service";
+    const SPARE: &str = "Spare";
+    const DEFAULT: &str = "Default";
     let fixture = fixture()?;
     let made = std::process::Command::new(BORG)
-        .args(["sessions", "create", "Spare"])
+        .args(["sessions", "create", SPARE])
         .env("BORG_STATE_DIR", fixture.state())
         .output()?;
     ensure!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
     let _service = Session::builder(BORG, &fixture).args(&["service", "run"]).label("start-window-service").spawn()?;
     let mut window = Session::builder(BORG, &fixture).size(100, 30).label("start-window-service-client").spawn()?;
-    window.wait_until("both sessions kept by the service", |screen| screen.text().matches(KEPT).count() == 2)?;
-    window.send(keys::key(KeyCode::End))?.send(keys::f(8))?.wait_text("keeps \"Spare\" running.")?;
+    let listed =
+        window.wait_until("both sessions kept by the service", |screen| screen.text().matches(KEPT).count() == 2)?;
+    let row = |name| listed.find(name).map(|(_, y)| y);
+    let toward_spare = if row(SPARE) < row(DEFAULT) { KeyCode::Home } else { KeyCode::End };
+    window.send(keys::key(toward_spare))?.wait_until("Spare chosen", |screen| session_chosen(screen, SPARE))?;
+    window.send(keys::f(8))?.wait_text(&format!("keeps \"{SPARE}\" running."))?;
     let registry = fs::read_to_string(fixture.state().join("sessions.json"))?;
-    ensure!(registry.contains("Spare"), "the service's session stays");
+    ensure!(registry.contains(SPARE), "the service's session stays");
     window.send(keys::esc())?;
     ensure!(window.wait_exit()?.success(), "Esc quits without opening a session");
     Ok(())
