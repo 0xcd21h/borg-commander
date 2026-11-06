@@ -2,7 +2,8 @@
 //! change to a file, the log of what agents did, and how to connect Claude to this borg.
 
 use borg_core::{
-    AppState, Approval, AskKind, Change, Connect, LineInput, approval_layout, approval_rows, log_layout, log_rows,
+    AppState, Approval, AskKind, Change, Connect, LineInput, approval_layout, approval_place, approval_rows,
+    log_layout, log_rows,
 };
 use borg_i18n::tr;
 use ratatui::{
@@ -83,21 +84,7 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
         Line::styled(text.clone(), style).render(Rect { y: body.y + offset, height: 1, ..body }, buf);
     }
 
-    // Where it happens; a long path loses its start, so the file's name always shows.
-    let (ask, place) = (&approval.ask, &approval.ask.place);
-    let place = match ask.kind {
-        AskKind::Run => tr!(agent_in_place).replace("{place}", place),
-        AskKind::Pair
-        | AskKind::Read
-        | AskKind::Upload
-        | AskKind::ApprovalMode
-        | AskKind::Memory
-        | AskKind::Scan
-        | AskKind::Capture => place.clone(),
-        _ if place.is_empty() => ask.summary.clone(),
-        _ => tr!(agent_file_place).replace("{path}", &ask.summary).replace("{place}", place),
-    };
-    let place = crate::format::truncate_start(&place, usize::from(body.width));
+    let place = crate::format::truncate_start(&approval_place(&approval.ask), usize::from(body.width));
     Line::styled(place, styles.overlay).centered().render(row(rect, rect.bottom().saturating_sub(4)), buf);
     let (yes, no) = if approval.accept {
         (styles.overlay_selected, styles.overlay)

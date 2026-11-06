@@ -2,7 +2,6 @@
 
 use super::{App, Flow, fail, text};
 use crate::agent::{self, Call, Location, Reply, Work};
-use crate::app::render::from_origin;
 use anyhow::Result;
 use borg_core::{AgentEvent, CaptureRequest, CaptureScope, Keep, Msg, SeenSockets};
 use borg_i18n::{Count, count, tr};
@@ -87,8 +86,7 @@ impl App {
             tls_keys: borg_core::TlsKeys::Off,
             keep_free_mib: self.state.network.keep_free_mib,
         };
-        let place = from_origin(String::new(), call.origin.as_deref());
-        let ask = borg_core::capture_ask(asked.scope, text(&call, PROCESS).as_deref(), &request, place);
+        let ask = borg_core::capture_ask(asked.scope, text(&call, PROCESS).as_deref(), &request, call.origin.clone());
         let id =
             self.agent.ask(reply, Work::Capture { request, filter: asked.scope.view_filter(), limit: asked.limit });
         if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {

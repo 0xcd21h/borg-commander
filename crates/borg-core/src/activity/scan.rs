@@ -30,9 +30,9 @@ pub struct ScanSubject<'a> {
 }
 
 /// What the approval dialog shows when an agent asks to scan a process's memory: the process,
-/// its program, the checks, and the agent's own rule text when it brings some. `place` says
-/// who asked.
-pub fn scan_ask(subject: ScanSubject<'_>, checks: ScanChecks, inline: Option<&str>, place: String) -> Ask {
+/// its program, the checks, and the agent's own rule text when it brings some. `origin` is
+/// the computer that asked.
+pub fn scan_ask(subject: ScanSubject<'_>, checks: ScanChecks, inline: Option<&str>, origin: Option<String>) -> Ask {
     let mut body = vec![DiffLine::plain(tr!(agent_memory_process, name = subject.name, pid = subject.pid))];
     if let Some(program) = subject.program {
         body.push(DiffLine::plain(tr!(agent_memory_program, path = program.display())));
@@ -53,5 +53,5 @@ pub fn scan_ask(subject: ScanSubject<'_>, checks: ScanChecks, inline: Option<&st
         body.extend(text.lines().map(DiffLine::plain));
     }
     let summary = tr!(process_control_subject, name = subject.name, pid = subject.pid);
-    Ask { kind: AskKind::Scan, summary, place, body }
+    Ask { kind: AskKind::Scan, summary, place: String::new(), origin, body }
 }

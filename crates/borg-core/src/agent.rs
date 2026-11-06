@@ -81,6 +81,8 @@ pub struct Ask {
     pub summary: String,
     /// Where it happens: a folder, or a container.
     pub place: String,
+    /// The computer that asked through borg cloud; none for an agent on this one.
+    pub origin: Option<String>,
     /// The command's lines, or the change to the file.
     pub body: Vec<DiffLine>,
 }
@@ -416,6 +418,28 @@ pub fn approval_rows(body: &[DiffLine], width: u16) -> Vec<(Change, String)> {
     rows
 }
 
+/// The approval dialog's line above its buttons: where the ask happens, the file first for a
+/// change, then the computer that asked when another one did.
+pub fn approval_place(ask: &Ask) -> String {
+    let place = match ask.kind {
+        AskKind::Run => tr!(agent_in_place, place = ask.place),
+        AskKind::Create | AskKind::Edit if ask.place.is_empty() => ask.summary.clone(),
+        AskKind::Create | AskKind::Edit => tr!(agent_file_place, path = ask.summary, place = ask.place),
+        AskKind::Pair
+        | AskKind::Read
+        | AskKind::Upload
+        | AskKind::ApprovalMode
+        | AskKind::Memory
+        | AskKind::Scan
+        | AskKind::Capture => ask.place.clone(),
+    };
+    match &ask.origin {
+        None => place,
+        Some(origin) if place.is_empty() => tr!(agent_asked_from, origin = origin),
+        Some(origin) => tr!(agent_from, place = place, origin = origin),
+    }
+}
+
 /// The log dialog's frame and the area its entries scroll in: most of the screen.
 pub fn log_layout(screen: Rect) -> (Rect, Rect) {
     let width = screen.width.saturating_sub(MARGIN).min(DIALOG_WIDTH);
@@ -687,5 +711,41 @@ mod tests {
         assert_eq!(rows[4], (Change::Added, "       ;".into()));
         let command = approval_rows(&[DiffLine::plain("echo hi")], 20);
         assert_eq!(command, [(Change::Same, "echo hi".into())], "a command has no numbers");
+    }
+
+    #[test]
+    fn the_approval_place_names_the_file_where_it_is_and_who_asked() {
+        let remote = Some("dev@harbor [873dd93b…]".to_owned());
+        let ask = |kind, summary: &str, place: &str, origin: &Option<String>| Ask {
+            kind,
+            summary: summary.into(),
+            place: place.into(),
+            origin: origin.clone(),
+            body: Vec::new(),
+        };
+        let site = "/etc/nginx/sites-available/menu";
+        let cases = [
+            (ask(AskKind::Create, "~/notes.txt", "", &None), "~/notes.txt"),
+            (
+                ask(AskKind::Edit, site, "the web container", &None),
+                "/etc/nginx/sites-available/menu in the web container",
+            ),
+            (
+                ask(AskKind::Create, site, "", &remote),
+                "/etc/nginx/sites-available/menu · asked from dev@harbor [873dd93b…]",
+            ),
+            (
+                ask(AskKind::Edit, site, "the web container", &remote),
+                "/etc/nginx/sites-available/menu in the web container · asked from dev@harbor [873dd93b…]",
+            ),
+            (ask(AskKind::Run, "nginx -t", "/etc/nginx", &None), "in /etc/nginx"),
+            (ask(AskKind::Run, "nginx -t", "/etc/nginx", &remote), "in /etc/nginx · asked from dev@harbor [873dd93b…]"),
+            (ask(AskKind::Read, "notes.txt", "", &remote), "asked from dev@harbor [873dd93b…]"),
+            (ask(AskKind::Upload, "big.bin", "12 bytes", &remote), "12 bytes · asked from dev@harbor [873dd93b…]"),
+            (ask(AskKind::Pair, "me@laptop", "", &None), ""),
+        ];
+        for (ask, shown) in cases {
+            assert_eq!(approval_place(&ask), shown, "{ask:?}");
+        }
     }
 }

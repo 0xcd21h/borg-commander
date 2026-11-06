@@ -3175,7 +3175,7 @@ fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() 
     use crate::{AgentEvent, Ask, AskKind, DiffLine};
     let (mut state, now) = setup_with(Vec::new());
     let body = (1..=200).map(|n| DiffLine::plain(format!("echo {n}"))).collect();
-    let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), body };
+    let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), origin: None, body };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask }), now);
     let Some(approval) = state.approval.clone() else { panic!("{:?}", state.overlay) };
     assert!(!approval.accept, "No is chosen until the user picks Yes");
@@ -3200,7 +3200,7 @@ fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
     use crate::{AgentEvent, Ask, AskKind};
     let (mut state, now) = setup_with(Vec::new());
     for (id, kind) in [(1, AskKind::Pair), (2, AskKind::Read), (3, AskKind::Upload)] {
-        let ask = Ask { kind, summary: "me@laptop".into(), place: String::new(), body: Vec::new() };
+        let ask = Ask { kind, summary: "me@laptop".into(), place: String::new(), origin: None, body: Vec::new() };
         update(&mut state, Msg::Agent(AgentEvent::Ask { id, ask }), now);
         let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
         assert_eq!(effects, vec![Effect::AgentAnswer { id, approved: true }]);
@@ -3209,7 +3209,13 @@ fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
 }
 
 fn pairing_ask() -> crate::Ask {
-    crate::Ask { kind: crate::AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body: Vec::new() }
+    crate::Ask {
+        kind: crate::AskKind::Pair,
+        summary: "me@laptop".into(),
+        place: String::new(),
+        origin: None,
+        body: Vec::new(),
+    }
 }
 
 #[test]
@@ -3283,8 +3289,13 @@ fn an_approval_ends_the_screensaver_and_the_intro() {
 fn a_withdrawn_ask_closes_its_approval_with_a_notice_and_a_queued_one_never_shows() {
     use crate::{AgentEvent, Ask, AskKind, DiffLine};
     let (mut state, now) = setup_with(Vec::new());
-    let run =
-        Ask { kind: AskKind::Run, summary: "make".into(), place: "~".into(), body: vec![DiffLine::plain("make")] };
+    let run = Ask {
+        kind: AskKind::Run,
+        summary: "make".into(),
+        place: "~".into(),
+        origin: None,
+        body: vec![DiffLine::plain("make")],
+    };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), now);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: run }), now);
     update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 2 }), now);
@@ -3301,7 +3312,8 @@ fn an_approved_capture_shows_in_the_footer_until_it_is_done() {
     use crate::{AgentEvent, Ask, AskKind};
     let (mut state, now) = setup_with(Vec::new());
     let summary = "capture on en0, 10 s";
-    let ask = Ask { kind: AskKind::Capture, summary: summary.into(), place: String::new(), body: Vec::new() };
+    let ask =
+        Ask { kind: AskKind::Capture, summary: summary.into(), place: String::new(), origin: None, body: Vec::new() };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 4, ask }), now);
     let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
     assert_eq!(effects, vec![Effect::AgentAnswer { id: 4, approved: true }]);
@@ -3400,6 +3412,7 @@ fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears
         kind: AskKind::Run,
         summary: command.into(),
         place: "~".into(),
+        origin: None,
         body: vec![DiffLine::plain(command)],
     };
     // The user is typing in a full-screen editor when Claude asks.

@@ -49,9 +49,13 @@ impl App {
                 "scan" => format!("scan {}", text(&call, "path").unwrap_or_default()),
                 _ => text(&call, "source").or_else(|| text(&call, "path")).unwrap_or_else(|| ".".into()),
             };
-            let place = tr!(agent_asked_from).replace("{origin}", &origin);
-            let ask =
-                Ask { kind: AskKind::Read, summary: summary.clone(), place, body: vec![DiffLine::plain(summary)] };
+            let ask = Ask {
+                kind: AskKind::Read,
+                summary: summary.clone(),
+                place: String::new(),
+                origin: Some(origin),
+                body: vec![DiffLine::plain(summary)],
+            };
             let id = self.agent.ask(reply, Work::Forward(call));
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
         }
@@ -174,6 +178,7 @@ impl App {
             kind: AskKind::ApprovalMode,
             summary: origin.clone(),
             place: format!("session: {}", self.state.agent.connect.name),
+            origin: None,
             body: vec![
                 DiffLine::plain(format!("Allow {origin} to run commands and change files without individual prompts?")),
                 DiffLine::plain("Pairing and trust changes still ask. This ends when its connection closes."),
@@ -194,7 +199,7 @@ impl App {
             DiffLine::plain(""),
             DiffLine::plain("Pair only if `borg pair` shows this code on that computer."),
         ]);
-        let ask = Ask { kind: AskKind::Pair, summary: name.clone(), place: String::new(), body };
+        let ask = Ask { kind: AskKind::Pair, summary: name.clone(), place: String::new(), origin: None, body };
         let id = self.agent.ask(reply, Work::Pair { name });
         self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }))
     }
@@ -452,11 +457,13 @@ impl App {
                 DiffLine::plain(""),
                 DiffLine::plain(tr!(agent_memory_warning)),
             ]);
-            let place = call
-                .origin
-                .as_ref()
-                .map_or_else(String::new, |origin| tr!(agent_asked_from).replace("{origin}", origin));
-            let ask = Ask { kind: AskKind::Memory, summary: format!("{name} (PID {pid})"), place, body };
+            let ask = Ask {
+                kind: AskKind::Memory,
+                summary: format!("{name} (PID {pid})"),
+                place: String::new(),
+                origin: call.origin.clone(),
+                body,
+            };
             call.args["_start"] = serde_json::json!(process.start);
             let id = self.agent.ask(reply, Work::Forward(call));
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));

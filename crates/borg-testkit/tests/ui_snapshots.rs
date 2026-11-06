@@ -4177,7 +4177,7 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
     body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
     body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), origin: None, body };
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
@@ -4201,7 +4201,7 @@ fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
     let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
     body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
     body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), origin: None, body };
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Pair this computer with borg?")?;
@@ -4225,11 +4225,33 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         keep_free_mib: None,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
-    let ask = borg_core::capture_ask(scope, None, &request, String::new());
+    let ask = borg_core::capture_ask(scope, None, &request, None);
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to capture traffic")?;
     check("agent_capture_approval", &stage, buffer)
+}
+
+#[test]
+fn a_file_another_computer_asks_to_create_names_that_computer_after_the_path() -> Result<()> {
+    use borg_core::{AgentEvent, Ask, AskKind, Change, DiffLine};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let site = "server {\n    listen 80;\n    server_name menu.example.com;\n    root /srv/menu;\n}";
+    let body = (1..)
+        .zip(site.lines())
+        .map(|(number, line)| DiffLine { change: Change::Added, number: Some(number), text: line.into() })
+        .collect();
+    let ask = Ask {
+        kind: AskKind::Create,
+        summary: "/etc/nginx/sites-available/menu".into(),
+        place: String::new(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body,
+    };
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/etc/nginx/sites-available/menu · asked from dev@harbor [873dd93b…]")?;
+    check("agent_remote_create_approval", &stage, buffer)
 }
 
 #[test]
@@ -4239,7 +4261,7 @@ fn a_scan_asks_with_the_process_the_checks_and_the_agents_own_rules() -> Result<
     let program = std::path::Path::new("/usr/bin/sample");
     let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
     let rules = "rule beacon {\n  strings: $host = \"c2.example.org\"\n  condition: $host\n}";
-    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), "asked from laptop".into());
+    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), Some("laptop".into()));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to scan process memory")?;
