@@ -104,7 +104,11 @@ Before the shell receives input, `sync_cwd` moves it to the active panel's folde
 whose integration announces `OSC 6633;silent-cd` at each prompt (zsh) get
 `Effect::ChangeShellDir`: the app writes the folder to a private per-process request file
 (`BORG_CD_FILE`) and sends `SILENT_CD_KEY`, which a ZLE widget binds to `builtin cd`, the
-prompt hooks and `zle reset-prompt`. Nothing is echoed and no command markers are emitted.
+prompt hooks and `zle reset-prompt`. The redrawn prompt can be longer or shorter than the old
+one, so the widget draws it at once and sends `OSC 133;B` again from where typing now starts.
+Nothing is echoed and no other markers are sent. The zsh integration loads `zsh/zle` itself
+before it adds its line-init hook, since `add-zle-hook-widget` does nothing until something has
+loaded it, and only a `bindkey` in the system's or the user's startup files would have.
 Other shells receive a typed ` cd '…'` that skips history. Once a shell announces its prompts,
 the emulator conceals that command and its output (`Effect::WriteConcealed`) until the next prompt
 marker, which is drawn where the previous prompt began, so nothing flashes or stays in the console.

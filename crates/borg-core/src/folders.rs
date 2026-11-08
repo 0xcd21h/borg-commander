@@ -28,6 +28,7 @@ pub const CLEAR_LINE: &[u8] = b"\x05\x15";
 pub const CD: &str = "cd";
 
 const HOME_PREFIX: &str = "~";
+const ROOT: char = '/';
 /// Characters that make a command line more than a change of folder.
 const COMPOUND: [char; 9] = [';', '&', '|', '<', '>', '`', '(', ')', '\n'];
 const SUBSTITUTION: &str = "$(";
@@ -115,15 +116,20 @@ impl Folders {
         list.retain(|dir| *dir != choice.path);
     }
 
-    /// The hotlist, then the recent folders not on it, that hold every word of `query`, with
-    /// `skip` left out. Folders named like the last word come first: the same name, then a name
-    /// that starts with it, then one that holds it.
+    /// The hotlist, then the recent folders not on it, that hold every word of `query` as they
+    /// are shown, with `skip` left out, so the home folder's own path matches none of the
+    /// folders in it. A word that starts at the root is looked for in the full path. Folders
+    /// named like the last word come first: the same name, then a name that starts with it, then
+    /// one that holds it.
     pub fn choices(&self, query: &str, skip: Option<&Path>) -> Vec<FolderChoice> {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         let matches = |dir: &Path| {
             let shown = self.display(dir).to_lowercase();
             let full = dir.to_string_lossy().to_lowercase();
-            words.iter().all(|word| shown.contains(word) || full.contains(word))
+            words.iter().all(|word| {
+                let path = if word.starts_with(ROOT) { &full } else { &shown };
+                path.contains(word.as_str())
+            })
         };
         let pinned = self.hotlist.iter().map(|path| (path, true));
         let recent = self.recent.iter().filter(|dir| !self.hotlist.contains(dir)).map(|path| (path, false));
