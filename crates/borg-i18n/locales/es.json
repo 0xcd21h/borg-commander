@@ -937,6 +937,7 @@
   "agent_wants_pair": "¿Emparejar esta computadora con borg?",
   "agent_wants_read": "El agente remoto quiere leer",
   "agent_wants_upload": "El agente remoto quiere subir un archivo",
+  "agent_upload_source": "Origen: {path}",
   "agent_wants_memory": "El agente remoto quiere buscar en la memoria de un proceso",
   "agent_memory_process": "Proceso: {name} · PID {pid}",
   "agent_memory_program": "Programa: {path}",

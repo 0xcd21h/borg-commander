@@ -861,8 +861,9 @@ A partir de entonces, Claude puede llegar a ese borg siempre que esté en ejecuc
 olvida uno; en el servidor, F8 en el diálogo Acceso remoto olvida todas las computadoras
 emparejadas. A través de borg cloud, Claude también obtiene `download` y `upload`, que copian
 archivos entre el servidor y tu computadora; `borg get NAME:PATH [TO]` y
-`borg put FROM NAME:PATH` hacen lo mismo desde tu terminal. Las subidas esperan tu aprobación en
-borg, y cada aprobación indica qué computadora la pidió.
+`borg put FROM NAME:PATH` hacen lo mismo desde tu terminal. Las descargas de Claude van a tu
+carpeta Descargas y nunca reemplazan un archivo que ya esté allí. Las subidas esperan tu aprobación
+en borg, que muestra el archivo que se envía, y cada aprobación indica qué computadora la pidió.
 
 La conexión está cifrada de extremo a extremo. Cada borg guarda una clave privada, que solo tú
 puedes leer, en su carpeta de estado. El emparejamiento intercambia las claves públicas, y cada

@@ -1,6 +1,8 @@
 //! `borg pair`, `borg get` and `borg put`.
 
-use super::{Remote, download_in_session, forget_server, pair, server, servers, state_dir, upload_in_session};
+use super::{
+    Existing, Remote, download_in_session, forget_server, pair, server, servers, state_dir, upload_in_session,
+};
 use anyhow::{Context, Result, bail};
 use borg_link::{fingerprint, unhex};
 use std::path::{Path, PathBuf};
@@ -93,7 +95,7 @@ pub async fn get_command(args: &[String]) -> Result<()> {
     if to.is_dir() {
         to = to.join(file_name);
     }
-    let size = download_in_session(&mut remote, session, path, &to, progress).await?;
+    let size = download_in_session(&mut remote, session, path, &to, Existing::Replace, progress).await?;
     eprintln!();
     println!("Downloaded {name}:{path} ({}) to {}", borg_ui::size_text(size), to.display());
     Ok(())

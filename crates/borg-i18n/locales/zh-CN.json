@@ -937,6 +937,7 @@
   "agent_wants_pair": "将此计算机与 borg 配对？",
   "agent_wants_read": "远程请求读取",
   "agent_wants_upload": "远程请求上传文件",
+  "agent_upload_source": "来源：{path}",
   "agent_wants_memory": "远程请求搜索进程内存",
   "agent_memory_process": "进程：{name} · PID {pid}",
   "agent_memory_program": "程序：{path}",

@@ -141,6 +141,7 @@ impl App {
                     Some(&session),
                     &path.to_string_lossy(),
                     &temporary,
+                    crate::link::Existing::Replace,
                     |_, _| {},
                 )
                 .await?;

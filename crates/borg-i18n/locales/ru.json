@@ -937,6 +937,7 @@
   "agent_wants_pair": "Сопрячь этот компьютер с borg?",
   "agent_wants_read": "Удалённый клиент запрашивает чтение",
   "agent_wants_upload": "Удалённый клиент запрашивает отправку файла",
+  "agent_upload_source": "Источник: {path}",
   "agent_wants_memory": "Удалённый клиент запрашивает поиск в памяти процесса",
   "agent_memory_process": "Процесс: {name} · PID {pid}",
   "agent_memory_program": "Программа: {path}",

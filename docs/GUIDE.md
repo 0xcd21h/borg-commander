@@ -793,8 +793,9 @@ From then on, Claude can reach that borg whenever it is running there. `borg pai
 lists the paired servers, and `borg pair --forget NAME` forgets one; on the server, F8 in the
 Remote access dialog forgets every paired computer. Through borg cloud, Claude also gets
 `download` and `upload`, which copy files between the server and your computer;
-`borg get NAME:PATH [TO]` and `borg put FROM NAME:PATH` do the same from your terminal. Uploads
-wait for your approval in borg, and every approval names the computer that asked.
+`borg get NAME:PATH [TO]` and `borg put FROM NAME:PATH` do the same from your terminal. Claude's
+downloads go into your Downloads folder and never replace a file there. Uploads wait for your
+approval in borg, which shows the file being sent, and every approval names the computer that asked.
 
 The connection is encrypted end to end. Each borg keeps a private key, readable only by you, in
 its state folder. Pairing exchanges the public keys, and every connection opens with a Noise IK

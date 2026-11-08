@@ -270,3 +270,43 @@ async fn an_ask_is_withdrawn_once_its_asker_stops_waiting() {
     assert!(pending.is_err(), "an ask whose asker still waits stays");
     drop(still_waiting);
 }
+
+#[tokio::test]
+async fn a_change_reads_only_a_regular_file_and_stops_past_the_edit_limit() {
+    let device = load(&Spot::Host("/dev/zero".into())).await.unwrap_err();
+    assert!(format!("{device:#}").contains("not a regular file"), "{device:#}");
+
+    let temp = tempfile::tempdir().unwrap();
+    let large = temp.path().join("large.txt");
+    std::fs::write(&large, "a".repeat(usize::try_from(files::EDIT_CAP).unwrap() + 1)).unwrap();
+    let too_large = load(&Spot::Host(large)).await.unwrap_err();
+    assert!(format!("{too_large:#}").contains("larger than"), "{too_large:#}");
+
+    let small = temp.path().join("small.txt");
+    std::fs::write(&small, "fits\n").unwrap();
+    assert_eq!(load(&Spot::Host(small)).await.unwrap().as_deref(), Some("fits\n"));
+    assert_eq!(load(&Spot::Host(temp.path().join("new.txt"))).await.unwrap(), None);
+}
+
+#[test]
+fn an_agents_download_lands_only_in_the_downloads_folder_and_replaces_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let downloads = std::fs::canonicalize(temp.path()).unwrap().join("Downloads");
+    let reports = downloads.join("reports");
+    std::fs::create_dir_all(&reports).unwrap();
+    let elsewhere = temp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, downloads.join("away")).unwrap();
+    std::fs::write(reports.join("taken.csv"), "kept").unwrap();
+    let place = |to: Option<&str>| server::download_destination(&downloads, to, "/srv/menu/prices.csv");
+
+    assert_eq!(place(None), Ok(downloads.join("prices.csv")));
+    assert_eq!(place(Some("reports")), Ok(reports.join("prices.csv")));
+    assert_eq!(place(Some("reports/march.csv")), Ok(reports.join("march.csv")));
+    assert_eq!(place(Some(&reports.join("april.csv").to_string_lossy())), Ok(reports.join("april.csv")));
+    for refused in ["../prices.csv", "/etc/prices.csv", "reports/../../prices.csv", "away", "away/prices.csv"] {
+        assert!(place(Some(refused)).is_err(), "{refused} leaves the Downloads folder");
+    }
+    assert!(place(Some("reports/taken.csv")).is_err(), "an existing file stays");
+    assert_eq!(std::fs::read_to_string(reports.join("taken.csv")).unwrap(), "kept");
+}

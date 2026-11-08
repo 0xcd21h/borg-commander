@@ -863,8 +863,10 @@ A partir daí, o Claude pode chegar a esse borg sempre que estiver a correr ness
 deles; no servidor, F8 na caixa de diálogo Acesso remoto esquece todos os computadores
 emparelhados. Através do borg cloud, o Claude obtém também
 `download` e `upload`, que copiam ficheiros entre o servidor e o seu computador;
-`borg get NAME:PATH [TO]` e `borg put FROM NAME:PATH` fazem o mesmo a partir do terminal. Os
-envios aguardam a sua aprovação no borg, e cada aprovação indica o computador que fez o pedido.
+`borg get NAME:PATH [TO]` e `borg put FROM NAME:PATH` fazem o mesmo a partir do terminal. As
+transferências do Claude vão para a pasta Transferências e nunca substituem um ficheiro que já lá
+esteja. Os envios aguardam a sua aprovação no borg, que mostra o ficheiro enviado, e cada aprovação
+indica o computador que fez o pedido.
 
 A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave privada, que só o utilizador pode
 ler, na sua pasta de estado. O emparelhamento troca as chaves públicas, e cada ligação abre com um

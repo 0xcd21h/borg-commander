@@ -952,6 +952,7 @@ catalog! {
     agent_wants_pair => "Pair this computer with borg?",
     agent_wants_read => "Remote wants to read",
     agent_wants_upload => "Remote wants to upload a file",
+    agent_upload_source => "Source: {path}",
     agent_wants_memory => "Remote wants to search process memory",
     agent_memory_process => "Process: {name} · PID {pid}",
     agent_memory_program => "Program: {path}",

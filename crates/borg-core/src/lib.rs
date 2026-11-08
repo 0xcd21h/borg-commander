@@ -59,6 +59,7 @@ pub use agent::{
     Connect, ConnectInfo, DiffLine, End, Ended, HostAnswer, HostAsk, HostEvent, LineWrap, Refusal, Waiting,
     WatchedHost, approval_layout, approval_place, approval_rows, approve_all_ask, check_answer, computer_name,
     connect_commands, host_console_ready, log_layout, log_rows, pair_ask, pair_command, shell_quote, typing_refusal,
+    upload_ask,
 };
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};

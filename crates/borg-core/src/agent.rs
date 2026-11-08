@@ -737,6 +737,15 @@ pub fn pair_ask(name: &str, code: &[String]) -> Ask {
     Ask { kind: AskKind::Pair, summary: name.to_owned(), place: String::new(), origin: None, body }
 }
 
+/// What the approval dialog shows when another computer asks to upload a file: where it goes,
+/// the file it sends when that computer names it, and its size.
+pub fn upload_ask(destination: String, source: Option<&str>, size: String, origin: Option<String>) -> Ask {
+    let mut body = vec![DiffLine::code(destination.clone())];
+    body.extend(source.map(|path| DiffLine::prose(tr!(agent_upload_source, path = path))));
+    body.push(DiffLine::prose(size.clone()));
+    Ask { kind: AskKind::Upload, summary: destination, place: size, origin, body }
+}
+
 /// The command that pairs the user's computer with this borg through borg cloud.
 pub fn pair_command(link: &str) -> String {
     format!("borg pair {}", shell_quote(link))
@@ -856,5 +865,14 @@ mod tests {
         for (ask, shown) in cases {
             assert_eq!(approval_place(&ask), shown, "{ask:?}");
         }
+    }
+
+    #[test]
+    fn an_upload_names_the_file_it_sends_when_the_computer_does() {
+        let text = |ask: &Ask| ask.body.iter().map(|line| line.text.clone()).collect::<Vec<_>>();
+        let named = upload_ask("/srv/app/notes.txt".into(), Some("~/notes.txt"), "12 bytes".into(), None);
+        assert_eq!(text(&named), ["/srv/app/notes.txt", "Source: ~/notes.txt", "12 bytes"]);
+        let unnamed = upload_ask("/srv/app/notes.txt".into(), None, "12 bytes".into(), None);
+        assert_eq!(text(&unnamed), ["/srv/app/notes.txt", "12 bytes"]);
     }
 }
