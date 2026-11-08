@@ -5,13 +5,24 @@
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
+use serde::{Deserialize, Serialize};
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     time::{Duration, Instant},
 };
 use unicode_width::UnicodeWidthChar;
 
 use crate::{AppState, Console, Effect, Mount, Overlay, View};
+
+mod forward;
+mod words;
+
+pub use forward::{
+    AskBoard, AskFeed, End, Ended, HostAnswer, HostAsk, HostEvent, Refusal, Waiting, WatchedHost, check_answer,
+    computer_name,
+};
+pub(crate) use forward::{approve_all_off, receive as receive_host};
 
 /// How many entries the log of what agents did keeps.
 const LOG_LIMIT: usize = 1000;
@@ -22,6 +33,10 @@ const MARGIN: u16 = 4;
 const APPROVAL_CHROME: u16 = 8;
 /// Columns before a numbered diff line: the number, the change mark, and spaces.
 const NUMBER_WIDTH: usize = 7;
+/// What a tab shows as in an approval dialog.
+const TAB: &str = "    ";
+/// How far the rows of a pairing code stand in from the dialog's text.
+const CODE_INDENT: &str = "  ";
 /// How long an approval that appears while the user types ignores Yes, so a key meant for the
 /// shell or an editor cannot approve what the user has not read.
 pub const APPROVAL_GRACE: Duration = Duration::from_millis(500);
@@ -34,6 +49,9 @@ pub enum AgentEvent {
     Ask { id: u64, ask: Ask },
     /// The agent stopped waiting for the answer to an ask.
     Withdrawn { id: u64 },
+    /// A person answered an ask here from their own borg, on the computer `by`, whose panel
+    /// shows this session.
+    AnsweredFrom { id: u64, approved: bool, by: String },
     /// An entry for the log of what agents did.
     Note(String),
     /// An approved command is about to run in a container's shell: the Docker view shows it.
@@ -53,7 +71,8 @@ pub enum AgentEvent {
     Paired { computers: Vec<String> },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AskKind {
     Run,
     Create,
@@ -74,18 +93,21 @@ pub enum AskKind {
 }
 
 /// What an agent asks to do, as the approval dialog shows it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ask {
     pub kind: AskKind,
     /// The command, or the file's path: what the dialog and later notices name.
     pub summary: String,
     /// Where it happens: a folder, or a container.
     pub place: String,
+    /// The computer that asked through borg cloud; none for an agent on this one.
+    pub origin: Option<String>,
     /// The command's lines, or the change to the file.
     pub body: Vec<DiffLine>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Change {
     Same,
     Added,
@@ -94,17 +116,39 @@ pub enum Change {
     Gap,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// How a line of an approval dialog wraps when it is wider than the dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineWrap {
+    /// Cut wherever the width falls, as a command or a file has to show exactly.
+    Cells,
+    /// Broken between words, and between the characters of scripts written without spaces.
+    Words,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffLine {
     pub change: Change,
     /// The line's number in the file: the new file's, or the old one's for a removed line.
     pub number: Option<usize>,
     pub text: String,
+    pub wrap: LineWrap,
 }
 
 impl DiffLine {
-    pub fn plain(text: impl Into<String>) -> Self {
-        Self { change: Change::Same, number: None, text: text.into() }
+    /// A line of a command, a path or a file, shown as it is.
+    pub fn code(text: impl Into<String>) -> Self {
+        Self { change: Change::Same, number: None, text: text.into(), wrap: LineWrap::Cells }
+    }
+
+    /// A sentence or a label, wrapped between words.
+    pub fn prose(text: impl Into<String>) -> Self {
+        Self { change: Change::Same, number: None, text: text.into(), wrap: LineWrap::Words }
+    }
+
+    /// A line of a diff: what happened to it, and its number in the file.
+    pub fn diff(change: Change, number: Option<usize>, text: impl Into<String>) -> Self {
+        Self { change, number, text: text.into(), wrap: LineWrap::Cells }
     }
 }
 
@@ -113,6 +157,9 @@ impl DiffLine {
 pub struct Approval {
     pub id: u64,
     pub ask: Ask,
+    /// The host session the ask waits in, when it came from a borg a panel here shows; none for
+    /// an ask of this borg.
+    pub host: Option<HostAsk>,
     /// The first row shown, after wrapping.
     pub scroll: usize,
     pub accept: bool,
@@ -168,6 +215,10 @@ pub struct Agent {
     pub computers: Vec<String>,
     /// Paired computers whose changes this session currently approves automatically.
     pub auto_approve: Vec<String>,
+    /// How the latest asks here ended, newest last, for the borgs that show them too.
+    ended: VecDeque<Ended>,
+    /// The host sessions the panels here show, with the asks that wait in them.
+    pub hosts: Vec<WatchedHost>,
 }
 
 impl Agent {
@@ -186,6 +237,7 @@ pub(crate) fn receive(state: &mut AppState, event: AgentEvent) -> Vec<Effect> {
         }
         AgentEvent::Ask { id, ask } => state.agent.asks.push((id, ask)),
         AgentEvent::Withdrawn { id } => withdraw(state, id),
+        AgentEvent::AnsweredFrom { id, approved, by } => return forward::answered_from(state, id, approved, &by),
         AgentEvent::Note(entry) => {
             if state.settings.preferences.agent_log {
                 let log = &mut state.agent.log;
@@ -256,24 +308,51 @@ fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     vec![Effect::Write(borg_term::encode_paste(text, state.shell.observed.mode))]
 }
 
-/// Asks about the oldest waiting request over whatever is on screen.
+/// Asks about the oldest waiting request over whatever is on screen: one of this borg's first,
+/// then one a host session in a panel here waits for.
 pub(crate) fn surface(state: &mut AppState, now: Instant) {
-    if state.approval.is_some() || state.agent.asks.is_empty() {
+    if state.approval.is_some() {
         return;
     }
-    let (id, ask) = state.agent.asks.remove(0);
+    let (id, ask, host) = if state.agent.asks.is_empty() {
+        let Some((id, ask, host)) = forward::next_host_ask(state) else { return };
+        (id, ask, Some(host))
+    } else {
+        let (id, ask) = state.agent.asks.remove(0);
+        (id, ask, None)
+    };
     let typing = now.saturating_duration_since(state.idle_since) < APPROVAL_GRACE;
     let guarded_until = typing.then(|| now + APPROVAL_GRACE);
     state.screensaver = false;
     state.intro = None;
-    state.approval = Some(Approval { id, ask, scroll: 0, accept: false, full: false, guarded_until });
+    state.approval = Some(Approval { id, ask, host, scroll: 0, accept: false, full: false, guarded_until });
+}
+
+/// Whether an ask of this borg waits for an answer: in the dialog, or behind it.
+fn waits_here(state: &AppState, id: u64) -> bool {
+    state.agent.asks.iter().any(|(waiting, _)| *waiting == id)
+        || state.approval.as_ref().is_some_and(|approval| approval.host.is_none() && approval.id == id)
 }
 
 fn withdraw(state: &mut AppState, id: u64) {
+    if waits_here(state, id) {
+        forward::ended(state, id, End::Withdrawn);
+    }
     state.agent.asks.retain(|(waiting, _)| *waiting != id);
-    if let Some(approval) = state.approval.take_if(|approval| approval.id == id) {
+    if let Some(approval) = state.approval.take_if(|approval| approval.host.is_none() && approval.id == id) {
         state.notice = Some(tr!(agent_withdrawn, summary = approval.ask.summary));
     }
+}
+
+/// An answer to an ask of this borg, from its own screen or another computer's: the footer
+/// shows a command, a write or a capture until borg reports it done; a pairing, a read or an
+/// upload is answered at once, and nothing would clear it.
+fn decide(state: &mut AppState, id: u64, ask: &Ask, approved: bool, by: Option<String>) -> Vec<Effect> {
+    if approved && matches!(ask.kind, AskKind::Run | AskKind::Create | AskKind::Edit | AskKind::Capture) {
+        state.agent.running = Some((id, ask.summary.clone()));
+    }
+    forward::ended(state, id, End::Answered { approved, by });
+    vec![Effect::AgentAnswer { id, approved }]
 }
 
 pub(crate) fn on_approval_key(
@@ -282,7 +361,13 @@ pub(crate) fn on_approval_key(
     key: &KeyEvent,
     now: Instant,
 ) -> Vec<Effect> {
+    let view_only = approval.host.as_ref().is_some_and(|host| host.view_only.is_some());
     let decided = match key.code {
+        KeyCode::Esc if view_only => {
+            forward::settle(state, &approval);
+            return Vec::new();
+        }
+        _ if view_only => None,
         KeyCode::Char(_) => crate::keyboard::answer(key),
         KeyCode::Esc => Some(false),
         KeyCode::Enter => Some(approval.accept),
@@ -293,12 +378,10 @@ pub(crate) fn on_approval_key(
         return Vec::new();
     }
     if let Some(approved) = decided {
-        // The footer shows a command, a write or a capture until borg reports it done; a pairing,
-        // a read or an upload is answered at once, and nothing would clear it.
-        if approved && matches!(approval.ask.kind, AskKind::Run | AskKind::Create | AskKind::Edit | AskKind::Capture) {
-            state.agent.running = Some((approval.id, approval.ask.summary.clone()));
-        }
-        return vec![Effect::AgentAnswer { id: approval.id, approved }];
+        return match approval.host.take() {
+            Some(host) => forward::answer_host(state, approval.id, host, approved),
+            None => decide(state, approval.id, &approval.ask, approved, None),
+        };
     }
     let screen = Rect::new(0, 0, state.cols, state.rows);
     let (_, body) = approval_layout(&approval, screen);
@@ -407,13 +490,39 @@ pub fn approval_rows(body: &[DiffLine], width: u16) -> Vec<(Change, String)> {
             String::new()
         };
         let indent = if numbered { NUMBER_WIDTH } else { 0 };
-        for (index, piece) in wrap(&line.text, usize::from(width).saturating_sub(indent).max(1)).into_iter().enumerate()
-        {
+        let room = usize::from(width).saturating_sub(indent).max(1);
+        let pieces = match line.wrap {
+            LineWrap::Cells => wrap(&line.text, room),
+            LineWrap::Words => words::wrap(&line.text.replace('\t', TAB), room),
+        };
+        for (index, piece) in pieces.into_iter().enumerate() {
             let lead = if index == 0 { prefix.clone() } else { " ".repeat(prefix.chars().count()) };
             rows.push((line.change, format!("{lead}{piece}")));
         }
     }
     rows
+}
+
+/// The approval dialog's line above its buttons: where the ask happens, the file first for a
+/// change, then the computer that asked when another one did.
+pub fn approval_place(ask: &Ask) -> String {
+    let place = match ask.kind {
+        AskKind::Run => tr!(agent_in_place, place = ask.place),
+        AskKind::Create | AskKind::Edit if ask.place.is_empty() => ask.summary.clone(),
+        AskKind::Create | AskKind::Edit => tr!(agent_file_place, path = ask.summary, place = ask.place),
+        AskKind::Pair
+        | AskKind::Read
+        | AskKind::Upload
+        | AskKind::ApprovalMode
+        | AskKind::Memory
+        | AskKind::Scan
+        | AskKind::Capture => ask.place.clone(),
+    };
+    match &ask.origin {
+        None => place,
+        Some(origin) if place.is_empty() => tr!(agent_asked_from, origin = origin),
+        Some(origin) => tr!(agent_from, place = place, origin = origin),
+    }
 }
 
 /// The log dialog's frame and the area its entries scroll in: most of the screen.
@@ -449,7 +558,7 @@ pub fn log_rows(log: &[String], width: u16) -> Vec<String> {
 fn wrap(line: &str, width: usize) -> Vec<String> {
     let mut pieces = vec![String::new()];
     let mut used = 0;
-    for c in line.replace('\t', "    ").chars() {
+    for c in line.replace('\t', TAB).chars() {
         let w = c.width().unwrap_or(0);
         if used + w > width && used > 0 {
             pieces.push(String::new());
@@ -604,6 +713,30 @@ pub fn connect_commands(info: &ConnectInfo, target: &str) -> [String; 2] {
     ]
 }
 
+/// What the approval dialog shows when the paired computer `origin` asks for Approve all in
+/// the session named `session`.
+pub fn approve_all_ask(origin: &str, session: &str) -> Ask {
+    Ask {
+        kind: AskKind::ApprovalMode,
+        summary: origin.to_owned(),
+        place: tr!(agent_session_place, name = session),
+        origin: None,
+        body: vec![
+            DiffLine::prose(tr!(agent_approve_all_question, origin = origin)),
+            DiffLine::prose(tr!(agent_approve_all_limits)),
+        ],
+    }
+}
+
+/// What the approval dialog shows when a computer asks to pair: its name, and the code both
+/// ends show, a row of symbols at a time.
+pub fn pair_ask(name: &str, code: &[String]) -> Ask {
+    let mut body = vec![DiffLine::prose(tr!(agent_pair_computer, name = name)), DiffLine::prose("")];
+    body.extend(code.iter().map(|row| DiffLine::prose(format!("{CODE_INDENT}{row}"))));
+    body.extend([DiffLine::prose(""), DiffLine::prose(tr!(agent_pair_check))]);
+    Ask { kind: AskKind::Pair, summary: name.to_owned(), place: String::new(), origin: None, body }
+}
+
 /// The command that pairs the user's computer with this borg through borg cloud.
 pub fn pair_command(link: &str) -> String {
     format!("borg pair {}", shell_quote(link))
@@ -675,9 +808,9 @@ mod tests {
     #[test]
     fn diff_rows_carry_numbers_and_marks_and_wrap_under_their_text() {
         let body = vec![
-            DiffLine { change: Change::Same, number: Some(9), text: "server {".into() },
-            DiffLine { change: Change::Removed, number: Some(10), text: "listen 80;".into() },
-            DiffLine { change: Change::Added, number: Some(10), text: "listen 8080 default_server;".into() },
+            DiffLine::diff(Change::Same, Some(9), "server {"),
+            DiffLine::diff(Change::Removed, Some(10), "listen 80;"),
+            DiffLine::diff(Change::Added, Some(10), "listen 8080 default_server;"),
         ];
         let rows = approval_rows(&body, 20);
         assert_eq!(rows[0], (Change::Same, "   9   server {".into()));
@@ -685,7 +818,43 @@ mod tests {
         assert_eq!(rows[2], (Change::Added, "  10 + listen 8080 d".into()));
         assert_eq!(rows[3], (Change::Added, "       efault_server".into()));
         assert_eq!(rows[4], (Change::Added, "       ;".into()));
-        let command = approval_rows(&[DiffLine::plain("echo hi")], 20);
+        let command = approval_rows(&[DiffLine::code("echo hi")], 20);
         assert_eq!(command, [(Change::Same, "echo hi".into())], "a command has no numbers");
+    }
+
+    #[test]
+    fn the_approval_place_names_the_file_where_it_is_and_who_asked() {
+        let remote = Some("dev@harbor [873dd93b…]".to_owned());
+        let ask = |kind, summary: &str, place: &str, origin: &Option<String>| Ask {
+            kind,
+            summary: summary.into(),
+            place: place.into(),
+            origin: origin.clone(),
+            body: Vec::new(),
+        };
+        let site = "/etc/nginx/sites-available/menu";
+        let cases = [
+            (ask(AskKind::Create, "~/notes.txt", "", &None), "~/notes.txt"),
+            (
+                ask(AskKind::Edit, site, "the web container", &None),
+                "/etc/nginx/sites-available/menu in the web container",
+            ),
+            (
+                ask(AskKind::Create, site, "", &remote),
+                "/etc/nginx/sites-available/menu · asked from dev@harbor [873dd93b…]",
+            ),
+            (
+                ask(AskKind::Edit, site, "the web container", &remote),
+                "/etc/nginx/sites-available/menu in the web container · asked from dev@harbor [873dd93b…]",
+            ),
+            (ask(AskKind::Run, "nginx -t", "/etc/nginx", &None), "in /etc/nginx"),
+            (ask(AskKind::Run, "nginx -t", "/etc/nginx", &remote), "in /etc/nginx · asked from dev@harbor [873dd93b…]"),
+            (ask(AskKind::Read, "notes.txt", "", &remote), "asked from dev@harbor [873dd93b…]"),
+            (ask(AskKind::Upload, "big.bin", "12 bytes", &remote), "12 bytes · asked from dev@harbor [873dd93b…]"),
+            (ask(AskKind::Pair, "me@laptop", "", &None), ""),
+        ];
+        for (ask, shown) in cases {
+            assert_eq!(approval_place(&ask), shown, "{ask:?}");
+        }
     }
 }

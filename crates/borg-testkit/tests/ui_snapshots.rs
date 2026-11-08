@@ -4171,13 +4171,10 @@ fn remote_access_shows_the_pairing_link_and_takes_a_relay() -> Result<()> {
 
 #[test]
 fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
-    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    use borg_core::AgentEvent;
     let mut stage = stage(SIZE, Motion::STILL)?;
     let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
-    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
-    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
-    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
@@ -4186,7 +4183,7 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
 
 #[test]
 fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
-    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    use borg_core::AgentEvent;
     let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;
     stage.state.agent.connect = borg_core::ConnectInfo {
         name: "borg-web1".into(),
@@ -4198,15 +4195,89 @@ fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
     let link = format!("borg://relay.example.com/{}#{}", "ab".repeat(32), "cd".repeat(16));
     stage.send(Msg::Agent(AgentEvent::Pairing(Ok(link))));
     let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
-    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
-    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
-    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Pair this computer with borg?")?;
     ensure_text(&buffer, "Tab picks · Enter copies")?;
     check("pairing_over_remote_access", &stage, buffer)
+}
+
+#[test]
+fn a_narrow_pairing_dialog_keeps_its_words_and_code_whole() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 46, rows: 22 }, Motion::STILL)?;
+    let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "code on that computer.")?;
+    check("pairing_code_narrow", &stage, buffer)
+}
+
+#[test]
+fn a_narrow_approve_all_dialog_breaks_between_words() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 46, rows: 20 }, Motion::STILL)?;
+    let ask = borg_core::approve_all_ask("dev@harbor [873dd93b…]", "Default");
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "individual")?;
+    check("approve_all_narrow", &stage, buffer)
+}
+
+/// What the borg on `web1` says waits in its Default session: a command an agent on another
+/// computer asks to run.
+fn host_feed(view_only: Option<&str>, approve_all: &[&str]) -> borg_core::AskFeed {
+    use borg_core::{Ask, AskKind, DiffLine, Waiting};
+    let command = "systemctl reload nginx";
+    let ask = Ask {
+        kind: AskKind::Run,
+        summary: command.into(),
+        place: "~/srv/menu".into(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body: vec![DiffLine::code(command)],
+    };
+    borg_core::AskFeed {
+        run: "a1".into(),
+        version: 1,
+        waiting: if approve_all.is_empty() { vec![Waiting { id: 3, ask }] } else { Vec::new() },
+        ended: Vec::new(),
+        approve_all: approve_all.iter().map(|origin| (*origin).to_owned()).collect(),
+        view_only: view_only.map(str::to_owned),
+    }
+}
+
+fn host_asks(feed: borg_core::AskFeed) -> Msg {
+    Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: borg_core::HostEvent::Feed(feed) }
+}
+
+#[test]
+fn a_request_waiting_on_a_watched_host_shows_over_the_local_panels() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(None, &[])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote on web1")?;
+    ensure_text(&buffer, "systemctl reload nginx")?;
+    check("agent_host_run_approval", &stage, buffer)
+}
+
+#[test]
+fn a_request_on_a_host_another_computer_controls_shows_without_answers() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(Some("ops@desk [5f0e11aa…]"), &[])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "View only: ops@desk controls this session")?;
+    check("agent_host_view_only", &stage, buffer)
+}
+
+#[test]
+fn approve_all_on_a_watched_host_shows_a_badge_that_stops_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(None, &["dev@harbor [873dd93b…]"])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Approve all on web1")?;
+    check("agent_host_approve_all_badge", &stage, buffer)
 }
 
 #[test]
@@ -4225,11 +4296,31 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         keep_free_mib: None,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
-    let ask = borg_core::capture_ask(scope, None, &request, String::new());
+    let ask = borg_core::capture_ask(scope, None, &request, None);
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to capture traffic")?;
     check("agent_capture_approval", &stage, buffer)
+}
+
+#[test]
+fn a_file_another_computer_asks_to_create_names_that_computer_after_the_path() -> Result<()> {
+    use borg_core::{AgentEvent, Ask, AskKind, Change, DiffLine};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let site = "server {\n    listen 80;\n    server_name menu.example.com;\n    root /srv/menu;\n}";
+    let body =
+        (1..).zip(site.lines()).map(|(number, line)| DiffLine::diff(Change::Added, Some(number), line)).collect();
+    let ask = Ask {
+        kind: AskKind::Create,
+        summary: "/etc/nginx/sites-available/menu".into(),
+        place: String::new(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body,
+    };
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/etc/nginx/sites-available/menu · asked from dev@harbor [873dd93b…]")?;
+    check("agent_remote_create_approval", &stage, buffer)
 }
 
 #[test]
@@ -4239,7 +4330,7 @@ fn a_scan_asks_with_the_process_the_checks_and_the_agents_own_rules() -> Result<
     let program = std::path::Path::new("/usr/bin/sample");
     let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
     let rules = "rule beacon {\n  strings: $host = \"c2.example.org\"\n  condition: $host\n}";
-    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), "asked from laptop".into());
+    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), Some("laptop".into()));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to scan process memory")?;

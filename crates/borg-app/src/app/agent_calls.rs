@@ -44,14 +44,18 @@ impl App {
                 && self.downloads.contains(&(origin.clone(), text(&call, "path").unwrap_or_default())))
         {
             let summary = match call.tool.as_str() {
-                "screen" => "what borg shows".to_owned(),
-                "get" => format!("download {}", text(&call, "path").unwrap_or_default()),
-                "scan" => format!("scan {}", text(&call, "path").unwrap_or_default()),
+                "screen" => tr!(agent_read_screen).to_owned(),
+                "get" => tr!(agent_read_download, path = text(&call, "path").unwrap_or_default()),
+                "scan" => tr!(agent_read_scan, path = text(&call, "path").unwrap_or_default()),
                 _ => text(&call, "source").or_else(|| text(&call, "path")).unwrap_or_else(|| ".".into()),
             };
-            let place = tr!(agent_asked_from).replace("{origin}", &origin);
-            let ask =
-                Ask { kind: AskKind::Read, summary: summary.clone(), place, body: vec![DiffLine::plain(summary)] };
+            let ask = Ask {
+                kind: AskKind::Read,
+                summary: summary.clone(),
+                place: String::new(),
+                origin: Some(origin),
+                body: vec![DiffLine::code(summary)],
+            };
             let id = self.agent.ask(reply, Work::Forward(call));
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));
         }
@@ -63,6 +67,7 @@ impl App {
                 Ok(Flow::Continue)
             }
             "fs_list" => self.list_folder(call, reply),
+            crate::link::ASKS_WAIT | crate::link::ASKS_ANSWER | crate::link::ASKS_STOP => self.on_viewer(call, reply),
             "approval_mode" => self.set_approval_mode(call, reply),
             crate::link::PAIR_CALL => self.ask_to_pair(call, reply),
             "get" => self.send_piece(call, reply),
@@ -170,15 +175,7 @@ impl App {
             drop(reply.send(Reply::ok(format!("Approve all is already on for {origin}"))));
             return Ok(Flow::Continue);
         }
-        let ask = Ask {
-            kind: AskKind::ApprovalMode,
-            summary: origin.clone(),
-            place: format!("session: {}", self.state.agent.connect.name),
-            body: vec![
-                DiffLine::plain(format!("Allow {origin} to run commands and change files without individual prompts?")),
-                DiffLine::plain("Pairing and trust changes still ask. This ends when its connection closes."),
-            ],
-        };
+        let ask = borg_core::approve_all_ask(&origin, &self.state.agent.connect.name);
         let id = self.agent.ask(reply, Work::ApprovalMode { origin });
         self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }))
     }
@@ -188,13 +185,8 @@ impl App {
         let name = text(&call, "name").unwrap_or_default();
         // Emoji only where the terminal draws them as wide as they are laid out.
         let code = call.args[if self.wide_emoji { "code" } else { "names" }].as_array().cloned().unwrap_or_default();
-        let mut body = vec![DiffLine::plain(format!("Computer: {name}")), DiffLine::plain("")];
-        body.extend(code.iter().filter_map(|row| row.as_str()).map(|row| DiffLine::plain(format!("  {row}"))));
-        body.extend([
-            DiffLine::plain(""),
-            DiffLine::plain("Pair only if `borg pair` shows this code on that computer."),
-        ]);
-        let ask = Ask { kind: AskKind::Pair, summary: name.clone(), place: String::new(), body };
+        let rows: Vec<String> = code.iter().filter_map(|row| row.as_str()).map(str::to_owned).collect();
+        let ask = borg_core::pair_ask(&name, &rows);
         let id = self.agent.ask(reply, Work::Pair { name });
         self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }))
     }
@@ -442,21 +434,23 @@ impl App {
             return fail(reply, format!("The process with PID {pid} ended before the search could start"));
         }
         if !self.may_read_memory(&call, process) {
-            let mut body = vec![DiffLine::plain(tr!(agent_memory_process, name = name, pid = pid))];
+            let mut body = vec![DiffLine::prose(tr!(agent_memory_process, name = name, pid = pid))];
             if let Some(program) = &program {
-                body.push(DiffLine::plain(tr!(agent_memory_program, path = program.display())));
+                body.push(DiffLine::prose(tr!(agent_memory_program, path = program.display())));
             }
             let searched = if query.text.is_empty() { label.to_owned() } else { format!("{label} · {}", query.text) };
             body.extend([
-                DiffLine::plain(tr!(agent_memory_search, mode = searched)),
-                DiffLine::plain(""),
-                DiffLine::plain(tr!(agent_memory_warning)),
+                DiffLine::prose(tr!(agent_memory_search, mode = searched)),
+                DiffLine::prose(""),
+                DiffLine::prose(tr!(agent_memory_warning)),
             ]);
-            let place = call
-                .origin
-                .as_ref()
-                .map_or_else(String::new, |origin| tr!(agent_asked_from).replace("{origin}", origin));
-            let ask = Ask { kind: AskKind::Memory, summary: format!("{name} (PID {pid})"), place, body };
+            let ask = Ask {
+                kind: AskKind::Memory,
+                summary: format!("{name} (PID {pid})"),
+                place: String::new(),
+                origin: call.origin.clone(),
+                body,
+            };
             call.args["_start"] = serde_json::json!(process.start);
             let id = self.agent.ask(reply, Work::Forward(call));
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));

@@ -11,15 +11,26 @@ use borg_link::Channel;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
-use super::{Computer, served::Served};
+use super::{Computer, VIEWER_CALLS, served::Served};
 use crate::{
     agent::{Call, Reply, Session},
     native_mirror, remote_copy,
 };
 
+/// What a connection of a paired computer is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Role {
+    /// An agent's calls, a mirror's or a panel's.
+    Session,
+    /// The computer's borg, watching for the asks of a session its panels show. It makes only
+    /// the viewer calls, and only it may make them.
+    Viewer,
+}
+
 /// A paired computer while it is connected.
 pub(super) struct Caller<'a> {
     served: &'a Served,
+    role: Role,
     key: String,
     /// Who the calls come from. The name is only a label; approval and mirror leases bind to
     /// the paired key.
@@ -36,9 +47,10 @@ pub(super) struct Caller<'a> {
 }
 
 impl<'a> Caller<'a> {
-    pub(super) fn new(served: &'a Served, computer: &Computer) -> Self {
+    pub(super) fn new(served: &'a Served, computer: &Computer, role: Role) -> Self {
         Self {
             served,
+            role,
             key: computer.key.clone(),
             origin: format!("{} [{}]", computer.name, computer.key.get(..32).unwrap_or(&computer.key)),
             sessions: HashMap::new(),
@@ -83,6 +95,11 @@ impl<'a> Caller<'a> {
             Err(error) => return Ok((Reply::error(format!("unreadable call: {error}")), None)),
         };
         call.origin = Some(self.origin.clone());
+        let viewing = VIEWER_CALLS.contains(&call.tool.as_str());
+        if viewing != (self.role == Role::Viewer) {
+            return Ok((Reply::error(format!("unknown tool {}", call.tool)), None));
+        }
+        call.viewer = viewing;
         // Only a server-created continuation inherits the first chunk's read approval.
         // External callers still cannot claim approval.
         if continuation {

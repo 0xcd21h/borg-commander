@@ -107,6 +107,12 @@ pub enum Msg {
         container: String,
     },
     Agent(crate::AgentEvent),
+    /// What the borg of a host session a panel here shows said about the asks waiting there.
+    HostAsks {
+        machine: String,
+        session: String,
+        event: crate::HostEvent,
+    },
     RemoteConsoleOutput {
         echoed: bool,
         machine: String,
@@ -381,6 +387,17 @@ pub enum Effect {
     AgentAnswer {
         id: u64,
         approved: bool,
+    },
+    /// The user's answer to an ask that waits in a host session a panel here shows.
+    AnswerHost {
+        machine: String,
+        session: String,
+        answer: crate::HostAnswer,
+    },
+    /// Turns off Approve all in a host session a panel here shows.
+    StopHostApproveAll {
+        machine: String,
+        session: String,
     },
     /// Puts text on the clipboard of the computer the user sits at, through the terminal.
     Copy(String),

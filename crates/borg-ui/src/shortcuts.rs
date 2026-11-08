@@ -104,6 +104,10 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
     if state.agent.connected() {
         items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));
     }
+    for host in state.agent.hosts.iter().rev().filter(|host| !host.approve_all().is_empty()) {
+        let label = tr!(agent_host_approve_all_chip, server = state.remote_host_name(&host.machine));
+        items.insert(0, (label, Action::ApprovalModeOff, true));
+    }
     if !state.agent.auto_approve.is_empty() {
         items.insert(0, (tr!(agent_approve_all_chip).to_owned(), Action::ApprovalModeOff, true));
     }
