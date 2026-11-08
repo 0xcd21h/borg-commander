@@ -52,7 +52,7 @@
   "git.title": "Git",
   "git.description": "在 Borg 中查看更改、暂存文件，以及使用 Git。",
   "docker.title": "Docker",
-  "docker.description": "浏览容器、查看状态，以及打开容器文件和 Shell。",
+  "docker.description": "浏览容器、查看状态、打开容器文件和 Shell，以及释放磁盘空间。",
   "remote-access.title": "远程访问与 MCP",
   "remote-access.description": "连接 Claude 及其他智能体、配对计算机，并在远程会话中工作。",
   "activity.title": "活动与内存",

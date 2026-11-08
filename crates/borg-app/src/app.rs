@@ -290,6 +290,9 @@ impl App {
         if self.state.docker.pending.is_none() {
             self.docker.cancel();
         }
+        if self.state.docker.disk.loading.is_none() {
+            self.docker.cancel_disk();
+        }
         if self.state.network.pending.is_none() {
             self.network.cancel();
         }

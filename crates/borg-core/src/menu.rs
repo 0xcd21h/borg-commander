@@ -93,6 +93,7 @@ fn docker_menu(state: &AppState) -> Menu {
         title: tr!(docker_title),
         entries: vec![
             check(tr!(docker_menu_containers), "M-c", Action::Docker, state.docker.is_open()),
+            check(tr!(docker_menu_disk), "D", Action::DockerDisk, state.docker.is_open() && state.docker.disk.open),
             MenuEntry::Separator,
             when(item(tr!(docker_menu_start), "S", Action::DockerAct(Docker::Start)), can(Docker::Start)),
             when(item(tr!(docker_menu_stop), "X", Action::DockerAct(Docker::Stop)), can(Docker::Stop)),
@@ -108,7 +109,14 @@ fn docker_menu(state: &AppState) -> Menu {
             MenuEntry::Separator,
             when(item(tr!(docker_menu_files), "F", Action::DockerFiles), crate::docker::can_browse(state)),
             when(item(tr!(docker_menu_shell), "E", Action::DockerShell), crate::docker::can_open_shell(state)),
-            when(item(tr!(docker_menu_filter), "/", Action::DockerFilter), state.docker.is_open()),
+            when(
+                item(
+                    if state.docker.disk.open { tr!(docker_menu_filter_disk) } else { tr!(docker_menu_filter) },
+                    "/",
+                    Action::DockerFilter,
+                ),
+                state.docker.is_open(),
+            ),
         ],
     }
 }

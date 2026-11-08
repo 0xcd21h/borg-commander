@@ -3764,6 +3764,130 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     Ok(())
 }
 
+/// What the made-up shop engine keeps on disk: two builds of the web image, the worker's old
+/// image, a dangling build, a digest pull, containers that stopped, and volumes of every kind.
+fn disk_use() -> borg_docker::DiskUse {
+    use borg_docker::{CacheRecord, DiskUse, Image, Layer, State, Volume};
+    const MB: u64 = 1_000_000;
+    let time = |stamp: &str| stamp.parse::<jiff::Timestamp>().ok();
+    let image = |id: &str, tags: &[&str], repository: Option<&str>, size: u64, unique: u64, containers: u32| Image {
+        id: format!("sha256:{id}{}", "0".repeat(52)),
+        tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+        repository: repository.map(str::to_owned),
+        size: Some(size),
+        shared: Some(size - unique),
+        unique: Some(unique),
+        created: time("2026-01-08T16:20:00Z"),
+        containers: Some(containers),
+    };
+    let layer = |name: &str, state: State, status: &str, size: u64| Layer {
+        id: format!("{}{}", &name[..4], "0".repeat(60)),
+        name: name.into(),
+        image: "shop-web:1.4".into(),
+        state,
+        status: status.into(),
+        size: Some(size),
+    };
+    let volume = |name: &str, size: u64, users: &[&str], anonymous: bool| Volume {
+        name: name.into(),
+        size: Some(size),
+        links: Some(users.len() as u32),
+        anonymous,
+        users: users.iter().map(|user| (*user).to_owned()).collect(),
+    };
+    let record = |id: &str, kind: &str, size: u64, shared: bool, in_use: bool, description: &str| CacheRecord {
+        id: format!("{id}{}", "x".repeat(20)),
+        kind: kind.into(),
+        size: Some(size),
+        shared,
+        in_use,
+        last_used: time("2026-01-14T18:05:00Z"),
+        description: description.into(),
+    };
+    DiskUse {
+        images: vec![
+            image("a1b2c3d4e5f6", &["shop-web:1.4", "shop-web:latest"], Some("shop-web"), 248 * MB, 31 * MB, 1),
+            image("b2c3d4e5f6a7", &["postgres:16"], Some("postgres"), 438 * MB, 438 * MB, 1),
+            image("c3d4e5f6a7b8", &["shop-worker:1.3"], Some("shop-worker"), 236 * MB, 160 * MB, 0),
+            image("d4e5f6a7b8c9", &[], None, 247 * MB, 29 * MB, 0),
+            image("e5f6a7b8c9d0", &[], Some("mirror.example/tools/jq"), 3 * MB, 3 * MB, 0),
+        ],
+        containers: vec![
+            layer("shop-web-1", State::Running, "Up 3 hours", 2 * MB),
+            layer("shop-db-1", State::Running, "Up 3 hours", 63),
+            layer("shop-worker-1", State::Exited, "Exited (1) 12 minutes ago", 48 * MB),
+            layer("shop-migrate-1", State::Created, "Created", 0),
+        ],
+        volumes: vec![
+            volume("shop_data", 312 * MB, &["shop-db-1"], false),
+            volume("blog_uploads", 860 * MB, &[], false),
+            volume("3b9d5e7f1a2c4b6d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d", 512 * MB, &[], true),
+        ],
+        cache: vec![
+            record("r1", "regular", 412 * MB, false, false, "[build 3/5] RUN npm ci"),
+            record("r2", "regular", 75 * MB, true, false, "[build 1/5] FROM node:22"),
+            record("r3", "exec.cachemount", 296 * MB, false, false, "--mount=type=cache,target=/root/.npm"),
+            record("r4", "source.local", MB, false, true, "local source for context"),
+        ],
+        networks: vec!["blog_default".into()],
+    }
+}
+
+/// Docker's disk use beside the containers: a row per kind with its reclaimable total, a kind
+/// unfolded into its items with two marked, and the console with the command F8 typed.
+#[test]
+fn docker_disk_use_lists_kinds_and_types_cleanup_at_the_prompt() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect, View};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let listed = DockerData::Listed { context: Some("desktop-linux".into()), containers: Vec::new() };
+    stage.send(Msg::Docker { id, result: Ok(listed) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Measuring disk use…")?;
+    let measured = DockerData::DiskUse {
+        usage: Box::new(disk_use()),
+        context: Some("desktop-linux".into()),
+        contexts: Some(vec!["default".into(), "desktop-linux".into()]),
+    };
+    stage.send(Msg::Docker { id, result: Ok(measured) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Disk use · desktop-linux")?;
+    ensure_text(&buffer, "docker --context desktop-linux builder prune")?;
+    check("docker_disk", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Char(' '))).send(key(KeyCode::Char(' '))).send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 marked")?;
+    check("docker_disk_expanded", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::F(8)), stage.started);
+    let typed: Vec<u8> = effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Write(bytes) => Some(bytes.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(typed, b"docker --context desktop-linux rmi shop-worker:1.3 e5f6a7b8c9d0", "no Enter");
+    assert_eq!(stage.state.view, View::Shell);
+    stage.shell(&typed);
+    let buffer = stage.render(stage.started)?;
+    check("docker_disk_typed", &stage, buffer)
+}
+
 /// The network screen over a made-up machine after half a minute of samples: the ports and
 /// who can reach them, the processes, the connections with their host names and traffic, and
 /// the interfaces.

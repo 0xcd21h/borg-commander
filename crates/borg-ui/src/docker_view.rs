@@ -24,6 +24,7 @@ use unicode_width::UnicodeWidthStr;
 
 mod controls;
 mod details;
+mod disk;
 mod list;
 
 pub(crate) use controls::{file_work_label, keybar, panel_mouse, status};
@@ -77,6 +78,15 @@ pub(crate) fn draw(
     let spinner = Spinner::of(&state.busy, borg_core::Task::Docker, now);
     let list = panels[side.index()];
     let details = panels[side.other().index()];
+    if docker.disk.open {
+        if !list.is_empty() {
+            disk::draw_list(state, look, list, spinner, buf);
+        }
+        if !details.is_empty() {
+            disk::draw_details(docker, look, details, clock, buf);
+        }
+        return None;
+    }
     if !list.is_empty() {
         draw_list(state, look, list, spinner, buf);
     }

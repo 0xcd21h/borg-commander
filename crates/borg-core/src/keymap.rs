@@ -23,6 +23,7 @@ pub enum Action {
     DockerFilter,
     DockerFiles,
     DockerShell,
+    DockerDisk,
     AgentLog,
     ConnectClaude,
     Search,

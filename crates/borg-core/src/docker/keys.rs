@@ -1,7 +1,7 @@
 //! The container list's keys and clicks, and the actions they take on containers.
 
 use super::{
-    Docker, DockerRequest, DockerRow, FILTER_LIMIT, INSPECT_DELAY, PAGE, ShellRequest, browse, close, open_shell,
+    Docker, DockerRequest, DockerRow, FILTER_LIMIT, INSPECT_DELAY, PAGE, ShellRequest, browse, close, disk, open_shell,
     shell_key,
 };
 use crate::{AppState, Confirm, ConfirmPurpose, Effect, Overlay};
@@ -148,6 +148,10 @@ pub(super) fn filter_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> 
 }
 
 pub(crate) fn paste(state: &mut AppState, text: &str) -> Vec<Effect> {
+    if state.docker.disk.open {
+        disk::paste(&mut state.docker.disk, text);
+        return Vec::new();
+    }
     if let Some(shell) = state.docker.visible_shell().filter(|_| state.docker.typing()) {
         let bytes = encode_paste(text, shell.status.observed.mode);
         return vec![Effect::DockerShell(ShellRequest::Input { container: shell.container.clone(), bytes })];
@@ -178,7 +182,7 @@ pub(super) fn select_tab(state: &mut AppState, tab: char, now: Instant) -> Vec<E
 }
 
 pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
-    if let Some(tab) = tab_key(key) {
+    if let Some(tab) = tab_key(key).filter(|_| !state.docker.disk.open) {
         return select_tab(state, tab, now);
     }
     if state.docker.typing() {
@@ -210,6 +214,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::F(9) => return crate::actions::perform(state, crate::Action::OpenMenuBar, now),
         KeyCode::F(10) => return crate::actions::perform(state, crate::Action::Quit, now),
         _ => {}
+    }
+    if state.docker.disk.open {
+        return disk::on_key(state, &crate::keyboard::latin(key));
     }
     if state.docker.filtering && filter_key(state, key, now) {
         return Vec::new();
@@ -257,6 +264,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         }
         KeyCode::Char('f' | 'F') => return browse(state),
         KeyCode::Char('e' | 'E') => return open_shell(state, now),
+        KeyCode::Char('d' | 'D') => return disk::toggle(state, now),
         KeyCode::Char(tab @ ('1' | '2')) => return select_tab(state, tab, now),
         _ => {}
     }
@@ -265,6 +273,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
 
 /// A click on a row selects it; a double click acts like Enter.
 pub(crate) fn click(state: &mut AppState, index: usize, open: bool, now: Instant) -> Vec<Effect> {
+    if state.docker.disk.open {
+        return disk::click(state, index, open);
+    }
     if index >= state.docker.rows.len() {
         return Vec::new();
     }

@@ -25,6 +25,8 @@ const WATCH_RETRY: Duration = Duration::from_secs(5);
 pub struct Docker {
     messages: UnboundedSender<Msg>,
     query: Option<JoinHandle<()>>,
+    /// Measuring disk use takes seconds, so it runs beside the list's refreshes.
+    disk: Option<JoinHandle<()>>,
     watch: Option<JoinHandle<()>>,
     /// Where container files are copied out for viewing; removed on exit.
     scratch: PathBuf,
@@ -32,12 +34,13 @@ pub struct Docker {
 
 impl Docker {
     pub fn new(messages: UnboundedSender<Msg>, scratch: PathBuf) -> Self {
-        Self { messages, query: None, watch: None, scratch }
+        Self { messages, query: None, disk: None, watch: None, scratch }
     }
 
     pub fn request(&mut self, id: u64, request: DockerRequest) {
         let messages = self.messages.clone();
         let query = request.is_query();
+        let disk = request == DockerRequest::DiskUse;
         let scratch = self.scratch.join(id.to_string());
         let task = tokio::spawn(async move {
             let result = match request {
@@ -50,12 +53,28 @@ impl Docker {
                     .map(|details| DockerData::Inspected { id, details: Box::new(details) }),
                 DockerRequest::Act { action, ids } => borg_docker::act(action, &ids).await.map(|()| DockerData::Done),
                 DockerRequest::Files { container, op } => files(&container, op, &scratch).await,
+                DockerRequest::DiskUse => {
+                    let (context, contexts, usage) =
+                        tokio::join!(borg_docker::context(), borg_docker::contexts(), borg_docker::disk_use());
+                    usage.map(|usage| DockerData::DiskUse {
+                        usage: Box::new(usage),
+                        context: context.ok(),
+                        contexts: contexts.ok(),
+                    })
+                }
             };
             let _ = messages.send(Msg::Docker { id, result: result.map_err(|error| format!("{error:#}")) });
         });
         // Actions run to the end; a newer query replaces one still running, whose answer
         // the view would ignore anyway.
-        if query && let Some(previous) = self.query.replace(task) {
+        let slot = if disk {
+            Some(&mut self.disk)
+        } else if query {
+            Some(&mut self.query)
+        } else {
+            None
+        };
+        if let Some(previous) = slot.and_then(|slot| slot.replace(task)) {
             previous.abort();
         }
     }
@@ -86,11 +105,19 @@ impl Docker {
             task.abort();
         }
     }
+
+    /// Stops measuring disk use once the view no longer waits for it.
+    pub fn cancel_disk(&mut self) {
+        if let Some(task) = self.disk.take() {
+            task.abort();
+        }
+    }
 }
 
 impl Drop for Docker {
     fn drop(&mut self) {
         self.cancel();
+        self.cancel_disk();
         self.watch(false);
         let _ = std::fs::remove_dir_all(&self.scratch);
     }
