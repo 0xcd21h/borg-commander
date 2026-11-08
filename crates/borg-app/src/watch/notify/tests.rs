@@ -32,6 +32,7 @@ fn process(command: &str) -> StartedProcess {
             program: Some("/usr/sbin/nginx".into()),
             terminal: false,
             command: "nginx: worker process".into(),
+            ..Ancestor::default()
         }],
         ..StartedProcess::default()
     }

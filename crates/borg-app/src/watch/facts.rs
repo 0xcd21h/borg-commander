@@ -13,7 +13,8 @@ use std::{
     io::{self, Read},
     os::unix::fs::MetadataExt,
     path::{Component, Path, PathBuf},
-    time::SystemTime,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime},
 };
 
 /// Where Linux keeps what it knows about each process.
@@ -36,6 +37,18 @@ const DELETED: &str = " (deleted)";
 /// What the links of the standard streams say when they lead to a socket or a pipe.
 const SOCKET: &str = "socket:";
 const PIPE: &str = "pipe:";
+/// A process's standard input, output and error, as `/proc` links them.
+const STREAMS: [&str; 3] = ["fd/0", "fd/1", "fd/2"];
+/// Where `/proc` lists the network sockets of a process's network, each with its number in the
+/// tenth column.
+const NETWORK_TABLES: &[&str] = &["net/tcp", "net/tcp6", "net/udp", "net/udp6"];
+const INODE_COLUMN: usize = 9;
+/// How long Borg trusts what it found out about a socket. The children of a service share its
+/// sockets, so one look serves them all, and the kernel takes far longer than this to give a
+/// socket's number out again.
+const SOCKET_MEMORY: Duration = Duration::from_secs(60);
+/// Sockets Borg remembers at once.
+const SOCKETS_REMEMBERED: usize = 4096;
 /// Where terminals are.
 const TERMINALS: &[&str] = &["/dev/pts/", "/dev/tty", "/dev/console"];
 /// The fields of `stat` after the program's name: the state comes first.
@@ -149,6 +162,41 @@ pub fn stream_kind(target: &str) -> StreamKind {
     }
 }
 
+/// The number a socket's link names: `12345` in `socket:[12345]`.
+pub fn socket_inode(target: &str) -> Option<u64> {
+    target.strip_prefix(SOCKET)?.strip_prefix('[')?.strip_suffix(']')?.parse().ok()
+}
+
+/// Whether a network table from `/proc`, such as `net/tcp`, lists the socket with this number.
+pub fn lists_socket(table: &str, inode: u64) -> bool {
+    table
+        .lines()
+        .skip(1)
+        .any(|line| line.split_whitespace().nth(INODE_COLUMN).and_then(|field| field.parse().ok()) == Some(inode))
+}
+
+/// What Borg found out lately about sockets, by their numbers.
+#[derive(Debug, Default)]
+struct SocketKinds {
+    kinds: BTreeMap<u64, (StreamKind, Instant)>,
+}
+
+impl SocketKinds {
+    fn known(&self, inode: u64, now: Instant) -> Option<StreamKind> {
+        self.kinds.get(&inode).filter(|(_, at)| now.duration_since(*at) < SOCKET_MEMORY).map(|(kind, _)| *kind)
+    }
+
+    fn remember(&mut self, inode: u64, kind: StreamKind, now: Instant) {
+        if self.kinds.len() >= SOCKETS_REMEMBERED {
+            self.kinds.retain(|_, (_, at)| now.duration_since(*at) < SOCKET_MEMORY);
+        }
+        if self.kinds.len() >= SOCKETS_REMEMBERED {
+            self.kinds.clear();
+        }
+        self.kinds.insert(inode, (kind, now));
+    }
+}
+
 /// The program a process runs, and whether its file has been deleted since it started.
 pub fn program_of(link: &str) -> (PathBuf, bool) {
     match link.strip_suffix(DELETED) {
@@ -171,6 +219,7 @@ pub fn command_of(cmdline: &[u8]) -> Vec<String> {
 #[derive(Debug, Clone)]
 pub struct Processes {
     root: PathBuf,
+    sockets: Arc<Mutex<SocketKinds>>,
 }
 
 impl Default for Processes {
@@ -181,7 +230,7 @@ impl Default for Processes {
 
 impl Processes {
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self { root: root.into(), sockets: Arc::default() }
     }
 
     fn folder(&self, pid: u32) -> PathBuf {
@@ -234,7 +283,7 @@ impl Processes {
         if stat.terminal == 0 {
             return None;
         }
-        let named = ["fd/0", "fd/1", "fd/2"]
+        let named = STREAMS
             .into_iter()
             .filter_map(|stream| self.link(pid, stream))
             .find(|target| stream_kind(target) == StreamKind::Terminal);
@@ -242,7 +291,39 @@ impl Processes {
     }
 
     fn stream(&self, pid: u32, stream: &str) -> StreamKind {
-        self.link(pid, stream).as_deref().map(stream_kind).unwrap_or_default()
+        let Some(target) = self.link(pid, stream) else { return StreamKind::default() };
+        match socket_inode(&target) {
+            Some(inode) => self.socket(pid, inode),
+            None => stream_kind(&target),
+        }
+    }
+
+    /// What a process's standard input, output and error lead to.
+    fn streams(&self, pid: u32) -> [StreamKind; 3] {
+        STREAMS.map(|stream| self.stream(pid, stream))
+    }
+
+    /// Whether a socket of a process reaches the network or stays on the machine. A socket Borg
+    /// cannot look up counts as a network one, so no rule misses a remote shell for want of a
+    /// read.
+    fn socket(&self, pid: u32, inode: u64) -> StreamKind {
+        let now = Instant::now();
+        if let Some(kind) = self.sockets.lock().ok().and_then(|kinds| kinds.known(inode, now)) {
+            return kind;
+        }
+        let mut read_any = false;
+        let listed = NETWORK_TABLES.iter().filter_map(|table| self.text(pid, table)).any(|table| {
+            read_any = true;
+            lists_socket(&table, inode)
+        });
+        if !read_any {
+            return StreamKind::Socket;
+        }
+        let kind = if listed { StreamKind::Socket } else { StreamKind::LocalSocket };
+        if let Ok(mut kinds) = self.sockets.lock() {
+            kinds.remember(inode, kind, now);
+        }
+        kind
     }
 
     /// One process in the chain that started another.
@@ -255,6 +336,7 @@ impl Processes {
             program,
             terminal: stat.terminal != 0,
             command: command_of(&self.block(pid, "cmdline")).join(" "),
+            streams: self.streams(pid),
         };
         Some((ancestor, stat.parent))
     }
@@ -320,6 +402,7 @@ impl Processes {
         let command = command_of(&self.block(pid, "cmdline"));
         let link = program.as_deref().and_then(|program| self.started_by_link(pid, &stat.name, &command, program));
         let ancestors = self.ancestors(stat.parent);
+        let [input, output, errors] = self.streams(pid);
         Some(StartedProcess {
             key: ProcessKey { pid, start: stat.started_at },
             name: stat.name.clone(),
@@ -329,9 +412,9 @@ impl Processes {
             user: crate::watch::user_name(uid),
             uid,
             terminal: self.terminal(pid, &stat),
-            input: self.stream(pid, "fd/0"),
-            output: self.stream(pid, "fd/1"),
-            errors: self.stream(pid, "fd/2"),
+            input,
+            output,
+            errors,
             session_parent: self.session_parent(&stat),
             preloads: preloads(&self.block(pid, "environ")),
             link,

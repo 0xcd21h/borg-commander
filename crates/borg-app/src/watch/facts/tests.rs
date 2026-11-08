@@ -145,6 +145,62 @@ impl FakeProc {
         std::os::unix::fs::symlink(target, at).expect("a stream");
         self
     }
+
+    /// A network table of the process's network, listing a TCP socket with each of these numbers.
+    fn network(&self, pid: u32, table: &str, inodes: &[u64]) -> &Self {
+        let at = self.folder.path().join(pid.to_string()).join("net");
+        fs::create_dir_all(&at).expect("the network folder");
+        let rows: String = inodes
+            .iter()
+            .enumerate()
+            .map(|(row, inode)| {
+                format!("{row:>4}: 0100007F:1F90 0A00000A:115C 01 00000000:00000000 00:00000000 00000000    33        0 {inode} 1 0000000000000000 20 4 30 10 -1\n")
+            })
+            .collect();
+        fs::write(at.join(table), format!("{TABLE_HEADER}{rows}")).expect("a network table");
+        self
+    }
+}
+
+const TABLE_HEADER: &str =
+    "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
+
+#[test]
+fn a_socket_link_names_its_number_and_a_network_table_lists_it_in_the_tenth_column() {
+    assert_eq!(socket_inode("socket:[4242]"), Some(4242));
+    assert_eq!(socket_inode("pipe:[4242]"), None);
+    assert_eq!(socket_inode("socket:[nope]"), None);
+    let table = format!(
+        "{TABLE_HEADER}   0: 0100007F:1F90 0A00000A:115C 01 00000000:00000000 00:00000000 00000000    33        0 4242 1\n"
+    );
+    assert!(lists_socket(&table, 4242));
+    assert!(!lists_socket(&table, 33), "the account number in another column is no socket");
+    assert!(!lists_socket(TABLE_HEADER, 0));
+}
+
+#[test]
+fn a_socket_the_network_tables_list_reaches_the_network_and_any_other_stays_on_the_machine() {
+    let proc = FakeProc::new();
+    proc.process(1, "systemd", 0, "/sbin/init", &["/sbin/init"]);
+    proc.process(100, "python3", 1, "/usr/bin/python3", &["python3", "-c", "import pty"]);
+    proc.stream(100, 0, "socket:[4242]").stream(100, 1, "socket:[4242]").stream(100, 2, "socket:[4242]");
+    proc.network(100, "tcp", &[4242]);
+    proc.process(200, "bash", 100, "/usr/bin/bash", &["/bin/bash"]).on_terminal(200, "bash", 100, 200);
+    proc.stream(200, 0, "/dev/pts/0").stream(200, 1, "socket:[5151]").stream(200, 2, "socket:[6161]");
+    proc.network(200, "tcp", &[4242]).network(200, "udp6", &[6161]);
+    let at = SystemTime::UNIX_EPOCH;
+
+    let shell = proc.processes().started(200, at).expect("the process is there");
+    assert_eq!(shell.streams(), [StreamKind::Terminal, StreamKind::LocalSocket, StreamKind::Socket]);
+    let opener = shell.session_parent.expect("the program that opened the terminal");
+    assert_eq!(opener.name, "python3");
+    assert_eq!(opener.streams, [StreamKind::Socket; 3], "its own streams lead to the network");
+    assert_eq!(shell.ancestors[0].streams, [StreamKind::Socket; 3]);
+
+    proc.process(300, "sh", 1, "/bin/sh", &["sh"]);
+    proc.stream(300, 1, "socket:[7171]");
+    let unknown = proc.processes().started(300, at).expect("the process is there");
+    assert_eq!(unknown.output, StreamKind::Socket, "a socket Borg cannot look up counts as a network one");
 }
 
 #[test]
