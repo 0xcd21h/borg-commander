@@ -8,7 +8,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use super::StartedProcess;
+use super::{
+    StartedProcess,
+    rules::{Surveyor, looks_around},
+};
 
 /// Days Borg learns before it freezes anything.
 pub const LEARNING_DAYS: u64 = 7;
@@ -18,6 +21,9 @@ pub const REVIEW_DAYS: u64 = 3;
 const DAY_SECONDS: u64 = 24 * 60 * 60;
 /// Pairs the baseline holds; a machine that starts more than this has stopped being a baseline.
 pub const PAIRS_LIMIT: usize = 20_000;
+/// Commands that look around the machine the baseline remembers, each with the program it came
+/// from.
+pub const SURVEYS_LIMIT: usize = 5_000;
 
 /// A parent and a program it started, each as the program's path, or its name where Borg could
 /// not read the path.
@@ -71,7 +77,7 @@ pub fn review_ends(learned_at: SystemTime) -> SystemTime {
 }
 
 /// How a program is written in the baseline: its path, or the name it calls itself.
-fn written(program: Option<&std::path::Path>, name: &str) -> String {
+pub(super) fn written(program: Option<&std::path::Path>, name: &str) -> String {
     program.map_or_else(|| name.to_owned(), |path| path.display().to_string())
 }
 
@@ -83,6 +89,9 @@ pub struct Baseline {
     pub pairs: BTreeSet<ParentChild>,
     #[serde(default)]
     pub allowed: Vec<Allowance>,
+    /// The commands that look around the machine each program ran while Borg learned.
+    #[serde(default)]
+    pub surveys: BTreeSet<(Surveyor, String)>,
 }
 
 impl Default for Baseline {
@@ -93,7 +102,7 @@ impl Default for Baseline {
 
 impl Baseline {
     pub fn started(since: SystemTime, period: Duration) -> Self {
-        Self { since, period, pairs: BTreeSet::new(), allowed: Vec::new() }
+        Self { since, period, pairs: BTreeSet::new(), allowed: Vec::new(), surveys: BTreeSet::new() }
     }
 
     /// When the learning period ends.
@@ -123,14 +132,27 @@ impl Baseline {
         })
     }
 
-    /// Remembers that this parent starts this program here.
+    /// Remembers that this parent starts this program here, and which program a command that
+    /// looks around the machine came from.
     pub fn note(&mut self, process: &StartedProcess) {
+        let program = process.program_name();
+        if looks_around(program)
+            && self.surveys.len() < SURVEYS_LIMIT
+            && let Some(surveyor) = Surveyor::of(process)
+        {
+            self.surveys.insert((surveyor, program.to_owned()));
+        }
         if self.pairs.len() >= PAIRS_LIMIT {
             return;
         }
         if let Some(pair) = Self::pair(process) {
             self.pairs.insert(pair);
         }
+    }
+
+    /// Whether this program ran this command that looks around the machine while Borg learned.
+    pub fn surveyed(&self, surveyor: &Surveyor, command: &str) -> bool {
+        self.surveys.contains(&(surveyor.clone(), command.to_owned()))
     }
 
     pub fn allows(&self, process: &StartedProcess) -> bool {

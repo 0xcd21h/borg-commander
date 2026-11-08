@@ -1871,26 +1871,37 @@ está lá para o retrato ficar completo.
 
 | Regra | O que a faz disparar | Nível |
 | --- | --- | --- |
-| **Shell num socket de rede** | Uma shell cuja entrada, saída ou erros vão para um socket, que é o aspeto de uma shell remota | alerta |
+| **Shell num socket de rede** | Uma shell cuja entrada, saída ou erros vão para um socket de rede, que é o aspeto de uma shell remota. Um socket que fica na máquina, como o que o `systemd` dá à saída de um serviço para o journal, não conta | alerta |
+| **Shell remota num terminal** | Uma shell num terminal que um programa abriu para ela, em que a entrada, a saída ou os erros desse programa vão para um socket de rede, ou o programa é um retransmissor como o `socat` ou o `nc`. É uma shell remota transformada num terminal completo, como a que o `pty.spawn` do Python cria | alerta |
 | **Programa apagado enquanto corre** | O ficheiro do programa já não existe, por isso nada no disco diz o que o processo é | alerta |
 | **Programa sem ficheiro** | O Borg não encontra nenhum ficheiro de programa para o processo | alerta |
 | **Biblioteca imposta a um programa** | `LD_PRELOAD`, `LD_AUDIT` ou `DYLD_INSERT_LIBRARIES` está definido no seu ambiente | alerta |
 | **Shell a partir de um serviço** | Um servidor web, um ambiente de execução de aplicações ou uma base de dados iniciou uma shell | aviso |
 | **Shell sem terminal** | Uma shell sem terminal de nenhum dos lados, por isso ninguém a escreveu | aviso |
-| **Exploração da máquina** | Quatro comandos diferentes como `whoami`, `id`, `uname` e `ss` do mesmo pai sem terminal, em 20 segundos | aviso |
+| **Shell no terminal de um programa** | Uma shell num terminal que um programa abriu para si próprio e em que ninguém iniciou sessão, como o que o `expect` ou o `docker exec` abrem | aviso |
+| **Exploração da máquina** | Quatro comandos diferentes como `whoami`, `id`, `uname` e `ss` do mesmo programa no espaço de uma hora, sem ninguém com sessão iniciada no terminal onde correm. Os comandos que ele corre através de uma shell atrás de outra contam juntos, por isso uma web shell que inicia `sh -c` para cada comando também é apanhada | aviso |
 | **Programa numa pasta temporária** | O programa está em `/tmp`, `/var/tmp`, `/dev/shm` ou `/run/shm` | aviso |
 | **Nome diferente do programa** | O processo chama-se uma coisa e corre outra | aviso |
 | **O pai nunca o iniciou antes** | Este pai nunca iniciou este programa nesta máquina | nota |
 
 De cada processo o Borg lê o programa que corre e se o seu ficheiro foi apagado, o comando, o
 utilizador, o terminal a que pertence e quem o abriu, para onde levam a sua entrada, saída e erros
-padrão, as variáveis de pré-carregamento no seu ambiente e a cadeia de pais acima dele.
+padrão, as variáveis de pré-carregamento no seu ambiente e a cadeia de pais acima dele. Um socket
+conta como socket de rede quando a rede do processo o lista como TCP ou UDP.
+
+Se alguém iniciou sessão num terminal decide-se da mesma forma que para congelar (veja
+[Congelar um processo](#freezing-a-process)): por SSH, na consola, no `tmux` ou no `screen`, através
+do `sudo` ou do `su`, ou numa janela de terminal. Um terminal que um programa abriu para si próprio
+não conta, quer tenha sido o servidor remoto de um editor, o `docker exec` ou uma shell reversa a
+abri-lo.
 
 O Borg aprende a máquina antes de agir. Nos primeiros 7 dias regista qual pai inicia qual programa
 aqui e não congela nada, e a coluna Resposta diz **Teria congelado** onde o teria feito. Depois
-disso, um par que já viu fica em silêncio para as regras que se podem aprender: as duas regras das
-shells, a série de comandos, o nome diferente e o pai que nunca o iniciou. As quatro regras de nível
-alerta disparam sempre, porque uma shell num socket ou uma biblioteca imposta nunca se tornam
+disso, um par que já viu fica em silêncio para as regras que se podem aprender: as três regras das
+shells, o nome diferente e o pai que nunca o iniciou. A série de comandos aprende-se pelo programa de
+onde vem: fica em silêncio quando esse programa correu cada um dos seus comandos durante a semana de
+aprendizagem, por isso um agente de monitorização que corre `df` e `ps` o dia todo fica em silêncio,
+e um servidor web que nunca correu `id` não fica. As cinco regras de nível alerta disparam sempre, porque uma shell num socket ou uma biblioteca imposta nunca se tornam
 normais por acontecerem muitas vezes. Tudo o que corre nessa semana conta como normal, por isso
 ligue o observador enquanto confia na máquina. Os arranques em que disparou uma regra que a
 aprendizagem não consegue silenciar ficam fora do que o Borg aprende.
@@ -2095,6 +2106,8 @@ Conheça-as antes de confiar nele.
   dá-lhe tempo para ver, e o dono do processo ainda o pode desfazer.
 - Um processo num terminal em que alguém iniciou sessão nunca é congelado, mesmo que a sessão tenha
   usado uma palavra-passe ou chave roubada. As regras continuam a disparar e a escrever alertas.
+- A **Exploração da máquina** conta os comandos de um programa no espaço de uma hora. Quem espera
+  mais entre comandos, ou corre cada um a partir de um programa diferente, fica abaixo dela.
 - Um processo que se desliga do seu pai antes de o Borg congelar o pai continua a correr.
 - Sem `[watch.notify]`, os alertas só chegam até si quando abre a página. Com ele, quem tomar conta
   da máquina nos segundos depois de um alerta ainda pode travar a mensagem antes de ela sair, e aí

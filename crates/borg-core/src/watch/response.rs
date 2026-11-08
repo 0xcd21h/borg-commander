@@ -11,7 +11,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use super::{Baseline, Finding, History, StartedProcess, examine};
+use super::{Ancestor, Baseline, Finding, History, StartedProcess, examine};
 
 /// Processes Borg writes alerts about in one minute; over that it only counts what it left out.
 pub const ALERTS_PER_MINUTE: usize = 20;
@@ -209,7 +209,7 @@ fn personal(process: &StartedProcess, first_person: u32) -> bool {
 
 /// Whether somebody logged in to the terminal a process belongs to. A terminal a program opened
 /// for itself does not count.
-fn logged_in(process: &StartedProcess, first_person: u32) -> bool {
+pub(super) fn logged_in(process: &StartedProcess, first_person: u32) -> bool {
     process.has_terminal()
         && process.session_parent.as_ref().is_some_and(|opener| {
             let program = opener.program_name();
@@ -217,6 +217,15 @@ fn logged_in(process: &StartedProcess, first_person: u32) -> bool {
                 LOGINS.contains(&program) || (MULTIPLEXERS.contains(&program) && personal(process, first_person));
             login && installed(opener.program.as_deref())
         })
+}
+
+/// The program that opened the terminal a process runs on, when that program opened it for
+/// itself and nobody logged in to it.
+pub(super) fn opened_by_program(process: &StartedProcess, first_person: u32) -> Option<&Ancestor> {
+    if !process.has_terminal() || logged_in(process, first_person) {
+        return None;
+    }
+    process.session_parent.as_ref()
 }
 
 /// Why a process is never frozen, whatever fired.
@@ -320,10 +329,10 @@ impl Watcher {
     /// The limit on alerts only ever leaves out a finding Borg would not freeze for: a frozen
     /// process is always written down, or nobody would know to let it go on.
     pub fn examine(&mut self, process: &StartedProcess, guard: &Guard<'_>, now: SystemTime) -> Vec<Outcome> {
-        let findings = examine(process, &self.baseline, &self.history, now);
+        let findings = examine(process, &self.baseline, &self.history, guard.first_person, now);
         if !process.copy_of_parent() {
             self.seen = self.seen.saturating_add(1);
-            self.history.note(process);
+            self.history.note(process, guard.first_person);
             if self.baseline.learning(now) && findings.iter().all(|finding| finding.rule().learnable()) {
                 self.baseline.note(process);
             }

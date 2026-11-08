@@ -5131,6 +5131,7 @@ fn alert_log() -> borg_core::AlertLog {
         program: Some(program.into()),
         terminal,
         command: program.to_owned(),
+        ..Ancestor::default()
     };
     let process = |pid: u32, program: &str, command: &[&str], user: &str, ancestors: Vec<Ancestor>| StartedProcess {
         key: ProcessKey { pid, start: u64::from(pid) * 100 },
