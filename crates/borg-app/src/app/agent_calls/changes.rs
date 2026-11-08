@@ -132,7 +132,7 @@ impl App {
             summary: command.clone(),
             place: agent::place(&target),
             origin: call.origin.clone(),
-            body: command.lines().map(DiffLine::plain).collect(),
+            body: command.lines().map(DiffLine::code).collect(),
         };
         let id = self.agent.ask(reply, Work::Run { command, target });
         if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
@@ -184,7 +184,7 @@ impl App {
             } else {
                 format!("{} ({size} bytes)", borg_ui::size_text(size))
             };
-            let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(shown.clone())];
+            let body = vec![DiffLine::code(spot.uri()), DiffLine::prose(shown.clone())];
             let ask =
                 Ask { kind: AskKind::Upload, summary: spot.uri(), place: shown, origin: call.origin.clone(), body };
             let id = self.agent.ask(reply, Work::Upload { spot, size });

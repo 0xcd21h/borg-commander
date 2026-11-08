@@ -57,7 +57,11 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
     } else {
         tr!(agent_approval_full).to_owned()
     };
-    frame(tr!(agent_title).trim(), Some(hint), theme, rect, buf);
+    let title = match &approval.host {
+        Some(host) => tr!(agent_host_title, server = host.server),
+        None => tr!(agent_title).to_owned(),
+    };
+    frame(title.trim(), Some(hint), theme, rect, buf);
 
     let heading = match approval.ask.kind {
         AskKind::Run => tr!(agent_wants_run),
@@ -86,6 +90,15 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
 
     let place = crate::format::truncate_start(&approval_place(&approval.ask), usize::from(body.width));
     Line::styled(place, styles.overlay).centered().render(row(rect, rect.bottom().saturating_sub(4)), buf);
+    let buttons = row(rect, rect.bottom().saturating_sub(2));
+    if let Some(computer) = view_only(approval) {
+        let note = tr!(agent_host_view_only, computer = borg_core::computer_name(computer));
+        let note = crate::format::truncate_end(&note, usize::from(buttons.width));
+        Line::styled(note, styles.overlay.fg(styles.meta.fg.unwrap_or(Color::DarkGray)))
+            .centered()
+            .render(buttons, buf);
+        return rect;
+    }
     let (yes, no) = if approval.accept {
         (styles.overlay_selected, styles.overlay)
     } else {
@@ -93,14 +106,20 @@ pub fn draw_approval(approval: &Approval, theme: &Theme, screen: Rect, buf: &mut
     };
     Line::from(vec![Span::styled(tr!(yes), yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(tr!(no), no)])
         .centered()
-        .render(row(rect, rect.bottom().saturating_sub(2)), buf);
+        .render(buttons, buf);
     rect
+}
+
+/// The computer that controls the host session of a forwarded ask, when another one does and
+/// the dialog only shows the ask.
+fn view_only(approval: &Approval) -> Option<&str> {
+    approval.host.as_ref().and_then(|host| host.view_only.as_deref())
 }
 
 /// Which button of the approval dialog is at `point`: Yes, No, or neither.
 pub(crate) fn approval_button_at(approval: &Approval, screen: Rect, point: Position) -> Option<bool> {
     let (rect, _) = approval_layout(approval, screen);
-    if point.y != rect.bottom().saturating_sub(2) {
+    if view_only(approval).is_some() || point.y != rect.bottom().saturating_sub(2) {
         return None;
     }
     let width = (tr!(yes).width() + BUTTON_GAP.width() + tr!(no).width()) as u16;

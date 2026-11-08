@@ -55,9 +55,10 @@ mod watch;
 mod update_tests;
 
 pub use agent::{
-    Agent, AgentEvent, Approval, Ask, AskKind, CONNECT_CLOUD, CONNECT_KEEP, CONNECT_START, Change, Connect,
-    ConnectInfo, DiffLine, approval_layout, approval_place, approval_rows, connect_commands, host_console_ready,
-    log_layout, log_rows, pair_command, shell_quote, typing_refusal,
+    Agent, AgentEvent, Approval, Ask, AskBoard, AskFeed, AskKind, CONNECT_CLOUD, CONNECT_KEEP, CONNECT_START, Change,
+    Connect, ConnectInfo, DiffLine, End, Ended, HostAnswer, HostAsk, HostEvent, LineWrap, Refusal, Waiting,
+    WatchedHost, approval_layout, approval_place, approval_rows, approve_all_ask, check_answer, computer_name,
+    connect_commands, host_console_ready, log_layout, log_rows, pair_ask, pair_command, shell_quote, typing_refusal,
 };
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};

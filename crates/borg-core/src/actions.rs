@@ -91,7 +91,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ToggleShell => shell::toggle_shell(state),
         Action::MirrorRemote => crate::remote::mirror_mounted(state),
         Action::BrowseRemotes => crate::remote::browse(state),
-        Action::ApprovalModeOff => vec![Effect::ApprovalModeOff],
+        Action::ApprovalModeOff => crate::agent::approve_all_off(state),
         Action::SwitchPanel => panels::switch(state),
         Action::InsertNewline => shell::insert_newline(state),
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),

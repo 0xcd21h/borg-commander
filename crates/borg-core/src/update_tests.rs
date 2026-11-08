@@ -3174,7 +3174,7 @@ fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
 fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() {
     use crate::{AgentEvent, Ask, AskKind, DiffLine};
     let (mut state, now) = setup_with(Vec::new());
-    let body = (1..=200).map(|n| DiffLine::plain(format!("echo {n}"))).collect();
+    let body = (1..=200).map(|n| DiffLine::code(format!("echo {n}"))).collect();
     let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), origin: None, body };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask }), now);
     let Some(approval) = state.approval.clone() else { panic!("{:?}", state.overlay) };
@@ -3294,7 +3294,7 @@ fn a_withdrawn_ask_closes_its_approval_with_a_notice_and_a_queued_one_never_show
         summary: "make".into(),
         place: "~".into(),
         origin: None,
-        body: vec![DiffLine::plain("make")],
+        body: vec![DiffLine::code("make")],
     };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), now);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: run }), now);
@@ -3413,7 +3413,7 @@ fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears
         summary: command.into(),
         place: "~".into(),
         origin: None,
-        body: vec![DiffLine::plain(command)],
+        body: vec![DiffLine::code(command)],
     };
     // The user is typing in a full-screen editor when Claude asks.
     press(&mut state, now, key(KeyCode::Char('i')));
@@ -3936,4 +3936,221 @@ fn f3_on_a_capture_file_opens_the_traffic_viewer() {
     state.settings.preferences.system_plugin = false;
     let effects = press(&mut state, now, key(KeyCode::F(3)));
     assert!(!effects.iter().any(|effect| matches!(effect, Effect::OpenCapture(_))), "without the plugin it is a file");
+}
+
+fn run_ask(command: &str) -> crate::Ask {
+    crate::Ask {
+        kind: crate::AskKind::Run,
+        summary: command.into(),
+        place: "in ~".into(),
+        origin: None,
+        body: vec![crate::DiffLine::code(command)],
+    }
+}
+
+/// A host borg with one ask in its dialog and one behind it, and the board its viewers read.
+fn host_with_two_asks() -> (AppState, Instant, crate::AskBoard) {
+    use crate::AgentEvent;
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: run_ask("make") }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: run_ask("make test") }), now);
+    let mut board = crate::AskBoard::default();
+    assert!(board.refresh(&state, None));
+    (state, now, board)
+}
+
+const LAPTOP: &str = "laptop [873dd93b]";
+const DESKTOP: &str = "desktop [1f00aa21]";
+const RUN: &str = "run-1";
+
+#[test]
+fn a_host_shows_its_viewers_every_waiting_ask_and_the_first_answer_wins() {
+    use crate::{AgentEvent, End, HostAnswer, Refusal, check_answer};
+    let (mut state, now, mut board) = host_with_two_asks();
+    let feed = board.feed(RUN, LAPTOP);
+    let waiting: Vec<_> = feed.waiting.iter().map(|waiting| (waiting.id, waiting.ask.summary.as_str())).collect();
+    assert_eq!(waiting, [(1, "make"), (2, "make test")], "the dialog's ask first, then the one behind it");
+    assert!(!board.refresh(&state, None), "nothing changed, so viewers wait on");
+
+    let answer = HostAnswer { run: RUN.into(), id: 1, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Ok(()));
+    let effects =
+        update(&mut state, Msg::Agent(AgentEvent::AnsweredFrom { id: 1, approved: true, by: LAPTOP.into() }), now);
+    assert_eq!(effects, vec![Effect::AgentAnswer { id: 1, approved: true }]);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_answered_from, computer = "laptop", summary = "make")));
+    assert_eq!(state.agent.running, Some((1, "make".into())), "the footer shows the command as for an answer here");
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(2), "the next ask shows");
+
+    assert_eq!(
+        check_answer(&state, &HostAnswer { approved: false, ..answer.clone() }, RUN, DESKTOP, None),
+        Err(Refusal::Ended),
+        "a second answer to the same ask, from anywhere, is refused"
+    );
+    assert!(board.refresh(&state, None));
+    let feed = board.feed(RUN, DESKTOP);
+    assert_eq!(feed.waiting.iter().map(|waiting| waiting.id).collect::<Vec<_>>(), [2]);
+    assert_eq!(
+        feed.ended.last().map(|ended| (ended.id, ended.end.clone())),
+        Some((1, End::Answered { approved: true, by: Some(LAPTOP.into()) }))
+    );
+
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('n')));
+    assert_eq!(effects, vec![Effect::AgentAnswer { id: 2, approved: false }], "the host's own screen answers too");
+    assert_eq!(
+        check_answer(&state, &HostAnswer { run: RUN.into(), id: 2, approved: true }, RUN, LAPTOP, None),
+        Err(Refusal::Ended)
+    );
+    assert!(board.refresh(&state, None));
+    assert_eq!(
+        board.feed(RUN, LAPTOP).ended.last().map(|ended| ended.end.clone()),
+        Some(End::Answered { approved: false, by: None })
+    );
+}
+
+#[test]
+fn a_host_refuses_answers_for_another_run_or_from_a_viewer_another_computer_outranks() {
+    use crate::{HostAnswer, Refusal, check_answer};
+    let (state, _, mut board) = host_with_two_asks();
+    let answer = HostAnswer { run: "run-0".into(), id: 1, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Err(Refusal::OtherRun));
+    let answer = HostAnswer { run: RUN.into(), id: 9, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Err(Refusal::Ended), "no ask has that number");
+
+    let answer = HostAnswer { run: RUN.into(), id: 2, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, Some(DESKTOP)), Err(Refusal::ViewOnly));
+    assert_eq!(check_answer(&state, &answer, RUN, DESKTOP, Some(DESKTOP)), Ok(()), "the controlling computer answers");
+    assert!(board.refresh(&state, Some(DESKTOP)));
+    assert_eq!(board.feed(RUN, LAPTOP).view_only.as_deref(), Some(DESKTOP));
+    assert_eq!(board.feed(RUN, DESKTOP).view_only, None);
+}
+
+#[test]
+fn a_withdrawn_or_timed_out_ask_ends_for_the_viewers_too() {
+    use crate::{AgentEvent, End, HostAnswer, Refusal, check_answer};
+    let (mut state, now, mut board) = host_with_two_asks();
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 2 }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 1 }), now);
+    assert_eq!(state.approval, None);
+    assert!(board.refresh(&state, None));
+    let feed = board.feed(RUN, LAPTOP);
+    assert!(feed.waiting.is_empty());
+    let ended: Vec<_> = feed.ended.iter().map(|ended| (ended.id, ended.end.clone())).collect();
+    assert_eq!(ended, [(2, End::Withdrawn), (1, End::Withdrawn)]);
+    let answer = HostAnswer { run: RUN.into(), id: 1, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Err(Refusal::Ended));
+    let effects =
+        update(&mut state, Msg::Agent(AgentEvent::AnsweredFrom { id: 1, approved: true, by: LAPTOP.into() }), now);
+    assert!(effects.is_empty(), "an ask that ended is never carried out");
+}
+
+/// A viewer borg whose panel shows `web1`'s session, which waits for the asks in `waiting`.
+fn viewer_feed(version: u64, waiting: &[(u64, &str)], ended: Vec<crate::Ended>) -> Msg {
+    let feed = crate::AskFeed {
+        run: RUN.into(),
+        version,
+        waiting: waiting.iter().map(|(id, command)| crate::Waiting { id: *id, ask: run_ask(command) }).collect(),
+        ended,
+        approve_all: Vec::new(),
+        view_only: None,
+    };
+    Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: crate::HostEvent::Feed(feed) }
+}
+
+#[test]
+fn a_viewer_shows_a_host_ask_over_everything_and_sends_the_answer_back() {
+    use crate::HostAnswer;
+    let (mut state, now) = setup_with(Vec::new());
+    state.screensaver = true;
+    update(&mut state, viewer_feed(1, &[(7, "systemctl restart nginx")], Vec::new()), now);
+    let approval = state.approval.clone().expect("the host's ask shows");
+    assert!(!state.screensaver, "the ask wakes the screen");
+    assert_eq!((approval.id, approval.accept), (7, false), "No stays selected");
+    assert_eq!(approval.host.as_ref().map(|host| (host.server.as_str(), host.run.as_str())), Some(("web1", RUN)));
+
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    let answer = HostAnswer { run: RUN.into(), id: 7, approved: true };
+    assert_eq!(
+        effects,
+        vec![Effect::AnswerHost { machine: "web1".into(), session: "default".into(), answer }],
+        "the answer goes to the host, and nothing runs here"
+    );
+    assert_eq!(state.agent.running, None);
+    assert_eq!(state.approval, None);
+    update(&mut state, viewer_feed(1, &[(7, "systemctl restart nginx")], Vec::new()), now);
+    assert_eq!(state.approval, None, "an ask answered here does not show again while the host takes it");
+}
+
+#[test]
+fn a_viewer_closes_the_dialog_with_a_notice_when_the_host_answered_or_lost_the_ask() {
+    use crate::{End, Ended, HostEvent};
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, viewer_feed(1, &[(7, "make"), (8, "make test")], Vec::new()), now);
+    let answered = Ended { id: 7, end: End::Answered { approved: true, by: None } };
+    update(&mut state, viewer_feed(2, &[(8, "make test")], vec![answered]), now);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_host_answered, server = "web1", summary = "make")));
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(8), "the next one shows");
+
+    let by_desktop = Ended { id: 8, end: End::Answered { approved: false, by: Some(DESKTOP.into()) } };
+    update(&mut state, viewer_feed(3, &[(9, "ls")], vec![by_desktop]), now);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_answered_from, computer = "desktop", summary = "make test")));
+
+    update(&mut state, viewer_feed(4, &[(9, "ls")], Vec::new()), now);
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: HostEvent::Lost },
+        now,
+    );
+    assert_eq!(state.approval, None);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_host_lost, server = "web1")));
+    update(&mut state, viewer_feed(5, &[(9, "ls")], Vec::new()), now);
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(9), "it comes back with the connection");
+
+    update(&mut state, viewer_feed(6, &[], vec![Ended { id: 9, end: End::Withdrawn }]), now);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_withdrawn, summary = "ls")));
+    update(&mut state, viewer_feed(7, &[(10, "pwd")], Vec::new()), now);
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: HostEvent::Unwatched },
+        now,
+    );
+    assert_eq!(state.approval, None, "a panel that stops showing the session takes its asks along");
+    assert!(state.agent.hosts.is_empty());
+}
+
+#[test]
+fn a_view_only_viewer_shows_the_ask_takes_no_answer_and_esc_closes_it_here() {
+    let (mut state, now) = setup_with(Vec::new());
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
+        viewer_feed(1, &[(7, "make")], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.view_only = Some(DESKTOP.into());
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    let later = now + crate::agent::APPROVAL_GRACE;
+    for answer in [key(KeyCode::Char('y')), key(KeyCode::Enter), key(KeyCode::Char('n'))] {
+        assert!(press(&mut state, later, answer).is_empty());
+        assert!(state.approval.is_some(), "a view-only dialog takes no answer");
+    }
+    assert!(press(&mut state, later, key(KeyCode::Esc)).is_empty(), "Esc sends nothing to the host");
+    assert_eq!(state.approval, None);
+    update(&mut state, viewer_feed(2, &[(7, "make")], Vec::new()), now);
+    assert_eq!(state.approval, None, "closed here, it stays closed while the host waits");
+}
+
+#[test]
+fn ctrl_alt_a_turns_off_approve_all_in_every_host_session_that_has_it() {
+    let (mut state, now) = setup_with(Vec::new());
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } = viewer_feed(1, &[], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.approve_all = vec![LAPTOP.into()];
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    assert_eq!(
+        crate::actions::perform(&mut state, crate::Action::ApprovalModeOff, now),
+        vec![Effect::StopHostApproveAll { machine: "web1".into(), session: "default".into() }]
+    );
+    state.agent.auto_approve = vec![DESKTOP.into()];
+    assert_eq!(crate::actions::perform(&mut state, crate::Action::ApprovalModeOff, now).len(), 2, "and here too");
 }

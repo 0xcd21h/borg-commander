@@ -642,6 +642,17 @@ For a paired computer, `approval_mode` asks you once before turning on Approve a
 session. While it is on, a badge stays visible; click it or press Ctrl+Alt+A to turn it off at
 once. It also turns off when that paired connection closes. Pairing approvals are separate.
 
+A request also reaches your own computer when a remote panel there shows the session it waits in
+(see [Remote panels](#remote-panels)). Your borg shows it in the same dialog, titled with the
+server's name, over whatever you are doing, and sends your answer back over the encrypted
+connection. The server keeps its own dialog open too. The first answer counts, wherever it comes
+from, and the other dialogs close with a notice that says where it was answered. A request the
+agent withdraws closes everywhere. When another computer controls the session through a mirror,
+your dialog shows the request without Yes and No, and Esc closes it on your screen only. While
+that session approves everything, your borg shows a badge with the server's name; click it or
+press Ctrl+Alt+A to turn Approve all off there at once. Only your keys and clicks answer these
+dialogs: the agent's tools, `type` included, cannot press anything in them.
+
 Commands are typed into a shell you can watch, and kept out of its history. Commands for this
 machine go into borg's own console, which is shown while they run so you can answer a prompt such
 as sudo's; commands for a container go into that container's shell in the Docker view. The shell
@@ -817,6 +828,9 @@ Alt-H to get a new one.
 Remote folders load in chunks, with a spinner and a count of the entries received so far; moving
 to another folder cancels the request.
 
+While a remote panel shows a session, the agent requests that wait there show on your screen too,
+and you can answer them here (see [What the agent can do](#what-the-agent-can-do)).
+
 ### Remote hosts
 
 In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or choose
@@ -883,6 +897,10 @@ detach the other terminal, or start with `borg mirror MACHINE:SESSION --take`; `
 takes control from another viewer. Once you have control, the first key wakes a sleeping remote
 screen, and later keys and mouse input reach it. A viewer that falls behind skips old animation
 frames and jumps straight to the current screen.
+
+An agent's request shows in the mirror as the server shows it, and you answer it there once you
+have control. If you opened the mirror from a remote panel and the request still waits when you
+leave the mirror, the panel's borg shows it again.
 
 ### Running a relay
 

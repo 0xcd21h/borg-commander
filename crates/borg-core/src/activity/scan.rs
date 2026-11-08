@@ -33,9 +33,9 @@ pub struct ScanSubject<'a> {
 /// its program, the checks, and the agent's own rule text when it brings some. `origin` is
 /// the computer that asked.
 pub fn scan_ask(subject: ScanSubject<'_>, checks: ScanChecks, inline: Option<&str>, origin: Option<String>) -> Ask {
-    let mut body = vec![DiffLine::plain(tr!(agent_memory_process, name = subject.name, pid = subject.pid))];
+    let mut body = vec![DiffLine::prose(tr!(agent_memory_process, name = subject.name, pid = subject.pid))];
     if let Some(program) = subject.program {
-        body.push(DiffLine::plain(tr!(agent_memory_program, path = program.display())));
+        body.push(DiffLine::prose(tr!(agent_memory_program, path = program.display())));
     }
     let inline = inline.filter(|_| checks.rules());
     let rules = if inline.is_some() { tr!(agent_scan_inline) } else { tr!(agent_scan_rules) };
@@ -44,13 +44,13 @@ pub fn scan_ask(subject: ScanSubject<'_>, checks: ScanChecks, inline: Option<&st
         .flatten()
         .collect();
     body.extend([
-        DiffLine::plain(tr!(agent_scan_checks, checks = names.join(" · "))),
-        DiffLine::plain(""),
-        DiffLine::plain(tr!(agent_scan_warning, bytes = borg_rules::EVIDENCE_BYTES)),
+        DiffLine::prose(tr!(agent_scan_checks, checks = names.join(" · "))),
+        DiffLine::prose(""),
+        DiffLine::prose(tr!(agent_scan_warning, bytes = borg_rules::EVIDENCE_BYTES)),
     ]);
     if let Some(text) = inline {
-        body.push(DiffLine::plain(""));
-        body.extend(text.lines().map(DiffLine::plain));
+        body.push(DiffLine::prose(""));
+        body.extend(text.lines().map(DiffLine::code));
     }
     let summary = tr!(process_control_subject, name = subject.name, pid = subject.pid);
     Ask { kind: AskKind::Scan, summary, place: String::new(), origin, body }

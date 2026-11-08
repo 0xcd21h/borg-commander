@@ -638,6 +638,23 @@ travels with that viewer's next frame as a base64 `clipboard` field, which the v
 its terminal as OSC 52 after checking it is plain base64; view-only viewers never receive it.
 Copies also stay in `borg-core::clipboard`, so Ctrl-V works in Borg's own fields anywhere.
 
+Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel) or `viewer`.
+A borg opens a viewer channel for each host session one of its panels mounts (`host_asks`) and
+long-polls `asks_wait` with the version it has. The host answers with an `AskFeed` as soon as its
+`AskBoard` changes, or after 15 seconds: the asks that wait, the last 32 that ended and how, the
+computers Approve all is on for, and the controller when another computer holds the native
+mirror. Answers (`asks_answer`) and `asks_stop` go on a viewer channel opened for each, so they
+never wait behind a poll. The host takes the three `asks_*` calls only on a viewer channel and
+refuses every other call there. `Caller` marks them with `viewer`, which `Call::external` clears,
+so an agent's socket call or session channel cannot claim it. An answer names the host's run, a
+random ID for each process, and the ask's number, and counts only while that ask still waits and
+no other computer controls the session; `borg-core::agent::forward` holds that check and the
+first answer wins logic. `borg mcp` forwards only the tools it lists, so an agent cannot reach
+mirror, console, panel or viewer calls. In the background service the asks come from the child's
+socket, which trusts the service; the service tracks the mirror controller there, so the view-only
+check does not apply. Outside the service, a named session other than the one that holds borg
+cloud clears the viewer mark on its socket, so its asks stay on its own screen.
+
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:
 

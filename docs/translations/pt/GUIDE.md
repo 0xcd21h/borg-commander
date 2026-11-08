@@ -699,6 +699,18 @@ Aprovar tudo nessa sessão. Enquanto estiver ativo, fica visível um distintivo;
 Ctrl+Alt+A para o desativar de imediato. Desativa-se também quando essa ligação emparelhada fecha.
 As aprovações de emparelhamento são independentes.
 
+Um pedido chega também ao seu próprio computador quando um painel remoto aí mostra a sessão em
+que o pedido espera (consulte [Painéis remotos](#remote-panels)). O seu borg mostra-o no mesmo
+diálogo, com o nome do servidor no título, por cima do que estiver a fazer, e envia a sua resposta
+de volta pela ligação cifrada. O servidor mantém também o seu próprio diálogo aberto. Conta a
+primeira resposta, venha de onde vier, e os outros diálogos fecham com um aviso que diz onde foi
+respondido. Um pedido que o agente retire fecha em todo o lado. Quando outro computador controla a
+sessão através de um espelho, o seu diálogo mostra o pedido sem Sim e Não, e Esc fecha-o apenas no
+seu ecrã. Enquanto essa sessão aprovar tudo, o seu borg mostra um distintivo com o nome do
+servidor; clique nele ou prima Ctrl+Alt+A para desativar Aprovar tudo lá de imediato. Só as suas
+teclas e cliques respondem a estes diálogos: as ferramentas do agente, incluindo `type`, não
+conseguem premir nada neles.
+
 Os comandos são escritos numa shell que pode acompanhar e ficam fora do respetivo histórico. Os
 comandos para esta máquina vão para a consola do próprio borg, que é mostrada enquanto correm para
 poder responder a um pedido como o do sudo; os comandos para um contentor vão para a shell desse
@@ -890,6 +902,9 @@ Alt-H para obter uma nova.
 As pastas remotas carregam por partes, com um indicador de atividade e a contagem das entradas
 recebidas até ao momento; mudar para outra pasta cancela o pedido.
 
+Enquanto um painel remoto mostra uma sessão, os pedidos do agente que aí esperam aparecem também
+no seu ecrã, e pode responder-lhes aqui (consulte [O que o agente pode fazer](#what-the-agent-can-do)).
+
 ### Hosts remotos
 
 No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos ou escolha
@@ -964,6 +979,10 @@ assume sempre o controlo retirando-o a outro visualizador. Depois de ter o contr
 tecla acorda um ecrã remoto em repouso, e as teclas e a entrada de rato seguintes chegam-lhe. Um
 visualizador que fique para trás salta os fotogramas de animação antigos e passa diretamente
 para o ecrã atual.
+
+Um pedido do agente aparece no espelho tal como o servidor o mostra, e responde-lhe aí quando
+tiver o controlo. Se abriu o espelho a partir de um painel remoto e o pedido ainda esperar quando
+sair do espelho, o borg desse painel volta a mostrá-lo.
 
 ### Executar um relay
 

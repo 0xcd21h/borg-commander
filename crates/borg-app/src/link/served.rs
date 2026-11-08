@@ -1,6 +1,6 @@
 //! The server's side of borg cloud: the relay connection, pairing, and the calls of each paired computer.
 
-use super::caller::Caller;
+use super::caller::{Caller, Role};
 use super::{
     APPROVAL_WAIT, Answer, CLIENTS_SOCKET, CLIENTS_TIMEOUT, COMPUTERS_FILE, ClientConnection, Computer, Hello,
     LINK_DIR, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared, clean_name, client_status, same,
@@ -125,7 +125,8 @@ impl Served {
         let Ok((mut channel, hello)) = respond(socket, &self.identity).await else { return };
         let _ = match serde_json::from_slice::<Hello>(&hello) {
             Ok(Hello::Pair { secret, name }) => self.pair(channel, &secret, &name).await,
-            Ok(Hello::Session) => self.serve(channel).await,
+            Ok(Hello::Session) => self.serve(channel, Role::Session).await,
+            Ok(Hello::Viewer) => self.serve(channel, Role::Viewer).await,
             Err(_) => refuse(&mut channel, "unreadable hello").await,
         };
     }
@@ -192,8 +193,9 @@ impl Served {
     }
 
     /// A paired computer's session: its calls go to the session as the local socket's do,
-    /// marked with the computer's name.
-    pub(super) async fn serve(&self, mut channel: Channel) -> Result<()> {
+    /// marked with the computer's name. A viewer connection is no agent, so it is not counted
+    /// as one.
+    pub(super) async fn serve(&self, mut channel: Channel, role: Role) -> Result<()> {
         let key = hex(channel.peer());
         let computer = self.shared.lock().expect("link lock").computers.iter().find(|c| c.key == key).cloned();
         let Some(computer) = computer else {
@@ -201,14 +203,15 @@ impl Served {
         };
         let answer = Answer { ok: true, name: crate::agent::hostname(), error: String::new() };
         channel.send(&serde_json::to_vec(&answer)?).await?;
-        let _connection =
-            ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone());
-        self.calls_of(&mut channel, &computer).await
+        let _connection = (role == Role::Session).then(|| {
+            ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone())
+        });
+        self.calls_of(&mut channel, &computer, role).await
     }
 
     /// Answers a paired computer's calls until it goes, then gives back what it held.
-    async fn calls_of(&self, channel: &mut Channel, computer: &Computer) -> Result<()> {
-        let mut caller = Caller::new(self, computer);
+    async fn calls_of(&self, channel: &mut Channel, computer: &Computer, role: Role) -> Result<()> {
+        let mut caller = Caller::new(self, computer, role);
         let result = caller.serve(channel).await;
         caller.release().await;
         result

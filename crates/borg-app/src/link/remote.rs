@@ -50,12 +50,21 @@ pub struct Remote {
 
 impl Remote {
     pub async fn open(state: &Path, server: &Server) -> Result<Self> {
+        Self::open_as(state, server, &Hello::Session).await
+    }
+
+    /// A viewer connection, for the asks of a session the panels here show.
+    pub async fn open_viewer(state: &Path, server: &Server) -> Result<Self> {
+        Self::open_as(state, server, &Hello::Viewer).await
+    }
+
+    async fn open_as(state: &Path, server: &Server, hello: &Hello) -> Result<Self> {
         let relay = Relay::parse(&server.relay).context("the saved relay is not valid")?;
         let key: PublicKey = unhex(&server.key).context("the saved key is not valid")?;
         let identity = identity(state)?;
         let socket =
             relay::dial(&relay, &key).await.with_context(|| format!("borg on {} is not reachable", server.name))?;
-        let mut channel = initiate(socket, &identity, &key, &serde_json::to_vec(&Hello::Session)?).await?;
+        let mut channel = initiate(socket, &identity, &key, &serde_json::to_vec(hello)?).await?;
         let reply = channel.recv().await?.context("the server closed the connection")?;
         let answer: Answer = serde_json::from_slice(&reply)?;
         if !answer.ok {

@@ -696,6 +696,18 @@ vez antes de activar Aprobar todo para esa sesión. Mientras está activo, se ma
 insignia; haz clic en ella o pulsa Ctrl+Alt+A para desactivarlo al instante. También se desactiva
 cuando se cierra esa conexión emparejada. Las aprobaciones de emparejamiento son aparte.
 
+Una solicitud también llega a tu propia computadora cuando un panel remoto en ella muestra la
+sesión en la que espera (consulta [Paneles remotos](#remote-panels)). Tu borg la muestra en el
+mismo diálogo, con el nombre del servidor en el título, por encima de lo que estés haciendo, y
+envía tu respuesta de vuelta por la conexión cifrada. El servidor también mantiene abierto su
+propio diálogo. Cuenta la primera respuesta, venga de donde venga, y los demás diálogos se cierran
+con un aviso que dice dónde se respondió. Una solicitud que el agente retira se cierra en todas
+partes. Cuando otra computadora controla la sesión a través de un espejo, tu diálogo muestra la
+solicitud sin Sí ni No, y Esc la cierra solo en tu pantalla. Mientras esa sesión lo apruebe todo,
+tu borg muestra una insignia con el nombre del servidor; haz clic en ella o pulsa Ctrl+Alt+A para
+desactivar Aprobar todo allí al instante. Solo tus teclas y clics responden a estos diálogos: las
+herramientas del agente, incluida `type`, no pueden pulsar nada en ellos.
+
 Los comandos se escriben en un shell que puedes observar, y no quedan en su historial. Los
 comandos para esta máquina van a la consola propia de borg, que se muestra mientras se ejecutan
 para que puedas responder a una petición como la de sudo; los comandos para un contenedor van al
@@ -888,6 +900,9 @@ Sí, vuelve a elegir la sesión con Alt-H para obtener uno nuevo.
 Las carpetas remotas se cargan por partes, con un indicador de actividad y un recuento de las
 entradas recibidas hasta el momento; al ir a otra carpeta se cancela la petición.
 
+Mientras un panel remoto muestra una sesión, las solicitudes del agente que esperan allí aparecen
+también en tu pantalla, y puedes responderlas aquí (consulta [Qué puede hacer el agente](#what-the-agent-can-do)).
+
 ### Hosts remotos
 
 En el Borg local, pulsa **Alt-H**, haz clic en **Hosts remotos** en la barra de atajos o elige
@@ -965,6 +980,10 @@ control y desconectar el otro terminal, o empieza con `borg mirror MACHINE:SESSI
 tecla activa una pantalla remota en reposo, y las teclas y la entrada del ratón posteriores llegan
 a ella. Un espectador que se queda atrás omite los fotogramas antiguos de
 animación y pasa directamente a la pantalla actual.
+
+Una solicitud del agente aparece en el espejo tal como la muestra el servidor, y la respondes allí
+cuando tengas el control. Si abriste el espejo desde un panel remoto y la solicitud sigue esperando
+cuando sales de él, el borg de ese panel vuelve a mostrarla.
 
 ### Ejecutar un relay
 

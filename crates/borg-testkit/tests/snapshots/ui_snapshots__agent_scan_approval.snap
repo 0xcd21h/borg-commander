@@ -12,8 +12,8 @@ expression: describe(&buffer)
 │ │ Checks: code integrity · the agent's own rules, shown below                        │ │
 │ │                                                                                    │ │
 │ │ Memory can hold passwords, keys and private data. The agent gets each finding with │ │
-│ │  up to 64 bytes of what matched. Approving lets it scan and search this process ag │ │
-│ │ ain until Borg quits.                                                              │ │
+│ │ up to 64 bytes of what matched. Approving lets it scan and search this process     │ │
+│ │ again until Borg quits.                                                            │ │
 │ │                                                                                    │ │
 │ │ rule beacon {                                                                      │ │
 │ │   strings: $host = "c2.example.org"                                                │ │

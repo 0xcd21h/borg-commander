@@ -46,11 +46,15 @@ impl App {
         }
     }
 
-    /// Stops approving the agent's requests by themselves, here and in what the core remembers.
-    pub(super) fn approval_mode_off(&mut self) {
+    /// Stops approving the agent's requests by themselves, here and in what the core remembers,
+    /// as the user asked here or from the paired computer `by`.
+    pub(super) fn approval_mode_off(&mut self, by: Option<&str>) {
         self.approve_all.clear();
         self.state.agent.auto_approve.clear();
         self.state.notice = Some(tr!(agent_approve_all_off).into());
-        self.agent.note("Approve all turned off locally");
+        match by {
+            Some(by) => self.agent.note(&format!("Approve all turned off from {by}")),
+            None => self.agent.note("Approve all turned off locally"),
+        }
     }
 }

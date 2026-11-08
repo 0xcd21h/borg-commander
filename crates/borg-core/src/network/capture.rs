@@ -814,7 +814,7 @@ pub fn capture_ask(
     request: &CaptureRequest,
     origin: Option<String>,
 ) -> Ask {
-    let field = |label: &str, value: String| DiffLine::plain(tr!(agent_capture_field, label = label, value = value));
+    let field = |label: &str, value: String| DiffLine::prose(tr!(agent_capture_field, label = label, value = value));
     let traffic = scope.label(
         |pid| tr!(process_control_subject, name = process.unwrap_or(tr!(network_unknown_process)), pid = pid),
         |remote| remote.to_string(),
@@ -828,9 +828,9 @@ pub fn capture_ask(
         field(tr!(network_interface_column), request.interface.clone()),
         field(tr!(capture_duration_field), duration.clone()),
         field(tr!(capture_content_field), content),
-        DiffLine::plain(tr!(capture_saves_to, extension = request.extension(), folder = request.folder.display())),
-        DiffLine::plain(""),
-        DiffLine::plain(tr!(agent_capture_warning)),
+        DiffLine::prose(tr!(capture_saves_to, extension = request.extension(), folder = request.folder.display())),
+        DiffLine::prose(""),
+        DiffLine::prose(tr!(agent_capture_warning)),
     ];
     let summary = tr!(agent_capture_summary, interface = request.interface, duration = duration);
     Ask { kind: AskKind::Capture, summary, place: String::new(), origin, body }
