@@ -643,8 +643,10 @@ A borg opens a viewer channel for each host session one of its panels mounts (`h
 long-polls `asks_wait` with the version it has. The host answers with an `AskFeed` as soon as its
 `AskBoard` changes, or after 15 seconds: the asks that wait, the last 32 that ended and how, the
 computers Approve all is on for, and the controller when another computer holds the native
-mirror. Answers (`asks_answer`) and `asks_stop` go on a viewer channel opened for each, so they
-never wait behind a poll. The host takes the three `asks_*` calls only on a viewer channel and
+mirror. Answers (`asks_answer`) and `asks_stop` go on a viewer channel opened for each, on a task
+of their own, so they never wait behind a poll and a dropped poll or a closed panel does not lose
+them. The viewer remembers the asks it answered or closed by the host's run and number, so a
+host that restarts shows its new asks even when they reuse a number. The host takes the three `asks_*` calls only on a viewer channel and
 refuses every other call there. `Caller` marks them with `viewer`, which `Call::external` clears,
 so an agent's socket call or session channel cannot claim it. An answer names the host's run, a
 random ID for each process, and the ask's number, and counts only while that ask still waits and
@@ -653,7 +655,10 @@ first answer wins logic. `borg mcp` forwards only the tools it lists, so an agen
 mirror, console, panel or viewer calls. In the background service the asks come from the child's
 socket, which trusts the service; the service tracks the mirror controller there, so the view-only
 check does not apply. Outside the service, a named session other than the one that holds borg
-cloud clears the viewer mark on its socket, so its asks stay on its own screen.
+cloud clears the viewer mark on its socket, so its asks stay on its own screen. These checks keep
+Borg's own connections apart. They cannot stop an agent that runs programs under your account on
+the viewer's computer: it can read the pairing key in Borg's state folder or send keys to the
+terminal Borg runs in, so give such an agent a sandbox when its requests matter.
 
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:

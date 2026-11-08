@@ -4142,6 +4142,27 @@ fn a_viewer_closes_the_dialog_with_a_notice_when_the_host_answered_or_lost_the_a
 }
 
 #[test]
+fn an_ask_answered_here_does_not_hide_the_one_with_its_number_after_the_host_restarts() {
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, viewer_feed(1, &[(1, "make")], Vec::new()), now);
+    press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: crate::HostEvent::Lost },
+        now,
+    );
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
+        viewer_feed(1, &[(1, "make test")], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.run = "run-2".into();
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    let shown = state.approval.as_ref().map(|approval| (approval.id, approval.ask.summary.as_str()));
+    assert_eq!(shown, Some((1, "make test")), "the restarted host's first ask shows");
+}
+
+#[test]
 fn a_view_only_viewer_shows_the_ask_takes_no_answer_and_esc_closes_it_here() {
     let (mut state, now) = setup_with(Vec::new());
     let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
