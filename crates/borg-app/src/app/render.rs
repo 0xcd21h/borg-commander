@@ -16,7 +16,7 @@ use crossterm::{
     },
 };
 use jiff::Zoned;
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, buffer::Buffer};
 use std::{io::Write as _, path::Path, time::Instant};
 
 impl App {
@@ -70,18 +70,30 @@ impl App {
         let mut placements = Vec::new();
         let mut resized = Ok(());
         let mut mirror_cursor = None;
+        let mut fitted = None;
         let frame = terminal.draw(|frame| {
-            let area = frame.area();
+            let area = self.native_mirror.fit(frame.area());
             if (self.state.cols, self.state.rows) != (area.width, area.height) {
                 resized = self.resize(area.width, area.height).map(|_| ());
                 if resized.is_err() {
                     return;
                 }
             }
-            (placements, mirror_cursor) = borg_ui::draw_with_cursor(frame, &self.scene(clock, now));
+            let scene = self.scene(clock, now);
+            if area == frame.area() {
+                (placements, mirror_cursor) = borg_ui::draw_with_cursor(frame, &scene);
+                return;
+            }
+            let mut screen = Buffer::empty(area);
+            (placements, mirror_cursor) = borg_ui::draw_into(&mut screen, &scene);
+            frame.buffer_mut().merge(&screen);
+            if let Some(position) = mirror_cursor {
+                frame.set_cursor_position(position);
+            }
+            fitted = Some(screen);
         })?;
         resized?;
-        self.native_mirror.publish(frame.buffer, mirror_cursor);
+        self.native_mirror.publish(fitted.as_ref().unwrap_or(frame.buffer), mirror_cursor);
         Ok(self.graphics.frame(&placements, frame.buffer))
     }
 
