@@ -368,7 +368,8 @@ pub(super) fn open_hit(activity: &mut Activity) -> Vec<Effect> {
     activity.filter.clear();
     activity.filtering = false;
     activity.rebuild();
-    let Some(cursor) = activity.rows.iter().position(|&(i, _)| activity.sample.processes[i].key == hit.process) else {
+    let Some(cursor) = activity.rows.iter().position(|row| activity.sample.processes[row.index].key == hit.process)
+    else {
         activity.error = Some(tr!(entropy_process_gone, name = hit.name, pid = hit.process.pid));
         return Vec::new();
     };

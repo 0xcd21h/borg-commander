@@ -284,6 +284,12 @@ impl Backend {
         tools
     }
 
+    /// Whether the agent may call `tool`: only the tools listed to it, so it cannot reach the
+    /// calls of a mirror, a console or a panel, which act as the user's own keys and clicks.
+    pub(super) fn lists(&self, tool: &str) -> bool {
+        self.tools().as_array().is_some_and(|tools| tools.iter().any(|listed| listed["name"] == tool))
+    }
+
     pub(super) async fn call(&mut self, call: &Call) -> Reply {
         match self {
             Self::Local { runtime_dir, session_id, session } => {
@@ -430,8 +436,12 @@ pub(super) async fn serve_with(mut backend: Backend) -> Result<()> {
             "ping" => json!({}),
             "tools/list" => json!({ "tools": backend.tools() }),
             "tools/call" => {
-                let call = Call::new(params["name"].as_str().unwrap_or_default(), params["arguments"].clone());
-                let reply = backend.call(&call).await;
+                let name = params["name"].as_str().unwrap_or_default();
+                let reply = match backend.lists(name).then(|| Call::new(name, params["arguments"].clone()).external()) {
+                    Some(Ok(call)) => backend.call(&call).await,
+                    Some(Err(refused)) => refused,
+                    None => Reply::error(format!("unknown tool {name}")),
+                };
                 json!({ "content": [{ "type": "text", "text": reply.text }], "isError": !reply.ok })
             }
             _ => {

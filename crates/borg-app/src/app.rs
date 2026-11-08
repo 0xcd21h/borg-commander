@@ -43,6 +43,7 @@ mod input;
 mod jobs;
 mod remotes;
 mod render;
+mod shared_asks;
 mod startup;
 mod viewers;
 
@@ -120,6 +121,12 @@ pub struct App {
     wide_emoji: bool,
     /// Borg cloud: this borg reachable from paired computers through a relay.
     link: crate::link::LinkServer,
+    /// This run of borg, which the asks shown to other computers belong to.
+    run: String,
+    /// What waits here for an answer, for the borgs whose panels show this session.
+    ask_board: tokio::sync::watch::Sender<borg_core::AskBoard>,
+    /// The host sessions the panels here show, watched for their asks.
+    host_asks: crate::host_asks::Watchers,
     /// Files arriving from another computer, by token.
     uploads: HashMap<String, crate::agent::Upload>,
     /// Files another computer may download in pieces without asking again, by computer
@@ -224,6 +231,13 @@ impl App {
             if let Flow::Quit = flow {
                 return Ok(());
             }
+            self.publish_asks();
+            self.host_asks.sync(
+                Side::ALL
+                    .into_iter()
+                    .filter_map(|side| self.state.panel(side).remote_mount.as_ref())
+                    .map(|mount| (mount.machine.clone(), mount.session.clone())),
+            );
             if !matches!(
                 &self.state.overlay,
                 Some(borg_core::Overlay::Remotes(_))
@@ -289,6 +303,9 @@ impl App {
         }
         if self.state.docker.pending.is_none() {
             self.docker.cancel();
+        }
+        if self.state.docker.disk.loading.is_none() {
+            self.docker.cancel_disk();
         }
         if self.state.network.pending.is_none() {
             self.network.cancel();

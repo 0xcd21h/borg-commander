@@ -62,13 +62,25 @@ const NAME_LIMIT: usize = 40;
 pub const DEFAULT_RELAY: Option<&str> = None;
 /// The internal call that asks the user to approve a pairing.
 pub const PAIR_CALL: &str = "_pair";
+/// What waits for an answer in a session, the next time it changes.
+pub const ASKS_WAIT: &str = "asks_wait";
+/// An answer to an ask waiting in a session.
+pub const ASKS_ANSWER: &str = "asks_answer";
+/// Turns off Approve all in a session.
+pub const ASKS_STOP: &str = "asks_stop";
+/// The only calls a viewer connection makes, and which no other connection may make.
+const VIEWER_CALLS: [&str; 3] = [ASKS_WAIT, ASKS_ANSWER, ASKS_STOP];
+/// How long an `asks_wait` call waits for a change before it answers with what it has.
+pub const ASKS_WAIT_TIME: Duration = Duration::from_secs(15);
 
-/// The first message of a channel, encrypted: a pairing, or a session of a paired computer.
+/// The first message of a channel, encrypted: a pairing, a session of a paired computer, or a
+/// paired computer's borg watching for the asks of a session its panels show.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Hello {
     Pair { secret: String, name: String },
     Session,
+    Viewer,
 }
 
 /// The server's answer to a hello.

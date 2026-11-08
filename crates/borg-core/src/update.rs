@@ -204,6 +204,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
 
         Msg::Agent(event) => crate::agent::receive(state, event),
+        Msg::HostAsks { machine, session, event } => crate::agent::receive_host(state, machine, session, event),
         Msg::MountRemote { side, machine, session, name } => crate::remote::mount(state, side, machine, session, name),
         Msg::RemoteConsoleOutput { echoed, machine, session, view, signals } => {
             shell::remote_output(state, machine, session, view, signals, echoed, now)

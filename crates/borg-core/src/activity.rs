@@ -39,6 +39,8 @@ pub use control::{
 };
 pub(crate) use control::{on_key as on_control_key, open as open_control};
 mod entropy;
+mod family;
+pub use family::{Branch, Kin, ListedProcess, Relative};
 mod tree;
 pub use entropy::{
     EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
@@ -138,12 +140,14 @@ pub struct Activity {
     pub sample: SystemSample,
     pub histories: HashMap<ProcessKey, MemoryHistory>,
     pub selected: Option<ProcessKey>,
-    pub rows: Vec<(usize, usize)>,
+    pub rows: Vec<ListedProcess>,
     pub cursor: usize,
     pub page: ActivityPage,
     pub sort: ActivitySort,
     pub reverse: bool,
     pub tree: bool,
+    /// The processes whose branches the tree keeps folded.
+    folded: HashSet<ProcessKey>,
     pub filter: String,
     pub filtering: bool,
     pub paused: bool,
@@ -218,6 +222,7 @@ impl Default for Activity {
             sort: ActivitySort::Memory,
             reverse: true,
             tree: false,
+            folded: HashSet::new(),
             filter: String::new(),
             filtering: false,
             paused: false,
@@ -354,40 +359,16 @@ impl Activity {
             };
             (if self.reverse { order.reverse() } else { order }).then(a.key.pid.cmp(&b.key.pid))
         });
+        self.forget_ended_folds();
         self.rows = if self.tree && filter.is_empty() {
-            let pids: HashSet<_> = rows.iter().map(|&i| self.sample.processes[i].key.pid).collect();
-            let mut children: HashMap<u32, Vec<usize>> = HashMap::new();
-            let mut roots = Vec::new();
-            for &i in &rows {
-                match self.sample.processes[i]
-                    .parent
-                    .filter(|pid| pids.contains(pid) && *pid != self.sample.processes[i].key.pid)
-                {
-                    Some(parent) => children.entry(parent).or_default().push(i),
-                    None => roots.push(i),
-                }
-            }
-            let mut seen = HashSet::new();
-            let mut out = Vec::new();
-            for root in roots.into_iter().chain(rows.iter().copied()) {
-                let mut stack = vec![(root, 0)];
-                while let Some((i, depth)) = stack.pop() {
-                    if seen.insert(i) {
-                        out.push((i, depth));
-                        if let Some(children) = children.get(&self.sample.processes[i].key.pid) {
-                            stack.extend(children.iter().rev().map(|&c| (c, depth + 1)));
-                        }
-                    }
-                }
-            }
-            out
+            family::tree(&self.sample.processes, &rows, &self.folded)
         } else {
-            rows.into_iter().map(|i| (i, 0)).collect()
+            rows.into_iter().map(|index| ListedProcess { index, depth: 0, branch: Branch::Leaf }).collect()
         };
         self.cursor = self
             .rows
             .iter()
-            .position(|&(i, _)| Some(self.sample.processes[i].key) == self.selected)
+            .position(|row| Some(self.sample.processes[row.index].key) == self.selected)
             .unwrap_or(self.cursor.min(self.rows.len().saturating_sub(1)));
         if self.list == ActivityPage::Processes || self.selected.is_none() {
             self.select();
@@ -406,7 +387,7 @@ impl Activity {
         self.revealing = Some((pid, control));
     }
     fn select_pid(&mut self, pid: u32) -> bool {
-        let Some(cursor) = self.rows.iter().position(|&(i, _)| self.sample.processes[i].key.pid == pid) else {
+        let Some(cursor) = self.rows.iter().position(|row| self.sample.processes[row.index].key.pid == pid) else {
             return false;
         };
         self.cursor = cursor;
@@ -414,7 +395,7 @@ impl Activity {
         true
     }
     fn select(&mut self) {
-        let selected = self.rows.get(self.cursor).map(|&(i, _)| self.sample.processes[i].key);
+        let selected = self.rows.get(self.cursor).map(|row| self.sample.processes[row.index].key);
         if self.selected != selected {
             self.region_cursor = 0;
             self.expanded_groups.clear();

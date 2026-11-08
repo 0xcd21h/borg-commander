@@ -3857,6 +3857,135 @@ fn paired_linux_top_captures_the_remote_console_resizes_and_restores_the_prompt(
     Ok(())
 }
 
+/// One call on a channel to a paired borg, and its reply.
+fn link_call(
+    runtime: &tokio::runtime::Runtime,
+    channel: &mut borg_link::Channel,
+    tool: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value> {
+    runtime.block_on(async {
+        channel.send(&serde_json::to_vec(&serde_json::json!({ "tool": tool, "args": args }))?).await?;
+        let bytes =
+            tokio::time::timeout(std::time::Duration::from_secs(30), channel.recv()).await??.context("reply")?;
+        Ok(serde_json::from_slice(&bytes)?)
+    })
+}
+
+/// A channel to the server the computer whose borg keeps its key in `computer` paired with,
+/// opened with `hello`.
+fn link_channel(runtime: &tokio::runtime::Runtime, computer: &Path, hello: &str) -> Result<borg_link::Channel> {
+    let servers: serde_json::Value = serde_json::from_slice(&fs::read(computer.join("link/servers.json"))?)?;
+    let relay = borg_link::Relay::parse(servers[0]["relay"].as_str().unwrap()).unwrap();
+    let key = borg_link::unhex(servers[0]["key"].as_str().unwrap()).unwrap();
+    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    runtime.block_on(async {
+        let socket = borg_link::relay::dial(&relay, &key).await?;
+        let mut channel = borg_link::initiate(socket, &identity, &key, hello.as_bytes()).await?;
+        let answer: serde_json::Value = serde_json::from_slice(&channel.recv().await?.context("hello")?)?;
+        ensure!(answer["ok"] == true, "{answer}");
+        Ok(channel)
+    })
+}
+
+#[test]
+fn an_agents_request_on_a_paired_host_is_answered_from_the_borg_whose_panel_shows_it() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("asks-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(150, 34).label("asks-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::tab())?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send(keys::enter())?;
+    local.wait_text(&format!("Host {name}:Default"))?;
+
+    let proof = host.home().join("forwarded-proof");
+    let mut mcp = remote_mcp(&computer, &name)?;
+    let command = format!("printf approved-here > '{}'", proof.display());
+    let asking = std::thread::spawn(move || {
+        let ran = mcp.call("run", serde_json::json!({ "command": command }));
+        (mcp, ran)
+    });
+    remote.wait_text("forwarded-proof")?;
+    let shown = local.wait_text(&format!("Remote on {name}"))?;
+    ensure!(shown.contains("forwarded-proof") && shown.contains("[ No ]"), "{}", shown.text());
+    ensure!(shown.contains(&format!("Host {name}:Default")), "the local panels stay behind the dialog");
+    approve(&mut local)?;
+    remote.wait_gone(AGENT_ASK)?;
+    let (mut mcp, ran) = asking.join().unwrap();
+    let (error, text) = ran?;
+    ensure!(!error && text.starts_with("exit 0"), "{text}");
+    ensure!(holds(&proof, "approved-here"), "the command ran on the server");
+
+    let asking = std::thread::spawn(move || {
+        let ran = mcp.call("run", serde_json::json!({ "command": "echo answered-there" }));
+        (mcp, ran)
+    });
+    local.wait_text("echo answered-there")?;
+    remote.wait_text("echo answered-there")?;
+    decline(&mut remote)?;
+    local.wait_gone(AGENT_ASK)?;
+    local.wait_text(&format!("Answered on {name}"))?;
+    let (mut mcp, ran) = asking.join().unwrap();
+    let (error, text) = ran?;
+    ensure!(error && text.contains("declined"), "{text}");
+
+    let asking = std::thread::spawn(move || mcp.call("run", serde_json::json!({ "command": "echo still-waits" })));
+    remote.wait_text("echo still-waits")?;
+    local.wait_text("echo still-waits")?;
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let mut viewer = link_channel(&runtime, &computer, r#"{"kind":"viewer"}"#)?;
+    let reply = link_call(&runtime, &mut viewer, "asks_wait", serde_json::json!({ "session": "default", "after": 0 }))?;
+    ensure!(reply["ok"] == true, "{reply}");
+    let feed: serde_json::Value = serde_json::from_str(reply["text"].as_str().unwrap())?;
+    let waiting = feed["waiting"].as_array().context("waiting asks")?;
+    ensure!(waiting.len() == 1 && waiting[0]["ask"]["summary"] == "echo still-waits", "{feed}");
+    let answer = serde_json::json!({ "run": feed["run"], "id": waiting[0]["id"], "approved": true });
+    let forged = serde_json::json!({ "session": "default", "answer": answer });
+    let refused = link_call(&runtime, &mut viewer, "run", serde_json::json!({ "command": "true" }))?;
+    ensure!(refused["ok"] == false, "a viewer connection makes no other call: {refused}");
+    let mut session = link_channel(&runtime, &computer, r#"{"kind":"session"}"#)?;
+    let refused = link_call(&runtime, &mut session, "asks_answer", forged.clone())?;
+    ensure!(refused["ok"] == false && refused["text"].as_str().unwrap().contains("unknown tool"), "{refused}");
+    let mut agent = remote_mcp(&computer, &name)?;
+    let (error, text) = agent.call("asks_answer", forged.clone())?;
+    ensure!(error && text.contains("unknown tool"), "{text}");
+    for (tool, args) in [
+        ("mirror_take", serde_json::json!({ "session": "default" })),
+        ("mirror_input", serde_json::json!({ "session": "default", "data": "eQ==" })),
+    ] {
+        let (error, text) = agent.call(tool, args)?;
+        ensure!(error && text.contains("unknown tool"), "an agent cannot type into a mirror: {text}");
+    }
+    let mut on_server = Mcp::start(&host)?;
+    on_server.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
+    let (error, text) = on_server.call("asks_answer", forged.clone())?;
+    ensure!(error && text.contains("unknown tool"), "{text}");
+    let stale =
+        serde_json::json!({ "session": "default", "answer": { "run": "0", "id": answer["id"], "approved": true } });
+    let reply = link_call(&runtime, &mut viewer, "asks_answer", stale)?;
+    ensure!(reply["text"] == "\"other_run\"", "an answer for another run of borg is refused: {reply}");
+    remote.pump(std::time::Duration::from_millis(600))?;
+    ensure!(remote.snapshot().contains("echo still-waits"), "the request still waits on the server");
+    ensure!(local.snapshot().contains("echo still-waits"), "and on the computer");
+    decline(&mut local)?;
+    remote.wait_gone(AGENT_ASK)?;
+    let (error, text) = asking.join().unwrap()?;
+    ensure!(error && text.contains("declined"), "{text}");
+    Ok(())
+}
+
 #[test]
 fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<()> {
     let relay = relay()?;
@@ -3979,23 +4108,34 @@ fn f5_copies_folders_to_a_paired_host_and_files_back_with_keep_both() -> Result<
     use std::os::unix::ffi::OsStrExt;
     let interrupted = host.work().join("interrupted.bin");
     let encoded = base64::engine::general_purpose::STANDARD.encode(interrupted.as_os_str().as_bytes());
-    let mut transfer = remote_mcp(&computer, &name)?;
-    let (error, reply) = transfer.call(
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let mut transfer = link_channel(&runtime, &computer, r#"{"kind":"session"}"#)?;
+    let reply = link_call(
+        &runtime,
+        &mut transfer,
         "file_transfer",
         serde_json::json!({"session":"default","op":"begin","path":encoded,"size":1000,"overwrite":false}),
     )?;
-    ensure!(!error, "{reply}");
-    let (error, _) =
-        transfer.call("file_transfer", serde_json::json!({"session":"missing","op":"write","data":"eA=="}))?;
-    ensure!(error, "invalid sessions cannot continue an upload");
-    let (error, reply) =
-        transfer.call("file_transfer", serde_json::json!({"session":"default","op":"write","data":"eA=="}))?;
-    ensure!(!error, "{reply}");
+    ensure!(reply["ok"] == true, "{reply}");
+    let reply = link_call(
+        &runtime,
+        &mut transfer,
+        "file_transfer",
+        serde_json::json!({"session":"missing","op":"write","data":"eA=="}),
+    )?;
+    ensure!(reply["ok"] == false, "invalid sessions cannot continue an upload");
+    let reply = link_call(
+        &runtime,
+        &mut transfer,
+        "file_transfer",
+        serde_json::json!({"session":"default","op":"write","data":"eA=="}),
+    )?;
+    ensure!(reply["ok"] == true, "{reply}");
     ensure!(
         fs::read_dir(host.work())?
             .any(|entry| entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with(".borg-copy-")))
     );
-    drop(transfer);
+    runtime.block_on(async { drop(transfer) });
     local.wait_until("disconnect removes the incomplete host file", |_| {
         fs::read_dir(host.work()).is_ok_and(|mut entries| {
             !entries
@@ -4144,11 +4284,22 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
     drop(regular);
     let mut service =
         Session::builder(BORG, &host).args(&["service", "run"]).size(130, 34).label("service-mirror-host").spawn()?;
-    let mut probe = remote_mcp(&computer, &name)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut probe = loop {
+        match link_channel(&runtime, &computer, r#"{"kind":"session"}"#) {
+            Ok(channel) => break channel,
+            Err(error) => {
+                ensure!(std::time::Instant::now() < deadline, "the service did not reach the relay: {error:#}")
+            }
+        }
+        service.pump(std::time::Duration::from_millis(100))?;
+    };
     loop {
-        let (error, text) = probe.call("mirror_frame", serde_json::json!({"session":"default","after":0}))?;
-        let ready = (!error)
+        let reply =
+            link_call(&runtime, &mut probe, "mirror_frame", serde_json::json!({"session":"default","after":0}))?;
+        let text = reply["text"].as_str().unwrap_or_default().to_owned();
+        let ready = (reply["ok"] == true)
             .then(|| serde_json::from_str::<serde_json::Value>(&text).ok())
             .flatten()
             .and_then(|value| {
@@ -4161,9 +4312,13 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
         ensure!(std::time::Instant::now() < deadline, "background session did not become ready: {text}");
         service.pump(std::time::Duration::from_millis(100))?;
     }
-    let (error, text) = probe.call("host_info", serde_json::json!({}))?;
-    ensure!(!error && serde_json::from_str::<serde_json::Value>(&text)?["service"] == true);
-    drop(probe);
+    let reply = link_call(&runtime, &mut probe, "host_info", serde_json::json!({}))?;
+    ensure!(
+        reply["ok"] == true
+            && serde_json::from_str::<serde_json::Value>(reply["text"].as_str().unwrap_or_default())?["service"]
+                == true
+    );
+    runtime.block_on(async { drop(probe) });
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
     for file in ["key", "servers.json"] {

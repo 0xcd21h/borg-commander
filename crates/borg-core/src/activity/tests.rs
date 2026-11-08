@@ -11,6 +11,7 @@ mod map;
 mod processes;
 mod search;
 mod snapshots;
+mod tree;
 
 fn state() -> (AppState, Instant) {
     let now = Instant::now();

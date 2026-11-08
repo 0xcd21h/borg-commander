@@ -52,7 +52,7 @@
   "git.title": "Git",
   "git.description": "Revisa cambios, prepara archivos y trabaja con Git dentro de Borg.",
   "docker.title": "Docker",
-  "docker.description": "Explora contenedores, consulta su estado y abre sus archivos y shells.",
+  "docker.description": "Explora contenedores, consulta su estado, abre sus archivos y shells, y libera espacio en disco.",
   "remote-access.title": "Acceso remoto y MCP",
   "remote-access.description": "Conecta Claude y otros agentes, empareja computadoras y trabaja en sesiones remotas.",
   "activity.title": "Actividad y memoria",

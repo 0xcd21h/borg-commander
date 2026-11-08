@@ -88,7 +88,9 @@ impl App {
             Effect::MountRemote { side, machine, session, name } => {
                 return self.mount_remote(side, machine, session, name);
             }
-            Effect::ApprovalModeOff => self.approval_mode_off(),
+            Effect::ApprovalModeOff => self.approval_mode_off(None),
+            Effect::AnswerHost { machine, session, answer } => self.host_asks.answer(machine, session, answer),
+            Effect::StopHostApproveAll { machine, session } => self.host_asks.stop(machine, session),
             Effect::Copy(text) => self.copy(text),
             Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
             Effect::StartPairing => self.start_pairing(),

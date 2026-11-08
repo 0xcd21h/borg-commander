@@ -8,6 +8,8 @@ const LOCAL_PREFIX: &[u8] = b"./";
 const ASSIGN: u8 = b'=';
 const COMMAND_END: u8 = b';';
 pub(crate) const SUBMIT: &[u8] = b"\r";
+/// Characters no shell expands or splits on inside a word, beside letters and digits.
+const PLAIN_PUNCTUATION: &[u8] = b"-_.:/@+,";
 
 pub fn quote(raw: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(raw.len() + 2);
@@ -34,6 +36,13 @@ impl CommandLine {
 
     pub fn arg(mut self, raw: &[u8]) -> Self {
         self.words.push(quote(raw));
+        self
+    }
+
+    /// A word as it reads, quoted only when the shell would read it otherwise.
+    pub fn word(mut self, raw: &str) -> Self {
+        let plain = !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_alphanumeric() || PLAIN_PUNCTUATION.contains(&b));
+        self.words.push(if plain { raw.as_bytes().to_vec() } else { quote(raw.as_bytes()) });
         self
     }
 
@@ -90,6 +99,13 @@ mod tests {
     fn assigns_quoted_values_and_runs_one_command_after_another() {
         let line = CommandLine::program("export").assigned("A", b"it's").then(CommandLine::program("unset").flag("B"));
         assert_eq!(line.line(), b"export A='it'\\''s'; unset B");
+    }
+
+    #[test]
+    fn plain_words_stay_bare_and_others_are_quoted() {
+        let line = CommandLine::program("docker").word("registry.example:5000/shop-web:1.4").word("it's").word("");
+        assert_eq!(line.line(), b"docker registry.example:5000/shop-web:1.4 'it'\\''s' ''");
+        assert_eq!(CommandLine::program("rm").word("~/x").word("a b").word("$HOME").line(), b"rm '~/x' 'a b' '$HOME'");
     }
 
     #[test]

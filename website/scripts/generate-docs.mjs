@@ -19,7 +19,7 @@ const pages = [
   ['files', 'Files, jobs & viewers', 'Find, preview, copy, move, and manage files.', ['Find, jobs, and viewers']],
   ['search', 'Search & collections', 'Search recursively, save collections, and measure folder sizes.', ['Collections and recursive search']],
   ['git', 'Git', 'Inspect changes, stage files, and work with Git inside Borg.', ['Git plugin']],
-  ['docker', 'Docker', 'Browse containers, inspect status, and open container files and shells.', ['Docker plugin']],
+  ['docker', 'Docker', 'Browse containers, inspect status, open container files and shells, and free disk space.', ['Docker plugin']],
   ['remote-access', 'Remote access & MCP', 'Connect Borg sessions, browse remote files, and pair an assistant.', ['Claude and other agents (MCP)']],
   ['activity', 'Activity & memory', 'Inspect processes, resource use, and memory maps.', ['Activity and memory']],
   ['network', 'Network', 'See open ports, connections, and traffic by process and interface.', ['Network']],

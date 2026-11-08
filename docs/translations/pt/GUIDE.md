@@ -573,6 +573,7 @@ conjunta. Esc fecha a vista.
 | F | Explorar os ficheiros do contentor |
 | E, Alt-2 | Abrir uma shell no contentor, ou voltar à shell já aberta |
 | Alt-1 | Voltar a mostrar a visão geral do contentor, também a partir da shell |
+| D | Mostrar o espaço em disco, ou voltar aos contentores |
 | `/` | Filtrar por nome, serviço, imagem ou projeto |
 | Tab | Alternar entre a lista e os detalhes |
 | Alt-W | Maximizar o painel com o foco |
@@ -616,6 +617,49 @@ confirmação primeiro se houver shells abertas).
 
 O plugin usa a CLI `docker` e o contexto atual, pelo que funciona igualmente com Docker Desktop,
 OrbStack, Colima e motores remotos. Pode desativá-lo em Opções → Plugins.
+
+### Espaço em disco e limpeza
+
+**D** na vista Docker, ou **F9 → Docker → Espaço em disco**, mostra o que o Docker guarda em disco
+no lugar da lista de contentores, com uma linha por tipo: **Cache de compilação**,
+**Imagens sem nome**, **Imagens não usadas**, **Imagens em uso**, **Contentores parados**,
+**Volumes anónimos não usados**, **Volumes com nome não usados**, **Volumes em uso** e
+**Redes não usadas**. Cada linha tem uma contagem, um tamanho e o espaço que a remoção liberta, e
+a linha do topo soma tudo o que pode recuperar. O Borg mede com `docker system df --verbose` em
+segundo plano, o que pode demorar num motor muito ocupado. **R** volta a medir, e o Borg faz o
+mesmo quando o comando seguinte no prompt termina depois de **F8** ter escrito um.
+
+As imagens sem nome são compilações a que já nada dá nome, normalmente porque a etiqueta passou
+para uma compilação mais recente. As imagens não usadas têm nome, e nenhum contentor foi criado a
+partir delas. As imagens e os volumes que os contentores usam, em execução ou parados, ficam até
+esses contentores serem removidos, pelo que as suas linhas não libertam nada. Uma imagem só
+liberta as camadas que nenhuma outra imagem partilha, e por isso o tamanho recuperável pode ficar
+muito abaixo do seu tamanho.
+
+→ ou Enter expande um tipo nos seus itens, do maior para o menor, e ← volta a recolhê-lo. O outro
+painel mostra o item selecionado: as etiquetas de uma imagem, o ID, o tamanho partilhado, a data
+de criação e o número de contentores; o tipo de um registo da cache de compilação, se está
+partilhado ou em uso e quando uma compilação o usou pela última vez; a imagem e o estado de um
+contentor; o tamanho de um volume e os contentores que o montam. Os tamanhos que o Docker não
+conseguiu medir aparecem como `?`, e `/` filtra todos os tipos de uma vez.
+
+**F8** escreve o comando de limpeza da linha selecionada no prompt da shell do host e mostra a
+consola. Nada é executado até premir Enter, por isso pode ler o comando, alterá-lo ou limpá-lo
+antes com Ctrl-U. Num tipo, F8 escreve o respetivo prune, como `docker image prune -a` para as
+imagens não usadas ou `docker volume prune` para os volumes anónimos não usados, e o Docker pede
+confirmação antes de eliminar o que quer que seja. Num item, F8 escreve `docker rmi`, `docker rm`
+ou `docker volume rm` com esse item, ou com todas as imagens, contentores ou volumes marcados.
+Space ou Insert marca um item, e `*` inverte as marcas do tipo selecionado. Uma imagem sai por
+todas as etiquetas, já que o Docker a elimina com a última, ou pelo ID quando não tem nenhuma. Os
+registos da cache de compilação saem todos juntos com `docker builder prune`. O Borg nunca
+acrescenta `-f` nem `--force`.
+
+Os volumes guardam os dados que os contentores gravaram, como os ficheiros de uma base de dados, e
+um volume removido não pode ser recuperado. O outro painel repete este aviso junto a cada comando
+de volumes. Quando a CLI `docker` tem mais de um contexto, os comandos indicam aquele com que o
+Borg mediu, como em `docker --context staging image prune`, para chegarem ao mesmo motor seja qual
+for o contexto que a shell escolheria. Vão sempre para a shell do host, também enquanto um painel
+mostra os ficheiros de um contentor, porque a vista Docker mantém a linha de comando no host.
 
 ## Exclusões do Time Machine
 
@@ -699,6 +743,18 @@ Para um computador emparelhado, `approval_mode` pede-lhe confirmação uma vez a
 Aprovar tudo nessa sessão. Enquanto estiver ativo, fica visível um distintivo; clique nele ou prima
 Ctrl+Alt+A para o desativar de imediato. Desativa-se também quando essa ligação emparelhada fecha.
 As aprovações de emparelhamento são independentes.
+
+Um pedido chega também ao seu próprio computador quando um painel remoto aí mostra a sessão em
+que o pedido espera (consulte [Painéis remotos](#remote-panels)). O seu borg mostra-o no mesmo
+diálogo, com o nome do servidor no título, por cima do que estiver a fazer, e envia a sua resposta
+de volta pela ligação cifrada. O servidor mantém também o seu próprio diálogo aberto. Conta a
+primeira resposta, venha de onde vier, e os outros diálogos fecham com um aviso que diz onde foi
+respondido. Um pedido que o agente retire fecha em todo o lado. Quando outro computador controla a
+sessão através de um espelho, o seu diálogo mostra o pedido sem Sim e Não, e Esc fecha-o apenas no
+seu ecrã. Enquanto essa sessão aprovar tudo, o seu borg mostra um distintivo com o nome do
+servidor; clique nele ou prima Ctrl+Alt+A para desativar Aprovar tudo lá de imediato. Só as suas
+teclas e cliques respondem a estes diálogos: as ferramentas do agente, incluindo `type`, não
+conseguem premir nada neles.
 
 Os comandos são escritos numa shell que pode acompanhar e ficam fora do respetivo histórico. Os
 comandos para esta máquina vão para a consola do próprio borg, que é mostrada enquanto correm para
@@ -891,6 +947,9 @@ Alt-H para obter uma nova.
 As pastas remotas carregam por partes, com um indicador de atividade e a contagem das entradas
 recebidas até ao momento; mudar para outra pasta cancela o pedido.
 
+Enquanto um painel remoto mostra uma sessão, os pedidos do agente que aí esperam aparecem também
+no seu ecrã, e pode responder-lhes aqui (consulte [O que o agente pode fazer](#what-the-agent-can-do)).
+
 ### Hosts remotos
 
 No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos ou escolha
@@ -965,6 +1024,10 @@ assume sempre o controlo retirando-o a outro visualizador. Depois de ter o contr
 tecla acorda um ecrã remoto em repouso, e as teclas e a entrada de rato seguintes chegam-lhe. Um
 visualizador que fique para trás salta os fotogramas de animação antigos e passa diretamente
 para o ecrã atual.
+
+Um pedido do agente aparece no espelho tal como o servidor o mostra, e responde-lhe aí quando
+tiver o controlo. Se abriu o espelho a partir de um painel remoto e o pedido ainda esperar quando
+sair do espelho, o borg desse painel volta a mostrá-lo.
 
 ### Executar um relay
 
@@ -1481,6 +1544,7 @@ total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amo
 | C / M / G / N / P | Ordenar por CPU / RAM / crescimento / nome / PID; prima de novo para inverter |
 | I / O | Ordenar por débito de leitura / escrita |
 | T | Mostrar ou ocultar a árvore de processos |
+| Left / Right | Na árvore, recolher ou expandir o ramo do processo selecionado |
 | K | Enviar um sinal ou alterar a prioridade |
 | E | Procurar entropia alta em todos os processos |
 | Alt-N | Mostrar o tráfego do processo selecionado no ecrã de rede |
@@ -1495,6 +1559,17 @@ memória residente nos últimos 60 segundos. Os totais de memória usada, em swa
 partilhada aparecem depois de o mapa de memória ser lido, se o sistema os indicar. **Enter** no
 painel de memória abre o mapa de memória. O mapa só é lido quando o pede; prima R para o voltar a
 ler depois de o processo alterar os seus mapeamentos.
+
+Por baixo do gráfico, **Árvore de processos** lista os processos de que o selecionado descende, o
+próprio processo e tudo o que ele iniciou, cada um indentado por baixo daquele que o iniciou e com a
+sua memória residente. Quando não cabem todos, a última linha indica quantos ficaram de fora.
+
+Na árvore que **T** mostra, cada processo aparece por baixo daquele que o iniciou, e **▾** assinala
+um processo com outros por baixo. **Left** recolhe o ramo do processo selecionado; num processo sem
+nada por baixo, Left recolhe o ramo a que ele pertence e seleciona o processo que o iniciou.
+**Right** expande um ramo recolhido e, num ramo aberto, passa para o primeiro processo desse ramo.
+Um processo recolhido mostra **▸** e quantos processos esconde. Um ramo fica recolhido até o seu
+processo terminar. Enquanto um filtro está aplicado, a lista é plana.
 
 ### Sinais e prioridade
 

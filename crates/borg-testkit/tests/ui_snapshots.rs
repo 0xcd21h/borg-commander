@@ -3173,6 +3173,43 @@ fn activity_narrow_layout_mouse_sort_and_selection() -> Result<()> {
 }
 
 #[test]
+fn activity_tree_folds_branches_and_the_overview_shows_the_process_tree() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
+    const SAMPLE_WITH_WORKERS: u64 = 1_000;
+    let mut stage = activity_stage()?;
+    let mut processes = stage.state.activity.sample.processes.clone();
+    let worker = |pid: u32, name: &str, parent: u32, ram: u64| ProcessInfo {
+        key: ProcessKey { pid, start: 200 },
+        name: name.into(),
+        parent: Some(parent),
+        resident: Some(ram),
+        cpu: Some(10120),
+        ..processes[0].clone()
+    };
+    processes
+        .extend([worker(1749116, "build-worker", 410, 480_000_000), worker(1749117, "linker", 1749116, 96_000_000)]);
+    let id = stage.state.activity.pending.as_ref().map_or(SAMPLE_WITH_WORKERS, |pending| pending.0);
+    stage.state.activity.pending = Some((id, ActivityRequest::Sample));
+    let sample = SystemSample { processes, ..stage.state.activity.sample.clone() };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Sample(sample)) });
+    stage.send(key(KeyCode::Char('t')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1749116 101.2")?;
+    ensure_text(&buffer, "▾ compiler")?;
+    ensure_text(&buffer, "Process tree")?;
+    check("activity_tree", &stage, buffer)?;
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▸ compiler · 3 processes")?;
+    check("activity_tree_folded", &stage, buffer)?;
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.activity.process().unwrap().name, "linker");
+    ensure_text(&buffer, "1749117 linker")?;
+    check("activity_tree_family", &stage, buffer)
+}
+
+#[test]
 fn borg_brand_is_visible_in_panels_console_viewer_and_overlays() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     let verify = |stage: &Stage, buffer: Buffer| {
@@ -3764,6 +3801,130 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     Ok(())
 }
 
+/// What the made-up shop engine keeps on disk: two builds of the web image, the worker's old
+/// image, a dangling build, a digest pull, containers that stopped, and volumes of every kind.
+fn disk_use() -> borg_docker::DiskUse {
+    use borg_docker::{CacheRecord, DiskUse, Image, Layer, State, Volume};
+    const MB: u64 = 1_000_000;
+    let time = |stamp: &str| stamp.parse::<jiff::Timestamp>().ok();
+    let image = |id: &str, tags: &[&str], repository: Option<&str>, size: u64, unique: u64, containers: u32| Image {
+        id: format!("sha256:{id}{}", "0".repeat(52)),
+        tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+        repository: repository.map(str::to_owned),
+        size: Some(size),
+        shared: Some(size - unique),
+        unique: Some(unique),
+        created: time("2026-01-08T16:20:00Z"),
+        containers: Some(containers),
+    };
+    let layer = |name: &str, state: State, status: &str, size: u64| Layer {
+        id: format!("{}{}", &name[..4], "0".repeat(60)),
+        name: name.into(),
+        image: "shop-web:1.4".into(),
+        state,
+        status: status.into(),
+        size: Some(size),
+    };
+    let volume = |name: &str, size: u64, users: &[&str], anonymous: bool| Volume {
+        name: name.into(),
+        size: Some(size),
+        links: Some(users.len() as u32),
+        anonymous,
+        users: users.iter().map(|user| (*user).to_owned()).collect(),
+    };
+    let record = |id: &str, kind: &str, size: u64, shared: bool, in_use: bool, description: &str| CacheRecord {
+        id: format!("{id}{}", "x".repeat(20)),
+        kind: kind.into(),
+        size: Some(size),
+        shared,
+        in_use,
+        last_used: time("2026-01-14T18:05:00Z"),
+        description: description.into(),
+    };
+    DiskUse {
+        images: vec![
+            image("a1b2c3d4e5f6", &["shop-web:1.4", "shop-web:latest"], Some("shop-web"), 248 * MB, 31 * MB, 1),
+            image("b2c3d4e5f6a7", &["postgres:16"], Some("postgres"), 438 * MB, 438 * MB, 1),
+            image("c3d4e5f6a7b8", &["shop-worker:1.3"], Some("shop-worker"), 236 * MB, 160 * MB, 0),
+            image("d4e5f6a7b8c9", &[], None, 247 * MB, 29 * MB, 0),
+            image("e5f6a7b8c9d0", &[], Some("mirror.example/tools/jq"), 3 * MB, 3 * MB, 0),
+        ],
+        containers: vec![
+            layer("shop-web-1", State::Running, "Up 3 hours", 2 * MB),
+            layer("shop-db-1", State::Running, "Up 3 hours", 63),
+            layer("shop-worker-1", State::Exited, "Exited (1) 12 minutes ago", 48 * MB),
+            layer("shop-migrate-1", State::Created, "Created", 0),
+        ],
+        volumes: vec![
+            volume("shop_data", 312 * MB, &["shop-db-1"], false),
+            volume("blog_uploads", 860 * MB, &[], false),
+            volume("3b9d5e7f1a2c4b6d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d", 512 * MB, &[], true),
+        ],
+        cache: vec![
+            record("r1", "regular", 412 * MB, false, false, "[build 3/5] RUN npm ci"),
+            record("r2", "regular", 75 * MB, true, false, "[build 1/5] FROM node:22"),
+            record("r3", "exec.cachemount", 296 * MB, false, false, "--mount=type=cache,target=/root/.npm"),
+            record("r4", "source.local", MB, false, true, "local source for context"),
+        ],
+        networks: vec!["blog_default".into()],
+    }
+}
+
+/// Docker's disk use beside the containers: a row per kind with its reclaimable total, a kind
+/// unfolded into its items with two marked, and the console with the command F8 typed.
+#[test]
+fn docker_disk_use_lists_kinds_and_types_cleanup_at_the_prompt() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect, View};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let listed = DockerData::Listed { context: Some("desktop-linux".into()), containers: Vec::new() };
+    stage.send(Msg::Docker { id, result: Ok(listed) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Measuring disk use…")?;
+    let measured = DockerData::DiskUse {
+        usage: Box::new(disk_use()),
+        context: Some("desktop-linux".into()),
+        contexts: Some(vec!["default".into(), "desktop-linux".into()]),
+    };
+    stage.send(Msg::Docker { id, result: Ok(measured) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Disk use · desktop-linux")?;
+    ensure_text(&buffer, "docker --context desktop-linux builder prune")?;
+    check("docker_disk", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Char(' '))).send(key(KeyCode::Char(' '))).send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 marked")?;
+    check("docker_disk_expanded", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::F(8)), stage.started);
+    let typed: Vec<u8> = effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Write(bytes) => Some(bytes.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(typed, b"docker --context desktop-linux rmi shop-worker:1.3 e5f6a7b8c9d0", "no Enter");
+    assert_eq!(stage.state.view, View::Shell);
+    stage.shell(&typed);
+    let buffer = stage.render(stage.started)?;
+    check("docker_disk_typed", &stage, buffer)
+}
+
 /// The network screen over a made-up machine after half a minute of samples: the ports and
 /// who can reach them, the processes, the connections with their host names and traffic, and
 /// the interfaces.
@@ -4171,13 +4332,10 @@ fn remote_access_shows_the_pairing_link_and_takes_a_relay() -> Result<()> {
 
 #[test]
 fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
-    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    use borg_core::AgentEvent;
     let mut stage = stage(SIZE, Motion::STILL)?;
     let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
-    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
-    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
-    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
@@ -4186,7 +4344,7 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
 
 #[test]
 fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
-    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    use borg_core::AgentEvent;
     let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;
     stage.state.agent.connect = borg_core::ConnectInfo {
         name: "borg-web1".into(),
@@ -4198,15 +4356,89 @@ fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
     let link = format!("borg://relay.example.com/{}#{}", "ab".repeat(32), "cd".repeat(16));
     stage.send(Msg::Agent(AgentEvent::Pairing(Ok(link))));
     let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
-    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
-    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
-    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Pair this computer with borg?")?;
     ensure_text(&buffer, "Tab picks · Enter copies")?;
     check("pairing_over_remote_access", &stage, buffer)
+}
+
+#[test]
+fn a_narrow_pairing_dialog_keeps_its_words_and_code_whole() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 46, rows: 22 }, Motion::STILL)?;
+    let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "code on that computer.")?;
+    check("pairing_code_narrow", &stage, buffer)
+}
+
+#[test]
+fn a_narrow_approve_all_dialog_breaks_between_words() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 46, rows: 20 }, Motion::STILL)?;
+    let ask = borg_core::approve_all_ask("dev@harbor [873dd93b…]", "Default");
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "individual")?;
+    check("approve_all_narrow", &stage, buffer)
+}
+
+/// What the borg on `web1` says waits in its Default session: a command an agent on another
+/// computer asks to run.
+fn host_feed(view_only: Option<&str>, approve_all: &[&str]) -> borg_core::AskFeed {
+    use borg_core::{Ask, AskKind, DiffLine, Waiting};
+    let command = "systemctl reload nginx";
+    let ask = Ask {
+        kind: AskKind::Run,
+        summary: command.into(),
+        place: "~/srv/menu".into(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body: vec![DiffLine::code(command)],
+    };
+    borg_core::AskFeed {
+        run: "a1".into(),
+        version: 1,
+        waiting: if approve_all.is_empty() { vec![Waiting { id: 3, ask }] } else { Vec::new() },
+        ended: Vec::new(),
+        approve_all: approve_all.iter().map(|origin| (*origin).to_owned()).collect(),
+        view_only: view_only.map(str::to_owned),
+    }
+}
+
+fn host_asks(feed: borg_core::AskFeed) -> Msg {
+    Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: borg_core::HostEvent::Feed(feed) }
+}
+
+#[test]
+fn a_request_waiting_on_a_watched_host_shows_over_the_local_panels() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(None, &[])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote on web1")?;
+    ensure_text(&buffer, "systemctl reload nginx")?;
+    check("agent_host_run_approval", &stage, buffer)
+}
+
+#[test]
+fn a_request_on_a_host_another_computer_controls_shows_without_answers() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(Some("ops@desk [5f0e11aa…]"), &[])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "View only: ops@desk controls this session")?;
+    check("agent_host_view_only", &stage, buffer)
+}
+
+#[test]
+fn approve_all_on_a_watched_host_shows_a_badge_that_stops_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(None, &["dev@harbor [873dd93b…]"])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Approve all on web1")?;
+    check("agent_host_approve_all_badge", &stage, buffer)
 }
 
 #[test]
@@ -4225,11 +4457,31 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
         keep_free_mib: None,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
-    let ask = borg_core::capture_ask(scope, None, &request, String::new());
+    let ask = borg_core::capture_ask(scope, None, &request, None);
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to capture traffic")?;
     check("agent_capture_approval", &stage, buffer)
+}
+
+#[test]
+fn a_file_another_computer_asks_to_create_names_that_computer_after_the_path() -> Result<()> {
+    use borg_core::{AgentEvent, Ask, AskKind, Change, DiffLine};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let site = "server {\n    listen 80;\n    server_name menu.example.com;\n    root /srv/menu;\n}";
+    let body =
+        (1..).zip(site.lines()).map(|(number, line)| DiffLine::diff(Change::Added, Some(number), line)).collect();
+    let ask = Ask {
+        kind: AskKind::Create,
+        summary: "/etc/nginx/sites-available/menu".into(),
+        place: String::new(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body,
+    };
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/etc/nginx/sites-available/menu · asked from dev@harbor [873dd93b…]")?;
+    check("agent_remote_create_approval", &stage, buffer)
 }
 
 #[test]
@@ -4239,7 +4491,7 @@ fn a_scan_asks_with_the_process_the_checks_and_the_agents_own_rules() -> Result<
     let program = std::path::Path::new("/usr/bin/sample");
     let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
     let rules = "rule beacon {\n  strings: $host = \"c2.example.org\"\n  condition: $host\n}";
-    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), "asked from laptop".into());
+    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), Some("laptop".into()));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to scan process memory")?;

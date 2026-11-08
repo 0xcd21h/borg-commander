@@ -523,6 +523,7 @@ project's folder, its containers, and their combined use. Esc closes the view.
 | F | Browse the container's files |
 | E, Alt-2 | Open a shell in the container, or go back to its open shell |
 | Alt-1 | Show the container's overview again, also from inside its shell |
+| D | Show disk use, or the containers again |
 | `/` | Filter by name, service, image or project |
 | Tab | Switch between the list and the details |
 | Alt-W | Maximize the focused pane |
@@ -564,6 +565,46 @@ while shells are open).
 
 The plugin uses the `docker` CLI and its current context, so it works with Docker Desktop,
 OrbStack, Colima, and remote engines alike. You can turn it off in Options → Plugins.
+
+### Disk use and cleanup
+
+**D** in the Docker view, or **F9 → Docker → Disk use**, shows what Docker keeps on disk in place
+of the container list, one row per kind: **Build cache**, **Dangling images**, **Unused images**,
+**Images in use**, **Stopped containers**, **Unused anonymous volumes**, **Unused named volumes**,
+**Volumes in use**, and **Unused networks**. Each row has a count, a size, and what removing it
+frees, and the top line adds up everything you can reclaim. Borg measures with
+`docker system df --verbose` in the background, which can take a while on a busy engine. **R**
+measures again, and Borg does the same when the next command at the prompt ends after **F8**
+typed one.
+
+Dangling images are builds nothing names any more, usually because their tag moved to a newer
+build. Unused images have a name, and no container was made from them. Images and volumes that
+containers use, running or stopped, stay until those containers are removed, so their rows free
+nothing. An image frees only the layers no other image shares, which is why its reclaimable size
+can be far below its size.
+
+→ or Enter unfolds a kind into its items, biggest first, and ← folds it again. The other panel
+shows the selected item: an image's tags, ID, shared size, creation time, and container count; a
+build cache record's type, whether it is shared or in use, and when a build last used it; a
+container's image and status; a volume's size and the containers that mount it. Sizes Docker
+could not measure show as `?`, and `/` filters every kind at once.
+
+**F8** types the cleanup command for the selected row at the host shell's prompt and shows the
+console. Nothing runs until you press Enter, so you can read the command, change it, or clear it
+with Ctrl-U first. On a kind, F8 types its prune, such as `docker image prune -a` for unused
+images or `docker volume prune` for unused anonymous volumes, and Docker asks for confirmation
+before it deletes anything. On an item, F8 types `docker rmi`, `docker rm`, or `docker volume rm`
+with that item, or with every marked image, container, or volume. Space or Insert marks an item,
+and `*` inverts the marks of the selected kind. An image goes by all its tags, since Docker
+deletes it with its last tag, or by its ID when it has none. Build cache records go together with
+`docker builder prune`. Borg never adds `-f` or `--force`.
+
+Volumes hold the data containers saved, such as a database's files, and a removed volume cannot
+be brought back. The other panel repeats this beside every volume command. When the `docker` CLI
+has more than one context, the commands name the one Borg measured, as in
+`docker --context staging image prune`, so they reach the same engine whatever context the shell
+would pick. They always go to the host's shell, also while a panel shows a container's files,
+because the Docker view keeps the command line on the host.
 
 ## Time Machine exclusions
 
@@ -642,6 +683,17 @@ the agent stops waiting first, the dialog closes and a notice says so.
 For a paired computer, `approval_mode` asks you once before turning on Approve all for that
 session. While it is on, a badge stays visible; click it or press Ctrl+Alt+A to turn it off at
 once. It also turns off when that paired connection closes. Pairing approvals are separate.
+
+A request also reaches your own computer when a remote panel there shows the session it waits in
+(see [Remote panels](#remote-panels)). Your borg shows it in the same dialog, titled with the
+server's name, over whatever you are doing, and sends your answer back over the encrypted
+connection. The server keeps its own dialog open too. The first answer counts, wherever it comes
+from, and the other dialogs close with a notice that says where it was answered. A request the
+agent withdraws closes everywhere. When another computer controls the session through a mirror,
+your dialog shows the request without Yes and No, and Esc closes it on your screen only. While
+that session approves everything, your borg shows a badge with the server's name; click it or
+press Ctrl+Alt+A to turn Approve all off there at once. Only your keys and clicks answer these
+dialogs: the agent's tools, `type` included, cannot press anything in them.
 
 Commands are typed into a shell you can watch, and kept out of its history. Commands for this
 machine go into borg's own console, which is shown while they run so you can answer a prompt such
@@ -818,6 +870,9 @@ Alt-H to get a new one.
 Remote folders load in chunks, with a spinner and a count of the entries received so far; moving
 to another folder cancels the request.
 
+While a remote panel shows a session, the agent requests that wait there show on your screen too,
+and you can answer them here (see [What the agent can do](#what-the-agent-can-do)).
+
 ### Remote hosts
 
 In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or choose
@@ -884,6 +939,10 @@ detach the other terminal, or start with `borg mirror MACHINE:SESSION --take`; `
 takes control from another viewer. Once you have control, the first key wakes a sleeping remote
 screen, and later keys and mouse input reach it. A viewer that falls behind skips old animation
 frames and jumps straight to the current screen.
+
+An agent's request shows in the mirror as the server shows it, and you answer it there once you
+have control. If you opened the mirror from a remote panel and the request still waits when you
+leave the mirror, the panel's borg shows it again.
 
 ### Running a relay
 
@@ -1368,6 +1427,7 @@ second sample on.
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; press again to reverse |
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
+| Left / Right | In the tree, fold the selected process's branch or unfold it |
 | K | Send a signal or change the priority |
 | E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
@@ -1381,6 +1441,17 @@ virtual address space, and a chart of resident memory over the last 60 seconds. 
 swapped, private, and shared totals appear once the memory map has been read, if the system
 reports them. **Enter** in the memory pane opens the memory map. The memory map is read when you
 ask for it; press R to read it again after the process changes its mappings.
+
+Below the chart, **Process tree** lists the processes the selected one descends from, the process
+itself, and everything it started, each indented under the one that started it and shown with its
+resident memory. When they do not all fit, the last line says how many are left out.
+
+In the tree that **T** shows, each process is listed under the one that started it, and **▾** marks
+a process with others under it. **Left** folds the selected process's branch; on a process with
+nothing under it, Left folds the branch it belongs to and selects the process that started it.
+**Right** unfolds a folded branch, and on an open one steps to the first process in it. A folded
+process shows **▸** and how many processes it hides. A branch stays folded until its process ends.
+While a filter applies, the list is flat.
 
 ### Signals and priority
 

@@ -140,15 +140,6 @@ impl App {
     }
 }
 
-/// Where an ask happens, with the computer that asked when it came through borg cloud.
-pub(super) fn from_origin(place: String, origin: Option<&str>) -> String {
-    match origin {
-        None => place,
-        Some(origin) if place.is_empty() => tr!(agent_asked_from).replace("{origin}", origin),
-        Some(origin) => tr!(agent_from).replace("{place}", &place).replace("{origin}", origin),
-    }
-}
-
 /// A drawn frame's text row by row, a wide character once, trailing spaces left out.
 pub(super) fn frame_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
     let area = buffer.area;

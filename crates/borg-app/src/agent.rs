@@ -74,6 +74,10 @@ pub struct Call {
     /// The user already approved this call, as a read from another computer.
     #[serde(default)]
     pub approved: bool,
+    /// The call came on a paired computer's viewer connection, which borg opens for a panel
+    /// that shows this session, and never on an agent's.
+    #[serde(default)]
+    pub viewer: bool,
 }
 
 /// The prefix of tools and arguments only the session itself uses.
@@ -81,12 +85,12 @@ const INTERNAL: char = '_';
 
 impl Call {
     pub fn new(tool: &str, args: Value) -> Self {
-        Self { tool: tool.to_owned(), args, origin: None, approved: false }
+        Self { tool: tool.to_owned(), args, origin: None, approved: false, viewer: false }
     }
 
     /// A call the session makes for this one, with its origin and approval.
     pub fn follow(&self, tool: &str, args: Value) -> Self {
-        Self { tool: tool.to_owned(), args, origin: self.origin.clone(), approved: self.approved }
+        Self { tool: tool.to_owned(), args, origin: self.origin.clone(), approved: self.approved, viewer: self.viewer }
     }
 
     /// A call as it may come from outside: internal tools are refused, and internal arguments
@@ -94,6 +98,7 @@ impl Call {
     pub fn external(mut self) -> Result<Self, Reply> {
         self.origin = None;
         self.approved = false;
+        self.viewer = false;
         if self.tool.starts_with(INTERNAL) {
             return Err(Reply::error(format!("unknown tool {}", self.tool)));
         }

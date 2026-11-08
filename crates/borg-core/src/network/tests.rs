@@ -1064,7 +1064,7 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
         tls_keys: TlsKeys::Off,
         keep_free_mib: None,
     };
-    let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, String::new());
+    let ask = capture_ask(CaptureScope::Process { pid: BROWSER }, Some("browser"), &request, None);
     assert_eq!((ask.kind, ask.summary.as_str()), (AskKind::Capture, "capture on en0, 10 s"));
     let lines: Vec<&str> = ask.body.iter().map(|line| line.text.as_str()).collect();
     assert_eq!(
@@ -1078,9 +1078,9 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
         ]
     );
     let port = CaptureScope::Port { transport: Transport::Udp, port: 53 };
-    let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::Whole, ..request.clone() }, String::new());
+    let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::Whole, ..request.clone() }, None);
     assert_eq!(ask.body[0].text, "Traffic: UDP port 53 and its connections");
     assert_eq!(ask.body[3].text, "Keep: Whole packets");
-    let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::ConnectionStart, ..request }, String::new());
+    let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::ConnectionStart, ..request }, None);
     assert_eq!(ask.body[3].text, "Keep: First 1 MiB of each connection");
 }
