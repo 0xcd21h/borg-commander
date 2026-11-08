@@ -57,6 +57,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
         Action::DockerShell => crate::docker::open_shell(state, now),
+        Action::DockerDisk => crate::docker::toggle_disk(state, now),
         Action::AgentLog => crate::agent::open_log(state),
         Action::ConnectClaude => crate::agent::open_connect(state),
         Action::DockerFilter => {

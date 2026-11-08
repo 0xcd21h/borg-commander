@@ -91,7 +91,8 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
         active.push(Task::Alerts);
     }
     let docker = &state.docker;
-    if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty()) {
+    let measuring = docker.disk.open && docker.disk.loading.is_some();
+    if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty() || measuring) {
         active.push(Task::Docker);
     }
     if state.aside.is_some_and(|aside| state.peeked.as_ref().is_none_or(|peeked| peeked.aside != aside)) {

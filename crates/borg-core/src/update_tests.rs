@@ -3152,6 +3152,30 @@ fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
 }
 
 #[test]
+fn disk_cleanup_goes_to_the_host_shell_while_the_command_line_follows_a_container() {
+    use crate::Console;
+    let now = Instant::now();
+    let mut state = browsing_container(now);
+    assert_eq!(state.console, Console::Container("c1".into()));
+    let effects = crate::actions::perform(&mut state, Action::DockerDisk, now);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: crate::DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .expect("opening disk use measures it");
+    let usage = borg_docker::DiskUse { networks: vec!["shop_backend".into()], ..Default::default() };
+    let measured = crate::DockerData::DiskUse { usage: Box::new(usage), context: None, contexts: None };
+    let effects = update(&mut state, Msg::Docker { id, result: Ok(measured) }, now);
+    assert!(effects.contains(&Effect::UseConsole(Console::Host)), "the Docker view keeps the host's: {effects:?}");
+    press(&mut state, now, key(KeyCode::End));
+    let effects = press(&mut state, now, key(KeyCode::F(8)));
+    assert_eq!(writes(&effects), "docker network prune");
+    assert_eq!((&state.console, state.view), (&Console::Host, View::Shell));
+}
+
+#[test]
 fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
     use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());

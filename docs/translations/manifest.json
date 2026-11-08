@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "22cd9f3824f521c8b1b864517e27e11efb20dbc122888b472438decc12fab878",
+      "source": "d23c822d52fa1a2a7b7444ebfeaeddeaa88c8548783bee4f842f90d03f2d02ce",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "2f20386f286eeb778f0d07b1d03135dcb0a3dac998fb0080ed6fef90235ba87f",
+        "inline code": "189abb2b825881e18164df6b3f8cfaeb4f4f178fee4a79f490b2bb6d54a58aa8",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
+        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
       },
       "headings": [
         {
@@ -88,6 +88,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -268,12 +272,12 @@
       ]
     },
     "pt": {
-      "source": "22cd9f3824f521c8b1b864517e27e11efb20dbc122888b472438decc12fab878",
+      "source": "d23c822d52fa1a2a7b7444ebfeaeddeaa88c8548783bee4f842f90d03f2d02ce",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "2f20386f286eeb778f0d07b1d03135dcb0a3dac998fb0080ed6fef90235ba87f",
+        "inline code": "189abb2b825881e18164df6b3f8cfaeb4f4f178fee4a79f490b2bb6d54a58aa8",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
+        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
       },
       "headings": [
         {
@@ -355,6 +359,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -535,12 +543,12 @@
       ]
     },
     "es": {
-      "source": "22cd9f3824f521c8b1b864517e27e11efb20dbc122888b472438decc12fab878",
+      "source": "d23c822d52fa1a2a7b7444ebfeaeddeaa88c8548783bee4f842f90d03f2d02ce",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "2f20386f286eeb778f0d07b1d03135dcb0a3dac998fb0080ed6fef90235ba87f",
+        "inline code": "189abb2b825881e18164df6b3f8cfaeb4f4f178fee4a79f490b2bb6d54a58aa8",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
+        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
       },
       "headings": [
         {
@@ -622,6 +630,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -802,12 +814,12 @@
       ]
     },
     "ru": {
-      "source": "22cd9f3824f521c8b1b864517e27e11efb20dbc122888b472438decc12fab878",
+      "source": "d23c822d52fa1a2a7b7444ebfeaeddeaa88c8548783bee4f842f90d03f2d02ce",
       "protected": {
         "code blocks": "d1e8f7d42943ba54506e0043ae3e948df414e340c48d71290ed2f5ef2a45a7cf",
-        "inline code": "2f20386f286eeb778f0d07b1d03135dcb0a3dac998fb0080ed6fef90235ba87f",
+        "inline code": "189abb2b825881e18164df6b3f8cfaeb4f4f178fee4a79f490b2bb6d54a58aa8",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9a80018cd0c5ba0e6e24425b76cf2cadecc78e8b23e4fda121333bcb7f25952b"
+        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
       },
       "headings": [
         {
@@ -889,6 +901,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,

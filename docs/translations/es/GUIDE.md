@@ -570,6 +570,7 @@ la vista.
 | F | Explorar los archivos del contenedor |
 | E, Alt-2 | Abrir un shell en el contenedor, o volver a su shell abierto |
 | Alt-1 | Volver a mostrar el resumen del contenedor, también desde su shell |
+| D | Mostrar el uso de disco, o volver a los contenedores |
 | `/` | Filtrar por nombre, servicio, imagen o proyecto |
 | Tab | Alternar entre la lista y los detalles |
 | Alt-W | Maximizar el panel con el foco |
@@ -614,6 +615,50 @@ sale (Borg pregunta antes si hay shells abiertos).
 
 El complemento usa la CLI `docker` y su contexto actual, así que funciona igual con Docker Desktop,
 OrbStack, Colima y motores remotos. Puedes desactivarlo en Opciones → Complementos.
+
+### Uso de disco y limpieza
+
+**D** en la vista de Docker, o **F9 → Docker → Uso de disco**, muestra lo que Docker guarda en
+disco en lugar de la lista de contenedores, con una fila por tipo: **Caché de compilación**,
+**Imágenes sin nombre**, **Imágenes sin usar**, **Imágenes en uso**, **Contenedores detenidos**,
+**Volúmenes anónimos sin usar**, **Volúmenes con nombre sin usar**, **Volúmenes en uso** y
+**Redes sin usar**. Cada fila tiene un recuento, un tamaño y lo que liberaría eliminarlo, y la
+línea superior suma todo lo que puedes recuperar. Borg mide con `docker system df --verbose` en
+segundo plano, lo que puede tardar en un motor muy ocupado. **R** vuelve a medir, y Borg hace lo
+mismo cuando termina el siguiente comando del prompt después de que **F8** haya escrito uno.
+
+Las imágenes sin nombre son compilaciones a las que ya nada nombra, normalmente porque su etiqueta
+pasó a una compilación más reciente. Las imágenes sin usar tienen nombre, y ningún contenedor se
+creó a partir de ellas. Las imágenes y los volúmenes que usan los contenedores, en ejecución o
+detenidos, se quedan hasta que se eliminan esos contenedores, así que sus filas no liberan nada.
+Una imagen solo libera las capas que no comparte ninguna otra imagen, por eso su tamaño
+recuperable puede quedar muy por debajo de su tamaño.
+
+→ o Enter despliega un tipo en sus elementos, de mayor a menor, y ← lo vuelve a plegar. El otro
+panel muestra el elemento seleccionado: las etiquetas de una imagen, su ID, su tamaño compartido,
+su fecha de creación y su número de contenedores; el tipo de un registro de la caché de
+compilación, si está compartido o en uso y cuándo lo usó una compilación por última vez; la imagen
+y el estado de un contenedor; el tamaño de un volumen y los contenedores que lo montan. Los
+tamaños que Docker no pudo medir aparecen como `?`, y `/` filtra todos los tipos a la vez.
+
+**F8** escribe el comando de limpieza de la fila seleccionada en el prompt del shell del host y
+muestra la consola. No se ejecuta nada hasta que pulses Enter, así que puedes leer el comando,
+cambiarlo o borrarlo antes con Ctrl-U. En un tipo, F8 escribe su prune, como
+`docker image prune -a` para las imágenes sin usar o `docker volume prune` para los volúmenes
+anónimos sin usar, y Docker pide confirmación antes de borrar nada. En un elemento, F8 escribe
+`docker rmi`, `docker rm` o `docker volume rm` con ese elemento, o con todas las imágenes,
+contenedores o volúmenes marcados. Space o Insert marca un elemento, y `*` invierte las marcas del
+tipo seleccionado. Una imagen se elimina por todas sus etiquetas, ya que Docker la borra con la
+última, o por su ID cuando no tiene ninguna. Los registros de la caché de compilación se eliminan
+juntos con `docker builder prune`. Borg nunca añade `-f` ni `--force`.
+
+Los volúmenes guardan los datos que escribieron los contenedores, como los archivos de una base de
+datos, y un volumen eliminado no se puede recuperar. El otro panel lo recuerda junto a cada
+comando de volúmenes. Cuando la CLI `docker` tiene más de un contexto, los comandos nombran el que
+usó Borg para medir, como en `docker --context staging image prune`, para que lleguen al mismo
+motor sea cual sea el contexto que elegiría el shell. Siempre van al shell del host, también
+mientras un panel muestra los archivos de un contenedor, porque la vista de Docker mantiene la
+línea de comandos en el host.
 
 ## Exclusiones de Time Machine
 

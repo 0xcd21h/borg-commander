@@ -9,14 +9,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use borg_docker::{Action, Container, Details, State, Stats};
+use borg_docker::{Action, Container, Details, DiskUse, State, Stats};
 use borg_term::{GridSize, Scroll};
 
 use crate::{AppState, Effect, HISTORY, ShellStatus, Side, View};
 
+mod disk;
 mod files;
 mod keys;
 mod shells;
+
+pub use disk::{Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, NoCleanup};
+pub(crate) use disk::{command_ended, toggle as toggle_disk};
 
 pub(crate) use files::{browse, copy, delete, mkdir, unmount, view};
 pub(crate) use keys::{act, click, paste, route_key, start, stats, tab_key};
@@ -39,8 +43,16 @@ const FILTER_LIMIT: usize = 128;
 pub enum DockerRequest {
     List,
     Inspect(String),
-    Act { action: Action, ids: Vec<String> },
-    Files { container: String, op: FileOp },
+    Act {
+        action: Action,
+        ids: Vec<String>,
+    },
+    Files {
+        container: String,
+        op: FileOp,
+    },
+    /// What the engine keeps on disk, which takes a while to measure.
+    DiskUse,
 }
 
 impl DockerRequest {
@@ -62,6 +74,12 @@ pub enum DockerData {
     },
     /// A container file copied out for viewing.
     Fetched(PathBuf),
+    /// Disk use as the context it was measured on reports it, with the CLI's contexts.
+    DiskUse {
+        usage: Box<DiskUse>,
+        context: Option<String>,
+        contexts: Option<Vec<String>>,
+    },
     Done,
 }
 
@@ -182,6 +200,7 @@ pub struct Docker {
     /// Whether the details panel shows the selected container's shell, when it has one.
     pub shell_tab: bool,
     pub pending: Option<(u64, DockerRequest)>,
+    pub disk: Disk,
     collapsed: HashSet<Option<String>>,
     selected: Option<Key>,
     watching: bool,
@@ -337,6 +356,10 @@ impl Docker {
                 self.working.push(Working { id, action: *action, ids: ids.clone() });
             }
             DockerRequest::Files { .. } => {}
+            DockerRequest::DiskUse => {
+                self.disk.loading = Some(id);
+                self.disk.stale = false;
+            }
             _ => {
                 self.pending = Some((id, request.clone()));
                 self.next = None;
@@ -378,8 +401,14 @@ pub(crate) fn open(state: &mut AppState, now: Instant) -> Vec<Effect> {
 }
 
 pub(crate) fn close(state: &mut AppState) {
-    state.docker.side = None;
-    state.docker.filtering = false;
+    let docker = &mut state.docker;
+    docker.side = None;
+    docker.filtering = false;
+    docker.disk.open = false;
+    docker.disk.filtering = false;
+    if docker.disk.loading.take().is_some() {
+        docker.disk.stale = true;
+    }
 }
 
 pub(crate) fn toggle(state: &mut AppState, now: Instant) -> Vec<Effect> {
@@ -392,26 +421,34 @@ pub(crate) fn toggle(state: &mut AppState, now: Instant) -> Vec<Effect> {
 }
 
 pub(crate) fn filter(state: &mut AppState) {
-    if state.docker.is_open() {
-        state.docker.filtering = true;
-        state.docker.details_focused = false;
+    let docker = &mut state.docker;
+    if docker.disk.open {
+        docker.disk.filtering = true;
+    } else if docker.is_open() {
+        docker.filtering = true;
+        docker.details_focused = false;
     }
+}
+
+/// Whether the container list shows, so its selection can be acted on.
+fn listing(state: &AppState) -> bool {
+    state.docker.is_open() && !state.docker.disk.open
 }
 
 /// Whether an action would change anything in the selection, for the Docker menu.
 pub(crate) fn can(state: &AppState, action: Action) -> bool {
-    state.docker.is_open() && !targets(&state.docker, action).is_empty()
+    listing(state) && !targets(&state.docker, action).is_empty()
 }
 
 /// Whether the selection is a container with a shell open, or a running one to open one in.
 pub(crate) fn can_open_shell(state: &AppState) -> bool {
-    state.docker.is_open()
+    listing(state)
         && state.docker.container().is_some_and(|c| c.state == State::Running || state.docker.shell(&c.id).is_some())
 }
 
 /// Whether the selection is a running container, whose files can be browsed.
 pub(crate) fn can_browse(state: &AppState) -> bool {
-    state.docker.is_open() && state.docker.container().is_some_and(|c| c.state == State::Running)
+    listing(state) && state.docker.container().is_some_and(|c| c.state == State::Running)
 }
 
 /// Pause, or Resume when the selection is paused.
@@ -452,6 +489,10 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let rows = state.layout(now).panels[docker_side(state).index()].height.saturating_sub(6);
     let docker = &mut state.docker;
     docker.keep_visible(usize::from(rows));
+    docker.disk.keep_visible(usize::from(rows));
+    if docker.disk.open && docker.disk.stale && docker.disk.loading.is_none() {
+        effects.extend(disk::measure(docker));
+    }
     if docker.pending.is_some() {
         return effects;
     }
@@ -474,6 +515,11 @@ fn docker_side(state: &AppState) -> Side {
 
 pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, String>, now: Instant) -> Vec<Effect> {
     let docker = &mut state.docker;
+    if docker.disk.loading == Some(id) {
+        docker.disk.loading = None;
+        disk::receive(&mut docker.disk, result);
+        return Vec::new();
+    }
     if let Some(index) = docker.files.iter().position(|w| w.id == id) {
         let work = docker.files.remove(index);
         return finish_files(state, work, result);
@@ -515,7 +561,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
             docker.details = Some((id, *details));
             docker.next.get_or_insert(now + REFRESH);
         }
-        Ok(DockerData::Done | DockerData::Fetched(_)) => {}
+        Ok(DockerData::Done | DockerData::Fetched(_) | DockerData::DiskUse { .. }) => {}
         Err(error) => {
             docker.loaded = true;
             docker.error = Some(error);

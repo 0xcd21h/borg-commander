@@ -573,6 +573,7 @@ conjunta. Esc fecha a vista.
 | F | Explorar os ficheiros do contentor |
 | E, Alt-2 | Abrir uma shell no contentor, ou voltar à shell já aberta |
 | Alt-1 | Voltar a mostrar a visão geral do contentor, também a partir da shell |
+| D | Mostrar o espaço em disco, ou voltar aos contentores |
 | `/` | Filtrar por nome, serviço, imagem ou projeto |
 | Tab | Alternar entre a lista e os detalhes |
 | Alt-W | Maximizar o painel com o foco |
@@ -616,6 +617,49 @@ confirmação primeiro se houver shells abertas).
 
 O plugin usa a CLI `docker` e o contexto atual, pelo que funciona igualmente com Docker Desktop,
 OrbStack, Colima e motores remotos. Pode desativá-lo em Opções → Plugins.
+
+### Espaço em disco e limpeza
+
+**D** na vista Docker, ou **F9 → Docker → Espaço em disco**, mostra o que o Docker guarda em disco
+no lugar da lista de contentores, com uma linha por tipo: **Cache de compilação**,
+**Imagens sem nome**, **Imagens não usadas**, **Imagens em uso**, **Contentores parados**,
+**Volumes anónimos não usados**, **Volumes com nome não usados**, **Volumes em uso** e
+**Redes não usadas**. Cada linha tem uma contagem, um tamanho e o espaço que a remoção liberta, e
+a linha do topo soma tudo o que pode recuperar. O Borg mede com `docker system df --verbose` em
+segundo plano, o que pode demorar num motor muito ocupado. **R** volta a medir, e o Borg faz o
+mesmo quando o comando seguinte no prompt termina depois de **F8** ter escrito um.
+
+As imagens sem nome são compilações a que já nada dá nome, normalmente porque a etiqueta passou
+para uma compilação mais recente. As imagens não usadas têm nome, e nenhum contentor foi criado a
+partir delas. As imagens e os volumes que os contentores usam, em execução ou parados, ficam até
+esses contentores serem removidos, pelo que as suas linhas não libertam nada. Uma imagem só
+liberta as camadas que nenhuma outra imagem partilha, e por isso o tamanho recuperável pode ficar
+muito abaixo do seu tamanho.
+
+→ ou Enter expande um tipo nos seus itens, do maior para o menor, e ← volta a recolhê-lo. O outro
+painel mostra o item selecionado: as etiquetas de uma imagem, o ID, o tamanho partilhado, a data
+de criação e o número de contentores; o tipo de um registo da cache de compilação, se está
+partilhado ou em uso e quando uma compilação o usou pela última vez; a imagem e o estado de um
+contentor; o tamanho de um volume e os contentores que o montam. Os tamanhos que o Docker não
+conseguiu medir aparecem como `?`, e `/` filtra todos os tipos de uma vez.
+
+**F8** escreve o comando de limpeza da linha selecionada no prompt da shell do host e mostra a
+consola. Nada é executado até premir Enter, por isso pode ler o comando, alterá-lo ou limpá-lo
+antes com Ctrl-U. Num tipo, F8 escreve o respetivo prune, como `docker image prune -a` para as
+imagens não usadas ou `docker volume prune` para os volumes anónimos não usados, e o Docker pede
+confirmação antes de eliminar o que quer que seja. Num item, F8 escreve `docker rmi`, `docker rm`
+ou `docker volume rm` com esse item, ou com todas as imagens, contentores ou volumes marcados.
+Space ou Insert marca um item, e `*` inverte as marcas do tipo selecionado. Uma imagem sai por
+todas as etiquetas, já que o Docker a elimina com a última, ou pelo ID quando não tem nenhuma. Os
+registos da cache de compilação saem todos juntos com `docker builder prune`. O Borg nunca
+acrescenta `-f` nem `--force`.
+
+Os volumes guardam os dados que os contentores gravaram, como os ficheiros de uma base de dados, e
+um volume removido não pode ser recuperado. O outro painel repete este aviso junto a cada comando
+de volumes. Quando a CLI `docker` tem mais de um contexto, os comandos indicam aquele com que o
+Borg mediu, como em `docker --context staging image prune`, para chegarem ao mesmo motor seja qual
+for o contexto que a shell escolheria. Vão sempre para a shell do host, também enquanto um painel
+mostra os ficheiros de um contentor, porque a vista Docker mantém a linha de comando no host.
 
 ## Exclusões do Time Machine
 

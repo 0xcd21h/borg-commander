@@ -1,6 +1,6 @@
 //! The container view's key bar, and what clicks and the wheel do in it.
 
-use super::{FILTER_ROW, SHELL_WHEEL, project_name, tabs};
+use super::{FILTER_ROW, SHELL_WHEEL, disk, project_name, tabs};
 use crate::{
     Theme,
     activity_view::{body, inner, row, text},
@@ -16,7 +16,9 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 pub(super) fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
-    let specs: Vec<(&'static str, KeyCode)> = if docker.filtering {
+    let specs: Vec<(&'static str, KeyCode)> = if docker.disk.open {
+        disk::buttons(&docker.disk)
+    } else if docker.filtering {
         vec![(tr!(activity_filter_keep_button), KeyCode::Enter), (tr!(activity_filter_clear_button), KeyCode::Esc)]
     } else {
         let paused = docker.container().is_some_and(|c| c.state == State::Paused)
@@ -31,6 +33,7 @@ pub(super) fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, K
             (if paused { tr!(docker_resume_button) } else { tr!(docker_pause_button) }, KeyCode::Char('p')),
             (tr!(docker_files_button), KeyCode::Char('f')),
             (tr!(docker_shell_button), KeyCode::Char('e')),
+            (tr!(docker_disk_button), KeyCode::Char('d')),
             (tr!(activity_filter_button), KeyCode::Char('/')),
             (if docker.details_focused { tr!(docker_list_button) } else { tr!(docker_details_button) }, KeyCode::Tab),
             (if docker.details_focused { tr!(activity_back_button) } else { tr!(activity_close_button) }, KeyCode::Esc),
@@ -91,7 +94,9 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
     for (rect, label, _) in buttons(docker, row(area, 0)) {
         text(buf, rect, label, theme.styles.key);
     }
-    let hint = if docker.filtering {
+    let hint = if docker.disk.open {
+        disk::hint(&docker.disk)
+    } else if docker.filtering {
         tr!(activity_filter_hint)
     } else if docker.details_focused {
         tr!(docker_details_hint)
@@ -103,6 +108,9 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
 
 /// The status line: the selected container's name, image and id.
 pub(crate) fn status(docker: &Docker) -> String {
+    if docker.disk.open {
+        return disk::status(&docker.disk);
+    }
     match docker.container() {
         Some(container) => {
             format!("{} · {} · {}", container.name, container.image, container.id.get(..12).unwrap_or(&container.id))
@@ -151,6 +159,9 @@ pub(crate) fn panel_mouse(
                 _ => Pointer::DockerHide,
             }));
         }
+        if docker.disk.open {
+            return disk_mouse(docker, event, double, rect, details);
+        }
         if details && docker.visible_shell().is_some() {
             match event.kind {
                 MouseEventKind::ScrollUp => return Some(Msg::Pointer(Pointer::DockerShellScroll(-SHELL_WHEEL))),
@@ -191,4 +202,28 @@ pub(crate) fn panel_mouse(
         return Some(Msg::Pointer(Pointer::DockerControl { details: false, code: KeyCode::Null }));
     }
     None
+}
+
+/// The wheel and clicks over disk use: the list scrolls and selects; the other pane only shows.
+fn disk_mouse(docker: &Docker, event: MouseEvent, double: bool, rect: Rect, details: bool) -> Option<Msg> {
+    let control = |code| Some(Msg::Pointer(Pointer::DockerControl { details: false, code }));
+    match event.kind {
+        MouseEventKind::ScrollUp => return control(KeyCode::Up),
+        MouseEventKind::ScrollDown => return control(KeyCode::Down),
+        MouseEventKind::Down(MouseButton::Left) => {}
+        _ => return None,
+    }
+    let point = Position::new(event.column, event.row);
+    if details {
+        return control(KeyCode::Null);
+    }
+    if row(inner(rect), FILTER_ROW).contains(point) {
+        return control(KeyCode::Char('/'));
+    }
+    let body = body(rect);
+    if body.contains(point) {
+        let index = docker.disk.list_start(usize::from(body.height)) + usize::from(point.y - body.y);
+        return Some(Msg::Pointer(Pointer::DockerRow { index, open: double }));
+    }
+    control(KeyCode::Null)
 }
