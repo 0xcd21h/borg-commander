@@ -688,7 +688,8 @@ Todo lo que modifica la máquina espera tu respuesta en un diálogo que muestra 
 un comando y dónde se ejecutará, un archivo nuevo o una edición en forma de diff. Desplaza los
 largos con las flechas, PgUp y PgDn, o la rueda del ratón, y pulsa F3 para ver el diálogo a
 pantalla completa. La opción No sigue seleccionada hasta que eliges Sí, y una edición se rechaza si el
-archivo cambió mientras decidías. El diálogo aparece encima de todo, incluidos el editor, el visor,
+archivo cambió mientras decidías. También se rechaza un comando con tabulaciones, secuencias de
+escape u otros caracteres de control, porque el diálogo no puede mostrarlos. El diálogo aparece encima de todo, incluidos el editor, el visor,
 otro diálogo y el salvapantallas, y recibe todas las teclas hasta que respondas. Lo que tapaba vuelve
 a aparecer después. Si el agente deja de esperar antes, el diálogo se cierra y un aviso lo indica.
 Con una computadora emparejada, `approval_mode` te pregunta una

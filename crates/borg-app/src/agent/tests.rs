@@ -15,6 +15,16 @@ fn external_calls_cannot_claim_an_origin_or_prior_approval() {
 }
 
 #[test]
+fn a_command_is_asked_about_only_when_the_dialog_shows_all_of_it() {
+    for shown in ["ls -la", "cd app\ncargo test", "echo 'naïve — 雪'"] {
+        assert!(shown_as_typed(shown), "{shown:?}");
+    }
+    for hidden in ["ls\tx", "ls\rx", "ls\u{1b}x", "ls\u{7f}x", "ls\u{85}x", "ls\u{0}x"] {
+        assert!(!shown_as_typed(hidden), "{hidden:?} reaches the shell but not the dialog");
+    }
+}
+
+#[test]
 fn router_resolves_named_local_sessions_without_redirecting_other_connections() {
     let temp = tempfile::tempdir().unwrap();
     let state = crate::session::StateDir::at(temp.path().join("state"));

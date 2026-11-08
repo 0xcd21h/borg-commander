@@ -635,6 +635,7 @@ Anything that changes the machine waits for you in a dialog that shows the whole
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
 keys, PgUp and PgDn, or the mouse wheel, and press F3 to see the dialog full screen. No stays
 selected until you choose Yes, and an edit is refused if the file changed while you were deciding.
+A command with tabs, escapes or other control characters is refused too, since the dialog cannot show them.
 The dialog shows on top of everything, including the editor, the viewer, another dialog and the
 screensaver, and it takes every key until you answer. What it covered comes back afterward. If
 the agent stops waiting first, the dialog closes and a notice says so.

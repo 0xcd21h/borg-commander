@@ -89,6 +89,12 @@ impl App {
     /// Asks the user to approve running a command on the host or in a container.
     pub(super) fn ask_to_run(&mut self, call: Call, reply: Sender<Reply>) -> Result<Flow> {
         let Some(command) = text(&call, "command") else { return fail(reply, "run needs a command".into()) };
+        if !agent::shown_as_typed(&command) {
+            return fail(
+                reply,
+                "run takes printable text and line breaks only: the approval dialog cannot show tabs, escapes or other control characters".into(),
+            );
+        }
         let at = text(&call, "at");
         let mut reply = reply;
         let target = match at.as_deref().map(|at| agent::locate(&self.state, at)) {

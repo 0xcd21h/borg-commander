@@ -689,7 +689,8 @@ Tudo o que altera a máquina fica à sua espera numa caixa de diálogo que mostr
 completa: um comando e o sítio onde vai ser executado, um ficheiro novo ou uma edição sob a forma
 de diff. Percorra as alterações longas com as setas, PgUp e PgDn ou a roda do rato, e prima F3
 para ver a caixa de diálogo em ecrã inteiro. A opção Não mantém-se selecionada até escolher Sim, e uma edição é
-recusada se o ficheiro tiver mudado enquanto decidia.
+recusada se o ficheiro tiver mudado enquanto decidia. Um comando com tabulações, sequências de escape
+ou outros caracteres de controlo também é recusado, porque a caixa de diálogo não os consegue mostrar.
 A caixa de diálogo aparece por cima de tudo, incluindo o editor, o visualizador, outra caixa de
 diálogo e o protetor de ecrã, e recebe todas as teclas até responder. O que ela tapava volta a
 aparecer depois. Se o agente deixar de esperar antes disso, a caixa de diálogo fecha-se e um aviso
