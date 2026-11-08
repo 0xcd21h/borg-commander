@@ -830,6 +830,11 @@ deletes its saved panels and terminal history; your files and folders are kept. 
 always stays, and so does a session that is active right now: quit Borg in the other terminal first,
 or run `borg service stop` to remove a session the service keeps.
 
+When another Borg already has the session open, and no background service runs to attach to, `borg`
+stops and names that Borg: its process number, its terminal as `ps` shows it, and how long ago it
+started. Quit that Borg with F10 where it runs. When you can no longer reach its terminal, end it
+with `kill` and the process number.
+
 `borg service install`, `enable`, and `start` set up the optional background service. It holds
 the machine's pairing connection and keeps named sessions running after their terminals close.
 `borg service attach NAME` reconnects to one, and Ctrl-] detaches again without ending its

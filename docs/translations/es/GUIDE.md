@@ -903,6 +903,11 @@ conservan. La sesión predeterminada (Default) siempre se queda, igual que una s
 momento: sal antes de Borg en el otro terminal, o ejecuta `borg service stop` para eliminar una
 sesión que mantiene el servicio.
 
+Cuando otro Borg ya tiene la sesión abierta y no hay ningún servicio en segundo plano al que
+conectarse, `borg` se detiene e indica qué Borg es: su número de proceso, su terminal tal como lo
+muestra `ps` y hace cuánto se inició. Sal de ese Borg con F10 donde se esté ejecutando. Si ya no
+puedes llegar a su terminal, termínalo con `kill` y el número de proceso.
+
 `borg service install`, `enable` y `start` configuran el servicio opcional en segundo plano. Este
 mantiene la conexión de emparejamiento de la máquina y deja las sesiones con nombre en marcha
 después de que se cierren sus terminales. `borg service attach NAME` vuelve a conectarse a una, y

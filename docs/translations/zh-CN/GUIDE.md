@@ -359,6 +359,8 @@ Borg 会将中继以 `relay = "wss://relay.example.com"` 的形式保存在配�
 
 按 **F8** 或 **Delete** 可删除所选会话，确认对话框默认选中 **否**。这会删除该会话保存的面板和终端历史；你的文件和文件夹会保留。默认会话始终保留，当前处于活动状态的会话也是如此：请先在另一个终端中退出 Borg；要删除由服务保持运行的会话，请先运行 `borg service stop`。
 
+如果另一个 Borg 已经打开了该会话，且没有可供连接的后台服务，`borg` 会停止并指出是哪个 Borg：它的进程号、`ps` 所显示的终端，以及它启动了多久。在那个 Borg 所在的终端按 F10 退出它。如果已经无法回到它的终端，用 `kill` 加上进程号结束它。
+
 `borg service install`、`enable` 和 `start` 用于设置可选的后台服务。该服务负责维持本机的配对连接，并在终端关闭后让命名会话继续运行。`borg service attach NAME` 可重新连接到某个会话，按 Ctrl-] 可再次分离，而不会结束其 Shell。使用 `borg service stop`、`disable` 或 `uninstall` 可停止或移除该服务。在没有 systemd 的容器中，请让容器的进程管理器运行 `borg service run`；`install` 和 `enable` 命令需要带有 systemd 的 Linux 主机。
 
 ### 远程面板
