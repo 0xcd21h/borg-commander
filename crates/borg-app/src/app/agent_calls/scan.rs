@@ -6,7 +6,6 @@ use crate::agent::{self, Call, Location, Reply, ScanCall, ScanTarget, Work};
 use crate::rule_scan::RuleSet;
 use anyhow::Result;
 use borg_core::{AgentEvent, Msg, ScanSubject};
-use borg_i18n::tr;
 use serde_json::json;
 use std::{
     path::Path,
@@ -82,12 +81,8 @@ impl App {
             return fail(reply, format!("The process with PID {pid} ended before the scan could start"));
         }
         if !self.may_read_memory(&call, process) {
-            let place = call
-                .origin
-                .as_ref()
-                .map_or_else(String::new, |origin| tr!(agent_asked_from).replace("{origin}", origin));
             let subject = ScanSubject { name: &name, pid, program: program.as_deref() };
-            let ask = borg_core::scan_ask(subject, asked.checks, asked.rules.as_deref(), place);
+            let ask = borg_core::scan_ask(subject, asked.checks, asked.rules.as_deref(), call.origin.clone());
             call.args[START] = json!(process.start);
             let id = self.agent.ask(reply, Work::Forward(call));
             return self.dispatch(Msg::Agent(AgentEvent::Ask { id, ask }));

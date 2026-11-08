@@ -21,6 +21,7 @@ fn ancestor(pid: u32, program: &str, terminal: bool) -> Ancestor {
         program: Some(program.into()),
         terminal,
         command: program.to_owned(),
+        ..Ancestor::default()
     }
 }
 
@@ -49,7 +50,7 @@ fn learned() -> Baseline {
 }
 
 fn rules_of(process: &StartedProcess, baseline: &Baseline) -> Vec<WatchRule> {
-    examine(process, baseline, &History::default(), moment(Duration::ZERO))
+    examine(process, baseline, &History::default(), FIRST_PERSON, moment(Duration::ZERO))
         .into_iter()
         .map(|finding| finding.rule())
         .collect()
@@ -67,7 +68,7 @@ fn a_service_that_starts_a_shell_is_a_warning_and_one_on_a_socket_is_an_alert() 
     let mut remote = shell.clone();
     remote.input = StreamKind::Socket;
     remote.output = StreamKind::Socket;
-    let findings = examine(&remote, &baseline, &History::default(), moment(Duration::ZERO));
+    let findings = examine(&remote, &baseline, &History::default(), FIRST_PERSON, moment(Duration::ZERO));
     let rules: Vec<WatchRule> = findings.iter().map(Finding::rule).collect();
     assert_eq!(rules, [WatchRule::ShellOnSocket], "the socket fires although the pair is known");
     assert_eq!(findings[0].level(), Level::Alert);
@@ -104,27 +105,189 @@ fn four_different_commands_that_look_around_fire_once_as_a_run() {
         let at = moment(Duration::from_secs(step as u64));
         let mut process = started(30 + step as u32, program, Some(server.clone()));
         process.at = at;
-        let findings = examine(&process, &baseline, &history, at);
-        history.note(&process);
+        let findings = examine(&process, &baseline, &history, FIRST_PERSON, at);
+        history.note(&process, FIRST_PERSON);
         fired.push(findings.iter().any(|finding| finding.rule() == WatchRule::DiscoveryRun));
     }
     assert_eq!(fired, [false, false, false, true, false], "the fourth makes the run, the fifth says nothing new");
 }
 
-#[test]
-fn a_run_of_commands_spread_over_a_long_while_is_not_a_run() {
-    let server = ancestor(13, "/usr/bin/python3", false);
+const LOOKING_AROUND: [&str; 4] = ["/usr/bin/whoami", "/usr/bin/id", "/usr/bin/uname", "/bin/hostname"];
+
+/// The four discovery commands, each started by the chain `ancestors` puts above it.
+fn looking_around(ancestors: &[Ancestor]) -> Vec<StartedProcess> {
+    LOOKING_AROUND
+        .iter()
+        .enumerate()
+        .map(|(step, program)| {
+            let mut process = started(40 + step as u32, program, None);
+            process.ancestors = ancestors.to_vec();
+            process
+        })
+        .collect()
+}
+
+/// Starts the processes one after another, `apart` apart, and says after which of them a run
+/// of discovery commands fired.
+fn runs(baseline: &Baseline, processes: Vec<StartedProcess>, apart: Duration) -> Vec<bool> {
     let mut history = History::default();
-    let baseline = learned();
-    for (step, program) in ["/usr/bin/whoami", "/usr/bin/id", "/usr/bin/uname", "/bin/hostname"].into_iter().enumerate()
-    {
-        let at = moment(Duration::from_secs(step as u64 * 60));
-        let mut process = started(40 + step as u32, program, Some(server.clone()));
-        process.at = at;
-        let findings = examine(&process, &baseline, &history, at);
-        history.note(&process);
-        assert!(!findings.iter().any(|finding| finding.rule() == WatchRule::DiscoveryRun), "{program} at {step}");
+    processes
+        .into_iter()
+        .enumerate()
+        .map(|(step, mut process)| {
+            let at = moment(apart * step as u32);
+            process.at = at;
+            let findings = examine(&process, baseline, &history, FIRST_PERSON, at);
+            history.note(&process, FIRST_PERSON);
+            findings.iter().any(|finding| finding.rule() == WatchRule::DiscoveryRun)
+        })
+        .collect()
+}
+
+/// Puts a process on a terminal that `opener` opened.
+fn on_terminal(mut process: StartedProcess, opener: &Ancestor) -> StartedProcess {
+    process.terminal = Some("/dev/pts/1".into());
+    process.input = StreamKind::Terminal;
+    process.output = StreamKind::Terminal;
+    process.errors = StreamKind::Terminal;
+    process.session_parent = Some(opener.clone());
+    process
+}
+
+#[test]
+fn commands_minutes_apart_from_one_program_still_make_a_run_within_an_hour() {
+    let server = ancestor(13, "/usr/bin/python3", false);
+    let ten_minutes = Duration::from_secs(10 * 60);
+    assert_eq!(
+        runs(&learned(), looking_around(std::slice::from_ref(&server)), ten_minutes),
+        [false, false, false, true]
+    );
+    let twenty_five_minutes = Duration::from_secs(25 * 60);
+    assert_eq!(
+        runs(&learned(), looking_around(&[server]), twenty_five_minutes),
+        [false; 4],
+        "an hour holds three of them at most"
+    );
+}
+
+#[test]
+fn commands_a_web_server_runs_through_one_shell_after_another_count_together() {
+    let processes = looking_around(&[])
+        .into_iter()
+        .enumerate()
+        .map(|(step, mut process)| {
+            let worker = ancestor(80 + step as u32 % 2, "/usr/sbin/php-fpm8.2", false);
+            process.ancestors = vec![ancestor(60 + step as u32, "/bin/sh", false), worker];
+            process
+        })
+        .collect();
+    assert_eq!(runs(&learned(), processes, Duration::from_secs(90)), [false, false, false, true]);
+}
+
+#[test]
+fn commands_typed_after_logging_in_are_no_run_while_ones_on_a_program_terminal_are() {
+    let shell = ancestor(13, "/usr/bin/bash", true);
+    let typed = |opener: Ancestor| -> Vec<StartedProcess> {
+        looking_around(&[shell.clone(), opener.clone()])
+            .into_iter()
+            .map(|process| on_terminal(process, &opener))
+            .collect()
+    };
+    let minute = Duration::from_secs(60);
+    assert_eq!(runs(&learned(), typed(ancestor(12, "/usr/sbin/sshd", false)), minute), [false; 4]);
+    assert_eq!(
+        runs(&learned(), typed(ancestor(12, "/usr/bin/python3", false)), minute),
+        [false, false, false, true],
+        "a terminal a reverse shell opened hides nobody at the keyboard"
+    );
+}
+
+#[test]
+fn a_run_stays_quiet_where_its_program_ran_those_commands_while_borg_learned() {
+    let agent = ancestor(13, "/opt/monitor/agent", false);
+    let mut baseline = learned();
+    for process in looking_around(std::slice::from_ref(&agent)) {
+        baseline.note(&process);
     }
+    let minute = Duration::from_secs(60);
+    assert_eq!(
+        runs(&baseline, looking_around(std::slice::from_ref(&agent)), minute),
+        [false; 4],
+        "the agent does this daily"
+    );
+    let mut with_a_new_command = looking_around(&[agent]);
+    with_a_new_command[1].program = Some("/usr/bin/w".into());
+    with_a_new_command[1].name = "w".into();
+    assert_eq!(
+        runs(&baseline, with_a_new_command, minute),
+        [false, false, false, true],
+        "a command it never ran makes the run new"
+    );
+    let elsewhere = ancestor(14, "/usr/bin/python3", false);
+    assert_eq!(runs(&baseline, looking_around(&[elsewhere]), minute), [false, false, false, true]);
+}
+
+#[test]
+fn a_run_says_how_long_it_may_take_in_words() {
+    let finding = Finding::DiscoveryRun { parent: "python3".into(), commands: 4, seconds: 60 * 60 };
+    assert!(finding.reason().contains("within 1 hour,"), "{}", finding.reason());
+    let older = Finding::DiscoveryRun { parent: "python3".into(), commands: 4, seconds: 20 };
+    assert!(older.reason().contains("within 20 seconds,"), "{}", older.reason());
+}
+
+#[test]
+fn a_shell_on_a_terminal_a_networked_program_opened_is_an_alert_learning_never_quiets() {
+    let mut python = ancestor(12, "/usr/bin/python3", false);
+    python.streams = [StreamKind::Socket; 3];
+    let shell = on_terminal(started(20, "/bin/bash", Some(python.clone())), &python);
+    let mut baseline = learned();
+    baseline.note(&shell);
+    let findings = examine(&shell, &baseline, &History::default(), FIRST_PERSON, moment(Duration::ZERO));
+    let rules: Vec<WatchRule> = findings.iter().map(Finding::rule).collect();
+    assert_eq!(rules, [WatchRule::RemoteShellOnTerminal]);
+    assert_eq!(findings[0].level(), Level::Alert);
+    assert!(findings[0].reason().contains("python3"), "{}", findings[0].reason());
+
+    let socat = ancestor(13, "/usr/bin/socat", false);
+    let relayed = on_terminal(started(21, "/bin/sh", Some(socat.clone())), &socat);
+    assert_eq!(rules_of(&relayed, &learned()), [WatchRule::RemoteShellOnTerminal, WatchRule::ParentNeverStartedIt]);
+}
+
+#[test]
+fn a_shell_on_a_terminal_a_program_opened_for_itself_is_a_warning_learning_can_quiet() {
+    let expect = ancestor(12, "/usr/bin/expect", false);
+    let shell = on_terminal(started(20, "/bin/bash", Some(expect.clone())), &expect);
+    assert!(rules_of(&shell, &learned()).contains(&WatchRule::ShellOnProgramTerminal));
+    let mut baseline = learned();
+    baseline.note(&shell);
+    assert_eq!(rules_of(&shell, &baseline), Vec::new(), "a start the machine makes anyway stays quiet");
+
+    let mut journal = expect.clone();
+    journal.streams = [StreamKind::Other, StreamKind::LocalSocket, StreamKind::LocalSocket];
+    let logged = on_terminal(started(21, "/bin/bash", Some(journal.clone())), &journal);
+    assert!(!rules_of(&logged, &learned()).contains(&WatchRule::RemoteShellOnTerminal), "the journal is no network");
+}
+
+#[test]
+fn a_shell_on_a_terminal_somebody_logged_in_to_stays_quiet() {
+    let sshd = ancestor(12, "/usr/sbin/sshd", false);
+    let mut networked = sshd.clone();
+    networked.streams = [StreamKind::Socket; 3];
+    let login = on_terminal(started(20, "/bin/bash", Some(networked.clone())), &networked);
+    assert_eq!(rules_of(&login, &learned()), [WatchRule::ParentNeverStartedIt]);
+    let tmux = ancestor(13, "/usr/bin/tmux", false);
+    let mut pane = on_terminal(started(21, "/bin/zsh", Some(tmux.clone())), &tmux);
+    pane.uid = FIRST_PERSON;
+    assert_eq!(rules_of(&pane, &learned()), [WatchRule::ParentNeverStartedIt]);
+}
+
+#[test]
+fn a_shell_writing_to_the_journal_has_no_network_socket() {
+    let systemd = ancestor(1, "/usr/lib/systemd/systemd", false);
+    let mut service = started(20, "/bin/sh", Some(systemd));
+    service.output = StreamKind::LocalSocket;
+    service.errors = StreamKind::LocalSocket;
+    assert!(!rules_of(&service, &learned()).contains(&WatchRule::ShellOnSocket));
 }
 
 #[test]
@@ -133,7 +296,7 @@ fn a_program_from_a_temporary_folder_a_deleted_one_and_one_without_a_file_all_fi
     let mut baseline = learned();
     let temporary = started(50, "/tmp/.x/miner", Some(parent.clone()));
     baseline.note(&temporary);
-    let findings = examine(&temporary, &baseline, &History::default(), moment(Duration::ZERO));
+    let findings = examine(&temporary, &baseline, &History::default(), FIRST_PERSON, moment(Duration::ZERO));
     assert_eq!(findings.len(), 1, "{findings:?}");
     assert_eq!(findings[0].rule(), WatchRule::ProgramInTempFolder);
     assert!(findings[0].reason().contains("/tmp"), "{}", findings[0].reason());
@@ -154,7 +317,7 @@ fn a_preload_variable_fires_whatever_the_baseline_knows() {
     process.preloads = vec![("LD_PRELOAD".into(), "/tmp/libhide.so".into())];
     let mut baseline = learned();
     baseline.note(&process);
-    let findings = examine(&process, &baseline, &History::default(), moment(Duration::ZERO));
+    let findings = examine(&process, &baseline, &History::default(), FIRST_PERSON, moment(Duration::ZERO));
     assert_eq!(findings.iter().map(Finding::rule).collect::<Vec<_>>(), [WatchRule::PreloadSet]);
     let reason = findings[0].reason();
     assert!(reason.contains("LD_PRELOAD") && reason.contains("/tmp/libhide.so"), "{reason}");

@@ -2,7 +2,6 @@
 
 use super::{App, Flow, fail, text};
 use crate::agent::{self, Call, Location, Reply, Spot, Target, Work};
-use crate::app::render::from_origin;
 use anyhow::Result;
 use borg_core::{AgentEvent, Ask, AskKind, DiffLine, Msg};
 use borg_i18n::tr;
@@ -77,8 +76,7 @@ impl App {
             Spot::Container { name, path, .. } => (path.display().to_string(), tr!(agent_container_place, name = name)),
         };
         let kind = if before.is_some() { AskKind::Edit } else { AskKind::Create };
-        let place = from_origin(place, call.origin.as_deref());
-        let ask = Ask { kind, summary, place, body };
+        let ask = Ask { kind, summary, place, origin: call.origin.clone(), body };
         let id = self.agent.ask(reply, Work::Write { spot, before, after });
         if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
             return self.agent_answer(id, true);
@@ -132,8 +130,9 @@ impl App {
         let ask = Ask {
             kind: AskKind::Run,
             summary: command.clone(),
-            place: from_origin(agent::place(&target), call.origin.as_deref()),
-            body: command.lines().map(DiffLine::plain).collect(),
+            place: agent::place(&target),
+            origin: call.origin.clone(),
+            body: command.lines().map(DiffLine::code).collect(),
         };
         let id = self.agent.ask(reply, Work::Run { command, target });
         if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
@@ -185,9 +184,9 @@ impl App {
             } else {
                 format!("{} ({size} bytes)", borg_ui::size_text(size))
             };
-            let place = from_origin(shown.clone(), call.origin.as_deref());
-            let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(shown)];
-            let ask = Ask { kind: AskKind::Upload, summary: spot.uri(), place, body };
+            let body = vec![DiffLine::code(spot.uri()), DiffLine::prose(shown.clone())];
+            let ask =
+                Ask { kind: AskKind::Upload, summary: spot.uri(), place: shown, origin: call.origin.clone(), body };
             let id = self.agent.ask(reply, Work::Upload { spot, size });
             if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
                 return self.agent_answer(id, true);

@@ -683,6 +683,17 @@ For a paired computer, `approval_mode` asks you once before turning on Approve a
 session. While it is on, a badge stays visible; click it or press Ctrl+Alt+A to turn it off at
 once. It also turns off when that paired connection closes. Pairing approvals are separate.
 
+A request also reaches your own computer when a remote panel there shows the session it waits in
+(see [Remote panels](#remote-panels)). Your borg shows it in the same dialog, titled with the
+server's name, over whatever you are doing, and sends your answer back over the encrypted
+connection. The server keeps its own dialog open too. The first answer counts, wherever it comes
+from, and the other dialogs close with a notice that says where it was answered. A request the
+agent withdraws closes everywhere. When another computer controls the session through a mirror,
+your dialog shows the request without Yes and No, and Esc closes it on your screen only. While
+that session approves everything, your borg shows a badge with the server's name; click it or
+press Ctrl+Alt+A to turn Approve all off there at once. Only your keys and clicks answer these
+dialogs: the agent's tools, `type` included, cannot press anything in them.
+
 Commands are typed into a shell you can watch, and kept out of its history. Commands for this
 machine go into borg's own console, which is shown while they run so you can answer a prompt such
 as sudo's; commands for a container go into that container's shell in the Docker view. The shell
@@ -858,6 +869,9 @@ Alt-H to get a new one.
 Remote folders load in chunks, with a spinner and a count of the entries received so far; moving
 to another folder cancels the request.
 
+While a remote panel shows a session, the agent requests that wait there show on your screen too,
+and you can answer them here (see [What the agent can do](#what-the-agent-can-do)).
+
 ### Remote hosts
 
 In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or choose
@@ -924,6 +938,10 @@ detach the other terminal, or start with `borg mirror MACHINE:SESSION --take`; `
 takes control from another viewer. Once you have control, the first key wakes a sleeping remote
 screen, and later keys and mouse input reach it. A viewer that falls behind skips old animation
 frames and jumps straight to the current screen.
+
+An agent's request shows in the mirror as the server shows it, and you answer it there once you
+have control. If you opened the mirror from a remote panel and the request still waits when you
+leave the mirror, the panel's borg shows it again.
 
 ### Running a relay
 
@@ -1747,27 +1765,37 @@ is there so the picture is complete.
 
 | Rule | What fires it | Level |
 | --- | --- | --- |
-| **Shell on a network socket** | A shell whose input, output or errors go to a socket, which is what a remote shell looks like | alert |
+| **Shell on a network socket** | A shell whose input, output or errors go to a network socket, which is what a remote shell looks like. A socket that stays on the machine, such as the one `systemd` gives a service's output to the journal, does not count | alert |
+| **Remote shell on a terminal** | A shell on a terminal that a program opened for it, where that program's own input, output or errors go to a network socket, or the program is a relay such as `socat` or `nc`. That is a remote shell turned into a full terminal, as `pty.spawn` in Python makes one | alert |
 | **Program deleted while it runs** | The program's file is gone, so nothing on disk says what the process is | alert |
 | **Program with no file** | Borg can find no program file for the process at all | alert |
 | **Library forced into a program** | `LD_PRELOAD`, `LD_AUDIT` or `DYLD_INSERT_LIBRARIES` is set in its environment | alert |
 | **Shell from a service** | A web server, application runtime or database started a shell | warning |
 | **Shell without a terminal** | A shell with no terminal on either side, so nobody typed it | warning |
-| **Looking around the machine** | Four different commands such as `whoami`, `id`, `uname` and `ss` from one parent without a terminal, within 20 seconds | warning |
+| **Shell on a program's terminal** | A shell on a terminal that a program opened for itself and nobody logged in to, such as one that `expect` or `docker exec` opens | warning |
+| **Looking around the machine** | Four different commands such as `whoami`, `id`, `uname` and `ss` from one program within an hour, with nobody logged in to the terminal they run on. Commands it runs through one shell after another count together, so a web shell that starts `sh -c` for each command is caught too | warning |
 | **Program in a temporary folder** | The program lies under `/tmp`, `/var/tmp`, `/dev/shm` or `/run/shm` | warning |
 | **Name differs from the program** | The process calls itself one thing and runs another | warning |
 | **Parent never started it before** | This parent has never started this program on this machine | notice |
 
 For each process Borg reads the program it runs and whether its file was deleted, the command, the
 user, the terminal it belongs to and who opened it, what its standard input, output and errors lead
-to, the preload variables in its environment, and the chain of parents above it.
+to, the preload variables in its environment, and the chain of parents above it. A socket counts as
+a network socket when the process's network lists it as TCP or UDP.
+
+Whether somebody logged in to a terminal is decided the same way as for freezing (see
+[Freezing a process](#freezing-a-process)): over SSH, at the console, in `tmux` or `screen`, through
+`sudo` or `su`, or in a terminal window. A terminal that a program opened for itself does not count,
+whether an editor's remote server, `docker exec` or a reverse shell opened it.
 
 Borg learns the machine before it acts. For the first 7 days it records which parent starts which
 program here and freezes nothing, and the Response column says **Would freeze** where it would have.
-After that, a pair it has seen before stays quiet for the rules that can be learned: the two shell
-rules, the run of commands, the name that differs, and the parent that never started it. The four
-alert-level rules fire every time, because a shell on a socket or a forced library never becomes
-normal by happening often. Whatever runs during that week counts as normal, so turn the watcher on
+After that, a pair it has seen before stays quiet for the rules that can be learned: the three shell
+rules, the name that differs, and the parent that never started it. The run of commands is learned
+by the program it comes from: it stays quiet when that program ran each of its commands during the
+learning week, so a monitoring agent that runs `df` and `ps` all day stays quiet, while a web server
+that never ran `id` does not. The five alert-level rules fire every time, because a shell on a
+socket or a forced library never becomes normal by happening often. Whatever runs during that week counts as normal, so turn the watcher on
 while you trust the machine. Starts that a rule learning cannot quiet fired on stay out of what Borg
 learns.
 
@@ -1962,6 +1990,8 @@ before you rely on it.
   the process's owner can still undo it.
 - A process on a terminal somebody logged in to is never frozen, even when the login used a stolen
   password or key. The rules still fire and write alerts.
+- **Looking around the machine** counts the commands of one program within an hour. Someone who
+  waits longer between commands, or runs each one from a different program, stays below it.
 - A process that detaches from its parent before Borg freezes the parent keeps running.
 - Without `[watch.notify]`, alerts reach you only when you open the page. With it, someone who
   takes over the machine in the seconds after an alert can still stop the message before it

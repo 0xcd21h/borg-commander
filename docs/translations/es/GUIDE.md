@@ -741,6 +741,18 @@ vez antes de activar Aprobar todo para esa sesión. Mientras está activo, se ma
 insignia; haz clic en ella o pulsa Ctrl+Alt+A para desactivarlo al instante. También se desactiva
 cuando se cierra esa conexión emparejada. Las aprobaciones de emparejamiento son aparte.
 
+Una solicitud también llega a tu propia computadora cuando un panel remoto en ella muestra la
+sesión en la que espera (consulta [Paneles remotos](#remote-panels)). Tu borg la muestra en el
+mismo diálogo, con el nombre del servidor en el título, por encima de lo que estés haciendo, y
+envía tu respuesta de vuelta por la conexión cifrada. El servidor también mantiene abierto su
+propio diálogo. Cuenta la primera respuesta, venga de donde venga, y los demás diálogos se cierran
+con un aviso que dice dónde se respondió. Una solicitud que el agente retira se cierra en todas
+partes. Cuando otra computadora controla la sesión a través de un espejo, tu diálogo muestra la
+solicitud sin Sí ni No, y Esc la cierra solo en tu pantalla. Mientras esa sesión lo apruebe todo,
+tu borg muestra una insignia con el nombre del servidor; haz clic en ella o pulsa Ctrl+Alt+A para
+desactivar Aprobar todo allí al instante. Solo tus teclas y clics responden a estos diálogos: las
+herramientas del agente, incluida `type`, no pueden pulsar nada en ellos.
+
 Los comandos se escriben en un shell que puedes observar, y no quedan en su historial. Los
 comandos para esta máquina van a la consola propia de borg, que se muestra mientras se ejecutan
 para que puedas responder a una petición como la de sudo; los comandos para un contenedor van al
@@ -933,6 +945,9 @@ Sí, vuelve a elegir la sesión con Alt-H para obtener uno nuevo.
 Las carpetas remotas se cargan por partes, con un indicador de actividad y un recuento de las
 entradas recibidas hasta el momento; al ir a otra carpeta se cancela la petición.
 
+Mientras un panel remoto muestra una sesión, las solicitudes del agente que esperan allí aparecen
+también en tu pantalla, y puedes responderlas aquí (consulta [Qué puede hacer el agente](#what-the-agent-can-do)).
+
 ### Hosts remotos
 
 En el Borg local, pulsa **Alt-H**, haz clic en **Hosts remotos** en la barra de atajos o elige
@@ -1010,6 +1025,10 @@ control y desconectar el otro terminal, o empieza con `borg mirror MACHINE:SESSI
 tecla activa una pantalla remota en reposo, y las teclas y la entrada del ratón posteriores llegan
 a ella. Un espectador que se queda atrás omite los fotogramas antiguos de
 animación y pasa directamente a la pantalla actual.
+
+Una solicitud del agente aparece en el espejo tal como la muestra el servidor, y la respondes allí
+cuando tengas el control. Si abriste el espejo desde un panel remoto y la solicitud sigue esperando
+cuando sales de él, el borg de ese panel vuelve a mostrarla.
 
 ### Ejecutar un relay
 
@@ -1907,26 +1926,37 @@ está ahí para que el retrato quede completo.
 
 | Regla | Qué la dispara | Nivel |
 | --- | --- | --- |
-| **Shell en un socket de red** | Una shell cuya entrada, salida o errores van a un socket, que es el aspecto de una shell remota | alerta |
+| **Shell en un socket de red** | Una shell cuya entrada, salida o errores van a un socket de red, que es el aspecto de una shell remota. Un socket que se queda en la máquina, como el que `systemd` da a la salida de un servicio para el journal, no cuenta | alerta |
+| **Shell remota en un terminal** | Una shell en un terminal que un programa abrió para ella, donde la entrada, la salida o los errores de ese programa van a un socket de red, o el programa es un repetidor como `socat` o `nc`. Es una shell remota convertida en un terminal completo, como la que crea `pty.spawn` de Python | alerta |
 | **Programa borrado mientras corre** | El archivo del programa ya no existe, así que nada en el disco dice qué es el proceso | alerta |
 | **Programa sin archivo** | Borg no encuentra ningún archivo de programa para el proceso | alerta |
 | **Biblioteca forzada en un programa** | `LD_PRELOAD`, `LD_AUDIT` o `DYLD_INSERT_LIBRARIES` está fijado en su entorno | alerta |
 | **Shell desde un servicio** | Un servidor web, un entorno de ejecución de aplicaciones o una base de datos inició una shell | aviso |
 | **Shell sin terminal** | Una shell sin terminal en ninguno de los dos lados, así que nadie la escribió | aviso |
-| **Exploración de la máquina** | Cuatro comandos distintos como `whoami`, `id`, `uname` y `ss` del mismo padre sin terminal, en 20 segundos | aviso |
+| **Shell en el terminal de un programa** | Una shell en un terminal que un programa abrió para sí mismo y en el que nadie inició sesión, como el que abren `expect` o `docker exec` | aviso |
+| **Exploración de la máquina** | Cuatro comandos distintos como `whoami`, `id`, `uname` y `ss` del mismo programa en menos de una hora, sin nadie con la sesión iniciada en el terminal donde se ejecutan. Los comandos que ejecuta a través de una shell tras otra cuentan juntos, así que también se detecta una web shell que inicia `sh -c` para cada comando | aviso |
 | **Programa en una carpeta temporal** | El programa está en `/tmp`, `/var/tmp`, `/dev/shm` o `/run/shm` | aviso |
 | **Nombre distinto del programa** | El proceso se llama de una manera y ejecuta otra cosa | aviso |
 | **El padre nunca lo había iniciado** | Este padre nunca ha iniciado este programa en esta máquina | nota |
 
 De cada proceso Borg lee el programa que ejecuta y si su archivo se borró, el comando, el usuario,
 el terminal al que pertenece y quién lo abrió, a dónde llevan su entrada, salida y errores estándar,
-las variables de precarga de su entorno y la cadena de padres que tiene encima.
+las variables de precarga de su entorno y la cadena de padres que tiene encima. Un socket cuenta como
+socket de red cuando la red del proceso lo lista como TCP o UDP.
+
+Si alguien inició sesión en un terminal se decide igual que para congelar (consulta
+[Congelar un proceso](#freezing-a-process)): por SSH, en la consola, en `tmux` o `screen`, mediante
+`sudo` o `su`, o en una ventana de terminal. Un terminal que un programa abrió para sí mismo no
+cuenta, ya lo abriera el servidor remoto de un editor, `docker exec` o una shell inversa.
 
 Borg aprende la máquina antes de actuar. Durante los primeros 7 días registra qué padre inicia qué
 programa aquí y no congela nada, y la columna Respuesta dice **Habría congelado** donde lo habría
 hecho. Después, un par que ya ha visto se queda en silencio para las reglas que se pueden aprender:
-las dos reglas de las shells, la serie de comandos, el nombre distinto y el padre que nunca lo había
-iniciado. Las cuatro reglas de nivel alerta se disparan siempre, porque una shell en un socket o una
+las tres reglas de las shells, el nombre distinto y el padre que nunca lo había iniciado. La serie de
+comandos se aprende por el programa del que viene: se queda en silencio cuando ese programa ejecutó
+cada uno de sus comandos durante la semana de aprendizaje, así que un agente de monitorización que
+ejecuta `df` y `ps` todo el día se queda en silencio, y un servidor web que nunca ejecutó `id` no. Las
+cinco reglas de nivel alerta se disparan siempre, porque una shell en un socket o una
 biblioteca forzada nunca se vuelven normales por ocurrir a menudo. Todo lo que se ejecuta durante
 esa semana cuenta como normal, así que activa el vigilante mientras confías en la máquina. Los
 arranques en los que se disparó una regla que el aprendizaje no puede silenciar quedan fuera de lo
@@ -2134,6 +2164,8 @@ Conócelas antes de confiar en él.
   Congelar te da tiempo para mirar, y el dueño del proceso todavía puede deshacerlo.
 - Un proceso en un terminal en el que alguien inició sesión nunca se congela, aunque la sesión usara
   una contraseña o clave robada. Las reglas siguen disparándose y anotando alertas.
+- **Exploración de la máquina** cuenta los comandos de un programa en una hora. Quien espera más
+  entre comandos, o ejecuta cada uno desde un programa distinto, se queda por debajo.
 - Un proceso que se separa de su padre antes de que Borg congele al padre sigue en marcha.
 - Sin `[watch.notify]`, las alertas solo te llegan cuando abres la página. Con él, quien se haga
   con la máquina en los segundos que siguen a una alerta todavía puede frenar el mensaje antes de

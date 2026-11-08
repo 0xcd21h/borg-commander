@@ -14,6 +14,7 @@ mod docker;
 mod document;
 mod edit_file;
 mod entropy_scan;
+mod host_asks;
 mod index;
 mod integrity;
 mod launch;

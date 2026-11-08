@@ -383,10 +383,7 @@ impl Drop for Upload {
 
 /// A new file, every line of it added.
 pub fn whole(text: &str) -> Vec<DiffLine> {
-    text.lines()
-        .enumerate()
-        .map(|(index, line)| DiffLine { change: Change::Added, number: Some(index + 1), text: line.to_owned() })
-        .collect()
+    text.lines().enumerate().map(|(index, line)| DiffLine::diff(Change::Added, Some(index + 1), line)).collect()
 }
 
 /// The lines that change from `old` to `new`, with a few unchanged lines around each change
@@ -395,8 +392,7 @@ pub fn diff(old: &str, new: &str) -> Vec<DiffLine> {
     use similar::{ChangeTag, TextDiff};
     let changes = TextDiff::from_lines(old, new);
     let total = old.lines().count();
-    let gap =
-        |count: usize| DiffLine { change: Change::Gap, number: None, text: format!("⋯ {count} unchanged lines") };
+    let gap = |count: usize| DiffLine::diff(Change::Gap, None, format!("⋯ {count} unchanged lines"));
     let mut lines = Vec::new();
     let mut seen = 0;
     for group in changes.grouped_ops(CONTEXT) {
@@ -412,7 +408,7 @@ pub fn diff(old: &str, new: &str) -> Vec<DiffLine> {
                     ChangeTag::Insert => (Change::Added, change.new_index()),
                     ChangeTag::Delete => (Change::Removed, change.old_index()),
                 };
-                lines.push(DiffLine { change, number: number.map(|n| n + 1), text });
+                lines.push(DiffLine::diff(change, number.map(|n| n + 1), text));
             }
         }
         seen = group.last().map_or(seen, |op| op.old_range().end);

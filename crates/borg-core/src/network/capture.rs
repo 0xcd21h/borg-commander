@@ -807,9 +807,14 @@ pub(crate) fn opened(state: &mut AppState, path: PathBuf, result: Result<Capture
 
 /// What the approval dialog shows when an agent asks to capture: the traffic, with the name
 /// of a process scope's `process`, the interface, how long, how much of each packet, and where
-/// the capture is saved. `place` says who asked.
-pub fn capture_ask(scope: CaptureScope, process: Option<&str>, request: &CaptureRequest, place: String) -> Ask {
-    let field = |label: &str, value: String| DiffLine::plain(tr!(agent_capture_field, label = label, value = value));
+/// the capture is saved. `origin` is the computer that asked.
+pub fn capture_ask(
+    scope: CaptureScope,
+    process: Option<&str>,
+    request: &CaptureRequest,
+    origin: Option<String>,
+) -> Ask {
+    let field = |label: &str, value: String| DiffLine::prose(tr!(agent_capture_field, label = label, value = value));
     let traffic = scope.label(
         |pid| tr!(process_control_subject, name = process.unwrap_or(tr!(network_unknown_process)), pid = pid),
         |remote| remote.to_string(),
@@ -823,10 +828,10 @@ pub fn capture_ask(scope: CaptureScope, process: Option<&str>, request: &Capture
         field(tr!(network_interface_column), request.interface.clone()),
         field(tr!(capture_duration_field), duration.clone()),
         field(tr!(capture_content_field), content),
-        DiffLine::plain(tr!(capture_saves_to, extension = request.extension(), folder = request.folder.display())),
-        DiffLine::plain(""),
-        DiffLine::plain(tr!(agent_capture_warning)),
+        DiffLine::prose(tr!(capture_saves_to, extension = request.extension(), folder = request.folder.display())),
+        DiffLine::prose(""),
+        DiffLine::prose(tr!(agent_capture_warning)),
     ];
     let summary = tr!(agent_capture_summary, interface = request.interface, duration = duration);
-    Ask { kind: AskKind::Capture, summary, place, body }
+    Ask { kind: AskKind::Capture, summary, place: String::new(), origin, body }
 }
