@@ -492,6 +492,49 @@ fn zsh_follows_panel_folders_without_echoing_cd_commands() -> Result<()> {
 }
 
 #[test]
+fn the_folder_picker_shows_after_zsh_follows_the_panel_and_its_prompt_grows() -> Result<()> {
+    const PICKER: &str = "Esc Hide";
+    if Shell::Zsh.locate().is_none() {
+        return Ok(());
+    }
+    let fixture = fixture()?;
+    fs::write(fixture.home().join(".zshrc"), "PROMPT='$ %1~ '\nRPROMPT=''\nPROMPT_EOL_MARK=''\n")?;
+    let mut app = start_with(&fixture, "zsh-silent-cd-picker", Shell::Zsh)?;
+    app.send(keys::down())?.send(keys::enter())?;
+    app.wait_text("one.txt")?;
+    app.send("cd in")?;
+    app.wait_until("the shell in alpha and the picker offering inner", |s| {
+        prompt(s).starts_with("$ alpha cd in") && s.contains(PICKER) && s.contains("alpha/inner")
+    })?;
+    app.send(keys::up())?.send(keys::enter())?;
+    app.wait_until("the panel in inner and the line cleared", |s| {
+        s.contains("0 items") && prompt(s).trim() == "$ alpha"
+    })?;
+    app.send(keys::enter())?;
+    app.wait_text("one.txt")?;
+    app.send(keys::key(KeyCode::Home))?.send(keys::enter())?;
+    app.wait_until("the left panel back in work", |s| left_panel(s).contains(READY))?;
+    app.send("cd ")?;
+    app.wait_until("the shell back in work, its prompt shorter, and the picker", |s| {
+        prompt(s).starts_with("$ work cd") && s.contains(PICKER)
+    })?;
+    Ok(())
+}
+
+#[test]
+fn the_folder_picker_shows_in_zsh_started_without_the_system_zshrc() -> Result<()> {
+    if Shell::Zsh.locate().is_none() {
+        return Ok(());
+    }
+    let fixture = fixture()?;
+    fs::write(fixture.home().join(".zshenv"), "unsetopt GLOBAL_RCS\n")?;
+    let mut app = start_with(&fixture, "zsh-no-system-zshrc", Shell::Zsh)?;
+    app.send("cd al")?;
+    app.wait_until("the picker offering alpha", |s| s.contains("Esc Hide") && s.contains("work/alpha"))?;
+    Ok(())
+}
+
+#[test]
 fn bash_and_fish_follow_panel_folders_without_leaving_cd_commands_on_screen() -> Result<()> {
     for (shell, _) in Shell::available().into_iter().filter(|(shell, _)| *shell != Shell::Zsh) {
         let fixture = fixture()?;

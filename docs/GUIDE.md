@@ -443,8 +443,10 @@ it the way your terminal allows, usually by Shift-dragging, then use its normal 
 
 Type `cd ` on the command line and Borg lists folders to jump to right above it: your hotlist first,
 marked ★, then the folders the panels opened, newest first. Each word you add narrows the list and
-can match anywhere in the path, so `cd pro bo` finds `~/Projects/borg`. Folders whose name matches
-the last word come first, next to the command line. Press Up to step into the list. While the list
+can match anywhere in the path as the list shows it, so `cd pro bo` finds `~/Projects/borg`. Your
+home folder shows as `~`, so a word from its own path, such as `me` in `/home/me`, matches no folder
+inside it. A word that starts with `/` matches the full path instead. Folders whose name matches the
+last word come first, next to the command line. Press Up to step into the list. While the list
 shows, Up and Down move only through it and stop at both ends, so the panel's cursor keeps its
 place. Enter opens the chosen folder in the active panel. Tab puts it on the command line after
 `cd ` without running it, escaping spaces and other characters the shell would split or expand, and

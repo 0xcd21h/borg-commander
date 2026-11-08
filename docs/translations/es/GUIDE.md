@@ -482,14 +482,16 @@ y usa su atajo de copiar habitual.
 Escribe `cd ` en la línea de comandos y Borg muestra justo encima las carpetas a las que puedes
 saltar: primero tus favoritas, marcadas con ★, y después las carpetas que abrieron los paneles, de
 la más reciente a la más antigua. Cada palabra que añades acota la lista y puede coincidir con
-cualquier parte de la ruta, así que `cd pro bo` encuentra `~/Projects/borg`. Las carpetas cuyo
-nombre coincide con la última palabra aparecen primero, junto a la línea de comandos. Pulsa Up para
-entrar en la lista. Mientras la lista está visible, Up y Down solo se mueven por ella y se detienen
-en los dos extremos, así que el cursor del panel no se mueve. Enter abre la carpeta elegida en el
-panel activo. Tab la escribe en la línea de comandos detrás de `cd ` sin ejecutar el comando, con
-escapes en los espacios y en otros caracteres que la shell separaría o expandiría, y la lista pasa a
-las carpetas que contiene. Un clic en una carpeta también la abre. Para ejecutar tu propio `cd`,
-sigue escribiendo y pulsa Enter.
+cualquier parte de la ruta tal como la muestra la lista, así que `cd pro bo` encuentra
+`~/Projects/borg`. Tu carpeta personal aparece como `~`, así que una palabra de su propia ruta, como
+`me` en `/home/me`, no coincide con ninguna carpeta que haya dentro. Una palabra que empieza por `/`
+coincide con la ruta completa. Las carpetas cuyo nombre coincide con la última palabra aparecen
+primero, junto a la línea de comandos. Pulsa Up para entrar en la lista. Mientras la lista está
+visible, Up y Down solo se mueven por ella y se detienen en los dos extremos, así que el cursor del
+panel no se mueve. Enter abre la carpeta elegida en el panel activo. Tab la escribe en la línea de
+comandos detrás de `cd ` sin ejecutar el comando, con escapes en los espacios y en otros caracteres
+que la shell separaría o expandiría, y la lista pasa a las carpetas que contiene. Un clic en una
+carpeta también la abre. Para ejecutar tu propio `cd`, sigue escribiendo y pulsa Enter.
 
 Escribe una ruta y la lista empieza por las carpetas que contiene. `cd /Volumes` muestra los
 volúmenes montados, y `cd ~/Projects/bo` acota la lista a las carpetas de `~/Projects` con `bo` en
