@@ -3173,6 +3173,43 @@ fn activity_narrow_layout_mouse_sort_and_selection() -> Result<()> {
 }
 
 #[test]
+fn activity_tree_folds_branches_and_the_overview_shows_the_process_tree() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
+    const SAMPLE_WITH_WORKERS: u64 = 1_000;
+    let mut stage = activity_stage()?;
+    let mut processes = stage.state.activity.sample.processes.clone();
+    let worker = |pid: u32, name: &str, parent: u32, ram: u64| ProcessInfo {
+        key: ProcessKey { pid, start: 200 },
+        name: name.into(),
+        parent: Some(parent),
+        resident: Some(ram),
+        cpu: Some(10120),
+        ..processes[0].clone()
+    };
+    processes
+        .extend([worker(1749116, "build-worker", 410, 480_000_000), worker(1749117, "linker", 1749116, 96_000_000)]);
+    let id = stage.state.activity.pending.as_ref().map_or(SAMPLE_WITH_WORKERS, |pending| pending.0);
+    stage.state.activity.pending = Some((id, ActivityRequest::Sample));
+    let sample = SystemSample { processes, ..stage.state.activity.sample.clone() };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Sample(sample)) });
+    stage.send(key(KeyCode::Char('t')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1749116 101.2")?;
+    ensure_text(&buffer, "▾ compiler")?;
+    ensure_text(&buffer, "Process tree")?;
+    check("activity_tree", &stage, buffer)?;
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▸ compiler · 3 processes")?;
+    check("activity_tree_folded", &stage, buffer)?;
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.activity.process().unwrap().name, "linker");
+    ensure_text(&buffer, "1749117 linker")?;
+    check("activity_tree_family", &stage, buffer)
+}
+
+#[test]
 fn borg_brand_is_visible_in_panels_console_viewer_and_overlays() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     let verify = |stage: &Stage, buffer: Buffer| {
