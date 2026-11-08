@@ -1,6 +1,6 @@
 //! The activity monitor's key bar, and what clicks and the wheel do in its panes.
 
-use super::processes::columns;
+use super::processes::{columns, pid_width};
 use super::search::{form_field, results_list};
 use super::{SEARCH_HEADER, body, by_rules, inner, row, tabs, text};
 use crate::Theme;
@@ -157,6 +157,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
     } else {
         match page {
             ActivityPage::Processes if activity.filtering => tr!(activity_filter_hint),
+            ActivityPage::Processes if activity.tree && activity.filter.is_empty() => tr!(activity_tree_hint),
             ActivityPage::Processes => tr!(activity_list_hint),
             ActivityPage::Memory => tr!(activity_memory_hint),
             ActivityPage::Regions => tr!(activity_map_hint),
@@ -241,7 +242,7 @@ pub(crate) fn panel_mouse(
             return Some(Msg::Pointer(Pointer::ActivityControl { preview: false, code: KeyCode::Char('/') }));
         }
         if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 2).contains(point) {
-            return columns(row(inner(rect), 2))
+            return columns(row(inner(rect), 2), pid_width(activity))
                 .into_iter()
                 .find(|(_, r)| r.contains(point))
                 .map(|(sort, _)| Msg::Pointer(Pointer::ActivitySort(sort)));

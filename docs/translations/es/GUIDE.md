@@ -1559,6 +1559,7 @@ segunda muestra.
 | C / M / G / N / P | Ordenar por CPU / RAM / crecimiento / nombre / PID; pulsa de nuevo para invertir |
 | I / O | Ordenar por velocidad de lectura / escritura |
 | T | Mostrar u ocultar el árbol de procesos |
+| Left / Right | En el árbol, plegar o desplegar la rama del proceso seleccionado |
 | K | Enviar una señal o cambiar la prioridad |
 | E | Buscar entropía alta en todos los procesos |
 | Alt-N | Mostrar el tráfico del proceso seleccionado en la pantalla de red |
@@ -1573,6 +1574,17 @@ de la memoria residente de los últimos 60 segundos. Los totales de memoria usad
 y compartida aparecen una vez leído el mapa de memoria, si el sistema los proporciona. **Enter** en
 el panel de memoria abre el mapa de memoria. El mapa de memoria se lee cuando lo pides; pulsa R
 para volver a leerlo después de que el proceso cambie sus asignaciones.
+
+Debajo del gráfico, **Árbol de procesos** lista los procesos de los que desciende el seleccionado,
+el propio proceso y todo lo que ha iniciado, cada uno sangrado debajo del que lo inició y con su
+memoria residente. Cuando no caben todos, la última línea indica cuántos quedan fuera.
+
+En el árbol que muestra **T**, cada proceso aparece debajo del que lo inició, y **▾** marca un
+proceso que tiene otros debajo. **Left** pliega la rama del proceso seleccionado; en un proceso sin
+nada debajo, Left pliega la rama a la que pertenece y selecciona el proceso que lo inició. **Right**
+despliega una rama plegada y, en una abierta, pasa al primer proceso de esa rama. Un proceso plegado
+muestra **▸** y cuántos procesos oculta. Una rama sigue plegada hasta que su proceso termina.
+Mientras se aplica un filtro, la lista es plana.
 
 ### Señales y prioridad
 

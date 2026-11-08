@@ -1549,6 +1549,7 @@ total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amo
 | C / M / G / N / P | Ordenar por CPU / RAM / crescimento / nome / PID; prima de novo para inverter |
 | I / O | Ordenar por débito de leitura / escrita |
 | T | Mostrar ou ocultar a árvore de processos |
+| Left / Right | Na árvore, recolher ou expandir o ramo do processo selecionado |
 | K | Enviar um sinal ou alterar a prioridade |
 | E | Procurar entropia alta em todos os processos |
 | Alt-N | Mostrar o tráfego do processo selecionado no ecrã de rede |
@@ -1563,6 +1564,17 @@ memória residente nos últimos 60 segundos. Os totais de memória usada, em swa
 partilhada aparecem depois de o mapa de memória ser lido, se o sistema os indicar. **Enter** no
 painel de memória abre o mapa de memória. O mapa só é lido quando o pede; prima R para o voltar a
 ler depois de o processo alterar os seus mapeamentos.
+
+Por baixo do gráfico, **Árvore de processos** lista os processos de que o selecionado descende, o
+próprio processo e tudo o que ele iniciou, cada um indentado por baixo daquele que o iniciou e com a
+sua memória residente. Quando não cabem todos, a última linha indica quantos ficaram de fora.
+
+Na árvore que **T** mostra, cada processo aparece por baixo daquele que o iniciou, e **▾** assinala
+um processo com outros por baixo. **Left** recolhe o ramo do processo selecionado; num processo sem
+nada por baixo, Left recolhe o ramo a que ele pertence e seleciona o processo que o iniciou.
+**Right** expande um ramo recolhido e, num ramo aberto, passa para o primeiro processo desse ramo.
+Um processo recolhido mostra **▸** e quantos processos esconde. Um ramo fica recolhido até o seu
+processo terminar. Enquanto um filtro está aplicado, a lista é plana.
 
 ### Sinais e prioridade
 

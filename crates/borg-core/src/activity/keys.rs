@@ -271,9 +271,9 @@ fn enter(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The keys of the regions, a search's hits and a check's findings: checking the process or
-/// scanning it with rules, the next copy of a hit, the page map, grouping the regions and
-/// opening their groups, and capturing the focused snapshot again.
+/// The keys of the lists: checking the process or scanning it with rules, the next copy of a
+/// hit, the page map, grouping the regions and opening their groups, folding the process tree,
+/// and capturing the focused snapshot again.
 fn list_key(activity: &mut Activity, key: &KeyEvent, now: Instant) -> Option<Vec<Effect>> {
     let plain = key.modifiers.is_empty();
     let regions = activity.list == ActivityPage::Regions;
@@ -302,6 +302,15 @@ fn list_key(activity: &mut Activity, key: &KeyEvent, now: Instant) -> Option<Vec
         }
         KeyCode::Left | KeyCode::Right if regions && !activity.preview_focused => {
             toggle(activity, key.code == KeyCode::Right, now);
+            Some(Vec::new())
+        }
+        KeyCode::Left | KeyCode::Right
+            if plain
+                && activity.list == ActivityPage::Processes
+                && !activity.preview_focused
+                && !activity.filtering =>
+        {
+            activity.fold(key.code == KeyCode::Right);
             Some(Vec::new())
         }
         KeyCode::Char('r' | 'R') if activity.preview_focused && activity.page == ActivityPage::Snapshot => {
