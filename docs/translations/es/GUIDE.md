@@ -887,15 +887,15 @@ llamar a `list_sessions`, `list_remote_sessions` y `use_session` para elegir con
 esa conexión. Una sola llamada a una herramienta también puede pasar un ID de `session` para
 dirigirse a otra sesión solo esa vez. La sesión elegida solo se aplica a esa conexión MCP.
 
-Con más de una sesión, `borg` empieza por la ventana **Sesiones de Borg**. Sus primeras líneas
-explican qué es una sesión, y la lista muestra cada sesión con la fecha en que se usó por última
-vez. Una sesión activa en este momento aparece marcada con su estado: **Abierta en otro terminal**,
-o **Mantenida por el servicio** cuando la ejecuta el servicio en segundo plano. Queda elegida la
-sesión usada por última vez, salvo que otro terminal la tenga abierta. Enter abre la sesión elegida
-donde la dejaste; una sesión que mantiene el servicio se abre conectada a él, como con
-`borg service attach NAME`. Un clic elige una sesión y un segundo clic la abre. **F7** pone nombre a
-una sesión nueva y la abre, y Esc o F10 sale sin abrir ninguna. Mientras la ventana está abierta,
-comprueba cada 2 segundos qué sesiones están activas.
+Con más de una sesión, o cuando la única que hay está abierta en otro terminal, `borg` empieza por
+la ventana **Sesiones de Borg**. Sus primeras líneas explican qué es una sesión, y la lista muestra
+cada sesión con la fecha en que se usó por última vez. Una sesión activa en este momento aparece
+marcada con su estado: **Abierta en otro terminal**, o **Mantenida por el servicio** cuando la
+ejecuta el servicio en segundo plano. Queda elegida la sesión usada por última vez, salvo que otro
+terminal la tenga abierta. Enter abre la sesión elegida donde la dejaste; una sesión que mantiene el
+servicio se abre conectada a él, como con `borg service attach NAME`. Un clic elige una sesión y un
+segundo clic la abre. **F7** pone nombre a una sesión nueva y la abre, y Esc o F10 sale sin abrir
+ninguna. Mientras la ventana está abierta, comprueba cada 2 segundos qué sesiones están activas.
 
 **F8** o **Delete** elimina la sesión elegida, tras una confirmación cuya opción predeterminada es
 **No**. Esto borra sus paneles guardados y su historial de terminal; tus archivos y carpetas se
@@ -903,10 +903,11 @@ conservan. La sesión predeterminada (Default) siempre se queda, igual que una s
 momento: sal antes de Borg en el otro terminal, o ejecuta `borg service stop` para eliminar una
 sesión que mantiene el servicio.
 
-Cuando otro Borg ya tiene la sesión abierta y no hay ningún servicio en segundo plano al que
-conectarse, `borg` se detiene e indica qué Borg es: su número de proceso, su terminal tal como lo
-muestra `ps` y hace cuánto se inició. Sal de ese Borg con F10 donde se esté ejecutando. Si ya no
-puedes llegar a su terminal, termínalo con `kill` y el número de proceso.
+Cuando indicas con `borg --session NAME` una sesión que otro Borg ya tiene abierta y no hay ningún
+servicio en segundo plano al que conectarse, `borg` se detiene e indica qué Borg es: su número de
+proceso, su terminal tal como lo muestra `ps` y hace cuánto se inició. Sal de ese Borg con F10 donde
+se esté ejecutando. Si ya no puedes llegar a su terminal, termínalo con `kill` y el número de
+proceso.
 
 `borg service install`, `enable` y `start` configuran el servicio opcional en segundo plano. Este
 mantiene la conexión de emparejamiento de la máquina y deja las sesiones con nombre en marcha

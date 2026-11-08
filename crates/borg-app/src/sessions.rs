@@ -342,13 +342,40 @@ pub async fn choose(state: &StateDir, requested: Option<&str>) -> Result<Option<
         return open(state, requested).map(Some);
     }
     let visible: Vec<_> = sessions.iter().filter(|session| !session.archived).collect();
-    if visible.len() == 1 {
-        return open(state, &visible[0].id).map(Some);
+    let interactive = std::io::stdin().is_terminal();
+    let only_open_elsewhere = match visible.as_slice() {
+        [only] if interactive => open_in_another_terminal(state, &only.id).await,
+        _ => false,
+    };
+    match start(&visible, only_open_elsewhere, interactive)? {
+        Start::Only(id) => open(state, &id).map(Some),
+        Start::Window => crate::start_window::run(state).await,
     }
-    if !std::io::stdin().is_terminal() {
-        bail!("multiple Borg sessions exist; start with `borg --session NAME`");
+}
+
+/// How `borg` with no session named starts.
+#[derive(Debug, PartialEq, Eq)]
+enum Start {
+    /// Straight into the only session there is.
+    Only(String),
+    /// Through the start window, to choose a session or make a new one.
+    Window,
+}
+
+/// How to start with these sessions shown. When the only one is open in another terminal, the
+/// start window offers a new session, where opening that one would only say it is taken.
+fn start(visible: &[&NamedSession], only_open_elsewhere: bool, interactive: bool) -> Result<Start> {
+    match visible {
+        [only] if !(interactive && only_open_elsewhere) => Ok(Start::Only(only.id.clone())),
+        _ if interactive => Ok(Start::Window),
+        _ => bail!("multiple Borg sessions exist; start with `borg --session NAME`"),
     }
-    crate::start_window::run(state).await
+}
+
+/// Whether a Borg in a terminal has the session open. One the background service keeps is not,
+/// since a new terminal attaches to it.
+async fn open_in_another_terminal(state: &StateDir, id: &str) -> bool {
+    held(state, id) && !crate::service::running_sessions().await.contains(id)
 }
 
 pub fn command(state: &StateDir, args: &[String]) -> Result<()> {
@@ -508,6 +535,24 @@ mod tests {
             assert_eq!(unknown.to_string(), "Session Default is already open in another Borg.");
             assert!(!unknown.explained().contains("kill"));
         });
+    }
+
+    #[test]
+    fn the_only_session_open_in_another_terminal_starts_in_the_window() {
+        let default =
+            NamedSession { id: DEFAULT_SESSION.into(), name: "Default".into(), archived: false, last_opened: 0 };
+        let web = NamedSession { id: "b".repeat(32), name: "web".into(), archived: false, last_opened: 0 };
+        let only = [&default];
+        let both = [&default, &web];
+        assert_eq!(start(&only, false, true).unwrap(), Start::Only(DEFAULT_SESSION.into()));
+        assert_eq!(start(&only, true, true).unwrap(), Start::Window, "the window offers F7 for a new session");
+        assert_eq!(
+            start(&only, true, false).unwrap(),
+            Start::Only(DEFAULT_SESSION.into()),
+            "without a terminal, opening it says which Borg has it"
+        );
+        assert_eq!(start(&both, false, true).unwrap(), Start::Window);
+        assert!(start(&both, false, false).is_err());
     }
 
     #[test]
