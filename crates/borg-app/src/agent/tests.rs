@@ -114,6 +114,22 @@ fn socket_folders_are_short_and_owner_only() {
 }
 
 #[test]
+fn a_socket_folder_that_links_elsewhere_is_refused() {
+    let place = tempfile::tempdir().unwrap();
+    let real = socket::owner_only(&place.path().join("real")).unwrap();
+    let link = place.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert!(socket::owner_only(&link).is_err());
+    assert!(socket::owner_only(&real).is_ok());
+}
+
+#[tokio::test]
+async fn a_socket_knows_a_program_of_this_user() {
+    let (one, _other) = tokio::net::UnixStream::pair().unwrap();
+    assert!(same_user(&one));
+}
+
+#[test]
 fn a_capture_call_names_one_scope_and_a_bounded_length() {
     use borg_core::{CaptureScope, LONGEST_CAPTURE, SHORTEST_CAPTURE, Transport};
     let everything = capture_call(&json!({})).unwrap();

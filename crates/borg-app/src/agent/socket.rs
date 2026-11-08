@@ -68,16 +68,22 @@ pub(crate) fn socket_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Creates a folder only its owner can enter. One that someone else owns, or that others
-/// can enter, is refused, so no other user can reach a session through it.
+/// Creates a folder only its owner can enter. One that someone else owns, that others can
+/// enter, or that is a link to another folder, is refused, so no other user can reach a
+/// session through it.
 pub(super) fn owner_only(dir: &Path) -> Result<PathBuf> {
     let dir = dir.to_path_buf();
     std::fs::DirBuilder::new().recursive(true).mode(OWNER_ONLY).create(&dir)?;
-    let meta = std::fs::metadata(&dir)?;
-    if meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & OTHERS != 0 {
+    let meta = std::fs::symlink_metadata(&dir)?;
+    if !meta.is_dir() || meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & OTHERS != 0 {
         bail!("{} must belong to you and be closed to others", dir.display());
     }
     Ok(dir)
+}
+
+/// Whether the program at the other end of `stream` runs as this user.
+pub(crate) fn same_user(stream: &tokio::net::UnixStream) -> bool {
+    stream.peer_cred().is_ok_and(|peer| peer.uid() == rustix::process::getuid().as_raw())
 }
 
 pub fn hostname() -> String {

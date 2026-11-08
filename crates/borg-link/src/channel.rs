@@ -11,7 +11,7 @@ use crate::key::{Identity, KEY_LEN, PublicKey};
 pub(crate) const NOISE: &str = "Noise_IK_25519_ChaChaPoly_BLAKE2s";
 /// Binds every handshake to this protocol, so a message from another one cannot pass for it.
 const PROLOGUE: &[u8] = b"borg-link 1";
-const NOISE_LIMIT: usize = 65_535;
+pub(crate) const NOISE_LIMIT: usize = 65_535;
 const TAG: usize = 16;
 /// Payload bytes per Noise message: what is left after the tag and the byte that says
 /// whether more of the message follows.
@@ -20,6 +20,9 @@ const MORE: u8 = 1;
 const LAST: u8 = 0;
 /// The largest message a channel carries.
 pub const MESSAGE_LIMIT: usize = 16 * 1024 * 1024;
+/// How long a client the relay joined may take to send its first message. Anyone who knows a
+/// server's key can ask the relay for it, so a client that says nothing is let go.
+pub const HELLO_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -115,10 +118,21 @@ pub async fn initiate(mut socket: Socket, identity: &Identity, server: &PublicKe
 
 /// Answers a channel a client opened over a socket the relay joined: the channel, with the
 /// client's key proven, and the client's hello.
-pub async fn respond(mut socket: Socket, identity: &Identity) -> Result<(Channel, Vec<u8>)> {
+pub async fn respond(socket: Socket, identity: &Identity) -> Result<(Channel, Vec<u8>)> {
+    respond_within(socket, identity, HELLO_WAIT).await
+}
+
+async fn respond_within(
+    mut socket: Socket,
+    identity: &Identity,
+    wait: std::time::Duration,
+) -> Result<(Channel, Vec<u8>)> {
     let mut handshake = builder(identity)?.build_responder()?;
     let mut buffer = vec![0; NOISE_LIMIT];
-    let first = next_binary(&mut socket).await?.context("the client closed the connection")?;
+    let first = tokio::time::timeout(wait, next_binary(&mut socket))
+        .await
+        .context("the client sent nothing in time")??
+        .context("the client closed the connection")?;
     let size = handshake.read_message(&first, &mut buffer).context("the client's hello failed to decrypt")?;
     let hello = buffer[..size].to_vec();
     let peer: PublicKey = handshake
@@ -131,3 +145,6 @@ pub async fn respond(mut socket: Socket, identity: &Identity) -> Result<(Channel
     let noise = handshake.into_transport_mode()?;
     Ok((Channel { socket, noise, peer, handshake_hash }, hello))
 }
+
+#[cfg(test)]
+mod tests;

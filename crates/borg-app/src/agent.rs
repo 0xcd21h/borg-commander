@@ -52,7 +52,7 @@ pub use scan::{ScanCall, ScanTarget, files_answer, process_answer, rule_text_pro
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
 use socket::SOCKET_SUFFIX;
-pub(crate) use socket::{SOCKET_PREFIX, socket_dir, socket_dirs, socket_path};
+pub(crate) use socket::{SOCKET_PREFIX, same_user, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
 use tools::{routing_tools, tools, transfer_tools};
 
@@ -375,6 +375,9 @@ async fn accept(
     service_child: bool,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
+        if !same_user(&stream) {
+            continue;
+        }
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
         note(&messages, "an agent connected");

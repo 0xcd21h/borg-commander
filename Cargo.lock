@@ -638,6 +638,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-rustls",
+ "tokio-tungstenite",
  "toml",
  "unicode-normalization",
  "unicode-segmentation",

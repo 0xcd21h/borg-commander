@@ -57,7 +57,9 @@ pub(super) async fn run() -> Result<()> {
             Some(id) = inbox.removed.recv() => {
                 service.removing.remove(&id);
             }
-            Ok((stream, _)) = inbox.listener.accept() => service.serve(stream).await?,
+            Ok((stream, _)) = inbox.listener.accept() => if crate::agent::same_user(&stream) {
+                service.serve(stream).await?;
+            },
             Some(_notice) = inbox.notices.recv() => {}
         }
     }
