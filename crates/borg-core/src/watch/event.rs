@@ -26,7 +26,11 @@ pub enum StreamKind {
     Terminal,
     Pipe,
     File,
+    /// A network socket, or a socket Borg could not look up.
     Socket,
+    /// A socket that stays on the machine, such as the one `systemd` gives a service's output
+    /// to the journal.
+    LocalSocket,
     /// Something else, or nothing Borg could read.
     #[default]
     Other,
@@ -39,6 +43,7 @@ impl StreamKind {
             Self::Pipe => borg_i18n::tr!(watch_stream_pipe),
             Self::File => borg_i18n::tr!(watch_stream_file),
             Self::Socket => borg_i18n::tr!(watch_stream_socket),
+            Self::LocalSocket => borg_i18n::tr!(watch_stream_local_socket),
             Self::Other => borg_i18n::tr!(watch_stream_other),
         }
     }
@@ -54,6 +59,9 @@ pub struct Ancestor {
     /// Its command as one line, empty where Borg could not read it.
     #[serde(default)]
     pub command: String,
+    /// What its standard input, output and error lead to.
+    #[serde(default)]
+    pub streams: [StreamKind; 3],
 }
 
 impl Ancestor {
