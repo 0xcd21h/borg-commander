@@ -4233,6 +4233,42 @@ fn network_offers_to_install_a_missing_tcpdump() -> Result<()> {
     Ok(())
 }
 
+/// Remote → Background service… asks the app how the service stands. A missing one gets the
+/// dialog with the command that installs, enables and starts it, a row for each part, and Enter
+/// types it into the shell.
+#[test]
+fn remote_menu_offers_to_install_the_background_service() -> Result<()> {
+    use borg_core::{Action, Effect, MenuCursor, Overlay, Pointer, ServiceCheck, ServiceStatus, View};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let now = stage.started;
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Remote").unwrap();
+    stage.send(Msg::Pointer(Pointer::Menu(index)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Background service…")?;
+    check("remote_menu", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Up));
+    let Some(Overlay::Menu(MenuCursor { item: Some(item), .. })) = stage.state.overlay else {
+        panic!("the menu is open")
+    };
+    let chosen = borg_core::menus(&stage.state)[index].item(item).map(|entry| entry.action);
+    assert_eq!(chosen, Some(Action::BackgroundService), "Up wraps to the last entry");
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    assert!(effects.contains(&Effect::CheckService), "the app is asked: {effects:?}");
+    let program = "/usr/local/bin/borg".to_owned();
+    stage.send(Msg::Service(ServiceCheck { status: ServiceStatus::Missing, program, root: false }));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "/usr/local/bin/borg service enable &&")?;
+    check("service_install", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let typed = b"/usr/local/bin/borg service install && /usr/local/bin/borg service enable && \
+/usr/local/bin/borg service start\r";
+    assert!(effects.contains(&Effect::Write(typed.to_vec())), "Enter types the command: {effects:?}");
+    assert_eq!(stage.state.view, View::Shell, "and shows the shell");
+    Ok(())
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]

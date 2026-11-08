@@ -905,11 +905,19 @@ serviço mantém.
 
 `borg service install`, `enable` e `start` configuram o serviço opcional em segundo plano. Este
 mantém a ligação de emparelhamento da máquina e mantém as sessões com nome em execução depois de
-os respetivos terminais fecharem. `borg service attach NAME` volta a ligar-se a uma delas, e
+os respetivos terminais fecharem. Estes comandos executam o gestor de serviços do sistema através
+do sudo, que pede a sua palavra-passe, ou diretamente quando é root. `borg service attach NAME` volta a ligar-se a uma delas, e
 Ctrl-] desliga-se de novo sem terminar a shell. Use `borg service stop`, `disable` ou `uninstall`
 para parar ou remover o serviço.
 Num contentor sem systemd, configure o supervisor de processos do contentor para executar
 `borg service run`; os comandos `install` e `enable` precisam de um host Linux com systemd.
+
+Escolha F9 → Remoto → **Serviço em segundo plano…** para configurar o serviço a partir do Borg.
+Quando o serviço não está instalado, uma caixa de diálogo mostra o comando que o instala, ativa e
+inicia. Quando está instalado e parado, a caixa de diálogo propõe ativá-lo e iniciá-lo. Enter
+escreve o comando na shell do Borg e executa-o aí, onde vê o sudo pedir a sua palavra-passe.
+Quando o serviço já está em execução, ou a máquina não tem systemd, um aviso indica-o. Depois de o
+serviço arrancar, saia do Borg com F10 e execute `borg` de novo para abrir a sua sessão no serviço.
 
 ### Painéis remotos
 
@@ -966,8 +974,8 @@ serviço em segundo plano. O emparelhamento funciona num único sentido: um clie
 passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando quem
 detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a ser
 listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao
-mesmo tempo. O menu Remoto oferece também **Espelhar host montado** e **Partilhar este Borg como
-host…**.
+mesmo tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como
+host…** e **Serviço em segundo plano…**.
 
 O seletor mostra a versão do Borg de cada host. Selecionar uma sessão mostra o sistema
 operativo e a arquitetura, se corre como serviço em segundo plano ou num terminal, a latência dos

@@ -832,10 +832,18 @@ or run `borg service stop` to remove a session the service keeps.
 
 `borg service install`, `enable`, and `start` set up the optional background service. It holds
 the machine's pairing connection and keeps named sessions running after their terminals close.
-`borg service attach NAME` reconnects to one, and Ctrl-] detaches again without ending its
+They run the system's service manager through sudo, which asks for your password, or directly
+when you are root. `borg service attach NAME` reconnects to one, and Ctrl-] detaches again without ending its
 shell. Use `borg service stop`, `disable`, or `uninstall` to stop or remove the service.
 In a container without systemd, have the container's process supervisor run `borg service run`;
 the `install` and `enable` commands need a Linux host with systemd.
+
+Choose F9 → Remote → **Background service…** to set the service up from Borg. When the service is
+missing, a dialog shows the command that installs, enables, and starts it. When it is installed
+and stopped, the dialog offers to enable and start it. Enter types the command into Borg's shell
+and runs it there, where you see sudo ask for your password. When the service already runs, or
+the machine has no systemd, a notice says so. Once the service runs, quit Borg with F10 and run
+`borg` again to open your session in the service.
 
 ### Remote panels
 
@@ -887,7 +895,8 @@ including in a session whose connections are held by the background service. Pai
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host** and **Share this Borg as host…**.
+The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**, and
+**Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.

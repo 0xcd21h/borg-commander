@@ -33,6 +33,7 @@ mod pointer;
 mod portrait;
 mod remote_view;
 mod results_view;
+mod service_view;
 mod session_picker_view;
 mod settings_view;
 mod shortcuts;

@@ -286,6 +286,8 @@ pub enum Msg {
     Backup(crate::BackupEvent),
     /// What Borg keeps where, for the Borg's files window.
     Storage(crate::StorageReport),
+    /// How the background service stands, after the Remote menu asked.
+    Service(crate::ServiceCheck),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -553,5 +555,7 @@ pub enum Effect {
     ScanStorage,
     /// Removes those of these leftovers that are still left over, then measures again.
     CleanStorage(Vec<PathBuf>),
+    /// Looks at how the background service stands on this machine.
+    CheckService,
     Quit,
 }

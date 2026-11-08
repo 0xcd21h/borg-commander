@@ -133,6 +133,8 @@ pub struct AppState {
     pub operation: Option<Operation>,
     /// The program the shell is installing, whose end gives a notice.
     pub(crate) installing: Option<crate::Tool>,
+    /// The shell runs the command that sets up the background service, whose end gives a notice.
+    pub(crate) setting_up_service: bool,
     pub sizing: Option<crate::SizeScan>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
@@ -240,6 +242,7 @@ impl AppState {
             approval: None,
             operation: None,
             installing: None,
+            setting_up_service: false,
             sizing: None,
             measured: Default::default(),
             next_size: 0,

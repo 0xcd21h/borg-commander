@@ -905,11 +905,21 @@ sesión que mantiene el servicio.
 
 `borg service install`, `enable` y `start` configuran el servicio opcional en segundo plano. Este
 mantiene la conexión de emparejamiento de la máquina y deja las sesiones con nombre en marcha
-después de que se cierren sus terminales. `borg service attach NAME` vuelve a conectarse a una, y
+después de que se cierren sus terminales. Estos comandos ejecutan el gestor de servicios del
+sistema a través de sudo, que te pide la contraseña, o directamente cuando eres root.
+`borg service attach NAME` vuelve a conectarse a una, y
 Ctrl-] se desconecta de nuevo sin terminar su shell. Usa `borg service stop`, `disable` o
 `uninstall` para detener o quitar el servicio. En un contenedor sin systemd, haz que el supervisor
 de procesos del contenedor ejecute `borg service run`; los comandos `install` y `enable` necesitan
 un host Linux con systemd.
+
+Elige F9 → Remoto → **Servicio en segundo plano…** para configurar el servicio desde Borg. Cuando
+el servicio no está instalado, un diálogo muestra el comando que lo instala, lo habilita y lo
+inicia. Cuando está instalado y detenido, el diálogo ofrece habilitarlo e iniciarlo. Enter escribe
+el comando en el shell de Borg y lo ejecuta allí, donde ves cómo sudo te pide la contraseña.
+Cuando el servicio ya está en ejecución, o la máquina no tiene systemd, un aviso lo indica. Una vez
+que el servicio funcione, sal de Borg con F10 y vuelve a ejecutar `borg` para abrir tu sesión en
+el servicio.
 
 ### Paneles remotos
 
@@ -965,8 +975,8 @@ conexiones mantiene el servicio en segundo plano. El emparejamiento funciona en 
 cliente autorizado no se convierte automáticamente en un host cuyos archivos pueda explorar este
 Borg. Cuando el propietario de la conexión no puede informar del estado de la conexión, los
 clientes emparejados siguen apareciendo, con **Estado de conexión no disponible**. Un mismo Borg
-puede ser host y cliente a la vez. El menú Remoto también ofrece **Reflejar host montado** y
-**Compartir este Borg como host…**.
+puede ser host y cliente a la vez. El menú Remoto también ofrece **Reflejar host montado**,
+**Compartir este Borg como host…** y **Servicio en segundo plano…**.
 
 El selector muestra la versión de Borg de cada host. Al seleccionar una sesión se muestran su
 sistema operativo y su arquitectura, si se ejecuta como servicio en segundo plano o en un terminal,
