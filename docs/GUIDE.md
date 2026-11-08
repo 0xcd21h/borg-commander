@@ -1426,6 +1426,7 @@ second sample on.
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; press again to reverse |
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
+| Left / Right | In the tree, fold the selected process's branch or unfold it |
 | K | Send a signal or change the priority |
 | E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
@@ -1439,6 +1440,17 @@ virtual address space, and a chart of resident memory over the last 60 seconds. 
 swapped, private, and shared totals appear once the memory map has been read, if the system
 reports them. **Enter** in the memory pane opens the memory map. The memory map is read when you
 ask for it; press R to read it again after the process changes its mappings.
+
+Below the chart, **Process tree** lists the processes the selected one descends from, the process
+itself, and everything it started, each indented under the one that started it and shown with its
+resident memory. When they do not all fit, the last line says how many are left out.
+
+In the tree that **T** shows, each process is listed under the one that started it, and **▾** marks
+a process with others under it. **Left** folds the selected process's branch; on a process with
+nothing under it, Left folds the branch it belongs to and selects the process that started it.
+**Right** unfolds a folded branch, and on an open one steps to the first process in it. A folded
+process shows **▸** and how many processes it hides. A branch stays folded until its process ends.
+While a filter applies, the list is flat.
 
 ### Signals and priority
 

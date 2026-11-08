@@ -157,6 +157,7 @@ pub use activity::{
     MemoryRegion, MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
 };
 
+pub use activity::{Branch, Kin, ListedProcess, Relative};
 pub use activity::{
     CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, Indicator, MemoryCensus, PageClass, census_grid,
 };
