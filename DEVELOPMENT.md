@@ -1008,15 +1008,18 @@ icon and an explicit list of fictional showcase screenshots are copied into the 
 metadata comes from `Cargo.toml` and the Git revision. The guide tracks main, so it can
 describe changes that are not in a release yet.
 
-The icon master is `docs/brand/icon.svg`, hand-written on a 64-unit grid. The generator
-copies it to the site's favicon and Starlight logo, and the README shows it directly.
-`docs/brand/social-preview.png` is the 1280x640 image for the repository's social preview.
-GitHub takes it only through Settings → General → Social preview, so upload it there after
-every change. Its source, `docs/brand/social-preview.svg`, embeds the icon and draws the
-block logo from `GLITCH_LOGO`. Render it again with the repository's Borg Mono:
+The icon is Borg's own glitch logo. `scripts/render-brand.mjs` draws it the way
+`crates/borg-ui/src/fx/glitch.rs` does, with Borg Mono from `fonts/`, and writes four files to
+`docs/brand/`: `icon.png` (512 px, frozen mid-glitch), `favicon.png` (64 px, the same frame),
+`icon.gif` (256 px, the logo bursting and settling in a 3.6-second loop) and
+`social-preview.png` (1280x640). The site generator copies the PNGs to the favicon and the
+Starlight logo, and the README plays the GIF. GitHub takes the social preview only through
+Settings → General → Social preview, so upload it there after every change. Render the files
+again after changing the glitch, the logo or the tagline. The script needs Node, `resvg` and
+ImageMagick:
 
 ```sh
-resvg --skip-system-fonts --use-fonts-dir fonts docs/brand/social-preview.svg docs/brand/social-preview.png
+node scripts/render-brand.mjs
 ```
 
 The **Publish guide** workflow checks the source, builds the site and search index, checks
