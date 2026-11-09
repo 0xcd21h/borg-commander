@@ -830,9 +830,10 @@ en él, o elige F9 → Remoto → **Registro remoto…** en cualquier momento, p
 que ha hecho el agente: lo que ha mirado, leído, analizado, mostrado y escrito, y cada comando y
 cambio, aprobado o rechazado. Cada sesión guarda su registro en disco, legible solo por ti, así que
 puedes volver a una sesión que dejaste en marcha y ver lo que pasó en ella, incluso después de que
-Borg haya salido. Cuando el registro crece mucho, Borg descarta las entradas más antiguas. Los
-comandos aparecen tal como los mostraron sus diálogos, así que una contraseña escrita en una línea
-de comandos también queda en el registro. Para no guardar ningún registro, desactiva
+Borg haya salido. Cuando el registro crece mucho, Borg descarta las entradas más antiguas. Antes de
+guardar una entrada, Borg oculta las contraseñas, los tokens y las claves que reconoce, y deja fuera
+la salida de los comandos. Una contraseña pasada como una palabra más no se distingue de las demás,
+así que Borg no puede ocultarla. Para no guardar ningún registro, desactiva
 **Remoto: llevar un registro de lo que hace** en Opciones → Complementos, lo que también borra el
 registro guardado.
 

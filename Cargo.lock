@@ -625,6 +625,7 @@ dependencies = [
  "ratatui",
  "rcgen",
  "read-process-memory",
+ "regex",
  "rusqlite",
  "rustix",
  "rustls-native-certs",

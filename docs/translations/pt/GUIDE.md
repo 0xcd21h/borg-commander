@@ -832,10 +832,12 @@ ou escolha F9 → Remoto → **Registo remoto…** a qualquer momento, para ver 
 fez: o que viu, leu, analisou, mostrou e escreveu, e todos os comandos e alterações, aprovados ou
 recusados. Cada sessão guarda o seu registo no disco, legível apenas por si, para que possa voltar a
 uma sessão que deixou a correr e ver o que aconteceu nela, mesmo depois de o Borg terminar. Quando o
-registo fica grande, o Borg descarta as entradas mais antigas. Os comandos aparecem tal como os
-diálogos os mostraram, por isso uma palavra-passe escrita numa linha de comandos também fica no
-registo. Para não guardar registo nenhum, desative **Remoto: manter um registo do que faz** em
-Opções → Plugins, o que também elimina o registo guardado.
+registo fica grande, o Borg descarta as entradas mais antigas. Antes de guardar uma entrada, o Borg
+oculta as palavras-passe, os tokens e as chaves que reconhece, e deixa de fora a saída dos comandos.
+Uma palavra-passe passada como uma palavra simples parece uma palavra qualquer, por isso o Borg não
+a consegue ocultar. Para não guardar registo nenhum, desative
+**Remoto: manter um registo do que faz** em Opções → Plugins, o que também elimina o registo
+guardado.
 
 ### Borg cloud
 

@@ -11,6 +11,7 @@ mod capture;
 mod files;
 mod location;
 mod scan;
+mod secrets;
 mod server;
 mod socket;
 mod tools;
@@ -243,10 +244,11 @@ impl Typed {
     }
 }
 
-/// Adds an entry, with the date and time, to the log of what agents did; the session keeps it,
-/// on disk too, while the user wants a log.
+/// Adds an entry, with the date and time and with the secrets it recognizes hidden, to the log
+/// of what agents did; the session keeps it, on disk too, while the user wants a log.
 pub fn note(messages: &UnboundedSender<Msg>, entry: &str) {
-    let _ = messages.send(Msg::Agent(AgentEvent::Note(stamped(&jiff::Zoned::now(), entry))));
+    let entry = secrets::hidden(entry);
+    let _ = messages.send(Msg::Agent(AgentEvent::Note(stamped(&jiff::Zoned::now(), &entry))));
 }
 
 /// An entry of the log as it reads: the date and time it happened, then what happened.
@@ -321,13 +323,13 @@ impl Agent {
 
     /// Runs a command on this machine in the background, for a console that cannot take it
     /// (a shell without Borg's integration, or a container's console), and answers with its
-    /// output, which the log keeps since no terminal shows it.
+    /// output, which the log leaves out since output can hold secrets.
     pub fn run_in_background(&self, id: u64, reply: oneshot::Sender<Reply>, command: String, dir: PathBuf) {
         let messages = self.messages.clone();
         tokio::spawn(async move {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
-            note(&messages, &format!("ran in {}\n$ {command}\n{output}[{status}]", home_relative(&dir)));
+            note(&messages, &format!("ran in {}\n$ {command}\n[{status}]", home_relative(&dir)));
             let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
             let notice = match exit {
                 Some(code) => tr!(agent_ran, command = command, code = code),
