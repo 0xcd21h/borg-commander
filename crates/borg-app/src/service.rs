@@ -224,13 +224,10 @@ fn mirror_child(call: &Call, child: &Arc<Mutex<Child>>) -> Reply {
             if child.controller != Some(owner) {
                 return Reply::error("take control before resizing");
             }
-            let (Some(cols), Some(rows)) = (call.args["cols"].as_u64(), call.args["rows"].as_u64()) else {
-                return Reply::error("mirror_resize needs cols and rows");
+            let Some(viewer) = crate::native_mirror::viewer_size(&call.args) else {
+                return Reply::error("mirror_resize needs cols and rows within the terminal sizes a session takes");
             };
-            if !(20..=500).contains(&cols) || !(8..=200).contains(&rows) {
-                return Reply::error("terminal size is out of range");
-            }
-            let size = GridSize { cols: cols as u16, rows: rows as u16 };
+            let size = GridSize { cols: viewer.width, rows: viewer.height };
             match child.pty.resize(size) {
                 Ok(()) => {
                     child.emulator.resize(size);

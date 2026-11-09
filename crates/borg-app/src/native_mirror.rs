@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     io::Write,
+    ops::RangeInclusive,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -13,9 +14,9 @@ use crossterm::event::{Event, KeyEventKind};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     buffer::{Buffer, Cell, CellWidth},
-    layout::Position,
+    layout::{Position, Rect, Size},
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -32,6 +33,27 @@ const REQUEST_LIMIT: usize = 512 * 1024;
 const EVENT_LIMIT: usize = 128;
 const PASTE_LIMIT: usize = 64 * 1024;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
+/// The window sizes a controlling viewer can lay a session out for.
+pub(crate) const VIEWER_COLS: RangeInclusive<u16> = 20..=500;
+pub(crate) const VIEWER_ROWS: RangeInclusive<u16> = 8..=200;
+
+/// The size a controlling viewer asks the session to take, when it is one the session can.
+pub(crate) fn viewer_size(args: &Value) -> Option<Size> {
+    let side = |key: &str, sides: RangeInclusive<u16>| {
+        args[key].as_u64().and_then(|side| u16::try_from(side).ok()).filter(|side| sides.contains(side))
+    };
+    Some(Size { width: side("cols", VIEWER_COLS)?, height: side("rows", VIEWER_ROWS)? })
+}
+
+/// Where Borg draws on its terminal: all of `area`, or the top left of it at the controlling
+/// viewer's size when the viewer's window is smaller, so the viewer sees the whole screen.
+fn fit(area: Rect, viewer: Option<Size>) -> Rect {
+    viewer.map_or(area, |viewer| Rect {
+        width: area.width.min(viewer.width),
+        height: area.height.min(viewer.height),
+        ..area
+    })
+}
 
 type Patch = (u16, u16, Cell);
 
@@ -50,6 +72,8 @@ struct Screen {
     replay: VecDeque<Delta>,
     bytes: usize,
     controller: Option<String>,
+    /// The controlling viewer's window, which the session is laid out for while it controls.
+    viewer: Option<Size>,
     /// The last copy, base64-encoded, and the sequence it came with: only the controlling
     /// viewer receives it, once, to put on the clipboard of the computer it runs on.
     clipboard: Option<(u64, String)>,
@@ -154,10 +178,14 @@ impl Screen {
     }
 }
 
-pub struct Input {
-    pub origin: String,
-    pub events: Vec<Event>,
-    pub reply: Option<oneshot::Sender<Reply>>,
+/// What a mirror asks of the Borg it shows.
+pub enum Input {
+    /// Keys, pastes and clicks from a viewer, and where to say they were handled.
+    Events { origin: String, events: Vec<Event>, reply: oneshot::Sender<Reply> },
+    /// A viewer took control of the session or let it go.
+    Control,
+    /// The controlling viewer's window changed size.
+    Resized,
 }
 
 #[derive(Clone)]
@@ -209,7 +237,7 @@ impl Shared {
                 _ => return Reply::error("This session uses native mirror input; update and restart the client"),
             };
             let (send, receive) = oneshot::channel();
-            if self.input.send(Input { origin, events, reply: Some(send) }).is_err() {
+            if self.input.send(Input::Events { origin, events, reply: send }).is_err() {
                 return Reply::error("Borg session closed");
             }
             return tokio::time::timeout(REQUEST_WAIT, receive)
@@ -227,18 +255,22 @@ impl Shared {
                 {
                     return Reply::error("Another viewer controls this session; request Take control explicitly");
                 }
-                screen.controller = Some(origin.clone());
+                if screen.controller.as_ref() != Some(&origin) {
+                    screen.viewer = None;
+                }
+                screen.controller = Some(origin);
                 screen.advance(Vec::new());
                 self.output.send_replace(screen.sequence);
-                let _ = self.input.send(Input { origin, events: Vec::new(), reply: None });
+                let _ = self.input.send(Input::Control);
                 Reply::ok(json!({"native_input":true}).to_string())
             }
             "mirror_release" => {
                 if screen.controller.as_deref() == Some(&origin) {
                     screen.controller = None;
+                    screen.viewer = None;
                     screen.advance(Vec::new());
                     self.output.send_replace(screen.sequence);
-                    let _ = self.input.send(Input { origin, events: Vec::new(), reply: None });
+                    let _ = self.input.send(Input::Control);
                 }
                 Reply::ok("Control released")
             }
@@ -246,7 +278,13 @@ impl Shared {
                 if screen.controller.as_deref() != Some(&origin) {
                     return Reply::error("Take control before resizing");
                 }
-                Reply::ok("This mirror follows the host terminal size")
+                let Some(viewer) = viewer_size(&call.args) else {
+                    return Reply::error("The mirror's window is too small or too large");
+                };
+                if screen.viewer.replace(viewer) != Some(viewer) {
+                    let _ = self.input.send(Input::Resized);
+                }
+                Reply::ok("Borg lays out for the mirror's window")
             }
             _ => Reply::error("Unknown mirror request"),
         }
@@ -327,6 +365,11 @@ impl Host {
         self.publish(&buffer, None);
     }
 
+    /// Where Borg draws on a terminal of `area`, for the viewer that controls the session.
+    pub fn fit(&self, area: Rect) -> Rect {
+        fit(area, self.shared.screen.lock().expect("mirror screen").viewer)
+    }
+
     pub fn controls(&self, origin: &str) -> bool {
         self.shared.screen.lock().expect("mirror screen").controller.as_deref() == Some(origin)
     }
@@ -336,6 +379,7 @@ impl Host {
         if screen.controller.take().is_none() {
             return false;
         }
+        screen.viewer = None;
         screen.advance(Vec::new());
         self.shared.output.send_replace(screen.sequence);
         true

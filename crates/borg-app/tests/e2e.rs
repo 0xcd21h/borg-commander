@@ -4657,6 +4657,48 @@ fn mirror_opens_all_channels_on_a_slow_connection_before_taking_control() -> Res
 }
 
 #[test]
+fn a_mirror_in_a_shorter_window_shows_the_whole_host_and_the_host_gets_its_rows_back() -> Result<()> {
+    const HOST: (u16, u16) = (130, 34);
+    const CLIENT: (u16, u16) = (140, 34);
+    const BANNER_ROWS: usize = 2;
+    let last_drawn = |screen: &Snapshot| screen.lines().iter().rposition(|line| !line.trim().is_empty());
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(HOST.0, HOST.1).label("fitted-mirror-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    remote.send(keys::esc())?;
+    remote.wait_gone("Remote access to this borg")?;
+    let client = fixture()?;
+    client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in ["key", "servers.json"] {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(CLIENT.0, CLIENT.1).label("fitted-mirror-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send("m")?;
+    local.wait_text("REMOTE MIRROR - CONTROL")?;
+    let shown = usize::from(CLIENT.1) - BANNER_ROWS;
+    let fitted = remote.wait_until("the host laid out for the mirror's window", |screen| {
+        last_drawn(screen) == Some(shown - 1) && screen.contains("has control")
+    })?;
+    local.wait_until("every row the host draws, above the banner", |screen| {
+        screen.lines()[..shown] == fitted.lines()[..shown]
+    })?;
+    local.send(keys::ctrl('g'))?;
+    local.wait_until("local panels after the mirror", |screen| {
+        screen.contains("F1Help") && !screen.contains("REMOTE MIRROR")
+    })?;
+    remote
+        .wait_until("the host's whole terminal again", |screen| last_drawn(screen) == Some(usize::from(HOST.1) - 1))?;
+    Ok(())
+}
+
+#[test]
 fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
     use std::sync::atomic::Ordering;
     let binary = std::env::var_os("BORG_LATENCY_BINARY").map_or_else(|| Path::new(BORG).to_path_buf(), Into::into);

@@ -633,9 +633,14 @@ records before reading metadata.
 Mirror display and input use separate tasks and connections. Input bursts are batched in a
 bounded queue; frame requests wait on the host for new PTY output, outside the service loop
 and child lock. A viewer more than 64 KiB behind receives a snapshot of the visible grid,
-cursor, and attributes instead of the backlog. A copy made while a viewer controls the session
-travels with that viewer's next frame as a base64 `clipboard` field, which the viewer passes to
-its terminal as OSC 52 after checking it is plain base64; view-only viewers never receive it.
+cursor, and attributes instead of the backlog. The controlling viewer sends `mirror_resize` with
+its window less the two banner rows. The service resizes the child's PTY to it. A regular session
+keeps its own terminal and, where the viewer's window is smaller, draws the whole screen into the
+top left of that terminal at the viewer's size and publishes that area as the mirror's frame; it
+fills its terminal again once control returns to it or the viewer lets go. A copy made while a
+viewer controls the session travels with that viewer's next frame as a base64 `clipboard` field,
+which the viewer passes to its terminal as OSC 52 after checking it is plain base64; view-only
+viewers never receive it.
 Copies also stay in `borg-core::clipboard`, so Ctrl-V works in Borg's own fields anywhere.
 
 Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel) or `viewer`.

@@ -937,9 +937,13 @@ the bottom. The line above it shows who has control; Ctrl-] also exits.
 
 A regular `borg` or `borg --session NAME` can be mirrored while it runs, without the background
 service. Its own terminal stays visible, and any keyboard or mouse input there takes control back
-from the mirror. The mirror follows the host terminal's layout and is cut off to fit a smaller
-window; making your window larger shows the rest. The optional background service keeps sessions
-alive after their original terminal closes and lets the controlling client resize their PTY.
+from the mirror. While you have control, Borg on the host lays out for your window: when the space
+above the banner is smaller than the host's terminal, Borg draws in the top left of that terminal
+at your size, and the rest of it stays blank. Once control goes back to the host's terminal or you
+leave the mirror, Borg fills that terminal again. A mirror without control follows the host
+terminal's layout and is cut off to fit a smaller window; making your window larger shows the
+rest. The optional background service keeps sessions alive after their original terminal closes
+and lets the controlling client resize their PTY.
 
 If another terminal has control of the remote session, the mirror opens in view-only mode and
 your keys do not reach the session. Press **Ctrl-T** or click the status line to take control and
