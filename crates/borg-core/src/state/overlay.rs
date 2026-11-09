@@ -191,6 +191,8 @@ pub enum Overlay {
     Capture(crate::CaptureDialog),
     /// The command that installs a missing program, before it runs in the shell.
     Install(crate::InstallOffer),
+    /// The command that installs or starts the background service, before it runs in the shell.
+    Service(crate::ServiceOffer),
     /// Where Borg keeps its own files, how much each place holds, and the leftovers.
     Storage(crate::StorageWindow),
 }
