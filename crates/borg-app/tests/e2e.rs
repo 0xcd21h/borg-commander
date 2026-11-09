@@ -5156,3 +5156,91 @@ fn the_alerts_page_keeps_a_log_borg_cannot_read_and_says_where() -> Result<()> {
     ensure!(app.wait_exit()?.success());
     Ok(())
 }
+
+#[cfg(target_os = "linux")]
+fn sealed_borg(home: &Path, args: &[&str], input: Option<&str>) -> Result<std::process::Output> {
+    use std::process::Stdio;
+    let mut child = std::process::Command::new(BORG)
+        .args(args)
+        .env("HOME", home)
+        .env("BORG_LANGUAGE", "en")
+        .env_remove("BORG_STATE_DIR")
+        .env_remove("XDG_STATE_HOME")
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(input) = input {
+        child.stdin.take().context("borg's input")?.write_all(input.as_bytes())?;
+    }
+    Ok(child.wait_with_output()?)
+}
+
+#[cfg(target_os = "linux")]
+fn said(output: &std::process::Output) -> String {
+    format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
+}
+
+#[cfg(target_os = "linux")]
+struct LockWhenDone(PathBuf);
+
+#[cfg(target_os = "linux")]
+impl Drop for LockWhenDone {
+    fn drop(&mut self) {
+        sealed_borg(&self.0, &["lock"], None).ok();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn borg_unlock_seals_the_computer_key_behind_a_password_and_borg_lock_locks_it() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    const PASSWORD: &str = "rain cobalt ladder fern";
+    let home = tempfile::tempdir()?;
+    let _locked = LockWhenDone(home.path().to_path_buf());
+    let link = home.path().join(".local/state/borg-commander/link");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&link)?;
+    let first = borg_link::Identity::generate();
+    let plain = link.join("computer-key");
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&plain)?;
+    file.write_all(format!("{}\n", first.to_text()).as_bytes())?;
+    drop(file);
+
+    let refused = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(!refused.status.success() && said(&refused).contains("has no password yet"), "{}", said(&refused));
+    ensure!(plain.exists(), "the plain key stays until a password seals it");
+
+    let mismatch = sealed_borg(home.path(), &["unlock"], Some(&format!("{PASSWORD}\nsomething else\n")))?;
+    ensure!(!mismatch.status.success() && said(&mismatch).contains("passwords differ"), "{}", said(&mismatch));
+
+    let typed = format!("{PASSWORD}\n{PASSWORD}\n");
+    let sealed = sealed_borg(home.path(), &["unlock"], Some(&typed))?;
+    ensure!(sealed.status.success(), "{}", said(&sealed));
+    ensure!(said(&sealed).contains("Four random words") && said(&sealed).contains("is unlocked until 12 hours"));
+    ensure!(!plain.exists(), "sealing removes the plain key");
+    let sealed_file = link.join("computer-key.sealed");
+    ensure!(std::fs::metadata(&sealed_file)?.permissions().mode() & 0o777 == 0o600);
+    let text = std::fs::read_to_string(&sealed_file)?;
+    ensure!(!text.contains(&first.to_text()), "the sealed file holds no key in the clear");
+
+    let renewed = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(renewed.status.success() && said(&renewed).contains("has a new key"), "{}", said(&renewed));
+    ensure!(std::fs::read_to_string(&sealed_file)? != text, "the new key is sealed in the same file");
+
+    let locked = sealed_borg(home.path(), &["lock"], None)?;
+    ensure!(locked.status.success() && said(&locked).contains("key is locked"), "{}", said(&locked));
+    let again = sealed_borg(home.path(), &["lock"], None)?;
+    ensure!(said(&again).contains("was not unlocked"), "{}", said(&again));
+    let waiting = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(!waiting.status.success() && said(&waiting).contains("Run borg unlock"), "{}", said(&waiting));
+
+    let wrong = sealed_borg(home.path(), &["unlock"], Some("rain\ncobalt\nladder\n"))?;
+    ensure!(!wrong.status.success() && said(&wrong).contains("stays locked after 3 tries"), "{}", said(&wrong));
+    ensure!(said(&wrong).matches("does not unlock").count() == 3, "{}", said(&wrong));
+
+    let opened = sealed_borg(home.path(), &["unlock"], Some(&format!("{PASSWORD}\n")))?;
+    ensure!(opened.status.success() && said(&opened).contains("is unlocked"), "{}", said(&opened));
+    let used = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(used.status.success(), "an unlocked key works without a terminal: {}", said(&used));
+    Ok(())
+}

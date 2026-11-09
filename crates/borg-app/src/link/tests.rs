@@ -399,3 +399,257 @@ mod rotation {
         assert!(keychain::read(&account).unwrap().is_none());
     }
 }
+
+mod sealing {
+    use super::super::{
+        key_agent,
+        keys::COMPUTER_KEY_FILE,
+        sealed::{Cost, DataKey, KEY_LEN, SEALED_FILE, Sealed, agent_challenge},
+        ssh_agent::{Agent, parse_identities, parse_signature, sign_request},
+        words,
+    };
+    use std::{
+        io::{Read, Write},
+        os::unix::{fs::PermissionsExt, net::UnixListener},
+        time::Duration,
+    };
+    use zeroize::Zeroizing;
+
+    const QUICK: Cost = Cost { memory_kib: 8 * 1024, passes: 1, lanes: 1 };
+    const KEYS: &str = "first key\nretired key\n";
+    const GIB: u64 = 1024 * 1024 * 1024;
+
+    fn string(bytes: &[u8]) -> Vec<u8> {
+        [&u32::try_from(bytes.len()).unwrap().to_be_bytes()[..], bytes].concat()
+    }
+
+    fn blob(kind: &str) -> Vec<u8> {
+        [string(kind.as_bytes()), string(&[9; 32])].concat()
+    }
+
+    #[test]
+    fn a_sealed_key_file_opens_with_its_password_and_refuses_a_wrong_one() {
+        assert_ne!(SEALED_FILE, COMPUTER_KEY_FILE, "a sealed file never takes the plain file's place");
+        let (sealed, data) = Sealed::seal("plume orbit cactus ledger", QUICK, KEYS).unwrap();
+        let text = sealed.to_text().unwrap();
+        assert!(!text.contains("first key"), "the file holds no key in the clear");
+        let mut read = Sealed::from_text(&text).unwrap();
+        assert!(text.contains("\"memory_kib\": 8192") && text.contains("\"passes\": 1"), "the file names its cost");
+        assert!(read.open_with_password("plume orbit cactus").unwrap().is_none());
+        let opened = read.open_with_password("plume orbit cactus ledger").unwrap().unwrap();
+        assert_eq!(*opened, *data);
+        assert_eq!(read.open(&opened).unwrap().as_str(), KEYS);
+        read.reseal(&opened, "new key\n").unwrap();
+        assert_eq!(read.open(&data).unwrap().as_str(), "new key\n");
+        assert!(read.open(&Zeroizing::new([1; KEY_LEN])).is_err(), "another key opens nothing");
+    }
+
+    #[test]
+    fn an_ssh_agent_signature_opens_the_slot_it_made_and_no_other() {
+        let (mut sealed, data) = Sealed::seal("password", QUICK, KEYS).unwrap();
+        let salt = Sealed::new_agent_salt().unwrap();
+        let challenge = agent_challenge(&salt);
+        assert!(
+            challenge.ends_with(&salt) && challenge.len() > salt.len(),
+            "the agent signs a borg label and the salt"
+        );
+        sealed.allow_agent(&data, "SHA256:abc", &salt, b"the agent's signature").unwrap();
+        let sealed = Sealed::from_text(&sealed.to_text().unwrap()).unwrap();
+        assert_eq!(sealed.agent_salt().unwrap(), salt);
+        let opened: DataKey = sealed.open_with_signature(b"the agent's signature").unwrap();
+        assert_eq!(*opened, *data);
+        assert!(sealed.open_with_signature(b"another signature").is_none());
+    }
+
+    #[test]
+    fn small_machines_get_a_lighter_password_stretch() {
+        assert_eq!(Cost::for_memory(16 * GIB).memory_kib, 1024 * 1024);
+        assert_eq!(Cost::for_memory(4 * GIB).memory_kib, 512 * 1024);
+        assert_eq!(Cost::for_memory(GIB / 4).memory_kib, 64 * 1024);
+        assert!((64 * 1024..=1024 * 1024).contains(&Cost::for_this_machine().memory_kib));
+    }
+
+    #[test]
+    fn suggestions_are_four_words_from_a_list_of_2048() {
+        let list = words::list();
+        assert_eq!(list.len(), 2048);
+        assert_eq!(list.iter().collect::<std::collections::HashSet<_>>().len(), 2048);
+        let suggestion = words::suggestion().unwrap();
+        let chosen: Vec<&str> = suggestion.split(' ').collect();
+        assert_eq!(chosen.len(), words::SUGGESTED);
+        assert!(chosen.iter().all(|word| list.contains(word)));
+    }
+
+    #[test]
+    fn ssh_agent_lists_only_ed25519_and_rsa_keys_and_asks_rsa_for_sha_256() {
+        let answer = [
+            vec![12],
+            2u32.to_be_bytes().to_vec(),
+            string(&blob("ecdsa-sha2-nistp256")),
+            string(b"ecdsa"),
+            string(&blob("ssh-rsa")),
+            string(b"work"),
+        ]
+        .concat();
+        let keys = parse_identities(&answer[..answer.len()]).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].comment, "work");
+        assert!(keys[0].fingerprint().starts_with("SHA256:"));
+        let request = sign_request(&keys[0], b"challenge");
+        assert_eq!(request[0], 13);
+        assert_eq!(request[request.len() - 4..], 2u32.to_be_bytes());
+        assert_eq!(parse_signature(&[vec![14], string(b"signed")].concat()).unwrap(), b"signed");
+        assert!(parse_signature(&[5]).is_none());
+    }
+
+    #[test]
+    fn ssh_agent_answers_over_its_socket() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join("agent.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let fake = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for answer in [
+                [vec![12], 1u32.to_be_bytes().to_vec(), string(&blob("ssh-ed25519")), string(b"laptop")].concat(),
+                [vec![14], string(b"deterministic")].concat(),
+            ] {
+                let mut len = [0; 4];
+                stream.read_exact(&mut len).unwrap();
+                let mut request = vec![0; u32::from_be_bytes(len) as usize];
+                stream.read_exact(&mut request).unwrap();
+                stream.write_all(&string(&answer)).unwrap();
+            }
+        });
+        let mut agent = Agent::at(&socket).unwrap();
+        let keys = agent.keys().unwrap();
+        assert_eq!(keys[0].kind, "ssh-ed25519");
+        assert_eq!(agent.sign(&keys[0], b"challenge").unwrap(), b"deterministic");
+        fake.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn borgs_key_agent_hands_the_key_to_its_owner_and_ends_when_idle_or_told() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join(key_agent::SOCKET_FILE);
+        let serving = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, Zeroizing::new([3; KEY_LEN]), Duration::from_secs(5)).await }
+        });
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(*key_agent::read_key(&borg_link::hex(&[3; KEY_LEN])).unwrap(), [3; KEY_LEN]);
+        assert!(key_agent::read_key("not a key").is_none());
+        let asked = socket.clone();
+        let held = tokio::task::spawn_blocking(move || {
+            let first = key_agent::recall(&asked).unwrap();
+            assert!(key_agent::put(&asked, &Zeroizing::new([4; KEY_LEN])));
+            (first, key_agent::recall(&asked).unwrap(), key_agent::forget(&asked))
+        })
+        .await
+        .unwrap();
+        assert_eq!((*held.0, *held.1, held.2), ([3; KEY_LEN], [4; KEY_LEN], true));
+        serving.await.unwrap().unwrap();
+        assert!(!socket.exists(), "a forgotten key leaves no socket");
+
+        let idle = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, Zeroizing::new([5; KEY_LEN]), Duration::from_millis(200)).await }
+        });
+        tokio::time::timeout(Duration::from_secs(5), idle).await.unwrap().unwrap().unwrap();
+        assert!(!socket.exists(), "an idle agent ends and removes its socket");
+        assert!(key_agent::recall(&socket).is_none());
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod unlocked_cache {
+    use super::super::{
+        LINK_DIR, key_agent,
+        sealed::{DataKey, KEY_LEN},
+        unlocked::Cache,
+    };
+    use linux_keyutils::{KeyRing, KeyRingIdentifier};
+    use std::time::Duration;
+    use zeroize::Zeroizing;
+
+    fn key(byte: u8) -> DataKey {
+        Zeroizing::new([byte; KEY_LEN])
+    }
+
+    struct Possessed(Option<(KeyRing, KeyRing)>);
+
+    impl Possessed {
+        fn user_keyring() -> Self {
+            let session = KeyRing::from_special_id(KeyRingIdentifier::Session, false);
+            let user = KeyRing::from_special_id(KeyRingIdentifier::User, true);
+            let linked = session.and_then(|session| user.map(|user| (session, user)));
+            Self(linked.ok().filter(|(session, user)| session.link_keyring(*user).is_ok()))
+        }
+    }
+
+    impl Drop for Possessed {
+        fn drop(&mut self) {
+            if let Some((session, user)) = self.0.take() {
+                session.unlink_keyring(user).ok();
+            }
+        }
+    }
+
+    #[test]
+    fn the_keyring_forgets_an_unused_key_and_each_use_renews_it() {
+        let state = tempfile::tempdir().unwrap();
+        let _possessed = Cache::of(state.path()).keyring.is_none().then(Possessed::user_keyring);
+        let cache = Cache::of(state.path());
+        let Some(description) = &cache.keyring else {
+            eprintln!("the kernel keyring is blocked here, so this test has nothing to check");
+            return;
+        };
+        assert!(description.starts_with("borg-commander:"));
+        assert_eq!(cache, Cache::choose(state.path(), true), "the same folder always finds the same key");
+        assert_ne!(cache.keyring, Cache::choose(tempfile::tempdir().unwrap().path(), true).keyring);
+        let idle = Duration::from_secs(3);
+        let pause = Duration::from_millis(1600);
+        cache.remember(&key(7), idle).unwrap();
+        std::thread::sleep(pause);
+        assert_eq!(*cache.recall(idle).unwrap(), [7; KEY_LEN]);
+        std::thread::sleep(pause);
+        assert_eq!(*cache.recall(idle).unwrap(), [7; KEY_LEN], "the recall a moment ago renewed it");
+        std::thread::sleep(idle + Duration::from_millis(1100));
+        assert!(cache.recall(idle).is_none(), "an unused key expires");
+
+        cache.remember(&key(8), idle).unwrap();
+        assert!(cache.forget());
+        assert!(cache.recall(idle).is_none(), "borg lock ends it at once");
+        assert!(!cache.forget());
+    }
+
+    #[tokio::test]
+    async fn without_the_keyring_borgs_own_agent_holds_the_key() {
+        let state = tempfile::tempdir().unwrap();
+        std::fs::create_dir(state.path().join(LINK_DIR)).unwrap();
+        let cache = Cache::choose(state.path(), false);
+        let socket = state.path().join(LINK_DIR).join(key_agent::SOCKET_FILE);
+        assert_eq!((cache.keyring.as_deref(), cache.socket.as_path()), (None, socket.as_path()));
+        assert!(cache.recall(Duration::from_secs(1)).is_none(), "nothing is held before an unlock");
+        let serving = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, key(1), Duration::from_secs(5)).await }
+        });
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let keyring_too = Cache::choose(state.path(), true);
+        let held = tokio::task::spawn_blocking(move || {
+            cache.remember(&key(2), Duration::from_secs(1)).unwrap();
+            let recalled = cache.recall(Duration::from_secs(1)).map(|key| *key);
+            let found_by_both = keyring_too.recall(Duration::from_secs(1)).map(|key| *key);
+            (recalled, found_by_both, cache.forget(), cache.recall(Duration::from_secs(1)).is_none())
+        })
+        .await
+        .unwrap();
+        assert_eq!(held, (Some([2; KEY_LEN]), Some([2; KEY_LEN]), true, true));
+        serving.await.unwrap().unwrap();
+    }
+}

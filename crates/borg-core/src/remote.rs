@@ -569,3 +569,19 @@ pub(crate) fn clients(state: &mut AppState, clients: Vec<RemoteClient>) {
         .unwrap_or_else(|| browser.client_selected.min(clients.len().saturating_sub(1)));
     browser.clients = Some(clients);
 }
+
+pub(crate) fn computer_key_locked(state: &mut AppState, wrong: bool) {
+    let prompting = matches!(&state.overlay, Some(Overlay::Prompt(prompt)) if prompt.purpose == crate::PromptPurpose::ComputerKeyPassword);
+    if state.overlay.is_some() && !prompting {
+        state.notice = Some(tr!(cloud_key_locked).into());
+        return;
+    }
+    state.overlay = Some(Overlay::Prompt(crate::Prompt {
+        title: tr!(cloud_unlock_title),
+        label: if wrong { tr!(cloud_unlock_wrong) } else { tr!(cloud_unlock_label) }.into(),
+        input: crate::LineInput::default(),
+        purpose: crate::PromptPurpose::ComputerKeyPassword,
+        option_focused: false,
+        typed: None,
+    }));
+}

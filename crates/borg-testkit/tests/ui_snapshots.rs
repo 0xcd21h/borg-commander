@@ -4386,6 +4386,19 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
 }
 
 #[test]
+fn a_locked_computer_key_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(Msg::ComputerKeyLocked { wrong: false });
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Unlock key")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("computer_key_password", &stage, buffer)
+}
+
+#[test]
 fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
     use borg_core::AgentEvent;
     let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;

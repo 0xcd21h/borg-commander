@@ -10,6 +10,33 @@ use borg_i18n::tr;
 use borg_link::{fingerprint, unhex};
 use std::path::{Path, PathBuf};
 
+pub async fn unlock_command(args: &[String]) -> Result<()> {
+    let state = state_dir()?;
+    #[cfg(target_os = "linux")]
+    return super::unlock::command(state, args).await;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, args);
+        println!("{}", tr!(cli_unlock_not_needed));
+        Ok(())
+    }
+}
+
+pub fn lock_command() -> Result<()> {
+    let state = state_dir()?;
+    #[cfg(target_os = "linux")]
+    {
+        let locked = super::unlock::lock(&state);
+        println!("{}", if locked { tr!(cli_locked) } else { tr!(cli_lock_already) });
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = state;
+        println!("{}", tr!(cli_unlock_not_needed));
+    }
+    Ok(())
+}
+
 /// `borg pair [LINK | --forget NAME | --new-key]`: pairs this computer with the borg that shows
 /// LINK, or lists the paired ones, forgets one, or gives this computer a new key.
 pub async fn pair_command(args: &[String]) -> Result<()> {

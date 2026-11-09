@@ -866,15 +866,16 @@ borg, y cada aprobación indica qué computadora la pidió.
 La conexión está cifrada de extremo a extremo. Cada borg guarda una clave de servidor, por la que lo
 conocen las computadoras emparejadas, y una computadora que llega a servidores guarda además una
 clave de computadora propia. Solo tú puedes leer ambas. La clave de servidor es un archivo en la
-carpeta `link` de la carpeta de estado. La clave de computadora también es un archivo allí, y en un
-Mac se guarda en tu llavero de inicio de sesión (consulta [Claves de computadora](#computer-keys)).
-El emparejamiento intercambia las claves públicas, y cada conexión empieza con un intercambio Noise
-IK ligado a ellas, de modo que el relay solo reenvía texto cifrado y no puede responder en nombre de
-ninguno de los dos borgs. Las llamadas desde otra computadora pueden leer sin preguntar, igual que
-las locales; activa "preguntar antes de que otra computadora lea" en Opciones → Complementos para
-que esas lecturas también esperen aprobación. Borg no mantiene ninguna conexión con el relay salvo
-que esté emparejado o mostrando un enlace de emparejamiento, y ninguna en absoluto cuando borg cloud
-está desactivado en Opciones → Complementos.
+carpeta `link` de la carpeta de estado. La clave de computadora también es un archivo allí. En un
+Mac se guarda en tu llavero de inicio de sesión, y en Linux el archivo se sella con una contraseña
+(consulta [Claves de computadora](#computer-keys)). El emparejamiento intercambia las claves
+públicas, y cada conexión empieza con un intercambio Noise IK ligado a ellas, de modo que el relay
+solo reenvía texto cifrado y no puede responder en nombre de ninguno de los dos borgs. Las llamadas
+desde otra computadora pueden leer sin preguntar, igual que las locales; activa "preguntar antes de
+que otra computadora lea" en Opciones → Complementos para que esas lecturas también esperen
+aprobación. Borg no mantiene ninguna conexión con el relay salvo que esté emparejado o mostrando un
+enlace de emparejamiento, y ninguna en absoluto cuando borg cloud está desactivado en Opciones →
+Complementos.
 
 Borg guarda el relay en la configuración como `relay = "wss://relay.example.com"`. Una computadora
 llega al servidor a través del relay con el que se emparejó, así que, si el servidor cambia de
@@ -903,6 +904,35 @@ segundo plano, no puede mostrar la petición ni conectarse a servidores. Cuando 
 indica una carpeta de estado distinta de la habitual, Borg guarda la clave de computadora como un
 archivo en la carpeta `link` de esa carpeta. Las versiones de Borg para macOS se firman con Hardened
 Runtime, así que otros programas no pueden leer la memoria de Borg ni cargar código en él.
+
+En Linux, Borg sella la clave de computadora con una contraseña que tú eliges, en el archivo
+`computer-key.sealed` de la carpeta `link`. Ejecuta `borg unlock` en una terminal para elegirla:
+Borg sugiere cuatro palabras al azar, fáciles de escribir y difíciles de adivinar, y pide la
+contraseña dos veces. Borg refuerza la contraseña con Argon2id, lo que lleva unos segundos y 1 GiB
+de memoria, o la octava parte de la memoria en una máquina con menos de 8 GiB, así que adivinarla a
+partir de una copia del archivo es lento. Un archivo de clave de computadora de un Borg anterior se
+sella la primera vez que ejecutas `borg unlock`, y el archivo se elimina; hasta entonces, Borg te
+pide que lo ejecutes. Cuando `$BORG_STATE_DIR` indica una carpeta de estado distinta de la habitual,
+Borg también guarda en Linux la clave de computadora como un archivo normal, sin contraseña.
+
+Una vez desbloqueada, la clave queda en el keyring del kernel de tu usuario hasta que pasan 12 horas
+sin que Borg la use, y cada uso vuelve a contar las 12 horas desde el principio. Un reinicio la
+bloquea, y `borg lock` la bloquea al instante. Donde Borg no puede usar el keyring del kernel, como
+en muchos contenedores y servicios del sistema, un pequeño proceso de Borg guarda la clave, en un
+socket de la carpeta `link` que solo tú puedes abrir, y termina tras 12 horas sin uso. Cuando la
+clave está bloqueada, Borg pide la contraseña: los paneles abren el diálogo **Desbloquear clave**, y
+`borg pair`, `borg get` y `borg put` la piden en la terminal. `borg mcp remote`, que Claude inicia
+sin terminal, te indica que ejecutes `borg unlock`.
+
+`borg unlock --ssh-agent` permite además que tu ssh-agent desbloquee la clave. Borg pide al agente
+que firme un desafío fijo con una clave Ed25519, o con una clave RSA si no tiene ninguna, y sella la
+clave una segunda vez con esa firma. A partir de entonces, Borg desbloquea la clave sin preguntar
+mientras ese agente esté disponible, y la contraseña sigue funcionando. Borg comprueba que el agente
+firma igual dos veces y rechaza una clave cuyas firmas cambian. Cualquiera que pueda usar tu agente
+puede obtener la misma firma: si lo reenvías con `ssh -A`, root en la máquina remota puede usarlo
+mientras estás conectado y, con una copia del archivo sellado, desbloquear esta clave. Reenvía el
+agente solo a máquinas de confianza, o deja esto desactivado. `borg unlock --no-ssh-agent` lo vuelve
+a desactivar.
 
 `borg pair --new-key` da a esta computadora una clave nueva, y cada servidor la acepta la próxima
 vez que Borg se conecta a él. Hasta que todos la tengan, Borg conserva también la clave anterior, y

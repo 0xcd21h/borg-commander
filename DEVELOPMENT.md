@@ -683,9 +683,38 @@ account `computer key` (`link/keychain.rs`), whose access list trusts only the b
 made it. Before the first read in a process, `borg-local-auth` asks LocalAuthentication for Touch ID
 or the password, and a refusal or a session without the Mac's screen ends the load with a message.
 A `computer-key` file found there moves into the keychain, merged around the key `computer.json`
-names, and is deleted. Everywhere else, including every test, the keys are a 0600 `computer-key`
-file. `computer_keys` loads them on a blocking thread, one load at a time, so parallel connections
-ask once.
+names, and is deleted.
+
+On Linux, the usual state folder keeps the computer keys in `computer-key.sealed`
+(`link/sealed.rs`), JSON with `format: 1`. A random data key seals the key text with
+XChaCha20-Poly1305, and a password slot seals the data key under Argon2id v0x13 with a random salt.
+The slot records its cost: an eighth of the machine's memory, clamped to 64 MiB to 1 GiB, 3 passes
+and 4 lanes. An optional agent slot seals the data key again, under HKDF-SHA256 of an ssh-agent
+signature over `borg-commander unlocks this computer's key 1 ` followed by the slot's salt, and
+names the agent key by its fingerprint. Only `ssh-ed25519` and `ssh-rsa` keys qualify, RSA asked
+for SHA-256, and `borg unlock --ssh-agent` signs twice to refuse a key whose signatures change.
+Each box's associated data names what it holds, so a box cannot stand in for another.
+
+`link/unlock.rs` opens the file with the data key held from earlier, then the agent slot, then a
+password from the terminal when the command allows one (`link::ask_in_terminal`; `borg unlock`
+reads lines from stdin when it is no terminal). Otherwise it sends `Msg::ComputerKeyLocked` to the
+TUI once, which opens a masked prompt and answers with `Effect::UnlockComputerKey`, and the load
+fails with `KeyLocked`. A plain `computer-key` file found there is sealed under a new password the
+first time a terminal can ask for one, and is deleted. `link/unlocked.rs` holds the data key per
+state folder in the user keyring, as a `user` key described as `borg-commander:` and 16 bytes of
+SHA-256 of the canonical state path, with possessor and user permissions only and a 12-hour
+timeout that each recall renews. Borg uses the keyring only when the session keyring links the
+user keyring, as pam_keyinit sets up for logins: without that link, the kernel lets a process add a
+key there but not read it back or set its timeout. Elsewhere, as in Docker containers, systemd
+services or wherever seccomp blocks keyctl, `borg --key-agent STATE` holds the key instead. That
+process reads the hex key from stdin, marks itself not dumpable, answers `get`, `put HEX` and
+`forget` lines on the 0600 `link/unlocked.sock` for peers with its own uid, and exits after 12
+hours without a request or on `forget`. A recall tries the keyring and then the agent, `borg lock`
+forgets the key in both, and `borg unlock` fails when neither holds it. The suggested password is 4 words from `link/words.txt`, the
+2,048-word BIP-39 English list as rust-bip39 ships it under CC0, which gives 44 bits.
+
+Everywhere else, including every test, the keys are a 0600 `computer-key` file. `computer_keys`
+loads them on a blocking thread, one load at a time, so parallel connections ask once.
 
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:
