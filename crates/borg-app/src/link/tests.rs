@@ -73,7 +73,7 @@ fn secrets_compare_whole_and_names_stay_short_and_printable() {
 
 mod rotation {
     use super::super::{
-        keys::{computer_info, computer_keys, forget_cached, takes_old_key},
+        keys::{ComputerKeys, computer_info, forget_cached, load_computer_keys, takes_old_key},
         remote::connect,
     };
     use super::*;
@@ -204,7 +204,7 @@ mod rotation {
 
         Remote::open(computer.path(), &server).await.unwrap();
 
-        let keys = computer_keys(computer.path()).unwrap();
+        let keys = load_computer_keys(computer.path()).unwrap();
         assert_ne!(keys.current, old, "the computer key is a new one");
         let new = hex(keys.current.public());
         assert_eq!(stage.accepted(), vec![new.clone()]);
@@ -236,7 +236,7 @@ mod rotation {
         let computer = computer_state(Some(&old));
         let server = pair_with(computer.path(), &stage);
         Remote::open(computer.path(), &server).await.unwrap();
-        let new = hex(computer_keys(computer.path()).unwrap().current.public());
+        let new = hex(load_computer_keys(computer.path()).unwrap().current.public());
 
         for offered in [Some(new.clone()), None] {
             let lost = Server { computer: Some(hex(old.public())), offered, ..server.clone() };
@@ -259,7 +259,7 @@ mod rotation {
             let mut remote = remote.unwrap();
             assert!(remote.call(&crate::agent::Call::new("host_info", json!({}))).await.unwrap().ok);
         }
-        assert_eq!(stage.accepted(), vec![hex(computer_keys(computer.path()).unwrap().current.public())]);
+        assert_eq!(stage.accepted(), vec![hex(load_computer_keys(computer.path()).unwrap().current.public())]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -324,7 +324,7 @@ mod rotation {
         Remote::open(thief.path(), &server).await.unwrap();
         let error = Remote::open(computer.path(), &server).await.err().unwrap();
         assert_eq!(error.to_string(), borg_i18n::tr!(cloud_key_refused, server = "box"));
-        assert_eq!(stage.accepted(), vec![hex(computer_keys(thief.path()).unwrap().current.public())]);
+        assert_eq!(stage.accepted(), vec![hex(load_computer_keys(thief.path()).unwrap().current.public())]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -357,19 +357,45 @@ mod rotation {
     #[test]
     fn computer_keys_are_made_once_and_kept_with_the_retired_ones() {
         let state = computer_state(None);
-        let first = computer_keys(state.path()).unwrap().current.clone();
+        let first = load_computer_keys(state.path()).unwrap().current.clone();
         forget_cached(state.path());
-        assert_eq!(computer_keys(state.path()).unwrap().current, first);
+        assert_eq!(load_computer_keys(state.path()).unwrap().current, first);
         let second = super::super::keys::new_computer_key(state.path()).unwrap();
         assert_ne!(second, first);
-        let keys = computer_keys(state.path()).unwrap();
+        let keys = load_computer_keys(state.path()).unwrap();
         assert_eq!(keys.current, second);
         assert!(keys.held(&hex(first.public())).is_some(), "the old key stays while servers may take it");
         super::super::keys::retire_unused(state.path()).unwrap();
-        assert!(computer_keys(state.path()).unwrap().held(&hex(first.public())).is_none(), "no server takes it");
+        assert!(load_computer_keys(state.path()).unwrap().held(&hex(first.public())).is_none(), "no server takes it");
         use std::os::unix::fs::PermissionsExt;
         let file = state.path().join(LINK_DIR).join(super::super::keys::COMPUTER_KEY_FILE);
         assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, PRIVATE_FILE);
         assert!(!state.path().join(LINK_DIR).join(KEY_FILE).exists(), "a computer makes no server key");
+    }
+
+    #[test]
+    fn keys_found_in_a_plain_file_and_the_keychain_keep_the_current_key_and_every_other() {
+        let [a, b, c] = [(); 3].map(|_| Identity::generate());
+        let keychain = ComputerKeys { current: a.clone(), retired: vec![b.clone()] };
+        let file = ComputerKeys { current: c.clone(), retired: vec![a.clone()] };
+        let merged = keychain.merged(file, Some(&hex(c.public())));
+        assert_eq!(merged.current, c);
+        assert_eq!(merged.retired, vec![a.clone(), b.clone()]);
+        let keychain = ComputerKeys { current: a.clone(), retired: Vec::new() };
+        let merged = keychain.merged(ComputerKeys { current: b.clone(), retired: Vec::new() }, None);
+        assert_eq!((merged.current, merged.retired), (a, vec![b]));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "uses the login keychain and asks for Touch ID or the password"]
+    fn the_keychain_gives_back_the_keys_it_was_given() {
+        use super::super::keychain;
+        let account = format!("borg test {}", std::process::id());
+        keychain::write(&account, "first\n").unwrap();
+        keychain::write(&account, "second\n").unwrap();
+        assert_eq!(keychain::read(&account).unwrap().as_deref().map(String::as_str), Some("second\n"));
+        keychain::delete(&account).unwrap();
+        assert!(keychain::read(&account).unwrap().is_none());
     }
 }

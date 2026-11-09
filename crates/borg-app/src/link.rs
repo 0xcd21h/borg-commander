@@ -26,6 +26,8 @@ use crate::agent::{Call, Reply};
 mod caller;
 mod clients;
 mod commands;
+#[cfg(target_os = "macos")]
+mod keychain;
 mod keys;
 mod remote;
 mod served;

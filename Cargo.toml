@@ -19,6 +19,7 @@ borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
 borg-link = { path = "crates/borg-link" }
+borg-local-auth = { path = "crates/borg-local-auth" }
 borg-relay = { path = "crates/borg-relay" }
 borg-rules = { path = "crates/borg-rules" }
 borg-update = { path = "crates/borg-update" }
@@ -95,6 +96,11 @@ uzers              = "0.12"
 aya                = { version = "0.14", default-features = false }
 aya-ebpf           = "0.2"
 aya-build          = "0.2"
+block2             = { version = "0.6", default-features = false, features = ["std"] }
+objc2              = { version = "0.6", default-features = false, features = ["std"] }
+objc2-foundation   = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "block2", "LAContext", "LAError"] }
+security-framework = { version = "3.7", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

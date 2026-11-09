@@ -41,6 +41,20 @@ impl ComputerKeys {
         Some(Self { current, retired })
     }
 
+    pub(super) fn merged(self, other: Self, current: Option<&str>) -> Self {
+        let mut all: Vec<Identity> = Vec::new();
+        for identity in
+            std::iter::once(self.current).chain(self.retired).chain(std::iter::once(other.current)).chain(other.retired)
+        {
+            if !all.contains(&identity) {
+                all.push(identity);
+            }
+        }
+        let position = current.and_then(|current| all.iter().position(|identity| hex(identity.public()) == current));
+        let current = all.remove(position.unwrap_or_default());
+        Self { current, retired: all }
+    }
+
     pub fn held(&self, public: &str) -> Option<&Identity> {
         std::iter::once(&self.current).chain(&self.retired).find(|identity| hex(identity.public()) == public)
     }
@@ -54,24 +68,49 @@ pub(super) struct ComputerInfo {
 
 enum Vault {
     File(PathBuf),
+    #[cfg(target_os = "macos")]
+    Keychain(PathBuf),
 }
 
 impl Vault {
     fn of(state: &Path) -> Self {
-        Self::File(state.join(LINK_DIR).join(COMPUTER_KEY_FILE))
+        let file = state.join(LINK_DIR).join(COMPUTER_KEY_FILE);
+        #[cfg(target_os = "macos")]
+        if is_default_state(state) {
+            return Self::Keychain(file);
+        }
+        Self::File(file)
     }
 
     fn read(&self) -> Result<Option<Zeroizing<String>>> {
         match self {
             Self::File(path) => read_private(path),
+            #[cfg(target_os = "macos")]
+            Self::Keychain(_) => super::keychain::read(super::keychain::ACCOUNT),
         }
     }
 
     fn write(&self, text: &str) -> Result<()> {
         match self {
             Self::File(path) => write_private(path, text),
+            #[cfg(target_os = "macos")]
+            Self::Keychain(_) => super::keychain::write(super::keychain::ACCOUNT, text),
         }
     }
+
+    fn plain_copy(&self) -> Option<&Path> {
+        match self {
+            Self::File(_) => None,
+            #[cfg(target_os = "macos")]
+            Self::Keychain(file) => Some(file),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn is_default_state(state: &Path) -> bool {
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    crate::session::StateDir::default_root().is_some_and(|root| canonical(&root) == canonical(state))
 }
 
 fn read_private(path: &Path) -> Result<Option<Zeroizing<String>>> {
@@ -135,9 +174,23 @@ fn store(state: &Path, keys: &ComputerKeys, made: Option<u64>) -> Result<()> {
     write_private(&state.join(LINK_DIR).join(COMPUTER_INFO_FILE), &serde_json::to_string_pretty(&info)?)
 }
 
+fn parse(text: &str) -> Result<ComputerKeys> {
+    ComputerKeys::from_text(text).context("this computer's key store does not hold borg keys")
+}
+
 fn read(state: &Path) -> Result<Option<ComputerKeys>> {
-    let Some(text) = Vault::of(state).read()? else { return Ok(None) };
-    ComputerKeys::from_text(&text).map(Some).context("this computer's key store does not hold borg keys")
+    let vault = Vault::of(state);
+    let held = vault.read()?.map(|text| parse(&text)).transpose()?;
+    let Some(plain) = vault.plain_copy() else { return Ok(held) };
+    let Some(text) = read_private(plain)? else { return Ok(held) };
+    let found = parse(&text)?;
+    let keys = match held {
+        Some(held) => held.merged(found, computer_info(state).map(|info| info.key).as_deref()),
+        None => found,
+    };
+    vault.write(&keys.to_text())?;
+    std::fs::remove_file(plain).with_context(|| format!("removing {}", plain.display()))?;
+    Ok(Some(keys))
 }
 
 fn remember(state: &Path, keys: ComputerKeys) -> Arc<ComputerKeys> {
@@ -146,11 +199,23 @@ fn remember(state: &Path, keys: ComputerKeys) -> Arc<ComputerKeys> {
     keys
 }
 
-pub(super) fn computer_keys(state: &Path) -> Result<Arc<ComputerKeys>> {
-    let cached = cache().lock().expect("key cache").get(state).cloned();
-    if let Some(keys) = cached
-        && computer_info(state).is_none_or(|info| info.key == hex(keys.current.public()))
-    {
+fn cached(state: &Path) -> Option<Arc<ComputerKeys>> {
+    let keys = cache().lock().expect("key cache").get(state).cloned()?;
+    computer_info(state).is_none_or(|info| info.key == hex(keys.current.public())).then_some(keys)
+}
+
+pub(super) async fn computer_keys(state: &Path) -> Result<Arc<ComputerKeys>> {
+    if let Some(keys) = cached(state) {
+        return Ok(keys);
+    }
+    let state = state.to_path_buf();
+    tokio::task::spawn_blocking(move || load_computer_keys(&state)).await?
+}
+
+pub(super) fn load_computer_keys(state: &Path) -> Result<Arc<ComputerKeys>> {
+    static LOADING: Mutex<()> = Mutex::new(());
+    let _loading = LOADING.lock().expect("key loading");
+    if let Some(keys) = cached(state) {
         return Ok(keys);
     }
     let _lock = lock(state)?;
