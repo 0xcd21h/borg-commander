@@ -4269,6 +4269,36 @@ fn remote_menu_offers_to_install_the_background_service() -> Result<()> {
     Ok(())
 }
 
+/// Remote → Remote log… opens the log with no agent connected: what agents did before Borg
+/// started again, each entry with its date.
+#[test]
+fn remote_log_shows_what_agents_did_before_borg_started_again() -> Result<()> {
+    use borg_core::{Action, MenuCursor, Overlay, Pointer};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let now = stage.started;
+    stage.state.agent.restore_log(vec![
+        "2026-11-08 23:10:04  an agent connected".into(),
+        "2026-11-08 23:10:09  ran in ~/srv/shop\n$ make test\n[exit 0]".into(),
+        "2026-11-08 23:12:41  declined editing ~/srv/shop/.env".into(),
+        "2026-11-08 23:13:02  an agent disconnected".into(),
+    ]);
+    assert!(!stage.state.agent.connected());
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Remote").unwrap();
+    stage.send(Msg::Pointer(Pointer::Menu(index)));
+    stage.send(key(KeyCode::Up));
+    stage.send(key(KeyCode::Up));
+    let Some(Overlay::Menu(MenuCursor { item: Some(item), .. })) = stage.state.overlay else {
+        panic!("the menu is open")
+    };
+    let chosen = borg_core::menus(&stage.state)[index].item(item).map(|entry| entry.action);
+    assert_eq!(chosen, Some(Action::AgentLog), "the entry above Background service…");
+    stage.send(key(KeyCode::Enter));
+    assert_eq!(stage.state.overlay, Some(Overlay::AgentLog { scroll: None }));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "2026-11-08 23:12:41  declined editing ~/srv/shop/.env")?;
+    check("agent_log_restored", &stage, buffer)
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]

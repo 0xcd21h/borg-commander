@@ -57,6 +57,8 @@ impl App {
             Effect::CancelSearch(side) => self.search.cancel(side),
             Effect::SetIndexRoots(roots) => self.set_index_roots(roots),
             Effect::SaveSearchHistory => self.save_search_history(),
+            Effect::SaveAgentNote(entry) => self.save_agent_note(&entry),
+            Effect::ForgetAgentLog => self.forget_agent_log(),
             Effect::SaveFolders => self.save_recent_folders(),
             Effect::SetHotlist(hotlist) => {
                 self.config.set_hotlist(&hotlist);
@@ -170,6 +172,22 @@ impl App {
             && let Err(error) = dir.save_search_history(&self.state.search_history)
         {
             self.state.notice = Some(tr!(search_history_save_error, error = error));
+        }
+    }
+
+    fn save_agent_note(&mut self, entry: &str) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_agent_note(entry)
+        {
+            self.state.notice = Some(tr!(agent_log_save_error, error = error));
+        }
+    }
+
+    fn forget_agent_log(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.forget_agent_log()
+        {
+            self.state.notice = Some(tr!(agent_log_forget_error, error = error));
         }
     }
 

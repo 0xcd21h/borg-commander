@@ -760,10 +760,16 @@ its bytes as a hex dump. Borg remembers the processes of its last 16 agent captu
 quits. Other files show their conversations under **Unknown process**, unless their packets
 carry their process.
 
-While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it to
-see a log of what the agent did: what it looked at, read, scanned, showed, and typed, and every
-command and change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
-at all, turn it off in Options → Plugins.
+While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it, or
+choose F9 → Remote → **Remote log…** at any time, to see a log of what the agent did: what it
+looked at, read, scanned, showed, and typed, and every command and change, approved or declined.
+Each entry starts with its date and time. Borg saves the log in `remote-log.jsonl` with the
+session's other files in the state folder, readable only by you, and loads it when the session
+opens. That way you can come back to a session you left running and read what agents did there,
+even after Borg quit. Commands appear as their dialogs showed them, so a password typed on a
+command line ends up in the log too. Once the file grows past 1 MiB, Borg keeps its newest
+512 KiB, and the window shows the newest 1,000 entries. To keep no log at all, turn off
+**Remote: keep a log of what it does** in Options → Plugins, which also deletes the saved log.
 
 ### Borg cloud
 
@@ -901,8 +907,8 @@ including in a session whose connections are held by the background service. Pai
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**, and
-**Background service…**.
+The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**,
+**Remote log…**, and **Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.
@@ -1375,9 +1381,9 @@ where it is:
   in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
 - **Caches**: folder sizes and name indexes, in the cache folder (see
   [Saved size scans](#saved-size-scans)).
-- **Sessions and history**: sessions, shell output, search and folder history, collections,
-  paired computers with their keys, and what Borg learned about your drives (`drives.json`), in
-  the state folder.
+- **Sessions and history**: sessions, shell output, the remote log, search and folder history,
+  collections, paired computers with their keys, and what Borg learned about your drives
+  (`drives.json`), in the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 

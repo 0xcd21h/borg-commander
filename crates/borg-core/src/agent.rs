@@ -206,7 +206,7 @@ pub struct Agent {
     pub running: Option<(u64, String)>,
     /// Asks waiting for the user's answer, oldest first.
     asks: Vec<(u64, Ask)>,
-    /// What agents did, oldest first, while the user keeps the log; nothing is written to disk.
+    /// What agents did, oldest first, while the user keeps the log, earlier runs of the session too.
     pub log: Vec<String>,
     pub connect: ConnectInfo,
     /// The pairing link borg cloud gave, or why there is none; `None` until asked for.
@@ -225,6 +225,17 @@ impl Agent {
     pub fn connected(&self) -> bool {
         self.clients > 0
     }
+
+    /// Starts the log with what agents did in earlier runs of the session, oldest first.
+    pub fn restore_log(&mut self, entries: Vec<String>) {
+        self.log = entries;
+        keep_newest(&mut self.log);
+    }
+}
+
+fn keep_newest(log: &mut Vec<String>) {
+    let overflow = log.len().saturating_sub(LOG_LIMIT);
+    log.drain(..overflow);
 }
 
 pub(crate) fn receive(state: &mut AppState, event: AgentEvent) -> Vec<Effect> {
@@ -238,14 +249,12 @@ pub(crate) fn receive(state: &mut AppState, event: AgentEvent) -> Vec<Effect> {
         AgentEvent::Ask { id, ask } => state.agent.asks.push((id, ask)),
         AgentEvent::Withdrawn { id } => withdraw(state, id),
         AgentEvent::AnsweredFrom { id, approved, by } => return forward::answered_from(state, id, approved, &by),
-        AgentEvent::Note(entry) => {
-            if state.settings.preferences.agent_log {
-                let log = &mut state.agent.log;
-                log.push(entry);
-                let overflow = log.len().saturating_sub(LOG_LIMIT);
-                log.drain(..overflow);
-            }
+        AgentEvent::Note(entry) if state.settings.preferences.agent_log => {
+            state.agent.log.push(entry.clone());
+            keep_newest(&mut state.agent.log);
+            return vec![Effect::SaveAgentNote(entry)];
         }
+        AgentEvent::Note(_) => {}
         AgentEvent::ShowShell { container, name } => return crate::docker::show_shell(state, &container, &name),
         AgentEvent::Reveal { dir, focus, mount } => return reveal(state, dir, focus, mount),
         AgentEvent::Type { line } => return type_line(state, &line),
@@ -779,6 +788,15 @@ fn reveal(state: &mut AppState, dir: PathBuf, focus: Option<String>, mount: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_restored_log_keeps_the_newest_entries_in_order() {
+        let mut agent = Agent::default();
+        agent.restore_log((0..LOG_LIMIT + 2).map(|n| n.to_string()).collect());
+        assert_eq!(agent.log.len(), LOG_LIMIT);
+        assert_eq!(agent.log.first().map(String::as_str), Some("2"));
+        assert_eq!(agent.log.last(), Some(&(LOG_LIMIT + 1).to_string()));
+    }
 
     #[test]
     fn connect_commands_start_claude_connected_or_keep_the_server() {

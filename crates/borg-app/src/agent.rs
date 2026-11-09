@@ -60,6 +60,8 @@ pub(crate) const LIST_LIMIT: usize = 500;
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL: &str = "2025-06-18";
+const NOTE_TIME: &str = "%Y-%m-%d %H:%M:%S";
+const NOTE_GAP: &str = "  ";
 
 /// A tool call relayed from `borg mcp` to the session, one JSON object per line.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -241,11 +243,15 @@ impl Typed {
     }
 }
 
-/// Adds an entry, with the time, to the log of what agents did; the session keeps it in
-/// memory while the user wants a log.
+/// Adds an entry, with the date and time, to the log of what agents did; the session keeps it,
+/// on disk too, while the user wants a log.
 pub fn note(messages: &UnboundedSender<Msg>, entry: &str) {
-    let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
-    let _ = messages.send(Msg::Agent(AgentEvent::Note(format!("{time}  {entry}"))));
+    let _ = messages.send(Msg::Agent(AgentEvent::Note(stamped(&jiff::Zoned::now(), entry))));
+}
+
+/// An entry of the log as it reads: the date and time it happened, then what happened.
+fn stamped(time: &jiff::Zoned, entry: &str) -> String {
+    format!("{}{NOTE_GAP}{entry}", time.strftime(NOTE_TIME))
 }
 
 impl Agent {
