@@ -2,12 +2,14 @@
 //! belongs to a stable session ID so renames and restarts do not move its files.
 
 use std::{
-    fs,
+    fmt, fs,
+    io::{self, Read, Write},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail, ensure};
 use borg_core::{DEFAULT_SESSION, SESSION_NAME_LIMIT};
+use borg_i18n::{Count, tr};
 use serde::{Deserialize, Serialize};
 
 use crate::{session::StateDir, store::write_atomically};
@@ -15,6 +17,11 @@ use crate::{session::StateDir, store::write_atomically};
 const REGISTRY: &str = "sessions.json";
 /// The file in a session's folder that a running Borg holds locked.
 const LOCK_FILE: &str = ".lock";
+/// The folder terminal devices live in, which `ps` and `who` leave out of a terminal's name.
+const DEVICES: &str = "/dev/";
+const MINUTE_SECONDS: u64 = 60;
+const HOUR_SECONDS: u64 = 60 * MINUTE_SECONDS;
+const DAY_SECONDS: u64 = 24 * HOUR_SECONDS;
 const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -187,15 +194,136 @@ pub fn delete(state: &StateDir, target: &str) -> Result<()> {
     save(state, &sessions)
 }
 
-/// Held by a running terminal Borg. A second standalone process or deletion of its saved
-/// workspace fails rather than racing with that process's session writes.
-pub fn lock(state: &StateDir, id: &str) -> Result<fs::File> {
+/// What a running Borg writes into its session's lock file, so another Borg can say which one
+/// has the session open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Holder {
+    pub pid: u32,
+    /// Its terminal as `ps` names it, such as `pts/3`.
+    pub terminal: Option<String>,
+    /// When it took the session, in seconds since the Unix epoch.
+    pub since: u64,
+}
+
+impl Holder {
+    fn this_process() -> Self {
+        Self { pid: std::process::id(), terminal: terminal(), since: now() }
+    }
+}
+
+/// The terminal this process reads its input from, as `ps` names it.
+fn terminal() -> Option<String> {
+    let path = rustix::termios::ttyname(io::stdin(), Vec::new()).ok()?;
+    let path = path.to_str().ok()?;
+    Some(path.strip_prefix(DEVICES).unwrap_or(path).to_owned())
+}
+
+/// Another running Borg has the session open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Busy {
+    /// The session's name.
+    pub session: String,
+    /// What that Borg wrote about itself, none when it left nothing Borg can read.
+    pub holder: Option<Holder>,
+    /// When Borg found the session taken, in seconds since the Unix epoch.
+    pub seen: u64,
+}
+
+impl Busy {
+    /// Which Borg has the session open, then how to free it.
+    pub fn explained(&self) -> String {
+        let help = match &self.holder {
+            Some(holder) => tr!(cli_session_busy_help, pid = holder.pid),
+            None => tr!(cli_session_busy_help_unknown).to_owned(),
+        };
+        format!("{self}\n{help}")
+    }
+}
+
+impl fmt::Display for Busy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let session = &self.session;
+        let line = match &self.holder {
+            None => tr!(cli_session_busy_unknown, session = session),
+            Some(Holder { pid, terminal: Some(terminal), since }) => {
+                let age = age(self.seen.saturating_sub(*since));
+                tr!(cli_session_busy, session = session, pid = pid, terminal = terminal, age = age)
+            }
+            Some(Holder { pid, terminal: None, since }) => {
+                let age = age(self.seen.saturating_sub(*since));
+                tr!(cli_session_busy_no_terminal, session = session, pid = pid, age = age)
+            }
+        };
+        formatter.write_str(&line)
+    }
+}
+
+/// Why Borg could not take a session.
+#[derive(Debug)]
+pub enum LockError {
+    Busy(Busy),
+    Io(io::Error),
+}
+
+impl fmt::Display for LockError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Busy(busy) => busy.fmt(formatter),
+            Self::Io(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for LockError {}
+
+impl From<io::Error> for LockError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+/// A time span in words, in the largest whole unit it fills.
+fn age(seconds: u64) -> String {
+    let (count, unit) = if seconds >= DAY_SECONDS {
+        (seconds / DAY_SECONDS, Count::Day)
+    } else if seconds >= HOUR_SECONDS {
+        (seconds / HOUR_SECONDS, Count::Hour)
+    } else if seconds >= MINUTE_SECONDS {
+        (seconds / MINUTE_SECONDS, Count::Minute)
+    } else {
+        (seconds, Count::Second)
+    };
+    borg_i18n::count(usize::try_from(count).unwrap_or(usize::MAX), unit)
+}
+
+/// Held by a running terminal Borg, which writes which process it is into the lock file. A
+/// second standalone process or deletion of its saved workspace fails rather than racing with
+/// that process's session writes, and says which Borg has the session open.
+pub fn lock(state: &StateDir, id: &str) -> Result<fs::File, LockError> {
     let workspace = state.workspace(id);
     fs::create_dir_all(&workspace)?;
-    let file =
+    let mut file =
         fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(workspace.join(LOCK_FILE))?;
-    file.try_lock().with_context(|| format!("session {id} is already running"))?;
-    Ok(file)
+    match file.try_lock() {
+        Ok(()) => {
+            file.set_len(0)?;
+            file.write_all(&serde_json::to_vec(&Holder::this_process()).map_err(io::Error::other)?)?;
+            Ok(file)
+        }
+        Err(fs::TryLockError::WouldBlock) => Err(LockError::Busy(Busy {
+            session: find(state, id).map_or_else(|_| id.to_owned(), |session| session.name),
+            holder: holder(&mut file),
+            seen: now(),
+        })),
+        Err(fs::TryLockError::Error(error)) => Err(error.into()),
+    }
+}
+
+/// What the Borg holding a lock file wrote about itself.
+fn holder(file: &mut fs::File) -> Option<Holder> {
+    let mut written = Vec::new();
+    file.read_to_end(&mut written).ok()?;
+    serde_json::from_slice(&written).ok()
 }
 
 /// Whether a running Borg holds the session's lock now, in a terminal or in the background
@@ -214,13 +342,40 @@ pub async fn choose(state: &StateDir, requested: Option<&str>) -> Result<Option<
         return open(state, requested).map(Some);
     }
     let visible: Vec<_> = sessions.iter().filter(|session| !session.archived).collect();
-    if visible.len() == 1 {
-        return open(state, &visible[0].id).map(Some);
+    let interactive = std::io::stdin().is_terminal();
+    let only_open_elsewhere = match visible.as_slice() {
+        [only] if interactive => open_in_another_terminal(state, &only.id).await,
+        _ => false,
+    };
+    match start(&visible, only_open_elsewhere, interactive)? {
+        Start::Only(id) => open(state, &id).map(Some),
+        Start::Window => crate::start_window::run(state).await,
     }
-    if !std::io::stdin().is_terminal() {
-        bail!("multiple Borg sessions exist; start with `borg --session NAME`");
+}
+
+/// How `borg` with no session named starts.
+#[derive(Debug, PartialEq, Eq)]
+enum Start {
+    /// Straight into the only session there is.
+    Only(String),
+    /// Through the start window, to choose a session or make a new one.
+    Window,
+}
+
+/// How to start with these sessions shown. When the only one is open in another terminal, the
+/// start window offers a new session, where opening that one would only say it is taken.
+fn start(visible: &[&NamedSession], only_open_elsewhere: bool, interactive: bool) -> Result<Start> {
+    match visible {
+        [only] if !(interactive && only_open_elsewhere) => Ok(Start::Only(only.id.clone())),
+        _ if interactive => Ok(Start::Window),
+        _ => bail!("multiple Borg sessions exist; start with `borg --session NAME`"),
     }
-    crate::start_window::run(state).await
+}
+
+/// Whether a Borg in a terminal has the session open. One the background service keeps is not,
+/// since a new terminal attaches to it.
+async fn open_in_another_terminal(state: &StateDir, id: &str) -> bool {
+    held(state, id) && !crate::service::running_sessions().await.contains(id)
 }
 
 pub fn command(state: &StateDir, args: &[String]) -> Result<()> {
@@ -331,5 +486,82 @@ mod tests {
         drop(guard);
         delete(&state, &first.id).unwrap();
         assert!(list(&state).unwrap().iter().any(|session| session.id == second.id));
+    }
+
+    #[test]
+    fn a_second_borg_learns_which_process_has_the_session_open() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let state = StateDir::at(temp.path().join("state"));
+        ensure_default(&state)?;
+        let _running = lock(&state, DEFAULT_SESSION)?;
+        match lock(&state, DEFAULT_SESSION) {
+            Err(LockError::Busy(busy)) => {
+                assert_eq!(busy.session, "Default");
+                assert_eq!(busy.holder.map(|holder| holder.pid), Some(std::process::id()));
+            }
+            other => panic!("the session is open, yet a second lock gave {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_session_an_older_borg_holds_names_no_process() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let state = StateDir::at(temp.path().join("state"));
+        let session = create(&state, "web")?;
+        let workspace = state.workspace(&session.id);
+        fs::create_dir_all(&workspace)?;
+        let older = fs::File::create(workspace.join(LOCK_FILE))?;
+        older.try_lock()?;
+        match lock(&state, &session.id) {
+            Err(LockError::Busy(busy)) => assert_eq!((busy.session.as_str(), busy.holder), ("web", None)),
+            other => panic!("the session is open, yet a second lock gave {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_message_names_the_process_its_terminal_and_how_long_ago_it_started() {
+        borg_i18n::with_locale(borg_i18n::Locale::English, || {
+            let since = 1_000;
+            let holder = Holder { pid: 4321, terminal: Some("pts/3".into()), since };
+            let busy = Busy { session: "Default".into(), holder: Some(holder), seen: since + 2 * HOUR_SECONDS + 5 };
+            assert_eq!(
+                busy.to_string(),
+                "Session Default is already open in another Borg: process 4321 on pts/3, started 2 hours ago."
+            );
+            assert!(busy.explained().contains("`kill 4321`"));
+            let unknown = Busy { holder: None, ..busy };
+            assert_eq!(unknown.to_string(), "Session Default is already open in another Borg.");
+            assert!(!unknown.explained().contains("kill"));
+        });
+    }
+
+    #[test]
+    fn the_only_session_open_in_another_terminal_starts_in_the_window() {
+        let default =
+            NamedSession { id: DEFAULT_SESSION.into(), name: "Default".into(), archived: false, last_opened: 0 };
+        let web = NamedSession { id: "b".repeat(32), name: "web".into(), archived: false, last_opened: 0 };
+        let only = [&default];
+        let both = [&default, &web];
+        assert_eq!(start(&only, false, true).unwrap(), Start::Only(DEFAULT_SESSION.into()));
+        assert_eq!(start(&only, true, true).unwrap(), Start::Window, "the window offers F7 for a new session");
+        assert_eq!(
+            start(&only, true, false).unwrap(),
+            Start::Only(DEFAULT_SESSION.into()),
+            "without a terminal, opening it says which Borg has it"
+        );
+        assert_eq!(start(&both, false, true).unwrap(), Start::Window);
+        assert!(start(&both, false, false).is_err());
+    }
+
+    #[test]
+    fn ages_read_in_the_largest_whole_unit() {
+        borg_i18n::with_locale(borg_i18n::Locale::English, || {
+            assert_eq!(age(59), "59 seconds");
+            assert_eq!(age(MINUTE_SECONDS + 1), "1 minute");
+            assert_eq!(age(2 * HOUR_SECONDS + 5), "2 hours");
+            assert_eq!(age(3 * DAY_SECONDS + HOUR_SECONDS), "3 days");
+        });
     }
 }
