@@ -18,6 +18,7 @@ export default defineConfig({
     },
     description: 'A two-panel file manager with your shell built in. A practical guide for macOS and Linux.',
     favicon: '/favicon.svg',
+    logo: { src: './src/generated/icon.svg' },
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/0xcd21h/borg-commander' }],
     customCss: ['./src/styles/custom.css'],
     components: { Footer: './src/components/Footer.astro', Header: './src/components/Header.astro' },

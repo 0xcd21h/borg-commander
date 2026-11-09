@@ -1003,9 +1003,21 @@ python3 scripts/check-public-content.py --site website/dist
 
 Edit `docs/GUIDE.md` for guide content. The generator splits its selected sections into
 searchable pages on every build; do not edit the generated `website/src/content/docs/guide/`
-files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide and
-an explicit list of fictional showcase screenshots are copied into the site. Build metadata
-comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a release.
+files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide, the
+icon and an explicit list of fictional showcase screenshots are copied into the site. Build
+metadata comes from `Cargo.toml` and the Git revision. The guide tracks main, so it can
+describe changes that are not in a release yet.
+
+The icon master is `docs/brand/icon.svg`, hand-written on a 64-unit grid. The generator
+copies it to the site's favicon and Starlight logo, and the README shows it directly.
+`docs/brand/social-preview.png` is the 1280x640 image for the repository's social preview.
+GitHub takes it only through Settings → General → Social preview, so upload it there after
+every change. Its source, `docs/brand/social-preview.svg`, embeds the icon and draws the
+block logo from `GLITCH_LOGO`. Render it again with the repository's Borg Mono:
+
+```sh
+resvg --skip-system-fonts --use-fonts-dir fonts docs/brand/social-preview.svg docs/brand/social-preview.png
+```
 
 The **Publish guide** workflow checks the source, builds the site and search index, checks
 local links, and deploys GitHub Pages when relevant files change on main. Pull requests build

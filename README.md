@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/brand/icon.svg" alt="Borg Commander icon: a glowing wireframe cube" width="128" height="128">
+</p>
+
 <pre align="center">
 ██████╗  ██████╗ ██████╗  ██████╗
 ██╔══██╗██╔═══██╗██╔══██╗██╔════╝

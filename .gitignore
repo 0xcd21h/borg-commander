@@ -12,6 +12,7 @@ __pycache__/
 /website/.astro/
 /website/src/generated/
 /website/public/screenshots/
+/website/public/favicon.svg
 /website/src/content/docs/guide/
 /website/src/content/docs/zh-cn/
 /website/src/content/docs/pt/

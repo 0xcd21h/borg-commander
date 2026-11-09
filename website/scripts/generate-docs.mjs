@@ -99,4 +99,7 @@ if (!version) throw new Error('Workspace version is missing');
 const revision = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 await mkdir(join(site, 'src/generated'), { recursive: true });
 await writeFile(join(site, 'src/generated/build.json'), JSON.stringify({ version, revision: revision.slice(0, 7) }));
+const icon = join(root, 'docs/brand/icon.svg');
+await copyFile(icon, join(site, 'public/favicon.svg'));
+await copyFile(icon, join(site, 'src/generated/icon.svg'));
 console.log(`Generated ${pages.length * codes.length} guide pages across ${codes.length} languages and ${screenshots.length} public screenshots for Borg ${version}.`);
