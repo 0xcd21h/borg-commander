@@ -1011,8 +1011,12 @@ na parte inferior. A linha acima dela indica quem tem o controlo; Ctrl-] também
 
 Um `borg` normal ou `borg --session NAME` pode ser espelhado enquanto corre, sem o serviço em
 segundo plano. O terminal original continua visível, e qualquer entrada de teclado ou rato nele
-retoma o controlo ao espelho. O espelho segue o esquema do terminal do host e é cortado para
-caber numa janela mais pequena; aumentar a janela mostra o resto. O serviço opcional em segundo
+retoma o controlo ao espelho. Enquanto tem o controlo, o Borg do host organiza o ecrã para a sua
+janela: quando o espaço acima da faixa é mais pequeno do que o terminal do host, o Borg desenha no
+canto superior esquerdo desse terminal com o seu tamanho, e o resto fica em branco. Quando o
+controlo volta ao terminal do host ou sai do espelho, o Borg volta a ocupar esse terminal inteiro.
+Um espelho sem controlo segue o esquema do terminal do host e é cortado para caber numa janela mais
+pequena; aumentar a janela mostra o resto. O serviço opcional em segundo
 plano mantém as sessões ativas depois de o terminal original fechar e permite que o cliente que
 tem o controlo redimensione o respetivo PTY.
 
