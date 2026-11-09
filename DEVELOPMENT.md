@@ -1005,20 +1005,13 @@ Edit `docs/GUIDE.md` for guide content. The generator splits its selected sectio
 searchable pages on every build; do not edit the generated `website/src/content/docs/guide/`
 files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide, the
 icon and an explicit list of fictional showcase screenshots are copied into the site. Build
-metadata comes from `Cargo.toml` and the Git revision. The guide tracks main, so it can
-describe changes that are not in a release yet.
+metadata comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a
+release.
 
-The icon is Borg's corner badge as `crates/borg-ui/src/branding.rs` draws it: the label on the
-accent gradient, one color per cell, with black or white text by the same contrast rule.
-`scripts/render-brand.mjs` draws the badge large, tears it in horizontal slices with the glitch
-from `crates/borg-ui/src/fx/glitch.rs`, and sets the text in Borg Mono from `fonts/`. It writes
-four files to `docs/brand/`: `icon.png` (512 px, "◈ Borg" frozen mid-glitch), `favicon.png`
-(64 px, the same frame), `icon.gif` (256 px, the badge bursting and settling in a 3.6-second
-loop) and `social-preview.png` (1280x640, the full "◈ Borg Commander" badge). The site
-generator copies the PNGs to the favicon and the Starlight logo, and the README plays the GIF.
-GitHub takes the social preview only through Settings → General → Social preview, so upload it
-there after every change. Render the files again after changing the badge, the glitch or the
-tagline. The script needs Node, `resvg` and ImageMagick:
+The icon is Borg's corner badge caught mid-glitch. `scripts/render-brand.mjs` draws the site
+icon, the favicon, the animated README icon and the GitHub social preview into `docs/brand/`.
+Run it again after changing the badge or the glitch, then upload the new social preview in the
+repository settings. It needs Node, `resvg` and ImageMagick:
 
 ```sh
 node scripts/render-brand.mjs
