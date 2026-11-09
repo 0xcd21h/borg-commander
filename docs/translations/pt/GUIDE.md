@@ -828,17 +828,14 @@ processos das últimas 16 capturas do agente até terminar. Os outros ficheiros 
 em **Processo desconhecido**, a menos que os pacotes tragam o seu processo.
 
 Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele,
-ou escolha F9 → Remoto → **Registo remoto…** a qualquer momento, para ver um registo do que o
-agente fez: o que viu, leu, analisou, mostrou e escreveu, e todos os comandos e alterações,
-aprovados ou recusados. Cada entrada começa com a data e a hora. O Borg guarda o registo em
-`remote-log.jsonl`, junto dos outros ficheiros da sessão na pasta de estado, legível apenas por si,
-e carrega-o quando a sessão abre. Assim, pode voltar a uma sessão que deixou a correr e ver o que
-os agentes fizeram nela, mesmo depois de o Borg terminar. Os comandos aparecem tal como os
+ou escolha F9 → Remoto → **Registo remoto…** a qualquer momento, para ver um registo do que o agente
+fez: o que viu, leu, analisou, mostrou e escreveu, e todos os comandos e alterações, aprovados ou
+recusados. Cada sessão guarda o seu registo no disco, legível apenas por si, para que possa voltar a
+uma sessão que deixou a correr e ver o que aconteceu nela, mesmo depois de o Borg terminar. Quando o
+registo fica grande, o Borg descarta as entradas mais antigas. Os comandos aparecem tal como os
 diálogos os mostraram, por isso uma palavra-passe escrita numa linha de comandos também fica no
-registo. Quando o ficheiro passa de 1 MiB, o Borg mantém os 512 KiB mais recentes, e a janela
-mostra as 1000 entradas mais recentes. Para não guardar registo nenhum, desative
-**Remoto: manter um registo do que faz** em Opções → Plugins, o que também elimina o registo
-guardado.
+registo. Para não guardar registo nenhum, desative **Remoto: manter um registo do que faz** em
+Opções → Plugins, o que também elimina o registo guardado.
 
 ### Borg cloud
 

@@ -761,15 +761,13 @@ quits. Other files show their conversations under **Unknown process**, unless th
 carry their process.
 
 While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it, or
-choose F9 → Remote → **Remote log…** at any time, to see a log of what the agent did: what it
-looked at, read, scanned, showed, and typed, and every command and change, approved or declined.
-Each entry starts with its date and time. Borg saves the log in `remote-log.jsonl` with the
-session's other files in the state folder, readable only by you, and loads it when the session
-opens. That way you can come back to a session you left running and read what agents did there,
-even after Borg quit. Commands appear as their dialogs showed them, so a password typed on a
-command line ends up in the log too. Once the file grows past 1 MiB, Borg keeps its newest
-512 KiB, and the window shows the newest 1,000 entries. To keep no log at all, turn off
-**Remote: keep a log of what it does** in Options → Plugins, which also deletes the saved log.
+choose F9 → Remote → **Remote log…** at any time, to see a log of what the agent did: what it looked
+at, read, scanned, showed, and typed, and every command and change, approved or declined. Each
+session keeps its log on disk, readable only by you, so you can come back to a session you left
+running and see what happened there, even after Borg quit. When the log grows large, Borg drops the
+oldest entries. Commands appear as their dialogs showed them, so a password typed on a command line
+ends up in the log too. To keep no log at all, turn off **Remote: keep a log of what it does** in
+Options → Plugins, which also deletes the saved log.
 
 ### Borg cloud
 

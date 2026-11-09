@@ -825,18 +825,16 @@ paquete por su número para obtener sus capas y sus bytes en un volcado hexadeci
 los procesos de las últimas 16 capturas del agente hasta que sale. Los demás archivos muestran sus
 conversaciones en **Proceso desconocido**, salvo que sus paquetes lleven su proceso.
 
-Mientras hay un agente conectado, **◈ Remoto** aparece al principio de la barra de atajos. Haz
-clic en él, o elige F9 → Remoto → **Registro remoto…** en cualquier momento, para ver un registro
-de lo que ha hecho el agente: lo que ha mirado, leído, analizado, mostrado y escrito, y cada
-comando y cambio, aprobado o rechazado. Cada entrada empieza con su fecha y hora. Borg guarda el
-registro en `remote-log.jsonl`, junto a los demás archivos de la sesión en la carpeta de estado,
-legible solo por ti, y lo carga al abrir la sesión. Así puedes volver a una sesión que dejaste en
-marcha y leer lo que hicieron los agentes en ella, incluso después de que Borg haya salido. Los
+Mientras hay un agente conectado, **◈ Remoto** aparece al principio de la barra de atajos. Haz clic
+en él, o elige F9 → Remoto → **Registro remoto…** en cualquier momento, para ver un registro de lo
+que ha hecho el agente: lo que ha mirado, leído, analizado, mostrado y escrito, y cada comando y
+cambio, aprobado o rechazado. Cada sesión guarda su registro en disco, legible solo por ti, así que
+puedes volver a una sesión que dejaste en marcha y ver lo que pasó en ella, incluso después de que
+Borg haya salido. Cuando el registro crece mucho, Borg descarta las entradas más antiguas. Los
 comandos aparecen tal como los mostraron sus diálogos, así que una contraseña escrita en una línea
-de comandos también queda en el registro. Cuando el archivo supera 1 MiB, Borg conserva sus
-512 KiB más recientes, y la ventana muestra las 1000 entradas más recientes. Para no guardar
-ningún registro, desactiva **Remoto: llevar un registro de lo que hace** en Opciones →
-Complementos, lo que también borra el registro guardado.
+de comandos también queda en el registro. Para no guardar ningún registro, desactiva
+**Remoto: llevar un registro de lo que hace** en Opciones → Complementos, lo que también borra el
+registro guardado.
 
 ### Borg cloud
 
