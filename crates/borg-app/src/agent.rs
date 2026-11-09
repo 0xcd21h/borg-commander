@@ -52,7 +52,7 @@ pub use scan::{ScanCall, ScanTarget, files_answer, process_answer, rule_text_pro
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
 use socket::SOCKET_SUFFIX;
-pub(crate) use socket::{SOCKET_PREFIX, same_user, socket_dir, socket_dirs, socket_path};
+pub(crate) use socket::{SOCKET_PREFIX, from_process, same_user, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
 use tools::{routing_tools, tools, transfer_tools};
 
@@ -261,8 +261,8 @@ impl Agent {
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            let service_child = std::env::var_os("BORG_SERVICE_CHILD").is_some();
-            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service_child));
+            let service = std::env::var_os("BORG_SERVICE_CHILD").is_some().then(std::os::unix::process::parent_id);
+            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service));
             Some(socket)
         });
         Self { incoming, requeue: calls, socket, messages, clients, waiting: Waiting::default(), next_id: 0 }
@@ -367,23 +367,27 @@ impl Drop for Agent {
     }
 }
 
+/// Takes `borg mcp` connections from this user's programs. Only `service`, the background
+/// service that started this session, passes on what a paired computer proved; every other
+/// client's calls are checked as an agent's.
 async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
-    service_child: bool,
+    service: Option<u32>,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
         if !same_user(&stream) {
             continue;
         }
+        let trusted = service.is_some_and(|pid| from_process(&stream, pid));
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
         note(&messages, "an agent connected");
         let (calls, messages, clients) = (calls.clone(), messages.clone(), clients.clone());
         tokio::spawn(async move {
-            let _ = serve_connection(stream, &calls, service_child).await;
+            let _ = serve_connection(stream, &calls, trusted).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
             let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
             note(&messages, "an agent disconnected");
@@ -394,13 +398,12 @@ async fn accept(
 async fn serve_connection(
     stream: UnixStream,
     calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>,
-    service_child: bool,
+    trusted: bool,
 ) -> Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let decoded =
-            serde_json::from_str::<Call>(&line).map(|call| if service_child { Ok(call) } else { call.external() });
+        let decoded = serde_json::from_str::<Call>(&line).map(|call| if trusted { Ok(call) } else { call.external() });
         let reply = match decoded {
             Ok(Ok(call)) => {
                 let (sender, receiver) = oneshot::channel();

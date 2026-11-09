@@ -1151,6 +1151,7 @@
   "docker_disk_volume_data": "卷里保存着数据。删除卷后，容器存在其中的内容将永久丢失。",
   "docker_disk_in_use": "Docker 会保留容器正在使用的内容。请先删除这些容器。",
   "docker_disk_cache_together": "构建缓存的记录只能一起清理。在“构建缓存”上按 F8 会输入清理命令。",
+  "docker_disk_control_character": "名称中含有控制字符，因此 F8 不会为它输入命令。",
   "docker_disk_host_console": "清理命令会发送到此计算机的 Shell。请先激活此计算机上的面板。",
   "docker_disk_button": "D 磁盘占用",
   "docker_clean_button": "F8 清理",

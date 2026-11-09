@@ -597,7 +597,8 @@ before it deletes anything. On an item, F8 types `docker rmi`, `docker rm`, or `
 with that item, or with every marked image, container, or volume. Space or Insert marks an item,
 and `*` inverts the marks of the selected kind. An image goes by all its tags, since Docker
 deletes it with its last tag, or by its ID when it has none. Build cache records go together with
-`docker builder prune`. Borg never adds `-f` or `--force`.
+`docker builder prune`. Borg never adds `-f` or `--force`. A name with a control character gets
+no command, since the prompt would take that character as a key.
 
 Volumes hold the data containers saved, such as a database's files, and a removed volume cannot
 be brought back. The other panel repeats this beside every volume command. When the `docker` CLI
@@ -675,7 +676,9 @@ screen's filter (see [Startup items](#startup-items)).
 Anything that changes the machine waits for you in a dialog that shows the whole change: a
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
 keys, PgUp and PgDn, or the mouse wheel, and press F3 to see the dialog full screen. No stays
-selected until you choose Yes, and an edit is refused if the file changed while you were deciding.
+selected until you choose Yes, and the dialog ignores Yes for its first half second, so a key or
+click meant for something else cannot approve it. An edit is refused if the file changed while
+you were deciding.
 A command with tabs, escapes or other control characters is refused too, since the dialog cannot show them.
 The dialog shows on top of everything, including the editor, the viewer, another dialog and the
 screensaver, and it takes every key until you answer. What it covered comes back afterward. If

@@ -652,7 +652,8 @@ ou `docker volume rm` com esse item, ou com todas as imagens, contentores ou vol
 Space ou Insert marca um item, e `*` inverte as marcas do tipo selecionado. Uma imagem sai por
 todas as etiquetas, já que o Docker a elimina com a última, ou pelo ID quando não tem nenhuma. Os
 registos da cache de compilação saem todos juntos com `docker builder prune`. O Borg nunca
-acrescenta `-f` nem `--force`.
+acrescenta `-f` nem `--force`. Um nome com um carácter de controlo não recebe nenhum comando,
+porque o prompt tomaria esse carácter por uma tecla.
 
 Os volumes guardam os dados que os contentores gravaram, como os ficheiros de uma base de dados, e
 um volume removido não pode ser recuperado. O outro painel repete este aviso junto a cada comando
@@ -732,8 +733,10 @@ programas e as regras a que corresponderam, filtrados com as mesmas palavras que
 Tudo o que altera a máquina fica à sua espera numa caixa de diálogo que mostra a alteração
 completa: um comando e o sítio onde vai ser executado, um ficheiro novo ou uma edição sob a forma
 de diff. Percorra as alterações longas com as setas, PgUp e PgDn ou a roda do rato, e prima F3
-para ver a caixa de diálogo em ecrã inteiro. A opção Não mantém-se selecionada até escolher Sim, e uma edição é
-recusada se o ficheiro tiver mudado enquanto decidia. Um comando com tabulações, sequências de escape
+para ver a caixa de diálogo em ecrã inteiro. A opção Não mantém-se selecionada até escolher Sim,
+e a caixa de diálogo ignora o Sim durante o primeiro meio segundo, para que uma tecla ou um clique
+destinados a outra coisa não a possam aprovar. Uma edição é recusada se o ficheiro tiver mudado
+enquanto decidia. Um comando com tabulações, sequências de escape
 ou outros caracteres de controlo também é recusado, porque a caixa de diálogo não os consegue mostrar.
 A caixa de diálogo aparece por cima de tudo, incluindo o editor, o visualizador, outra caixa de
 diálogo e o protetor de ecrã, e recebe todas as teclas até responder. O que ela tapava volta a

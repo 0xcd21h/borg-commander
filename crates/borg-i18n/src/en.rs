@@ -1175,6 +1175,7 @@ catalog! {
     docker_disk_volume_data => "Volumes hold data. What containers saved in a removed volume is gone for good.",
     docker_disk_in_use => "Docker keeps what containers use. Remove those containers first.",
     docker_disk_cache_together => "Build cache records go together. F8 on Build cache types the prune.",
+    docker_disk_control_character => "A name holds a control character, so F8 types no command for it.",
     docker_disk_host_console => "Cleanup commands go to this computer's shell. Make a panel on this computer active first.",
     docker_disk_button => "D Disk use",
     docker_clean_button => "F8 Clean up",

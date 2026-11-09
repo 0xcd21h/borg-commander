@@ -37,8 +37,8 @@ const NUMBER_WIDTH: usize = 7;
 const TAB: &str = "    ";
 /// How far the rows of a pairing code stand in from the dialog's text.
 const CODE_INDENT: &str = "  ";
-/// How long an approval that appears while the user types ignores Yes, so a key meant for the
-/// shell or an editor cannot approve what the user has not read.
+/// How long a newly shown approval ignores Yes, so a key meant for the shell, an editor or the
+/// dialog before it cannot approve what the user has not read.
 pub const APPROVAL_GRACE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,8 +165,8 @@ pub struct Approval {
     pub accept: bool,
     /// The dialog fills the screen.
     pub full: bool,
-    /// Until when Yes is ignored: the user was typing when the dialog appeared.
-    pub guarded_until: Option<Instant>,
+    /// Until when Yes is ignored, a moment after the dialog appeared.
+    pub guarded_until: Instant,
 }
 
 /// How to connect Claude to this borg, as the Connect dialog shows it.
@@ -321,8 +321,7 @@ pub(crate) fn surface(state: &mut AppState, now: Instant) {
         let (id, ask) = state.agent.asks.remove(0);
         (id, ask, None)
     };
-    let typing = now.saturating_duration_since(state.idle_since) < APPROVAL_GRACE;
-    let guarded_until = typing.then(|| now + APPROVAL_GRACE);
+    let guarded_until = now + APPROVAL_GRACE;
     state.screensaver = false;
     state.intro = None;
     state.approval = Some(Approval { id, ask, host, scroll: 0, accept: false, full: false, guarded_until });
@@ -373,7 +372,7 @@ pub(crate) fn on_approval_key(
         KeyCode::Enter => Some(approval.accept),
         _ => None,
     };
-    if decided == Some(true) && approval.guarded_until.is_some_and(|until| now < until) {
+    if decided == Some(true) && now < approval.guarded_until {
         state.approval = Some(approval);
         return Vec::new();
     }

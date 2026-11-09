@@ -650,7 +650,8 @@ anónimos sin usar, y Docker pide confirmación antes de borrar nada. En un elem
 contenedores o volúmenes marcados. Space o Insert marca un elemento, y `*` invierte las marcas del
 tipo seleccionado. Una imagen se elimina por todas sus etiquetas, ya que Docker la borra con la
 última, o por su ID cuando no tiene ninguna. Los registros de la caché de compilación se eliminan
-juntos con `docker builder prune`. Borg nunca añade `-f` ni `--force`.
+juntos con `docker builder prune`. Borg nunca añade `-f` ni `--force`. Un nombre con un carácter
+de control no recibe ningún comando, porque el prompt tomaría ese carácter como una tecla.
 
 Los volúmenes guardan los datos que escribieron los contenedores, como los archivos de una base de
 datos, y un volumen eliminado no se puede recuperar. El otro panel lo recuerda junto a cada
@@ -732,8 +733,9 @@ pantalla (consulta [Elementos de inicio](#startup-items)).
 Todo lo que modifica la máquina espera tu respuesta en un diálogo que muestra el cambio completo:
 un comando y dónde se ejecutará, un archivo nuevo o una edición en forma de diff. Desplaza los
 largos con las flechas, PgUp y PgDn, o la rueda del ratón, y pulsa F3 para ver el diálogo a
-pantalla completa. La opción No sigue seleccionada hasta que eliges Sí, y una edición se rechaza si el
-archivo cambió mientras decidías. También se rechaza un comando con tabulaciones, secuencias de
+pantalla completa. La opción No sigue seleccionada hasta que eliges Sí, y el diálogo ignora Sí
+durante su primer medio segundo, así que una tecla o un clic pensados para otra cosa no pueden
+aprobarlo. Una edición se rechaza si el archivo cambió mientras decidías. También se rechaza un comando con tabulaciones, secuencias de
 escape u otros caracteres de control, porque el diálogo no puede mostrarlos. El diálogo aparece encima de todo, incluidos el editor, el visor,
 otro diálogo y el salvapantallas, y recibe todas las teclas hasta que respondas. Lo que tapaba vuelve
 a aparecer después. Si el agente deja de esperar antes, el diálogo se cierra y un aviso lo indica.

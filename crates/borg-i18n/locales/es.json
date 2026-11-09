@@ -1151,6 +1151,7 @@
   "docker_disk_volume_data": "Los volúmenes guardan datos. Lo que los contenedores guardaron en un volumen eliminado se pierde para siempre.",
   "docker_disk_in_use": "Docker conserva lo que usan los contenedores. Elimina antes esos contenedores.",
   "docker_disk_cache_together": "Los registros de la caché de compilación se eliminan juntos. F8 en Caché de compilación escribe la limpieza.",
+  "docker_disk_control_character": "Un nombre contiene un carácter de control, así que F8 no escribe ningún comando para él.",
   "docker_disk_host_console": "Los comandos de limpieza van al shell de esta computadora. Activa antes un panel de esta computadora.",
   "docker_disk_button": "D Uso de disco",
   "docker_clean_button": "F8 Limpiar",

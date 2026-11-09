@@ -129,6 +129,27 @@ async fn a_socket_knows_a_program_of_this_user() {
     assert!(same_user(&one));
 }
 
+#[tokio::test]
+async fn a_service_sessions_socket_trusts_only_the_service_that_started_it() {
+    let place = tempfile::tempdir().unwrap();
+    for (service, trusted) in [(std::os::unix::process::parent_id(), false), (std::process::id(), true)] {
+        let path = place.path().join(format!("{service}.sock"));
+        let listener = UnixListener::bind(&path).unwrap();
+        let (calls, mut incoming) = unbounded_channel();
+        let (messages, _shown) = unbounded_channel();
+        tokio::spawn(accept(listener, calls, messages, Arc::new(AtomicUsize::new(0)), Some(service)));
+        let mut client = UnixStream::connect(&path).await.unwrap();
+        let call = json!({
+            "tool": "run", "args": { "command": "true", "_container": "web" }, "origin": "laptop", "approved": true
+        });
+        client.write_all(format!("{call}\n").as_bytes()).await.unwrap();
+        let (call, _reply) = incoming.recv().await.unwrap();
+        assert_eq!(call.origin.is_some(), trusted, "{call:?}");
+        assert_eq!(call.approved, trusted);
+        assert_eq!(call.args.get("_container").is_some(), trusted);
+    }
+}
+
 #[test]
 fn a_capture_call_names_one_scope_and_a_bounded_length() {
     use borg_core::{CaptureScope, LONGEST_CAPTURE, SHORTEST_CAPTURE, Transport};

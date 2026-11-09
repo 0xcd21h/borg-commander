@@ -387,6 +387,7 @@ fn cleanup(sheet: &mut Sheet<'_>, disk: &Disk, kind: DiskKind, buf: &mut Buffer)
         }
         Err(NoCleanup::InUse) => sheet.paragraph(buf, tr!(docker_disk_in_use), dim(theme)),
         Err(NoCleanup::CacheRecord) => sheet.paragraph(buf, tr!(docker_disk_cache_together), dim(theme)),
+        Err(NoCleanup::ControlCharacter) => sheet.paragraph(buf, tr!(docker_disk_control_character), dim(theme)),
         Err(NoCleanup::Empty) => {}
     }
 }

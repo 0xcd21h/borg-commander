@@ -309,6 +309,8 @@ pub enum NoCleanup {
     InUse,
     /// Build cache records go together, with the prune on the kind's row.
     CacheRecord,
+    /// A name holds a control character, which the shell's prompt would take as a key.
+    ControlCharacter,
     Empty,
 }
 
@@ -412,6 +414,14 @@ impl Disk {
     /// The command the cleanup key types on the selected row: the kind's prune on a kind, and on
     /// an item the removal of the marked items like it, or of this one when none are marked.
     pub fn cleanup(&self) -> Result<CommandLine, NoCleanup> {
+        let line = self.command()?;
+        if String::from_utf8_lossy(&line.line()).chars().any(char::is_control) {
+            return Err(NoCleanup::ControlCharacter);
+        }
+        Ok(line)
+    }
+
+    fn command(&self) -> Result<CommandLine, NoCleanup> {
         let (Some(usage), Some(row), Some(group)) = (&self.usage, self.row(), self.group()) else {
             return Err(NoCleanup::Empty);
         };
