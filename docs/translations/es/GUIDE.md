@@ -1019,8 +1019,12 @@ sale.
 
 Un `borg` normal o un `borg --session NAME` se puede reflejar mientras se ejecuta, sin el servicio
 en segundo plano. Su propio terminal sigue visible, y cualquier entrada de teclado o ratón en él
-recupera el control del espejo. El espejo sigue la disposición del terminal del host y se recorta
-para caber en una ventana más pequeña; si agrandas la ventana, ves el resto. El servicio opcional
+recupera el control del espejo. Mientras tienes el control, Borg en el host organiza la pantalla
+para tu ventana: cuando el espacio sobre el banner es más pequeño que el terminal del host, Borg
+dibuja en la esquina superior izquierda de ese terminal con tu tamaño, y el resto queda en blanco.
+Cuando el control vuelve al terminal del host o sales del espejo, Borg vuelve a ocupar todo ese
+terminal. Un espejo sin control sigue la disposición del terminal del host y se recorta para caber
+en una ventana más pequeña; si agrandas la ventana, ves el resto. El servicio opcional
 en segundo plano mantiene las sesiones vivas después de que se cierre su terminal original y
 permite que el cliente que tiene el control cambie el tamaño de su PTY.
 

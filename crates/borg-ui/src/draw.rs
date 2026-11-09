@@ -87,19 +87,25 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
 }
 
 pub fn draw_with_cursor(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
-    borg_i18n::with_locale(scene.state.settings.preferences.language, || draw_localized(frame, scene))
+    let (placements, cursor) = draw_into(frame.buffer_mut(), scene);
+    if let Some(position) = cursor {
+        frame.set_cursor_position(position);
+    }
+    (placements, cursor)
 }
 
-fn draw_localized(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
-    let area = frame.area();
+/// Draws the scene over all of `buf`, and says where the terminal's cursor goes in it.
+pub fn draw_into(buf: &mut Buffer, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
+    borg_i18n::with_locale(scene.state.settings.preferences.language, || draw_localized(buf, scene))
+}
+
+fn draw_localized(buf: &mut Buffer, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
+    let area = buf.area;
     let theme = scene.theme_at(scene.state.appearance.current());
-    let (cursor, placements) = compose(frame.buffer_mut(), scene, theme, area);
-    crate::branding::draw(area, theme, scene.palette, frame.buffer_mut());
+    let (cursor, placements) = compose(buf, scene, theme, area);
+    crate::branding::draw(area, theme, scene.palette, buf);
     if !scene.state.settings.truecolor {
-        fx::quantize(frame.buffer_mut(), scene.palette);
-    }
-    if let Some(position) = cursor.filter(|position| area.contains(*position)) {
-        frame.set_cursor_position(position);
+        fx::quantize(buf, scene.palette);
     }
     (placements, cursor.filter(|position| area.contains(*position)))
 }
