@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/icon.gif" alt="The Borg Commander logo glitching and settling" width="128" height="128">
+  <img src="docs/brand/icon.gif" alt="The Borg Commander badge glitching and settling" width="128" height="128">
 </p>
 
 <pre align="center">

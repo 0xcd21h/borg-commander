@@ -1008,15 +1008,17 @@ icon and an explicit list of fictional showcase screenshots are copied into the 
 metadata comes from `Cargo.toml` and the Git revision. The guide tracks main, so it can
 describe changes that are not in a release yet.
 
-The icon is Borg's own glitch logo. `scripts/render-brand.mjs` draws it the way
-`crates/borg-ui/src/fx/glitch.rs` does, with Borg Mono from `fonts/`, and writes four files to
-`docs/brand/`: `icon.png` (512 px, frozen mid-glitch), `favicon.png` (64 px, the same frame),
-`icon.gif` (256 px, the logo bursting and settling in a 3.6-second loop) and
-`social-preview.png` (1280x640). The site generator copies the PNGs to the favicon and the
-Starlight logo, and the README plays the GIF. GitHub takes the social preview only through
-Settings → General → Social preview, so upload it there after every change. Render the files
-again after changing the glitch, the logo or the tagline. The script needs Node, `resvg` and
-ImageMagick:
+The icon is Borg's corner badge as `crates/borg-ui/src/branding.rs` draws it: the label on the
+accent gradient, one color per cell, with black or white text by the same contrast rule.
+`scripts/render-brand.mjs` draws the badge large, tears it in horizontal slices with the glitch
+from `crates/borg-ui/src/fx/glitch.rs`, and sets the text in Borg Mono from `fonts/`. It writes
+four files to `docs/brand/`: `icon.png` (512 px, "◈ Borg" frozen mid-glitch), `favicon.png`
+(64 px, the same frame), `icon.gif` (256 px, the badge bursting and settling in a 3.6-second
+loop) and `social-preview.png` (1280x640, the full "◈ Borg Commander" badge). The site
+generator copies the PNGs to the favicon and the Starlight logo, and the README plays the GIF.
+GitHub takes the social preview only through Settings → General → Social preview, so upload it
+there after every change. Render the files again after changing the badge, the glitch or the
+tagline. The script needs Node, `resvg` and ImageMagick:
 
 ```sh
 node scripts/render-brand.mjs
