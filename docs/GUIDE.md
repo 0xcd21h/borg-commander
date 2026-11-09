@@ -816,19 +816,25 @@ call `list_sessions`, `list_remote_sessions`, and `use_session` to choose which 
 connection works with. A single tool call can also pass a `session` ID to target another session
 just once. The chosen session applies only to that MCP connection.
 
-With more than one session, `borg` starts with the **Borg sessions** window. Its first lines say
-what a session is, and the list shows each session with when it was last used. A session that is
-active right now is marked with its status: **Open in another terminal**, or
-**Kept running by the service** when the background service runs it. The session used last is
-chosen, unless another terminal has it open. Enter opens the chosen session where you left off; one
-the service keeps opens attached, as with `borg service attach NAME`. A click chooses a session and
-a second click opens it. **F7** names a new session and opens it, and Esc or F10 quits without
-opening one. While the window is open, it checks every 2 seconds which sessions are active.
+With more than one session, or when the only one is open in another terminal, `borg` starts with the
+**Borg sessions** window. Its first lines say what a session is, and the list shows each session
+with when it was last used. A session that is active right now is marked with its status:
+**Open in another terminal**, or **Kept running by the service** when the background service runs
+it. The session used last is chosen, unless another terminal has it open. Enter opens the chosen
+session where you left off; one the service keeps opens attached, as with
+`borg service attach NAME`. A click chooses a session and a second click opens it. **F7** names a
+new session and opens it, and Esc or F10 quits without opening one. While the window is open, it
+checks every 2 seconds which sessions are active.
 
 **F8** or **Delete** removes the chosen session after a confirmation that defaults to **No**. This
 deletes its saved panels and terminal history; your files and folders are kept. The Default session
 always stays, and so does a session that is active right now: quit Borg in the other terminal first,
 or run `borg service stop` to remove a session the service keeps.
+
+When you name a session with `borg --session NAME` that another Borg already has open, and no
+background service runs to attach to, `borg` stops and names that Borg: its process number, its
+terminal as `ps` shows it, and how long ago it started. Quit that Borg with F10 where it runs. When
+you can no longer reach its terminal, end it with `kill` and the process number.
 
 `borg service install`, `enable`, and `start` set up the optional background service. It holds
 the machine's pairing connection and keeps named sessions running after their terminals close.
