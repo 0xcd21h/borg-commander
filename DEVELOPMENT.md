@@ -655,36 +655,20 @@ so an agent's socket call or session channel cannot claim it. An answer names th
 random ID for each process, and the ask's number, and counts only while that ask still waits and
 no other computer controls the session; `borg-core::agent::forward` holds that check and the
 first answer wins logic. `borg mcp` forwards only the tools it lists, so an agent cannot reach
-mirror, console, panel or viewer calls. With the background service, the asks reach each
-session's Borg over its registration with the origin, approval and viewer marks kept; the service
-tracks the mirror controller of the sessions it keeps in the background, so the view-only check
-does not apply to them. An agent socket always clears those marks, so without the service a named
-session other than the one that holds borg cloud keeps its asks on its own screen.
+mirror, console, panel or viewer calls. With the background service, asks reach each session's
+Borg over its registration, which keeps the origin, approval and viewer marks. An agent socket
+always clears those marks.
 
-Every Borg registers its session with the background service over `service.sock` in the state
-directory (`service::member`). It sends one `register` line with its session, its pid, the path
-of its mirror socket and whether it runs in a terminal or inside the service, then waits for the
-service's first message, the paired computers, before it sends anything else. From then on both
-sides exchange JSON lines (`service::wire`): calls and their replies, pairing links, the paired
-computers, and how many paired connections reach the session, which the Borg adds to its agent
-count. A registered Borg leaves borg cloud to the service and asks it for pairing links and to
-forget computers. The service (`service::members`) sends a call to the session it names, or to
-the one the user worked in last, and starts a session that runs nowhere through `_service_start`
-before it passes the call on. Mirrors of a session in a terminal open the socket path that Borg
-registered, since the service and the terminal may see different runtime directories; the service
-answers mirrors of the sessions it keeps itself.
+Each Borg registers its session with the service over `service.sock` in the state directory, and
+both sides then exchange JSON lines (`service::member`, `service::wire`, `service::members`). A
+registered Borg leaves borg cloud to the service. The service sends a call to the session it
+names, or to the one used last, and starts that session first when it runs nowhere.
 
-The first `borg` starts the service with `borg service run --on-demand` in a process group of its
-own, unless `start-service` is false, Borg runs as a remote client or inside the service, or there
-is no state directory. An on-demand service ends 30 seconds after its last member and child go;
-one that is installed or run by a supervisor keeps running until it is stopped. Such a kept
-service that finds the lock taken sends `hand-over` to the service that runs; one started on
-demand ends, and the kept one waits up to 5 seconds for the lock while the Borgs register again.
-The service's `status` says `kept` for a kept one, which the Remote menu's **Background service…**
-dialog counts as running. Only the sessions marked `background` in
-`sessions.json` run inside the service, and a session's Borg clears its mark when the user quits
-it with F10. The test fixture sets `start-service = false`, so each end-to-end test that needs the
-service starts it itself.
+The first `borg` starts `borg service run --on-demand` unless `start-service` is false, and that
+service ends 30 seconds after its last session goes. An installed or supervised service keeps
+running and takes over from an on-demand one. Only sessions marked `background` in
+`sessions.json` run inside the service. The test fixture sets `start-service = false`, so
+end-to-end tests that need the service start it themselves.
 
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:

@@ -805,10 +805,10 @@ none at all when borg cloud is turned off in Options → Plugins.
 
 Borg saves the relay in the config as `relay = "wss://relay.example.com"`. A computer reaches the
 server through the relay it paired through, so after the server switches relays, pair the
-computer again. All borgs on one machine share a key, and the background service connects to the
-relay for all of them (see [Named sessions and the background service](#named-sessions-and-the-background-service)).
-Without the service, only the first borg opened connects, and the others tell you which one has
-borg cloud.
+computer again. All borgs on one machine share a key, and the
+[background service](#named-sessions-and-the-background-service) connects them all to the relay.
+With the service turned off, only the first borg opened connects, and the others tell you which
+one has borg cloud.
 
 ### Named sessions and the background service
 
@@ -831,45 +831,31 @@ checks every 2 seconds which sessions are active.
 **F8** or **Delete** removes the chosen session after a confirmation that defaults to **No**. This
 deletes its saved panels and terminal history; your files and folders are kept. The Default session
 always stays, and so does a session that is active right now: quit Borg in the other terminal first.
-To remove a session the service keeps, attach to it with `borg service attach NAME` and quit Borg
-there with F10.
+To remove a session the service keeps, open it with `borg service attach NAME` and quit with F10.
 
 When you name a session with `borg --session NAME` that another Borg has open in a terminal,
 `borg` stops and names that Borg: its process number, its terminal as `ps` shows it, and how long
 ago it started. Quit that Borg with F10 where it runs. When you can no longer reach its terminal,
 end it with `kill` and the process number.
 
-Every Borg on a machine works with that machine's background service, one for each user. The
-first `borg` you open starts it in the background as you, with no root and nothing to install, and
-it ends 30 seconds after its last session closes. Set `start-service = false` in the config to keep
-Borg from starting it. `borg service install`, `enable`, and `start` set it up as a system service
-that starts at boot and keeps running. They run the system's service manager through sudo, which
-asks for your password, or directly when you are root. `borg service stop`, `disable`, or
-`uninstall` stop or remove it. An installed service takes over from one a Borg started, and open
-Borgs register with it on their own. In a container without systemd, have the container's process
-supervisor run `borg service run`; the `install` and `enable` commands need a Linux host with
-systemd.
+All your Borgs on a machine share one background service. The first `borg` you open starts it,
+with nothing to install, and it stops 30 seconds after the last session closes. To turn this off,
+set `start-service = false` in the config.
 
-A session you open in a terminal runs in that terminal and registers with the service. The
-service holds borg cloud for every Borg on the machine, so a paired computer reaches each session
-while it is open, whichever Borg you opened first. A pairing link from any Borg comes from the
-service, and the Borg that showed the link asks you to approve the pairing. A paired computer's
-call goes to the session it names, or else to the session you used last. Its commands and changes
-wait for your approval in that session's Borg, and the dialog names the computer that asked.
+The service keeps borg cloud connected for all your Borgs, so a paired computer reaches every open
+session. It works in the session it names, or in the one you used last, and waits for your
+approval there. You can pair from any Borg.
 
-The service can also keep a session running with no terminal. `borg service keep NAME` keeps one
-running in the background, and `borg service attach NAME` shows it in this terminal, keeping it
-running first. Ctrl-] detaches again and leaves its shell running. Quitting Borg in it with F10
-ends the session, and the service stops keeping it. `borg` and the **Borg sessions** window attach
-to a session the service keeps. When a paired computer asks for a session that runs nowhere, the
-service starts it in the background.
+To keep a session running with no terminal, run `borg service keep NAME`. Open it with
+`borg service attach NAME` or from the **Borg sessions** window, and press Ctrl-] to detach.
+Quitting Borg there with F10 ends the session. When a paired computer asks for a session that is
+not running, the service starts it in the background.
 
-Choose F9 → Remote → **Background service…** to set the service up from Borg. When the service is
-not installed, a dialog shows the command that installs, enables, and starts it. When it is
-installed and stopped, the dialog offers to enable and start it. Enter types the command into
-Borg's shell and runs it there, where you see sudo ask for your password. When the installed
-service already runs, or the machine has no systemd, a notice says so. Once it runs, open Borgs
-register with it on their own.
+To start the service at boot, run `borg service install`, `enable`, and `start`. They use sudo,
+which asks for your password, unless you are root. `borg service stop`, `disable`, and `uninstall`
+undo them. You can also choose F9 → Remote → **Background service…**: the dialog shows the command
+for the next step, and Enter runs it in Borg's shell. In a container without systemd, have the
+container's process supervisor run `borg service run`.
 
 ### Remote panels
 
@@ -951,8 +937,7 @@ This closes the session and its remote consoles and deletes its saved Borg panel
 history; files and folders on the host are kept. The Default session cannot be removed. A
 standalone session that is currently hosting the connection cannot remove itself; first close it
 on the host and run Borg in another session. If removal fails, the session stays listed so you
-can try again. With the background service running, the session is stopped first, in the
-background or in its terminal, and the service does not start it again.
+can try again. A running session is stopped first, and the service does not start it again.
 
 ### Mirroring a session
 
@@ -968,8 +953,8 @@ above the banner is smaller than the host's terminal, Borg draws in the top left
 at your size, and the rest of it stays blank. Once control goes back to the host's terminal or you
 leave the mirror, Borg fills that terminal again. A mirror without control follows the host
 terminal's layout and is cut off to fit a smaller window; making your window larger shows the
-rest. A session the background service keeps running stays alive after its terminal closes, and
-the controlling client resizes its PTY.
+rest. A session the background service keeps stays alive after its terminal closes, and the
+computer in control sets its size.
 
 If another terminal has control of the remote session, the mirror opens in view-only mode and
 your keys do not reach the session. Press **Ctrl-T** or click the status line to take control and

@@ -73,9 +73,9 @@ no open port, no SSH key and no public address. Firewalls and NAT stay as they a
   nano, for you to check and run yourself.
 
 `borg sessions` manages named workspaces, and with more than one, `borg` starts with a window to
-open, create or remove them. The first `borg` starts a background service as you, which holds the
-pairing connection for every Borg on the machine, and `borg service keep NAME` keeps a session
-running there with no terminal. `borg service install` and `enable` start the service at boot.
+open, create or remove them. The first `borg` starts a background service that keeps borg cloud
+connected for every Borg on the machine, and `borg service keep NAME` keeps a session running with
+no terminal. `borg service install` and `enable` start the service at boot.
 Open a workspace with `borg --session NAME`, or one the service keeps with
 `borg service attach NAME`; Ctrl-] detaches. One `borg mcp` connection can list and select local
 or paired targets. `borg --remote MACHINE:SESSION` opens a paired session's filesystem in a local
