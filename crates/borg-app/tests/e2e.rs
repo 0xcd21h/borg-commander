@@ -3891,7 +3891,7 @@ fn link_channel(runtime: &tokio::runtime::Runtime, computer: &Path, hello: &str)
     let servers: serde_json::Value = serde_json::from_slice(&fs::read(computer.join("link/servers.json"))?)?;
     let relay = borg_link::Relay::parse(servers[0]["relay"].as_str().unwrap()).unwrap();
     let key = borg_link::unhex(servers[0]["key"].as_str().unwrap()).unwrap();
-    let identity = computer_identity(&computer)?;
+    let identity = computer_identity(computer)?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
         let mut channel = borg_link::initiate(socket, &identity, &key, hello.as_bytes()).await?;
