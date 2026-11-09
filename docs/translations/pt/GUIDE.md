@@ -865,19 +865,43 @@ emparelhados. Através do borg cloud, o Claude obtém também
 `borg get NAME:PATH [TO]` e `borg put FROM NAME:PATH` fazem o mesmo a partir do terminal. Os
 envios aguardam a sua aprovação no borg, e cada aprovação indica o computador que fez o pedido.
 
-A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave privada, que só o utilizador pode
-ler, na sua pasta de estado. O emparelhamento troca as chaves públicas, e cada ligação abre com um
-handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não consegue
-responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem pedir
-autorização, tal como os locais; ative "perguntar antes de outro computador ler" em Opções →
-Plugins para que também essas leituras aguardem aprovação. O Borg não mantém nenhuma ligação ao
-relay a menos que esteja emparelhado ou a mostrar uma ligação de emparelhamento, e não mantém
-nenhuma quando o borg cloud está desativado em Opções → Plugins.
+A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave de servidor, pela qual os
+computadores emparelhados o conhecem, e um computador que chega a servidores guarda também uma chave
+de computador própria. Só o utilizador pode ler ambas, na pasta `link` da pasta de estado. O
+emparelhamento troca as chaves públicas, e cada ligação abre com um handshake Noise IK associado a
+elas, pelo que o relay só reencaminha texto cifrado e não consegue responder em nome de nenhum dos
+borgs. Os pedidos vindos de outro computador podem ler sem pedir autorização, tal como os locais;
+ative "perguntar antes de outro computador ler" em Opções → Plugins para que também essas leituras
+aguardem aprovação. O Borg não mantém nenhuma ligação ao relay a menos que esteja emparelhado ou a
+mostrar uma ligação de emparelhamento, e não mantém nenhuma quando o borg cloud está desativado em
+Opções → Plugins.
 
-O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador
-chega ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de
-relay, volte a emparelhar o computador. Todos os borgs de uma máquina partilham uma chave, pelo
-que só o primeiro a ser aberto se liga ao relay; os outros indicam qual deles tem o borg cloud.
+O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador chega
+ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de relay,
+volte a emparelhar o computador. Todos os borgs de uma máquina partilham as chaves, pelo que só o
+primeiro a ser aberto se liga ao relay; os outros indicam qual deles tem o borg cloud.
+
+#### Chaves de computador
+
+A chave de computador prova a cada servidor emparelhado que uma ligação vem do seu computador.
+Quando um servidor ainda conhece este computador por outra chave, como a chave de servidor desta
+máquina, o Borg muda-o para a chave de computador na próxima vez que abrir uma sessão lá. O Borg
+prova ao servidor que tem a chave nova, e o servidor troca a chave na entrada desse computador e
+mantém o nome. As ligações que ainda usam a chave antiga terminam no pedido seguinte. O servidor
+mostra um aviso e escreve as duas impressões digitais no registo do agente, e a lista **Clientes**
+mostra quando a chave mudou e qual era. Um servidor com um Borg mais antigo mantém a chave antiga
+até ser atualizado.
+
+`borg pair --new-key` dá a este computador uma chave nova, e cada servidor aceita-a na próxima vez
+que o Borg se ligar a ele. Até todos a terem, o Borg guarda também a chave antiga, e `borg pair`
+assinala cada servidor que ainda a aceita. Uma semana depois, sugere também esquecer os servidores
+que já não usa, com `borg pair --forget NAME`.
+
+Quando um servidor recusa todas as chaves que este computador tem, o Borg indica-o. Ou alguém
+esqueceu este computador nesse servidor, ou alguém com uma cópia da chave mudou primeiro o servidor
+para uma chave sua. Uma chave nova é higiene e não desfaz uma fuga. Se suspeitar que alguém copiou
+uma chave, prima F8 em Acesso remoto em cada servidor para esquecer os computadores emparelhados,
+emparelhe de novo e verifique esses servidores.
 
 ### Sessões com nome e serviço em segundo plano
 
@@ -971,17 +995,18 @@ sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a pa
 seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
 **R** para atualizar a lista.
 
-**Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes**
-(computadores que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg,
-as impressões digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem
-cada um. Um computador aparece uma só vez, mesmo que um espelho use várias ligações. O estado é
-atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são mantidas pelo
-serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente autorizado não
-passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando quem
-detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a ser
-listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao
-mesmo tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como
-host…** e **Serviço em segundo plano…**.
+**Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
+que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
+digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem cada um. Depois de
+um computador mudar de chave, a linha da impressão digital indica também em que dia e a impressão
+digital que tinha antes. Um computador aparece uma só vez, mesmo que um espelho use várias ligações.
+O estado é atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são
+mantidas pelo serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente
+autorizado não passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando
+quem detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a
+ser listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao mesmo
+tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como host…** e
+**Serviço em segundo plano…**.
 
 O seletor mostra a versão do Borg de cada host. Selecionar uma sessão mostra o sistema
 operativo e a arquitetura, se corre como serviço em segundo plano ou num terminal, a latência dos

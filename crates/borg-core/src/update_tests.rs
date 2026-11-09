@@ -141,8 +141,18 @@ fn remote_browser_shows_incoming_clients_without_turning_them_into_hosts() {
     crate::actions::perform(&mut state, Action::BrowseRemotes, now);
     update(&mut state, Msg::RemoteCatalog { choices: Vec::new(), complete: true }, now);
     let clients = vec![
-        crate::RemoteClient { name: "laptop".into(), fingerprint: "first-key".into(), connections: Some(3) },
-        crate::RemoteClient { name: "workstation".into(), fingerprint: "second-key".into(), connections: None },
+        crate::RemoteClient {
+            name: "laptop".into(),
+            fingerprint: "first-key".into(),
+            connections: Some(3),
+            key_changed: None,
+        },
+        crate::RemoteClient {
+            name: "workstation".into(),
+            fingerprint: "second-key".into(),
+            connections: None,
+            key_changed: None,
+        },
     ];
     update(&mut state, Msg::RemoteClients(clients.clone()), now);
     assert!(

@@ -86,6 +86,14 @@ pub struct RemoteClient {
     pub name: String,
     pub fingerprint: String,
     pub connections: Option<usize>,
+    #[serde(default)]
+    pub key_changed: Option<KeyChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyChange {
+    pub when: String,
+    pub was: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

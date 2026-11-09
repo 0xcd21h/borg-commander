@@ -229,7 +229,15 @@ fn draw_clients(browser: &RemoteBrowser, theme: &Theme, body: Rect, list: Rect, 
         let count = client.connections.map(|count| count.to_string()).unwrap_or_else(|| tr!(remote_unknown).into());
         for (row, label) in [
             tr!(remote_client_direction).to_owned(),
-            tr!(remote_client_fingerprint, fingerprint = client.fingerprint),
+            match &client.key_changed {
+                Some(change) => tr!(
+                    remote_client_fingerprint_changed,
+                    fingerprint = client.fingerprint,
+                    when = change.when,
+                    was = change.was
+                ),
+                None => tr!(remote_client_fingerprint, fingerprint = client.fingerprint),
+            },
             tr!(remote_client_connections, count = count),
             tr!(remote_clients_tab_hint).to_owned(),
         ]
