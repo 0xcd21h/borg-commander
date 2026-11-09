@@ -26,6 +26,7 @@ const AGENT_ASK: &str = "Remote wants to";
 const MCP_ANSWER: std::time::Duration = std::time::Duration::from_secs(120);
 const CREW: [&str; 9] =
     ["1.drone", "2.drone", "3.drone", "4.drone", "5.drone", "6.drone", "7.drone", "8.drone", "9.drone"];
+const CRUMB_SEPARATOR: &str = " › ";
 const TOP_LEFT_CORNERS: [char; 4] = ['┌', '╭', '┏', '╔'];
 const TOP_RIGHT_CORNERS: [char; 4] = ['┐', '╮', '┓', '╗'];
 
@@ -182,6 +183,11 @@ fn status(snapshot: &Snapshot) -> String {
 fn left_panel(s: &Snapshot) -> String {
     let half = usize::from(s.cols() / 2);
     s.lines().iter().map(|line| line.chars().take(half).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+fn right_panel(s: &Snapshot) -> String {
+    let half = usize::from(s.cols() / 2);
+    s.lines().iter().map(|line| line.chars().skip(half).collect::<String>()).collect::<Vec<_>>().join("\n")
 }
 
 fn marked_footer(count: usize) -> String {
@@ -1059,12 +1065,18 @@ fn stored_sizes(archive: &Path, name: &str) -> Option<Vec<u64>> {
     Some(index.list("")?.filter(|item| item.name() == name).map(|item| item.size).collect())
 }
 
-/// Opens `archive` in the right panel and comes back to the left one.
+/// Opens `archive` in the right panel and comes back to the left one once the panel shows the
+/// archive's files. Until Borg has read the archive, the panel keeps the badge over the folder
+/// it came from, which may hold files of the same names.
 fn open_on_the_right(app: &mut Session, archive: &str, holds: &str) -> Result<()> {
+    let inside = format!("{CRUMB_SEPARATOR}{archive}");
     app.send(keys::tab())?.send(keys::ctrl('s'))?.send(archive)?.send(keys::enter())?;
     app.wait_until("cursor on the archive", |s| status(s).ends_with(archive))?;
     app.send(keys::enter())?;
-    app.wait_until("the archive's files", |s| s.contains("▤ ") && s.contains(holds))?;
+    app.wait_until("the archive's files", |s| {
+        let panel = right_panel(s);
+        panel.lines().next().is_some_and(|title| title.contains(&inside)) && panel.contains(holds)
+    })?;
     app.send(keys::tab())?;
     Ok(())
 }
