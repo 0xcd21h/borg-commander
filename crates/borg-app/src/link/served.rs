@@ -30,7 +30,8 @@ use tokio::{
 /// What the relay connection and its sessions need.
 #[derive(Clone)]
 pub(super) struct Served {
-    pub(super) background_service: bool,
+    /// The Borgs registered with the background service, when this is the service's link.
+    pub(super) members: Option<crate::service::Members>,
     pub(super) relay: Relay,
     pub(super) identity: Identity,
     pub(super) shared: Arc<Mutex<Shared>>,
@@ -249,14 +250,30 @@ impl Served {
                     "hostname": this_computer(),
                     "os": std::env::consts::OS,
                     "arch": std::env::consts::ARCH,
-                    "service": self.background_service,
-                    "sessions": sessions.into_iter().filter(|entry| !entry.archived).collect::<Vec<_>>(),
+                    "service": self.members.is_some(),
+                    "sessions": sessions
+                        .into_iter()
+                        .filter(|entry| !entry.archived)
+                        .map(|entry| self.running(entry))
+                        .collect::<Vec<_>>(),
                 })
                 .to_string(),
             ),
             Some(Err(error)) => Reply::error(format!("{error:#}")),
             None => Reply::error("Borg has no state folder for sessions"),
         }
+    }
+
+    /// A session for the computer's list, marked when it runs in a terminal here.
+    fn running(&self, entry: NamedSession) -> serde_json::Value {
+        let terminal = self
+            .members
+            .as_ref()
+            .and_then(|members| members.place(&entry.id))
+            .is_some_and(|(place, _)| place == crate::service::Place::Terminal);
+        let mut described = json!(entry);
+        described["terminal"] = json!(terminal);
+        described
     }
 
     pub(super) fn list_sessions(&self) -> Reply {

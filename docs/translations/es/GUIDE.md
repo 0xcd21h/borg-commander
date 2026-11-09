@@ -876,7 +876,9 @@ Complementos.
 Borg guarda el relay en la configuración como `relay = "wss://relay.example.com"`. Una computadora
 llega al servidor a través del relay con el que se emparejó, así que, si el servidor cambia de
 relay, vuelve a emparejar la computadora. Todos los borgs de una misma máquina comparten una clave,
-así que solo el primero que se abre se conecta al relay; los demás te indican cuál tiene borg
+y el servicio en segundo plano se conecta al relay por todos ellos (consulta
+[Sesiones con nombre y el servicio en segundo plano](#named-sessions-and-the-background-service)).
+Sin el servicio, solo se conecta el primer borg que se abre, y los demás te indican cuál tiene borg
 cloud.
 
 ### Sesiones con nombre y el servicio en segundo plano
@@ -903,13 +905,30 @@ conservan. La sesión predeterminada (Default) siempre se queda, igual que una s
 momento: sal antes de Borg en el otro terminal, o ejecuta `borg service stop` para eliminar una
 sesión que mantiene el servicio.
 
-`borg service install`, `enable` y `start` configuran el servicio opcional en segundo plano. Este
-mantiene la conexión de emparejamiento de la máquina y deja las sesiones con nombre en marcha
-después de que se cierren sus terminales. `borg service attach NAME` vuelve a conectarse a una, y
-Ctrl-] se desconecta de nuevo sin terminar su shell. Usa `borg service stop`, `disable` o
-`uninstall` para detener o quitar el servicio. En un contenedor sin systemd, haz que el supervisor
-de procesos del contenedor ejecute `borg service run`; los comandos `install` y `enable` necesitan
-un host Linux con systemd.
+Todos los Borgs de una máquina trabajan con el servicio en segundo plano de esa máquina, uno por
+usuario. El primer `borg` que abres lo inicia en segundo plano con tu usuario, sin root y sin nada
+que instalar, y el servicio termina 30 segundos después de que se cierre su última sesión. Pon
+`start-service = false` en la configuración para que Borg no lo inicie. `borg service install`,
+`enable` y `start` lo configuran como servicio del sistema, que arranca con la máquina y sigue en
+marcha; `borg service stop`, `disable` o `uninstall` lo detienen o lo quitan. En un contenedor sin
+systemd, haz que el supervisor de procesos del contenedor ejecute `borg service run`; los comandos
+`install` y `enable` necesitan un host Linux con systemd.
+
+Una sesión que abres en un terminal se ejecuta en ese terminal y se registra en el servicio. El
+servicio mantiene borg cloud para todos los Borgs de la máquina, así que una computadora emparejada
+llega a cada sesión mientras está abierta, sin importar qué Borg abriste primero. El enlace de
+emparejamiento de cualquier Borg viene del servicio, y el Borg que mostró el enlace te pide que
+apruebes el emparejamiento. Una llamada de una computadora emparejada va a la sesión que indica o,
+si no indica ninguna, a la sesión que usaste por última vez. Los comandos y cambios que pide
+esperan tu aprobación en el Borg de esa sesión, y el diálogo indica la computadora que los pidió.
+
+El servicio también puede mantener una sesión en marcha sin terminal. `borg service keep NAME`
+mantiene una sesión en marcha en segundo plano, y `borg service attach NAME` la muestra en este
+terminal, después de dejarla en marcha. Ctrl-] se desconecta de nuevo y deja su shell en marcha.
+Salir de Borg en ella con F10 termina la sesión, y el servicio deja de mantenerla. `borg` y la
+ventana **Sesiones de Borg** se conectan a una sesión que mantiene el servicio. Cuando una
+computadora emparejada pide una sesión que no se ejecuta en ningún sitio, el servicio la inicia en
+segundo plano.
 
 ### Paneles remotos
 
@@ -1000,8 +1019,8 @@ Borg guardados y su historial de terminal; los archivos y las carpetas del host 
 sesión predeterminada (Default) no se puede eliminar. Una sesión independiente que en ese momento
 aloja la conexión no puede eliminarse a sí misma; ciérrala primero en el host y ejecuta Borg en
 otra sesión. Si la eliminación falla, la sesión sigue en la lista para que puedas intentarlo de
-nuevo. Las sesiones gestionadas por el servicio se detienen antes de eliminar su estado guardado,
-y el servicio no las vuelve a crear.
+nuevo. Con el servicio en segundo plano en marcha, la sesión se detiene primero, en segundo plano o
+en su terminal, y el servicio no la vuelve a iniciar.
 
 ### Reflejar una sesión
 
@@ -1018,9 +1037,9 @@ para tu ventana: cuando el espacio sobre el banner es más pequeño que el termi
 dibuja en la esquina superior izquierda de ese terminal con tu tamaño, y el resto queda en blanco.
 Cuando el control vuelve al terminal del host o sales del espejo, Borg vuelve a ocupar todo ese
 terminal. Un espejo sin control sigue la disposición del terminal del host y se recorta para caber
-en una ventana más pequeña; si agrandas la ventana, ves el resto. El servicio opcional
-en segundo plano mantiene las sesiones vivas después de que se cierre su terminal original y
-permite que el cliente que tiene el control cambie el tamaño de su PTY.
+en una ventana más pequeña; si agrandas la ventana, ves el resto. Una sesión que el servicio en
+segundo plano mantiene en marcha sigue viva después de que se cierre su terminal, y el cliente que
+tiene el control cambia el tamaño de su PTY.
 
 Si otro terminal tiene el control de la sesión remota, el espejo se abre en modo de solo lectura y
 tus teclas no llegan a la sesión. Pulsa **Ctrl-T** o haz clic en la línea de estado para tomar el
@@ -1387,6 +1406,7 @@ restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
+start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud
 
