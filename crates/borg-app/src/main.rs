@@ -236,10 +236,17 @@ async fn open(requested_session: Option<String>, requested_remote: Option<String
         service::attach_session(session, false).await?;
         return Ok(ExitCode::SUCCESS);
     }
-    let _session_lock = session::StateDir::locate()
-        .zip(selected_id.as_ref())
-        .map(|(state, session)| sessions::lock(&state, session))
-        .transpose()?;
+    let _session_lock = match session::StateDir::locate().zip(selected_id.as_ref()) {
+        Some((state, session)) => match sessions::lock(&state, session) {
+            Ok(lock) => Some(lock),
+            Err(sessions::LockError::Busy(busy)) => {
+                eprintln!("{}", busy.explained());
+                return Ok(ExitCode::FAILURE);
+            }
+            Err(sessions::LockError::Io(error)) => return Err(error.into()),
+        },
+        None => None,
+    };
     let launch = Launch::detect(selected_id.as_deref(), remote)?;
     let mut terminal = ratatui::try_init()?;
 

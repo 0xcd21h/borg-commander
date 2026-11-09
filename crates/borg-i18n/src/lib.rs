@@ -127,6 +127,7 @@ pub enum Count {
     Second,
     Minute,
     Hour,
+    Day,
 }
 
 pub fn count(count: usize, noun: Count) -> String {
@@ -145,6 +146,7 @@ pub fn count(count: usize, noun: Count) -> String {
             Count::Second => tr!(count_second_few, count = count),
             Count::Minute => tr!(count_minute_few, count = count),
             Count::Hour => tr!(count_hour_few, count = count),
+            Count::Day => tr!(count_day_few, count = count),
         };
     }
     match (noun, singular) {
@@ -172,6 +174,8 @@ pub fn count(count: usize, noun: Count) -> String {
         (Count::Minute, false) => tr!(count_minute_many, count = count),
         (Count::Hour, true) => tr!(count_hour_one, count = count),
         (Count::Hour, false) => tr!(count_hour_many, count = count),
+        (Count::Day, true) => tr!(count_day_one, count = count),
+        (Count::Day, false) => tr!(count_day_many, count = count),
     }
 }
 
