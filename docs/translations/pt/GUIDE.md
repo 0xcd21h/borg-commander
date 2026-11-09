@@ -915,9 +915,12 @@ utilizador. O primeiro `borg` que abrir inicia-o em segundo plano com o seu util
 sem nada para instalar, e o serviço termina 30 segundos depois de fechar a sua última sessão.
 Defina `start-service = false` na configuração para que o Borg não o inicie.
 `borg service install`, `enable` e `start` configuram-no como serviço do sistema, que arranca com
-a máquina e se mantém em execução; `borg service stop`, `disable` ou `uninstall` param-no ou
-removem-no. Num contentor sem systemd, configure o supervisor de processos do contentor para
-executar `borg service run`; os comandos `install` e `enable` precisam de um host Linux com systemd.
+a máquina e se mantém em execução. Estes comandos executam o gestor de serviços do sistema através
+do sudo, que pede a sua palavra-passe, ou diretamente quando é root. `borg service stop`, `disable`
+ou `uninstall` param-no ou removem-no. Um serviço instalado toma o lugar do que um Borg iniciou, e
+os Borgs abertos registam-se nele por si mesmos. Num contentor sem systemd, configure o supervisor
+de processos do contentor para executar `borg service run`; os comandos `install` e `enable`
+precisam de um host Linux com systemd.
 
 Uma sessão que abre num terminal corre nesse terminal e regista-se no serviço. O serviço mantém o
 borg cloud para todos os Borgs da máquina, por isso um computador emparelhado chega a cada sessão
@@ -933,6 +936,13 @@ depois de a manter em execução. Ctrl-] desliga-se de novo e deixa a shell a co
 nessa sessão com F10 termina a sessão, e o serviço deixa de a manter. O `borg` e a janela
 **Sessões do Borg** ligam-se a uma sessão que o serviço mantém. Quando um computador emparelhado
 pede uma sessão que não está a correr em lado nenhum, o serviço inicia-a em segundo plano.
+
+Escolha F9 → Remoto → **Serviço em segundo plano…** para configurar o serviço a partir do Borg.
+Quando o serviço não está instalado, uma caixa de diálogo mostra o comando que o instala, ativa e
+inicia. Quando está instalado e parado, a caixa de diálogo propõe ativá-lo e iniciá-lo. Enter
+escreve o comando na shell do Borg e executa-o aí, onde vê o sudo pedir a sua palavra-passe.
+Quando o serviço instalado já está em execução, ou a máquina não tem systemd, um aviso indica-o. Depois de o
+serviço arrancar, os Borgs abertos registam-se nele por si mesmos.
 
 ### Painéis remotos
 
@@ -989,8 +999,8 @@ serviço em segundo plano. O emparelhamento funciona num único sentido: um clie
 passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando quem
 detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a ser
 listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao
-mesmo tempo. O menu Remoto oferece também **Espelhar host montado** e **Partilhar este Borg como
-host…**.
+mesmo tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como
+host…** e **Serviço em segundo plano…**.
 
 O seletor mostra a versão do Borg de cada host. Selecionar uma sessão mostra o sistema
 operativo e a arquitetura, se corre como serviço em segundo plano ou num terminal, a latência dos

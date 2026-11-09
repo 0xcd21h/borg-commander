@@ -205,6 +205,7 @@ pub(super) fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant)
 
 fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
     crate::install::finished(state, exit);
+    crate::service::finished(state, exit);
     crate::docker::command_ended(state);
     let full_screen = std::mem::take(&mut state.shell.went_full_screen);
     let Some(operation) = state.operation.take() else {

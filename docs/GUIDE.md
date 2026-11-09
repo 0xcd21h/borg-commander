@@ -843,9 +843,12 @@ Every Borg on a machine works with that machine's background service, one for ea
 first `borg` you open starts it in the background as you, with no root and nothing to install, and
 it ends 30 seconds after its last session closes. Set `start-service = false` in the config to keep
 Borg from starting it. `borg service install`, `enable`, and `start` set it up as a system service
-that starts at boot and keeps running; `borg service stop`, `disable`, or `uninstall` stop or
-remove it. In a container without systemd, have the container's process supervisor run
-`borg service run`; the `install` and `enable` commands need a Linux host with systemd.
+that starts at boot and keeps running. They run the system's service manager through sudo, which
+asks for your password, or directly when you are root. `borg service stop`, `disable`, or
+`uninstall` stop or remove it. An installed service takes over from one a Borg started, and open
+Borgs register with it on their own. In a container without systemd, have the container's process
+supervisor run `borg service run`; the `install` and `enable` commands need a Linux host with
+systemd.
 
 A session you open in a terminal runs in that terminal and registers with the service. The
 service holds borg cloud for every Borg on the machine, so a paired computer reaches each session
@@ -860,6 +863,13 @@ running first. Ctrl-] detaches again and leaves its shell running. Quitting Borg
 ends the session, and the service stops keeping it. `borg` and the **Borg sessions** window attach
 to a session the service keeps. When a paired computer asks for a session that runs nowhere, the
 service starts it in the background.
+
+Choose F9 → Remote → **Background service…** to set the service up from Borg. When the service is
+not installed, a dialog shows the command that installs, enables, and starts it. When it is
+installed and stopped, the dialog offers to enable and start it. Enter types the command into
+Borg's shell and runs it there, where you see sudo ask for your password. When the installed
+service already runs, or the machine has no systemd, a notice says so. Once it runs, open Borgs
+register with it on their own.
 
 ### Remote panels
 
@@ -911,7 +921,8 @@ including in a session whose connections are held by the background service. Pai
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host** and **Share this Borg as host…**.
+The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**, and
+**Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.

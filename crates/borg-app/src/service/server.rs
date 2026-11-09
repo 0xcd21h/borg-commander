@@ -46,6 +46,11 @@ const REFRESH_EVERY: Duration = Duration::from_secs(2);
 const REQUEST_WAIT: Duration = Duration::from_secs(2);
 /// How long a service Borg started for itself waits, with no session left, before it ends.
 const IDLE_GRACE: Duration = Duration::from_secs(30);
+/// The request a kept service makes of one started on demand, to take its place.
+const HAND_OVER: &str = "hand-over";
+/// How long a kept service waits for one started on demand to make way.
+const HAND_OVER_WAIT: Duration = Duration::from_secs(5);
+const HAND_OVER_POLL: Duration = Duration::from_millis(100);
 /// The screen sizes a client may ask for.
 const COLUMNS: RangeInclusive<u64> = 20..=500;
 const ROWS: RangeInclusive<u64> = 8..=200;
@@ -61,7 +66,9 @@ pub(super) enum Lifetime {
 }
 
 pub(super) async fn run(lifetime: Lifetime) -> Result<()> {
-    let (mut service, mut inbox) = Service::start()?;
+    let state = StateDir::locate().context("set HOME or BORG_STATE_DIR for the service")?;
+    let lock = take_lock(&state, lifetime).await?;
+    let (mut service, mut inbox) = Service::start(state, lock, lifetime)?;
     let mut tick = tokio::time::interval(REFRESH_EVERY);
     let mut idle = Idle::default();
     loop {
@@ -79,11 +86,40 @@ pub(super) async fn run(lifetime: Lifetime) -> Result<()> {
             }
             Ok((stream, _)) = inbox.listener.accept() => {
                 let _ = service.serve(stream).await;
+                if service.handed_over {
+                    return Ok(());
+                }
             }
             Some((session, request)) = inbox.requests.recv() => service.request(&session, request),
             Some(notice) = inbox.notices.recv() => service.notice(notice),
         }
     }
+}
+
+/// The lock only one service holds at a time. A kept service asks one started on demand to
+/// make way, and waits for it to go.
+async fn take_lock(state: &StateDir, lifetime: Lifetime) -> Result<fs::File> {
+    fs::create_dir_all(state.path())?;
+    let lock =
+        fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(state.path().join(LOCK))?;
+    if lock.try_lock().is_ok() {
+        return Ok(lock);
+    }
+    ensure!(lifetime == Lifetime::Kept && hand_over().await, "a Borg service is already running");
+    let deadline = Instant::now() + HAND_OVER_WAIT;
+    while Instant::now() < deadline {
+        tokio::time::sleep(HAND_OVER_POLL).await;
+        if lock.try_lock().is_ok() {
+            return Ok(lock);
+        }
+    }
+    anyhow::bail!("the Borg service started on demand did not make way")
+}
+
+/// Asks the running service to make way, which one started on demand does.
+async fn hand_over() -> bool {
+    let reply = tokio::time::timeout(REQUEST_WAIT, super::request_json(json!({ "mode": HAND_OVER }))).await;
+    matches!(reply, Ok(Ok(reply)) if reply["ok"] == true)
 }
 
 /// Since when no session has used the service.
@@ -120,6 +156,9 @@ struct Service {
     requests: UnboundedSender<(String, Request)>,
     /// The session whose Borg asked for the pairing link shown last, which approves it.
     pairing: Option<String>,
+    lifetime: Lifetime,
+    /// A kept service took over, so this one, started on demand, ends.
+    handed_over: bool,
     /// Held while the service runs, so that only one does.
     _lock: fs::File,
 }
@@ -135,14 +174,9 @@ struct Inbox {
 }
 
 impl Service {
-    /// Takes the service's lock and its socket, and starts the link to borg cloud.
-    fn start() -> Result<(Self, Inbox)> {
-        let state = StateDir::locate().context("set HOME or BORG_STATE_DIR for the service")?;
-        fs::create_dir_all(state.path())?;
+    /// Takes the service's socket, with its lock held, and starts the link to borg cloud.
+    fn start(state: StateDir, lock: fs::File, lifetime: Lifetime) -> Result<(Self, Inbox)> {
         let runtime = launch::private_dir(&service_runtime()?)?;
-        let lock =
-            fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(state.path().join(LOCK))?;
-        lock.try_lock().context("a Borg service is already running")?;
         let socket = service_socket();
         let _ = fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket)?;
@@ -180,6 +214,8 @@ impl Service {
             members,
             requests,
             pairing: None,
+            lifetime,
+            handed_over: false,
             _lock: lock,
         };
         let inbox = Inbox { listener, calls, notices, events: events_rx, removed: removed_rx, requests: requests_rx };
@@ -433,8 +469,21 @@ impl Service {
                     .into_iter()
                     .filter_map(|(id, place)| (place == Place::Terminal).then_some(id))
                     .collect();
-                let reply =
-                    json!({"ok": true, "sessions": self.children.keys().collect::<Vec<_>>(), "terminals": terminals});
+                let reply = json!({
+                    "ok": true,
+                    "sessions": self.children.keys().collect::<Vec<_>>(),
+                    "terminals": terminals,
+                    "kept": self.lifetime == Lifetime::Kept,
+                });
+                stream.write_all(format!("{reply}\n").as_bytes()).await?;
+            }
+            Some(HAND_OVER) => {
+                self.handed_over = self.lifetime == Lifetime::OnDemand;
+                let reply = if self.handed_over {
+                    json!({"ok": true})
+                } else {
+                    json!({"ok": false, "error": "this Borg service keeps running"})
+                };
                 stream.write_all(format!("{reply}\n").as_bytes()).await?;
             }
             Some("resize") => {

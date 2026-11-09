@@ -39,6 +39,7 @@ impl App {
             Effect::Backup(request) => self.backup.request(request),
             Effect::ScanStorage => self.storage.scan(),
             Effect::CleanStorage(paths) => self.storage.clean(paths),
+            Effect::CheckService => self.check_service(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
             Effect::Network { id } => self.network.request(id),
@@ -211,6 +212,13 @@ impl App {
         tokio::spawn(async move {
             let result = crate::plugins::run(dir, tool, paths, size).await.map_err(|error| format!("{error:#}"));
             let _ = messages.send(Msg::GitFinished { id, result });
+        });
+    }
+
+    fn check_service(&self) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let _ = messages.send(Msg::Service(crate::service_install::check().await));
         });
     }
 

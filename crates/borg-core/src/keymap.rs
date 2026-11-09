@@ -121,6 +121,8 @@ pub enum Action {
     TimeMachine,
     /// Opens the window of Borg's own files.
     Storage,
+    /// Offers to install or start the background service.
+    BackgroundService,
     /// Forgets the answers that keep Borg from asking before long jobs.
     AskAgain,
 }

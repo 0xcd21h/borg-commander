@@ -4448,6 +4448,31 @@ fn the_first_borg_starts_the_background_service_and_registers_with_it() -> Resul
     Ok(())
 }
 
+/// A service started on demand makes way for one that is installed or run by a supervisor, and
+/// the open Borg registers with the new one. A kept service makes way for none.
+#[test]
+fn a_kept_service_takes_over_from_one_started_on_demand() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = false\nstart-service = true\n")?;
+    let status = || {
+        service_command(&fixture, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .map(|status| (status["kept"].clone(), status["terminals"].clone()))
+    };
+    let registered = |kept: bool| Some((serde_json::json!(kept), serde_json::json!(["default"])));
+    let mut app = Session::builder(BORG, &fixture).size(120, 34).label("hand-over-terminal").spawn()?;
+    app.wait_text(READY)?;
+    app.wait_until("registered with the service it started", |_| status() == registered(false))?;
+    let _kept = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-kept").spawn()?;
+    app.wait_until("registered with the kept service", |_| status() == registered(true))?;
+    let mut refused = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-refused").spawn()?;
+    refused.wait_text("already running")?;
+    ensure!(!refused.wait_exit()?.success(), "a second kept service gives up");
+    ensure!(status() == registered(true), "the kept service runs on");
+    Ok(())
+}
+
 /// `borg service attach` keeps a session running in the background and shows it here. Ctrl-]
 /// leaves it running; quitting Borg in it ends it, and the service stops keeping it.
 #[test]

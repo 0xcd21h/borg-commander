@@ -677,7 +677,11 @@ answers mirrors of the sessions it keeps itself.
 The first `borg` starts the service with `borg service run --on-demand` in a process group of its
 own, unless `start-service` is false, Borg runs as a remote client or inside the service, or there
 is no state directory. An on-demand service ends 30 seconds after its last member and child go;
-an installed one runs until it is stopped. Only the sessions marked `background` in
+one that is installed or run by a supervisor keeps running until it is stopped. Such a kept
+service that finds the lock taken sends `hand-over` to the service that runs; one started on
+demand ends, and the kept one waits up to 5 seconds for the lock while the Borgs register again.
+The service's `status` says `kept` for a kept one, which the Remote menu's **Background service…**
+dialog counts as running. Only the sessions marked `background` in
 `sessions.json` run inside the service, and a session's Borg clears its mark when the user quits
 it with F10. The test fixture sets `start-service = false`, so each end-to-end test that needs the
 service starts it itself.

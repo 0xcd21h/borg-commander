@@ -287,6 +287,15 @@ pub async fn available() -> bool {
     UnixStream::connect(service_socket()).await.is_ok()
 }
 
+/// Whether the service that runs here keeps running with no session: installed, or run by a
+/// supervisor. One a Borg started on demand ends with its last session.
+pub async fn kept() -> bool {
+    let Ok(Ok(reply)) = tokio::time::timeout(STATUS_WAIT, request_json(json!({"mode": "status"}))).await else {
+        return false;
+    };
+    reply["kept"] == true
+}
+
 /// Starts the service for this user when none answers, in a process group of its own so the
 /// terminal's signals miss it, and waits a moment for it. Borg works on its own when it does
 /// not come up.

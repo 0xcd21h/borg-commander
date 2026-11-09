@@ -99,6 +99,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::TimeMachine => crate::backup::open(state),
         Action::Storage => crate::storage::open(state),
+        Action::BackgroundService => crate::service::check(),
         Action::AskAgain => {
             state.kept_answers = 0;
             state.notice = Some(tr!(asking_again).into());

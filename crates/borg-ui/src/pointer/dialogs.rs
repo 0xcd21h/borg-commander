@@ -103,6 +103,9 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
             border_key(mouse, rect, hint, true)
         }
         Overlay::Install(offer) => border_key(mouse, crate::install_view::rect(offer, screen), tr!(install_keys), true),
+        Overlay::Service(offer) => {
+            border_key(mouse, crate::service_view::rect(offer, screen), crate::service_view::keys(offer), true)
+        }
         Overlay::Storage(window) => Some(storage_mouse(window, mouse, screen)),
         _ => None,
     }
