@@ -1003,9 +1003,19 @@ python3 scripts/check-public-content.py --site website/dist
 
 Edit `docs/GUIDE.md` for guide content. The generator splits its selected sections into
 searchable pages on every build; do not edit the generated `website/src/content/docs/guide/`
-files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide and
-an explicit list of fictional showcase screenshots are copied into the site. Build metadata
-comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a release.
+files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide, the
+icon and an explicit list of fictional showcase screenshots are copied into the site. Build
+metadata comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a
+release.
+
+The icon is Borg's corner badge caught mid-glitch. `scripts/render-brand.mjs` draws the site
+icon, the favicon, the animated README icon and the GitHub social preview into `docs/brand/`.
+Run it again after changing the badge or the glitch, then upload the new social preview in the
+repository settings. It needs Node, `resvg` and ImageMagick:
+
+```sh
+node scripts/render-brand.mjs
+```
 
 The **Publish guide** workflow checks the source, builds the site and search index, checks
 local links, and deploys GitHub Pages when relevant files change on main. Pull requests build
