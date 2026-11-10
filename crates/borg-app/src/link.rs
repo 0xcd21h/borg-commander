@@ -53,7 +53,7 @@ use keys::KeyLocked;
 pub use remote::{CHUNK, Existing, Remote, download_in_session, pair, upload_in_session};
 use served::Served;
 pub use store::{Computer, KeyChanged, Server, forget_server, identity, server, servers};
-use store::{claim, clean_name, load, same, save, state_dir, this_computer};
+use store::{claim, clean_name, load, load_to_change, same, save, state_dir, this_computer};
 
 static UNLOCK_PROMPT: std::sync::OnceLock<UnboundedSender<Msg>> = std::sync::OnceLock::new();
 static UNLOCK_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
