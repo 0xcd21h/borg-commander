@@ -360,7 +360,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             effects.push(Effect::Quit);
             effects
         }
-        (Some(false), ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
+        (Some(false) | None, ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
         (answer, ConfirmPurpose::RemoteShellExit { token }) => {
             let close = answer == Some(true);
             if let (true, crate::Console::Remote { machine, session }) = (close, &state.console) {

@@ -391,6 +391,13 @@ fn shell_exit_defaults_to_no_and_only_yes_closes_borg() {
     update(&mut state, request(), now);
     assert_eq!(press(&mut state, now, key(KeyCode::Esc)), vec![Effect::CancelShellExit { token: "42-77".into() }]);
     update(&mut state, request(), now);
+    let other_key = press(&mut state, now, key(KeyCode::Char('x')));
+    assert!(
+        state.overlay.is_some() || other_key == vec![Effect::CancelShellExit { token: "42-77".into() }],
+        "a question that closes always answers the shell, which waits for it"
+    );
+    state.overlay = None;
+    update(&mut state, request(), now);
     assert!(press(&mut state, now, key(KeyCode::Char('y'))).contains(&Effect::Quit));
     crate::actions::perform(&mut state, Action::Quit, now);
     let before = state.overlay.clone();
