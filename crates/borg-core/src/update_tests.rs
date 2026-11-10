@@ -205,6 +205,14 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         ),
         Some(Action::BackResults)
     );
+    let panels = crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false };
+    let alt_shift = KeyModifiers::ALT | KeyModifiers::SHIFT;
+    for (reported, action) in [('r', Action::BackResults), ('d', Action::FolderTree), ('D', Action::FolderTree)] {
+        let shifted = KeyEvent::new(KeyCode::Char(reported), alt_shift);
+        assert_eq!(crate::keymap::lookup(&shifted, panels), Some(action), "Alt-Shift with {reported}");
+    }
+    let plain = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT);
+    assert_eq!(crate::keymap::lookup(&plain, panels), Some(Action::AnalyzeSpace));
     assert_eq!(
         crate::keymap::lookup(
             &KeyEvent::new(KeyCode::Char('M'), KeyModifiers::ALT | KeyModifiers::SHIFT),
