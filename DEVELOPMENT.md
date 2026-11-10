@@ -69,6 +69,8 @@ crates/
                 and what they match with its evidence, severity and caveat
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
   borg-relay    the relay borgs meet through: it forwards traffic it cannot read
+  borg-local-auth  Touch ID or the password from LocalAuthentication before a key leaves the
+                macOS keychain
   borg-update   release checks and self-update
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
@@ -474,7 +476,7 @@ through `aya-build`, with the nightly compiler it names, and the `borg` binary e
 Built for anything else, the crate's binary is empty, so the workspace builds and lints on stable
 everywhere. `src/lib.rs` is the layout both sides share: `Exec` and `Parent` are `#[repr(C)]`, and
 Borg reads records by `offset_of!` on them, so the reader cannot drift from what the kernel writes.
-`kernel.rs` is the only `unsafe` code in Borg: every read the kernel allows a program goes through a
+`kernel.rs` holds the eBPF side's `unsafe` code: every read the kernel allows a program goes through a
 raw pointer, and the kernel's verifier checks each one before it loads the program. The crate denies
 `unsafe_code`, and only `kernel.rs` allows it.
 
@@ -682,6 +684,16 @@ swaps the key in that computer's entry, keeps its name, saves `computers.json`, 
 with both fingerprints; `Caller` ends sessions on the old key at their next message. A computer
 that every key fails on gets the `cloud_key_refused` message.
 
+Where the computer keys live depends on the state folder. When it is the usual one
+(`StateDir::default_root`), a Mac keeps them in a login keychain item, service `Borg Commander` and
+account `computer key` (`link/keychain.rs`), whose access list trusts only the borg binary that
+made it. Before the first read in a process, `borg-local-auth` asks LocalAuthentication for Touch ID
+or the password, and a refusal or a session without the Mac's screen ends the load with a message.
+A `computer-key` file found there moves into the keychain, merged around the key `computer.json`
+names, and is deleted. Everywhere else, including every test, the keys are a 0600 `computer-key`
+file. `computer_keys` loads them on a blocking thread, one load at a time, so parallel connections
+ask once.
+
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:
 
@@ -873,6 +885,10 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
 - checks that the tag matches the crate version (`scripts/check-version.sh`),
 - builds static Linux binaries (musl, x86_64 and arm64, with `cargo zigbuild`) and macOS
   binaries (Intel and Apple Silicon),
+- signs the macOS binaries ad hoc with the hardened runtime and
+  `packaging/macos/borg.entitlements`, then checks that they load only system libraries
+  (`scripts/sign-macos.sh`); the debugger entitlement keeps memory reading as administrator
+  working, and Borg running as you never asks macOS for another process's task port,
 - packages each as `borg-<version>-<target>.tar.gz` with a `.sha256` file
   (`scripts/package.sh`),
 - creates the GitHub release with generated notes and attaches everything,
@@ -903,8 +919,9 @@ default, so they cannot download a larger archive and update by installing again
 - No comments in code: names, types and small functions carry the meaning.
 - No magic values: name constants, keep them next to their use.
 - Prefer pure functions and data in, data out. Side effects belong in `borg-app`.
-- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints). The eBPF programs are the
-  one exception ([The eBPF programs](#the-ebpf-programs)).
+- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints). The eBPF programs
+  ([The eBPF programs](#the-ebpf-programs)) and `borg-local-auth`, whose Objective-C calls into
+  LocalAuthentication are all `unsafe`, are the two exceptions.
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
 

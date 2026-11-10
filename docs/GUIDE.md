@@ -797,12 +797,14 @@ wait for your approval in borg, and every approval names the computer that asked
 
 The connection is encrypted end to end. Every borg keeps a server key, which paired computers know
 it by, and a computer that reaches servers also keeps a computer key of its own. Both are readable
-only by you, in the `link` folder of the state folder. Pairing exchanges the public keys, and every
-connection opens with a Noise IK handshake bound to them, so the relay only ever forwards
-ciphertext and cannot answer in either borg's name. Calls from another computer can read without asking, just like local ones; turn on
-"ask before another computer reads" in Options → Plugins to make those reads wait for approval
-too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
-none at all when borg cloud is turned off in Options → Plugins.
+only by you. The server key is a file in the `link` folder of the state folder. The computer key is
+a file there too, and on a Mac it lives in your login keychain instead (see [Computer
+keys](#computer-keys)). Pairing exchanges the public keys, and every connection opens with a Noise
+IK handshake bound to them, so the relay only ever forwards ciphertext and cannot answer in either
+borg's name. Calls from another computer can read without asking, just like local ones; turn on "ask
+before another computer reads" in Options → Plugins to make those reads wait for approval too. Borg
+keeps no connection to the relay unless it is paired or showing a pairing link, and none at all when
+borg cloud is turned off in Options → Plugins.
 
 Borg saves the relay in the config as `relay = "wss://relay.example.com"`. A computer reaches the
 server through the relay it paired through, so after the server switches relays, pair the
@@ -818,6 +820,17 @@ holds the new key, and the server swaps the key in that computer's entry and kee
 Connections that still use the old key end at their next call. The server shows a notice and
 writes both fingerprints to the agent log, and its **Clients** list shows when the key changed and
 what it was. A server running an older Borg keeps the old key until it is updated.
+
+On a Mac, Borg keeps the computer key in your login keychain, as an item named **Borg Commander**
+that only Borg may read without asking you. The first time a Borg process needs the key, macOS asks
+for Touch ID or your password, so even a program that starts `borg` on its own shows itself. After
+each Borg update, macOS also asks once whether the new Borg may use the item; choose **Always
+Allow**. A computer key file from an earlier Borg moves into the keychain the first time Borg uses
+it, and the file is deleted. A Borg that runs without the Mac's screen, such as over SSH or in the
+background service, cannot show the prompt and cannot reach servers. When `$BORG_STATE_DIR` names a
+state folder other than the usual one, Borg keeps the computer key as a file in that folder's `link`
+folder. Borg's macOS releases are signed with the Hardened Runtime, so other programs cannot read
+Borg's memory or load code into it.
 
 `borg pair --new-key` gives this computer a new key, and each server takes it the next time Borg
 connects to it. Until every server has, Borg keeps the old key too, and `borg pair` marks each

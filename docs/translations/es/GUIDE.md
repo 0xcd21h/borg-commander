@@ -865,14 +865,16 @@ borg, y cada aprobación indica qué computadora la pidió.
 
 La conexión está cifrada de extremo a extremo. Cada borg guarda una clave de servidor, por la que lo
 conocen las computadoras emparejadas, y una computadora que llega a servidores guarda además una
-clave de computadora propia. Solo tú puedes leer ambas, en la carpeta `link` de la carpeta de
-estado. El emparejamiento intercambia las claves públicas, y cada conexión empieza con un
-intercambio Noise IK ligado a ellas, de modo que el relay solo reenvía texto cifrado y no puede
-responder en nombre de ninguno de los dos borgs. Las llamadas desde otra computadora pueden leer sin
-preguntar, igual que las locales; activa "preguntar antes de que otra computadora lea" en Opciones →
-Complementos para que esas lecturas también esperen aprobación. Borg no mantiene ninguna conexión
-con el relay salvo que esté emparejado o mostrando un enlace de emparejamiento, y ninguna en
-absoluto cuando borg cloud está desactivado en Opciones → Complementos.
+clave de computadora propia. Solo tú puedes leer ambas. La clave de servidor es un archivo en la
+carpeta `link` de la carpeta de estado. La clave de computadora también es un archivo allí, y en un
+Mac se guarda en tu llavero de inicio de sesión (consulta [Claves de computadora](#computer-keys)).
+El emparejamiento intercambia las claves públicas, y cada conexión empieza con un intercambio Noise
+IK ligado a ellas, de modo que el relay solo reenvía texto cifrado y no puede responder en nombre de
+ninguno de los dos borgs. Las llamadas desde otra computadora pueden leer sin preguntar, igual que
+las locales; activa "preguntar antes de que otra computadora lea" en Opciones → Complementos para
+que esas lecturas también esperen aprobación. Borg no mantiene ninguna conexión con el relay salvo
+que esté emparejado o mostrando un enlace de emparejamiento, y ninguna en absoluto cuando borg cloud
+está desactivado en Opciones → Complementos.
 
 Borg guarda el relay en la configuración como `relay = "wss://relay.example.com"`. Una computadora
 llega al servidor a través del relay con el que se emparejó, así que, si el servidor cambia de
@@ -889,6 +891,18 @@ la entrada de esa computadora y conserva su nombre. Las conexiones que aún usan
 terminan en su siguiente llamada. El servidor muestra un aviso y escribe ambas huellas digitales en
 el registro del agente, y su lista de **Clientes** muestra cuándo cambió la clave y cuál era. Un
 servidor con un Borg más antiguo conserva la clave anterior hasta que se actualice.
+
+En un Mac, Borg guarda la clave de computadora en tu llavero de inicio de sesión, como un elemento
+llamado **Borg Commander** que solo Borg puede leer sin preguntarte. La primera vez que un proceso
+de Borg necesita la clave, macOS pide Touch ID o tu contraseña, así que incluso un programa que
+inicie `borg` por su cuenta se deja ver. Después de cada actualización de Borg, macOS también
+pregunta una vez si el Borg nuevo puede usar el elemento; elige **Permitir siempre**. Un archivo de
+clave de computadora de un Borg anterior pasa al llavero la primera vez que Borg lo usa, y el
+archivo se elimina. Un Borg que se ejecuta sin la pantalla del Mac, como por SSH o en el servicio en
+segundo plano, no puede mostrar la petición ni conectarse a servidores. Cuando `$BORG_STATE_DIR`
+indica una carpeta de estado distinta de la habitual, Borg guarda la clave de computadora como un
+archivo en la carpeta `link` de esa carpeta. Las versiones de Borg para macOS se firman con Hardened
+Runtime, así que otros programas no pueden leer la memoria de Borg ni cargar código en él.
 
 `borg pair --new-key` da a esta computadora una clave nueva, y cada servidor la acepta la próxima
 vez que Borg se conecta a él. Hasta que todos la tengan, Borg conserva también la clave anterior, y

@@ -96,9 +96,18 @@ pub(super) async fn scan_process(request: ScanRequest, cancelled: Arc<AtomicBool
 /// (the errno left beside it belongs to something else), so the error says what failed instead.
 pub struct Memory(read_process_memory::ProcessHandle);
 
+fn needs_administrator(pid: u32) -> bool {
+    cfg!(target_os = "macos") && pid != std::process::id() && !rustix::process::geteuid().is_root()
+}
+
 impl Memory {
     pub fn open(process: ProcessKey) -> Result<Self> {
-        match i32::try_from(process.pid)?.try_into() {
+        let opened = if needs_administrator(process.pid) {
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        } else {
+            read_process_memory::ProcessHandle::try_from(i32::try_from(process.pid)?)
+        };
+        match opened {
             Ok(handle) => Ok(Self(handle)),
             Err(_) if cfg!(target_os = "macos") => {
                 verify(process)?;
@@ -111,6 +120,7 @@ impl Memory {
             Err(error) => Err(error.into()),
         }
     }
+
     pub fn read(&self, address: u64, len: usize) -> Result<Vec<u8>> {
         match read_process_memory::copy_address(usize::try_from(address)?, len, &self.0) {
             Ok(bytes) => Ok(bytes),

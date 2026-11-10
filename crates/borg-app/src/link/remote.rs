@@ -18,7 +18,7 @@ const ROUNDS: usize = 3;
 /// the server, comparing the code `shown` here; then the server is saved by name.
 pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&PairingCode)) -> Result<Server> {
     let link = PairingLink::parse(link).context("that is not a borg pairing link")?;
-    let keys = computer_keys(state)?;
+    let keys = computer_keys(state).await?;
     let identity = &keys.current;
     let socket = relay::dial(&link.relay, &link.server).await?;
     let hello = serde_json::to_vec(&Hello::Pair { secret: hex(&link.secret), name: this_computer() })?;
@@ -77,7 +77,7 @@ impl Remote {
         let key: PublicKey = unhex(&server.key).context("the saved key is not valid")?;
         let hello_bytes = serde_json::to_vec(hello)?;
         for round in 1..=ROUNDS {
-            let keys = computer_keys(state)?;
+            let keys = computer_keys(state).await?;
             let entry = saved_server(state, &server.key).unwrap_or_else(|| server.clone());
             let mut opened = None;
             let unheld = |public: &Option<String>| public.as_deref().is_none_or(|public| keys.held(public).is_none());
