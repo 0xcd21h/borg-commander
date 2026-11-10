@@ -4,6 +4,7 @@
 
 mod leftovers;
 
+use crate::screens::PAGE;
 use borg_i18n::{Count, count, tr};
 use std::{path::PathBuf, time::SystemTime};
 
@@ -21,7 +22,6 @@ pub use leftovers::{
 
 /// Captures Borg remembers having saved, newest first.
 pub const CAPTURE_RECORDS: usize = 1_000;
-const PAGE: usize = 10;
 /// Folders the cleanup names one by one; what the others hold is summed up.
 const NAMED_FOLDERS: usize = 5;
 

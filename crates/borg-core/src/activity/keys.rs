@@ -2,6 +2,7 @@
 //! focus, the preview, Esc and Enter, and the lists' own keys. The keys of the page with the
 //! focus are in `pages`, and the memory search form's in `form`.
 
+use crate::screens::FILTER_LIMIT;
 use std::time::Instant;
 
 use borg_i18n::tr;
@@ -102,9 +103,6 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         },
     }
 }
-
-/// Characters the processes' filter holds at most.
-const FILTER_LIMIT: usize = 128;
 
 /// Pastes into the memory search form's query, or into the processes' filter while it is typed.
 pub(crate) fn paste(activity: &mut Activity, text: &str) {

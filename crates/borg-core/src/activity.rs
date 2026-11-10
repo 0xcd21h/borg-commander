@@ -65,7 +65,7 @@ pub fn chrome_rows(page: ActivityPage) -> u16 {
         ActivityPage::Snapshot => 8,
         ActivityPage::Search => 8,
         ActivityPage::Findings => 7 + FINDING_NOTE,
-        _ => 6,
+        _ => crate::screens::CHROME_ROWS,
     }
 }
 
