@@ -67,6 +67,32 @@ fn sampler_reports_its_own_process_and_rejects_reused_identity() {
     assert!(verify(own.key).is_ok());
     assert!(verify(ProcessKey { start: own.key.start.saturating_add(1), ..own.key }).is_err());
 }
+#[cfg(target_os = "linux")]
+#[test]
+fn sampler_reads_each_process_once_and_none_of_its_threads() {
+    let (started, running) = std::sync::mpsc::channel();
+    let (finish, finished) = std::sync::mpsc::channel::<()>();
+    let worker = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        finished.recv().ok();
+    });
+    running.recv().unwrap();
+    let own = std::process::id();
+    let threads: Vec<Pid> = fs::read_dir("/proc/self/task")
+        .unwrap()
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+        .filter(|thread| *thread != own)
+        .map(Pid::from_u32)
+        .collect();
+    let mut sampler = Sampler::default();
+    let sample = sampler.sample(None);
+    finish.send(()).unwrap();
+    worker.join().unwrap();
+    assert_eq!(sample.processes.iter().filter(|p| p.key.pid == own).count(), 1);
+    assert!(!threads.is_empty());
+    let read: Vec<_> = threads.iter().filter(|thread| sampler.system.process(**thread).is_some()).collect();
+    assert!(read.is_empty(), "threads read as processes: {read:?}");
+}
 #[test]
 fn seeking_skips_zero_pages_to_the_page_holding_data_within_the_limit() {
     let mut memory = vec![0u8; 3 * SNAPSHOT_LIMIT];
