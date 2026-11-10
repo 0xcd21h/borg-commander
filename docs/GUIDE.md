@@ -795,18 +795,40 @@ Remote access dialog forgets every paired computer. Through borg cloud, Claude a
 `borg get NAME:PATH [TO]` and `borg put FROM NAME:PATH` do the same from your terminal. Uploads
 wait for your approval in borg, and every approval names the computer that asked.
 
-The connection is encrypted end to end. Each borg keeps a private key, readable only by you, in
-its state folder. Pairing exchanges the public keys, and every connection opens with a Noise IK
-handshake bound to them, so the relay only ever forwards ciphertext and cannot answer in either
-borg's name. Calls from another computer can read without asking, just like local ones; turn on
+The connection is encrypted end to end. Every borg keeps a server key, which paired computers know
+it by, and a computer that reaches servers also keeps a computer key of its own. Both are readable
+only by you, in the `link` folder of the state folder. Pairing exchanges the public keys, and every
+connection opens with a Noise IK handshake bound to them, so the relay only ever forwards
+ciphertext and cannot answer in either borg's name. Calls from another computer can read without asking, just like local ones; turn on
 "ask before another computer reads" in Options → Plugins to make those reads wait for approval
 too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
 none at all when borg cloud is turned off in Options → Plugins.
 
 Borg saves the relay in the config as `relay = "wss://relay.example.com"`. A computer reaches the
 server through the relay it paired through, so after the server switches relays, pair the
-computer again. All borgs on one machine share a key, so only the first one opened connects to
-the relay; the others tell you which one has borg cloud.
+computer again. All borgs on one machine share their keys, so only the first one opened connects
+to the relay; the others tell you which one has borg cloud.
+
+#### Computer keys
+
+The computer key proves to each paired server that a connection comes from your computer. When a
+server still knows this computer by another key, such as this machine's server key, Borg moves it
+to the computer key the next time it opens a session there. Borg proves to the server that it
+holds the new key, and the server swaps the key in that computer's entry and keeps its name.
+Connections that still use the old key end at their next call. The server shows a notice and
+writes both fingerprints to the agent log, and its **Clients** list shows when the key changed and
+what it was. A server running an older Borg keeps the old key until it is updated.
+
+`borg pair --new-key` gives this computer a new key, and each server takes it the next time Borg
+connects to it. Until every server has, Borg keeps the old key too, and `borg pair` marks each
+server that still takes it. A week later it also suggests forgetting servers you no longer use,
+with `borg pair --forget NAME`.
+
+When a server refuses every key this computer holds, Borg says so. Either someone forgot this
+computer on that server, or someone with a copy of its key moved the server to a key of their own
+first. A new key is hygiene and does not undo a leak. If you think someone copied a key, press F8
+in Remote access on every server to forget the paired computers, pair again, and check those
+servers.
 
 ### Named sessions and the background service
 
@@ -895,7 +917,8 @@ that panel showed. Press **M** to mirror the session's screen, and **R** to refr
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
-fingerprints, whether they are connected, and how many connections each has. A computer is listed
+fingerprints, whether they are connected, and how many connections each has. After a computer
+changed its key, the fingerprint line also says on which day, and the fingerprint it had before. A computer is listed
 once even when a mirror uses several connections. Status updates while the picker is open,
 including in a session whose connections are held by the background service. Pairing works in
 one direction only: an allowed client does not automatically become a host whose files this Borg

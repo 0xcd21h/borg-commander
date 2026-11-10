@@ -60,6 +60,7 @@ tempfile  = { workspace = true }
 toml      = { workspace = true }
 uzers     = { workspace = true }
 unicode-width = { workspace = true }
+zeroize   = { workspace = true }
 borg-watch-ebpf = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

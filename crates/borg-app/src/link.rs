@@ -26,6 +26,7 @@ use crate::agent::{Call, Reply};
 mod caller;
 mod clients;
 mod commands;
+mod keys;
 mod remote;
 mod served;
 mod store;
@@ -35,7 +36,7 @@ use clients::{ClientConnection, client_status};
 pub use commands::{get_command, pair_command, put_command};
 pub use remote::{CHUNK, Remote, download_in_session, pair, upload_in_session};
 use served::Served;
-pub use store::{Computer, Server, forget_server, identity, server, servers};
+pub use store::{Computer, KeyChanged, Server, forget_server, identity, server, servers};
 use store::{claim, clean_name, load, same, save, state_dir, this_computer};
 
 const LINK_DIR: &str = "link";
@@ -91,7 +92,24 @@ struct Answer {
     name: String,
     #[serde(default)]
     error: String,
+    #[serde(default)]
+    unpaired: bool,
+    #[serde(default)]
+    rotation: bool,
 }
+
+impl Answer {
+    fn accepted() -> Self {
+        Self { ok: true, name: crate::agent::hostname(), error: String::new(), unpaired: false, rotation: true }
+    }
+
+    fn refused(&self) -> bool {
+        !self.ok && (self.unpaired || self.error == NOT_PAIRED)
+    }
+}
+
+const NOT_PAIRED: &str = "this computer is not paired with this borg";
+pub const ROTATE_CALL: &str = "rotate";
 
 struct Pairing {
     secret: [u8; SECRET_LEN],

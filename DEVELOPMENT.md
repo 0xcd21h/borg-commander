@@ -667,6 +667,21 @@ Borg's own connections apart. They cannot stop an agent that runs programs under
 the viewer's computer: it can read the pairing key in Borg's state folder or send keys to the
 terminal Borg runs in, so give such an agent a sandbox when its requests matter.
 
+A borg keeps two kinds of keys in the `link` folder of its state folder. The server key, `key`,
+identifies it to the computers paired with it and loads by itself. A borg that reaches servers
+proves itself with a computer key of its own, which `link::keys` loads once per process, together
+with the keys it retired while some server may still take them. `computer.json` holds the current
+key's public half and when it was made, and `computer.lock` serializes making keys and changing
+`servers.json`. Each `servers.json` entry records the computer key that server takes (`computer`)
+and a key sent in a `rotate` whose answer did not arrive (`offered`). `Remote::open_as` tries the
+offered key, then the one the server takes, then the current one. On a session channel to a server
+whose answer to the hello sets `rotation`, it sends `rotate` with the new public key and a proof:
+an HMAC over the channel's handshake hash and the new key, keyed through HKDF from
+DH(new private, server public) with the label `borg-link rotate 1`. The server checks the proof,
+swaps the key in that computer's entry, keeps its name, saves `computers.json`, and shows a notice
+with both fingerprints; `Caller` ends sessions on the old key at their next message. A computer
+that every key fails on gets the `cloud_key_refused` message.
+
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:
 
