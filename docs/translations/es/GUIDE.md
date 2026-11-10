@@ -1484,6 +1484,8 @@ web cambia el idioma de la guía por separado.
 Los ajustes se guardan en `~/.config/borg-commander/config.toml`, o en la carpeta indicada por
 `$XDG_CONFIG_HOME` o `$BORG_CONFIG_DIR`. F9 → Opciones → Configuración los muestra como casillas;
 Space o un clic activa o desactiva un ajuste y lo guarda al instante. Esc cierra la ventana.
+Cuando Borg no puede leer el archivo, arranca con sus valores por defecto y dice por qué; el primer
+ajuste que guardes después conserva el archivo ilegible junto al nuevo como `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own

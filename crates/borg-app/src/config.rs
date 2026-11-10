@@ -9,7 +9,7 @@ use borg_core::{AfterCommand, ICON_SPACING, Preferences};
 use borg_gfx::Preference;
 use serde::{Deserialize, Serialize};
 
-use crate::store::write_atomically;
+use crate::store::write_privately;
 
 const ENV_CONFIG_DIR: &str = "BORG_CONFIG_DIR";
 const ENV_XDG_CONFIG: &str = "XDG_CONFIG_HOME";
@@ -17,6 +17,8 @@ const ENV_HOME: &str = "HOME";
 const DOT_CONFIG: &str = ".config";
 const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
+/// A configuration Borg could not read, kept under this name when a new one is saved.
+const CONFIG_ASIDE: &str = "config-unreadable.toml";
 const THEMES_DIR: &str = "themes";
 const RULES_DIR: &str = "rules";
 const HOME_PREFIX: &str = "~/";
@@ -573,9 +575,23 @@ impl ConfigDir {
         }
     }
 
+    /// Saves the configuration. One that is there but that Borg could not read started Borg on
+    /// its defaults, so it is kept aside first and what the user wrote in it is not lost.
     pub fn save(&self, config: &Config) -> Result<()> {
         fs::create_dir_all(&self.0).with_context(|| format!("creating {}", self.0.display()))?;
-        write_atomically(&self.file(), toml::to_string(config)?.as_bytes())
+        self.keep_unreadable()?;
+        write_privately(&self.file(), toml::to_string(config)?.as_bytes())
+    }
+
+    fn keep_unreadable(&self) -> Result<()> {
+        if self.load().is_ok() {
+            return Ok(());
+        }
+        let taken = |name: &Path| fs::symlink_metadata(name).is_ok();
+        let aside = self.0.join(CONFIG_ASIDE);
+        let aside = if taken(&aside) { borg_jobs::unique_by(&aside, taken) } else { aside };
+        let path = self.file();
+        fs::rename(&path, &aside).with_context(|| format!("keeping {} as {}", path.display(), aside.display()))
     }
 
     fn file(&self) -> PathBuf {

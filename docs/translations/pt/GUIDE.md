@@ -1482,6 +1482,8 @@ muda o idioma do guia de forma independente.
 As definições ficam guardadas em `~/.config/borg-commander/config.toml`, ou na pasta indicada por
 `$XDG_CONFIG_HOME` ou `$BORG_CONFIG_DIR`. F9 → Opções → Definições mostra-as como caixas de
 verificação; Space ou um clique alterna uma definição e guarda-a de imediato. Esc fecha a janela.
+Quando o Borg não consegue ler o ficheiro, arranca com as predefinições e diz porquê; a primeira
+definição que guardar depois mantém o ficheiro ilegível ao lado do novo como `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
