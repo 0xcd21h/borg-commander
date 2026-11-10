@@ -1,6 +1,6 @@
 use std::{
     ffi::OsString,
-    fs::{self, File, FileTimes},
+    fs::{self, File, FileTimes, OpenOptions},
     io::{self, Read, Write},
     ops::Add,
     os::unix::fs::{PermissionsExt, symlink},
@@ -167,6 +167,26 @@ fn finish_metadata(item: &Item, dest: &Path) {
     if let (Some(modified), Ok(file)) = (item.modified, File::open(dest)) {
         let _ = file.set_times(FileTimes::new().set_modified(modified));
     }
+}
+
+/// What a copied file takes from its source, set through the open file so it lands on the file
+/// the copy wrote and nowhere else.
+fn finish_file(item: &Item, file: &File) {
+    let _ = file.set_permissions(fs::Permissions::from_mode(item.mode));
+    if let Some(modified) = item.modified {
+        let _ = file.set_times(FileTimes::new().set_modified(modified));
+    }
+}
+
+/// A new file for a copy to write into. Whatever is at that name, a copy left half written or a
+/// link put in its place, is removed first, and the file is made only where nothing is, so a
+/// copy never writes through a link to somewhere else.
+fn fresh(temporary: &Path) -> io::Result<File> {
+    match fs::remove_file(temporary) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    OpenOptions::new().write(true).create_new(true).open(temporary)
 }
 
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
@@ -471,8 +491,8 @@ impl Job<'_> {
             Some(bytes) => self.write_buffered(bytes, &temporary),
             None => self.stream(item, &temporary),
         };
-        let result = copied.and_then(|()| {
-            finish_metadata(item, &temporary);
+        let result = copied.and_then(|file| {
+            finish_file(item, &file);
             fs::rename(&temporary, dest).map_err(Fault::Io)
         });
         if result.is_err() {
@@ -484,25 +504,25 @@ impl Job<'_> {
         Ok(())
     }
 
-    fn write_buffered(&mut self, bytes: &[u8], temporary: &Path) -> Result<(), Fault> {
-        let mut out = File::create(temporary)?;
+    fn write_buffered(&mut self, bytes: &[u8], temporary: &Path) -> Result<File, Fault> {
+        let mut out = fresh(temporary)?;
         for chunk in bytes.chunks(CHUNK as usize) {
             self.control.checkpoint()?;
             out.write_all(chunk)?;
             self.done.bytes += chunk.len() as u64;
             self.report(false);
         }
-        Ok(())
+        Ok(out)
     }
 
-    fn stream(&mut self, item: &Item, temporary: &Path) -> Result<(), Fault> {
+    fn stream(&mut self, item: &Item, temporary: &Path) -> Result<File, Fault> {
         let mut source = File::open(&item.source)?;
-        let mut out = File::create(temporary)?;
+        let mut out = fresh(temporary)?;
         loop {
             self.control.checkpoint()?;
             let copied = io::copy(&mut (&mut source).take(CHUNK), &mut out)?;
             if copied == 0 {
-                return Ok(());
+                return Ok(out);
             }
             self.done.bytes += copied;
             self.report(false);

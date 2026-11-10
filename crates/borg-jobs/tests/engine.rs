@@ -329,3 +329,21 @@ fn a_copy_that_would_take_long_asks_first_and_an_answer_can_stop_the_asking() {
     assert!(matches!(moved, Outcome::Done { skipped: 0, .. }));
     assert!(!events.iter().any(|event| matches!(event, Event::Asking(_))), "a move on one drive renames");
 }
+
+/// A link left where a copy writes its half-finished file is taken away, not followed: the
+/// file it points at stays as it was, and the copy lands as a file of its own.
+#[test]
+fn a_link_where_a_copy_writes_is_replaced_and_never_written_through() {
+    for optimize_hdd in [false, true] {
+        let (dir, from, to) = sandbox();
+        write(&from.join("a.txt"), "copied");
+        let elsewhere = dir.path().join("elsewhere.txt");
+        write(&elsewhere, "theirs");
+        symlink(&elsewhere, to.join(".a.txt.borg-partial")).unwrap_or_else(|e| panic!("{e}"));
+        answering(&Spec::Copy { sources: vec![from.join("a.txt")], target: to.clone(), optimize_hdd }, &[]);
+        assert_eq!(read(&elsewhere), "theirs");
+        assert_eq!(read(&to.join("a.txt")), "copied");
+        let landed = fs::symlink_metadata(to.join("a.txt")).unwrap_or_else(|e| panic!("{e}"));
+        assert!(landed.file_type().is_file());
+    }
+}
