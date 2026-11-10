@@ -648,3 +648,11 @@ fn a_program_with_much_to_say_still_hands_over_the_entry() {
     .unwrap();
     assert_eq!(out, b"hello");
 }
+
+#[test]
+fn sizes_an_archive_claims_add_up_without_wrapping_around() {
+    let mut huge = wanted_entry();
+    huge.size = u64::MAX;
+    let totals = Index::selected_totals(&[&huge, &huge]);
+    assert_eq!((totals.files, totals.bytes), (2, u64::MAX));
+}

@@ -226,7 +226,7 @@ impl Index {
     pub fn selected_totals(selection: &[&Item]) -> Totals {
         selection.iter().fold(Totals::default(), |totals, item| match item.kind {
             ItemKind::Folder => Totals { folders: totals.folders + 1, ..totals },
-            _ => Totals { files: totals.files + 1, bytes: totals.bytes + item.size, ..totals },
+            _ => Totals { files: totals.files + 1, bytes: totals.bytes.saturating_add(item.size), ..totals },
         })
     }
 }
