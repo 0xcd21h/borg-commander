@@ -865,21 +865,88 @@ emparelhados. Através do borg cloud, o Claude obtém também
 `borg get NAME:PATH [TO]` e `borg put FROM NAME:PATH` fazem o mesmo a partir do terminal. Os
 envios aguardam a sua aprovação no borg, e cada aprovação indica o computador que fez o pedido.
 
-A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave privada, que só o utilizador pode
-ler, na sua pasta de estado. O emparelhamento troca as chaves públicas, e cada ligação abre com um
-handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não consegue
-responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem pedir
-autorização, tal como os locais; ative "perguntar antes de outro computador ler" em Opções →
+A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave de servidor, pela qual os
+computadores emparelhados o conhecem, e um computador que chega a servidores guarda também uma chave
+de computador própria. Só o utilizador pode ler ambas. A chave de servidor é um ficheiro na pasta
+`link` da pasta de estado. A chave de computador também é um ficheiro aí. Num Mac fica no
+porta-chaves de início de sessão, e no Linux o ficheiro é selado com uma palavra-passe (consulte
+[Chaves de computador](#computer-keys)). O emparelhamento troca as chaves públicas, e cada ligação
+abre com um handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não
+consegue responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem
+pedir autorização, tal como os locais; ative "perguntar antes de outro computador ler" em Opções →
 Plugins para que também essas leituras aguardem aprovação. O Borg não mantém nenhuma ligação ao
 relay a menos que esteja emparelhado ou a mostrar uma ligação de emparelhamento, e não mantém
 nenhuma quando o borg cloud está desativado em Opções → Plugins.
 
 O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador chega
 ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de relay,
-volte a emparelhar o computador. Todos os borgs de uma máquina partilham uma chave, e o
+volte a emparelhar o computador. Todos os borgs de uma máquina partilham as chaves, e o
 [serviço em segundo plano](#named-sessions-and-the-background-service) liga-os todos ao relay. Com o
 serviço desativado, só o primeiro borg a ser aberto se liga, e os outros indicam qual deles tem o
 borg cloud.
+
+#### Chaves de computador
+
+A chave de computador prova a cada servidor emparelhado que uma ligação vem do seu computador.
+Quando um servidor ainda conhece este computador por outra chave, como a chave de servidor desta
+máquina, o Borg muda-o para a chave de computador na próxima vez que abrir uma sessão lá. O Borg
+prova ao servidor que tem a chave nova, e o servidor troca a chave na entrada desse computador e
+mantém o nome. As ligações que ainda usam a chave antiga terminam no pedido seguinte. O servidor
+mostra um aviso e escreve as duas impressões digitais no registo do agente, e a lista **Clientes**
+mostra quando a chave mudou e qual era. Um servidor com um Borg mais antigo mantém a chave antiga
+até ser atualizado.
+
+Num Mac, o Borg guarda a chave de computador no porta-chaves de início de sessão, como um item
+chamado **Borg Commander** que só o Borg pode ler sem perguntar. Na primeira vez que um processo do
+Borg precisa da chave, o macOS pede o Touch ID ou a palavra-passe, por isso até um programa que
+inicie o `borg` por conta própria fica à vista. Depois de cada atualização do Borg, o macOS pergunta
+também uma vez se o novo Borg pode usar o item; escolha **Permitir sempre**. Um ficheiro de chave de
+computador de um Borg anterior passa para o porta-chaves na primeira vez que o Borg o usa, e o
+ficheiro é apagado. Um Borg executado sem o ecrã do Mac, como por SSH ou no serviço em segundo
+plano, não pode mostrar o pedido nem aceder a servidores. Quando `$BORG_STATE_DIR` indica uma pasta
+de estado diferente da habitual, o Borg guarda a chave de computador como ficheiro na pasta `link`
+dessa pasta. As versões do Borg para macOS são assinadas com o Hardened Runtime, por isso outros
+programas não podem ler a memória do Borg nem carregar código nele.
+
+No Linux, o Borg sela a chave de computador com uma palavra-passe à sua escolha, no ficheiro
+`computer-key.sealed` da pasta `link`. Execute `borg unlock` num terminal para a escolher: o Borg
+sugere quatro palavras aleatórias, fáceis de escrever e difíceis de adivinhar, e pede a
+palavra-passe duas vezes. O Borg reforça a palavra-passe com Argon2id, o que demora alguns segundos
+e usa 1 GiB de memória, ou um oitavo da memória numa máquina com menos de 8 GiB, pelo que
+adivinhá-la a partir de uma cópia do ficheiro é lento. Um ficheiro de chave de computador de um Borg
+anterior é selado na primeira vez que executar `borg unlock`, e o ficheiro é apagado; até lá, o Borg
+pede que o execute. Quando `$BORG_STATE_DIR` indica uma pasta de estado diferente da habitual, o
+Borg também guarda no Linux a chave de computador como ficheiro normal, sem palavra-passe.
+
+Depois de desbloqueada, a chave fica no keyring do kernel do utilizador até passarem 12 horas sem o
+Borg a usar, e cada utilização volta a contar as 12 horas desde o início. Um reinício bloqueia-a, e
+`borg lock` bloqueia-a de imediato. Onde o Borg não pode usar o keyring do kernel, como em muitos
+contentores e serviços do sistema, um pequeno processo do Borg guarda a chave, num socket da pasta
+`link` que só o utilizador pode abrir, e termina após 12 horas sem uso. Quando a chave está
+bloqueada, o Borg pede a palavra-passe: os painéis abrem o diálogo **Desbloquear chave**, e
+`borg pair`, `borg get` e `borg put` pedem-na no terminal. `borg mcp remote`, que o Claude inicia
+sem terminal, indica que deve executar `borg unlock`.
+
+`borg unlock --ssh-agent` permite também que o ssh-agent desbloqueie a chave. O Borg pede ao agente
+que assine um desafio fixo com uma chave Ed25519, ou com uma chave RSA se não tiver nenhuma, e sela
+a chave uma segunda vez com essa assinatura. A partir daí, o Borg desbloqueia a chave sem perguntar
+enquanto esse agente estiver acessível, e a palavra-passe continua a funcionar. O Borg verifica que
+o agente assina da mesma forma duas vezes e recusa uma chave cujas assinaturas mudem. Quem puder
+usar o seu agente consegue obter a mesma assinatura: se o reencaminhar com `ssh -A`, o root da
+máquina remota pode usá-lo enquanto estiver ligado e, com uma cópia do ficheiro selado, desbloquear
+esta chave. Reencaminhe o agente apenas para máquinas de confiança, ou deixe isto desligado.
+`borg unlock --no-ssh-agent` volta a desligá-lo.
+
+`borg pair --new-key` dá a este computador uma chave nova, e cada servidor aceita-a na próxima vez
+que o Borg se ligar a ele. Até todos a terem, o Borg guarda também a chave antiga, e `borg pair`
+assinala cada servidor que ainda a aceita. Uma semana depois, sugere também esquecer os servidores
+que já não usa, com `borg pair --forget NAME`.
+
+Quando um servidor recusa todas as chaves que este computador tem, o Borg indica-o. Ou alguém
+esqueceu este computador nesse servidor, ou alguém com uma cópia da chave mudou primeiro o servidor
+para uma chave sua. Uma chave nova é higiene e não desfaz uma fuga. Se suspeitar que alguém copiou
+uma chave, prima F8 em Acesso remoto em cada servidor para esquecer os computadores emparelhados,
+emparelhe de novo e verifique esses servidores.
 
 ### Sessões com nome e serviço em segundo plano
 
@@ -976,17 +1043,18 @@ sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a pa
 seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
 **R** para atualizar a lista.
 
-**Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes**
-(computadores que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg,
-as impressões digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem
-cada um. Um computador aparece uma só vez, mesmo que um espelho use várias ligações. O estado é
-atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são mantidas pelo
-serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente autorizado não
-passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando quem
-detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a ser
-listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao
-mesmo tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como
-host…** e **Serviço em segundo plano…**.
+**Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
+que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
+digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem cada um. Depois de
+um computador mudar de chave, a linha da impressão digital indica também em que dia e a impressão
+digital que tinha antes. Um computador aparece uma só vez, mesmo que um espelho use várias ligações.
+O estado é atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são
+mantidas pelo serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente
+autorizado não passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando
+quem detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a
+ser listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao mesmo
+tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como host…** e
+**Serviço em segundo plano…**.
 
 O seletor mostra a versão do Borg de cada host. Selecionar uma sessão mostra o sistema
 operativo e a arquitetura, se corre como serviço em segundo plano ou num terminal, a latência dos

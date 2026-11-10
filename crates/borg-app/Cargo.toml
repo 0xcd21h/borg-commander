@@ -60,10 +60,19 @@ tempfile  = { workspace = true }
 toml      = { workspace = true }
 uzers     = { workspace = true }
 unicode-width = { workspace = true }
+zeroize   = { workspace = true }
 borg-watch-ebpf = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-aya = { workspace = true }
+aya              = { workspace = true }
+argon2           = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf             = { workspace = true }
+linux-keyutils   = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+borg-local-auth    = { workspace = true }
+security-framework = { workspace = true }
 
 # The watcher's eBPF programs are built for Linux, on a Linux machine (see build.rs).
 [target.'cfg(target_os = "linux")'.build-dependencies]
@@ -71,6 +80,9 @@ aya-build = { workspace = true }
 
 [dev-dependencies]
 anyhow       = { workspace = true }
+argon2       = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf         = { workspace = true }
 borg-gfx     = { workspace = true }
 borg-testkit = { workspace = true }
 borg-relay   = { workspace = true }

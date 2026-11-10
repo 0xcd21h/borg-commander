@@ -8,11 +8,12 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use borg_link::Channel;
+use borg_link::{Channel, KEY_LEN, PROOF_LEN, unhex};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
-use super::{Computer, VIEWER_CALLS, served::Served};
+use super::{Computer, ROTATE_CALL, VIEWER_CALLS, served::Served};
 use crate::{
     agent::{Call, Reply, Session},
     native_mirror, remote_copy,
@@ -30,6 +31,12 @@ pub(super) enum Role {
     /// The computer's borg, watching for the asks of a session its panels show. It makes only
     /// the viewer calls, and only it may make them.
     Viewer,
+}
+
+#[derive(Deserialize)]
+struct Rotation {
+    key: String,
+    proof: String,
 }
 
 /// A paired computer while it is connected.
@@ -88,11 +95,32 @@ impl<'a> Caller<'a> {
             if !self.served.shared.lock().expect("link lock").computers.iter().any(|c| c.key == self.key) {
                 break;
             }
-            let (reply, next) = self.answer(&message, continuation).await?;
+            let (reply, next) = match self.rotation(&message) {
+                Some(rotation) => (self.rotate(channel, rotation), None),
+                None => self.answer(&message, continuation).await?,
+            };
             next_message = next;
             channel.send(&serde_json::to_vec(&reply)?).await?;
         }
         Ok(())
+    }
+
+    fn rotation(&self, message: &[u8]) -> Option<Rotation> {
+        let call = serde_json::from_slice::<Call>(message).ok()?;
+        (self.role == Role::Session && call.tool == ROTATE_CALL).then(|| serde_json::from_value(call.args).ok())?
+    }
+
+    fn rotate(&self, channel: &Channel, rotation: Rotation) -> Reply {
+        let Some(new) = unhex::<KEY_LEN>(&rotation.key) else { return Reply::error("unreadable key") };
+        let proven = unhex::<PROOF_LEN>(&rotation.proof)
+            .is_some_and(|proof| channel.proves_rotation(&self.served.identity, &new, &proof));
+        if !proven {
+            return Reply::error("the proof for the new key does not hold");
+        }
+        match self.served.change_key(&self.key, &new) {
+            Ok(_) => Reply::ok(""),
+            Err(error) => Reply::error(format!("{error:#}")),
+        }
     }
 
     /// The reply to one call, and the server's own call for the next page of a pushed listing.

@@ -141,8 +141,18 @@ fn remote_browser_shows_incoming_clients_without_turning_them_into_hosts() {
     crate::actions::perform(&mut state, Action::BrowseRemotes, now);
     update(&mut state, Msg::RemoteCatalog { choices: Vec::new(), complete: true }, now);
     let clients = vec![
-        crate::RemoteClient { name: "laptop".into(), fingerprint: "first-key".into(), connections: Some(3) },
-        crate::RemoteClient { name: "workstation".into(), fingerprint: "second-key".into(), connections: None },
+        crate::RemoteClient {
+            name: "laptop".into(),
+            fingerprint: "first-key".into(),
+            connections: Some(3),
+            key_changed: None,
+        },
+        crate::RemoteClient {
+            name: "workstation".into(),
+            fingerprint: "second-key".into(),
+            connections: None,
+            key_changed: None,
+        },
     ];
     update(&mut state, Msg::RemoteClients(clients.clone()), now);
     assert!(
@@ -4142,6 +4152,27 @@ fn a_viewer_closes_the_dialog_with_a_notice_when_the_host_answered_or_lost_the_a
 }
 
 #[test]
+fn an_ask_answered_here_does_not_hide_the_one_with_its_number_after_the_host_restarts() {
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, viewer_feed(1, &[(1, "make")], Vec::new()), now);
+    press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: crate::HostEvent::Lost },
+        now,
+    );
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
+        viewer_feed(1, &[(1, "make test")], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.run = "run-2".into();
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    let shown = state.approval.as_ref().map(|approval| (approval.id, approval.ask.summary.as_str()));
+    assert_eq!(shown, Some((1, "make test")), "the restarted host's first ask shows");
+}
+
+#[test]
 fn a_view_only_viewer_shows_the_ask_takes_no_answer_and_esc_closes_it_here() {
     let (mut state, now) = setup_with(Vec::new());
     let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
@@ -4177,4 +4208,34 @@ fn ctrl_alt_a_turns_off_approve_all_in_every_host_session_that_has_it() {
     );
     state.agent.auto_approve = vec![DESKTOP.into()];
     assert_eq!(crate::actions::perform(&mut state, crate::Action::ApprovalModeOff, now).len(), 2, "and here too");
+}
+
+#[test]
+fn a_locked_computer_key_asks_for_its_password_and_hands_it_to_the_app() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ComputerKeyLocked { wrong: false }, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("a password prompt") };
+    assert!(prompt.purpose.masked());
+    assert_eq!(prompt.label, borg_i18n::tr!(cloud_unlock_label));
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty(), "an empty password waits");
+
+    type_text(&mut state, now, "rain cobalt");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(effects, vec![Effect::UnlockComputerKey(crate::Password::new("rain cobalt"))]);
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_unlock_working).into()));
+
+    update(&mut state, Msg::ComputerKeyLocked { wrong: true }, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("the prompt asks again") };
+    assert_eq!(prompt.label, borg_i18n::tr!(cloud_unlock_wrong));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.overlay.is_none());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    update(&mut state, Msg::ComputerKeyLocked { wrong: false }, now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Prompt(prompt)) if !prompt.purpose.masked()),
+        "an open dialog stays"
+    );
+    assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_key_locked).into()));
 }

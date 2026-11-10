@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "50c44aa61b53fb8fab6d179282b0a01f5d69cf5d7715c34cf482a0edb2c0a205",
+      "source": "6caa288e0f3803ad88a203ebaf989d13ac7709e5b7f1cc587d6cb4f23cc72a86",
       "protected": {
         "code blocks": "28fca44a896b3fe6312e110fc24c2369d3f1141d0e251ab127032bcc1fc6e4e0",
-        "inline code": "3a812ebd59999fa02ed7efbf5067712cc9f0edad2c00b981ff60fe60d94b500c",
+        "inline code": "b77c873d353e4b117d25debfa0177315e785bbfd156005a08196d31a78e15cba",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
+        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
       },
       "headings": [
         {
@@ -112,6 +112,10 @@
         {
           "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 4,
+          "title": "Computer keys"
         },
         {
           "level": 3,
@@ -272,12 +276,12 @@
       ]
     },
     "pt": {
-      "source": "50c44aa61b53fb8fab6d179282b0a01f5d69cf5d7715c34cf482a0edb2c0a205",
+      "source": "6caa288e0f3803ad88a203ebaf989d13ac7709e5b7f1cc587d6cb4f23cc72a86",
       "protected": {
         "code blocks": "28fca44a896b3fe6312e110fc24c2369d3f1141d0e251ab127032bcc1fc6e4e0",
-        "inline code": "3a812ebd59999fa02ed7efbf5067712cc9f0edad2c00b981ff60fe60d94b500c",
+        "inline code": "b77c873d353e4b117d25debfa0177315e785bbfd156005a08196d31a78e15cba",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
+        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
       },
       "headings": [
         {
@@ -383,6 +387,10 @@
         {
           "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 4,
+          "title": "Computer keys"
         },
         {
           "level": 3,
@@ -543,12 +551,12 @@
       ]
     },
     "es": {
-      "source": "50c44aa61b53fb8fab6d179282b0a01f5d69cf5d7715c34cf482a0edb2c0a205",
+      "source": "6caa288e0f3803ad88a203ebaf989d13ac7709e5b7f1cc587d6cb4f23cc72a86",
       "protected": {
         "code blocks": "28fca44a896b3fe6312e110fc24c2369d3f1141d0e251ab127032bcc1fc6e4e0",
-        "inline code": "3a812ebd59999fa02ed7efbf5067712cc9f0edad2c00b981ff60fe60d94b500c",
+        "inline code": "b77c873d353e4b117d25debfa0177315e785bbfd156005a08196d31a78e15cba",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
+        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
       },
       "headings": [
         {
@@ -654,6 +662,10 @@
         {
           "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 4,
+          "title": "Computer keys"
         },
         {
           "level": 3,
@@ -814,12 +826,12 @@
       ]
     },
     "ru": {
-      "source": "50c44aa61b53fb8fab6d179282b0a01f5d69cf5d7715c34cf482a0edb2c0a205",
+      "source": "6caa288e0f3803ad88a203ebaf989d13ac7709e5b7f1cc587d6cb4f23cc72a86",
       "protected": {
         "code blocks": "28fca44a896b3fe6312e110fc24c2369d3f1141d0e251ab127032bcc1fc6e4e0",
-        "inline code": "3a812ebd59999fa02ed7efbf5067712cc9f0edad2c00b981ff60fe60d94b500c",
+        "inline code": "b77c873d353e4b117d25debfa0177315e785bbfd156005a08196d31a78e15cba",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "0cbbabb2cef5c1e5193e7c690d32b6d9a03224e19300d584da9b8baf5e9fb36b"
+        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
       },
       "headings": [
         {
@@ -925,6 +937,10 @@
         {
           "level": 3,
           "title": "Borg cloud"
+        },
+        {
+          "level": 4,
+          "title": "Computer keys"
         },
         {
           "level": 3,

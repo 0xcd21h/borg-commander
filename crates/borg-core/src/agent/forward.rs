@@ -191,8 +191,9 @@ pub struct WatchedHost {
     pub machine: String,
     pub session: String,
     feed: Option<AskFeed>,
-    /// Asks answered here, or closed here without an answer, which do not show again.
-    settled: Vec<u64>,
+    /// Asks answered here, or closed here without an answer, which do not show again: by the
+    /// run of the host's borg and the number they have there.
+    settled: Vec<(String, u64)>,
 }
 
 impl WatchedHost {
@@ -269,7 +270,7 @@ pub(crate) fn receive(state: &mut AppState, machine: String, session: String, ev
                     state.agent.hosts.last_mut().expect("a host was just added")
                 }
             };
-            host.settled.retain(|id| feed.waiting.iter().any(|waiting| waiting.id == *id));
+            host.settled.retain(|(run, id)| *run == feed.run && feed.waiting.iter().any(|waiting| waiting.id == *id));
             host.feed = Some(feed);
         }
         HostEvent::Lost => {
@@ -298,7 +299,7 @@ pub(crate) fn receive(state: &mut AppState, machine: String, session: String, ev
         }
         HostEvent::Unreached(id) => {
             if let Some(index) = index {
-                state.agent.hosts[index].settled.retain(|settled| *settled != id);
+                state.agent.hosts[index].settled.retain(|(_, settled)| *settled != id);
             }
             state.notice = Some(tr!(agent_host_unreachable, server = server));
         }
@@ -324,7 +325,8 @@ fn ended_notice(end: Option<&End>, server: &str, summary: &str) -> String {
 pub(super) fn next_host_ask(state: &AppState) -> Option<(u64, Ask, HostAsk)> {
     state.agent.hosts.iter().find_map(|host| {
         let feed = host.feed.as_ref()?;
-        let waiting = feed.waiting.iter().find(|waiting| !host.settled.contains(&waiting.id))?;
+        let settled = |id: u64| host.settled.iter().any(|(run, settled)| *run == feed.run && *settled == id);
+        let waiting = feed.waiting.iter().find(|waiting| !settled(waiting.id))?;
         let found = HostAsk {
             machine: host.machine.clone(),
             session: host.session.clone(),
@@ -342,7 +344,7 @@ pub(super) fn settle(state: &mut AppState, approval: &Approval) {
     if let Some(host) =
         state.agent.hosts.iter_mut().find(|host| host.machine == asked.machine && host.session == asked.session)
     {
-        host.settled.push(approval.id);
+        host.settled.push((asked.run.clone(), approval.id));
     }
 }
 
@@ -351,7 +353,7 @@ pub(super) fn answer_host(state: &mut AppState, id: u64, asked: HostAsk, approve
     if let Some(host) =
         state.agent.hosts.iter_mut().find(|host| host.machine == asked.machine && host.session == asked.session)
     {
-        host.settled.push(id);
+        host.settled.push((asked.run.clone(), id));
     }
     let answer = HostAnswer { run: asked.run, id, approved };
     vec![Effect::AnswerHost { machine: asked.machine, session: asked.session, answer }]

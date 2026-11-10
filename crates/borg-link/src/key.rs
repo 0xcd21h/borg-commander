@@ -22,6 +22,20 @@ pub struct Identity {
     public: PublicKey,
 }
 
+impl Drop for Identity {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.private);
+    }
+}
+
+impl PartialEq for Identity {
+    fn eq(&self, other: &Self) -> bool {
+        self.public == other.public
+    }
+}
+
+impl Eq for Identity {}
+
 impl fmt::Debug for Identity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Identity({})", fingerprint(&self.public))
@@ -31,11 +45,36 @@ impl fmt::Debug for Identity {
 impl Identity {
     pub fn generate() -> Self {
         let params = crate::channel::NOISE.parse().expect("the Noise pattern is valid");
-        let pair = snow::Builder::new(params).generate_keypair().expect("the system gives random bytes");
+        let mut pair = snow::Builder::new(params).generate_keypair().expect("the system gives random bytes");
         let mut identity = Self { private: [0; KEY_LEN], public: [0; KEY_LEN] };
         identity.private.copy_from_slice(&pair.private);
         identity.public.copy_from_slice(&pair.public);
+        zeroize::Zeroize::zeroize(&mut pair.private);
         identity
+    }
+
+    pub fn from_private(private: &[u8; KEY_LEN]) -> Self {
+        let mut dh = curve25519();
+        dh.set(private);
+        let mut identity = Self { private: *private, public: [0; KEY_LEN] };
+        identity.public.copy_from_slice(dh.pubkey());
+        identity
+    }
+
+    pub(crate) fn shared_secret(&self, peer: &PublicKey) -> Option<[u8; KEY_LEN]> {
+        let mut dh = curve25519();
+        dh.set(&self.private);
+        let mut secret = [0; KEY_LEN];
+        dh.dh(peer, &mut secret).ok()?;
+        (secret != [0; KEY_LEN]).then_some(secret)
+    }
+
+    pub fn to_text(&self) -> String {
+        format!("{}{}", hex(&self.private), hex(&self.public))
+    }
+
+    pub fn from_text(text: &str) -> Option<Self> {
+        Self::decode(text.trim()).filter(|identity| Self::from_private(&identity.private).public == identity.public)
     }
 
     /// The identity kept at `path`, made there on first use. The file holds the private key,
@@ -60,7 +99,7 @@ impl Identity {
                 }
                 let identity = Self::generate();
                 let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(PRIVATE_FILE).open(path)?;
-                writeln!(file, "{}{}", hex(&identity.private), hex(&identity.public))?;
+                writeln!(file, "{}", identity.to_text())?;
                 Ok(identity)
             }
             Err(error) => Err(error),
@@ -82,6 +121,13 @@ impl Identity {
     pub(crate) fn private(&self) -> &[u8] {
         &self.private
     }
+}
+
+fn curve25519() -> Box<dyn snow::types::Dh> {
+    use snow::resolvers::CryptoResolver;
+    snow::resolvers::DefaultResolver
+        .resolve_dh(&snow::params::DHChoice::Curve25519)
+        .expect("the default resolver has Curve25519")
 }
 
 pub fn hex(bytes: &[u8]) -> String {
@@ -123,6 +169,19 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         assert!(Identity::load_or_create(&path).is_err());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_identity_reads_back_from_its_text_and_both_ends_share_a_secret() {
+        let one = Identity::generate();
+        let other = Identity::generate();
+        assert_eq!(Identity::from_text(&one.to_text()), Some(one.clone()));
+        assert_eq!(Identity::from_private(&one.private).public(), one.public());
+        let mut damaged = one.to_text();
+        damaged.replace_range(..2, if damaged.starts_with("00") { "01" } else { "00" });
+        assert_eq!(Identity::from_text(&damaged), None);
+        assert_eq!(one.shared_secret(other.public()), other.shared_secret(one.public()));
+        assert_eq!(one.shared_secret(&[0; KEY_LEN]), None);
     }
 
     #[test]

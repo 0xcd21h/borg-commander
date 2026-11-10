@@ -22,4 +22,7 @@ import LanguageSelect from '@astrojs/starlight/components/LanguageSelect.astro';
     .extras { display: none; }
     .header { gap: .5rem; }
   }
+  @media (max-width: 29.99rem) {
+    .brand :global(.site-title span) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
 </style>

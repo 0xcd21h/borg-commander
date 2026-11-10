@@ -52,6 +52,11 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo build --release --locked -p borg-app --target ${{ matrix.target }}
 
+      - name: Sign with the hardened runtime (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: scripts/sign-macos.sh "target/${{ matrix.target }}/release/borg"
+
       - name: Package
         shell: bash
         run: scripts/package.sh "${GITHUB_REF_NAME#v}" "${{ matrix.target }}" dist

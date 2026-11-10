@@ -16,7 +16,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, ThreadKind, UpdateKind};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, UpdateKind};
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod control;
@@ -76,7 +76,12 @@ impl Sampler {
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing().with_cpu().with_memory().with_disk_usage().with_exe(UpdateKind::OnlyIfNotSet),
+            ProcessRefreshKind::nothing()
+                .without_tasks()
+                .with_cpu()
+                .with_memory()
+                .with_disk_usage()
+                .with_exe(UpdateKind::OnlyIfNotSet),
         );
         let now = Instant::now();
         let elapsed = self.last.map(|last| now.duration_since(last).as_secs_f64()).filter(|seconds| *seconds > 0.0);
@@ -86,8 +91,6 @@ impl Sampler {
             .system
             .processes()
             .values()
-            // On Linux each thread of a process is listed too, with the whole process's memory.
-            .filter(|p| p.thread_kind() != Some(ThreadKind::Userland))
             .map(|p| {
                 let key = ProcessKey { pid: p.pid().as_u32(), start: p.start_time() };
                 let sampled = elapsed.filter(|_| self.seen.contains(&key));

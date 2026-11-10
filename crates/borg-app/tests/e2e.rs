@@ -26,6 +26,7 @@ const AGENT_ASK: &str = "Remote wants to";
 const MCP_ANSWER: std::time::Duration = std::time::Duration::from_secs(120);
 const CREW: [&str; 9] =
     ["1.drone", "2.drone", "3.drone", "4.drone", "5.drone", "6.drone", "7.drone", "8.drone", "9.drone"];
+const CRUMB_SEPARATOR: &str = " › ";
 const TOP_LEFT_CORNERS: [char; 4] = ['┌', '╭', '┏', '╔'];
 const TOP_RIGHT_CORNERS: [char; 4] = ['┐', '╮', '┓', '╗'];
 
@@ -182,6 +183,11 @@ fn status(snapshot: &Snapshot) -> String {
 fn left_panel(s: &Snapshot) -> String {
     let half = usize::from(s.cols() / 2);
     s.lines().iter().map(|line| line.chars().take(half).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+fn right_panel(s: &Snapshot) -> String {
+    let half = usize::from(s.cols() / 2);
+    s.lines().iter().map(|line| line.chars().skip(half).collect::<String>()).collect::<Vec<_>>().join("\n")
 }
 
 fn marked_footer(count: usize) -> String {
@@ -1059,12 +1065,18 @@ fn stored_sizes(archive: &Path, name: &str) -> Option<Vec<u64>> {
     Some(index.list("")?.filter(|item| item.name() == name).map(|item| item.size).collect())
 }
 
-/// Opens `archive` in the right panel and comes back to the left one.
+/// Opens `archive` in the right panel and comes back to the left one once the panel shows the
+/// archive's files. Until Borg has read the archive, the panel keeps the badge over the folder
+/// it came from, which may hold files of the same names.
 fn open_on_the_right(app: &mut Session, archive: &str, holds: &str) -> Result<()> {
+    let inside = format!("{CRUMB_SEPARATOR}{archive}");
     app.send(keys::tab())?.send(keys::ctrl('s'))?.send(archive)?.send(keys::enter())?;
     app.wait_until("cursor on the archive", |s| status(s).ends_with(archive))?;
     app.send(keys::enter())?;
-    app.wait_until("the archive's files", |s| s.contains("▤ ") && s.contains(holds))?;
+    app.wait_until("the archive's files", |s| {
+        let panel = right_panel(s);
+        panel.lines().next().is_some_and(|title| title.contains(&inside)) && panel.contains(holds)
+    })?;
     app.send(keys::tab())?;
     Ok(())
 }
@@ -3170,6 +3182,15 @@ fn the_folder_picker_keeps_the_arrows_comes_back_after_esc_and_tab_fills_in_a_fo
     Ok(())
 }
 
+/// What a paired computer keeps in its `link` folder: its key and the servers it paired with.
+const COMPUTER_FILES: [&str; 3] = ["computer-key", "computer.json", "servers.json"];
+
+/// The key a computer whose borg keeps its state in `computer` proves itself with.
+fn computer_identity(computer: &Path) -> Result<borg_link::Identity> {
+    let text = fs::read_to_string(computer.join("link/computer-key"))?;
+    borg_link::Identity::from_text(text.lines().next().unwrap_or_default()).context("a computer key")
+}
+
 /// Runs a relay without TLS in this process, on a free port, for the test's lifetime.
 fn relay() -> Result<String> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -3491,7 +3512,7 @@ fn a_computer_pairs_through_borg_cloud_and_claude_works_there_end_to_end_encrypt
     fs::copy(computer.join("link/servers.json"), stranger.join("link/servers.json"))?;
     let mut intruder = remote_mcp(&stranger, &name)?;
     let (error, text) = intruder.call("screen", serde_json::json!({}))?;
-    ensure!(error && text.contains("not paired"), "{text}");
+    ensure!(error && text.contains("does not accept this computer's key"), "{text}");
     Ok(())
 }
 
@@ -3539,7 +3560,7 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
     let server = &servers[0];
     let relay = borg_link::Relay::parse(server["relay"].as_str().unwrap()).unwrap();
     let key = borg_link::unhex(server["key"].as_str().unwrap()).unwrap();
-    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let identity = computer_identity(&computer)?;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
@@ -3631,7 +3652,7 @@ fn remote_panel_console_preserves_its_shell_while_idle_and_parked() -> Result<()
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("idle-console-client").spawn()?;
@@ -3710,7 +3731,7 @@ printf '\r\nremote-got=%s\r\n' "$code"
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("console-client").spawn()?;
@@ -3803,7 +3824,11 @@ fn paired_linux_top_captures_the_remote_console_resizes_and_restores_the_prompt(
         server["relay"].as_str().context("relay")?
     ))?;
     fs::create_dir_all(client.state().join("link"))?;
-    fs::copy(state.join("link/key"), client.state().join("link/key"))?;
+    for file in ["key", "computer-key", "computer.json"] {
+        if state.join("link").join(file).exists() {
+            fs::copy(state.join("link").join(file), client.state().join("link").join(file))?;
+        }
+    }
     fs::write(client.state().join("link/servers.json"), serde_json::to_vec(&serde_json::json!([server]))?)?;
     let mut local = Session::builder(BORG, &client).size(140, 34).label("live-remote-top").spawn()?;
     local.wait_text(READY)?;
@@ -3878,7 +3903,7 @@ fn link_channel(runtime: &tokio::runtime::Runtime, computer: &Path, hello: &str)
     let servers: serde_json::Value = serde_json::from_slice(&fs::read(computer.join("link/servers.json"))?)?;
     let relay = borg_link::Relay::parse(servers[0]["relay"].as_str().unwrap()).unwrap();
     let key = borg_link::unhex(servers[0]["key"].as_str().unwrap()).unwrap();
-    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let identity = computer_identity(computer)?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
         let mut channel = borg_link::initiate(socket, &identity, &key, hello.as_bytes()).await?;
@@ -3899,7 +3924,7 @@ fn an_agents_request_on_a_paired_host_is_answered_from_the_borg_whose_panel_show
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("asks-client").spawn()?;
@@ -3997,7 +4022,7 @@ fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("rename-client").spawn()?;
@@ -4049,7 +4074,7 @@ fn f5_copies_folders_to_a_paired_host_and_files_back_with_keep_both() -> Result<
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let contents: Vec<u8> = (0..2_100_007).map(|n| (n % 251) as u8).collect();
@@ -4168,7 +4193,7 @@ fn a_regular_named_borg_can_be_mirrored_and_controlled_without_a_background_serv
     second.wait_text(READY)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let target = format!("{name}:Second");
@@ -4321,7 +4346,7 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
     runtime.block_on(async { drop(probe) });
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let target = format!("{name}:Default");
@@ -4559,7 +4584,7 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
         client
             .configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
         fs::create_dir_all(client.state().join("link"))?;
-        for file in ["key", "servers.json"] {
+        for file in COMPUTER_FILES {
             fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
         }
         let mut local = Session::builder(BORG, &client).size(150, 36).label("remove-session-client").spawn()?;
@@ -4644,7 +4669,7 @@ fn host_colony_shows_paired_clients_and_updates_connection_counts() -> Result<()
     let target = format!("{name}:Default");
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut mirror = Session::builder(BORG, &client)
@@ -4685,7 +4710,7 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("stalled-mirror-client").spawn()?;
@@ -4747,7 +4772,7 @@ fn a_single_worker_host_serves_large_native_mirror_frames_and_keeps_responding()
     let server = &servers[0];
     let relay = borg_link::Relay::parse(server["relay"].as_str().unwrap()).context("test relay")?;
     let key = borg_link::unhex(server["key"].as_str().unwrap()).context("server key")?;
-    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let identity = computer_identity(&computer)?;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
@@ -4781,7 +4806,7 @@ fn mirror_opens_all_channels_on_a_slow_connection_before_taking_control() -> Res
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("slow-mirror-client").spawn()?;
@@ -4824,7 +4849,7 @@ fn a_mirror_in_a_shorter_window_shows_the_whole_host_and_the_host_gets_its_rows_
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(CLIENT.0, CLIENT.1).label("fitted-mirror-client").spawn()?;
@@ -4861,7 +4886,7 @@ fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
     let (computer, name) = pair_computer(&mut remote, &host)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     gate.transit_ms.store(25, Ordering::SeqCst);
@@ -4907,7 +4932,7 @@ fn native_mirror_delivers_keys_and_frames_over_a_delayed_link() -> Result<()> {
     let (computer, name) = pair_computer(&mut remote, &host)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     gate.transit_ms.store(25, Ordering::SeqCst);
@@ -4958,7 +4983,7 @@ fn mirror_keeps_connections_alive_while_quiet_and_while_typing() -> Result<()> {
     let (computer, name) = pair_computer(&mut remote, &host)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let target = format!("{name}:Default");
@@ -5044,7 +5069,7 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local =
@@ -5295,5 +5320,93 @@ fn the_alerts_page_keeps_a_log_borg_cannot_read_and_says_where() -> Result<()> {
     ensure!(fs::read_to_string(state.join(borg_core::ALERT_LOG))? == log, "and the new log too");
     app.send(keys::esc())?.send(keys::f(10))?.send("y")?;
     ensure!(app.wait_exit()?.success());
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn sealed_borg(home: &Path, args: &[&str], input: Option<&str>) -> Result<std::process::Output> {
+    use std::process::Stdio;
+    let mut child = std::process::Command::new(BORG)
+        .args(args)
+        .env("HOME", home)
+        .env("BORG_LANGUAGE", "en")
+        .env_remove("BORG_STATE_DIR")
+        .env_remove("XDG_STATE_HOME")
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(input) = input {
+        child.stdin.take().context("borg's input")?.write_all(input.as_bytes())?;
+    }
+    Ok(child.wait_with_output()?)
+}
+
+#[cfg(target_os = "linux")]
+fn said(output: &std::process::Output) -> String {
+    format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
+}
+
+#[cfg(target_os = "linux")]
+struct LockWhenDone(PathBuf);
+
+#[cfg(target_os = "linux")]
+impl Drop for LockWhenDone {
+    fn drop(&mut self) {
+        sealed_borg(&self.0, &["lock"], None).ok();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn borg_unlock_seals_the_computer_key_behind_a_password_and_borg_lock_locks_it() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    const PASSWORD: &str = "rain cobalt ladder fern";
+    let home = tempfile::tempdir()?;
+    let _locked = LockWhenDone(home.path().to_path_buf());
+    let link = home.path().join(".local/state/borg-commander/link");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&link)?;
+    let first = borg_link::Identity::generate();
+    let plain = link.join("computer-key");
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&plain)?;
+    file.write_all(format!("{}\n", first.to_text()).as_bytes())?;
+    drop(file);
+
+    let refused = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(!refused.status.success() && said(&refused).contains("has no password yet"), "{}", said(&refused));
+    ensure!(plain.exists(), "the plain key stays until a password seals it");
+
+    let mismatch = sealed_borg(home.path(), &["unlock"], Some(&format!("{PASSWORD}\nsomething else\n")))?;
+    ensure!(!mismatch.status.success() && said(&mismatch).contains("passwords differ"), "{}", said(&mismatch));
+
+    let typed = format!("{PASSWORD}\n{PASSWORD}\n");
+    let sealed = sealed_borg(home.path(), &["unlock"], Some(&typed))?;
+    ensure!(sealed.status.success(), "{}", said(&sealed));
+    ensure!(said(&sealed).contains("Four random words") && said(&sealed).contains("is unlocked until 12 hours"));
+    ensure!(!plain.exists(), "sealing removes the plain key");
+    let sealed_file = link.join("computer-key.sealed");
+    ensure!(std::fs::metadata(&sealed_file)?.permissions().mode() & 0o777 == 0o600);
+    let text = std::fs::read_to_string(&sealed_file)?;
+    ensure!(!text.contains(&first.to_text()), "the sealed file holds no key in the clear");
+
+    let renewed = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(renewed.status.success() && said(&renewed).contains("has a new key"), "{}", said(&renewed));
+    ensure!(std::fs::read_to_string(&sealed_file)? != text, "the new key is sealed in the same file");
+
+    let locked = sealed_borg(home.path(), &["lock"], None)?;
+    ensure!(locked.status.success() && said(&locked).contains("key is locked"), "{}", said(&locked));
+    let again = sealed_borg(home.path(), &["lock"], None)?;
+    ensure!(said(&again).contains("was not unlocked"), "{}", said(&again));
+    let waiting = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(!waiting.status.success() && said(&waiting).contains("Run borg unlock"), "{}", said(&waiting));
+
+    let wrong = sealed_borg(home.path(), &["unlock"], Some("rain\ncobalt\nladder\n"))?;
+    ensure!(!wrong.status.success() && said(&wrong).contains("stays locked after 3 tries"), "{}", said(&wrong));
+    ensure!(said(&wrong).matches("does not unlock").count() == 3, "{}", said(&wrong));
+
+    let opened = sealed_borg(home.path(), &["unlock"], Some(&format!("{PASSWORD}\n")))?;
+    ensure!(opened.status.success() && said(&opened).contains("is unlocked"), "{}", said(&opened));
+    let used = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(used.status.success(), "an unlocked key works without a terminal: {}", said(&used));
     Ok(())
 }

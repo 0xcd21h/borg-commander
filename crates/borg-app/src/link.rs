@@ -26,17 +26,73 @@ use crate::agent::{Call, Reply};
 mod caller;
 mod clients;
 mod commands;
+#[cfg(any(target_os = "linux", test))]
+mod key_agent;
+#[cfg(target_os = "macos")]
+mod keychain;
+mod keys;
 mod remote;
+#[cfg(any(target_os = "linux", test))]
+mod sealed;
 mod served;
+#[cfg(any(target_os = "linux", test))]
+mod ssh_agent;
 mod store;
+#[cfg(target_os = "linux")]
+mod unlock;
+#[cfg(target_os = "linux")]
+mod unlocked;
+#[cfg(any(target_os = "linux", test))]
+mod words;
 
 pub use clients::paired_clients;
 use clients::{ClientConnection, client_status};
-pub use commands::{get_command, pair_command, put_command};
+pub use commands::{get_command, lock_command, pair_command, put_command, unlock_command};
+#[cfg(target_os = "linux")]
+use keys::KeyLocked;
 pub use remote::{CHUNK, Remote, download_in_session, pair, upload_in_session};
 use served::Served;
-pub use store::{Computer, Server, forget_server, identity, server, servers};
+pub use store::{Computer, KeyChanged, Server, forget_server, identity, server, servers};
 use store::{claim, clean_name, load, same, save, state_dir, this_computer};
+
+static UNLOCK_PROMPT: std::sync::OnceLock<UnboundedSender<Msg>> = std::sync::OnceLock::new();
+static UNLOCK_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn register_unlock_prompt(messages: UnboundedSender<Msg>) {
+    UNLOCK_PROMPT.set(messages).ok();
+}
+
+#[cfg(target_os = "linux")]
+fn notify_locked() {
+    if !UNLOCK_ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        && let Some(messages) = UNLOCK_PROMPT.get()
+    {
+        messages.send(Msg::ComputerKeyLocked { wrong: false }).ok();
+    }
+}
+
+pub fn unlock_with_password(state: &std::path::Path, password: &str) -> Result<bool> {
+    UNLOCK_ASKED.store(false, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(target_os = "linux")]
+    return unlock::unlock_with_password(state, password);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, password);
+        Ok(true)
+    }
+}
+
+pub fn ask_in_terminal() {
+    #[cfg(target_os = "linux")]
+    if rustix::termios::isatty(std::io::stdin()) {
+        unlock::allow_terminal();
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub async fn key_agent_command(args: &[String]) -> Result<()> {
+    unlocked::agent_command(args).await
+}
 
 const LINK_DIR: &str = "link";
 const KEY_FILE: &str = "key";
@@ -91,7 +147,24 @@ struct Answer {
     name: String,
     #[serde(default)]
     error: String,
+    #[serde(default)]
+    unpaired: bool,
+    #[serde(default)]
+    rotation: bool,
 }
+
+impl Answer {
+    fn accepted() -> Self {
+        Self { ok: true, name: crate::agent::hostname(), error: String::new(), unpaired: false, rotation: true }
+    }
+
+    fn refused(&self) -> bool {
+        !self.ok && (self.unpaired || self.error == NOT_PAIRED)
+    }
+}
+
+const NOT_PAIRED: &str = "this computer is not paired with this borg";
+pub const ROTATE_CALL: &str = "rotate";
 
 struct Pairing {
     secret: [u8; SECRET_LEN],

@@ -15,6 +15,21 @@ impl App {
         self.membership.as_ref().is_some_and(crate::service::Membership::registered)
     }
 
+    pub(super) fn unlock_computer_key(&self, password: borg_core::Password) {
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = crate::session::StateDir::locate()
+                .ok_or_else(|| anyhow::anyhow!("Borg has no state folder"))
+                .and_then(|state| crate::link::unlock_with_password(state.path(), password.as_str()));
+            let message = match result {
+                Ok(true) => borg_core::Msg::Notice(tr!(cloud_key_unlocked).into()),
+                Ok(false) => borg_core::Msg::ComputerKeyLocked { wrong: true },
+                Err(error) => borg_core::Msg::Notice(error.to_string()),
+            };
+            messages.send(message).ok();
+        });
+    }
+
     /// Makes a pairing link for the Connect dialog, or says why there is none. The background
     /// service makes it for a Borg registered with it, and sends it back.
     pub(super) fn start_pairing(&mut self) {
