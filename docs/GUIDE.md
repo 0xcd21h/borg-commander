@@ -2201,7 +2201,7 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 | `port:443`, `port:ssh` | Rows on that port number or service |
 | `proc:node`, `process:node` | Rows whose process name contains the text |
 | `pid:4100` | Rows of that PID |
-| `host:example` | Rows whose address or host name contains the text |
+| `host:example` | Rows whose address or host name contains the text; a whole address keeps that address alone |
 | `state:listen`, `state:time` | TCP rows in a state that contains the text |
 | `proto:udp`, `proto:tcp` | Rows of that protocol |
 | `if:en0`, `interface:en0` | Interfaces whose name contains the text |

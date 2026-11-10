@@ -2385,7 +2385,7 @@ estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5
 | `port:443`, `port:ssh` | Filas con ese número de puerto o servicio |
 | `proc:node`, `process:node` | Filas cuyo nombre de proceso contiene el texto |
 | `pid:4100` | Filas de ese PID |
-| `host:example` | Filas cuya dirección o nombre de host contiene el texto |
+| `host:example` | Filas cuya dirección o nombre de host contiene el texto; una dirección completa conserva solo esa dirección |
 | `state:listen`, `state:time` | Filas TCP en un estado que contiene el texto |
 | `proto:udp`, `proto:tcp` | Filas de ese protocolo |
 | `if:en0`, `interface:en0` | Interfaces cuyo nombre contiene el texto |

@@ -2374,7 +2374,7 @@ funcionam. Uma palavra com nome de campo procura apenas nesse campo:
 | `port:443`, `port:ssh` | Linhas com esse número de porta ou serviço |
 | `proc:node`, `process:node` | Linhas cujo nome de processo contém o texto |
 | `pid:4100` | Linhas desse PID |
-| `host:example` | Linhas cujo endereço ou nome do host contém o texto |
+| `host:example` | Linhas cujo endereço ou nome do host contém o texto; um endereço completo mantém apenas esse endereço |
 | `state:listen`, `state:time` | Linhas TCP num estado que contém o texto |
 | `proto:udp`, `proto:tcp` | Linhas desse protocolo |
 | `if:en0`, `interface:en0` | Interfaces cujo nome contém o texto |

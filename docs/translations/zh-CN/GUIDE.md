@@ -1007,7 +1007,7 @@ P 用于有端口的页面，C 用于统计连接数的页面。点击列标题�
 | `port:443`、`port:ssh` | 使用该端口号或服务的行 |
 | `proc:node`、`process:node` | 进程名包含该文本的行 |
 | `pid:4100` | 该 PID 的行 |
-| `host:example` | 地址或主机名包含该文本的行 |
+| `host:example` | 地址或主机名包含该文本的行；完整的地址只保留该地址 |
 | `state:listen`、`state:time` | 状态名包含该文本的 TCP 行 |
 | `proto:udp`、`proto:tcp` | 该协议的行 |
 | `if:en0`、`interface:en0` | 名称包含该文本的接口 |
