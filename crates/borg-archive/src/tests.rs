@@ -564,3 +564,87 @@ fn installed_tools_list_and_stream_entries() {
         assert_eq!(out, HELLO, "{}", tool.name());
     }
 }
+
+/// A name with the characters bsdtar reads as a pattern still means that entry alone.
+#[test]
+fn bsdtar_is_given_an_entrys_name_and_not_a_pattern() {
+    assert_eq!(read::tool::literal_pattern("docs/guide.md"), "docs/guide.md");
+    assert_eq!(read::tool::literal_pattern("a*b[1]?.txt"), "a\\*b\\[1]\\?.txt");
+    assert_eq!(read::tool::literal_pattern("back\\slash"), "back\\\\slash");
+}
+
+#[test]
+fn installed_tools_stream_the_entry_named_even_when_its_name_reads_as_a_pattern() {
+    const BRACKETS: &str = "notes[1].txt";
+    const PLAIN: &str = "notes1.txt";
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("patterns.zip");
+    zip_archive(&path, |zip| {
+        zip.start_file(PLAIN, deflated()).unwrap();
+        zip.write_all(b"plain").unwrap();
+        zip.start_file(BRACKETS, deflated()).unwrap();
+        zip.write_all(HELLO).unwrap();
+    });
+    let bytes = fs::metadata(&path).unwrap().len();
+    let tools = RAR_PROGRAMS
+        .iter()
+        .filter_map(|(program, kind)| installed(program).map(|program| Tool { kind: *kind, program }));
+    for tool in tools {
+        let index = read::tool::index(&tool, &path, bytes, None).unwrap();
+        let entry = index.item(BRACKETS).unwrap_or_else(|| panic!("{} lists it", tool.name()));
+        let mut out = Vec::new();
+        read::tool::each(&tool, &path, None, &[entry], &mut |_, reader| {
+            std::io::copy(reader, &mut out).map_err(Error::from)?;
+            Ok(Flow::Next)
+        })
+        .unwrap();
+        assert_eq!(out, HELLO, "{}", tool.name());
+    }
+}
+
+/// A program standing in for the one that reads RAR archives, which does what `script` says
+/// whatever it is asked for.
+fn scripted_tool(dir: &Path, script: &str) -> Tool {
+    let program = dir.join("tool");
+    fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    Tool { kind: ToolKind::Bsdtar, program }
+}
+
+fn wanted_entry() -> Item {
+    Item::new("big.bin".into(), ItemKind::File, "big.bin".into(), 0)
+}
+
+/// Leaving an entry before its end stops the program, where waiting for it would unpack the
+/// rest of the entry first, however long that takes.
+#[test]
+fn stopping_before_an_entrys_end_does_not_wait_for_the_program_to_finish_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let tool = scripted_tool(dir.path(), "exec yes");
+    let entry = wanted_entry();
+    for flow in [Flow::Stop, Flow::Next] {
+        let mut first = [0; 1];
+        read::tool::each(&tool, dir.path(), None, &[&entry], &mut |_, reader| {
+            reader.read_exact(&mut first).map_err(Error::from)?;
+            Ok(flow)
+        })
+        .unwrap();
+        assert_eq!(&first, b"y");
+    }
+}
+
+/// A program that has more to say about what is wrong than a pipe holds still gets to write
+/// the entry.
+#[test]
+fn a_program_with_much_to_say_still_hands_over_the_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let tool = scripted_tool(dir.path(), "head -c 1000000 /dev/zero >&2\nprintf hello");
+    let entry = wanted_entry();
+    let mut out = Vec::new();
+    read::tool::each(&tool, dir.path(), None, &[&entry], &mut |_, reader| {
+        std::io::copy(reader, &mut out).map_err(Error::from)?;
+        Ok(Flow::Next)
+    })
+    .unwrap();
+    assert_eq!(out, b"hello");
+}
