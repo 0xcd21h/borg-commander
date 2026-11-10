@@ -239,6 +239,18 @@ impl Job<'_> {
         let mut roots = Vec::new();
         let mut before = Totals::default();
         for source in sources {
+            if let Some(root) = self.scan_one(source, before)? {
+                before = before.add(root.totals());
+                roots.push(root);
+            }
+        }
+        Ok(roots)
+    }
+
+    /// Scans one source, again for as long as the user answers a failure with Retry, and gives
+    /// nothing for a source they chose to leave out.
+    fn scan_one(&mut self, source: &Path, before: Totals) -> Result<Option<Root>, Halt> {
+        loop {
             let emit = &mut *self.emit;
             let mut last: Option<Instant> = None;
             let mut seen = |found: Totals| {
@@ -248,18 +260,14 @@ impl Job<'_> {
                 }
             };
             match scan(source, &mut seen) {
-                Ok(root) => {
-                    before = before.add(root.totals());
-                    roots.push(root);
-                }
+                Ok(root) => return Ok(Some(root)),
                 Err(error) => {
-                    if !self.forgive(source, &error)? {
-                        return Err(Halt::Failed(format!("{}: {error}", source.display())));
+                    if self.forgive(source, &error)? {
+                        return Ok(None);
                     }
                 }
             }
         }
-        Ok(roots)
     }
 
     fn forgive(&mut self, path: &Path, error: &io::Error) -> Result<bool, Halt> {

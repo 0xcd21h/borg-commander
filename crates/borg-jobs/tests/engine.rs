@@ -347,3 +347,26 @@ fn a_link_where_a_copy_writes_is_replaced_and_never_written_through() {
         assert!(landed.file_type().is_file());
     }
 }
+
+/// Retry on a source Borg could not read looks at it again, and the copy goes on once it is
+/// there, where it used to end the whole job.
+#[test]
+fn retrying_a_source_that_could_not_be_read_looks_again_and_goes_on() {
+    let (_dir, from, to) = sandbox();
+    write(&from.join("ok.txt"), "fine");
+    let late = from.join("late.txt");
+    let spec = Spec::Copy { sources: vec![late.clone(), from.join("ok.txt")], target: to.clone(), optimize_hdd: false };
+    let control = Control::default();
+    let mut asked = 0;
+    let outcome = run(&spec, &quick(), &control, &mut |event| {
+        if matches!(event, Event::Asking(Ask::Failure { .. })) {
+            asked += 1;
+            write(&late, "arrived");
+            control.answer(Decision::Retry);
+        }
+    });
+    assert!(matches!(outcome, Outcome::Done { .. }), "{outcome:?}");
+    assert_eq!(asked, 1);
+    assert_eq!(read(&to.join("late.txt")), "arrived");
+    assert_eq!(read(&to.join("ok.txt")), "fine");
+}
