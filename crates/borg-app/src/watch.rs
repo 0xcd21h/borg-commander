@@ -153,28 +153,14 @@ impl Drop for Alerts {
 /// What the page asked for, done: the log as it stands now, and what to tell the user.
 async fn answer(state: &Path, request: &AlertsRequest) -> Result<AlertsReply> {
     let processes = Processes::default();
-    let mut log = match request {
-        AlertsRequest::Read => log::read_log(state),
-        _ => log::load_log(state)?.0,
-    };
-    let notice = match request {
-        AlertsRequest::Read => None,
-        AlertsRequest::Open => {
-            if log.unread() > 0 {
-                log.mark_seen();
-                log::write_log(state, &mut log)?;
-            }
-            None
-        }
-        AlertsRequest::Resume { alert, process } => {
-            act(&processes, &mut log, *alert, *process, Asks::Resume, state).await?
-        }
-        AlertsRequest::Kill { alert, process } => {
-            act(&processes, &mut log, *alert, *process, Asks::Kill, state).await?
-        }
+    let (log, notice) = match request {
+        AlertsRequest::Read => (log::read_log(state), None),
+        AlertsRequest::Open => (log::change_log(state, AlertLog::mark_seen)?.0, None),
+        AlertsRequest::Resume { alert, process } => act(&processes, *alert, *process, Asks::Resume, state).await?,
+        AlertsRequest::Kill { alert, process } => act(&processes, *alert, *process, Asks::Kill, state).await?,
         AlertsRequest::Allow { alert, allowance } => {
-            allow(state, &mut log, *alert, allowance.clone())?;
-            Some(tr!(watch_allowed).into())
+            log::allow(state, allowance.clone())?;
+            (mark(state, *alert, AlertState::Allowed)?, Some(tr!(watch_allowed).into()))
         }
     };
     Ok(AlertsReply { log, notice })
@@ -186,16 +172,17 @@ enum Asks {
     Kill,
 }
 
-/// Lets a frozen process go on, or ends it, and writes down what became of it.
+/// Lets a frozen process go on, or ends it, and writes down what became of it. The log is
+/// changed only once the process has answered, so nothing the watcher wrote meanwhile is lost.
 async fn act(
     processes: &Processes,
-    log: &mut AlertLog,
     alert: u64,
     process: ProcessKey,
     asks: Asks,
     state: &Path,
-) -> Result<Option<String>> {
-    let name = log.find(alert).map_or_else(|| process.pid.to_string(), |alert| alert.program().to_owned());
+) -> Result<(AlertLog, Option<String>)> {
+    let mut read = log::read_log(state);
+    let name = read.find(alert).map_or_else(|| process.pid.to_string(), |alert| alert.program().to_owned());
     let mut outcome = match asks {
         Asks::Resume => freeze::resume(processes, process),
         Asks::Kill => freeze::kill(processes, process),
@@ -216,23 +203,20 @@ async fn act(
         (Asks::Kill, ControlOutcome::Done) => (AlertState::Killed, tr!(watch_killed, name = name, pid = process.pid)),
         (_, ControlOutcome::Gone) => (AlertState::Gone, tr!(watch_act_gone, name = name, pid = process.pid)),
         (_, ControlOutcome::Denied) => {
-            return Ok(Some(tr!(watch_act_denied, name = name, pid = process.pid)));
+            return Ok((log::read_log(state), Some(tr!(watch_act_denied, name = name, pid = process.pid))));
         }
     };
-    if let Some(alert) = log.find(alert) {
-        alert.state = next;
-    }
-    log::write_log(state, log)?;
-    Ok(Some(notice))
+    Ok((mark(state, alert, next)?, Some(notice)))
 }
 
-/// Writes an allowance to the file the watcher reads, and marks the alert as allowed.
-fn allow(state: &Path, log: &mut AlertLog, alert: u64, allowance: Allowance) -> Result<()> {
-    log::allow(state, allowance)?;
-    if let Some(alert) = log.find(alert) {
-        alert.state = AlertState::Allowed;
-    }
-    log::write_log(state, log)
+/// Writes down what has become of the process an alert is about, and gives the log as written.
+fn mark(state: &Path, alert: u64, next: AlertState) -> Result<AlertLog> {
+    let changed = log::change_log(state, |log| {
+        if let Some(alert) = log.find(alert) {
+            alert.state = next;
+        }
+    })?;
+    Ok(changed.0)
 }
 
 /// Where the watcher hears about processes: from the kernel when Borg itself may listen, from
@@ -511,8 +495,7 @@ impl Watch {
         let sources = Sources { kernel, kernel_source, root, link, own, heard_root: false };
         let mut watcher = Watcher::new(baseline, settings.limits);
         watcher.baseline.allowed = allowances(&settings, &state);
-        let mut log = loaded(&state)?;
-        log.watch = WatchStatus {
+        let status = WatchStatus {
             source: sources.label(),
             since: watcher.baseline.since,
             learned_at: watcher.baseline.learned_at(),
@@ -520,7 +503,7 @@ impl Watch {
             seen: 0,
             suppressed: 0,
         };
-        log::write_log(&state, &mut log)?;
+        let log = change_log(&state, &status, |_| {})?;
         let (jobs, found) = examiner(crate::rule_scan::compile(crate::rule_scan::folder().as_deref()));
         let first_person = facts::first_person();
         let host = settings.notify.name.clone().unwrap_or_else(host_name);
@@ -730,19 +713,13 @@ impl Watch {
 
 /// Changes the log as the state folder holds it now, so what the Alerts page wrote since is kept:
 /// the alerts it marked read and the processes it resumed, killed or allowed. The watcher's
-/// status replaces whatever the page last saw of it.
-fn change_log(state: &Path, watch: &WatchStatus, change: impl FnOnce(&mut AlertLog)) -> Result<AlertLog> {
-    let mut log = loaded(state)?;
-    log.watch = watch.clone();
-    change(&mut log);
-    log::write_log(state, &mut log)?;
-    Ok(log)
-}
-
-/// The log to change, as [`log::load_log`] gives it, saying in the watcher's output where a log
+/// status replaces whatever the page last saw of it. Says in the watcher's output where a log
 /// Borg could not read went.
-fn loaded(state: &Path) -> Result<AlertLog> {
-    let (log, aside) = log::load_log(state)?;
+fn change_log(state: &Path, watch: &WatchStatus, change: impl FnOnce(&mut AlertLog)) -> Result<AlertLog> {
+    let (log, aside) = log::change_log(state, |log| {
+        log.watch = watch.clone();
+        change(log);
+    })?;
     if let Some(aside) = aside {
         eprintln!("borg watch: {}", tr!(watch_log_kept_aside, path = aside.display()));
     }

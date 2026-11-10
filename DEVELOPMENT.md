@@ -433,8 +433,9 @@ newest 200 alerts), `watch-baseline.json` and `watch-allowed.json` in the state 
 named by constants in `borg-core::storage` so the Borg's files window and the cleanup rules know
 them. The watcher writes the baseline and never the allowances, while the Alerts page writes the
 allowances and never the baseline, so neither can lose what the other wrote; the watcher takes in
-new allowances on its own tick, once a minute. Both sides change `alerts.json` by reading it fresh,
-changing it and writing it back, so what the page marked read or let go on survives the watcher's
+new allowances on its own tick, once a minute. Both sides change `alerts.json` and
+`watch-allowed.json` through `watch::log`, which locks `watch.lock` in the state folder, reads the
+file fresh, changes it and writes it back, and refuses to write over allowances it cannot read, so what the page marked read or let go on survives the watcher's
 next alert, and the watcher rereads the log once a minute to learn whether the week has been
 reviewed. `AlertLog::add` keeps each command at most `COMMAND_KEPT` bytes, its start and its end, and
 `watch::log::write_log` drops the oldest alerts until the file fits the bytes Borg reads back, so
