@@ -66,10 +66,32 @@ pub(super) struct ComputerInfo {
     pub made: u64,
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyLocked {
+    Locked,
+    NoPassword,
+}
+
+#[cfg(target_os = "linux")]
+impl std::fmt::Display for KeyLocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Locked => borg_i18n::tr!(cloud_key_locked),
+            Self::NoPassword => borg_i18n::tr!(cloud_key_no_password),
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl std::error::Error for KeyLocked {}
+
 enum Vault {
     File(PathBuf),
     #[cfg(target_os = "macos")]
     Keychain(PathBuf),
+    #[cfg(target_os = "linux")]
+    Sealed(PathBuf),
 }
 
 impl Vault {
@@ -79,6 +101,10 @@ impl Vault {
         if is_default_state(state) {
             return Self::Keychain(file);
         }
+        #[cfg(target_os = "linux")]
+        if is_default_state(state) {
+            return Self::Sealed(state.to_path_buf());
+        }
         Self::File(file)
     }
 
@@ -87,6 +113,8 @@ impl Vault {
             Self::File(path) => read_private(path),
             #[cfg(target_os = "macos")]
             Self::Keychain(_) => super::keychain::read(super::keychain::ACCOUNT),
+            #[cfg(target_os = "linux")]
+            Self::Sealed(state) => super::unlock::read(state),
         }
     }
 
@@ -95,25 +123,40 @@ impl Vault {
             Self::File(path) => write_private(path, text),
             #[cfg(target_os = "macos")]
             Self::Keychain(_) => super::keychain::write(super::keychain::ACCOUNT, text),
+            #[cfg(target_os = "linux")]
+            Self::Sealed(state) => super::unlock::write(state, text),
         }
     }
 
     fn plain_copy(&self) -> Option<&Path> {
         match self {
-            Self::File(_) => None,
             #[cfg(target_os = "macos")]
             Self::Keychain(file) => Some(file),
+            _ => None,
+        }
+    }
+
+    fn still_open(&self) -> bool {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::Sealed(state) => super::unlock::still_unlocked(state),
+            _ => true,
         }
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "linux")]
+pub(super) fn sealed_here(state: &Path) -> bool {
+    matches!(Vault::of(state), Vault::Sealed(_))
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn is_default_state(state: &Path) -> bool {
     let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     crate::session::StateDir::default_root().is_some_and(|root| canonical(&root) == canonical(state))
 }
 
-fn read_private(path: &Path) -> Result<Option<Zeroizing<String>>> {
+pub(super) fn read_private(path: &Path) -> Result<Option<Zeroizing<String>>> {
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -125,7 +168,7 @@ fn read_private(path: &Path) -> Result<Option<Zeroizing<String>>> {
     Ok(Some(Zeroizing::new(std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?)))
 }
 
-fn write_private(path: &Path, text: &str) -> Result<()> {
+pub(super) fn write_private(path: &Path, text: &str) -> Result<()> {
     use std::io::Write as _;
     let staged = path.with_extension(format!("{}.new", std::process::id()));
     let mut file =
@@ -201,7 +244,8 @@ fn remember(state: &Path, keys: ComputerKeys) -> Arc<ComputerKeys> {
 
 fn cached(state: &Path) -> Option<Arc<ComputerKeys>> {
     let keys = cache().lock().expect("key cache").get(state).cloned()?;
-    computer_info(state).is_none_or(|info| info.key == hex(keys.current.public())).then_some(keys)
+    let current = computer_info(state).is_none_or(|info| info.key == hex(keys.current.public()));
+    (current && Vault::of(state).still_open()).then_some(keys)
 }
 
 pub(super) async fn computer_keys(state: &Path) -> Result<Arc<ComputerKeys>> {

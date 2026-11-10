@@ -28,6 +28,7 @@ impl App {
         let emulator = console(launch, grid, &state);
         let (pty, pty_events) = spawn_shell(launch, &state, grid)?;
         let (messages, inbox) = unbounded_channel();
+        crate::link::register_unlock_prompt(messages.clone());
 
         let drives = launch
             .state_dir

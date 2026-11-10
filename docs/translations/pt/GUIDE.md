@@ -868,15 +868,15 @@ envios aguardam a sua aprovação no borg, e cada aprovação indica o computado
 A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave de servidor, pela qual os
 computadores emparelhados o conhecem, e um computador que chega a servidores guarda também uma chave
 de computador própria. Só o utilizador pode ler ambas. A chave de servidor é um ficheiro na pasta
-`link` da pasta de estado. A chave de computador também é um ficheiro aí, e num Mac fica no
-porta-chaves de início de sessão (consulte [Chaves de computador](#computer-keys)). O emparelhamento
-troca as chaves públicas, e cada ligação abre com um handshake Noise IK associado a elas, pelo que o
-relay só reencaminha texto cifrado e não consegue responder em nome de nenhum dos borgs. Os pedidos
-vindos de outro computador podem ler sem pedir autorização, tal como os locais; ative "perguntar
-antes de outro computador ler" em Opções → Plugins para que também essas leituras aguardem
-aprovação. O Borg não mantém nenhuma ligação ao relay a menos que esteja emparelhado ou a mostrar
-uma ligação de emparelhamento, e não mantém nenhuma quando o borg cloud está desativado em Opções →
-Plugins.
+`link` da pasta de estado. A chave de computador também é um ficheiro aí. Num Mac fica no
+porta-chaves de início de sessão, e no Linux o ficheiro é selado com uma palavra-passe (consulte
+[Chaves de computador](#computer-keys)). O emparelhamento troca as chaves públicas, e cada ligação
+abre com um handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não
+consegue responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem
+pedir autorização, tal como os locais; ative "perguntar antes de outro computador ler" em Opções →
+Plugins para que também essas leituras aguardem aprovação. O Borg não mantém nenhuma ligação ao
+relay a menos que esteja emparelhado ou a mostrar uma ligação de emparelhamento, e não mantém
+nenhuma quando o borg cloud está desativado em Opções → Plugins.
 
 O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador chega
 ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de relay,
@@ -905,6 +905,35 @@ plano, não pode mostrar o pedido nem aceder a servidores. Quando `$BORG_STATE_D
 de estado diferente da habitual, o Borg guarda a chave de computador como ficheiro na pasta `link`
 dessa pasta. As versões do Borg para macOS são assinadas com o Hardened Runtime, por isso outros
 programas não podem ler a memória do Borg nem carregar código nele.
+
+No Linux, o Borg sela a chave de computador com uma palavra-passe à sua escolha, no ficheiro
+`computer-key.sealed` da pasta `link`. Execute `borg unlock` num terminal para a escolher: o Borg
+sugere quatro palavras aleatórias, fáceis de escrever e difíceis de adivinhar, e pede a
+palavra-passe duas vezes. O Borg reforça a palavra-passe com Argon2id, o que demora alguns segundos
+e usa 1 GiB de memória, ou um oitavo da memória numa máquina com menos de 8 GiB, pelo que
+adivinhá-la a partir de uma cópia do ficheiro é lento. Um ficheiro de chave de computador de um Borg
+anterior é selado na primeira vez que executar `borg unlock`, e o ficheiro é apagado; até lá, o Borg
+pede que o execute. Quando `$BORG_STATE_DIR` indica uma pasta de estado diferente da habitual, o
+Borg também guarda no Linux a chave de computador como ficheiro normal, sem palavra-passe.
+
+Depois de desbloqueada, a chave fica no keyring do kernel do utilizador até passarem 12 horas sem o
+Borg a usar, e cada utilização volta a contar as 12 horas desde o início. Um reinício bloqueia-a, e
+`borg lock` bloqueia-a de imediato. Onde o Borg não pode usar o keyring do kernel, como em muitos
+contentores e serviços do sistema, um pequeno processo do Borg guarda a chave, num socket da pasta
+`link` que só o utilizador pode abrir, e termina após 12 horas sem uso. Quando a chave está
+bloqueada, o Borg pede a palavra-passe: os painéis abrem o diálogo **Desbloquear chave**, e
+`borg pair`, `borg get` e `borg put` pedem-na no terminal. `borg mcp remote`, que o Claude inicia
+sem terminal, indica que deve executar `borg unlock`.
+
+`borg unlock --ssh-agent` permite também que o ssh-agent desbloqueie a chave. O Borg pede ao agente
+que assine um desafio fixo com uma chave Ed25519, ou com uma chave RSA se não tiver nenhuma, e sela
+a chave uma segunda vez com essa assinatura. A partir daí, o Borg desbloqueia a chave sem perguntar
+enquanto esse agente estiver acessível, e a palavra-passe continua a funcionar. O Borg verifica que
+o agente assina da mesma forma duas vezes e recusa uma chave cujas assinaturas mudem. Quem puder
+usar o seu agente consegue obter a mesma assinatura: se o reencaminhar com `ssh -A`, o root da
+máquina remota pode usá-lo enquanto estiver ligado e, com uma cópia do ficheiro selado, desbloquear
+esta chave. Reencaminhe o agente apenas para máquinas de confiança, ou deixe isto desligado.
+`borg unlock --no-ssh-agent` volta a desligá-lo.
 
 `borg pair --new-key` dá a este computador uma chave nova, e cada servidor aceita-a na próxima vez
 que o Borg se ligar a ele. Até todos a terem, o Borg guarda também a chave antiga, e `borg pair`

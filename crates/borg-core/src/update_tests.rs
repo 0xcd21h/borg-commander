@@ -4209,3 +4209,33 @@ fn ctrl_alt_a_turns_off_approve_all_in_every_host_session_that_has_it() {
     state.agent.auto_approve = vec![DESKTOP.into()];
     assert_eq!(crate::actions::perform(&mut state, crate::Action::ApprovalModeOff, now).len(), 2, "and here too");
 }
+
+#[test]
+fn a_locked_computer_key_asks_for_its_password_and_hands_it_to_the_app() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ComputerKeyLocked { wrong: false }, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("a password prompt") };
+    assert!(prompt.purpose.masked());
+    assert_eq!(prompt.label, borg_i18n::tr!(cloud_unlock_label));
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty(), "an empty password waits");
+
+    type_text(&mut state, now, "rain cobalt");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(effects, vec![Effect::UnlockComputerKey(crate::Password::new("rain cobalt"))]);
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_unlock_working).into()));
+
+    update(&mut state, Msg::ComputerKeyLocked { wrong: true }, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("the prompt asks again") };
+    assert_eq!(prompt.label, borg_i18n::tr!(cloud_unlock_wrong));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.overlay.is_none());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    update(&mut state, Msg::ComputerKeyLocked { wrong: false }, now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Prompt(prompt)) if !prompt.purpose.masked()),
+        "an open dialog stays"
+    );
+    assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_key_locked).into()));
+}

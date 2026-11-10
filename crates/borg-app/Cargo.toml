@@ -64,7 +64,11 @@ zeroize   = { workspace = true }
 borg-watch-ebpf = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-aya = { workspace = true }
+aya              = { workspace = true }
+argon2           = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf             = { workspace = true }
+linux-keyutils   = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 borg-local-auth    = { workspace = true }
@@ -76,6 +80,9 @@ aya-build = { workspace = true }
 
 [dev-dependencies]
 anyhow       = { workspace = true }
+argon2       = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf         = { workspace = true }
 borg-gfx     = { workspace = true }
 borg-testkit = { workspace = true }
 borg-relay   = { workspace = true }
