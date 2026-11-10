@@ -4303,3 +4303,22 @@ fn a_remote_panel_on_the_other_side_does_not_take_the_local_panels_own_actions()
     crate::actions::perform(&mut state, Action::Mkdir, now);
     assert_eq!(state.notice, unavailable);
 }
+
+/// A paste goes to the dialog that is open, not to the activity monitor's filter behind it,
+/// and the filter takes what fits of a paste, without control characters.
+#[test]
+fn a_paste_over_the_activity_monitor_goes_to_the_dialog_that_is_open() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::Activity, now);
+    assert!(state.activity.side.is_some());
+    state.activity.filtering = true;
+    crate::actions::perform(&mut state, Action::Quit, now);
+    assert!(state.overlay.is_some());
+    update(&mut state, Msg::Paste("for the dialog".into()), now);
+    assert_eq!(state.activity.filter, "");
+
+    state.overlay = None;
+    update(&mut state, Msg::Paste(format!("a\nb{}", "x".repeat(500))), now);
+    assert!(state.activity.filter.starts_with("abx"));
+    assert_eq!(state.activity.filter.chars().count(), 128);
+}

@@ -103,12 +103,16 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     }
 }
 
+/// Characters the processes' filter holds at most.
+const FILTER_LIMIT: usize = 128;
+
 /// Pastes into the memory search form's query, or into the processes' filter while it is typed.
 pub(crate) fn paste(activity: &mut Activity, text: &str) {
     if let Some(form) = activity.search_form.as_mut() {
         form::paste(form, text);
     } else if activity.filtering {
-        activity.filter.extend(text.chars().take(128));
+        let room = FILTER_LIMIT.saturating_sub(activity.filter.chars().count());
+        activity.filter.extend(text.chars().filter(|c| !c.is_control()).take(room));
         activity.rebuild();
     }
 }
