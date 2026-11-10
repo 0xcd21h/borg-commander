@@ -591,3 +591,23 @@ fn two_folders_of_one_name_merge_and_ask_about_the_files_they_share() {
     assert_eq!(after["logs/two.txt"], "y");
     assert_eq!(report.kept, vec![dir.path().join("y/logs")]);
 }
+
+/// On a drive that clones files the copy Borg adds to starts as a clone of the archive. An
+/// archive only its owner may read, and nobody may write, still takes the new entry and keeps
+/// its permissions.
+#[test]
+fn a_read_only_archive_takes_new_entries_on_a_drive_that_clones_files() {
+    const READ_ONLY: u32 = 0o400;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.zip");
+    sample_zip(&path);
+    fs::set_permissions(&path, fs::Permissions::from_mode(READ_ONLY)).unwrap();
+    let cloning =
+        borg_drives::Drive { id: "test".into(), kind: DriveKind::Memory, filesystem: "test".into(), clones: true };
+    let drives = Drives::uniform(cloning, DriveKind::Memory.typical());
+    let local = local_files(dir.path());
+    done(&change_on(&drives, &path, None, add(&local, ""), &[]).0);
+    assert_eq!(contents(&path, None)["notes.txt"], NOTES);
+    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, READ_ONLY);
+    no_partials(dir.path());
+}
