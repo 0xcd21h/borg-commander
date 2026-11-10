@@ -15,7 +15,7 @@ use super::{Reply, location::DOCKER_SCHEME};
 /// The most of a file one read looks at: from its start, or from its end for its last lines.
 const READ_CAP: u64 = 8 * 1024 * 1024;
 /// The largest file an agent can write or edit; the whole file goes through a diff.
-const EDIT_CAP: u64 = 2 * 1024 * 1024;
+pub(super) const EDIT_CAP: u64 = 2 * 1024 * 1024;
 const DEFAULT_LINES: usize = 2000;
 /// The most text one read returns.
 const OUTPUT_CAP: usize = 128 * 1024;
@@ -250,25 +250,46 @@ pub async fn is_folder(spot: &Spot) -> bool {
 /// A whole text file, for changing it: `None` when it does not exist yet.
 pub async fn load(spot: &Spot) -> Result<Option<String>> {
     let bytes = match spot {
-        Spot::Host(path) => match std::fs::metadata(path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-            Ok(meta) if meta.is_dir() => bail!("it is a folder"),
-            Ok(meta) if meta.len() > EDIT_CAP => bail!("it is larger than 2 MiB"),
-            Ok(_) => std::fs::read(path)?,
-        },
+        Spot::Host(path) => {
+            let path = path.clone();
+            match tokio::task::spawn_blocking(move || host_bytes(&path)).await?? {
+                None => return Ok(None),
+                Some(bytes) => bytes,
+            }
+        }
         Spot::Container { id, path, .. } => match borg_docker::read_file(id, path, EDIT_CAP + 1, false).await {
             Err(error) if format!("{error:#}").contains("No such file") => return Ok(None),
             Err(error) => return Err(error),
             Ok(None) => bail!("it is a folder"),
-            Ok(Some(bytes)) if bytes.len() as u64 > EDIT_CAP => bail!("it is larger than 2 MiB"),
             Ok(Some(bytes)) => bytes,
         },
     };
+    if bytes.len() as u64 > EDIT_CAP {
+        bail!("it is larger than 2 MiB");
+    }
     if bytes.contains(&0) {
         bail!("it is binary");
     }
     String::from_utf8(bytes).map(Some).context("it is not UTF-8 text")
+}
+
+/// A file on this machine, for changing it: `None` when it does not exist yet. Only a regular
+/// file is read, and no more of it than shows it is too large to edit, so a device or a pipe
+/// never fills memory or waits for a writer.
+fn host_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
+    let meta = match std::fs::metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        meta => meta?,
+    };
+    if meta.is_dir() {
+        bail!("it is a folder");
+    }
+    if !meta.is_file() {
+        bail!("it is not a regular file");
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(EDIT_CAP + 1).read_to_end(&mut bytes)?;
+    Ok(Some(bytes))
 }
 
 /// Writes a whole file in place, so an existing one keeps its owner and permissions.

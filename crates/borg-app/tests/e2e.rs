@@ -3452,6 +3452,7 @@ fn remote_mcp(state: &Path, name: &str) -> Result<Mcp> {
     let child = std::process::Command::new(BORG)
         .args(["mcp", "remote", name])
         .env("BORG_STATE_DIR", state)
+        .env("HOME", state)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()?;
@@ -3480,11 +3481,13 @@ fn a_computer_pairs_through_borg_cloud_and_claude_works_there_end_to_end_encrypt
     let (_, notes) = mcp.call("read", serde_json::json!({ "path": "notes.txt" }))?;
     ensure!(notes.ends_with("     1\thello\n"), "{notes}");
 
-    let downloads = fixture.root().join("downloads");
-    fs::create_dir_all(&downloads)?;
+    let (error, text) = mcp.call("download", serde_json::json!({ "path": "notes.txt" }))?;
+    ensure!(!error && fs::read_to_string(computer.join("Downloads/notes.txt"))? == "hello\n", "{text}");
+    let (error, text) = mcp.call("download", serde_json::json!({ "path": "notes.txt" }))?;
+    ensure!(error && text.contains("already exists"), "{text}");
     let (error, text) =
-        mcp.call("download", serde_json::json!({ "path": "notes.txt", "to": downloads.to_string_lossy() }))?;
-    ensure!(!error && fs::read_to_string(downloads.join("notes.txt"))? == "hello\n", "{text}");
+        mcp.call("download", serde_json::json!({ "path": "notes.txt", "to": fixture.root().to_string_lossy() }))?;
+    ensure!(error && text.contains("only inside"), "{text}");
 
     let big: Vec<u8> = (0..3_000_000u32).map(|n| (n % 253) as u8).collect();
     let local = fixture.root().join("big.bin");
@@ -3495,6 +3498,7 @@ fn a_computer_pairs_through_borg_cloud_and_claude_works_there_end_to_end_encrypt
     });
     app.wait_text("Remote wants to upload a file")?;
     app.wait_text("asked from")?;
+    app.wait_text("Source: ")?;
     approve(&mut app)?;
     let (mut mcp, uploaded) = asking.join().unwrap();
     let (error, text) = uploaded?;

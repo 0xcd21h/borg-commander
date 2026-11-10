@@ -44,7 +44,7 @@ use tokio::{
 
 pub use answers::{
     ConsoleText, connections, containers, find_container, home_relative, host_dir, interfaces, locate, memory_report,
-    place, ports, processes, screen, shell_output, startup_items, typable,
+    place, ports, processes, screen, shell_output, shown_as_typed, startup_items, typable,
 };
 pub use capture::{capture_call, packet_number, summary_rows};
 pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};
@@ -53,7 +53,7 @@ pub use scan::{ScanCall, ScanTarget, files_answer, process_answer, rule_text_pro
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
 use socket::SOCKET_SUFFIX;
-pub(crate) use socket::{SOCKET_PREFIX, socket_dir, socket_dirs, socket_path};
+pub(crate) use socket::{SOCKET_PREFIX, same_user, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
 use tools::{routing_tools, tools, transfer_tools};
 
@@ -374,6 +374,7 @@ impl Drop for Agent {
     }
 }
 
+/// Takes `borg mcp` connections from this user's programs, and checks each call as an agent's.
 async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
@@ -381,6 +382,9 @@ async fn accept(
     clients: Arc<AtomicUsize>,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
+        if !same_user(&stream) {
+            continue;
+        }
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
         note(&messages, "an agent connected");

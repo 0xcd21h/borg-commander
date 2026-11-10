@@ -142,6 +142,23 @@ async fn relay_connections_disable_nagle_before_the_websocket_handshake() {
     drop(server.await.unwrap());
 }
 
+#[tokio::test]
+async fn a_relay_socket_takes_no_message_larger_than_a_noise_message() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        socket.send(Message::Binary(vec![1; NOISE_LIMIT].into())).await.unwrap();
+        let _ = socket.send(Message::Binary(vec![2; NOISE_LIMIT + 1].into())).await;
+        socket
+    });
+    let mut socket = open(&url).await.unwrap();
+    assert!(matches!(socket.next().await, Some(Ok(Message::Binary(bytes))) if bytes.len() == NOISE_LIMIT));
+    assert!(matches!(socket.next().await, Some(Err(_))));
+    drop(server.await);
+}
+
 #[test]
 fn only_the_holder_of_a_key_answers_the_relays_challenge() {
     let server = Identity::generate();

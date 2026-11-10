@@ -352,20 +352,56 @@ pub(super) fn local_path(text: &str) -> PathBuf {
     }
 }
 
+/// The folder `download` saves into on this computer. Nothing approves what lands on this
+/// computer, so an agent's downloads stay in it.
+const DOWNLOADS: &str = "~/Downloads";
+/// The name a download takes when the path it comes from names no file.
+const DOWNLOAD_NAME: &str = "download";
+
+/// Where `download` saves a file: in `downloads`, under the name `to` gives inside it, or the
+/// file's own name, and never in place of something already there.
+pub(super) fn download_destination(downloads: &Path, to: Option<&str>, remote: &str) -> Result<PathBuf, String> {
+    let outside = || format!("download saves only inside {}: name a file or a folder there", downloads.display());
+    let name = Path::new(remote).file_name().map_or_else(|| DOWNLOAD_NAME.into(), std::ffi::OsStr::to_os_string);
+    let wanted = match to.map(local_path) {
+        None => downloads.to_path_buf(),
+        Some(path) if path.is_absolute() => super::location::clean(&path),
+        Some(path) => super::location::clean(&downloads.join(path)),
+    };
+    if !wanted.starts_with(downloads) {
+        return Err(outside());
+    }
+    let target = if wanted.is_dir() { wanted.join(name) } else { wanted };
+    let real = |path: &Path| std::fs::canonicalize(path).ok();
+    let inside = target
+        .parent()
+        .and_then(real)
+        .zip(real(downloads))
+        .is_some_and(|(parent, downloads)| parent.starts_with(downloads));
+    if !inside {
+        return Err(outside());
+    }
+    if target.symlink_metadata().is_ok() {
+        return Err(format!("{} already exists: name another file with to", target.display()));
+    }
+    Ok(target)
+}
+
 pub(super) async fn transfer_download(remote: &mut crate::link::Remote, call: &Call) -> Result<Reply> {
     let Some(path) = call.args["path"].as_str() else { return Ok(Reply::error("download needs a path")) };
-    let name = Path::new(path).file_name().map_or_else(|| "download".into(), |name| name.to_os_string());
-    let mut to = match call.args["to"].as_str() {
-        Some(to) => local_path(to),
-        None => {
-            let downloads = local_path("~/Downloads");
-            if downloads.is_dir() { downloads } else { PathBuf::from(".") }
-        }
-    };
-    if to.is_dir() {
-        to = to.join(name);
+    let downloads = local_path(DOWNLOADS);
+    if !downloads.is_absolute() {
+        return Ok(Reply::error("download needs a home folder on this computer"));
     }
-    match crate::link::download_in_session(remote, call.args["session"].as_str(), path, &to, |_, _| {}).await {
+    if let Err(error) = std::fs::create_dir_all(&downloads) {
+        return Ok(Reply::error(format!("{}: {error}", downloads.display())));
+    }
+    let to = match download_destination(&downloads, call.args["to"].as_str(), path) {
+        Ok(to) => to,
+        Err(refused) => return Ok(Reply::error(refused)),
+    };
+    let session = call.args["session"].as_str();
+    match crate::link::download_in_session(remote, session, path, &to, crate::link::Existing::Keep, |_, _| {}).await {
         Ok(size) => Ok(Reply::ok(format!("Downloaded {path} ({size} bytes) to {}", to.display()))),
         Err(error) if error.downcast_ref::<std::io::Error>().is_some() => Ok(Reply::error(format!("{error:#}"))),
         Err(error) => Err(error),

@@ -3272,13 +3272,15 @@ fn a_pairing_approval_shows_over_the_command_shown_plainly_and_the_connect_dialo
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask: pairing_ask() }), asked);
     assert!(state.approval.is_some(), "the approval shows at once, over the Connect dialog");
     assert!(matches!(state.overlay, Some(Overlay::Connect(_))));
-    assert_eq!(press(&mut state, asked, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 7, approved: true }]);
+    let read = asked + crate::agent::APPROVAL_GRACE;
+    assert_eq!(press(&mut state, read, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 7, approved: true }]);
     assert!(state.approval.is_none());
     assert!(matches!(state.overlay, Some(Overlay::Connect(_))), "the Connect dialog comes back");
 
     let again = asked + Duration::from_secs(5);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 8, ask: pairing_ask() }), again);
-    let clicked = update(&mut state, Msg::Pointer(crate::Pointer::Confirm(true)), again);
+    assert!(update(&mut state, Msg::Pointer(crate::Pointer::Confirm(true)), again).is_empty(), "nor a click at once");
+    let clicked = update(&mut state, Msg::Pointer(crate::Pointer::Confirm(true)), again + crate::agent::APPROVAL_GRACE);
     assert_eq!(clicked, vec![Effect::AgentAnswer { id: 8, approved: true }], "a click on Yes answers it too");
 }
 
@@ -3317,7 +3319,8 @@ fn an_approval_ends_the_screensaver_and_the_intro() {
     assert!(!state.screensaver, "the approval wakes the screen");
     assert!(state.approval.is_some());
     assert!(!state.can_screensave(), "no screensaver starts over it");
-    assert_eq!(press(&mut state, due, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 1, approved: true }]);
+    let read = due + crate::agent::APPROVAL_GRACE;
+    assert_eq!(press(&mut state, read, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 1, approved: true }]);
 
     state.intro = Some(due);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: pairing_ask() }), due);
@@ -3465,10 +3468,20 @@ fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears
     let approved = press(&mut state, now + APPROVAL_GRACE, key(KeyCode::Char('y')));
     assert_eq!(approved, vec![Effect::AgentAnswer { id: 1, approved: true }]);
 
-    // Asked while the user is idle, Yes counts at once.
+    // Asked while the user is idle, Yes waits out the grace too, and so does the ask behind it.
     let later = now + Duration::from_secs(5);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: ask("ls") }), later);
-    assert_eq!(press(&mut state, later, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 2, approved: true }]);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 3, ask: ask("make clean") }), later);
+    assert!(press(&mut state, later, key(KeyCode::Char('y'))).is_empty());
+    let answered = later + APPROVAL_GRACE;
+    assert_eq!(
+        press(&mut state, answered, key(KeyCode::Char('y'))),
+        vec![Effect::AgentAnswer { id: 2, approved: true }]
+    );
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(3));
+    assert!(press(&mut state, answered, key(KeyCode::Char('y'))).is_empty(), "a second y meant for the first ask");
+    let next = answered + APPROVAL_GRACE;
+    assert_eq!(press(&mut state, next, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 3, approved: true }]);
 }
 
 #[test]

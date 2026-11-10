@@ -174,7 +174,7 @@ pub(super) fn transfer_tools() -> Vec<Value> {
     vec![
         json!({
             "name": "download",
-            "description": "Copies a file from the machine Borg runs on to this computer, where you run. `path` is a location there; `to` is a path here: a folder keeps the file's name, and ~/Downloads is used when it is left out. The relay carries about 2 MB a second.",
+            "description": "Copies a file from the machine Borg runs on into the Downloads folder of this computer, where you run. `path` is a location there; `to` optionally names a file or a folder inside ~/Downloads, and a folder keeps the file's name. A file already there is never replaced. The relay carries about 2 MB a second.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "path": { "type": "string" }, "to": { "type": "string" } },
@@ -183,7 +183,7 @@ pub(super) fn transfer_tools() -> Vec<Value> {
         }),
         json!({
             "name": "upload",
-            "description": "Copies a file from this computer, where you run, to `to`, a location on the machine Borg runs on, after the user approves it in Borg there. Up to 1 GiB; the relay carries about 2 MB a second.",
+            "description": "Copies a file from this computer, where you run, to `to`, a location on the machine Borg runs on, after the user approves it in Borg there, seeing which file it is. Up to 1 GiB; the relay carries about 2 MB a second.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "from": { "type": "string" }, "to": { "type": "string" } },

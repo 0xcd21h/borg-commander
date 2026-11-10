@@ -52,6 +52,7 @@ fn clean(state: &mut AppState) -> Vec<Effect> {
             state.notice = match reason {
                 NoCleanup::InUse => Some(tr!(docker_disk_in_use).into()),
                 NoCleanup::CacheRecord => Some(tr!(docker_disk_cache_together).into()),
+                NoCleanup::ControlCharacter => Some(tr!(docker_disk_control_character).into()),
                 NoCleanup::Empty => None,
             };
             return Vec::new();

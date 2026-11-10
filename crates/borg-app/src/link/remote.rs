@@ -10,7 +10,10 @@ use anyhow::{Context, Result, bail};
 use borg_link::{Channel, Identity, PairingCode, PairingLink, PublicKey, Relay, hex, initiate, relay, unhex};
 use serde::Deserialize;
 use serde_json::json;
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const ROUNDS: usize = 3;
 
@@ -192,18 +195,49 @@ pub(super) struct Piece {
     pub(super) data: String,
 }
 
+/// Whether a download may take the place of a file already at its destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Existing {
+    Replace,
+    Keep,
+}
+
+/// What a download is written to until all of it arrived: a new file beside `to` with a random
+/// name, so nothing already there, such as a link someone left, is written through.
+fn staging(to: &Path) -> Result<(PathBuf, std::fs::File)> {
+    let parent = to.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = to.file_name().context("the destination names no file")?.to_string_lossy();
+    let staged = parent.join(format!(".{name}.borg-download-{}", hex(&borg_link::secret())));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .with_context(|| format!("could not write beside {}", to.display()))?;
+    Ok((staged, file))
+}
+
+/// Puts a complete download in place: over an existing file only when `existing` allows it.
+fn place(staged: &Path, to: &Path, existing: Existing) -> Result<()> {
+    let placed = match existing {
+        Existing::Replace => std::fs::rename(staged, to).map_err(anyhow::Error::from),
+        Existing::Keep => std::fs::hard_link(staged, to).with_context(|| format!("{} already exists", to.display())),
+    };
+    let _ = std::fs::remove_file(staged);
+    placed
+}
+
 /// Copies a file from the server to `to` on this computer, piece by piece; its size.
 pub async fn download_in_session(
     remote: &mut Remote,
     session: Option<&str>,
     path: &str,
     to: &Path,
+    existing: Existing,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<u64> {
     use base64::Engine as _;
     use std::io::Write as _;
-    let staged = to.with_extension(format!("borg-download-{}", std::process::id()));
-    let mut file = std::fs::File::create(&staged).with_context(|| format!("could not write {}", staged.display()))?;
+    let (staged, mut file) = staging(to)?;
     let mut offset = 0;
     let result = async {
         loop {
@@ -225,10 +259,7 @@ pub async fn download_in_session(
     .await;
     drop(file);
     match result {
-        Ok(size) => {
-            std::fs::rename(&staged, to)?;
-            Ok(size)
-        }
+        Ok(size) => place(&staged, to, existing).map(|()| size),
         Err(error) => {
             let _ = std::fs::remove_file(&staged);
             Err(error)
@@ -249,7 +280,9 @@ pub async fn upload_in_session(
     use std::io::Read as _;
     let mut file = std::fs::File::open(from).with_context(|| format!("could not read {}", from.display()))?;
     let size = file.metadata()?.len();
-    let reply = remote.call(&Call::new("put", json!({ "session": session, "path": path, "size": size }))).await?;
+    let source = crate::agent::home_relative(from);
+    let announced = json!({ "session": session, "path": path, "size": size, "from": source });
+    let reply = remote.call(&Call::new("put", announced)).await?;
     if !reply.ok {
         bail!("{}", reply.text);
     }

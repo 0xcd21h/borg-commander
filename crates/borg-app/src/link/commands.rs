@@ -1,7 +1,7 @@
 //! `borg pair`, `borg get` and `borg put`.
 
 use super::{
-    Remote, download_in_session, forget_server,
+    Existing, Remote, download_in_session, forget_server,
     keys::{computer_info, lagging_too_long, new_computer_key, takes_old_key},
     pair, server, servers, state_dir, upload_in_session,
 };
@@ -139,7 +139,7 @@ pub async fn get_command(args: &[String]) -> Result<()> {
     if to.is_dir() {
         to = to.join(file_name);
     }
-    let size = download_in_session(&mut remote, session, path, &to, progress).await?;
+    let size = download_in_session(&mut remote, session, path, &to, Existing::Replace, progress).await?;
     eprintln!();
     println!("Downloaded {name}:{path} ({}) to {}", borg_ui::size_text(size), to.display());
     Ok(())

@@ -561,6 +561,41 @@ mod sealing {
         assert!(!socket.exists(), "an idle agent ends and removes its socket");
         assert!(key_agent::recall(&socket).is_none());
     }
+
+    #[tokio::test]
+    async fn a_client_that_says_nothing_neither_holds_borgs_key_agent_nor_keeps_it_unlocked() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join(key_agent::SOCKET_FILE);
+        let serving = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, Zeroizing::new([6; KEY_LEN]), Duration::from_secs(30)).await }
+        });
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let _silent = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        let asked = socket.clone();
+        let recalled = tokio::task::spawn_blocking(move || key_agent::recall(&asked).map(|key| *key)).await.unwrap();
+        assert_eq!(recalled, Some([6; KEY_LEN]), "a silent client does not keep others waiting");
+        let asked = socket.clone();
+        assert!(tokio::task::spawn_blocking(move || key_agent::forget(&asked)).await.unwrap());
+        serving.await.unwrap().unwrap();
+
+        let idle = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, Zeroizing::new([7; KEY_LEN]), Duration::from_millis(300)).await }
+        });
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let _silent = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), idle)
+            .await
+            .expect("the agent still ends when idle")
+            .unwrap()
+            .unwrap();
+        assert!(!socket.exists());
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -652,4 +687,92 @@ mod unlocked_cache {
         assert_eq!(held, (Some([2; KEY_LEN]), Some([2; KEY_LEN]), true, true));
         serving.await.unwrap().unwrap();
     }
+}
+
+#[tokio::test]
+#[expect(clippy::result_large_err, reason = "the upgrade callback's error type is tungstenite's")]
+async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hello() {
+    use borg_link::relay::{ACCEPT, LISTEN, READY, SESSION, challenge, verify};
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::{
+        Message,
+        handshake::server::{Request, Response},
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay = Relay::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+    let identity = Identity::generate();
+    let key = *identity.public();
+    let (announce, announced) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (taken, mut takes) = tokio::sync::mpsc::unbounded_channel();
+    let stand_in = tokio::spawn(async move {
+        let mut announced = Some(announced);
+        loop {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut path = String::new();
+            let mut socket = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
+                path = request.uri().path().to_owned();
+                Ok(response)
+            })
+            .await
+            .unwrap();
+            if let Some(id) = path.strip_prefix(ACCEPT) {
+                taken.send((id.to_owned(), socket)).unwrap();
+                continue;
+            }
+            assert!(path.starts_with(LISTEN), "{path}");
+            let mut announced = announced.take().expect("one registration");
+            tokio::spawn(async move {
+                let (proof, question) = challenge(&key).unwrap();
+                socket.send(Message::Binary(question.into())).await.unwrap();
+                let Some(Ok(Message::Binary(answer))) = socket.next().await else { panic!("no proof") };
+                assert!(verify(proof, &answer));
+                socket.send(Message::Text(READY.into())).await.unwrap();
+                while let Some(id) = announced.recv().await {
+                    socket.send(Message::Text(format!("{SESSION}{id}").into())).await.unwrap();
+                }
+                std::future::pending::<()>().await;
+            });
+        }
+    });
+    let (calls, _calls) = tokio::sync::mpsc::unbounded_channel();
+    let (messages, _messages) = tokio::sync::mpsc::unbounded_channel();
+    let served = Served {
+        members: None,
+        relay,
+        identity,
+        shared: Arc::new(Mutex::new(Shared { computers: Vec::new(), pairing: None, connections: Default::default() })),
+        state: None,
+        runtime_dir: std::env::temp_dir(),
+        session_id: None,
+        calls,
+        messages,
+        clients: Arc::new(AtomicUsize::new(0)),
+    };
+    let server = tokio::spawn(async move { served.listen().await });
+
+    for n in 0..=served::OPENING_LIMIT {
+        announce.send(format!("early-{n}")).unwrap();
+    }
+    let mut held = Vec::new();
+    for _ in 0..served::OPENING_LIMIT {
+        held.push(takes.recv().await.unwrap());
+    }
+    let mut ids: Vec<String> = held.iter().map(|(id, _)| id.clone()).collect();
+    ids.sort();
+    let mut expected: Vec<String> = (0..served::OPENING_LIMIT).map(|n| format!("early-{n}")).collect();
+    expected.sort();
+    assert_eq!(ids, expected, "the session announced past the limit is not taken");
+
+    drop(held.pop());
+    let mut n = 0;
+    let next = loop {
+        announce.send(format!("late-{n}")).unwrap();
+        n += 1;
+        if let Ok(Some((id, _socket))) = tokio::time::timeout(Duration::from_millis(50), takes.recv()).await {
+            break id;
+        }
+    };
+    assert!(next.starts_with("late-"), "a closed session frees its place, and the refused one stays refused: {next}");
+    server.abort();
+    stand_in.abort();
 }

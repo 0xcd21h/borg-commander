@@ -23,9 +23,13 @@ use std::{
 use tokio::{
     io::AsyncWriteExt,
     net::UnixListener,
-    sync::{mpsc::UnboundedSender, oneshot},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender, oneshot},
     task::JoinSet,
 };
+
+/// Sessions this borg opens at once before their clients have said who they are. Anyone who
+/// knows its key can make the relay announce one.
+pub(super) const OPENING_LIMIT: usize = 16;
 
 /// What the relay connection and its sessions need.
 #[derive(Clone)]
@@ -81,6 +85,7 @@ impl Served {
         let mut told = false;
         // Sessions outlast a registration the relay dropped: each has a socket of its own.
         let mut sessions = JoinSet::new();
+        let opening = Arc::new(Semaphore::new(OPENING_LIMIT));
         loop {
             match relay::Listener::register(&self.relay, &self.identity).await {
                 Ok(mut listener) => {
@@ -90,7 +95,9 @@ impl Served {
                     loop {
                         tokio::select! {
                             next = listener.next() => match next {
-                                Ok(Some(id)) => drop(sessions.spawn(self.clone().session(id))),
+                                Ok(Some(id)) => if let Ok(permit) = opening.clone().try_acquire_owned() {
+                                    drop(sessions.spawn(self.clone().session(id, permit)));
+                                },
                                 ended => {
                                     let error = match ended {
                                         Err(error) => format!("{error:#}"),
@@ -121,9 +128,10 @@ impl Served {
         let _ = self.messages.send(Msg::Notice(message));
     }
 
-    pub(super) async fn session(self, id: String) {
+    pub(super) async fn session(self, id: String, opening: OwnedSemaphorePermit) {
         let Ok(socket) = relay::take(&self.relay, &id).await else { return };
         let Ok((mut channel, hello)) = respond(socket, &self.identity).await else { return };
+        drop(opening);
         let _ = match serde_json::from_slice::<Hello>(&hello) {
             Ok(Hello::Pair { secret, name }) => self.pair(channel, &secret, &name).await,
             Ok(Hello::Session) => self.serve(channel, Role::Session).await,

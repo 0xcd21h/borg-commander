@@ -4610,6 +4610,22 @@ fn a_file_another_computer_asks_to_create_names_that_computer_after_the_path() -
 }
 
 #[test]
+fn an_upload_names_the_file_it_sends_from_the_other_computer() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let ask = borg_core::upload_ask(
+        "/srv/menu/prices.csv".into(),
+        Some("~/work/menu/prices.csv"),
+        format!("{} (4200 bytes)", borg_ui::size_text(4200)),
+        Some("dev@harbor [873dd93b…]".into()),
+    );
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Source: ~/work/menu/prices.csv")?;
+    check("agent_upload_approval", &stage, buffer)
+}
+
+#[test]
 fn a_scan_asks_with_the_process_the_checks_and_the_agents_own_rules() -> Result<()> {
     use borg_core::{AgentEvent, ScanChecks, ScanSubject};
     let mut stage = stage(SIZE, Motion::STILL)?;

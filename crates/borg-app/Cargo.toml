@@ -88,6 +88,7 @@ borg-gfx     = { workspace = true }
 borg-testkit = { workspace = true }
 borg-relay   = { workspace = true }
 crossterm    = { workspace = true }
+tokio-tungstenite = { workspace = true }
 zip          = { workspace = true }
 
 [lints]

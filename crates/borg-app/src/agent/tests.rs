@@ -48,6 +48,16 @@ fn an_agent_reaches_only_the_tools_listed_to_it() {
 }
 
 #[test]
+fn a_command_is_asked_about_only_when_the_dialog_shows_all_of_it() {
+    for shown in ["ls -la", "cd app\ncargo test", "echo 'naïve — 雪'"] {
+        assert!(shown_as_typed(shown), "{shown:?}");
+    }
+    for hidden in ["ls\tx", "ls\rx", "ls\u{1b}x", "ls\u{7f}x", "ls\u{85}x", "ls\u{0}x"] {
+        assert!(!shown_as_typed(hidden), "{hidden:?} reaches the shell but not the dialog");
+    }
+}
+
+#[test]
 fn router_resolves_named_local_sessions_without_redirecting_other_connections() {
     let temp = tempfile::tempdir().unwrap();
     let state = crate::session::StateDir::at(temp.path().join("state"));
@@ -115,6 +125,41 @@ fn socket_folders_are_short_and_owner_only() {
     let one = socket_dir(Path::new("/tmp/borg-test-a")).unwrap();
     assert!(one.join("session-4294967295.sock").as_os_str().len() < 100);
     assert_eq!(std::fs::metadata(&one).unwrap().mode() & 0o777, 0o700);
+}
+
+#[test]
+fn a_socket_folder_that_links_elsewhere_is_refused() {
+    let place = tempfile::tempdir().unwrap();
+    let real = socket::owner_only(&place.path().join("real")).unwrap();
+    let link = place.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert!(socket::owner_only(&link).is_err());
+    assert!(socket::owner_only(&real).is_ok());
+}
+
+#[tokio::test]
+async fn a_socket_knows_a_program_of_this_user() {
+    let (one, _other) = tokio::net::UnixStream::pair().unwrap();
+    assert!(same_user(&one));
+}
+
+#[tokio::test]
+async fn a_session_socket_checks_every_clients_calls_as_an_agents() {
+    let place = tempfile::tempdir().unwrap();
+    let path = place.path().join("session.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let (calls, mut incoming) = unbounded_channel();
+    let (messages, _shown) = unbounded_channel();
+    tokio::spawn(accept(listener, calls, messages, Arc::new(AtomicUsize::new(0))));
+    let mut client = UnixStream::connect(&path).await.unwrap();
+    let call = json!({
+        "tool": "run", "args": { "command": "true", "_container": "web" }, "origin": "laptop", "approved": true
+    });
+    client.write_all(format!("{call}\n").as_bytes()).await.unwrap();
+    let (call, _reply) = incoming.recv().await.unwrap();
+    assert!(call.origin.is_none(), "{call:?}");
+    assert!(!call.approved);
+    assert!(call.args.get("_container").is_none());
 }
 
 #[test]
@@ -273,4 +318,44 @@ async fn an_ask_is_withdrawn_once_its_asker_stops_waiting() {
     let pending = tokio::time::timeout(std::time::Duration::from_millis(50), waiting.withdrawn()).await;
     assert!(pending.is_err(), "an ask whose asker still waits stays");
     drop(still_waiting);
+}
+
+#[tokio::test]
+async fn a_change_reads_only_a_regular_file_and_stops_past_the_edit_limit() {
+    let device = load(&Spot::Host("/dev/zero".into())).await.unwrap_err();
+    assert!(format!("{device:#}").contains("not a regular file"), "{device:#}");
+
+    let temp = tempfile::tempdir().unwrap();
+    let large = temp.path().join("large.txt");
+    std::fs::write(&large, "a".repeat(usize::try_from(files::EDIT_CAP).unwrap() + 1)).unwrap();
+    let too_large = load(&Spot::Host(large)).await.unwrap_err();
+    assert!(format!("{too_large:#}").contains("larger than"), "{too_large:#}");
+
+    let small = temp.path().join("small.txt");
+    std::fs::write(&small, "fits\n").unwrap();
+    assert_eq!(load(&Spot::Host(small)).await.unwrap().as_deref(), Some("fits\n"));
+    assert_eq!(load(&Spot::Host(temp.path().join("new.txt"))).await.unwrap(), None);
+}
+
+#[test]
+fn an_agents_download_lands_only_in_the_downloads_folder_and_replaces_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let downloads = std::fs::canonicalize(temp.path()).unwrap().join("Downloads");
+    let reports = downloads.join("reports");
+    std::fs::create_dir_all(&reports).unwrap();
+    let elsewhere = temp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, downloads.join("away")).unwrap();
+    std::fs::write(reports.join("taken.csv"), "kept").unwrap();
+    let place = |to: Option<&str>| server::download_destination(&downloads, to, "/srv/menu/prices.csv");
+
+    assert_eq!(place(None), Ok(downloads.join("prices.csv")));
+    assert_eq!(place(Some("reports")), Ok(reports.join("prices.csv")));
+    assert_eq!(place(Some("reports/march.csv")), Ok(reports.join("march.csv")));
+    assert_eq!(place(Some(&reports.join("april.csv").to_string_lossy())), Ok(reports.join("april.csv")));
+    for refused in ["../prices.csv", "/etc/prices.csv", "reports/../../prices.csv", "away", "away/prices.csv"] {
+        assert!(place(Some(refused)).is_err(), "{refused} leaves the Downloads folder");
+    }
+    assert!(place(Some("reports/taken.csv")).is_err(), "an existing file stays");
+    assert_eq!(std::fs::read_to_string(reports.join("taken.csv")).unwrap(), "kept");
 }

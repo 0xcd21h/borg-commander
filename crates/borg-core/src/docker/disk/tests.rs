@@ -372,3 +372,16 @@ fn d_switches_between_the_containers_and_disk_use() {
     press(&mut state, KeyCode::Char('d'));
     assert_eq!((state.docker.disk.filter.as_str(), state.docker.disk.open), ("d", true), "the filter takes letters");
 }
+
+#[test]
+fn a_name_with_a_control_character_types_no_command() {
+    let mut usage = usage();
+    usage.containers[1].name = "shop-worker-1\nlater".into();
+    let mut disk = Disk { usage: Some(usage), ..Disk::default() };
+    select_item(&mut disk, DiskKind::StoppedContainers, 0);
+    assert_eq!(disk.cleanup().map(|line| line.line()), Err(NoCleanup::ControlCharacter));
+    let mut disk = Disk { usage: Some(self::usage()), context: Some("orbit\u{7}".into()), ..Disk::default() };
+    disk.rebuild();
+    disk.select(kind_row(&disk, DiskKind::UnusedNetworks));
+    assert_eq!(disk.cleanup().map(|line| line.line()), Err(NoCleanup::ControlCharacter), "nor a context's name");
+}

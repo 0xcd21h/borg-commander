@@ -7,10 +7,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
-use tokio_tungstenite::tungstenite::{Message, protocol::frame::coding::CloseCode};
+use tokio_tungstenite::tungstenite::{
+    Message,
+    protocol::{WebSocketConfig, frame::coding::CloseCode},
+};
 
 use crate::{
-    channel::Socket,
+    channel::{NOISE_LIMIT, Socket},
     key::{Identity, PublicKey, hex},
     link::Relay,
 };
@@ -63,9 +66,12 @@ fn answer(identity: &Identity, challenge: &[u8]) -> Result<Vec<u8>> {
     Ok(buffer)
 }
 
+/// A socket to the relay, which takes no message larger than one Noise message: nothing that
+/// travels through a relay is larger.
 async fn open(url: &str) -> Result<Socket> {
+    let config = WebSocketConfig::default().max_message_size(Some(NOISE_LIMIT)).max_frame_size(Some(NOISE_LIMIT));
     let (socket, _) =
-        tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async_with_config(url, None, true))
+        tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async_with_config(url, Some(config), true))
             .await
             .context("the relay did not answer in time")?
             .with_context(|| format!("could not reach the relay at {url}"))?;

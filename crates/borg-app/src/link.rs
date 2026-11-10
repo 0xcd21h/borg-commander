@@ -50,7 +50,7 @@ use clients::{ClientConnection, client_status};
 pub use commands::{get_command, lock_command, pair_command, put_command, unlock_command};
 #[cfg(target_os = "linux")]
 use keys::KeyLocked;
-pub use remote::{CHUNK, Remote, download_in_session, pair, upload_in_session};
+pub use remote::{CHUNK, Existing, Remote, download_in_session, pair, upload_in_session};
 use served::Served;
 pub use store::{Computer, KeyChanged, Server, forget_server, identity, server, servers};
 use store::{claim, clean_name, load, same, save, state_dir, this_computer};

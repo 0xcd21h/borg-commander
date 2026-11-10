@@ -84,12 +84,12 @@ pub(super) async fn run(lifetime: Lifetime) -> Result<()> {
             Some(id) = inbox.removed.recv() => {
                 service.removing.remove(&id);
             }
-            Ok((stream, _)) = inbox.listener.accept() => {
+            Ok((stream, _)) = inbox.listener.accept() => if crate::agent::same_user(&stream) {
                 let _ = service.serve(stream).await;
                 if service.handed_over {
                     return Ok(());
                 }
-            }
+            },
             Some((session, request)) = inbox.requests.recv() => service.request(&session, request),
             Some(notice) = inbox.notices.recv() => service.notice(notice),
         }

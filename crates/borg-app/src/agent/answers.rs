@@ -281,6 +281,13 @@ pub fn typable(text: &str) -> String {
     text.replace("\r\n", "\n").chars().filter(|&c| c == '\n' || c == '\t' || !c.is_control()).collect()
 }
 
+/// Whether the approval dialog shows a command as the shell gets it. The dialog leaves out
+/// control characters, which a shell's line editor acts on, so line breaks are the only ones
+/// a command may hold.
+pub fn shown_as_typed(command: &str) -> bool {
+    command.chars().all(|c| c == '\n' || !c.is_control())
+}
+
 /// The `shown` busiest processes, by memory or CPU, with the machine's totals.
 pub fn processes(sample: &borg_core::SystemSample, by_cpu: bool, shown: usize) -> Reply {
     use borg_ui::size_text;

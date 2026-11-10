@@ -87,6 +87,12 @@ impl App {
     /// Asks the user to approve running a command on the host or in a container.
     pub(super) fn ask_to_run(&mut self, call: Call, reply: Sender<Reply>) -> Result<Flow> {
         let Some(command) = text(&call, "command") else { return fail(reply, "run needs a command".into()) };
+        if !agent::shown_as_typed(&command) {
+            return fail(
+                reply,
+                "run takes printable text and line breaks only: the approval dialog cannot show tabs, escapes or other control characters".into(),
+            );
+        }
         let at = text(&call, "at");
         let mut reply = reply;
         let target = match at.as_deref().map(|at| agent::locate(&self.state, at)) {
@@ -170,7 +176,7 @@ impl App {
     ) -> Result<Flow> {
         use crate::agent::{self, Reply, Work};
         use base64::Engine as _;
-        use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+        use borg_core::AgentEvent;
         let Some(token) = call.args["token"].as_str().map(str::to_owned) else {
             let (Some(path), Some(size)) = (call.args["path"].as_str(), call.args["size"].as_u64()) else {
                 drop(reply.send(Reply::error("put needs a path and a size")));
@@ -184,9 +190,7 @@ impl App {
             } else {
                 format!("{} ({size} bytes)", borg_ui::size_text(size))
             };
-            let body = vec![DiffLine::code(spot.uri()), DiffLine::prose(shown.clone())];
-            let ask =
-                Ask { kind: AskKind::Upload, summary: spot.uri(), place: shown, origin: call.origin.clone(), body };
+            let ask = borg_core::upload_ask(spot.uri(), call.args["from"].as_str(), shown, call.origin.clone());
             let id = self.agent.ask(reply, Work::Upload { spot, size });
             if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
                 return self.agent_answer(id, true);

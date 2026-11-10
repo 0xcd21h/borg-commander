@@ -22,6 +22,7 @@ const DONE: &str = "ok";
 const LINE_LIMIT: u64 = 256;
 const OWNER_ONLY: u32 = 0o600;
 const CLIENT_WAIT: Duration = Duration::from_secs(5);
+const REQUEST_WAIT: Duration = Duration::from_secs(1);
 
 fn decode(line: &str) -> Option<DataKey> {
     unhex::<KEY_LEN>(line.trim()).map(Zeroizing::new)
@@ -42,7 +43,9 @@ pub(super) async fn serve(socket: &Path, key: DataKey, idle: Duration) -> Result
         }
         let (reader, mut writer) = stream.into_split();
         let mut line = Zeroizing::new(String::new());
-        if tokio::io::BufReader::new(reader.take(LINE_LIMIT)).read_line(&mut line).await.is_err() {
+        let mut reader = tokio::io::BufReader::new(reader.take(LINE_LIMIT));
+        let until = deadline.min(Instant::now() + REQUEST_WAIT);
+        if !matches!(tokio::time::timeout_at(until, reader.read_line(&mut line)).await, Ok(Ok(_))) {
             continue;
         }
         let request = line.trim();
