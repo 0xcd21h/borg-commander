@@ -76,6 +76,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             }
             listed(state, side, generation, Some(tr!(archive_no_tool).into()))
         }
+        Msg::ComputerKeyLocked { wrong } => {
+            crate::remote::computer_key_locked(state, wrong);
+            Vec::new()
+        }
         Msg::ArchiveLocked { side, generation, wrong } => {
             crate::archive::locked(state, side, generation, wrong);
             Vec::new()
@@ -104,6 +108,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
         Msg::Backup(event) => crate::backup::receive(state, event),
         Msg::Storage(report) => crate::storage::receive(state, report),
+        Msg::Service(check) => {
+            crate::service::checked(state, check);
+            Vec::new()
+        }
 
         Msg::Observe(view) => shell::observe(state, view, false),
         Msg::ShellOutput(view) => shell::observe(state, view, true),
@@ -191,7 +199,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::DockerStats(frame) => {
-            crate::docker::stats(state, frame);
+            crate::docker::stats(state, frame, now);
             Vec::new()
         }
         Msg::DockerShellOutput { container, mode } => {

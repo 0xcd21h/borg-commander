@@ -66,9 +66,6 @@ use ratatui::DefaultTerminal;
 use crate::{app::App, launch::Launch};
 
 const USAGE_ERROR: u8 = 2;
-/// Set for the Borg the background service runs for a session, which opens that session without
-/// counting as a use of it.
-const SERVICE_CHILD: &str = "BORG_SERVICE_CHILD";
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
@@ -101,6 +98,9 @@ fn set_language() {
 /// A subcommand, which does its work and exits.
 async fn subcommand(command: &str) -> Result<ExitCode> {
     let args: Vec<String> = env::args().skip(2).collect();
+    if matches!(command, "pair" | "get" | "put" | "mirror") {
+        link::ask_in_terminal();
+    }
     Ok(match command {
         "sessions" => {
             let Some(state) = session::StateDir::locate() else {
@@ -135,6 +135,10 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
         "pair" => finished("borg pair", link::pair_command(&args).await),
         "get" => finished("borg get", link::get_command(&args).await),
         "put" => finished("borg put", link::put_command(&args).await),
+        "unlock" => finished("borg unlock", link::unlock_command(&args).await),
+        "lock" => finished("borg lock", link::lock_command()),
+        #[cfg(target_os = "linux")]
+        "--key-agent" => finished("borg --key-agent", link::key_agent_command(&args).await),
         "--version" | "-V" => {
             println!("borg {}", update::VERSION);
             ExitCode::SUCCESS
@@ -202,7 +206,8 @@ fn usage(text: &str) -> ExitCode {
 }
 
 /// Opens Borg in this terminal, on the session asked for or a remote Borg's, or on the one
-/// chosen in the start window. A session the background service keeps is attached to instead.
+/// chosen in the start window. A session the background service keeps running is attached to
+/// instead; any other registers with the service while it runs.
 async fn open(requested_session: Option<String>, requested_remote: Option<String>) -> Result<ExitCode> {
     if env::var_os(borg_term::SESSION_MARKER).is_some() {
         eprintln!("{}", tr!(cli_already_running));
@@ -212,7 +217,12 @@ async fn open(requested_session: Option<String>, requested_remote: Option<String
         Some(target) => Some(remote::resolve(&target).await?),
         None => None,
     };
-    let service_child = env::var_os(SERVICE_CHILD).is_some();
+    let service_child = env::var_os(service::SERVICE_CHILD).is_some();
+    let starts_service =
+        config::ConfigDir::locate().and_then(|dir| dir.load().ok()).is_none_or(|config| config.start_service());
+    if remote.is_none() && !service_child && starts_service && session::StateDir::locate().is_some() {
+        service::start_on_demand().await;
+    }
     let selected_id = if let Some(target) = &remote {
         Some(remote::viewer_id(target))
     } else if let Some(state) = session::StateDir::locate() {
@@ -227,16 +237,23 @@ async fn open(requested_session: Option<String>, requested_remote: Option<String
     };
     if remote.is_none()
         && !service_child
-        && service::available().await
         && let Some(session) = &selected_id
+        && service::running_sessions().await.contains(session)
     {
         service::attach_session(session, false).await?;
         return Ok(ExitCode::SUCCESS);
     }
-    let _session_lock = session::StateDir::locate()
-        .zip(selected_id.as_ref())
-        .map(|(state, session)| sessions::lock(&state, session))
-        .transpose()?;
+    let _session_lock = match session::StateDir::locate().zip(selected_id.as_ref()) {
+        Some((state, session)) => match sessions::lock(&state, session) {
+            Ok(lock) => Some(lock),
+            Err(sessions::LockError::Busy(busy)) => {
+                eprintln!("{}", busy.explained());
+                return Ok(ExitCode::FAILURE);
+            }
+            Err(sessions::LockError::Io(error)) => return Err(error.into()),
+        },
+        None => None,
+    };
     let launch = Launch::detect(selected_id.as_deref(), remote)?;
     let mut terminal = ratatui::try_init()?;
 

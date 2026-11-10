@@ -11,6 +11,7 @@ mod capture;
 mod files;
 mod location;
 mod scan;
+mod secrets;
 mod server;
 mod socket;
 mod tools;
@@ -52,7 +53,7 @@ pub use scan::{ScanCall, ScanTarget, files_answer, process_answer, rule_text_pro
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
 use socket::SOCKET_SUFFIX;
-pub(crate) use socket::{SOCKET_PREFIX, from_process, same_user, socket_dir, socket_dirs, socket_path};
+pub(crate) use socket::{SOCKET_PREFIX, same_user, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
 use tools::{routing_tools, tools, transfer_tools};
 
@@ -60,6 +61,8 @@ pub(crate) const LIST_LIMIT: usize = 500;
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL: &str = "2025-06-18";
+const NOTE_TIME: &str = "%Y-%m-%d %H:%M:%S";
+const NOTE_GAP: &str = "  ";
 
 /// A tool call relayed from `borg mcp` to the session, one JSON object per line.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -241,11 +244,16 @@ impl Typed {
     }
 }
 
-/// Adds an entry, with the time, to the log of what agents did; the session keeps it in
-/// memory while the user wants a log.
+/// Adds an entry, with the date and time and with the secrets it recognizes hidden, to the log
+/// of what agents did; the session keeps it, on disk too, while the user wants a log.
 pub fn note(messages: &UnboundedSender<Msg>, entry: &str) {
-    let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
-    let _ = messages.send(Msg::Agent(AgentEvent::Note(format!("{time}  {entry}"))));
+    let entry = secrets::hidden(entry);
+    let _ = messages.send(Msg::Agent(AgentEvent::Note(stamped(&jiff::Zoned::now(), &entry))));
+}
+
+/// An entry of the log as it reads: the date and time it happened, then what happened.
+fn stamped(time: &jiff::Zoned, entry: &str) -> String {
+    format!("{}{NOTE_GAP}{entry}", time.strftime(NOTE_TIME))
 }
 
 impl Agent {
@@ -261,8 +269,7 @@ impl Agent {
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            let service = std::env::var_os("BORG_SERVICE_CHILD").is_some().then(std::os::unix::process::parent_id);
-            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service));
+            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone()));
             Some(socket)
         });
         Self { incoming, requeue: calls, socket, messages, clients, waiting: Waiting::default(), next_id: 0 }
@@ -315,13 +322,13 @@ impl Agent {
 
     /// Runs a command on this machine in the background, for a console that cannot take it
     /// (a shell without Borg's integration, or a container's console), and answers with its
-    /// output, which the log keeps since no terminal shows it.
+    /// output, which the log leaves out since output can hold secrets.
     pub fn run_in_background(&self, id: u64, reply: oneshot::Sender<Reply>, command: String, dir: PathBuf) {
         let messages = self.messages.clone();
         tokio::spawn(async move {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
-            note(&messages, &format!("ran in {}\n$ {command}\n{output}[{status}]", home_relative(&dir)));
+            note(&messages, &format!("ran in {}\n$ {command}\n[{status}]", home_relative(&dir)));
             let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
             let notice = match exit {
                 Some(code) => tr!(agent_ran, command = command, code = code),
@@ -367,27 +374,23 @@ impl Drop for Agent {
     }
 }
 
-/// Takes `borg mcp` connections from this user's programs. Only `service`, the background
-/// service that started this session, passes on what a paired computer proved; every other
-/// client's calls are checked as an agent's.
+/// Takes `borg mcp` connections from this user's programs, and checks each call as an agent's.
 async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
-    service: Option<u32>,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
         if !same_user(&stream) {
             continue;
         }
-        let trusted = service.is_some_and(|pid| from_process(&stream, pid));
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
         note(&messages, "an agent connected");
         let (calls, messages, clients) = (calls.clone(), messages.clone(), clients.clone());
         tokio::spawn(async move {
-            let _ = serve_connection(stream, &calls, trusted).await;
+            let _ = serve_connection(stream, &calls).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
             let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
             note(&messages, "an agent disconnected");
@@ -395,15 +398,11 @@ async fn accept(
     }
 }
 
-async fn serve_connection(
-    stream: UnixStream,
-    calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>,
-    trusted: bool,
-) -> Result<()> {
+async fn serve_connection(stream: UnixStream, calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>) -> Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let decoded = serde_json::from_str::<Call>(&line).map(|call| if trusted { Ok(call) } else { call.external() });
+        let decoded = serde_json::from_str::<Call>(&line).map(Call::external);
         let reply = match decoded {
             Ok(Ok(call)) => {
                 let (sender, receiver) = oneshot::channel();

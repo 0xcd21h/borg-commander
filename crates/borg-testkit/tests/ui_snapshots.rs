@@ -1549,8 +1549,12 @@ fn dialogs_take_clicks_on_rows_and_key_hints_and_close_when_clicked_beside() -> 
     // Remote hosts: the tabs, the rows and the keys in the border take clicks.
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog { choices: Vec::new(), complete: true });
-    let client =
-        |name: &str| borg_core::RemoteClient { name: name.into(), fingerprint: "aa:bb".into(), connections: None };
+    let client = |name: &str| borg_core::RemoteClient {
+        name: name.into(),
+        fingerprint: "aa:bb".into(),
+        connections: None,
+        key_changed: None,
+    };
     stage.send(Msg::RemoteClients(vec![client("dev@laptop"), client("workstation")]));
     assert!(matches!(stage.state.overlay, Some(Overlay::Remotes(ref browser)) if browser.show_clients));
     let row = tap(&mut stage, "workstation")?.unwrap();
@@ -2156,18 +2160,21 @@ fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<
     stage.send(Msg::RemoteClients(vec![
         borg_core::RemoteClient {
             name: "dev@laptop".into(),
-            fingerprint: "aabb:ccdd:eeff".into(),
+            fingerprint: "aabb-ccdd-eeff-0011".into(),
             connections: Some(3),
+            key_changed: Some(borg_core::KeyChange { when: "2026-11-09".into(), was: "0102-0304-0506-0708".into() }),
         },
         borg_core::RemoteClient {
             name: "workstation".into(),
             fingerprint: "1122:3344:5566".into(),
             connections: Some(0),
+            key_changed: None,
         },
         borg_core::RemoteClient {
             name: "old-host-status".into(),
             fingerprint: "7788:99aa:bbcc".into(),
             connections: None,
+            key_changed: None,
         },
     ]));
     let buffer = stage.render(stage.started)?;
@@ -2660,6 +2667,20 @@ fn activity_stage() -> Result<Stage> {
         }
     }
     Ok(stage)
+}
+
+#[test]
+fn activity_hides_idle_processes_and_says_how_many() -> Result<()> {
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('c'))).send(key(KeyCode::Char('h')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 idle hidden")?;
+    ensure_text(&buffer, "H Show idle")?;
+    check("activity_idle_hidden", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Char('s'))).send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 of 5")?;
+    check("activity_idle_hidden_filtered", &stage, buffer)
 }
 
 #[test]
@@ -3681,13 +3702,23 @@ fn container(
     }
 }
 
+/// Wide enough for the Docker list to show CPU now beside the average.
+const DOCKER_WIDE: GridSize = GridSize { cols: 132, rows: 34 };
+/// Narrow enough for the Docker list to show the average alone.
+const DOCKER_NARROW: GridSize = GridSize { cols: 80, rows: 34 };
+
+fn resize(stage: &mut Stage, size: GridSize) {
+    stage.send(Msg::Resize { cols: size.cols, rows: size.rows });
+    stage.emulator.resize(GridSize::console(size.cols, size.rows));
+}
+
 /// The Docker view over made-up projects: a list of projects and containers on the left,
 /// the selected container's details and live CPU and memory on the right.
 #[test]
 fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     use borg_core::{DockerData, DockerRequest};
     use borg_docker::{Details, Mount, Network, State, Stats};
-    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let mut stage = stage(DOCKER_WIDE, Motion::STILL)?;
     let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
     stage.state.appearance.select(theme, stage.started, Duration::ZERO);
     let effects = borg_core::update(
@@ -3712,9 +3743,10 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     let ids: Vec<String> = containers.iter().map(|c| c.id.clone()).collect();
     stage
         .send(Msg::Docker { id, result: Ok(DockerData::Listed { context: Some("desktop-linux".into()), containers }) });
-    for second in 0..40u64 {
+    let seconds = 40u64;
+    for second in 0..seconds {
         let wave = (second as f64 / 4.0).sin().abs();
-        stage.send(Msg::DockerStats(vec![
+        let frame = vec![
             (
                 ids[0].clone(),
                 Stats {
@@ -3733,7 +3765,9 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
                 Stats { cpu: 120, memory: 420_000_000, memory_limit: 8_000_000_000, pids: 31, ..Stats::default() },
             ),
             (ids[3].clone(), Stats { memory: 64_000_000, ..Stats::default() }),
-        ]));
+        ];
+        let at = stage.started - Duration::from_secs(seconds - 1 - second);
+        borg_core::update(&mut stage.state, Msg::DockerStats(frame), at);
     }
     for _ in 0..4 {
         stage.send(key(KeyCode::Down));
@@ -3782,7 +3816,19 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "2 of 3 running")?;
+    ensure_text(&buffer, "Now %  Avg %")?;
     check("docker_project", &stage, buffer)?;
+
+    resize(&mut stage, DOCKER_NARROW);
+    let buffer = stage.render(later)?;
+    anyhow::ensure!(!describe(&buffer).contains("Now %"), "a narrow list shows the average alone");
+    check("docker_project_narrow", &stage, buffer)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "CPU avg")?;
+    check("docker_container_narrow", &stage, buffer)?;
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
+    resize(&mut stage, DOCKER_WIDE);
 
     stage.send(key(KeyCode::Char('x')));
     let Some(borg_core::Overlay::Confirm(confirm)) = stage.state.overlay.clone() else { panic!("stopping asks first") };
@@ -4233,6 +4279,72 @@ fn network_offers_to_install_a_missing_tcpdump() -> Result<()> {
     Ok(())
 }
 
+/// Remote → Background service… asks the app how the service stands. A missing one gets the
+/// dialog with the command that installs, enables and starts it, a row for each part, and Enter
+/// types it into the shell.
+#[test]
+fn remote_menu_offers_to_install_the_background_service() -> Result<()> {
+    use borg_core::{Action, Effect, MenuCursor, Overlay, Pointer, ServiceCheck, ServiceStatus, View};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let now = stage.started;
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Remote").unwrap();
+    stage.send(Msg::Pointer(Pointer::Menu(index)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Background service…")?;
+    check("remote_menu", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Up));
+    let Some(Overlay::Menu(MenuCursor { item: Some(item), .. })) = stage.state.overlay else {
+        panic!("the menu is open")
+    };
+    let chosen = borg_core::menus(&stage.state)[index].item(item).map(|entry| entry.action);
+    assert_eq!(chosen, Some(Action::BackgroundService), "Up wraps to the last entry");
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    assert!(effects.contains(&Effect::CheckService), "the app is asked: {effects:?}");
+    let program = "/usr/local/bin/borg".to_owned();
+    stage.send(Msg::Service(ServiceCheck { status: ServiceStatus::Missing, program, root: false }));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "/usr/local/bin/borg service enable &&")?;
+    check("service_install", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let typed = b"/usr/local/bin/borg service install && /usr/local/bin/borg service enable && \
+/usr/local/bin/borg service start\r";
+    assert!(effects.contains(&Effect::Write(typed.to_vec())), "Enter types the command: {effects:?}");
+    assert_eq!(stage.state.view, View::Shell, "and shows the shell");
+    Ok(())
+}
+
+/// Remote → Remote log… opens the log with no agent connected: what agents did before Borg
+/// started again, each entry with its date.
+#[test]
+fn remote_log_shows_what_agents_did_before_borg_started_again() -> Result<()> {
+    use borg_core::{Action, MenuCursor, Overlay, Pointer};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let now = stage.started;
+    stage.state.agent.restore_log(vec![
+        "2026-11-08 23:10:04  an agent connected".into(),
+        "2026-11-08 23:10:09  ran in ~/srv/shop\n$ make test\n[exit 0]".into(),
+        "2026-11-08 23:12:41  declined editing ~/srv/shop/.env".into(),
+        "2026-11-08 23:13:02  an agent disconnected".into(),
+    ]);
+    assert!(!stage.state.agent.connected());
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Remote").unwrap();
+    stage.send(Msg::Pointer(Pointer::Menu(index)));
+    stage.send(key(KeyCode::Up));
+    stage.send(key(KeyCode::Up));
+    let Some(Overlay::Menu(MenuCursor { item: Some(item), .. })) = stage.state.overlay else {
+        panic!("the menu is open")
+    };
+    let chosen = borg_core::menus(&stage.state)[index].item(item).map(|entry| entry.action);
+    assert_eq!(chosen, Some(Action::AgentLog), "the entry above Background service…");
+    stage.send(key(KeyCode::Enter));
+    assert_eq!(stage.state.overlay, Some(Overlay::AgentLog { scroll: None }));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "2026-11-08 23:12:41  declined editing ~/srv/shop/.env")?;
+    check("agent_log_restored", &stage, buffer)
+}
+
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
 /// beside the host folder in the other panel.
 #[test]
@@ -4340,6 +4452,19 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
     check("pairing_code", &stage, buffer)
+}
+
+#[test]
+fn a_locked_computer_key_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(Msg::ComputerKeyLocked { wrong: false });
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Unlock key")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("computer_key_password", &stage, buffer)
 }
 
 #[test]

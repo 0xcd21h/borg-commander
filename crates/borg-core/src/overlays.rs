@@ -43,6 +43,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::EntropyScan(dialog)) => crate::activity::on_entropy_key(state, dialog, key),
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
+        Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
         Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
         None => Vec::new(),
     }
@@ -154,6 +155,21 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             };
             state.overlay = Some(Overlay::Remotes(*browser.clone()));
             return vec![effect];
+        }
+    }
+    if prompt.purpose == PromptPurpose::ComputerKeyPassword {
+        match key.code {
+            KeyCode::Esc => {
+                state.overlay = None;
+                return Vec::new();
+            }
+            KeyCode::Enter if prompt.input.text().is_empty() => return Vec::new(),
+            KeyCode::Enter => {
+                state.overlay = None;
+                state.notice = Some(tr!(cloud_unlock_working).into());
+                return vec![Effect::UnlockComputerKey(crate::Password::new(prompt.input.text()))];
+            }
+            _ => {}
         }
     }
     if let PromptPurpose::ArchivePassword { side } = prompt.purpose {
@@ -268,7 +284,7 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             crate::archive::unpack(state, &sources, target, now)
         }
         PromptPurpose::Pack { sources, moving } => crate::archive::pack(state, sources, text, moving, now),
-        PromptPurpose::ArchivePassword { .. } => Vec::new(),
+        PromptPurpose::ArchivePassword { .. } | PromptPurpose::ComputerKeyPassword => Vec::new(),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));

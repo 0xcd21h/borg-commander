@@ -3,8 +3,8 @@
 use super::caller::{Caller, Role};
 use super::{
     APPROVAL_WAIT, Answer, CLIENTS_SOCKET, CLIENTS_TIMEOUT, COMPUTERS_FILE, ClientConnection, Computer, Hello,
-    LINK_DIR, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared, clean_name, client_status, same,
-    save, this_computer,
+    KeyChanged, LINK_DIR, NOT_PAIRED, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared,
+    clean_name, client_status, same, save, this_computer,
 };
 use crate::{
     agent::{Call, Reply, note},
@@ -13,7 +13,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use borg_core::{AgentEvent, Msg};
-use borg_link::{Channel, Identity, Relay, SECRET_LEN, fingerprint, hex, relay, respond, unhex};
+use borg_link::{Channel, Identity, KEY_LEN, PublicKey, Relay, SECRET_LEN, fingerprint, hex, relay, respond, unhex};
 use serde_json::json;
 use std::{
     path::PathBuf,
@@ -34,7 +34,8 @@ pub(super) const OPENING_LIMIT: usize = 16;
 /// What the relay connection and its sessions need.
 #[derive(Clone)]
 pub(super) struct Served {
-    pub(super) background_service: bool,
+    /// The Borgs registered with the background service, when this is the service's link.
+    pub(super) members: Option<crate::service::Members>,
     pub(super) relay: Relay,
     pub(super) identity: Identity,
     pub(super) shared: Arc<Mutex<Shared>>,
@@ -186,7 +187,7 @@ impl Served {
             let mut shared = self.shared.lock().expect("link lock");
             shared.pairing = None;
             shared.computers.retain(|computer| computer.key != hex(&key));
-            shared.computers.push(Computer { name: name.clone(), key: hex(&key) });
+            shared.computers.push(Computer { name: name.clone(), key: hex(&key), changed: None });
             shared.computers.clone()
         };
         if let Some(state) = &self.state {
@@ -196,8 +197,7 @@ impl Served {
         let _ = self
             .messages
             .send(Msg::Agent(AgentEvent::Paired { computers: computers.into_iter().map(|c| c.name).collect() }));
-        let answer = Answer { ok: true, name: crate::agent::hostname(), error: String::new() };
-        channel.send(&serde_json::to_vec(&answer)?).await
+        channel.send(&serde_json::to_vec(&Answer::accepted())?).await
     }
 
     /// A paired computer's session: its calls go to the session as the local socket's do,
@@ -207,10 +207,11 @@ impl Served {
         let key = hex(channel.peer());
         let computer = self.shared.lock().expect("link lock").computers.iter().find(|c| c.key == key).cloned();
         let Some(computer) = computer else {
-            return refuse(&mut channel, "this computer is not paired with this borg").await;
+            let answer =
+                Answer { ok: false, name: String::new(), error: NOT_PAIRED.into(), unpaired: true, rotation: false };
+            return channel.send(&serde_json::to_vec(&answer)?).await;
         };
-        let answer = Answer { ok: true, name: crate::agent::hostname(), error: String::new() };
-        channel.send(&serde_json::to_vec(&answer)?).await?;
+        channel.send(&serde_json::to_vec(&Answer::accepted())?).await?;
         let _connection = (role == Role::Session).then(|| {
             ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone())
         });
@@ -223,6 +224,47 @@ impl Served {
         let result = caller.serve(channel).await;
         caller.release().await;
         result
+    }
+
+    pub(super) fn change_key(&self, old: &str, new: &PublicKey) -> Result<Computer> {
+        let new_key = hex(new);
+        let (computer, unchanged) = {
+            let mut shared = self.shared.lock().expect("link lock");
+            let holds_old = shared.computers.iter().any(|computer| computer.key == old);
+            if let Some(swapped) =
+                shared.computers.iter().find(|computer| computer.key == new_key && computer.key != old)
+            {
+                anyhow::ensure!(!holds_old, "another paired computer has that key");
+                return Ok(swapped.clone());
+            }
+            let mut computers = shared.computers.clone();
+            let entry = computers.iter_mut().find(|computer| computer.key == old).context(NOT_PAIRED)?;
+            let unchanged = entry.key == new_key;
+            if !unchanged {
+                entry.changed = Some(KeyChanged { at: unix_now(), from: old.to_owned() });
+                entry.key = new_key.clone();
+            }
+            let computer = entry.clone();
+            if !unchanged {
+                if let Some(state) = &self.state {
+                    save(&state.join(LINK_DIR).join(COMPUTERS_FILE), &computers)?;
+                }
+                shared.computers = computers;
+            }
+            (computer, unchanged)
+        };
+        if !unchanged {
+            let was = unhex::<KEY_LEN>(old).map(|key| fingerprint(&key)).unwrap_or_default();
+            let message = borg_i18n::tr!(
+                agent_cloud_key_changed,
+                name = computer.name,
+                was = was,
+                fingerprint = fingerprint(new)
+            );
+            note(&self.messages, &message);
+            let _ = self.messages.send(Msg::Notice(message));
+        }
+        Ok(computer)
     }
 
     /// Hands `call` to the app and waits for its reply.
@@ -257,14 +299,30 @@ impl Served {
                     "hostname": this_computer(),
                     "os": std::env::consts::OS,
                     "arch": std::env::consts::ARCH,
-                    "service": self.background_service,
-                    "sessions": sessions.into_iter().filter(|entry| !entry.archived).collect::<Vec<_>>(),
+                    "service": self.members.is_some(),
+                    "sessions": sessions
+                        .into_iter()
+                        .filter(|entry| !entry.archived)
+                        .map(|entry| self.running(entry))
+                        .collect::<Vec<_>>(),
                 })
                 .to_string(),
             ),
             Some(Err(error)) => Reply::error(format!("{error:#}")),
             None => Reply::error("Borg has no state folder for sessions"),
         }
+    }
+
+    /// A session for the computer's list, marked when it runs in a terminal here.
+    fn running(&self, entry: NamedSession) -> serde_json::Value {
+        let terminal = self
+            .members
+            .as_ref()
+            .and_then(|members| members.place(&entry.id))
+            .is_some_and(|(place, _)| place == crate::service::Place::Terminal);
+        let mut described = json!(entry);
+        described["terminal"] = json!(terminal);
+        described
     }
 
     pub(super) fn list_sessions(&self) -> Reply {
@@ -285,6 +343,13 @@ impl Served {
 }
 
 pub(super) async fn refuse(channel: &mut Channel, error: &str) -> Result<()> {
-    let answer = Answer { ok: false, name: String::new(), error: error.to_owned() };
+    let answer = Answer { ok: false, name: String::new(), error: error.to_owned(), unpaired: false, rotation: false };
     channel.send(&serde_json::to_vec(&answer)?).await
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default()
 }

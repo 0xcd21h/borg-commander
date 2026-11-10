@@ -7,6 +7,7 @@ const SEPARATOR: u8 = b' ';
 const LOCAL_PREFIX: &[u8] = b"./";
 const ASSIGN: u8 = b'=';
 const COMMAND_END: u8 = b';';
+pub(crate) const AND_THEN: &str = "&&";
 pub(crate) const SUBMIT: &[u8] = b"\r";
 /// Characters no shell expands or splits on inside a word, beside letters and digits.
 const PLAIN_PUNCTUATION: &[u8] = b"-_.:/@+,";
@@ -78,6 +79,13 @@ impl CommandLine {
         self
     }
 
+    /// This command, then `next` if it succeeds.
+    pub fn and_then(self, next: Self) -> Self {
+        let mut joined = self.flag(AND_THEN);
+        joined.words.extend(next.words);
+        joined
+    }
+
     pub fn line(&self) -> Vec<u8> {
         self.words.join(&SEPARATOR)
     }
@@ -99,6 +107,12 @@ mod tests {
     fn assigns_quoted_values_and_runs_one_command_after_another() {
         let line = CommandLine::program("export").assigned("A", b"it's").then(CommandLine::program("unset").flag("B"));
         assert_eq!(line.line(), b"export A='it'\\''s'; unset B");
+    }
+
+    #[test]
+    fn runs_the_next_command_only_once_one_succeeds() {
+        let line = CommandLine::program("make").and_then(CommandLine::program("make").flag("install"));
+        assert_eq!(line.line(), b"make && make install");
     }
 
     #[test]

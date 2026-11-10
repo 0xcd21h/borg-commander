@@ -17,6 +17,8 @@ use unicode_width::UnicodeWidthStr;
 const PID_WIDTH: u16 = 7;
 /// Space between the longest PID and the next column.
 const PID_GAP: u16 = 1;
+/// The CPU column's width: room for the heading, its sort arrow and a space.
+const CPU_WIDTH: u16 = 8;
 /// What stands before a process in the tree whose processes are listed under it.
 const OPEN: &str = "▾ ";
 /// What stands before a process in the tree whose processes are folded away.
@@ -25,6 +27,10 @@ const FOLDED: &str = "▸ ";
 const LEAF: &str = "  ";
 /// Cells each level of the tree indents by.
 const INDENT: usize = 2;
+/// Cells between the filter row's right edge and the counts on its right.
+const COUNTS_MARGIN: u16 = 1;
+/// The fewest cells between the filter and the counts on its right.
+const COUNTS_GAP: u16 = 2;
 
 /// The PID column's width: wide enough for the longest PID in the sample and a space after it.
 pub(super) fn pid_width(activity: &Activity) -> u16 {
@@ -71,7 +77,7 @@ pub(super) fn columns(area: Rect, pid_width: u16) -> Vec<(ActivitySort, Rect)> {
     let mut out = Vec::new();
     for (key, width) in [
         (ActivitySort::Pid, pid_width),
-        (ActivitySort::Cpu, if area.width >= 44 { 7 } else { 0 }),
+        (ActivitySort::Cpu, if area.width >= 44 { CPU_WIDTH } else { 0 }),
         (ActivitySort::Memory, 10),
         (ActivitySort::Growth, if growth { 10 } else { 0 }),
         (ActivitySort::Read, if wide { 10 } else { 0 }),
@@ -100,7 +106,8 @@ fn sort_label(sort: ActivitySort) -> &'static str {
 }
 
 /// The process filter: an input with a cursor while typing, a badge while a filter applies,
-/// and a hint otherwise, so it is always clear whether keys type or move.
+/// and a hint otherwise, so it is always clear whether keys type or move. While idle processes
+/// are hidden, it says how many on the right.
 pub(super) fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let styles = &theme.styles;
@@ -116,18 +123,31 @@ pub(super) fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: 
             buf[(x, area.y)].set_style(styles.input.add_modifier(Modifier::REVERSED));
         }
         let hint = tr!(activity_filter_typing, shown = shown, total = total);
-        let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
+        let start = area.right().saturating_sub(hint.width() as u16 + COUNTS_MARGIN).max(x.saturating_add(COUNTS_GAP));
         text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
-    } else if !activity.filter.is_empty() {
-        let hint = tr!(activity_filter_applied, shown = shown, total = total);
-        Line::from(vec![
+        return;
+    }
+    let used = if activity.filter.is_empty() {
+        let placeholder = tr!(activity_filter_placeholder);
+        text(buf, area, placeholder, dim(theme));
+        placeholder.width()
+    } else {
+        let line = Line::from(vec![
             Span::styled(label, styles.cursor),
             Span::styled(format!(" {} ", activity.filter), heading(theme)),
-            Span::styled(hint, dim(theme)),
-        ])
-        .render(area, buf);
-    } else {
-        text(buf, area, tr!(activity_filter_placeholder), dim(theme));
+            Span::styled(tr!(activity_filter_applied, shown = shown, total = total), dim(theme)),
+        ]);
+        let used = line.width();
+        line.render(area, buf);
+        used
+    };
+    if activity.hide_idle {
+        let note = tr!(activity_idle_hidden, hidden = activity.idle_hidden());
+        let start = area
+            .right()
+            .saturating_sub(note.width() as u16 + COUNTS_MARGIN)
+            .max(area.x.saturating_add(used as u16).saturating_add(COUNTS_GAP));
+        text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, note, heading(theme));
     }
 }
 
@@ -155,7 +175,7 @@ pub(super) fn list(activity: &Activity, theme: &Theme, header: Rect, body: Rect,
         for (sort, cell) in columns(line, pid_width) {
             let value = match sort {
                 ActivitySort::Pid => p.key.pid.to_string(),
-                ActivitySort::Cpu => cpu(p.cpu),
+                ActivitySort::Cpu => cpu(activity.cpu(p.key)),
                 ActivitySort::Memory => size(p.resident),
                 ActivitySort::Growth if p.resident.is_some() => growth(activity.growth(p.key)),
                 ActivitySort::Growth => "—".into(),

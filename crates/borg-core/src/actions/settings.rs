@@ -20,11 +20,12 @@ pub(super) fn preference(state: &mut AppState, change: impl FnOnce(&mut Preferen
     vec![Effect::SaveConfig]
 }
 
-/// Turns the agent's log on or off; turned off, it forgets what it held.
+/// Turns the agent's log on or off; turned off, it forgets what it held, on disk too.
 pub(super) fn toggle_agent_log(state: &mut AppState) -> Vec<Effect> {
-    let effects = flip(state, |prefs| &mut prefs.agent_log);
+    let mut effects = flip(state, |prefs| &mut prefs.agent_log);
     if !state.settings.preferences.agent_log {
         state.agent.log.clear();
+        effects.push(Effect::ForgetAgentLog);
     }
     effects
 }

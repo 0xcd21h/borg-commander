@@ -39,6 +39,7 @@ impl App {
             Effect::Backup(request) => self.backup.request(request),
             Effect::ScanStorage => self.storage.scan(),
             Effect::CleanStorage(paths) => self.storage.clean(paths),
+            Effect::CheckService => self.check_service(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
             Effect::Network { id } => self.network.request(id),
@@ -56,6 +57,8 @@ impl App {
             Effect::CancelSearch(side) => self.search.cancel(side),
             Effect::SetIndexRoots(roots) => self.set_index_roots(roots),
             Effect::SaveSearchHistory => self.save_search_history(),
+            Effect::SaveAgentNote(entry) => self.save_agent_note(&entry),
+            Effect::ForgetAgentLog => self.forget_agent_log(),
             Effect::SaveFolders => self.save_recent_folders(),
             Effect::SetHotlist(hotlist) => {
                 self.config.set_hotlist(&hotlist);
@@ -94,6 +97,7 @@ impl App {
             Effect::Copy(text) => self.copy(text),
             Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
             Effect::StartPairing => self.start_pairing(),
+            Effect::UnlockComputerKey(password) => self.unlock_computer_key(password),
             Effect::SetRelay(text) => self.set_relay(&text),
             Effect::ForgetComputers => self.forget_computers(),
             Effect::AgentAnswer { id, approved } => return self.agent_answer(id, approved),
@@ -172,6 +176,22 @@ impl App {
         }
     }
 
+    fn save_agent_note(&mut self, entry: &str) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_agent_note(entry)
+        {
+            self.state.notice = Some(tr!(agent_log_save_error, error = error));
+        }
+    }
+
+    fn forget_agent_log(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.forget_agent_log()
+        {
+            self.state.notice = Some(tr!(agent_log_forget_error, error = error));
+        }
+    }
+
     fn save_recent_folders(&mut self) {
         if let Some(dir) = &self.state_dir
             && let Err(error) = dir.save_recent_folders(self.state.folders.recent())
@@ -211,6 +231,13 @@ impl App {
         tokio::spawn(async move {
             let result = crate::plugins::run(dir, tool, paths, size).await.map_err(|error| format!("{error:#}"));
             let _ = messages.send(Msg::GitFinished { id, result });
+        });
+    }
+
+    fn check_service(&self) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let _ = messages.send(Msg::Service(crate::service_install::check().await));
         });
     }
 

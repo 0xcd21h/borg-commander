@@ -514,6 +514,11 @@ selected container: its status, ports, networks, mounts, command, and restart po
 CPU, memory, network, and disk use with a chart of the last minute. For a project, it shows the
 project's folder, its containers, and their combined use. Esc closes the view.
 
+CPU shows as two figures. **Now %** is the latest reading, and **Avg %** is the average of the last few
+seconds, as in the activity monitor, so it holds steady while a container works in bursts. A list
+too narrow for both shows **Avg %** alone. The details show the same pair as **CPU now** and
+**CPU avg**, and a project adds up both over its running containers.
+
 | Key | Action |
 | --- | --- |
 | ↑ ↓, PgUp, PgDn, Home, End | Move |
@@ -764,10 +769,15 @@ its bytes as a hex dump. Borg remembers the processes of its last 16 agent captu
 quits. Other files show their conversations under **Unknown process**, unless their packets
 carry their process.
 
-While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it to
-see a log of what the agent did: what it looked at, read, scanned, showed, and typed, and every
-command and change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
-at all, turn it off in Options → Plugins.
+While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it, or
+choose F9 → Remote → **Remote log…** at any time, to see a log of what the agent did: what it looked
+at, read, scanned, showed, and typed, and every command and change, approved or declined. Each
+session keeps its log on disk, readable only by you, so you can come back to a session you left
+running and see what happened there, even after Borg quit. When the log grows large, Borg drops the
+oldest entries. Before an entry is saved, Borg hides the passwords, tokens and keys it recognizes,
+and it leaves out what commands printed. A password passed as a plain word looks like any other
+word, so Borg cannot hide it. To keep no log at all, turn off **Remote: keep a log of what it does**
+in Options → Plugins, which also deletes the saved log.
 
 ### Borg cloud
 
@@ -800,18 +810,81 @@ Remote access dialog forgets every paired computer. Through borg cloud, Claude a
 downloads go into your Downloads folder and never replace a file there. Uploads wait for your
 approval in borg, which shows the file being sent, and every approval names the computer that asked.
 
-The connection is encrypted end to end. Each borg keeps a private key, readable only by you, in
-its state folder. Pairing exchanges the public keys, and every connection opens with a Noise IK
-handshake bound to them, so the relay only ever forwards ciphertext and cannot answer in either
-borg's name. Calls from another computer can read without asking, just like local ones; turn on
-"ask before another computer reads" in Options → Plugins to make those reads wait for approval
-too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
-none at all when borg cloud is turned off in Options → Plugins.
+The connection is encrypted end to end. Every borg keeps a server key, which paired computers know
+it by, and a computer that reaches servers also keeps a computer key of its own. Both are readable
+only by you. The server key is a file in the `link` folder of the state folder. The computer key is
+a file there too. On a Mac it lives in your login keychain instead, and on Linux the file is sealed
+with a password (see [Computer keys](#computer-keys)). Pairing exchanges the public keys, and every
+connection opens with a Noise IK handshake bound to them, so the relay only ever forwards ciphertext
+and cannot answer in either borg's name. Calls from another computer can read without asking, just
+like local ones; turn on "ask before another computer reads" in Options → Plugins to make those
+reads wait for approval too. Borg keeps no connection to the relay unless it is paired or showing a
+pairing link, and none at all when borg cloud is turned off in Options → Plugins.
 
 Borg saves the relay in the config as `relay = "wss://relay.example.com"`. A computer reaches the
-server through the relay it paired through, so after the server switches relays, pair the
-computer again. All borgs on one machine share a key, so only the first one opened connects to
-the relay; the others tell you which one has borg cloud.
+server through the relay it paired through, so after the server switches relays, pair the computer
+again. All borgs on one machine share their keys, and the
+[background service](#named-sessions-and-the-background-service) connects them all to the relay.
+With the service turned off, only the first borg opened connects, and the others tell you which one
+has borg cloud.
+
+#### Computer keys
+
+The computer key proves to each paired server that a connection comes from your computer. When a
+server still knows this computer by another key, such as this machine's server key, Borg moves it
+to the computer key the next time it opens a session there. Borg proves to the server that it
+holds the new key, and the server swaps the key in that computer's entry and keeps its name.
+Connections that still use the old key end at their next call. The server shows a notice and
+writes both fingerprints to the agent log, and its **Clients** list shows when the key changed and
+what it was. A server running an older Borg keeps the old key until it is updated.
+
+On a Mac, Borg keeps the computer key in your login keychain, as an item named **Borg Commander**
+that only Borg may read without asking you. The first time a Borg process needs the key, macOS asks
+for Touch ID or your password, so even a program that starts `borg` on its own shows itself. After
+each Borg update, macOS also asks once whether the new Borg may use the item; choose **Always
+Allow**. A computer key file from an earlier Borg moves into the keychain the first time Borg uses
+it, and the file is deleted. A Borg that runs without the Mac's screen, such as over SSH or in the
+background service, cannot show the prompt and cannot reach servers. When `$BORG_STATE_DIR` names a
+state folder other than the usual one, Borg keeps the computer key as a file in that folder's `link`
+folder. Borg's macOS releases are signed with the Hardened Runtime, so other programs cannot read
+Borg's memory or load code into it.
+
+On Linux, Borg seals the computer key with a password you choose, in the file `computer-key.sealed`
+in the `link` folder. Run `borg unlock` in a terminal to choose it: Borg suggests four random words,
+which are easy to type and hard to guess, and asks for the password twice. Borg stretches the
+password with Argon2id, which takes a few seconds and 1 GiB of memory, or an eighth of the memory on
+a machine with less than 8 GiB, so guessing it from a copy of the file is slow. A computer key file
+from an earlier Borg is sealed the first time you run `borg unlock`, and the file is deleted; until
+then, Borg asks you to run it. When `$BORG_STATE_DIR` names a state folder other than the usual one,
+Borg on Linux also keeps the computer key as a plain file, with no password.
+
+Once unlocked, the key stays in your user's kernel keyring until 12 hours pass without Borg using
+it, and every use starts the 12 hours again. A restart locks it, and `borg lock` locks it at once.
+Where Borg cannot use the kernel keyring, as in many containers and system services, a small Borg
+process holds the key instead, on a socket in the `link` folder that only you can open, and it ends
+after 12 hours without use. When the key is locked, Borg asks for the password: the panels open the
+**Unlock key** dialog, and `borg pair`, `borg get` and `borg put` ask in the terminal.
+`borg mcp remote`, which Claude starts without a terminal, says to run `borg unlock`.
+
+`borg unlock --ssh-agent` also lets your ssh-agent unlock the key. Borg asks the agent to sign a
+fixed challenge with an Ed25519 key, or with an RSA key when it holds none, and seals the key a
+second time with that signature. From then on, Borg unlocks the key without asking while that agent
+is reachable, and the password keeps working. Borg checks that the agent signs the same way twice,
+and refuses a key whose signatures change. Anyone who can use your agent can make the same
+signature: when you forward it with `ssh -A`, root on the far machine can use it while you are
+connected, and with a copy of the sealed file could unlock this key. Forward the agent only to
+machines you trust, or leave this off. `borg unlock --no-ssh-agent` turns it off again.
+
+`borg pair --new-key` gives this computer a new key, and each server takes it the next time Borg
+connects to it. Until every server has, Borg keeps the old key too, and `borg pair` marks each
+server that still takes it. A week later it also suggests forgetting servers you no longer use,
+with `borg pair --forget NAME`.
+
+When a server refuses every key this computer holds, Borg says so. Either someone forgot this
+computer on that server, or someone with a copy of its key moved the server to a key of their own
+first. A new key is hygiene and does not undo a leak. If you think someone copied a key, press F8
+in Remote access on every server to forget the paired computers, pair again, and check those
+servers.
 
 ### Named sessions and the background service
 
@@ -821,26 +894,44 @@ call `list_sessions`, `list_remote_sessions`, and `use_session` to choose which 
 connection works with. A single tool call can also pass a `session` ID to target another session
 just once. The chosen session applies only to that MCP connection.
 
-With more than one session, `borg` starts with the **Borg sessions** window. Its first lines say
-what a session is, and the list shows each session with when it was last used. A session that is
-active right now is marked with its status: **Open in another terminal**, or
-**Kept running by the service** when the background service runs it. The session used last is
-chosen, unless another terminal has it open. Enter opens the chosen session where you left off; one
-the service keeps opens attached, as with `borg service attach NAME`. A click chooses a session and
-a second click opens it. **F7** names a new session and opens it, and Esc or F10 quits without
-opening one. While the window is open, it checks every 2 seconds which sessions are active.
+With more than one session, or when the only one is open in another terminal, `borg` starts with the
+**Borg sessions** window. Its first lines say what a session is, and the list shows each session
+with when it was last used. A session that is active right now is marked with its status:
+**Open in another terminal**, or **Kept running by the service** when the background service runs
+it. The session used last is chosen, unless another terminal has it open. Enter opens the chosen
+session where you left off; one the service keeps opens attached, as with
+`borg service attach NAME`. A click chooses a session and a second click opens it. **F7** names a
+new session and opens it, and Esc or F10 quits without opening one. While the window is open, it
+checks every 2 seconds which sessions are active.
 
 **F8** or **Delete** removes the chosen session after a confirmation that defaults to **No**. This
 deletes its saved panels and terminal history; your files and folders are kept. The Default session
-always stays, and so does a session that is active right now: quit Borg in the other terminal first,
-or run `borg service stop` to remove a session the service keeps.
+always stays, and so does a session that is active right now: quit Borg in the other terminal first.
+To remove a session the service keeps, open it with `borg service attach NAME` and quit with F10.
 
-`borg service install`, `enable`, and `start` set up the optional background service. It holds
-the machine's pairing connection and keeps named sessions running after their terminals close.
-`borg service attach NAME` reconnects to one, and Ctrl-] detaches again without ending its
-shell. Use `borg service stop`, `disable`, or `uninstall` to stop or remove the service.
-In a container without systemd, have the container's process supervisor run `borg service run`;
-the `install` and `enable` commands need a Linux host with systemd.
+When you name a session with `borg --session NAME` that another Borg has open in a terminal,
+`borg` stops and names that Borg: its process number, its terminal as `ps` shows it, and how long
+ago it started. Quit that Borg with F10 where it runs. When you can no longer reach its terminal,
+end it with `kill` and the process number.
+
+All your Borgs on a machine share one background service. The first `borg` you open starts it,
+with nothing to install, and it stops 30 seconds after the last session closes. To turn this off,
+set `start-service = false` in the config.
+
+The service keeps borg cloud connected for all your Borgs, so a paired computer reaches every open
+session. It works in the session it names, or in the one you used last, and waits for your
+approval there. You can pair from any Borg.
+
+To keep a session running with no terminal, run `borg service keep NAME`. Open it with
+`borg service attach NAME` or from the **Borg sessions** window, and press Ctrl-] to detach.
+Quitting Borg there with F10 ends the session. When a paired computer asks for a session that is
+not running, the service starts it in the background.
+
+To start the service at boot, run `borg service install`, `enable`, and `start`. They use sudo,
+which asks for your password, unless you are root. `borg service stop`, `disable`, and `uninstall`
+undo them. You can also choose F9 → Remote → **Background service…**: the dialog shows the command
+for the next step, and Enter runs it in Borg's shell. In a container without systemd, have the
+container's process supervisor run `borg service run`.
 
 ### Remote panels
 
@@ -886,13 +977,15 @@ that panel showed. Press **M** to mirror the session's screen, and **R** to refr
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
-fingerprints, whether they are connected, and how many connections each has. A computer is listed
+fingerprints, whether they are connected, and how many connections each has. After a computer
+changed its key, the fingerprint line also says on which day, and the fingerprint it had before. A computer is listed
 once even when a mirror uses several connections. Status updates while the picker is open,
 including in a session whose connections are held by the background service. Pairing works in
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host** and **Share this Borg as host…**.
+The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**,
+**Remote log…**, and **Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.
@@ -921,8 +1014,7 @@ This closes the session and its remote consoles and deletes its saved Borg panel
 history; files and folders on the host are kept. The Default session cannot be removed. A
 standalone session that is currently hosting the connection cannot remove itself; first close it
 on the host and run Borg in another session. If removal fails, the session stays listed so you
-can try again. Sessions managed by the service are stopped before their saved state is removed,
-and the service does not recreate them.
+can try again. A running session is stopped first, and the service does not start it again.
 
 ### Mirroring a session
 
@@ -933,9 +1025,13 @@ the bottom. The line above it shows who has control; Ctrl-] also exits.
 
 A regular `borg` or `borg --session NAME` can be mirrored while it runs, without the background
 service. Its own terminal stays visible, and any keyboard or mouse input there takes control back
-from the mirror. The mirror follows the host terminal's layout and is cut off to fit a smaller
-window; making your window larger shows the rest. The optional background service keeps sessions
-alive after their original terminal closes and lets the controlling client resize their PTY.
+from the mirror. While you have control, Borg on the host lays out for your window: when the space
+above the banner is smaller than the host's terminal, Borg draws in the top left of that terminal
+at your size, and the rest of it stays blank. Once control goes back to the host's terminal or you
+leave the mirror, Borg fills that terminal again. A mirror without control follows the host
+terminal's layout and is cut off to fit a smaller window; making your window larger shows the
+rest. A session the background service keeps stays alive after its terminal closes, and the
+computer in control sets its size.
 
 If another terminal has control of the remote session, the mirror opens in view-only mode and
 your keys do not reach the session. Press **Ctrl-T** or click the status line to take control and
@@ -1269,6 +1365,7 @@ restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
+start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud
 
@@ -1361,9 +1458,9 @@ where it is:
   in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
 - **Caches**: folder sizes and name indexes, in the cache folder (see
   [Saved size scans](#saved-size-scans)).
-- **Sessions and history**: sessions, shell output, search and folder history, collections,
-  paired computers with their keys, and what Borg learned about your drives (`drives.json`), in
-  the state folder.
+- **Sessions and history**: sessions, shell output, the remote log, search and folder history,
+  collections, paired computers with their keys, and what Borg learned about your drives
+  (`drives.json`), in the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 
@@ -1424,6 +1521,13 @@ one fully busy core. Resident pages shared between processes count toward each o
 up the RAM of all processes does not give the system total. CPU and disk rates appear from the
 second sample on.
 
+CPU is an average of the last few seconds in which older use fades out, as in `top`, so a list
+sorted by CPU holds still while a process works in short bursts. The overview and the system CPU
+at the top of the monitor are averaged the same way. **H** hides the processes that used no CPU
+in that time, and the filter row says how many are hidden. A process that goes quiet stays listed
+until its average falls to 0.0. In the tree, the processes a busy one descends from stay listed
+with it. Press H again to show them all.
+
 | Key | Action |
 | --- | --- |
 | Enter | Open the process's memory map / move to the region preview |
@@ -1431,6 +1535,7 @@ second sample on.
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; press again to reverse |
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
+| H | Hide or show the processes that used no CPU in the last few seconds |
 | Left / Right | In the tree, fold the selected process's branch or unfold it |
 | K | Send a signal or change the priority |
 | E | Scan every process for high entropy |

@@ -86,11 +86,6 @@ pub(crate) fn same_user(stream: &tokio::net::UnixStream) -> bool {
     stream.peer_cred().is_ok_and(|peer| peer.uid() == rustix::process::getuid().as_raw())
 }
 
-/// Whether the program at the other end of `stream` is the process `pid`.
-pub(crate) fn from_process(stream: &tokio::net::UnixStream, pid: u32) -> bool {
-    stream.peer_cred().ok().and_then(|peer| peer.pid()).is_some_and(|peer| u32::try_from(peer) == Ok(pid))
-}
-
 pub fn hostname() -> String {
     rustix::system::uname().nodename().to_string_lossy().into_owned()
 }

@@ -73,6 +73,8 @@ pub struct Config {
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
     pub update_check: Option<bool>,
+    /// Start the background service when Borg opens and none runs.
+    pub start_service: Option<bool>,
     /// The borg cloud relay, as `wss://host`.
     pub relay: Option<String>,
     pub search: Option<Search>,
@@ -462,6 +464,10 @@ impl Config {
         self.update_check.unwrap_or(true)
     }
 
+    pub fn start_service(&self) -> bool {
+        self.start_service.unwrap_or(true)
+    }
+
     pub fn unlocked(&self) -> &[String] {
         self.unlocked.as_deref().unwrap_or_default()
     }
@@ -497,6 +503,7 @@ impl Config {
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
             update_check: self.update_check,
+            start_service: self.start_service,
             relay: self.relay.clone(),
             search: self.search.clone(),
             index: self.index.clone(),

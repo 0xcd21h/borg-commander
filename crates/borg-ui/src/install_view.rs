@@ -1,5 +1,6 @@
 //! The dialog that offers to install a missing program: why Borg needs it, the exact command,
-//! what running it does, and what may still be needed afterwards.
+//! what running it does, and what may still be needed afterwards. The service dialog draws its
+//! offer the same way.
 
 use crate::{
     Theme,
@@ -52,9 +53,10 @@ fn note(tool: Tool) -> &'static str {
     }
 }
 
-enum Part {
+pub(crate) enum Part {
     Text(Vec<Line<'static>>),
-    Command(String),
+    /// The command, a row for each of its parts.
+    Command(Vec<String>),
     /// What may still be needed afterwards, dimmed.
     Note(Vec<Line<'static>>),
 }
@@ -63,15 +65,15 @@ impl Part {
     fn rows(&self) -> u16 {
         match self {
             Self::Text(lines) | Self::Note(lines) => u16::try_from(lines.len()).unwrap_or(u16::MAX),
-            Self::Command(_) => 1,
+            Self::Command(rows) => u16::try_from(rows.len()).unwrap_or(u16::MAX),
         }
     }
 }
 
-fn parts(offer: &InstallOffer, width: u16) -> [Part; 4] {
-    [
+fn parts(offer: &InstallOffer, width: u16) -> Vec<Part> {
+    vec![
         Part::Text(message_lines(&question(offer), width)),
-        Part::Command(offer.installer.command(offer.tool)),
+        Part::Command(vec![offer.installer.command(offer.tool)]),
         Part::Text(message_lines(&consequence(offer), width)),
         Part::Note(message_lines(note(offer.tool), width)),
     ]
@@ -81,10 +83,11 @@ fn text_width(screen: Rect) -> u16 {
     screen.width.saturating_sub(MARGIN).min(MAX_WIDTH).saturating_sub(BORDER + SIDE_PADDING * 2)
 }
 
-fn layout(offer: &InstallOffer, screen: Rect) -> (Rect, [Part; 4]) {
+/// Where an offer sits on `screen`, and its parts, made for the width of its text.
+pub(crate) fn layout(screen: Rect, parts: impl FnOnce(u16) -> Vec<Part>) -> (Rect, Vec<Part>) {
     let width = text_width(screen);
-    let parts = parts(offer, width);
-    let gaps = GAP_ROWS * u16::try_from(parts.len() - 1).unwrap_or(u16::MAX);
+    let parts = parts(width);
+    let gaps = GAP_ROWS * u16::try_from(parts.len().saturating_sub(1)).unwrap_or(u16::MAX);
     let rows = parts.iter().map(Part::rows).fold(0, u16::saturating_add);
     let height = rows.saturating_add(BORDER + TOP_ROWS + gaps);
     let rect = centered(screen, width.saturating_add(BORDER + SIDE_PADDING * 2), height.min(screen.height));
@@ -92,19 +95,26 @@ fn layout(offer: &InstallOffer, screen: Rect) -> (Rect, [Part; 4]) {
 }
 
 pub(crate) fn rect(offer: &InstallOffer, screen: Rect) -> Rect {
-    layout(offer, screen).0
+    layout(screen, |width| parts(offer, width)).0
 }
 
 pub(crate) fn draw(offer: &InstallOffer, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
+    let (rect, parts) = layout(screen, |width| parts(offer, width));
+    let title = tr!(install_title, program = offer.tool.program());
+    draw_offer(&title, tr!(install_keys), rect, parts, theme, buf);
+    rect
+}
+
+/// Draws an offer in `rect`: its title on top, its keys at the bottom, and its parts between.
+pub(crate) fn draw_offer(title: &str, keys: &str, rect: Rect, parts: Vec<Part>, theme: &Theme, buf: &mut Buffer) {
     let styles = &theme.styles;
-    let (rect, parts) = layout(offer, screen);
     Clear.render(rect, buf);
     let block = Block::bordered()
         .border_type(theme.border.into())
         .style(styles.overlay)
         .border_style(styles.overlay_border)
-        .title(Line::styled(tr!(install_title, program = offer.tool.program()), styles.overlay_border).centered())
-        .title_bottom(Line::styled(tr!(install_keys), styles.overlay).centered());
+        .title(Line::styled(title.to_owned(), styles.overlay_border).centered())
+        .title_bottom(Line::styled(keys.to_owned(), styles.overlay).centered());
     let inner = block.inner(rect);
     block.render(rect, buf);
     let mut area = Rect {
@@ -119,15 +129,17 @@ pub(crate) fn draw(offer: &InstallOffer, theme: &Theme, screen: Rect, buf: &mut 
         match part {
             Part::Text(lines) => Paragraph::new(lines).style(styles.overlay).render(here, buf),
             Part::Note(lines) => Paragraph::new(lines).style(dim(theme)).render(here, buf),
-            Part::Command(command) => {
+            Part::Command(commands) => {
                 buf.set_style(here, styles.input);
                 let inset = Rect { x: here.x + COMMAND_INSET, width: here.width.saturating_sub(COMMAND_INSET), ..here };
-                let shown = format::truncate_end(&command, usize::from(inset.width));
-                Line::styled(shown, styles.input).render(inset, buf);
+                let shown: Vec<Line> = commands
+                    .iter()
+                    .map(|command| Line::styled(format::truncate_end(command, usize::from(inset.width)), styles.input))
+                    .collect();
+                Paragraph::new(shown).render(inset, buf);
             }
         }
         let used = rows.saturating_add(GAP_ROWS).min(area.height);
         area = Rect { y: area.y + used, height: area.height - used, ..area };
     }
-    rect
 }

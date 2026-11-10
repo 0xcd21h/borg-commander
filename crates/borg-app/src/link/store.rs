@@ -14,6 +14,14 @@ use std::{
 pub struct Computer {
     pub name: String,
     pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed: Option<KeyChanged>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct KeyChanged {
+    pub at: u64,
+    pub from: String,
 }
 
 /// A server this computer paired with.
@@ -22,6 +30,10 @@ pub struct Server {
     pub name: String,
     pub relay: String,
     pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offered: Option<String>,
 }
 
 pub fn identity(state: &Path) -> Result<Identity> {
@@ -102,11 +114,13 @@ pub fn servers(state: &Path) -> Vec<Server> {
 
 /// Forgets a paired server by name; whether there was one.
 pub fn forget_server(state: &Path, name: &str) -> Result<bool> {
+    let lock = super::keys::lock(state)?;
     let path = state.join(LINK_DIR).join(SERVERS_FILE);
     let mut servers: Vec<Server> = load(&path);
     let before = servers.len();
     servers.retain(|server| server.name != name);
     save(&path, &servers)?;
+    drop(lock);
     Ok(servers.len() < before)
 }
 

@@ -10,10 +10,14 @@ rust-version.workspace = true
 anyhow            = { workspace = true }
 futures           = { workspace = true }
 getrandom         = { workspace = true }
+hkdf              = { workspace = true }
+hmac              = { workspace = true }
 rustix            = { workspace = true }
+sha2              = { workspace = true }
 snow              = { workspace = true }
 tokio             = { workspace = true }
 tokio-tungstenite = { workspace = true }
+zeroize           = { workspace = true }
 
 [dev-dependencies]
 tokio         = { workspace = true, features = ["test-util"] }

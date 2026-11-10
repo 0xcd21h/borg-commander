@@ -36,3 +36,17 @@ async fn a_client_that_says_hello_in_time_is_answered() {
     assert_eq!(hello, b"hello");
     assert_eq!(channel.peer(), caller.public());
 }
+
+#[test]
+fn only_the_holder_of_the_new_key_proves_it_and_only_for_its_own_channel() {
+    let server = Identity::generate();
+    let new = Identity::generate();
+    let hash = [3; 32];
+    let proof = rotation_proof(&new, server.public(), &hash).unwrap();
+    assert!(proves_rotation(&server, new.public(), &hash, &proof));
+    assert!(!proves_rotation(&server, new.public(), &[4; 32], &proof), "another channel");
+    assert!(!proves_rotation(&server, Identity::generate().public(), &hash, &proof), "another key");
+    assert!(!proves_rotation(&Identity::generate(), new.public(), &hash, &proof), "another server");
+    assert!(!proves_rotation(&server, new.public(), &hash, &proof[..PROOF_LEN - 1]));
+    assert!(!proves_rotation(&server, &[0; KEY_LEN], &hash, &[0; PROOF_LEN]), "a key with no secret");
+}

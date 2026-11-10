@@ -67,7 +67,7 @@ pub const UPDATER: u32 = 9120;
 /// Each process on the made-up machine, by the local port its traffic uses.
 const OWNERS: [(u16, u32, &str); 7] = [
     (22, 301, "sshd"),
-    (3_000, 4100, "node"),
+    (3_000, crate::network::NODE, "node"),
     (50_412, 8239, "browser"),
     (50_413, 8239, "browser"),
     (62_556, 8239, "browser"),

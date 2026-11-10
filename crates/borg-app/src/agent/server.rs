@@ -90,6 +90,7 @@ impl Router {
                     name: "Default".into(),
                     archived: false,
                     last_opened: 0,
+                    background: false,
                 }]
             })
     }

@@ -3,8 +3,12 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use futures::{SinkExt, StreamExt};
+use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+use zeroize::Zeroize;
 
 use crate::key::{Identity, KEY_LEN, PublicKey};
 
@@ -20,6 +24,8 @@ const MORE: u8 = 1;
 const LAST: u8 = 0;
 /// The largest message a channel carries.
 pub const MESSAGE_LIMIT: usize = 16 * 1024 * 1024;
+const ROTATION_LABEL: &[u8] = b"borg-link rotate 1";
+pub const PROOF_LEN: usize = 32;
 /// How long a client the relay joined may take to send its first message. Anyone who knows a
 /// server's key can ask the relay for it, so a client that says nothing is let go.
 pub const HELLO_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -43,6 +49,14 @@ impl Channel {
     /// The code both ends of this channel show while pairing.
     pub fn pairing_code(&self) -> crate::PairingCode {
         crate::PairingCode::of(&self.handshake_hash)
+    }
+
+    pub fn rotation_proof(&self, new: &Identity) -> Option<[u8; PROOF_LEN]> {
+        rotation_proof(new, &self.peer, &self.handshake_hash)
+    }
+
+    pub fn proves_rotation(&self, own: &Identity, new: &PublicKey, proof: &[u8]) -> bool {
+        proves_rotation(own, new, &self.handshake_hash, proof)
     }
 
     pub async fn send(&mut self, message: &[u8]) -> Result<()> {
@@ -95,6 +109,30 @@ pub(crate) async fn next_binary(socket: &mut Socket) -> Result<Option<Vec<u8>>> 
             Some(Err(error)) => return Err(error.into()),
         }
     }
+}
+
+fn rotation_mac(secret: &[u8; KEY_LEN], handshake_hash: &[u8], new: &PublicKey) -> Hmac<Sha256> {
+    let mut key = [0; PROOF_LEN];
+    Hkdf::<Sha256>::new(None, secret).expand(ROTATION_LABEL, &mut key).expect("the key fits one block");
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key).expect("HMAC takes a key of any size");
+    key.zeroize();
+    mac.update(handshake_hash);
+    mac.update(new);
+    mac
+}
+
+fn rotation_proof(new: &Identity, server: &PublicKey, handshake_hash: &[u8]) -> Option<[u8; PROOF_LEN]> {
+    let mut secret = new.shared_secret(server)?;
+    let proof = rotation_mac(&secret, handshake_hash, new.public()).finalize().into_bytes().into();
+    secret.zeroize();
+    Some(proof)
+}
+
+fn proves_rotation(own: &Identity, new: &PublicKey, handshake_hash: &[u8], proof: &[u8]) -> bool {
+    let Some(mut secret) = own.shared_secret(new) else { return false };
+    let proven = rotation_mac(&secret, handshake_hash, new).verify_slice(proof).is_ok();
+    secret.zeroize();
+    proven
 }
 
 fn builder(identity: &Identity) -> Result<snow::Builder<'_>> {

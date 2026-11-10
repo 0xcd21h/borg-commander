@@ -33,6 +33,7 @@ mod pointer;
 mod portrait;
 mod remote_view;
 mod results_view;
+mod service_view;
 mod session_picker_view;
 mod settings_view;
 mod shortcuts;
@@ -44,7 +45,7 @@ mod term_view;
 mod theme;
 mod viewer_view;
 
-pub use draw::{Pixels, Scene, draw, draw_with_cursor};
+pub use draw::{Pixels, Scene, draw, draw_into, draw_with_cursor};
 pub use format::now as local_now;
 pub use format::size as size_text;
 pub use palette::{Palette, Rgb};

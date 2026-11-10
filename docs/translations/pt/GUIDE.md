@@ -564,6 +564,12 @@ reinício, além da utilização de CPU, memória, rede e disco em tempo real, c
 último minuto. Num projeto, mostra a pasta do projeto, os seus contentores e a utilização
 conjunta. Esc fecha a vista.
 
+A CPU aparece duas vezes. **Agora %** é a leitura mais recente, e **Média %** é a média dos
+últimos segundos, como no monitor de atividade, por isso mantém-se estável quando um contentor
+trabalha aos repelões. Uma lista demasiado estreita para os dois mostra apenas **Média %**. Os
+detalhes mostram o mesmo par como **CPU agora** e **CPU média**, e um projeto soma ambos para os
+seus contentores em execução.
+
 | Tecla | Ação |
 | --- | --- |
 | ↑ ↓, PgUp, PgDn, Home, End | Mover |
@@ -831,10 +837,17 @@ pacote pelo número para obter as camadas e os bytes num dump hexadecimal. O Bor
 processos das últimas 16 capturas do agente até terminar. Os outros ficheiros mostram as conversas
 em **Processo desconhecido**, a menos que os pacotes tragam o seu processo.
 
-Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele
-para ver um registo do que o agente fez: o que viu, leu, analisou, mostrou e escreveu, e todos os
-comandos e alterações, aprovados ou recusados. O Borg guarda o registo apenas em memória, até terminar; para
-não guardar registo nenhum, desative-o em Opções → Plugins.
+Enquanto houver um agente ligado, **◈ Remoto** aparece no início da barra de atalhos. Clique nele,
+ou escolha F9 → Remoto → **Registo remoto…** a qualquer momento, para ver um registo do que o agente
+fez: o que viu, leu, analisou, mostrou e escreveu, e todos os comandos e alterações, aprovados ou
+recusados. Cada sessão guarda o seu registo no disco, legível apenas por si, para que possa voltar a
+uma sessão que deixou a correr e ver o que aconteceu nela, mesmo depois de o Borg terminar. Quando o
+registo fica grande, o Borg descarta as entradas mais antigas. Antes de guardar uma entrada, o Borg
+oculta as palavras-passe, os tokens e as chaves que reconhece, e deixa de fora a saída dos comandos.
+Uma palavra-passe passada como uma palavra simples parece uma palavra qualquer, por isso o Borg não
+a consegue ocultar. Para não guardar registo nenhum, desative
+**Remoto: manter um registo do que faz** em Opções → Plugins, o que também elimina o registo
+guardado.
 
 ### Borg cloud
 
@@ -871,19 +884,88 @@ transferências do Claude vão para a pasta Transferências e nunca substituem u
 esteja. Os envios aguardam a sua aprovação no borg, que mostra o ficheiro enviado, e cada aprovação
 indica o computador que fez o pedido.
 
-A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave privada, que só o utilizador pode
-ler, na sua pasta de estado. O emparelhamento troca as chaves públicas, e cada ligação abre com um
-handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não consegue
-responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem pedir
-autorização, tal como os locais; ative "perguntar antes de outro computador ler" em Opções →
+A ligação é cifrada de ponta a ponta. Cada borg guarda uma chave de servidor, pela qual os
+computadores emparelhados o conhecem, e um computador que chega a servidores guarda também uma chave
+de computador própria. Só o utilizador pode ler ambas. A chave de servidor é um ficheiro na pasta
+`link` da pasta de estado. A chave de computador também é um ficheiro aí. Num Mac fica no
+porta-chaves de início de sessão, e no Linux o ficheiro é selado com uma palavra-passe (consulte
+[Chaves de computador](#computer-keys)). O emparelhamento troca as chaves públicas, e cada ligação
+abre com um handshake Noise IK associado a elas, pelo que o relay só reencaminha texto cifrado e não
+consegue responder em nome de nenhum dos borgs. Os pedidos vindos de outro computador podem ler sem
+pedir autorização, tal como os locais; ative "perguntar antes de outro computador ler" em Opções →
 Plugins para que também essas leituras aguardem aprovação. O Borg não mantém nenhuma ligação ao
 relay a menos que esteja emparelhado ou a mostrar uma ligação de emparelhamento, e não mantém
 nenhuma quando o borg cloud está desativado em Opções → Plugins.
 
-O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador
-chega ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de
-relay, volte a emparelhar o computador. Todos os borgs de uma máquina partilham uma chave, pelo
-que só o primeiro a ser aberto se liga ao relay; os outros indicam qual deles tem o borg cloud.
+O Borg guarda o relay na configuração como `relay = "wss://relay.example.com"`. Um computador chega
+ao servidor através do relay pelo qual emparelhou, por isso, depois de o servidor mudar de relay,
+volte a emparelhar o computador. Todos os borgs de uma máquina partilham as chaves, e o
+[serviço em segundo plano](#named-sessions-and-the-background-service) liga-os todos ao relay. Com o
+serviço desativado, só o primeiro borg a ser aberto se liga, e os outros indicam qual deles tem o
+borg cloud.
+
+#### Chaves de computador
+
+A chave de computador prova a cada servidor emparelhado que uma ligação vem do seu computador.
+Quando um servidor ainda conhece este computador por outra chave, como a chave de servidor desta
+máquina, o Borg muda-o para a chave de computador na próxima vez que abrir uma sessão lá. O Borg
+prova ao servidor que tem a chave nova, e o servidor troca a chave na entrada desse computador e
+mantém o nome. As ligações que ainda usam a chave antiga terminam no pedido seguinte. O servidor
+mostra um aviso e escreve as duas impressões digitais no registo do agente, e a lista **Clientes**
+mostra quando a chave mudou e qual era. Um servidor com um Borg mais antigo mantém a chave antiga
+até ser atualizado.
+
+Num Mac, o Borg guarda a chave de computador no porta-chaves de início de sessão, como um item
+chamado **Borg Commander** que só o Borg pode ler sem perguntar. Na primeira vez que um processo do
+Borg precisa da chave, o macOS pede o Touch ID ou a palavra-passe, por isso até um programa que
+inicie o `borg` por conta própria fica à vista. Depois de cada atualização do Borg, o macOS pergunta
+também uma vez se o novo Borg pode usar o item; escolha **Permitir sempre**. Um ficheiro de chave de
+computador de um Borg anterior passa para o porta-chaves na primeira vez que o Borg o usa, e o
+ficheiro é apagado. Um Borg executado sem o ecrã do Mac, como por SSH ou no serviço em segundo
+plano, não pode mostrar o pedido nem aceder a servidores. Quando `$BORG_STATE_DIR` indica uma pasta
+de estado diferente da habitual, o Borg guarda a chave de computador como ficheiro na pasta `link`
+dessa pasta. As versões do Borg para macOS são assinadas com o Hardened Runtime, por isso outros
+programas não podem ler a memória do Borg nem carregar código nele.
+
+No Linux, o Borg sela a chave de computador com uma palavra-passe à sua escolha, no ficheiro
+`computer-key.sealed` da pasta `link`. Execute `borg unlock` num terminal para a escolher: o Borg
+sugere quatro palavras aleatórias, fáceis de escrever e difíceis de adivinhar, e pede a
+palavra-passe duas vezes. O Borg reforça a palavra-passe com Argon2id, o que demora alguns segundos
+e usa 1 GiB de memória, ou um oitavo da memória numa máquina com menos de 8 GiB, pelo que
+adivinhá-la a partir de uma cópia do ficheiro é lento. Um ficheiro de chave de computador de um Borg
+anterior é selado na primeira vez que executar `borg unlock`, e o ficheiro é apagado; até lá, o Borg
+pede que o execute. Quando `$BORG_STATE_DIR` indica uma pasta de estado diferente da habitual, o
+Borg também guarda no Linux a chave de computador como ficheiro normal, sem palavra-passe.
+
+Depois de desbloqueada, a chave fica no keyring do kernel do utilizador até passarem 12 horas sem o
+Borg a usar, e cada utilização volta a contar as 12 horas desde o início. Um reinício bloqueia-a, e
+`borg lock` bloqueia-a de imediato. Onde o Borg não pode usar o keyring do kernel, como em muitos
+contentores e serviços do sistema, um pequeno processo do Borg guarda a chave, num socket da pasta
+`link` que só o utilizador pode abrir, e termina após 12 horas sem uso. Quando a chave está
+bloqueada, o Borg pede a palavra-passe: os painéis abrem o diálogo **Desbloquear chave**, e
+`borg pair`, `borg get` e `borg put` pedem-na no terminal. `borg mcp remote`, que o Claude inicia
+sem terminal, indica que deve executar `borg unlock`.
+
+`borg unlock --ssh-agent` permite também que o ssh-agent desbloqueie a chave. O Borg pede ao agente
+que assine um desafio fixo com uma chave Ed25519, ou com uma chave RSA se não tiver nenhuma, e sela
+a chave uma segunda vez com essa assinatura. A partir daí, o Borg desbloqueia a chave sem perguntar
+enquanto esse agente estiver acessível, e a palavra-passe continua a funcionar. O Borg verifica que
+o agente assina da mesma forma duas vezes e recusa uma chave cujas assinaturas mudem. Quem puder
+usar o seu agente consegue obter a mesma assinatura: se o reencaminhar com `ssh -A`, o root da
+máquina remota pode usá-lo enquanto estiver ligado e, com uma cópia do ficheiro selado, desbloquear
+esta chave. Reencaminhe o agente apenas para máquinas de confiança, ou deixe isto desligado.
+`borg unlock --no-ssh-agent` volta a desligá-lo.
+
+`borg pair --new-key` dá a este computador uma chave nova, e cada servidor aceita-a na próxima vez
+que o Borg se ligar a ele. Até todos a terem, o Borg guarda também a chave antiga, e `borg pair`
+assinala cada servidor que ainda a aceita. Uma semana depois, sugere também esquecer os servidores
+que já não usa, com `borg pair --forget NAME`.
+
+Quando um servidor recusa todas as chaves que este computador tem, o Borg indica-o. Ou alguém
+esqueceu este computador nesse servidor, ou alguém com uma cópia da chave mudou primeiro o servidor
+para uma chave sua. Uma chave nova é higiene e não desfaz uma fuga. Se suspeitar que alguém copiou
+uma chave, prima F8 em Acesso remoto em cada servidor para esquecer os computadores emparelhados,
+emparelhe de novo e verifique esses servidores.
 
 ### Sessões com nome e serviço em segundo plano
 
@@ -893,29 +975,46 @@ pode chamar `list_sessions`, `list_remote_sessions` e `use_session` para escolhe
 essa ligação trabalha. Uma única chamada de ferramenta pode também passar um ID em `session` para
 visar outra sessão apenas dessa vez. A sessão escolhida aplica-se apenas a essa ligação MCP.
 
-Com mais de uma sessão, o `borg` começa pela janela **Sessões do Borg**. As primeiras linhas
-explicam o que é uma sessão, e a lista mostra cada sessão com a data em que foi usada pela última
-vez. Uma sessão ativa neste momento aparece marcada com o seu estado: **Aberta noutro terminal**, ou
-**Mantida pelo serviço** quando o serviço em segundo plano a executa. Fica escolhida a sessão usada
-por último, a menos que outro terminal a tenha aberta. Enter abre a sessão escolhida onde a deixou;
-uma sessão que o serviço mantém abre-se ligada a ele, como com `borg service attach NAME`. Um clique
-escolhe uma sessão e um segundo clique abre-a. **F7** dá nome a uma nova sessão e abre-a, e Esc ou
-F10 sai sem abrir nenhuma. Enquanto a janela está aberta, verifica a cada 2 segundos que sessões
-estão ativas.
+Com mais de uma sessão, ou quando a única que existe está aberta noutro terminal, o `borg` começa
+pela janela **Sessões do Borg**. As primeiras linhas explicam o que é uma sessão, e a lista mostra
+cada sessão com a data em que foi usada pela última vez. Uma sessão ativa neste momento aparece
+marcada com o seu estado: **Aberta noutro terminal**, ou **Mantida pelo serviço** quando o serviço
+em segundo plano a executa. Fica escolhida a sessão usada por último, a menos que outro terminal a
+tenha aberta. Enter abre a sessão escolhida onde a deixou; uma sessão que o serviço mantém abre-se
+ligada a ele, como com `borg service attach NAME`. Um clique escolhe uma sessão e um segundo clique
+abre-a. **F7** dá nome a uma nova sessão e abre-a, e Esc ou F10 sai sem abrir nenhuma. Enquanto a
+janela está aberta, verifica a cada 2 segundos que sessões estão ativas.
 
 **F8** ou **Delete** remove a sessão escolhida, depois de uma confirmação que tem **Não** por
 omissão. Isto elimina os painéis guardados e o histórico de terminal da sessão; os seus ficheiros e
 pastas mantêm-se. A sessão Default fica sempre, tal como uma sessão ativa neste momento: saia
-primeiro do Borg no outro terminal, ou execute `borg service stop` para remover uma sessão que o
-serviço mantém.
+primeiro do Borg no outro terminal. Para remover uma sessão que o serviço mantém, abra-a com
+`borg service attach NAME` e saia com F10.
 
-`borg service install`, `enable` e `start` configuram o serviço opcional em segundo plano. Este
-mantém a ligação de emparelhamento da máquina e mantém as sessões com nome em execução depois de
-os respetivos terminais fecharem. `borg service attach NAME` volta a ligar-se a uma delas, e
-Ctrl-] desliga-se de novo sem terminar a shell. Use `borg service stop`, `disable` ou `uninstall`
-para parar ou remover o serviço.
-Num contentor sem systemd, configure o supervisor de processos do contentor para executar
-`borg service run`; os comandos `install` e `enable` precisam de um host Linux com systemd.
+Quando indica com `borg --session NAME` uma sessão que outro Borg tem aberta num terminal, o
+`borg` para e identifica esse Borg: o número do processo, o terminal tal como o `ps` o mostra e há
+quanto tempo arrancou. Saia desse Borg com F10 no sítio onde está a correr. Se já não conseguir
+chegar ao terminal dele, termine-o com `kill` e o número do processo.
+
+Todos os seus Borgs numa máquina partilham um serviço em segundo plano. O primeiro `borg` que abrir
+inicia-o, sem nada para instalar, e o serviço para 30 segundos depois de fechar a última sessão.
+Para desativar isto, defina `start-service = false` na configuração.
+
+O serviço mantém o borg cloud ligado para todos os seus Borgs, por isso um computador emparelhado
+chega a todas as sessões abertas. Trabalha na sessão que indica, ou na que usou por último, e
+aguarda aí a sua aprovação. Pode emparelhar a partir de qualquer Borg.
+
+Para manter uma sessão em execução sem terminal, execute `borg service keep NAME`. Abra-a com
+`borg service attach NAME` ou a partir da janela **Sessões do Borg**, e prima Ctrl-] para se
+desligar. Sair do Borg aí com F10 termina a sessão. Quando um computador emparelhado pede uma sessão
+que não está em execução, o serviço inicia-a em segundo plano.
+
+Para iniciar o serviço com a máquina, execute `borg service install`, `enable` e `start`. Estes
+comandos usam o sudo, que pede a sua palavra-passe, a menos que seja root. `borg service stop`,
+`disable` e `uninstall` desfazem-nos. Também pode escolher F9 → Remoto →
+**Serviço em segundo plano…**: a caixa de diálogo mostra o comando do passo seguinte, e Enter
+executa-o na shell do Borg. Num contentor sem systemd, configure o supervisor de processos do
+contentor para executar `borg service run`.
 
 ### Painéis remotos
 
@@ -963,17 +1062,18 @@ sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a pa
 seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
 **R** para atualizar a lista.
 
-**Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes**
-(computadores que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg,
-as impressões digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem
-cada um. Um computador aparece uma só vez, mesmo que um espelho use várias ligações. O estado é
-atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são mantidas pelo
-serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente autorizado não
-passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando quem
-detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a ser
-listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao
-mesmo tempo. O menu Remoto oferece também **Espelhar host montado** e **Partilhar este Borg como
-host…**.
+**Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
+que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
+digitais das respetivas chaves públicas, se estão ligados e quantas ligações tem cada um. Depois de
+um computador mudar de chave, a linha da impressão digital indica também em que dia e a impressão
+digital que tinha antes. Um computador aparece uma só vez, mesmo que um espelho use várias ligações.
+O estado é atualizado enquanto o seletor está aberto, incluindo numa sessão cujas ligações são
+mantidas pelo serviço em segundo plano. O emparelhamento funciona num único sentido: um cliente
+autorizado não passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando
+quem detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a
+ser listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao mesmo
+tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como host…**,
+**Registo remoto…** e **Serviço em segundo plano…**.
 
 O seletor mostra a versão do Borg de cada host. Selecionar uma sessão mostra o sistema
 operativo e a arquitetura, se corre como serviço em segundo plano ou num terminal, a latência dos
@@ -1000,13 +1100,13 @@ Esquecer um host fecha os painéis e as consolas deste cliente ligados a ele; as
 ficheiros do host mantêm-se, tal como a identidade deste cliente e os seus outros
 emparelhamentos. Volte a emparelhar para restabelecer a ligação.
 
-**F8** ou **Delete** numa sessão de um host remove-a, depois de uma confirmação que tem
-**Não** por omissão. Isto fecha a sessão e as respetivas consolas remotas e elimina os painéis do
-Borg e o histórico de terminal guardados; os ficheiros e as pastas no host mantêm-se. A
-sessão Default não pode ser removida. Uma sessão autónoma que esteja a alojar a ligação não se
-pode remover a si própria; feche-a primeiro no host e execute o Borg noutra sessão. Se a
-remoção falhar, a sessão continua na lista para poder tentar de novo. As sessões geridas pelo
-serviço são paradas antes de o seu estado guardado ser removido, e o serviço não as volta a criar.
+**F8** ou **Delete** numa sessão de um host remove-a, depois de uma confirmação que tem **Não** por
+omissão. Isto fecha a sessão e as respetivas consolas remotas e elimina os painéis do Borg e o
+histórico de terminal guardados; os ficheiros e as pastas no host mantêm-se. A sessão Default não
+pode ser removida. Uma sessão autónoma que esteja a alojar a ligação não se pode remover a si
+própria; feche-a primeiro no host e execute o Borg noutra sessão. Se a remoção falhar, a sessão
+continua na lista para poder tentar de novo. Uma sessão em execução é parada primeiro, e o serviço
+não a volta a iniciar.
 
 ### Espelhar uma sessão
 
@@ -1017,10 +1117,13 @@ na parte inferior. A linha acima dela indica quem tem o controlo; Ctrl-] também
 
 Um `borg` normal ou `borg --session NAME` pode ser espelhado enquanto corre, sem o serviço em
 segundo plano. O terminal original continua visível, e qualquer entrada de teclado ou rato nele
-retoma o controlo ao espelho. O espelho segue o esquema do terminal do host e é cortado para
-caber numa janela mais pequena; aumentar a janela mostra o resto. O serviço opcional em segundo
-plano mantém as sessões ativas depois de o terminal original fechar e permite que o cliente que
-tem o controlo redimensione o respetivo PTY.
+retoma o controlo ao espelho. Enquanto tem o controlo, o Borg do host organiza o ecrã para a sua
+janela: quando o espaço acima da faixa é mais pequeno do que o terminal do host, o Borg desenha no
+canto superior esquerdo desse terminal com o seu tamanho, e o resto fica em branco. Quando o
+controlo volta ao terminal do host ou sai do espelho, o Borg volta a ocupar esse terminal inteiro.
+Um espelho sem controlo segue o esquema do terminal do host e é cortado para caber numa janela mais
+pequena; aumentar a janela mostra o resto. Uma sessão que o serviço em segundo plano mantém continua
+ativa depois de o seu terminal fechar, e o computador que tem o controlo define o seu tamanho.
 
 Se outro terminal tiver o controlo da sessão remota, o espelho abre em modo só de visualização e
 as suas teclas não chegam à sessão. Prima **Ctrl-T** ou clique na linha de estado para assumir o
@@ -1383,6 +1486,7 @@ restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
 update-check = true         # look for a new release once a day
+start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud
 
@@ -1478,9 +1582,9 @@ cada um e onde fica:
   `$XDG_RUNTIME_DIR` está definida.
 - **Caches**: tamanhos das pastas e índices de nomes, na pasta de cache (consulte
   [Análises de tamanho guardadas](#saved-size-scans)).
-- **Sessões e histórico**: sessões, saída da shell, histórico de pesquisas e de pastas, coleções,
-  computadores emparelhados com as suas chaves e o que o Borg aprendeu sobre os seus discos
-  (`drives.json`), na pasta de estado.
+- **Sessões e histórico**: sessões, saída da shell, registo remoto, histórico de pesquisas e de
+  pastas, coleções, computadores emparelhados com as suas chaves e o que o Borg aprendeu sobre os
+  seus discos (`drives.json`), na pasta de estado.
 - **Definições**: `config.toml` e os seus temas.
 - **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
 
@@ -1542,6 +1646,14 @@ disco. CPU a 100% corresponde a um núcleo totalmente ocupado. As páginas resid
 entre processos contam para cada um deles, pelo que somar a RAM de todos os processos não dá o
 total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amostra.
 
+A CPU é uma média dos últimos segundos em que a utilização mais antiga vai perdendo peso, como no
+`top`, pelo que uma lista ordenada por CPU fica parada enquanto um processo trabalha em rajadas
+curtas. O resumo e a CPU de todo o sistema no topo do monitor são calculados da mesma forma. **H**
+oculta os processos que não usaram CPU nesse tempo, e a linha do filtro indica quantos estão
+ocultos. Um processo que fica parado continua na lista até a sua média descer a 0.0. Na árvore,
+os processos de que descende um processo ocupado continuam na lista com ele. Prima H outra vez
+para voltar a mostrar todos.
+
 | Tecla | Ação |
 | --- | --- |
 | Enter | Abrir o mapa de memória do processo / passar para a pré-visualização da região |
@@ -1549,6 +1661,7 @@ total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amo
 | C / M / G / N / P | Ordenar por CPU / RAM / crescimento / nome / PID; prima de novo para inverter |
 | I / O | Ordenar por débito de leitura / escrita |
 | T | Mostrar ou ocultar a árvore de processos |
+| H | Ocultar ou mostrar os processos que não usaram CPU nos últimos segundos |
 | Left / Right | Na árvore, recolher ou expandir o ramo do processo selecionado |
 | K | Enviar um sinal ou alterar a prioridade |
 | E | Procurar entropia alta em todos os processos |

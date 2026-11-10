@@ -185,17 +185,67 @@ async fn mirror_control_requires_identity_and_the_selected_session_and_local_inp
     let sending = tokio::spawn(async move {
         shared.call(call("mirror_input", Some("paired"), json!({"session":"session","events":[event]}))).await
     });
-    let input = host.incoming.recv().await.unwrap();
-    assert_eq!(input.events, vec![expected]);
-    input.reply.unwrap().send(Reply::ok("sent")).unwrap();
+    let Some(Input::Events { events, reply, .. }) = host.incoming.recv().await else { panic!("the keys arrive") };
+    assert_eq!(events, vec![expected]);
+    reply.send(Reply::ok("sent")).unwrap();
     assert!(sending.await.unwrap().ok);
     assert!(host.local_input());
     assert!(!host.controls("paired"));
     assert!(!host.shared.call(call("mirror_input", Some("paired"), json!({"session":"session","events":[]}))).await.ok);
     assert!(host.shared.call(call("mirror_take", Some("other"), json!({"session":"session","force":true}))).await.ok);
-    let mut peer = Peer::open(directory.path(), "session").await.unwrap();
+    let mut peer = Peer::at(&socket(directory.path(), "session").unwrap()).await.unwrap();
     assert!(peer.call(&call("mirror_view", Some("paired"), json!({"session":"session"}))).await.unwrap().ok);
     let saved = host.socket.clone();
     drop(host);
     assert!(!saved.exists());
+}
+
+#[test]
+fn borg_draws_at_the_controlling_viewers_size_only_where_that_is_smaller() {
+    let terminal = Rect::new(0, 0, 130, 34);
+    assert_eq!(fit(terminal, None), terminal);
+    assert_eq!(fit(terminal, Some(Size { width: 140, height: 32 })), Rect::new(0, 0, 130, 32));
+    assert_eq!(fit(terminal, Some(Size { width: 80, height: 50 })), Rect::new(0, 0, 80, 34));
+    assert_eq!(viewer_size(&json!({"cols":80,"rows":24})), Some(Size { width: 80, height: 24 }));
+    for args in
+        [json!({"cols":80}), json!({"cols":19,"rows":24}), json!({"cols":80,"rows":201}), json!({"cols":80,"rows":-1})]
+    {
+        assert_eq!(viewer_size(&args), None, "{args}");
+    }
+}
+
+#[tokio::test]
+async fn the_controlling_viewers_window_lasts_while_it_controls() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = Host::start(directory.path(), "fitted").unwrap();
+    let terminal = Rect::new(0, 0, 130, 34);
+    let call = |tool: &str, origin: &str, args: serde_json::Value| {
+        let mut call = Call::new(tool, json!({"session":"fitted"}));
+        call.origin = Some(origin.to_owned());
+        if let (Some(call), Some(args)) = (call.args.as_object_mut(), args.as_object()) {
+            call.extend(args.clone());
+        }
+        call
+    };
+    let window = json!({"cols":140,"rows":32});
+    assert!(!host.shared.call(call("mirror_resize", "paired", window.clone())).await.ok, "only a controller resizes");
+    assert!(host.shared.call(call("mirror_take", "paired", json!({}))).await.ok);
+    assert!(matches!(host.incoming.recv().await, Some(Input::Control)));
+    assert!(!host.shared.call(call("mirror_resize", "paired", json!({"cols":140,"rows":2}))).await.ok);
+    assert_eq!(host.fit(terminal), terminal);
+    assert!(host.shared.call(call("mirror_resize", "paired", window.clone())).await.ok);
+    assert!(matches!(host.incoming.recv().await, Some(Input::Resized)));
+    assert_eq!(host.fit(terminal), Rect::new(0, 0, 130, 32));
+    assert!(host.shared.call(call("mirror_resize", "paired", window.clone())).await.ok);
+    assert!(host.incoming.try_recv().is_err(), "the same size wakes nothing");
+
+    assert!(host.local_input());
+    assert_eq!(host.fit(terminal), terminal, "local input takes the whole terminal back");
+    assert!(host.shared.call(call("mirror_take", "paired", json!({}))).await.ok);
+    assert!(host.shared.call(call("mirror_resize", "paired", window.clone())).await.ok);
+    assert!(host.shared.call(call("mirror_take", "other", json!({"force":true}))).await.ok);
+    assert_eq!(host.fit(terminal), terminal, "another viewer brings its own window");
+    assert!(host.shared.call(call("mirror_resize", "other", window)).await.ok);
+    assert!(host.shared.call(call("mirror_release", "other", json!({}))).await.ok);
+    assert_eq!(host.fit(terminal), terminal, "letting go gives the terminal back");
 }

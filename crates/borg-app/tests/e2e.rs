@@ -26,6 +26,7 @@ const AGENT_ASK: &str = "Remote wants to";
 const MCP_ANSWER: std::time::Duration = std::time::Duration::from_secs(120);
 const CREW: [&str; 9] =
     ["1.drone", "2.drone", "3.drone", "4.drone", "5.drone", "6.drone", "7.drone", "8.drone", "9.drone"];
+const CRUMB_SEPARATOR: &str = " › ";
 const TOP_LEFT_CORNERS: [char; 4] = ['┌', '╭', '┏', '╔'];
 const TOP_RIGHT_CORNERS: [char; 4] = ['┐', '╮', '┓', '╗'];
 
@@ -182,6 +183,11 @@ fn status(snapshot: &Snapshot) -> String {
 fn left_panel(s: &Snapshot) -> String {
     let half = usize::from(s.cols() / 2);
     s.lines().iter().map(|line| line.chars().take(half).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+fn right_panel(s: &Snapshot) -> String {
+    let half = usize::from(s.cols() / 2);
+    s.lines().iter().map(|line| line.chars().skip(half).collect::<String>()).collect::<Vec<_>>().join("\n")
 }
 
 fn marked_footer(count: usize) -> String {
@@ -1059,12 +1065,18 @@ fn stored_sizes(archive: &Path, name: &str) -> Option<Vec<u64>> {
     Some(index.list("")?.filter(|item| item.name() == name).map(|item| item.size).collect())
 }
 
-/// Opens `archive` in the right panel and comes back to the left one.
+/// Opens `archive` in the right panel and comes back to the left one once the panel shows the
+/// archive's files. Until Borg has read the archive, the panel keeps the badge over the folder
+/// it came from, which may hold files of the same names.
 fn open_on_the_right(app: &mut Session, archive: &str, holds: &str) -> Result<()> {
+    let inside = format!("{CRUMB_SEPARATOR}{archive}");
     app.send(keys::tab())?.send(keys::ctrl('s'))?.send(archive)?.send(keys::enter())?;
     app.wait_until("cursor on the archive", |s| status(s).ends_with(archive))?;
     app.send(keys::enter())?;
-    app.wait_until("the archive's files", |s| s.contains("▤ ") && s.contains(holds))?;
+    app.wait_until("the archive's files", |s| {
+        let panel = right_panel(s);
+        panel.lines().next().is_some_and(|title| title.contains(&inside)) && panel.contains(holds)
+    })?;
     app.send(keys::tab())?;
     Ok(())
 }
@@ -3170,6 +3182,15 @@ fn the_folder_picker_keeps_the_arrows_comes_back_after_esc_and_tab_fills_in_a_fo
     Ok(())
 }
 
+/// What a paired computer keeps in its `link` folder: its key and the servers it paired with.
+const COMPUTER_FILES: [&str; 3] = ["computer-key", "computer.json", "servers.json"];
+
+/// The key a computer whose borg keeps its state in `computer` proves itself with.
+fn computer_identity(computer: &Path) -> Result<borg_link::Identity> {
+    let text = fs::read_to_string(computer.join("link/computer-key"))?;
+    borg_link::Identity::from_text(text.lines().next().unwrap_or_default()).context("a computer key")
+}
+
 /// Runs a relay without TLS in this process, on a free port, for the test's lifetime.
 fn relay() -> Result<String> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -3495,7 +3516,7 @@ fn a_computer_pairs_through_borg_cloud_and_claude_works_there_end_to_end_encrypt
     fs::copy(computer.join("link/servers.json"), stranger.join("link/servers.json"))?;
     let mut intruder = remote_mcp(&stranger, &name)?;
     let (error, text) = intruder.call("screen", serde_json::json!({}))?;
-    ensure!(error && text.contains("not paired"), "{text}");
+    ensure!(error && text.contains("does not accept this computer's key"), "{text}");
     Ok(())
 }
 
@@ -3543,7 +3564,7 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
     let server = &servers[0];
     let relay = borg_link::Relay::parse(server["relay"].as_str().unwrap()).unwrap();
     let key = borg_link::unhex(server["key"].as_str().unwrap()).unwrap();
-    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let identity = computer_identity(&computer)?;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
@@ -3635,7 +3656,7 @@ fn remote_panel_console_preserves_its_shell_while_idle_and_parked() -> Result<()
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("idle-console-client").spawn()?;
@@ -3714,7 +3735,7 @@ printf '\r\nremote-got=%s\r\n' "$code"
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("console-client").spawn()?;
@@ -3807,7 +3828,11 @@ fn paired_linux_top_captures_the_remote_console_resizes_and_restores_the_prompt(
         server["relay"].as_str().context("relay")?
     ))?;
     fs::create_dir_all(client.state().join("link"))?;
-    fs::copy(state.join("link/key"), client.state().join("link/key"))?;
+    for file in ["key", "computer-key", "computer.json"] {
+        if state.join("link").join(file).exists() {
+            fs::copy(state.join("link").join(file), client.state().join("link").join(file))?;
+        }
+    }
     fs::write(client.state().join("link/servers.json"), serde_json::to_vec(&serde_json::json!([server]))?)?;
     let mut local = Session::builder(BORG, &client).size(140, 34).label("live-remote-top").spawn()?;
     local.wait_text(READY)?;
@@ -3882,7 +3907,7 @@ fn link_channel(runtime: &tokio::runtime::Runtime, computer: &Path, hello: &str)
     let servers: serde_json::Value = serde_json::from_slice(&fs::read(computer.join("link/servers.json"))?)?;
     let relay = borg_link::Relay::parse(servers[0]["relay"].as_str().unwrap()).unwrap();
     let key = borg_link::unhex(servers[0]["key"].as_str().unwrap()).unwrap();
-    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let identity = computer_identity(computer)?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
         let mut channel = borg_link::initiate(socket, &identity, &key, hello.as_bytes()).await?;
@@ -3903,7 +3928,7 @@ fn an_agents_request_on_a_paired_host_is_answered_from_the_borg_whose_panel_show
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(150, 34).label("asks-client").spawn()?;
@@ -4001,7 +4026,7 @@ fn remote_host_and_session_labels_can_be_renamed_reset_and_reloaded() -> Result<
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("rename-client").spawn()?;
@@ -4053,7 +4078,7 @@ fn f5_copies_folders_to_a_paired_host_and_files_back_with_keep_both() -> Result<
     let client = fixture()?;
     client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let contents: Vec<u8> = (0..2_100_007).map(|n| (n % 251) as u8).collect();
@@ -4172,7 +4197,7 @@ fn a_regular_named_borg_can_be_mirrored_and_controlled_without_a_background_serv
     second.wait_text(READY)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let target = format!("{name}:Second");
@@ -4325,7 +4350,7 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
     runtime.block_on(async { drop(probe) });
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let target = format!("{name}:Default");
@@ -4351,6 +4376,156 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
     mirror.wait_gone("No keeps the current shell running.")?;
     mirror.send(keys::ctrl('g'))?;
     ensure!(mirror.wait_exit()?.success());
+    Ok(())
+}
+
+/// Runs `borg service` with `args` for the fixture's sessions, and what it printed.
+fn service_command(fixture: &Fixture, args: &[&str]) -> Result<String> {
+    let output =
+        std::process::Command::new(BORG).arg("service").args(args).env("BORG_STATE_DIR", fixture.state()).output()?;
+    ensure!(output.status.success(), "borg service {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A Borg in a terminal registers with the background service, which then holds borg cloud for
+/// the machine. Pairing goes through the service and is approved in the terminal, and a paired
+/// computer's calls reach that terminal's session, counted as an agent there and named in its
+/// dialog. The service starts nothing of its own.
+#[test]
+fn a_borg_in_a_terminal_works_through_the_background_service() -> Result<()> {
+    use base64::Engine;
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let _service =
+        Session::builder(BORG, &host).args(&["service", "run"]).size(100, 30).label("member-service").spawn()?;
+    let mut terminal = Session::builder(BORG, &host).size(130, 34).label("member-terminal").spawn()?;
+    terminal.wait_text(READY)?;
+    terminal.wait_until("the terminal's Borg registered with the service", |_| {
+        service_command(&host, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .is_some_and(|status| {
+                status["terminals"] == serde_json::json!(["default"]) && status["sessions"] == serde_json::json!([])
+            })
+    })?;
+    let (computer, _) = pair_computer(&mut terminal, &host)?;
+    let claim = fs::read_to_string(host.state().join("link").join("cloud.lock"))?;
+    ensure!(
+        claim.trim() != terminal.process_id().context("borg's process")?.to_string(),
+        "the service holds borg cloud"
+    );
+
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let mut channel = link_channel(&runtime, &computer, r#"{"kind":"session"}"#)?;
+    let reply = link_call(&runtime, &mut channel, "host_info", serde_json::json!({}))?;
+    let info: serde_json::Value = serde_json::from_str(reply["text"].as_str().unwrap_or_default())?;
+    ensure!(info["service"] == true && info["sessions"][0]["terminal"] == true, "{info}");
+    let run = serde_json::json!({"tool": "run", "args": {"command": "true"}});
+    runtime.block_on(channel.send(&serde_json::to_vec(&run)?))?;
+    terminal.wait_text("Remote wants to run")?;
+    terminal.wait_text("asked from")?;
+    decline(&mut terminal)?;
+    terminal.send(keys::down())?;
+    terminal.wait_text("◈ Remote")?;
+    let declined: serde_json::Value = runtime.block_on(async {
+        let bytes =
+            tokio::time::timeout(std::time::Duration::from_secs(30), channel.recv()).await??.context("reply")?;
+        Ok::<_, anyhow::Error>(serde_json::from_slice(&bytes)?)
+    })?;
+    ensure!(declined["ok"] == false && declined["text"].as_str().is_some_and(|text| text.contains("declined")));
+
+    let frame =
+        link_call(&runtime, &mut channel, "mirror_frame", serde_json::json!({"session": "default", "after": 0}))?;
+    let frame: serde_json::Value = serde_json::from_str(frame["text"].as_str().unwrap_or_default())?;
+    let data = base64::engine::general_purpose::STANDARD.decode(frame["data"].as_str().unwrap_or_default())?;
+    ensure!(String::from_utf8_lossy(&data).contains("notes.txt"), "the mirror shows the terminal's screen");
+    runtime.block_on(async { drop(channel) });
+    terminal.wait_gone("◈ Remote")?;
+    ensure!(!service_command(&host, &["status"])?.contains("\"sessions\":[\""), "nothing runs in the background");
+    Ok(())
+}
+
+/// The sessions the background service runs, as `borg service status` lists them.
+fn background_sessions(fixture: &Fixture) -> Option<serde_json::Value> {
+    let status = service_command(fixture, &["status"]).ok()?;
+    serde_json::from_str::<serde_json::Value>(&status).ok().map(|status| status["sessions"].clone())
+}
+
+/// With `start-service` on, the first Borg starts the background service as the user and
+/// registers with it; quitting that Borg leaves the service with no session.
+#[test]
+fn the_first_borg_starts_the_background_service_and_registers_with_it() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = false\nstart-service = true\n")?;
+    let terminals = || {
+        service_command(&fixture, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .map(|status| status["terminals"].clone())
+    };
+    let mut app = Session::builder(BORG, &fixture).size(120, 34).label("on-demand-service").spawn()?;
+    app.wait_text(READY)?;
+    app.wait_until("registered with the service it started", |_| terminals() == Some(serde_json::json!(["default"])))?;
+    app.send(keys::f(10))?.send("y")?;
+    ensure!(app.wait_exit()?.success());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while terminals() != Some(serde_json::json!([])) {
+        ensure!(std::time::Instant::now() < deadline, "the service still lists the session");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+/// A service started on demand makes way for one that is installed or run by a supervisor, and
+/// the open Borg registers with the new one. A kept service makes way for none.
+#[test]
+fn a_kept_service_takes_over_from_one_started_on_demand() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = false\nstart-service = true\n")?;
+    let status = || {
+        service_command(&fixture, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .map(|status| (status["kept"].clone(), status["terminals"].clone()))
+    };
+    let registered = |kept: bool| Some((serde_json::json!(kept), serde_json::json!(["default"])));
+    let mut app = Session::builder(BORG, &fixture).size(120, 34).label("hand-over-terminal").spawn()?;
+    app.wait_text(READY)?;
+    app.wait_until("registered with the service it started", |_| status() == registered(false))?;
+    let _kept = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-kept").spawn()?;
+    app.wait_until("registered with the kept service", |_| status() == registered(true))?;
+    let mut refused = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-refused").spawn()?;
+    refused.wait_text("already running")?;
+    ensure!(!refused.wait_exit()?.success(), "a second kept service gives up");
+    ensure!(status() == registered(true), "the kept service runs on");
+    Ok(())
+}
+
+/// `borg service attach` keeps a session running in the background and shows it here. Ctrl-]
+/// leaves it running; quitting Borg in it ends it, and the service stops keeping it.
+#[test]
+fn detaching_keeps_a_background_session_and_quitting_borg_in_it_ends_it() -> Result<()> {
+    const DRAWN: &str = "F10Quit";
+    let fixture = fixture()?;
+    let mut service =
+        Session::builder(BORG, &fixture).args(&["service", "run"]).label("background-quit-service").spawn()?;
+    service.wait_until("the service answers", |_| background_sessions(&fixture).is_some())?;
+    let attach = |label| {
+        Session::builder(BORG, &fixture).args(&["service", "attach", "Default"]).size(120, 34).label(label).spawn()
+    };
+    let mut attached = attach("background-quit-detach")?;
+    attached.wait_text(DRAWN)?;
+    attached.send(keys::ctrl(']'))?;
+    ensure!(attached.wait_exit()?.success(), "Ctrl-] detaches");
+    ensure!(background_sessions(&fixture) == Some(serde_json::json!(["default"])), "the session keeps running");
+    let mut attached = attach("background-quit-again")?;
+    attached.wait_text(DRAWN)?;
+    attached.send(keys::f(10))?.send("y")?;
+    service.wait_until("the session ended", |_| background_sessions(&fixture) == Some(serde_json::json!([])))?;
+    attached.wait_exit()?;
+    let registry: serde_json::Value = serde_json::from_slice(&fs::read(fixture.state().join("sessions.json"))?)?;
+    ensure!(registry[0]["background"] == false, "{registry}");
     Ok(())
 }
 
@@ -4393,6 +4568,7 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
             broker.send(keys::f(10))?.send("y")?;
             ensure!(broker.wait_exit()?.success());
             drop(broker);
+            service_command(&host, &["keep", "Throwaway"])?;
             Session::builder(BORG, &host)
                 .args(&["service", "run"])
                 .size(130, 34)
@@ -4412,7 +4588,7 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
         client
             .configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
         fs::create_dir_all(client.state().join("link"))?;
-        for file in ["key", "servers.json"] {
+        for file in COMPUTER_FILES {
             fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
         }
         let mut local = Session::builder(BORG, &client).size(150, 36).label("remove-session-client").spawn()?;
@@ -4497,7 +4673,7 @@ fn host_colony_shows_paired_clients_and_updates_connection_counts() -> Result<()
     let target = format!("{name}:Default");
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut mirror = Session::builder(BORG, &client)
@@ -4538,7 +4714,7 @@ fn remote_mirror_connection_can_be_cancelled_times_out_and_retries() -> Result<(
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("stalled-mirror-client").spawn()?;
@@ -4600,7 +4776,7 @@ fn a_single_worker_host_serves_large_native_mirror_frames_and_keeps_responding()
     let server = &servers[0];
     let relay = borg_link::Relay::parse(server["relay"].as_str().unwrap()).context("test relay")?;
     let key = borg_link::unhex(server["key"].as_str().unwrap()).context("server key")?;
-    let identity = borg_link::Identity::load_or_create(&computer.join("link/key"))?;
+    let identity = computer_identity(&computer)?;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
         let socket = borg_link::relay::dial(&relay, &key).await?;
@@ -4634,7 +4810,7 @@ fn mirror_opens_all_channels_on_a_slow_connection_before_taking_control() -> Res
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local = Session::builder(BORG, &client).size(140, 34).label("slow-mirror-client").spawn()?;
@@ -4661,6 +4837,48 @@ fn mirror_opens_all_channels_on_a_slow_connection_before_taking_control() -> Res
 }
 
 #[test]
+fn a_mirror_in_a_shorter_window_shows_the_whole_host_and_the_host_gets_its_rows_back() -> Result<()> {
+    const HOST: (u16, u16) = (130, 34);
+    const CLIENT: (u16, u16) = (140, 34);
+    const BANNER_ROWS: usize = 2;
+    let last_drawn = |screen: &Snapshot| screen.lines().iter().rposition(|line| !line.trim().is_empty());
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("relay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(HOST.0, HOST.1).label("fitted-mirror-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    remote.send(keys::esc())?;
+    remote.wait_gone("Remote access to this borg")?;
+    let client = fixture()?;
+    client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in COMPUTER_FILES {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(CLIENT.0, CLIENT.1).label("fitted-mirror-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send("m")?;
+    local.wait_text("REMOTE MIRROR - CONTROL")?;
+    let shown = usize::from(CLIENT.1) - BANNER_ROWS;
+    let fitted = remote.wait_until("the host laid out for the mirror's window", |screen| {
+        last_drawn(screen) == Some(shown - 1) && screen.contains("has control")
+    })?;
+    local.wait_until("every row the host draws, above the banner", |screen| {
+        screen.lines()[..shown] == fitted.lines()[..shown]
+    })?;
+    local.send(keys::ctrl('g'))?;
+    local.wait_until("local panels after the mirror", |screen| {
+        screen.contains("F1Help") && !screen.contains("REMOTE MIRROR")
+    })?;
+    remote
+        .wait_until("the host's whole terminal again", |screen| last_drawn(screen) == Some(usize::from(HOST.1) - 1))?;
+    Ok(())
+}
+
+#[test]
 fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
     use std::sync::atomic::Ordering;
     let binary = std::env::var_os("BORG_LATENCY_BINARY").map_or_else(|| Path::new(BORG).to_path_buf(), Into::into);
@@ -4672,7 +4890,7 @@ fn remote_console_echo_stays_responsive_over_a_delayed_link() -> Result<()> {
     let (computer, name) = pair_computer(&mut remote, &host)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     gate.transit_ms.store(25, Ordering::SeqCst);
@@ -4718,7 +4936,7 @@ fn native_mirror_delivers_keys_and_frames_over_a_delayed_link() -> Result<()> {
     let (computer, name) = pair_computer(&mut remote, &host)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     gate.transit_ms.store(25, Ordering::SeqCst);
@@ -4769,7 +4987,7 @@ fn mirror_keeps_connections_alive_while_quiet_and_while_typing() -> Result<()> {
     let (computer, name) = pair_computer(&mut remote, &host)?;
     let client = fixture()?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let target = format!("{name}:Default");
@@ -4855,7 +5073,7 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
     let client = fixture()?;
     client.configure(&format!("relay = \"{relay}\"\n[plugins]\nagent-cloud = false\n"))?;
     fs::create_dir_all(client.state().join("link"))?;
-    for file in ["key", "servers.json"] {
+    for file in COMPUTER_FILES {
         fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
     }
     let mut local =
@@ -5062,6 +5280,9 @@ fn the_start_window_names_the_sessions_the_background_service_keeps_running() ->
         .env("BORG_STATE_DIR", fixture.state())
         .output()?;
     ensure!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    for name in [SPARE, DEFAULT] {
+        service_command(&fixture, &["keep", name])?;
+    }
     let _service = Session::builder(BORG, &fixture).args(&["service", "run"]).label("start-window-service").spawn()?;
     let mut window = Session::builder(BORG, &fixture).size(100, 30).label("start-window-service-client").spawn()?;
     let listed =
@@ -5103,5 +5324,93 @@ fn the_alerts_page_keeps_a_log_borg_cannot_read_and_says_where() -> Result<()> {
     ensure!(fs::read_to_string(state.join(borg_core::ALERT_LOG))? == log, "and the new log too");
     app.send(keys::esc())?.send(keys::f(10))?.send("y")?;
     ensure!(app.wait_exit()?.success());
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn sealed_borg(home: &Path, args: &[&str], input: Option<&str>) -> Result<std::process::Output> {
+    use std::process::Stdio;
+    let mut child = std::process::Command::new(BORG)
+        .args(args)
+        .env("HOME", home)
+        .env("BORG_LANGUAGE", "en")
+        .env_remove("BORG_STATE_DIR")
+        .env_remove("XDG_STATE_HOME")
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(input) = input {
+        child.stdin.take().context("borg's input")?.write_all(input.as_bytes())?;
+    }
+    Ok(child.wait_with_output()?)
+}
+
+#[cfg(target_os = "linux")]
+fn said(output: &std::process::Output) -> String {
+    format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
+}
+
+#[cfg(target_os = "linux")]
+struct LockWhenDone(PathBuf);
+
+#[cfg(target_os = "linux")]
+impl Drop for LockWhenDone {
+    fn drop(&mut self) {
+        sealed_borg(&self.0, &["lock"], None).ok();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn borg_unlock_seals_the_computer_key_behind_a_password_and_borg_lock_locks_it() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    const PASSWORD: &str = "rain cobalt ladder fern";
+    let home = tempfile::tempdir()?;
+    let _locked = LockWhenDone(home.path().to_path_buf());
+    let link = home.path().join(".local/state/borg-commander/link");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&link)?;
+    let first = borg_link::Identity::generate();
+    let plain = link.join("computer-key");
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&plain)?;
+    file.write_all(format!("{}\n", first.to_text()).as_bytes())?;
+    drop(file);
+
+    let refused = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(!refused.status.success() && said(&refused).contains("has no password yet"), "{}", said(&refused));
+    ensure!(plain.exists(), "the plain key stays until a password seals it");
+
+    let mismatch = sealed_borg(home.path(), &["unlock"], Some(&format!("{PASSWORD}\nsomething else\n")))?;
+    ensure!(!mismatch.status.success() && said(&mismatch).contains("passwords differ"), "{}", said(&mismatch));
+
+    let typed = format!("{PASSWORD}\n{PASSWORD}\n");
+    let sealed = sealed_borg(home.path(), &["unlock"], Some(&typed))?;
+    ensure!(sealed.status.success(), "{}", said(&sealed));
+    ensure!(said(&sealed).contains("Four random words") && said(&sealed).contains("is unlocked until 12 hours"));
+    ensure!(!plain.exists(), "sealing removes the plain key");
+    let sealed_file = link.join("computer-key.sealed");
+    ensure!(std::fs::metadata(&sealed_file)?.permissions().mode() & 0o777 == 0o600);
+    let text = std::fs::read_to_string(&sealed_file)?;
+    ensure!(!text.contains(&first.to_text()), "the sealed file holds no key in the clear");
+
+    let renewed = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(renewed.status.success() && said(&renewed).contains("has a new key"), "{}", said(&renewed));
+    ensure!(std::fs::read_to_string(&sealed_file)? != text, "the new key is sealed in the same file");
+
+    let locked = sealed_borg(home.path(), &["lock"], None)?;
+    ensure!(locked.status.success() && said(&locked).contains("key is locked"), "{}", said(&locked));
+    let again = sealed_borg(home.path(), &["lock"], None)?;
+    ensure!(said(&again).contains("was not unlocked"), "{}", said(&again));
+    let waiting = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(!waiting.status.success() && said(&waiting).contains("Run borg unlock"), "{}", said(&waiting));
+
+    let wrong = sealed_borg(home.path(), &["unlock"], Some("rain\ncobalt\nladder\n"))?;
+    ensure!(!wrong.status.success() && said(&wrong).contains("stays locked after 3 tries"), "{}", said(&wrong));
+    ensure!(said(&wrong).matches("does not unlock").count() == 3, "{}", said(&wrong));
+
+    let opened = sealed_borg(home.path(), &["unlock"], Some(&format!("{PASSWORD}\n")))?;
+    ensure!(opened.status.success() && said(&opened).contains("is unlocked"), "{}", said(&opened));
+    let used = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
+    ensure!(used.status.success(), "an unlocked key works without a terminal: {}", said(&used));
     Ok(())
 }

@@ -33,11 +33,13 @@ mod refresh;
 pub(crate) use refresh::{open, receive, receive_file_preview, sync, sync_file_preview, wake_at};
 mod capture;
 mod control;
+mod cpu;
 pub use control::{
     CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
     PRIORITY_STEP, ProcessControl, ProcessSignal,
 };
 pub(crate) use control::{on_key as on_control_key, open as open_control};
+pub use cpu::CpuAverage;
 mod entropy;
 mod family;
 pub use family::{Branch, Kin, ListedProcess, Relative};
@@ -139,6 +141,11 @@ pub struct Activity {
     pub finding_cursor: usize,
     pub sample: SystemSample,
     pub histories: HashMap<ProcessKey, MemoryHistory>,
+    /// Each process's CPU use averaged over the last few seconds, which the list shows and
+    /// sorts by.
+    cpu: HashMap<ProcessKey, CpuAverage>,
+    /// The whole system's CPU use, averaged the same way.
+    system_cpu: Option<CpuAverage>,
     pub selected: Option<ProcessKey>,
     pub rows: Vec<ListedProcess>,
     pub cursor: usize,
@@ -150,6 +157,10 @@ pub struct Activity {
     folded: HashSet<ProcessKey>,
     pub filter: String,
     pub filtering: bool,
+    /// The list leaves out processes that used no CPU in the last few seconds.
+    pub hide_idle: bool,
+    /// How many processes the list leaves out as idle.
+    idle_hidden: usize,
     pub paused: bool,
     regions: Vec<MemoryRegion>,
     pub region_cursor: usize,
@@ -215,6 +226,8 @@ impl Default for Activity {
             finding_cursor: 0,
             sample: Default::default(),
             histories: Default::default(),
+            cpu: HashMap::new(),
+            system_cpu: None,
             selected: None,
             rows: Vec::new(),
             cursor: 0,
@@ -225,6 +238,8 @@ impl Default for Activity {
             folded: HashSet::new(),
             filter: String::new(),
             filtering: false,
+            hide_idle: false,
+            idle_hidden: 0,
             paused: false,
             regions: Vec::new(),
             region_cursor: 0,
@@ -336,9 +351,66 @@ impl Activity {
     pub fn growth(&self, key: ProcessKey) -> i128 {
         self.histories.get(&key).map_or(0, |h| i128::from(*h.values.last().unwrap_or(&h.first)) - i128::from(h.first))
     }
+    /// A process's CPU use averaged over the last few seconds, in hundredths of a percent of one
+    /// core and rounded to the step the list shows, once a sample has measured it.
+    pub fn cpu(&self, key: ProcessKey) -> Option<u32> {
+        self.cpu.get(&key).map(CpuAverage::shown)
+    }
+    /// The whole system's CPU use, averaged like each process's, in hundredths of a percent.
+    pub fn system_cpu(&self) -> Option<u32> {
+        self.system_cpu.as_ref().map(CpuAverage::shown)
+    }
+    /// Whether a process used no CPU in the last few seconds. One not measured yet is not idle.
+    pub fn idle(&self, key: ProcessKey) -> bool {
+        self.cpu(key) == Some(0)
+    }
+    /// How many processes the list leaves out as idle.
+    pub fn idle_hidden(&self) -> usize {
+        self.idle_hidden
+    }
+    /// Averages each process's CPU and the system's into what the list shows, forgetting the
+    /// processes that ended.
+    pub(crate) fn average_cpu(&mut self, now: Instant) {
+        let keys: HashSet<_> = self.sample.processes.iter().map(|p| p.key).collect();
+        self.cpu.retain(|key, _| keys.contains(key));
+        for process in &self.sample.processes {
+            if let Some(cpu) = process.cpu {
+                self.cpu.insert(process.key, CpuAverage::next(self.cpu.get(&process.key).copied(), cpu, now));
+            }
+        }
+        let cores = self.sample.cpu.len();
+        if cores > 0 {
+            let total = self.sample.cpu.iter().map(|&core| u64::from(core)).sum::<u64>() / cores as u64;
+            self.system_cpu = Some(CpuAverage::next(self.system_cpu, u32::try_from(total).unwrap_or(u32::MAX), now));
+        }
+    }
+    /// The processes of `matched` the list keeps while idle ones are hidden: those that used CPU,
+    /// and in the tree the processes they descend from, so the tree holds together.
+    fn without_idle(&self, matched: Vec<usize>, tree: bool) -> Vec<usize> {
+        if !self.hide_idle {
+            return matched;
+        }
+        let processes = &self.sample.processes;
+        let busy: Vec<usize> = matched.iter().copied().filter(|&index| !self.idle(processes[index].key)).collect();
+        let mut kept: HashSet<usize> = busy.iter().copied().collect();
+        if tree {
+            let by_pid: HashMap<u32, usize> = processes.iter().enumerate().map(|(i, p)| (p.key.pid, i)).collect();
+            for index in busy {
+                let mut parent = processes[index].parent;
+                while let Some(&up) = parent.and_then(|pid| by_pid.get(&pid)) {
+                    if !kept.insert(up) {
+                        break;
+                    }
+                    parent = processes[up].parent;
+                }
+            }
+        }
+        matched.into_iter().filter(|index| kept.contains(index)).collect()
+    }
     pub fn rebuild(&mut self) {
         let filter = self.filter.to_lowercase();
-        let mut rows: Vec<_> = self
+        let tree = self.tree && filter.is_empty();
+        let matched: Vec<_> = self
             .sample
             .processes
             .iter()
@@ -346,11 +418,14 @@ impl Activity {
             .filter(|(_, p)| filter.is_empty() || format!("{} {}", p.name, p.key.pid).to_lowercase().contains(&filter))
             .map(|(i, _)| i)
             .collect();
+        let matches = matched.len();
+        let mut rows = self.without_idle(matched, tree);
+        self.idle_hidden = matches - rows.len();
         rows.sort_by(|&a, &b| {
             let (a, b) = (&self.sample.processes[a], &self.sample.processes[b]);
             let order = match self.sort {
                 ActivitySort::Memory => a.resident.cmp(&b.resident),
-                ActivitySort::Cpu => a.cpu.cmp(&b.cpu),
+                ActivitySort::Cpu => self.cpu(a.key).cmp(&self.cpu(b.key)),
                 ActivitySort::Growth => self.growth(a.key).cmp(&self.growth(b.key)),
                 ActivitySort::Name => a.name.cmp(&b.name),
                 ActivitySort::Pid => a.key.pid.cmp(&b.key.pid),
@@ -360,7 +435,7 @@ impl Activity {
             (if self.reverse { order.reverse() } else { order }).then(a.key.pid.cmp(&b.key.pid))
         });
         self.forget_ended_folds();
-        self.rows = if self.tree && filter.is_empty() {
+        self.rows = if tree {
             family::tree(&self.sample.processes, &rows, &self.folded)
         } else {
             rows.into_iter().map(|index| ListedProcess { index, depth: 0, branch: Branch::Leaf }).collect()
@@ -379,11 +454,13 @@ impl Activity {
         self.revealing.is_some_and(|(waiting, _)| waiting == pid)
     }
 
-    /// Selects the process with `pid` once the next sample lists it, clearing a filter that
-    /// would hide it, and with `control` offers its signals and priority then.
+    /// Selects the process with `pid` once the next sample lists it, clearing a filter and
+    /// showing idle processes so neither hides it, and with `control` offers its signals and
+    /// priority then.
     pub(crate) fn reveal(&mut self, pid: u32, control: bool) {
         self.filter.clear();
         self.filtering = false;
+        self.hide_idle = false;
         self.revealing = Some((pid, control));
     }
     fn select_pid(&mut self, pid: u32) -> bool {

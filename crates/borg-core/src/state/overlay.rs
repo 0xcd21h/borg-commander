@@ -62,6 +62,7 @@ pub enum PromptPurpose {
     ArchivePassword {
         side: crate::Side,
     },
+    ComputerKeyPassword,
 }
 
 impl PromptPurpose {
@@ -76,7 +77,7 @@ impl PromptPurpose {
 
     /// Whether the field hides what is typed.
     pub fn masked(&self) -> bool {
-        matches!(self, Self::ArchivePassword { .. })
+        matches!(self, Self::ArchivePassword { .. } | Self::ComputerKeyPassword)
     }
 
     pub(crate) fn toggle_option(&mut self) {
@@ -191,6 +192,8 @@ pub enum Overlay {
     Capture(crate::CaptureDialog),
     /// The command that installs a missing program, before it runs in the shell.
     Install(crate::InstallOffer),
+    /// The command that installs or starts the background service, before it runs in the shell.
+    Service(crate::ServiceOffer),
     /// Where Borg keeps its own files, how much each place holds, and the leftovers.
     Storage(crate::StorageWindow),
 }

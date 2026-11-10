@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::store::{write_atomically, write_privately};
 
+mod agent_log;
+
 const ENV_STATE_DIR: &str = "BORG_STATE_DIR";
 const ENV_XDG_STATE: &str = "XDG_STATE_HOME";
 const ENV_HOME: &str = "HOME";
@@ -29,6 +31,11 @@ const MAX_GAME_BYTES: u64 = 4096;
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
 const UPDATE_CHECK_FILE: &str = "update-check";
+const AGENT_LOG_FILE: &str = "remote-log.jsonl";
+const MAX_AGENT_LOG_BYTES: u64 = 1024 * 1024;
+const TRIMMED_AGENT_LOG_BYTES: usize = MAX_AGENT_LOG_BYTES as usize / 2;
+const PRIVATE_FILE: u32 = 0o600;
+const OPEN_TO_OTHERS: u32 = 0o077;
 pub const RESTORED_LINES: usize = 2000;
 pub const RESTORED_MARKER: &[u8] = b"\r\n\x1b[2m-- restored from the previous session --\x1b[0m\r\n";
 
@@ -129,13 +136,16 @@ pub struct StateDir {
 
 impl StateDir {
     pub fn locate() -> Option<Self> {
-        let explicit = env::var_os(ENV_STATE_DIR).map(PathBuf::from);
+        env::var_os(ENV_STATE_DIR).map(PathBuf::from).or_else(Self::default_root).map(Self::at)
+    }
+
+    pub fn default_root() -> Option<PathBuf> {
         let xdg = || env::var_os(ENV_XDG_STATE).map(|dir| PathBuf::from(dir).join(APP_DIR));
         let home = || {
             env::var_os(ENV_HOME)
                 .map(|home| DOT_STATE.iter().fold(PathBuf::from(home), |p, part| p.join(part)).join(APP_DIR))
         };
-        explicit.or_else(xdg).or_else(home).map(Self::at)
+        xdg().or_else(home)
     }
 
     pub fn at(root: PathBuf) -> Self {
@@ -336,6 +346,54 @@ impl StateDir {
     pub fn forget_terminal(&self) -> Result<()> {
         match fs::remove_file(self.session_path(TERMINAL_FILE)) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e).context("removing saved terminal output"),
+            _ => Ok(()),
+        }
+    }
+
+    /// The newest entries of the session's log of what agents did, oldest first.
+    pub fn load_agent_log(&self) -> Result<Vec<String>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = match fs::File::open(self.session_path(AGENT_LOG_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let skipped = file.metadata()?.len().saturating_sub(MAX_AGENT_LOG_BYTES);
+        file.seek(SeekFrom::Start(skipped))?;
+        let mut text = Vec::new();
+        file.read_to_end(&mut text)?;
+        Ok(agent_log::entries(&text, skipped > 0))
+    }
+
+    /// Adds an entry to the session's log of what agents did, which only its owner can read;
+    /// past its limit, the log keeps its newest entries.
+    pub fn save_agent_note(&self, entry: &str) -> Result<()> {
+        use std::{
+            io::Write,
+            os::unix::fs::{OpenOptionsExt, PermissionsExt},
+        };
+        self.ensure()?;
+        let path = self.session_path(AGENT_LOG_FILE);
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(PRIVATE_FILE)
+            .open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        if file.metadata()?.permissions().mode() & OPEN_TO_OTHERS != 0 {
+            file.set_permissions(fs::Permissions::from_mode(PRIVATE_FILE))?;
+        }
+        file.write_all(agent_log::line(entry).as_bytes()).with_context(|| format!("writing {}", path.display()))?;
+        if file.metadata()?.len() > MAX_AGENT_LOG_BYTES {
+            let text = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+            write_privately(&path, agent_log::newest(&text, TRIMMED_AGENT_LOG_BYTES))?;
+        }
+        Ok(())
+    }
+
+    pub fn forget_agent_log(&self) -> io::Result<()> {
+        match fs::remove_file(self.session_path(AGENT_LOG_FILE)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         }
     }

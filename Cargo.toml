@@ -19,6 +19,7 @@ borg-git = { path = "crates/borg-git" }
 borg-gfx  = { path = "crates/borg-gfx" }
 borg-jobs = { path = "crates/borg-jobs" }
 borg-link = { path = "crates/borg-link" }
+borg-local-auth = { path = "crates/borg-local-auth" }
 borg-relay = { path = "crates/borg-relay" }
 borg-rules = { path = "crates/borg-rules" }
 borg-update = { path = "crates/borg-update" }
@@ -59,8 +60,11 @@ zstd               = "0.14"
 sha2               = "0.10"
 aes-gcm            = "0.10"
 chacha20poly1305   = "0.10"
+argon2             = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }
+linux-keyutils     = { version = "0.2", features = ["std"] }
 hkdf               = "0.12"
 hmac               = "0.12"
+zeroize            = "1"
 rusqlite           = { version = "0.41", features = ["bundled"] }
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
@@ -94,6 +98,11 @@ uzers              = "0.12"
 aya                = { version = "0.14", default-features = false }
 aya-ebpf           = "0.2"
 aya-build          = "0.2"
+block2             = { version = "0.6", default-features = false, features = ["std"] }
+objc2              = { version = "0.6", default-features = false, features = ["std"] }
+objc2-foundation   = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "block2", "LAContext", "LAError"] }
+security-framework = { version = "3.7", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -111,6 +120,12 @@ opt-level     = 3
 opt-level     = 3
 
 [profile.dev.package.fancy-regex]
+opt-level     = 3
+
+[profile.dev.package.argon2]
+opt-level     = 3
+
+[profile.dev.package.blake2]
 opt-level     = 3
 
 [profile.release]

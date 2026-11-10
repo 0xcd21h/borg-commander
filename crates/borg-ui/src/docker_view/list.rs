@@ -1,6 +1,6 @@
 //! The container list: Compose projects and their containers, with the filter row above them.
 
-use super::{CPU_WIDTH, DOWN, FILTER_ROW, HEADER_ROW, MEMORY_WIDTH, SHELL_MARK, STATUS_FROM, STATUS_WIDTH, UP, frame};
+use super::{CPU_WIDTH, DOWN, FILTER_ROW, HEADER_ROW, MEMORY_WIDTH, NAME_MIN, SHELL_MARK, STATUS_WIDTH, UP, frame};
 use crate::{
     Theme,
     activity_view::{FOOTER_ROWS, body, dim, emphasis, heading, readable, row, text, wrap},
@@ -8,7 +8,7 @@ use crate::{
     look::Look,
     spinner::Spinner,
 };
-use borg_core::{AppState, Docker, DockerGroup, DockerRow};
+use borg_core::{AppState, CpuUse, Docker, DockerGroup, DockerRow};
 use borg_docker::{Action, Container, Health, State};
 use borg_i18n::tr;
 use ratatui::{
@@ -20,15 +20,22 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// Name, CPU, memory and status cells of a list row.
-pub(super) fn columns(area: Rect) -> [Rect; 4] {
-    let status = if area.width >= STATUS_FROM { STATUS_WIDTH } else { 0 };
-    let fixed = CPU_WIDTH + MEMORY_WIDTH + status + if status > 0 { 3 } else { 2 };
-    let name = area.width.saturating_sub(fixed);
+/// Name, CPU now, CPU average, memory and status cells of a list row. As the row narrows,
+/// the momentary CPU goes first and then the status, so the name keeps [`NAME_MIN`] cells.
+pub(super) fn columns(area: Rect) -> [Rect; 5] {
+    let heading = |label: &str| CPU_WIDTH.max(label.width() as u16);
+    let (now, average) = (heading(tr!(docker_cpu_now)), heading(tr!(docker_cpu_average)));
+    let room = |widths: &[u16]| widths.iter().filter(|&&width| width > 0).map(|width| width + 1).sum::<u16>();
+    let fits = |widths: &[u16]| area.width >= NAME_MIN + room(widths);
+    let status = if fits(&[average, MEMORY_WIDTH, STATUS_WIDTH]) { STATUS_WIDTH } else { 0 };
+    let now = if status > 0 && fits(&[now, average, MEMORY_WIDTH, status]) { now } else { 0 };
+    let name = area.width.saturating_sub(room(&[now, average, MEMORY_WIDTH, status]));
     let mut x = area.x;
-    [name, CPU_WIDTH, MEMORY_WIDTH, status].map(|width| {
+    [name, now, average, MEMORY_WIDTH, status].map(|width| {
         let cell = Rect { x, width: width.min(area.right().saturating_sub(x)), ..area };
-        x = x.saturating_add(width + 1);
+        if width > 0 {
+            x = x.saturating_add(width + 1);
+        }
         cell
     })
 }
@@ -73,6 +80,12 @@ pub(super) fn cpu(value: u64) -> String {
     format!("{:.1}", value as f64 / 100.0)
 }
 
+/// CPU now and on average in their cells; a cell a narrow row leaves out stays empty.
+pub(super) fn cpu_cells(buf: &mut Buffer, [now, average]: [Rect; 2], figures: CpuUse, style: Style) {
+    text(buf, now, cpu(figures.now), style);
+    text(buf, average, cpu(figures.average), style);
+}
+
 pub(super) fn project_name(group: &DockerGroup) -> String {
     group.project.clone().unwrap_or_else(|| tr!(docker_standalone).into())
 }
@@ -100,10 +113,11 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
         text(buf, row(inner, 0), summary, emphasis(theme));
     }
     filter_row(docker, look, row(inner, FILTER_ROW), buf);
-    let [name, cpu_cell, memory, status] = columns(row(inner, HEADER_ROW));
+    let [name, now, average, memory, status] = columns(row(inner, HEADER_ROW));
     for (cell, label) in [
         (name, tr!(docker_name)),
-        (cpu_cell, tr!(docker_cpu)),
+        (now, tr!(docker_cpu_now)),
+        (average, tr!(docker_cpu_average)),
         (memory, tr!(docker_memory)),
         (status, tr!(docker_status)),
     ] {
@@ -134,7 +148,7 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
             _ => styles.overlay,
         };
         buf.set_style(line, base);
-        let [name, cpu_cell, memory, status] = columns(line);
+        let [name, now, average, memory, status] = columns(line);
         match item {
             DockerRow::Group(group) => {
                 let group = &docker.groups[group];
@@ -146,7 +160,7 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
                     if group.running > 0 { name } else { Rect { width: status.x.saturating_sub(name.x + 1), ..name } };
                 text(buf, label, format!("{fold} {}", project_name(group)), style.add_modifier(Modifier::BOLD));
                 if group.running > 0 {
-                    text(buf, cpu_cell, cpu(cpu_total), base);
+                    cpu_cells(buf, [now, average], cpu_total, base);
                     text(buf, memory, format::size(memory_total), base);
                 }
                 text(buf, status, running_of(group), if selected { base } else { dim(theme) });
@@ -164,7 +178,7 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
                 ])
                 .render(name, buf);
                 if let Some(usage) = docker.usage.get(&container.id).filter(|_| container.state.is_up()) {
-                    text(buf, cpu_cell, cpu(u64::from(usage.latest.cpu)), base);
+                    cpu_cells(buf, [now, average], usage.cpu_use(), base);
                     text(buf, memory, format::size(usage.latest.memory), base);
                 }
                 let note = docker

@@ -212,6 +212,9 @@ pub enum Msg {
         generation: u64,
         installer: Option<crate::Installer>,
     },
+    ComputerKeyLocked {
+        wrong: bool,
+    },
     /// An archive that needs a password, or a better one than it was given.
     ArchiveLocked {
         side: Side,
@@ -286,6 +289,8 @@ pub enum Msg {
     Backup(crate::BackupEvent),
     /// What Borg keeps where, for the Borg's files window.
     Storage(crate::StorageReport),
+    /// How the background service stands, after the Remote menu asked.
+    Service(crate::ServiceCheck),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,10 +411,15 @@ pub enum Effect {
     ShowPlain(String),
     /// Makes a pairing link for borg cloud, for the Connect dialog.
     StartPairing,
+    UnlockComputerKey(crate::Password),
     /// Saves the relay borg cloud goes through, empty for none, and makes a pairing link there.
     SetRelay(String),
     /// Forgets every computer paired through borg cloud, and ends their sessions.
     ForgetComputers,
+    /// Adds an entry to the log of what agents did that the session keeps on disk.
+    SaveAgentNote(String),
+    /// Removes the session's saved log of what agents did.
+    ForgetAgentLog,
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,
@@ -553,5 +563,7 @@ pub enum Effect {
     ScanStorage,
     /// Removes those of these leftovers that are still left over, then measures again.
     CleanStorage(Vec<PathBuf>),
+    /// Looks at how the background service stands on this machine.
+    CheckService,
     Quit,
 }

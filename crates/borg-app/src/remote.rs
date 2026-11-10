@@ -44,6 +44,9 @@ struct HostInfo {
 struct HostSession {
     id: String,
     name: String,
+    /// The host's background service coordinates it, and it runs in a terminal there.
+    #[serde(default)]
+    terminal: bool,
 }
 
 async fn host_catalog(state: &std::path::Path, server: link::Server) -> Vec<borg_core::RemoteChoice> {
@@ -70,7 +73,7 @@ async fn host_catalog(state: &std::path::Path, server: link::Server) -> Vec<borg
                 .lines()
                 .filter_map(|line| {
                     let (id, name) = line.split_once(char::is_whitespace)?;
-                    Some(HostSession { id: id.into(), name: name.trim().into() })
+                    Some(HostSession { id: id.into(), name: name.trim().into(), terminal: false })
                 })
                 .collect())
         }
@@ -84,7 +87,10 @@ async fn host_catalog(state: &std::path::Path, server: link::Server) -> Vec<borg
                 machine: server.name.clone(),
                 session: Some(session.id),
                 name: session.name,
-                info: info.clone(),
+                info: borg_core::RemoteHostInfo {
+                    service: info.service.map(|service| service && !session.terminal),
+                    ..info.clone()
+                },
                 ..Default::default()
             })
             .collect(),

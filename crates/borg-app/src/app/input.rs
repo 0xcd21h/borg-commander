@@ -1,6 +1,7 @@
 //! Keys, mouse and the terminal's events, and the wheel's bursts.
 
 use super::{App, Flow, Plain};
+use crate::native_mirror::Input as MirrorInput;
 use anyhow::Result;
 use borg_core::{Msg, View};
 use borg_i18n::tr;
@@ -20,36 +21,41 @@ impl App {
         if takes_control && self.native_mirror.local_input() {
             self.state.notice = Some(tr!(mirror_local_control).into());
         }
+        if let Some(membership) = self.membership.as_mut().filter(|_| takes_control) {
+            membership.active(std::time::Instant::now());
+        }
         self.on_terminal_event(event)
     }
 
-    pub(super) fn on_mirror_input(&mut self, input: crate::native_mirror::Input) -> Result<Flow> {
-        if input.events.is_empty() && input.reply.is_none() {
-            self.state.notice = Some(match self.native_mirror.controller() {
-                Some(origin) => {
-                    tr!(mirror_remote_control, computer = origin.split(" [").next().unwrap_or(&origin))
+    /// A mirror's input. A new size needs nothing here: the next frame is drawn for it.
+    pub(super) fn on_mirror_input(&mut self, input: MirrorInput) -> Result<Flow> {
+        match input {
+            MirrorInput::Control => {
+                self.state.notice = Some(match self.native_mirror.controller() {
+                    Some(origin) => {
+                        tr!(mirror_remote_control, computer = origin.split(" [").next().unwrap_or(&origin))
+                    }
+                    None => tr!(mirror_control_released).into(),
+                });
+                Ok(Flow::Continue)
+            }
+            MirrorInput::Resized => Ok(Flow::Continue),
+            MirrorInput::Events { origin, events, reply } => {
+                if !self.native_mirror.controls(&origin) {
+                    let _ = reply.send(crate::agent::Reply::error("Mirror control was released"));
+                    return Ok(Flow::Continue);
                 }
-                None => tr!(mirror_control_released).into(),
-            });
-            return Ok(Flow::Continue);
-        }
-        if !self.native_mirror.controls(&input.origin) {
-            if let Some(reply) = input.reply {
-                let _ = reply.send(crate::agent::Reply::error("Mirror control was released"));
-            }
-            return Ok(Flow::Continue);
-        }
-        let mut flow = Flow::Continue;
-        for event in input.events {
-            flow = self.on_terminal_event(event)?;
-            if matches!(flow, Flow::Quit) {
-                break;
+                let mut flow = Flow::Continue;
+                for event in events {
+                    flow = self.on_terminal_event(event)?;
+                    if matches!(flow, Flow::Quit) {
+                        break;
+                    }
+                }
+                let _ = reply.send(crate::agent::Reply::ok("Input sent"));
+                Ok(flow)
             }
         }
-        if let Some(reply) = input.reply {
-            let _ = reply.send(crate::agent::Reply::ok("Input sent"));
-        }
-        Ok(flow)
     }
 
     pub(super) fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {

@@ -33,13 +33,34 @@ use crate::{
     sessions,
 };
 
+mod member;
+mod members;
 mod server;
+mod wire;
+
+pub use member::{Inbox, Membership};
+pub use members::{Lease, Members};
+pub use wire::Place;
 
 const SOCKET: &str = "service.sock";
+/// Set for the Borg the service runs for a session, which opens that session without counting
+/// as a use of it and leaves borg cloud to the service.
+pub const SERVICE_CHILD: &str = "BORG_SERVICE_CHILD";
+/// The service's own call that keeps a session running in the background.
+pub const START_CALL: &str = "_service_start";
 const LOCK: &str = "service.lock";
 const REPLAY_LIMIT: usize = 1024 * 1024;
+/// How much of a terminal's input or output moves at once.
+const CHUNK: usize = 8192;
+/// The key that leaves an attached session: Ctrl-].
+const DETACH: u8 = 0x1d;
 /// How long the service has to say which sessions it keeps running.
 const STATUS_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+/// Marks a service that Borg started for itself, which ends once no session uses it.
+const ON_DEMAND: &str = "--on-demand";
+/// How long a Borg waits for the service it started to answer.
+const START_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+const START_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 struct Child {
     pty: Pty,
@@ -85,7 +106,7 @@ pub fn runtime_dir() -> Result<PathBuf> {
 fn spawn_child(id: &str, events: UnboundedSender<(String, PtyEvent)>) -> Result<Arc<Mutex<Child>>> {
     let mut command = CommandBuilder::new(std::env::current_exe()?);
     command.args(["--session", id]);
-    command.env("BORG_SERVICE_CHILD", "1");
+    command.env(SERVICE_CHILD, "1");
     command.env("BORG_RUNTIME_DIR", service_runtime()?);
     command.env("TERM", "xterm-256color");
     let (sender, mut receiver) = unbounded_channel();
@@ -145,7 +166,7 @@ async fn attach(mut stream: UnixStream, child: Arc<Mutex<Child>>, take: bool) ->
             }
         }
     });
-    let mut bytes = [0_u8; 8192];
+    let mut bytes = [0_u8; CHUNK];
     while let Ok(count) = read.read(&mut bytes).await {
         if count == 0 {
             break;
@@ -224,13 +245,10 @@ fn mirror_child(call: &Call, child: &Arc<Mutex<Child>>) -> Reply {
             if child.controller != Some(owner) {
                 return Reply::error("take control before resizing");
             }
-            let (Some(cols), Some(rows)) = (call.args["cols"].as_u64(), call.args["rows"].as_u64()) else {
-                return Reply::error("mirror_resize needs cols and rows");
+            let Some(viewer) = crate::native_mirror::viewer_size(&call.args) else {
+                return Reply::error("mirror_resize needs cols and rows within the terminal sizes a session takes");
             };
-            if !(20..=500).contains(&cols) || !(8..=200).contains(&rows) {
-                return Reply::error("terminal size is out of range");
-            }
-            let size = GridSize { cols: cols as u16, rows: rows as u16 };
+            let size = GridSize { cols: viewer.width, rows: viewer.height };
             match child.pty.resize(size) {
                 Ok(()) => {
                     child.emulator.resize(size);
@@ -269,6 +287,41 @@ pub async fn available() -> bool {
     UnixStream::connect(service_socket()).await.is_ok()
 }
 
+/// Whether the service that runs here keeps running with no session: installed, or run by a
+/// supervisor. One a Borg started on demand ends with its last session.
+pub async fn kept() -> bool {
+    let Ok(Ok(reply)) = tokio::time::timeout(STATUS_WAIT, request_json(json!({"mode": "status"}))).await else {
+        return false;
+    };
+    reply["kept"] == true
+}
+
+/// Starts the service for this user when none answers, in a process group of its own so the
+/// terminal's signals miss it, and waits a moment for it. Borg works on its own when it does
+/// not come up.
+pub async fn start_on_demand() {
+    use std::os::unix::process::CommandExt;
+    if available().await {
+        return;
+    }
+    let Ok(program) = std::env::current_exe() else { return };
+    let started = std::process::Command::new(program)
+        .args(["service", "run", ON_DEMAND])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn();
+    let Ok(mut service) = started else { return };
+    std::thread::spawn(move || service.wait());
+    let _ = tokio::time::timeout(START_WAIT, async {
+        while !available().await {
+            tokio::time::sleep(START_POLL).await;
+        }
+    })
+    .await;
+}
+
 /// Asks the service's watcher to stop, continue or end a process, which it may be able to do
 /// where the user may not. Nothing comes back when no service is running.
 pub async fn watch_act(
@@ -288,9 +341,21 @@ pub async fn running_sessions() -> HashSet<String> {
     reply["sessions"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
 }
 
-/// Attaches this terminal to the persistent workspace owned by the service. Ctrl-] leaves
-/// the attached view without stopping the remote shell or Borg session.
+/// Has the service keep a session running in the background, starting it unless it runs there
+/// already. A session open in a terminal stays there, and the service says so.
+pub async fn keep(id: &str) -> Result<()> {
+    let reply = request_json(json!({"mode": "keep", "session": id})).await?;
+    if reply["ok"] != true {
+        bail!("{}", reply["error"].as_str().unwrap_or("the service could not keep the session running"));
+    }
+    Ok(())
+}
+
+/// Attaches this terminal to the persistent workspace owned by the service, which keeps it
+/// running first. Ctrl-] leaves the attached view without stopping the remote shell or Borg
+/// session.
 pub async fn attach_session(id: &str, take: bool) -> Result<()> {
+    keep(id).await?;
     let mut stream = UnixStream::connect(service_socket()).await.context("Borg service is not running")?;
     stream.write_all(format!("{}\n", json!({"mode": "attach", "session": id, "take": take})).as_bytes()).await?;
     crossterm::terminal::enable_raw_mode()?;
@@ -304,8 +369,7 @@ pub async fn attach_session(id: &str, take: bool) -> Result<()> {
     let _raw = Raw;
     let (mut read, mut write) = stream.into_split();
     let mut output = tokio::spawn(async move { tokio::io::copy(&mut read, &mut tokio::io::stdout()).await });
-    let mut input = tokio::io::stdin();
-    let mut bytes = [0_u8; 8192];
+    let mut input = keyboard();
     let mut last_size = None;
     let mut resize = tokio::time::interval(std::time::Duration::from_millis(250));
     loop {
@@ -318,11 +382,10 @@ pub async fn attach_session(id: &str, take: bool) -> Result<()> {
                         last_size = Some(size);
                 }
             }
-            result = input.read(&mut bytes) => {
-                let count = result?;
-                if count == 0 { break; }
-                if bytes[..count].contains(&0x1d) { break; }
-                write.write_all(&bytes[..count]).await?;
+            typed = input.recv() => {
+                let Some(bytes) = typed else { break };
+                if bytes.contains(&DETACH) { break; }
+                write.write_all(&bytes).await?;
             }
             _ = &mut output => break,
         }
@@ -330,6 +393,22 @@ pub async fn attach_session(id: &str, take: bool) -> Result<()> {
     output.abort();
     drop(write);
     Ok(())
+}
+
+/// The terminal's input, read on a thread of its own: a read of standard input waiting in
+/// Tokio's pool would keep `borg` from exiting after the session ends, until the next key.
+fn keyboard() -> tokio::sync::mpsc::UnboundedReceiver<Vec<u8>> {
+    use std::io::Read;
+    let (typed, input) = unbounded_channel();
+    std::thread::spawn(move || {
+        let mut bytes = [0_u8; CHUNK];
+        while let Ok(count) = std::io::stdin().read(&mut bytes) {
+            if count == 0 || typed.send(bytes[..count].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    input
 }
 
 /// The watcher's own subcommands: installing the part that runs as root, and what it found.
@@ -354,7 +433,8 @@ pub async fn command(args: &[String]) -> Result<()> {
         [action] if action == "disable" => crate::service_install::disable(),
         [action] if action == "start" => crate::service_install::start(),
         [action] if action == "stop" => crate::service_install::stop(),
-        [action] if action == "run" => server::run().await,
+        [action] if action == "run" => server::run(server::Lifetime::Kept).await,
+        [action, flag] if action == "run" && flag == ON_DEMAND => server::run(server::Lifetime::OnDemand).await,
         [action] if action == "status" => {
             println!("{}", request_json(json!({"mode": "status"})).await?);
             Ok(())
@@ -368,14 +448,30 @@ pub async fn command(args: &[String]) -> Result<()> {
             println!("{}", reply["link"].as_str().unwrap_or_default());
             Ok(())
         }
+        [action, name] if action == "keep" => keep_named(name).await,
         [action, name] if action == "attach" => attach_session(&session_named(name)?, false).await,
         [action, name, flag] if action == "attach" && flag == "--take" => {
             attach_session(&session_named(name)?, true).await
         }
         _ => bail!(
-            "usage: borg service install|uninstall|enable|disable|start|stop|run|status|pair|attach NAME [--take]"
+            "usage: borg service install|uninstall|enable|disable|start|stop|run|status|pair|keep NAME|attach NAME [--take]"
         ),
     }
+}
+
+/// `borg service keep NAME`: marks the session to run in the background, and starts it there
+/// when the service runs.
+async fn keep_named(name: &str) -> Result<()> {
+    let id = session_named(name)?;
+    if available().await {
+        return keep(&id).await;
+    }
+    let state = StateDir::locate().context("set HOME or BORG_STATE_DIR")?;
+    if sessions::held(&state, &id) {
+        bail!("session {name} is open in a terminal");
+    }
+    sessions::keep(&state, &id, true)?;
+    Ok(())
 }
 
 /// The ID of the session with this name or ID.
