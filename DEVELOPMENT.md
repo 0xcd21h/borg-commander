@@ -187,7 +187,9 @@ administrator retry as memory inspection. It never reads the contents of descrip
 Region and match selection schedule a 120 ms debounced bounded preview read, while
 Tab switches focus for scrolling. Late replies cannot replace another selection's
 bytes; unreadable regions do not request a capture. `borg-app::activity` samples through sysinfo
-and executes on-demand memory-map and memory-read requests on background workers.
+and executes on-demand memory-map and memory-read requests on background workers. On Linux the
+sample leaves out each process's threads: `/proc/PID/stat` and `/proc/PID/io` already count every
+thread, and reading each thread's files every second costs more than the rest of the sample.
 macOS maps come from vmmap; Linux maps come from smaps. Process identity combines
 PID and start time and is checked before and after inspection. Captures read at
 most 64 KiB through the safe read-process-memory API. No target is suspended.
