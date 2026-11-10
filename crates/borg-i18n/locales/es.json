@@ -1802,7 +1802,7 @@
   "session_detail_terminal": "Borg tiene esta sesión abierta en otro terminal. Sal de Borg allí para abrirla aquí.",
   "session_detail_service": "El servicio en segundo plano mantiene esta sesión en ejecución. Enter se conecta a ella y Ctrl-] se desconecta de nuevo.",
   "session_kept_by_terminal": "«{name}» está abierta en otro terminal. Sal de Borg allí antes de eliminarla.",
-  "session_kept_by_service": "El servicio en segundo plano mantiene «{name}» en ejecución. Ejecuta borg service stop primero para eliminarla.",
+  "session_kept_by_service": "El servicio en segundo plano mantiene «{name}» en ejecución. Para eliminarla, ábrela con borg service attach NAME y sal con F10.",
   "session_open_elsewhere": "«{name}» está abierta en otro terminal. Sal de Borg allí para abrirla aquí.",
   "session_removed": "Sesión «{name}» eliminada.",
   "session_remove_failed": "No se pudo eliminar «{name}»: {error}",

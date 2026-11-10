@@ -17,8 +17,8 @@ expression: describe(&buffer)
    │ scratch                          2024-06-01 00:00                                │
    │ migration-2024                   unknown                                         │
    │                                                                                  │
-   │ The background service keeps "web" running. Run borg service stop first to       │
-   │ remove it.                                                                       │
+   │ The background service keeps "web" running. To remove it, open it with borg      │
+   │ service attach NAME and quit with F10.                                           │
    ╰─────────────────── Enter open · F7 new · F8 remove · Esc quit ───────────────────╯
 
 

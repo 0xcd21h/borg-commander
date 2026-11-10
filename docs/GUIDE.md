@@ -28,6 +28,15 @@ To build from source, you need Rust 1.97 or newer:
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
+On Linux, the build also compiles the process watcher's eBPF programs, which need a nightly
+compiler and `bpf-linker`. When they are missing, the build stops and prints the two commands that
+install them. To build without the programs, set `BORG_NO_EBPF=1`. The watcher then hears the
+kernel's process events instead:
+
+```sh
+BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
+```
+
 Homebrew support is ready and will work once the tap is published:
 
 ```sh
@@ -863,7 +872,7 @@ it, and every use starts the 12 hours again. A restart locks it, and `borg lock`
 Where Borg cannot use the kernel keyring, as in many containers and system services, a small Borg
 process holds the key instead, on a socket in the `link` folder that only you can open, and it ends
 after 12 hours without use. When the key is locked, Borg asks for the password: the panels open the
-**Unlock key** dialog, and `borg pair`, `borg get` and `borg put` ask in the terminal.
+**Unlock key** dialog, and `borg pair`, `borg get`, `borg put` and `borg mirror` ask in the terminal.
 `borg mcp remote`, which Claude starts without a terminal, says to run `borg unlock`.
 
 `borg unlock --ssh-agent` also lets your ssh-agent unlock the key. Borg asks the agent to sign a
@@ -1374,7 +1383,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 
@@ -1830,9 +1839,10 @@ everywhere, including the console, viewer, monitor, dialogs, and screensaver.
 ### Alerts
 
 Borg can watch what starts on a machine and tell you when something looks wrong. Turn on **Watch:
-unusual process starts** in F9 → Options → Plugins, then start the background service with
-`borg service start`. The watcher lives in that service, so it keeps watching with no terminal
-open, and every Borg on the machine reads the same alerts.
+unusual process starts** in F9 → Options → Plugins. The watcher lives in the background service
+that all your Borgs on the machine share, so every Borg reads the same alerts. That service runs
+while a Borg is open. To keep watching with no terminal open, start the service at boot as
+[Named sessions and the background service](#named-sessions-and-the-background-service) describes.
 
 **Alt-L** or **Command → Alerts** opens the page. The list takes the active pane, newest alert
 first, and the other pane shows the selected alert in full. Each row shows the time, the rule that

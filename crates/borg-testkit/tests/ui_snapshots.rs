@@ -5688,7 +5688,7 @@ fn start_window_marks_active_sessions_and_asks_before_removing_an_old_one() -> R
 
     picker_key(&mut picker, KeyCode::F(8));
     let buffer = start_window("start_sessions_kept_by_service", &picker, SIZE)?;
-    ensure_text(&buffer, "borg service stop")?;
+    ensure_text(&buffer, "service attach NAME")?;
 
     picker_key(&mut picker, KeyCode::Down);
     picker_key(&mut picker, KeyCode::Down);

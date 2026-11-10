@@ -1802,7 +1802,7 @@
   "session_detail_terminal": "Borg 已在另一个终端中打开此会话。在那里退出 Borg 后，才能在这里打开它。",
   "session_detail_service": "后台服务让此会话保持运行。Enter 连接到它，Ctrl-] 再断开。",
   "session_kept_by_terminal": "“{name}”已在另一个终端中打开。请先在那里退出 Borg，再删除它。",
-  "session_kept_by_service": "后台服务正让“{name}”保持运行。请先运行 borg service stop，再删除它。",
+  "session_kept_by_service": "后台服务正让“{name}”保持运行。要删除它，请用 borg service attach NAME 打开它，再按 F10 退出。",
   "session_open_elsewhere": "“{name}”已在另一个终端中打开。在那里退出 Borg 后，即可在这里打开它。",
   "session_removed": "会话“{name}”已删除。",
   "session_remove_failed": "无法删除“{name}”：{error}",
