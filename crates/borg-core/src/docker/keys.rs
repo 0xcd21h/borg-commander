@@ -11,9 +11,9 @@ use borg_term::encode_paste;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::time::Instant;
 
-pub(crate) fn stats(state: &mut AppState, frame: Vec<(String, Stats)>) {
+pub(crate) fn stats(state: &mut AppState, frame: Vec<(String, Stats)>, now: Instant) {
     if state.docker.watching {
-        state.docker.sample(frame);
+        state.docker.sample(frame, now);
     }
 }
 

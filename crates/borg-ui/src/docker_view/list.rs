@@ -164,7 +164,7 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
                 ])
                 .render(name, buf);
                 if let Some(usage) = docker.usage.get(&container.id).filter(|_| container.state.is_up()) {
-                    text(buf, cpu_cell, cpu(u64::from(usage.latest.cpu)), base);
+                    text(buf, cpu_cell, cpu(u64::from(usage.average_cpu())), base);
                     text(buf, memory, format::size(usage.latest.memory), base);
                 }
                 let note = docker

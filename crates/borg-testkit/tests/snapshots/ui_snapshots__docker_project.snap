@@ -7,10 +7,10 @@ expression: describe(&buffer)
 │/ Filter containers                                             ││/home/me/projects/shop                                          │
 │Name                 CPU %   Memory   Status                    ││                                                                │
 │▾ blog                                0 of 1 running            ││CPU                  Memory               Containers            │
-│  ● app              0.0     61M      Up 2 days (Paused)        ││13.5%                606M                 2/3                   │
-│▾ shop               13.5    606M     2 of 3 running            ││                                                                │
+│  ● app              0.0     61M      Up 2 days (Paused)        ││15.1%                606M                 2/3                   │
+│▾ shop               15.1    606M     2 of 3 running            ││                                                                │
 │  ● db               1.2     401M     Up 3 hours (healthy)      ││● db                 1.2     401M     Up 3 hours (healthy)      │
-│  ● web              12.3    205M     Up 3 hours (healthy)      ││● web                12.3    205M     Up 3 hours (healthy)      │
+│  ● web              13.9    205M     Up 3 hours (healthy)      ││● web                13.9    205M     Up 3 hours (healthy)      │
 │  ○ worker                            Exited (1) 12 minutes ago ││○ worker                              Exited (1) 12 minutes ago │
 │▾ Other containers                    0 of 1 running            ││                                                                │
 │  ○ scratch                           Exited (0) 2 days ago     ││Files     /home/me/projects/shop/compose.yaml                   │

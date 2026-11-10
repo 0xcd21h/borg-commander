@@ -172,7 +172,7 @@ pub(super) fn container_details(
             buf,
             body,
             &[
-                (tr!(docker_cpu_tile), format!("{}%", cpu(u64::from(stats.cpu)))),
+                (tr!(docker_cpu_tile), format!("{}%", cpu(u64::from(usage.average_cpu())))),
                 (tr!(docker_memory_tile), format!("{}{limit}", format::size(stats.memory))),
                 (tr!(docker_network_tile), format!("{} / {}", format::size(stats.net_rx), format::size(stats.net_tx))),
                 (tr!(docker_disk_tile), format!("{} / {}", format::size(stats.read), format::size(stats.written))),
@@ -286,7 +286,7 @@ pub(super) fn group_details(
         ])
         .render(name, buf);
         if let Some(usage) = docker.usage.get(&container.id).filter(|_| container.state.is_up()) {
-            text(buf, cpu_cell, cpu(u64::from(usage.latest.cpu)), theme.styles.overlay);
+            text(buf, cpu_cell, cpu(u64::from(usage.average_cpu())), theme.styles.overlay);
             text(buf, memory, format::size(usage.latest.memory), theme.styles.overlay);
         }
         let note =
