@@ -2267,7 +2267,9 @@ Conheça-as antes de confiar nele.
   corre durante a semana de aprendizagem conta como normal.
 - Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
   em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
-  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root. Quando o
+  observador como root deixa de correr, o Borg volta a observar os seus próprios processos até que ele corra de
+  novo.
 - Antes do Linux 5.8, ou onde a parte root não consegue carregar os seus programas, o Borg lê cada
   processo novo em `/proc` depois de o kernel o comunicar. Um comando que termina de imediato pode
   já ter desaparecido, e um processo pode mudar antes a sua linha de comandos.

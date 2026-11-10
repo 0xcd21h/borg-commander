@@ -2277,7 +2277,9 @@ Conócelas antes de confiar en él.
   se ejecuta durante la semana de aprendizaje cuenta como normal.
 - Sin el vigilante como root, Borg solo ve tus propios procesos, y un comando que termina en menos
   de un cuarto de segundo puede desaparecer antes de que Borg mire. Los servicios que se ejecutan
-  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root.
+  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root. Cuando el
+  vigilante como root se detiene, Borg vuelve a vigilar tus propios procesos hasta que se ejecute de
+  nuevo.
 - Antes de Linux 5.8, o donde la parte root no puede cargar sus programas, Borg lee cada proceso
   nuevo en `/proc` después de que el kernel lo informa. Un comando que termina al instante puede
   haber desaparecido para entonces, y un proceso puede cambiar antes su línea de comandos.

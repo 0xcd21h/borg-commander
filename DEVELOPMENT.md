@@ -415,7 +415,7 @@ out, tested in `watch/tests.rs`.
 them ([The eBPF programs](#the-ebpf-programs)), else from the kernel's proc connector over netlink
 (`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
 fixtures, so its tests run on macOS, and a bounded queue lets the kernel drop events, which the
-reader survives, when the watcher falls behind), from the root watcher once it connects, or from
+reader survives, when the watcher falls behind), from the root watcher while it is connected, or from
 looking at the user's own process list four times a second (every process's when Borg runs as root,
 and in the root watcher on a kernel without the proc connector, which says so with
 `FromRoot::Polling`). Looking finds forks along with programs that start, so a copy of its parent

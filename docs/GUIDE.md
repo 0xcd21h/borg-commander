@@ -2099,7 +2099,8 @@ before you rely on it.
   learning week counts as normal.
 - Without the root watcher, Borg sees only your own processes, and a command that ends within a
   quarter of a second can be gone before Borg looks. Services that run as another user, such as
-  `www-data` or `postgres`, need the root watcher.
+  `www-data` or `postgres`, need the root watcher. When the root watcher stops, Borg goes back to
+  watching your own processes until it runs again.
 - Before Linux 5.8, or where the root part cannot load its programs, Borg reads each new process in
   `/proc` after the kernel reports it. A command that ends at once can be gone by then, and a
   process can change its command line first.

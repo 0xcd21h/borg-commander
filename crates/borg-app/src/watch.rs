@@ -230,6 +230,8 @@ struct Sources {
     root: Option<UnboundedReceiver<StartedProcess>>,
     link: Option<root::RootLink>,
     own: Option<Polling>,
+    /// Whose processes Borg looks at itself: one user's, or everyone's when it runs as root.
+    uid: Option<u32>,
     heard_root: bool,
 }
 
@@ -286,8 +288,8 @@ impl Sources {
         }
     }
 
-    /// The next process to look at. Polling stops for good once the root watcher speaks, since
-    /// it sees everything the polling could and more.
+    /// The next process to look at. Polling stops while the root watcher speaks, since it sees
+    /// everything the polling could and more, and starts again when the root watcher goes away.
     async fn next(&mut self, processes: &Processes) -> Result<Heard> {
         if let Some(kernel) = &mut self.kernel {
             let executed = kernel.recv().await.context("the kernel stopped sending process events")?;
@@ -299,8 +301,10 @@ impl Sources {
                     tokio::select! {
                         process = root.recv() => {
                             if let Some(process) = process {
-                                self.heard_root = true;
-                                self.own = None;
+                                if self.link.as_ref().is_some_and(root::RootLink::connected) {
+                                    self.heard_root = true;
+                                    self.own = None;
+                                }
                                 return Ok(Heard::Facts(Box::new(process)));
                             }
                             self.root = None;
@@ -313,9 +317,22 @@ impl Sources {
                     }
                 }
                 (Some(root), None) => {
-                    let process = root.recv().await.context("the root watcher stopped sending processes")?;
-                    self.heard_root = true;
-                    return Ok(Heard::Facts(Box::new(process)));
+                    let gone = async {
+                        match &mut self.link {
+                            Some(link) => link.gone().await,
+                            None => std::future::pending().await,
+                        }
+                    };
+                    tokio::select! {
+                        process = root.recv() => {
+                            let process = process.context("the root watcher stopped sending processes")?;
+                            return Ok(Heard::Facts(Box::new(process)));
+                        }
+                        () = gone => {
+                            self.heard_root = false;
+                            self.own = Some(Polling::new(self.uid, processes));
+                        }
+                    }
                 }
                 (None, Some(own)) => {
                     tokio::time::sleep(LOOK_EVERY).await;
@@ -328,11 +345,11 @@ impl Sources {
         }
     }
 
-    /// Stops, continues or ends a process: through the root watcher where there is one, since a
-    /// process of another user is not Borg's to signal.
+    /// Stops, continues or ends a process: through the root watcher while it is connected, since
+    /// a process of another user is not Borg's to signal.
     async fn act(&mut self, processes: &Processes, act: root::Act, process: ProcessKey) -> ControlOutcome {
-        if self.heard_root
-            && let Some(link) = &mut self.link
+        if let Some(link) = &mut self.link
+            && link.connected()
         {
             return link.act(act, process).await;
         }
@@ -491,8 +508,9 @@ impl Watch {
             },
         };
         let user = rustix::process::getuid();
-        let own = kernel.is_none().then(|| Polling::new((!user.is_root()).then_some(user.as_raw()), &processes));
-        let sources = Sources { kernel, kernel_source, root, link, own, heard_root: false };
+        let uid = (!user.is_root()).then_some(user.as_raw());
+        let own = kernel.is_none().then(|| Polling::new(uid, &processes));
+        let sources = Sources { kernel, kernel_source, root, link, own, uid, heard_root: false };
         let mut watcher = Watcher::new(baseline, settings.limits);
         watcher.baseline.allowed = allowances(&settings, &state);
         let status = WatchStatus {
