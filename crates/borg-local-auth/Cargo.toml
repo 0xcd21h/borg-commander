@@ -1,0 +1,20 @@
+[package]
+name                   = "borg-local-auth"
+description            = "Asks macOS for Touch ID or the user's password before Borg uses a key from the keychain"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+publish                = false
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2                     = { workspace = true }
+objc2                      = { workspace = true }
+objc2-foundation           = { workspace = true }
+objc2-local-authentication = { workspace = true }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

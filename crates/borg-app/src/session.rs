@@ -136,13 +136,16 @@ pub struct StateDir {
 
 impl StateDir {
     pub fn locate() -> Option<Self> {
-        let explicit = env::var_os(ENV_STATE_DIR).map(PathBuf::from);
+        env::var_os(ENV_STATE_DIR).map(PathBuf::from).or_else(Self::default_root).map(Self::at)
+    }
+
+    pub fn default_root() -> Option<PathBuf> {
         let xdg = || env::var_os(ENV_XDG_STATE).map(|dir| PathBuf::from(dir).join(APP_DIR));
         let home = || {
             env::var_os(ENV_HOME)
                 .map(|home| DOT_STATE.iter().fold(PathBuf::from(home), |p, part| p.join(part)).join(APP_DIR))
         };
-        explicit.or_else(xdg).or_else(home).map(Self::at)
+        xdg().or_else(home)
     }
 
     pub fn at(root: PathBuf) -> Self {

@@ -135,6 +135,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "argon2"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "134c52ddac6d63c576bef8168db10c83c49c26444ecbc68060fef078925a901c"
+dependencies = [
+ "base64ct",
+ "blake2 0.11.0",
+ "cpufeatures 0.3.1",
+ "password-hash",
+ "zeroize",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -422,6 +435,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "base64ct"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -516,6 +535,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake2"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b5d4d889834ee8ecfc0f8426ad30faf7cdcb10f741a8e6d7224d95325479f6f"
+dependencies = [
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -541,6 +569,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "710f1dd022ef4e93f8a438b4ba958de7f64308434fa6a87104481645cc30068b"
 dependencies = [
  "hybrid-array",
+]
+
+[[package]]
+name = "block2"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
+dependencies = [
+ "objc2",
 ]
 
 [[package]]
@@ -591,6 +628,7 @@ name = "borg-app"
 version = "0.9.6"
 dependencies = [
  "anyhow",
+ "argon2",
  "aya",
  "aya-build",
  "base64 0.22.1",
@@ -603,6 +641,7 @@ dependencies = [
  "borg-i18n",
  "borg-jobs",
  "borg-link",
+ "borg-local-auth",
  "borg-relay",
  "borg-rules",
  "borg-term",
@@ -612,14 +651,17 @@ dependencies = [
  "borg-vfs",
  "borg-view",
  "borg-watch-ebpf",
+ "chacha20poly1305",
  "crossterm",
  "dns-lookup",
  "futures",
  "getrandom 0.3.4",
+ "hkdf",
  "hmac 0.12.1",
  "httparse",
  "ignore",
  "jiff",
+ "linux-keyutils",
  "memchr",
  "portable-pty",
  "ratatui",
@@ -630,6 +672,7 @@ dependencies = [
  "rustix",
  "rustls-native-certs",
  "rustls-platform-verifier",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -645,6 +688,7 @@ dependencies = [
  "unicode-width",
  "ureq",
  "uzers",
+ "zeroize",
  "zip",
 ]
 
@@ -775,11 +819,25 @@ dependencies = [
  "anyhow",
  "futures",
  "getrandom 0.3.4",
+ "hkdf",
+ "hmac 0.12.1",
  "rustix",
+ "sha2 0.10.9",
  "snow",
  "tokio",
  "tokio-tungstenite",
  "unicode-width",
+ "zeroize",
+]
+
+[[package]]
+name = "borg-local-auth"
+version = "0.9.6"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-foundation",
+ "objc2-local-authentication",
 ]
 
 [[package]]
@@ -2478,6 +2536,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "linux-keyutils"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83270a18e9f90d0707c41e9f35efada77b64c0e6f3f1810e71c8368a864d5590"
+dependencies = [
+ "bitflags 2.13.2",
+ "libc",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2747,12 +2815,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8"
+dependencies = [
+ "objc2-encode",
+]
+
+[[package]]
 name = "objc2-core-foundation"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
  "bitflags 2.13.2",
+]
+
+[[package]]
+name = "objc2-encode"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33"
+
+[[package]]
+name = "objc2-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2",
 ]
 
 [[package]]
@@ -2763,6 +2856,17 @@ checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
 dependencies = [
  "libc",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-local-authentication"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48e0b8b339e0d9d2ed4416b7f93f9d4daadff7d4dd797f89867cde11aeac607"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-foundation",
 ]
 
 [[package]]
@@ -2913,6 +3017,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "password-hash"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aab41826031698d6ffcd9cff78ef56ef998e39dc7e5067cdfebe373842d4723b"
+dependencies = [
+ "phc",
+]
+
+[[package]]
 name = "pbkdf2"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2980,6 +3093,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b57f92f32b3dbce6598fd8f5cdf1f06a6072570b8103fa21728fa9036923e710"
 dependencies = [
  "pest",
+]
+
+[[package]]
+name = "phc"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44dc769b75f93afdddd8c7fa12d685292ddeff1e66f7f0f3a234cf1818afe892"
+dependencies = [
+ "base64ct",
+ "ctutils",
 ]
 
 [[package]]
@@ -4060,7 +4183,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
 dependencies = [
  "aes-gcm",
- "blake2",
+ "blake2 0.10.6",
  "chacha20poly1305",
  "curve25519-dalek",
  "getrandom 0.3.4",

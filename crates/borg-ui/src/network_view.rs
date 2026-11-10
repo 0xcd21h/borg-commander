@@ -37,7 +37,8 @@ const REACH_FROM: u16 = 56;
 const PORT_WIDTH: u16 = 6;
 const PROTOCOL_WIDTH: u16 = 5;
 const REACH_WIDTH: u16 = 15;
-const PID_WIDTH: u16 = 7;
+/// Seven digits, the longest PID Linux hands out, and a space before the next column.
+const PID_WIDTH: u16 = 8;
 const COUNT_WIDTH: u16 = 6;
 const RATE_WIDTH: u16 = 9;
 const STATE_WIDTH: u16 = 12;

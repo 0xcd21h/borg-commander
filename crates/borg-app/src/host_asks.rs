@@ -4,7 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -170,19 +170,26 @@ async fn listen(
     };
     let answering = async {
         while let Some(command) = commands.recv().await {
-            let event = match carry_out(state.path(), &server, &key.1, &command).await {
-                Ok(event) => event,
-                Err(_) => Some(unsent(&command)),
-            };
-            if let Some(event) = event {
-                tell(messages, key, event);
-            }
+            tokio::spawn(deliver(state.path().to_owned(), server.clone(), key.clone(), command, messages.clone()));
         }
         Ok(())
     };
     tokio::select! {
         result = listening => result,
         result = answering => result,
+    }
+}
+
+/// Carries out one of the user's commands on a task of its own, so neither a listening
+/// connection that drops nor a panel that closes loses it on the way, and tells the user how it
+/// went.
+async fn deliver(state: PathBuf, server: link::Server, key: Key, command: Command, messages: UnboundedSender<Msg>) {
+    let event = match carry_out(&state, &server, &key.1, &command).await {
+        Ok(event) => event,
+        Err(_) => Some(unsent(&command)),
+    };
+    if let Some(event) = event {
+        tell(&messages, &key, event);
     }
 }
 

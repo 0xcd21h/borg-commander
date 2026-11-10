@@ -1549,8 +1549,12 @@ fn dialogs_take_clicks_on_rows_and_key_hints_and_close_when_clicked_beside() -> 
     // Remote hosts: the tabs, the rows and the keys in the border take clicks.
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog { choices: Vec::new(), complete: true });
-    let client =
-        |name: &str| borg_core::RemoteClient { name: name.into(), fingerprint: "aa:bb".into(), connections: None };
+    let client = |name: &str| borg_core::RemoteClient {
+        name: name.into(),
+        fingerprint: "aa:bb".into(),
+        connections: None,
+        key_changed: None,
+    };
     stage.send(Msg::RemoteClients(vec![client("dev@laptop"), client("workstation")]));
     assert!(matches!(stage.state.overlay, Some(Overlay::Remotes(ref browser)) if browser.show_clients));
     let row = tap(&mut stage, "workstation")?.unwrap();
@@ -2156,18 +2160,21 @@ fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<
     stage.send(Msg::RemoteClients(vec![
         borg_core::RemoteClient {
             name: "dev@laptop".into(),
-            fingerprint: "aabb:ccdd:eeff".into(),
+            fingerprint: "aabb-ccdd-eeff-0011".into(),
             connections: Some(3),
+            key_changed: Some(borg_core::KeyChange { when: "2026-11-09".into(), was: "0102-0304-0506-0708".into() }),
         },
         borg_core::RemoteClient {
             name: "workstation".into(),
             fingerprint: "1122:3344:5566".into(),
             connections: Some(0),
+            key_changed: None,
         },
         borg_core::RemoteClient {
             name: "old-host-status".into(),
             fingerprint: "7788:99aa:bbcc".into(),
             connections: None,
+            key_changed: None,
         },
     ]));
     let buffer = stage.render(stage.started)?;
@@ -4406,6 +4413,19 @@ fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
     check("pairing_code", &stage, buffer)
+}
+
+#[test]
+fn a_locked_computer_key_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(Msg::ComputerKeyLocked { wrong: false });
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Unlock key")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("computer_key_password", &stage, buffer)
 }
 
 #[test]

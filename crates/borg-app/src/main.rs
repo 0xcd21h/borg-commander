@@ -101,6 +101,9 @@ fn set_language() {
 /// A subcommand, which does its work and exits.
 async fn subcommand(command: &str) -> Result<ExitCode> {
     let args: Vec<String> = env::args().skip(2).collect();
+    if matches!(command, "pair" | "get" | "put" | "mirror") {
+        link::ask_in_terminal();
+    }
     Ok(match command {
         "sessions" => {
             let Some(state) = session::StateDir::locate() else {
@@ -135,6 +138,10 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
         "pair" => finished("borg pair", link::pair_command(&args).await),
         "get" => finished("borg get", link::get_command(&args).await),
         "put" => finished("borg put", link::put_command(&args).await),
+        "unlock" => finished("borg unlock", link::unlock_command(&args).await),
+        "lock" => finished("borg lock", link::lock_command()),
+        #[cfg(target_os = "linux")]
+        "--key-agent" => finished("borg --key-agent", link::key_agent_command(&args).await),
         "--version" | "-V" => {
             println!("borg {}", update::VERSION);
             ExitCode::SUCCESS

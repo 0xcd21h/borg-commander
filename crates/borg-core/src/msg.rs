@@ -212,6 +212,9 @@ pub enum Msg {
         generation: u64,
         installer: Option<crate::Installer>,
     },
+    ComputerKeyLocked {
+        wrong: bool,
+    },
     /// An archive that needs a password, or a better one than it was given.
     ArchiveLocked {
         side: Side,
@@ -408,6 +411,7 @@ pub enum Effect {
     ShowPlain(String),
     /// Makes a pairing link for borg cloud, for the Connect dialog.
     StartPairing,
+    UnlockComputerKey(crate::Password),
     /// Saves the relay borg cloud goes through, empty for none, and makes a pairing link there.
     SetRelay(String),
     /// Forgets every computer paired through borg cloud, and ends their sessions.

@@ -147,7 +147,7 @@ pub use watch::{
     kept_within,
 };
 
-pub use remote::{RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
+pub use remote::{KeyChange, RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
     COLLECTION_LIMIT, Collection, FirstMatch, PACKED_SHARE, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource,
