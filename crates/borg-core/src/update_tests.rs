@@ -4265,3 +4265,33 @@ fn a_locked_computer_key_asks_for_its_password_and_hands_it_to_the_app() {
     );
     assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_key_locked).into()));
 }
+
+/// A remote panel on the other side leaves the local panel its own work: a new folder there
+/// touches nothing remote. Moving into the remote panel is still refused, and so is a new folder
+/// in the remote panel itself.
+#[test]
+fn a_remote_panel_on_the_other_side_does_not_take_the_local_panels_own_actions() {
+    let (mut state, now) = setup();
+    let unavailable = Some(borg_i18n::tr!(remote_operation_unavailable).to_owned());
+    let remote = crate::RemoteMount {
+        machine: "machine".into(),
+        session: "session".into(),
+        name: "server".into(),
+        host: PathBuf::from("/"),
+    };
+    let other = state.active.other();
+    state.panel_mut(other).remote_mount = Some(remote.clone());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_ne!(state.notice, unavailable);
+    state.overlay = None;
+    crate::actions::perform(&mut state, Action::Move, now);
+    assert_eq!(state.notice, unavailable);
+
+    state.notice = None;
+    state.panel_mut(other).remote_mount = None;
+    let here = state.active;
+    state.panel_mut(here).remote_mount = Some(remote);
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_eq!(state.notice, unavailable);
+}
