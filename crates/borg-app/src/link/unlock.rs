@@ -11,7 +11,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use borg_i18n::tr;
 use std::{
     collections::HashMap,
-    io::{BufRead, Write},
+    io::{BufRead, Read, Write},
     path::{Path, PathBuf},
     sync::{
         Mutex,
@@ -66,29 +66,72 @@ pub(super) fn still_unlocked(state: &Path) -> bool {
     held_key(state).is_some()
 }
 
-fn ask(prompt: &str) -> Result<Zeroizing<String>> {
-    let stdin = std::io::stdin();
-    let terminal = rustix::termios::isatty(&stdin);
-    eprint!("{prompt} ");
-    std::io::stderr().flush().ok();
-    let saved = terminal.then(|| rustix::termios::tcgetattr(&stdin).ok()).flatten();
-    if let Some(saved) = &saved {
-        let mut quiet = saved.clone();
-        quiet.local_modes.remove(rustix::termios::LocalModes::ECHO);
-        rustix::termios::tcsetattr(&stdin, rustix::termios::OptionalActions::Now, &quiet)?;
+const INTERRUPT: u8 = 0x03;
+const END_OF_INPUT: u8 = 0x04;
+const BACKSPACE: [u8; 2] = [0x08, 0x7f];
+const ERASE_LINE: u8 = 0x15;
+const LINE_ENDS: [u8; 2] = [b'\r', b'\n'];
+const UTF8_CONTINUATION: std::ops::RangeInclusive<u8> = 0x80..=0xbf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typed {
+    More,
+    Done,
+    Stopped,
+}
+
+fn type_key(line: &mut Vec<u8>, key: u8) -> Typed {
+    match key {
+        INTERRUPT => return Typed::Stopped,
+        END_OF_INPUT if line.is_empty() => return Typed::Stopped,
+        END_OF_INPUT => return Typed::Done,
+        key if LINE_ENDS.contains(&key) => return Typed::Done,
+        key if BACKSPACE.contains(&key) => while line.pop().is_some_and(|byte| UTF8_CONTINUATION.contains(&byte)) {},
+        ERASE_LINE => line.clear(),
+        key => line.push(key),
     }
+    Typed::More
+}
+
+fn typed_line(keys: impl Iterator<Item = std::io::Result<u8>>) -> Result<Zeroizing<String>> {
+    let mut line = Zeroizing::new(Vec::new());
+    for key in keys {
+        match type_key(&mut line, key?) {
+            Typed::More => {}
+            Typed::Done => return Ok(Zeroizing::new(String::from_utf8_lossy(&line).into_owned())),
+            Typed::Stopped => bail!(tr!(cli_unlock_no_input)),
+        }
+    }
+    if line.is_empty() {
+        bail!(tr!(cli_unlock_no_input));
+    }
+    Ok(Zeroizing::new(String::from_utf8_lossy(&line).into_owned()))
+}
+
+fn piped_line(stdin: &std::io::Stdin) -> Result<Zeroizing<String>> {
     let mut line = Zeroizing::new(String::new());
-    let read = stdin.lock().read_line(&mut line);
-    if let Some(saved) = &saved {
-        rustix::termios::tcsetattr(&stdin, rustix::termios::OptionalActions::Now, saved)?;
-        eprintln!();
-    }
-    if read? == 0 {
+    if stdin.lock().read_line(&mut line)? == 0 {
         bail!(tr!(cli_unlock_no_input));
     }
     let len = line.trim_end_matches(['\r', '\n']).len();
     line.truncate(len);
     Ok(line)
+}
+
+fn ask(prompt: &str) -> Result<Zeroizing<String>> {
+    use rustix::termios::{LocalModes, OptionalActions, tcgetattr, tcsetattr};
+    let stdin = std::io::stdin();
+    eprint!("{prompt} ");
+    std::io::stderr().flush().ok();
+    let saved = rustix::termios::isatty(&stdin).then(|| tcgetattr(&stdin).ok()).flatten();
+    let Some(saved) = saved else { return piped_line(&stdin) };
+    let mut quiet = saved.clone();
+    quiet.local_modes.remove(LocalModes::ECHO | LocalModes::ICANON | LocalModes::ISIG);
+    tcsetattr(&stdin, OptionalActions::Now, &quiet)?;
+    let line = typed_line(stdin.lock().bytes());
+    tcsetattr(&stdin, OptionalActions::Now, &saved)?;
+    eprintln!();
+    line
 }
 
 fn stretching() {
@@ -261,4 +304,31 @@ pub(super) async fn command(state: PathBuf, args: &[String]) -> Result<()> {
     }
     println!("{}", tr!(cli_unlocked));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn typed(keys: &[u8]) -> Option<String> {
+        typed_line(keys.iter().copied().map(Ok)).ok().map(|line| line.to_string())
+    }
+
+    #[test]
+    fn a_password_is_what_was_typed_up_to_enter_with_corrections_applied() {
+        assert_eq!(typed(b"secret\nmore"), Some("secret".into()));
+        assert_eq!(typed(b"secrex\x7ft\r"), Some("secret".into()));
+        assert_eq!(typed("pa\u{df}\u{4e16}\x08\x7fss\n".as_bytes()), Some("pass".into()));
+        assert_eq!(typed(b"wrong\x15right\n"), Some("right".into()));
+        assert_eq!(typed(b"\x7f\n"), Some(String::new()));
+        assert_eq!(typed(b"piped"), Some("piped".into()));
+    }
+
+    #[test]
+    fn interrupting_the_prompt_gives_no_password_instead_of_ending_borg_with_echo_off() {
+        assert_eq!(typed(b"secr\x03"), None);
+        assert_eq!(typed(b"\x04"), None);
+        assert_eq!(typed(b""), None);
+        assert_eq!(typed(b"secret\x04"), Some("secret".into()));
+    }
 }
