@@ -318,7 +318,7 @@ impl Service {
         match event {
             PtyEvent::Output(bytes) => {
                 if let Some(child) = self.children.get(id) {
-                    feed(&mut child.lock().expect("child lock"), bytes);
+                    feed(&mut child.lock().expect("child lock"), &bytes);
                 }
             }
             PtyEvent::Closed => {
@@ -557,17 +557,17 @@ fn relay(config: &Config) -> Option<borg_link::Relay> {
 
 /// A session's output: its screen takes it and may answer the program, the latest of it stays
 /// for clients that attach later, and the clients attached get it.
-fn feed(child: &mut Child, bytes: Vec<u8>) {
-    child.emulator.feed(&bytes);
+fn feed(child: &mut Child, bytes: &[u8]) {
+    child.emulator.feed(bytes);
     for answer in child.emulator.drain_replies() {
         let _ = child.pty.write(answer.as_bytes());
     }
     child.sequence = child.sequence.saturating_add(bytes.len() as u64);
-    child.replay.extend(&bytes);
+    child.replay.extend(bytes);
     while child.replay.len() > REPLAY_LIMIT {
         child.replay.pop_front();
     }
-    let _ = child.output.send(bytes);
+    let _ = child.output.send(bytes.to_vec());
 }
 
 #[cfg(test)]

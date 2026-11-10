@@ -129,7 +129,7 @@ impl Server {
                         if host.bytes.len() + bytes.len() > BUFFER_LIMIT {
                             host.overflow = true;
                         } else {
-                            host.bytes.extend(bytes);
+                            host.bytes.extend(bytes.iter());
                         }
                     }
                     PtyEvent::Closed => host.closed = true,
