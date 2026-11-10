@@ -922,8 +922,8 @@ Hardened Runtime, поэтому другие программы не могут
 пользоваться связкой ключей ядра, например во многих контейнерах и системных службах, ключ хранит
 небольшой процесс Borg, отвечающий на сокете в папке `link`, который можете открыть только вы;
 процесс завершается через 12 часов без обращений. Когда ключ заблокирован, Borg спрашивает пароль:
-панели открывают диалог **Разблокировка ключа**, а `borg pair`, `borg get` и `borg put` спрашивают
-его в терминале. `borg mcp remote`, который Claude запускает без терминала, сообщает, что нужно
+панели открывают диалог **Разблокировка ключа**, а `borg pair`, `borg get`, `borg put` и `borg mirror`
+спрашивают его в терминале. `borg mcp remote`, который Claude запускает без терминала, сообщает, что нужно
 выполнить `borg unlock`.
 
 `borg unlock --ssh-agent` также позволяет разблокировать ключ через ваш ssh-agent. Borg просит
@@ -1470,7 +1470,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 

@@ -368,7 +368,7 @@ Borg 会将中继以 `relay = "wss://relay.example.com"` 的形式保存在配�
 
 在 Linux 上，Borg 用你选择的密码封存计算机密钥，保存在文件 `computer-key.sealed` 中，该文件位于 `link` 文件夹。在终端中运行 `borg unlock` 来选择密码：Borg 会建议四个随机单词，它们容易输入又难以猜中，并要求你输入两次密码。Borg 使用 Argon2id 加固密码，这需要几秒钟和 1 GiB 内存，在内存少于 8 GiB 的机器上则使用八分之一的内存，因此用文件副本猜测密码会很慢。旧版 Borg 留下的计算机密钥文件会在你第一次运行 `borg unlock` 时被封存，随后该文件会被删除；在此之前，Borg 会提示你运行该命令。当 `$BORG_STATE_DIR` 指向常用位置以外的状态文件夹时，Borg 在 Linux 上同样把计算机密钥保存为不设密码的普通文件。
 
-解锁后，密钥会保存在你的用户的内核密钥环中，直到 Borg 连续 12 小时没有使用它，每次使用都会重新开始计算这 12 小时。重启会锁定它，`borg lock` 会立即锁定它。在 Borg 无法使用内核密钥环的环境中，例如许多容器和系统服务中，会由一个小型 Borg 进程保管密钥，它在 `link` 文件夹中一个只有你能打开的套接字上应答，连续 12 小时未被使用后便会退出。密钥被锁定时，Borg 会询问密码：面板会打开 **解锁密钥** 对话框，`borg pair`、`borg get` 和 `borg put` 会在终端中询问。Claude 在没有终端的情况下启动的 `borg mcp remote` 会提示你运行 `borg unlock`。
+解锁后，密钥会保存在你的用户的内核密钥环中，直到 Borg 连续 12 小时没有使用它，每次使用都会重新开始计算这 12 小时。重启会锁定它，`borg lock` 会立即锁定它。在 Borg 无法使用内核密钥环的环境中，例如许多容器和系统服务中，会由一个小型 Borg 进程保管密钥，它在 `link` 文件夹中一个只有你能打开的套接字上应答，连续 12 小时未被使用后便会退出。密钥被锁定时，Borg 会询问密码：面板会打开 **解锁密钥** 对话框，`borg pair`、`borg get`、`borg put` 和 `borg mirror` 会在终端中询问。Claude 在没有终端的情况下启动的 `borg mcp remote` 会提示你运行 `borg unlock`。
 
 `borg unlock --ssh-agent` 还允许你的 ssh-agent 解锁该密钥。Borg 会请求代理用 Ed25519 密钥签署一个固定的质询，没有 Ed25519 密钥时则使用 RSA 密钥，并用该签名再封存一次密钥。此后，只要能连接到该代理，Borg 就会直接解锁密钥而不再询问，密码也依然有效。Borg 会检查代理两次签名是否相同，并拒绝签名会变化的密钥。任何能使用你的代理的人都能生成同样的签名：如果你用 `ssh -A` 转发代理，远程机器上的 root 在你连接期间就能使用它，再加上一份封存文件的副本即可解锁此密钥。只把代理转发到你信任的机器，否则就不要开启此功能。`borg unlock --no-ssh-agent` 会再次关闭它。
 
@@ -568,7 +568,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 

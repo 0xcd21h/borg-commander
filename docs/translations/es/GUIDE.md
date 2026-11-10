@@ -949,7 +949,7 @@ bloquea, y `borg lock` la bloquea al instante. Donde Borg no puede usar el keyri
 en muchos contenedores y servicios del sistema, un pequeño proceso de Borg guarda la clave, en un
 socket de la carpeta `link` que solo tú puedes abrir, y termina tras 12 horas sin uso. Cuando la
 clave está bloqueada, Borg pide la contraseña: los paneles abren el diálogo **Desbloquear clave**, y
-`borg pair`, `borg get` y `borg put` la piden en la terminal. `borg mcp remote`, que Claude inicia
+`borg pair`, `borg get`, `borg put` y `borg mirror` la piden en la terminal. `borg mcp remote`, que Claude inicia
 sin terminal, te indica que ejecutes `borg unlock`.
 
 `borg unlock --ssh-agent` permite además que tu ssh-agent desbloquee la clave. Borg pide al agente
@@ -1506,7 +1506,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 

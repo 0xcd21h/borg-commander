@@ -1802,7 +1802,7 @@
   "session_detail_terminal": "Этот сеанс открыт в Borg в другом терминале. Закройте там Borg, чтобы открыть сеанс здесь.",
   "session_detail_service": "Фоновая служба поддерживает этот сеанс в работе. Enter подключает к нему, Ctrl-] отключает.",
   "session_kept_by_terminal": "Сеанс «{name}» открыт в другом терминале. Закройте там Borg, прежде чем удалять его.",
-  "session_kept_by_service": "Фоновая служба поддерживает сеанс «{name}» в работе. Чтобы удалить его, сначала выполните borg service stop.",
+  "session_kept_by_service": "Фоновая служба поддерживает сеанс «{name}» в работе. Чтобы удалить его, откройте его командой borg service attach NAME и выйдите из него по F10.",
   "session_open_elsewhere": "Сеанс «{name}» открыт в другом терминале. Закройте там Borg, чтобы открыть его здесь.",
   "session_removed": "Сеанс «{name}» удалён.",
   "session_remove_failed": "Не удалось удалить сеанс «{name}»: {error}",

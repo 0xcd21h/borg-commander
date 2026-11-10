@@ -872,7 +872,7 @@ it, and every use starts the 12 hours again. A restart locks it, and `borg lock`
 Where Borg cannot use the kernel keyring, as in many containers and system services, a small Borg
 process holds the key instead, on a socket in the `link` folder that only you can open, and it ends
 after 12 hours without use. When the key is locked, Borg asks for the password: the panels open the
-**Unlock key** dialog, and `borg pair`, `borg get` and `borg put` ask in the terminal.
+**Unlock key** dialog, and `borg pair`, `borg get`, `borg put` and `borg mirror` ask in the terminal.
 `borg mcp remote`, which Claude starts without a terminal, says to run `borg unlock`.
 
 `borg unlock --ssh-agent` also lets your ssh-agent unlock the key. Borg asks the agent to sign a
@@ -1383,7 +1383,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 

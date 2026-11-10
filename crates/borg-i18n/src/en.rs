@@ -1815,7 +1815,7 @@ catalog! {
     session_detail_terminal => "Borg has this session open in another terminal. Quit Borg there to open it here.",
     session_detail_service => "The background service keeps this session running. Enter attaches to it, and Ctrl-] detaches again.",
     session_kept_by_terminal => "\"{name}\" is open in another terminal. Quit Borg there before removing it.",
-    session_kept_by_service => "The background service keeps \"{name}\" running. Run borg service stop first to remove it.",
+    session_kept_by_service => "The background service keeps \"{name}\" running. To remove it, open it with borg service attach NAME and quit with F10.",
     session_open_elsewhere => "\"{name}\" is open in another terminal. Quit Borg there to open it here.",
     session_removed => "Session \"{name}\" removed.",
     session_remove_failed => "Could not remove \"{name}\": {error}",

@@ -952,7 +952,7 @@ Borg a usar, e cada utilização volta a contar as 12 horas desde o início. Um 
 contentores e serviços do sistema, um pequeno processo do Borg guarda a chave, num socket da pasta
 `link` que só o utilizador pode abrir, e termina após 12 horas sem uso. Quando a chave está
 bloqueada, o Borg pede a palavra-passe: os painéis abrem o diálogo **Desbloquear chave**, e
-`borg pair`, `borg get` e `borg put` pedem-na no terminal. `borg mcp remote`, que o Claude inicia
+`borg pair`, `borg get`, `borg put` e `borg mirror` pedem-na no terminal. `borg mcp remote`, que o Claude inicia
 sem terminal, indica que deve executar `borg unlock`.
 
 `borg unlock --ssh-agent` permite também que o ssh-agent desbloqueie a chave. O Borg pede ao agente
@@ -1504,7 +1504,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 
