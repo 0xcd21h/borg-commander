@@ -30,13 +30,14 @@ mod list;
 pub(crate) use controls::{file_work_label, keybar, panel_mouse, status};
 use details::draw_details;
 pub(crate) use details::{Facts, Series, charts, tiles};
-use list::{columns, cpu, dot, draw_list, project_name, running_of, tone, working_label};
+use list::{columns, cpu, cpu_cells, dot, draw_list, project_name, running_of, tone, working_label};
 
-const CPU_WIDTH: u16 = 7;
+/// Wide enough for a figure such as 1200.0, a container busy on twelve cores.
+const CPU_WIDTH: u16 = 6;
 const MEMORY_WIDTH: u16 = 8;
 const STATUS_WIDTH: u16 = 26;
-/// Panes narrower than this leave out the status column.
-const STATUS_FROM: u16 = 56;
+/// The fewest cells a list row leaves for the name before it gives up optional columns.
+const NAME_MIN: u16 = 12;
 const LABEL_WIDTH: u16 = 10;
 const CHART_MIN_ROWS: u16 = 6;
 const SIDE_BY_SIDE_FROM: u16 = 50;

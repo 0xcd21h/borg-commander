@@ -5,6 +5,7 @@
 use borg_i18n::tr;
 use std::{
     collections::{HashMap, HashSet},
+    ops::Add,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -159,13 +160,28 @@ pub struct DockerGroup {
     pub running: usize,
 }
 
+/// CPU use in hundredths of a percent of one core: the latest reading, and the average over
+/// the last few seconds rounded to the step the view shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CpuUse {
+    pub now: u64,
+    pub average: u64,
+}
+
+impl Add for CpuUse {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self { now: self.now + other.now, average: self.average + other.average }
+    }
+}
+
 /// A container's recent CPU and memory, one sample a second.
 #[derive(Debug, Clone)]
 pub struct Usage {
     pub cpu: Vec<u64>,
     pub memory: Vec<u64>,
     pub latest: Stats,
-    /// CPU use averaged over the last few seconds, which the view shows.
     average: CpuAverage,
 }
 
@@ -174,10 +190,8 @@ impl Usage {
         Self { cpu: Vec::new(), memory: Vec::new(), latest: stats, average: CpuAverage::next(None, stats.cpu, now) }
     }
 
-    /// CPU use averaged over the last few seconds, in hundredths of a percent of one core,
-    /// rounded to the step the view shows.
-    pub fn average_cpu(&self) -> u32 {
-        self.average.shown()
+    pub fn cpu_use(&self) -> CpuUse {
+        CpuUse { now: u64::from(self.latest.cpu), average: u64::from(self.average.shown()) }
     }
 }
 
@@ -283,14 +297,13 @@ impl Docker {
         self.working.iter().find(|w| w.ids.iter().any(|i| i == id)).map(|w| w.action)
     }
 
-    /// Total CPU (hundredths of a percent, averaged over the last few seconds) and memory of a
-    /// group's running containers.
-    pub fn group_usage(&self, group: &DockerGroup) -> (u64, u64) {
+    /// Total CPU and memory of a group's running containers.
+    pub fn group_usage(&self, group: &DockerGroup) -> (CpuUse, u64) {
         group
             .containers
             .iter()
             .filter_map(|&i| self.usage.get(&self.containers[i].id))
-            .fold((0, 0), |(cpu, memory), usage| (cpu + u64::from(usage.average_cpu()), memory + usage.latest.memory))
+            .fold((CpuUse::default(), 0), |(cpu, memory), usage| (cpu + usage.cpu_use(), memory + usage.latest.memory))
     }
 
     pub fn list_start(&self, height: usize) -> usize {

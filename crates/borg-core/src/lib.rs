@@ -79,7 +79,7 @@ pub use discovery::{
     SKIP_FIELD, SearchForm, SearchKind, SearchOptions,
 };
 pub use docker::{
-    ContainerShell, Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, Docker, DockerData,
+    ContainerShell, CpuUse, Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, Docker, DockerData,
     DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, NoCleanup, ShellRequest, Usage, Working,
     container_shell_busy, shell_rect,
 };
