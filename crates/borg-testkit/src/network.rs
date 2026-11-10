@@ -11,6 +11,8 @@ use crate::Stage;
 
 /// Seconds of samples, enough to fill the charts' recent half.
 pub const SECONDS: u64 = 30;
+/// The web app's PID, seven digits long like the PIDs a busy Linux machine hands out.
+pub const NODE: u32 = 4_013_900;
 
 /// Opens the network screen with Alt-N and gives it `SECONDS` of samples a second apart and
 /// the names of the hosts connections go to. Answers the time to render at.
@@ -82,11 +84,11 @@ pub fn sample(second: u64) -> NetworkSample {
         connected(
             "127.0.0.1:61001",
             "127.0.0.1:5432",
-            Some(4100),
+            Some(NODE),
             (moved_by(second, 9_000, 30_000), moved_by(second, 300, 600)),
         ),
         listen("127.0.0.1:6379", 977),
-        listen("192.0.2.20:3000", 4100),
+        listen("192.0.2.20:3000", NODE),
         socket(
             Transport::Udp,
             "0.0.0.0:5353",
@@ -131,7 +133,7 @@ pub fn sample(second: u64) -> NetworkSample {
         (301, "sshd"),
         (812, "postgres"),
         (977, "redis-server"),
-        (4100, "node"),
+        (NODE, "node"),
         (188, "mDNSResponder"),
         (8239, "browser"),
         (6120, "mail"),

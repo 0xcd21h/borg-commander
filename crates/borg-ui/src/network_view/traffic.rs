@@ -2,7 +2,7 @@
 //! pane, and the selected row's details, or a packet's layers and bytes, in the other.
 
 use super::{
-    FILTER_ROW, HEADER_ROW, TABS_ROW, UNKNOWN, frame,
+    FILTER_ROW, HEADER_ROW, PID_WIDTH, TABS_ROW, UNKNOWN, frame,
     list::{FilterLine, filter_line},
     spread, tab_cells,
 };
@@ -19,7 +19,6 @@ use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use std::{fmt::Write, net::IpAddr, time::Duration};
 use unicode_width::UnicodeWidthStr;
 
-const PID_WIDTH: u16 = 7;
 const COUNT_WIDTH: u16 = 7;
 const BYTES_WIDTH: u16 = 9;
 const PROCESS_WIDTH: u16 = 16;

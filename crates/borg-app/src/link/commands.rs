@@ -1,12 +1,44 @@
 //! `borg pair`, `borg get` and `borg put`.
 
-use super::{Remote, download_in_session, forget_server, pair, server, servers, state_dir, upload_in_session};
+use super::{
+    Remote, download_in_session, forget_server,
+    keys::{computer_info, lagging_too_long, new_computer_key, takes_old_key},
+    pair, server, servers, state_dir, upload_in_session,
+};
 use anyhow::{Context, Result, bail};
+use borg_i18n::tr;
 use borg_link::{fingerprint, unhex};
 use std::path::{Path, PathBuf};
 
-/// `borg pair [LINK | --forget NAME]`: pairs this computer with the borg that shows LINK,
-/// or lists the paired ones, or forgets one.
+pub async fn unlock_command(args: &[String]) -> Result<()> {
+    let state = state_dir()?;
+    #[cfg(target_os = "linux")]
+    return super::unlock::command(state, args).await;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, args);
+        println!("{}", tr!(cli_unlock_not_needed));
+        Ok(())
+    }
+}
+
+pub fn lock_command() -> Result<()> {
+    let state = state_dir()?;
+    #[cfg(target_os = "linux")]
+    {
+        let locked = super::unlock::lock(&state);
+        println!("{}", if locked { tr!(cli_locked) } else { tr!(cli_lock_already) });
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = state;
+        println!("{}", tr!(cli_unlock_not_needed));
+    }
+    Ok(())
+}
+
+/// `borg pair [LINK | --forget NAME | --new-key]`: pairs this computer with the borg that shows
+/// LINK, or lists the paired ones, forgets one, or gives this computer a new key.
 pub async fn pair_command(args: &[String]) -> Result<()> {
     let state = state_dir()?;
     match args {
@@ -15,9 +47,23 @@ pub async fn pair_command(args: &[String]) -> Result<()> {
             if servers.is_empty() {
                 println!("No borg is paired with this computer. In borg on a server, press F1 then C for a link.");
             }
+            let info = computer_info(&state);
+            let mut lagging = false;
             for server in servers {
                 println!("{}  {}  {}", server.name, server.relay, fingerprint(&unhex(&server.key).unwrap_or_default()));
+                if takes_old_key(&server, info.as_ref()) {
+                    lagging = true;
+                    println!("  {}", tr!(cli_pair_old_key));
+                }
             }
+            if lagging && info.as_ref().is_some_and(lagging_too_long) {
+                println!("\n{}", tr!(cli_pair_old_key_long));
+            }
+            Ok(())
+        }
+        [flag] if flag == "--new-key" => {
+            new_computer_key(&state)?;
+            println!("{}", tr!(cli_pair_new_key));
             Ok(())
         }
         [flag, name] if flag == "--forget" => {
@@ -43,7 +89,7 @@ pub async fn pair_command(args: &[String]) -> Result<()> {
             offer_claude(&args);
             Ok(())
         }
-        _ => bail!("usage: borg pair [LINK | --forget NAME]"),
+        _ => bail!("usage: borg pair [LINK | --forget NAME | --new-key]"),
     }
 }
 

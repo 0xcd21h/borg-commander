@@ -796,18 +796,79 @@ Remote access dialog forgets every paired computer. Through borg cloud, Claude a
 `borg get NAME:PATH [TO]` and `borg put FROM NAME:PATH` do the same from your terminal. Uploads
 wait for your approval in borg, and every approval names the computer that asked.
 
-The connection is encrypted end to end. Each borg keeps a private key, readable only by you, in
-its state folder. Pairing exchanges the public keys, and every connection opens with a Noise IK
-handshake bound to them, so the relay only ever forwards ciphertext and cannot answer in either
-borg's name. Calls from another computer can read without asking, just like local ones; turn on
-"ask before another computer reads" in Options → Plugins to make those reads wait for approval
-too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
-none at all when borg cloud is turned off in Options → Plugins.
+The connection is encrypted end to end. Every borg keeps a server key, which paired computers know
+it by, and a computer that reaches servers also keeps a computer key of its own. Both are readable
+only by you. The server key is a file in the `link` folder of the state folder. The computer key is
+a file there too. On a Mac it lives in your login keychain instead, and on Linux the file is sealed
+with a password (see [Computer keys](#computer-keys)). Pairing exchanges the public keys, and every
+connection opens with a Noise IK handshake bound to them, so the relay only ever forwards ciphertext
+and cannot answer in either borg's name. Calls from another computer can read without asking, just
+like local ones; turn on "ask before another computer reads" in Options → Plugins to make those
+reads wait for approval too. Borg keeps no connection to the relay unless it is paired or showing a
+pairing link, and none at all when borg cloud is turned off in Options → Plugins.
 
 Borg saves the relay in the config as `relay = "wss://relay.example.com"`. A computer reaches the
 server through the relay it paired through, so after the server switches relays, pair the
-computer again. All borgs on one machine share a key, so only the first one opened connects to
-the relay; the others tell you which one has borg cloud.
+computer again. All borgs on one machine share their keys, so only the first one opened connects
+to the relay; the others tell you which one has borg cloud.
+
+#### Computer keys
+
+The computer key proves to each paired server that a connection comes from your computer. When a
+server still knows this computer by another key, such as this machine's server key, Borg moves it
+to the computer key the next time it opens a session there. Borg proves to the server that it
+holds the new key, and the server swaps the key in that computer's entry and keeps its name.
+Connections that still use the old key end at their next call. The server shows a notice and
+writes both fingerprints to the agent log, and its **Clients** list shows when the key changed and
+what it was. A server running an older Borg keeps the old key until it is updated.
+
+On a Mac, Borg keeps the computer key in your login keychain, as an item named **Borg Commander**
+that only Borg may read without asking you. The first time a Borg process needs the key, macOS asks
+for Touch ID or your password, so even a program that starts `borg` on its own shows itself. After
+each Borg update, macOS also asks once whether the new Borg may use the item; choose **Always
+Allow**. A computer key file from an earlier Borg moves into the keychain the first time Borg uses
+it, and the file is deleted. A Borg that runs without the Mac's screen, such as over SSH or in the
+background service, cannot show the prompt and cannot reach servers. When `$BORG_STATE_DIR` names a
+state folder other than the usual one, Borg keeps the computer key as a file in that folder's `link`
+folder. Borg's macOS releases are signed with the Hardened Runtime, so other programs cannot read
+Borg's memory or load code into it.
+
+On Linux, Borg seals the computer key with a password you choose, in the file `computer-key.sealed`
+in the `link` folder. Run `borg unlock` in a terminal to choose it: Borg suggests four random words,
+which are easy to type and hard to guess, and asks for the password twice. Borg stretches the
+password with Argon2id, which takes a few seconds and 1 GiB of memory, or an eighth of the memory on
+a machine with less than 8 GiB, so guessing it from a copy of the file is slow. A computer key file
+from an earlier Borg is sealed the first time you run `borg unlock`, and the file is deleted; until
+then, Borg asks you to run it. When `$BORG_STATE_DIR` names a state folder other than the usual one,
+Borg on Linux also keeps the computer key as a plain file, with no password.
+
+Once unlocked, the key stays in your user's kernel keyring until 12 hours pass without Borg using
+it, and every use starts the 12 hours again. A restart locks it, and `borg lock` locks it at once.
+Where Borg cannot use the kernel keyring, as in many containers and system services, a small Borg
+process holds the key instead, on a socket in the `link` folder that only you can open, and it ends
+after 12 hours without use. When the key is locked, Borg asks for the password: the panels open the
+**Unlock key** dialog, and `borg pair`, `borg get` and `borg put` ask in the terminal.
+`borg mcp remote`, which Claude starts without a terminal, says to run `borg unlock`.
+
+`borg unlock --ssh-agent` also lets your ssh-agent unlock the key. Borg asks the agent to sign a
+fixed challenge with an Ed25519 key, or with an RSA key when it holds none, and seals the key a
+second time with that signature. From then on, Borg unlocks the key without asking while that agent
+is reachable, and the password keeps working. Borg checks that the agent signs the same way twice,
+and refuses a key whose signatures change. Anyone who can use your agent can make the same
+signature: when you forward it with `ssh -A`, root on the far machine can use it while you are
+connected, and with a copy of the sealed file could unlock this key. Forward the agent only to
+machines you trust, or leave this off. `borg unlock --no-ssh-agent` turns it off again.
+
+`borg pair --new-key` gives this computer a new key, and each server takes it the next time Borg
+connects to it. Until every server has, Borg keeps the old key too, and `borg pair` marks each
+server that still takes it. A week later it also suggests forgetting servers you no longer use,
+with `borg pair --forget NAME`.
+
+When a server refuses every key this computer holds, Borg says so. Either someone forgot this
+computer on that server, or someone with a copy of its key moved the server to a key of their own
+first. A new key is hygiene and does not undo a leak. If you think someone copied a key, press F8
+in Remote access on every server to forget the paired computers, pair again, and check those
+servers.
 
 ### Named sessions and the background service
 
@@ -896,7 +957,8 @@ that panel showed. Press **M** to mirror the session's screen, and **R** to refr
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
-fingerprints, whether they are connected, and how many connections each has. A computer is listed
+fingerprints, whether they are connected, and how many connections each has. After a computer
+changed its key, the fingerprint line also says on which day, and the fingerprint it had before. A computer is listed
 once even when a mirror uses several connections. Status updates while the picker is open,
 including in a session whose connections are held by the background service. Pairing works in
 one direction only: an allowed client does not automatically become a host whose files this Borg

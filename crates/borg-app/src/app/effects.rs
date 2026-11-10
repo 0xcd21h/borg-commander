@@ -95,6 +95,7 @@ impl App {
             Effect::Copy(text) => self.copy(text),
             Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
             Effect::StartPairing => self.start_pairing(),
+            Effect::UnlockComputerKey(password) => self.unlock_computer_key(password),
             Effect::SetRelay(text) => self.set_relay(&text),
             Effect::ForgetComputers => self.forget_computers(),
             Effect::AgentAnswer { id, approved } => return self.agent_answer(id, approved),
