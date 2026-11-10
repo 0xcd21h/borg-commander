@@ -29,6 +29,10 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 (tr!(activity_filter_button), KeyCode::Char('/')),
                 (tr!(activity_signal_button), KeyCode::Char('k')),
                 (tr!(entropy_button), KeyCode::Char('e')),
+                (
+                    if activity.hide_idle { tr!(activity_show_idle_button) } else { tr!(activity_hide_idle_button) },
+                    KeyCode::Char('h'),
+                ),
                 (tr!(activity_pause_button), KeyCode::Char(' ')),
                 (
                     if activity.from_network { tr!(activity_back_button) } else { tr!(activity_close_button) },

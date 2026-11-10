@@ -171,7 +171,10 @@ first bundled plugin; there is no external plugin loader yet.
 ### System monitor
 
 `borg-core::activity` owns process selection, bounded memory history, sorting,
-inspection requests, search state, and snapshots. The monitor uses the regular
+inspection requests, search state, and snapshots. CPU is averaged per process and for the
+system (`activity::cpu::CpuAverage`): each sample's weight fades over `CPU_WINDOW` by the time
+it covers, and the list shows, sorts and hides idle processes by the average rounded to
+`CPU_STEP`. The Docker view averages container CPU the same way. The monitor uses the regular
 split layout with a list pane and preview pane. Enter opens a process in an inspection
 window over the monitor; `AppState::layout` returns the window's two panes, so keys,
 scrolling and mouse hits follow it, while the renderer draws the monitor beneath from

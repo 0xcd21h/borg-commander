@@ -143,6 +143,10 @@ pub(crate) fn row(area: Rect, offset: u16) -> Rect {
 fn size(value: Option<u64>) -> String {
     value.map_or_else(|| "—".into(), format::size)
 }
+/// CPU use in hundredths of a percent, as a percentage with one decimal.
+fn percent(value: Option<u32>) -> String {
+    value.map_or_else(|| "—".into(), |v| format!("{:.1}%", f64::from(v) / 100.0))
+}
 /// Draws the activity monitor. Inspecting a process opens a window over it, holding the
 /// inspection list and its preview, while the process list and overview stay beneath.
 pub(crate) fn draw(
@@ -320,11 +324,9 @@ fn summary(activity: &Activity, page: ActivityPage, processes: bool) -> String {
             )
         });
     }
-    let cores = activity.sample.cpu.len().max(1) as u64;
-    let cpu_total = activity.sample.cpu.iter().map(|&c| u64::from(c)).sum::<u64>() / cores;
     tr!(
         activity_overview,
-        cpu = format_args!("{:.1}%", cpu_total as f64 / 100.0),
+        cpu = percent(activity.system_cpu()),
         used = format::size(activity.sample.used),
         total = format::size(activity.sample.total),
         swap = format::size(activity.sample.swap_used),

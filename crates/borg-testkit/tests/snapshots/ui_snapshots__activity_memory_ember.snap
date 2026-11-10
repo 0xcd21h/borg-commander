@@ -5,12 +5,12 @@ expression: describe(&buffer)
 ╭ Activity monitor · Live · 1s ───────────────────────────[+]─[-]╮╭ Process memory · Live · 1s ─────────────────────────────[+]─[-]╮
 │CPU 38.0% · RAM 17G/30G · Swap 244M/3.7G · 5 processes          ││CPU 38.0% · RAM 17G/30G · Swap 244M/3.7G · 5 processes          │
 │/ Filter processes                                              ││compiler · PID 410 · /usr/local/bin/compiler                    │
-│PID    CPU %  RAM ↓     Name                                    ││                                                                │
-│410    320.0  2.5G      compiler                                ││Resident    Peak        Change      CPU         Virtual         │
-│411    84.0   843M      language-server                         ││2.5G        2.5G        ▲ 69M       320.0%      7.3G            │
-│412    11.0   683M      database                                ││                                                                │
-│413    1.2    109M      borg                                    ││Resident memory                                             2.5G│
-│414    0.0    76M       shell                                   ││2.50G ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
+│PID    CPU %   RAM ↓     Name                                   ││                                                                │
+│410    320.0   2.5G      compiler                               ││Resident    Peak        Change      CPU         Virtual         │
+│411    84.0    843M      language-server                        ││2.5G        2.5G        ▲ 69M       320.0%      7.3G            │
+│412    11.0    683M      database                               ││                                                                │
+│413    1.2     109M      borg                                   ││Resident memory                                             2.5G│
+│414    0.0     76M       shell                                  ││2.50G ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
 │                                                                ││                                                               ▂│
 │                                                                ││                                                              ▁█│
 │                                                                ││                                                              ██│

@@ -512,7 +512,8 @@ panels are idle. **Refresh status** in the Git menu checks again right away.
 project, with containers that are not part of a project at the end. The other panel shows the
 selected container: its status, ports, networks, mounts, command, and restart policy, plus live
 CPU, memory, network, and disk use with a chart of the last minute. For a project, it shows the
-project's folder, its containers, and their combined use. Esc closes the view.
+project's folder, its containers, and their combined use. CPU figures are averaged over the last
+few seconds, like the activity monitor's, so they read steadily. Esc closes the view.
 
 | Key | Action |
 | --- | --- |
@@ -1506,6 +1507,13 @@ one fully busy core. Resident pages shared between processes count toward each o
 up the RAM of all processes does not give the system total. CPU and disk rates appear from the
 second sample on.
 
+CPU is an average of the last few seconds in which older use fades out, as in `top`, so a list
+sorted by CPU holds still while a process works in short bursts. The overview and the system CPU
+at the top of the monitor are averaged the same way. **H** hides the processes that used no CPU
+in that time, and the filter row says how many are hidden. A process that goes quiet stays listed
+until its average falls to 0.0. In the tree, the processes a busy one descends from stay listed
+with it. Press H again to show them all.
+
 | Key | Action |
 | --- | --- |
 | Enter | Open the process's memory map / move to the region preview |
@@ -1513,6 +1521,7 @@ second sample on.
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; press again to reverse |
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
+| H | Hide or show the processes that used no CPU in the last few seconds |
 | Left / Right | In the tree, fold the selected process's branch or unfold it |
 | K | Send a signal or change the priority |
 | E | Scan every process for high entropy |

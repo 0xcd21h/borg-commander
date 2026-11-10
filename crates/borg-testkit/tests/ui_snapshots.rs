@@ -2670,6 +2670,20 @@ fn activity_stage() -> Result<Stage> {
 }
 
 #[test]
+fn activity_hides_idle_processes_and_says_how_many() -> Result<()> {
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('c'))).send(key(KeyCode::Char('h')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 idle hidden")?;
+    ensure_text(&buffer, "H Show idle")?;
+    check("activity_idle_hidden", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Char('s'))).send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 of 5")?;
+    check("activity_idle_hidden_filtered", &stage, buffer)
+}
+
+#[test]
 fn activity_signal_dialog_lists_signals_and_priority_steps() -> Result<()> {
     use borg_core::{ActivityRequest, ProcessControl, ProcessSignal};
     let mut stage = activity_stage()?;
@@ -3719,9 +3733,10 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     let ids: Vec<String> = containers.iter().map(|c| c.id.clone()).collect();
     stage
         .send(Msg::Docker { id, result: Ok(DockerData::Listed { context: Some("desktop-linux".into()), containers }) });
-    for second in 0..40u64 {
+    let seconds = 40u64;
+    for second in 0..seconds {
         let wave = (second as f64 / 4.0).sin().abs();
-        stage.send(Msg::DockerStats(vec![
+        let frame = vec![
             (
                 ids[0].clone(),
                 Stats {
@@ -3740,7 +3755,9 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
                 Stats { cpu: 120, memory: 420_000_000, memory_limit: 8_000_000_000, pids: 31, ..Stats::default() },
             ),
             (ids[3].clone(), Stats { memory: 64_000_000, ..Stats::default() }),
-        ]));
+        ];
+        let at = stage.started - Duration::from_secs(seconds - 1 - second);
+        borg_core::update(&mut stage.state, Msg::DockerStats(frame), at);
     }
     for _ in 0..4 {
         stage.send(key(KeyCode::Down));

@@ -1,7 +1,9 @@
 use super::*;
 use crate::HISTORY;
 use borg_docker::{Action, Container, State, Stats};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+const SECOND: Duration = Duration::from_secs(1);
 
 fn container(id: &str, project: Option<&str>, service: &str, state: State) -> Container {
     Container {
@@ -85,12 +87,31 @@ fn project_actions_target_only_the_containers_they_change() {
 #[test]
 fn stats_keep_a_minute_of_history() {
     let mut docker = docker();
+    let start = Instant::now();
     for second in 0..(HISTORY as u32 + 5) {
-        docker.sample(vec![("w1".into(), Stats { cpu: second, memory: 1024, ..Stats::default() })]);
+        let stats = Stats { cpu: second, memory: 1024, ..Stats::default() };
+        docker.sample(vec![("w1".into(), stats)], start + SECOND * second);
     }
     let usage = &docker.usage["w1"];
     assert_eq!(usage.cpu.len(), HISTORY);
     assert_eq!(usage.latest.cpu, HISTORY as u32 + 4);
+    let average = u64::from(usage.average_cpu());
     docker.select(4, Instant::now());
-    assert_eq!(docker.group_usage(docker.group().unwrap()), (u64::from(HISTORY as u32 + 4), 1024));
+    assert_eq!(docker.group_usage(docker.group().unwrap()), (average, 1024), "a project adds up the averages");
+}
+
+#[test]
+fn container_cpu_shows_the_last_few_seconds_averaged() {
+    let mut docker = docker();
+    let start = Instant::now();
+    let mut shown = Vec::new();
+    for second in 0..20u32 {
+        let cpu = if second % 2 == 0 { 900 } else { 0 };
+        docker.sample(vec![("w1".into(), Stats { cpu, ..Stats::default() })], start + SECOND * second);
+        shown.push(docker.usage["w1"].average_cpu());
+    }
+    let settled = &shown[shown.len() / 2..];
+    assert!(settled.iter().all(|&cpu| (300..=600).contains(&cpu)), "the figure holds near the average: {shown:?}");
+    assert_eq!(docker.usage["w1"].latest.cpu, 0, "the latest reading stays as it came");
+    assert_eq!(docker.usage["w1"].cpu.last(), Some(&0), "and so does the chart");
 }
