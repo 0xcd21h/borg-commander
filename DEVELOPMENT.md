@@ -665,13 +665,23 @@ so an agent's socket call or session channel cannot claim it. An answer names th
 random ID for each process, and the ask's number, and counts only while that ask still waits and
 no other computer controls the session; `borg-core::agent::forward` holds that check and the
 first answer wins logic. `borg mcp` forwards only the tools it lists, so an agent cannot reach
-mirror, console, panel or viewer calls. In the background service the asks come from the child's
-socket, which trusts the service; the service tracks the mirror controller there, so the view-only
-check does not apply. Outside the service, a named session other than the one that holds borg
-cloud clears the viewer mark on its socket, so its asks stay on its own screen. These checks keep
-Borg's own connections apart. They cannot stop an agent that runs programs under your account on
-the viewer's computer: it can read the pairing key in Borg's state folder or send keys to the
-terminal Borg runs in, so give such an agent a sandbox when its requests matter.
+mirror, console, panel or viewer calls. With the background service, asks reach each session's Borg
+over its registration, which keeps the origin, approval and viewer marks. An agent socket always
+clears those marks. These checks keep Borg's own connections apart. They cannot stop an agent that
+runs programs under your account on the viewer's computer: it can read the pairing key in Borg's
+state folder or send keys to the terminal Borg runs in, so give such an agent a sandbox when its
+requests matter.
+
+Each Borg registers its session with the service over `service.sock` in the state directory, and
+both sides then exchange JSON lines (`service::member`, `service::wire`, `service::members`). A
+registered Borg leaves borg cloud to the service. The service sends a call to the session it
+names, or to the one used last, and starts that session first when it runs nowhere.
+
+The first `borg` starts `borg service run --on-demand` unless `start-service` is false, and that
+service ends 30 seconds after its last session goes. An installed or supervised service keeps
+running and takes over from an on-demand one. Only sessions marked `background` in
+`sessions.json` run inside the service. The test fixture sets `start-service = false`, so
+end-to-end tests that need the service start it themselves.
 
 A borg keeps two kinds of keys in the `link` folder of its state folder. The server key, `key`,
 identifies it to the computers paired with it and loads by itself. A borg that reaches servers

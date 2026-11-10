@@ -8,11 +8,11 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     sync::{Arc, atomic::AtomicUsize},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
-use borg_core::Msg;
+use anyhow::{Context, Result, ensure};
+use borg_core::{AgentEvent, Msg};
 use borg_term::{GridSize, PtyEvent};
 use serde_json::{Value, json};
 use tokio::{
@@ -25,11 +25,13 @@ use tokio::{
 };
 
 use super::{
-    Child, Children, Controller, LOCK, REPLAY_LIMIT, attach, frame_when_ready, mirror, service_runtime, service_socket,
-    spawn_child,
+    Child, Children, Controller, LOCK, REPLAY_LIMIT, START_CALL, attach, frame_when_ready,
+    members::{self, Members, Request},
+    mirror, service_runtime, service_socket, spawn_child,
+    wire::{Place, REGISTER, Registration, ToMember},
 };
 use crate::{
-    agent::{Call, Reply, Session},
+    agent::{Call, Reply},
     config::{Config, ConfigDir},
     launch,
     link::LinkServer,
@@ -42,24 +44,96 @@ use crate::{
 const REFRESH_EVERY: Duration = Duration::from_secs(2);
 /// How long a client has to say what it wants.
 const REQUEST_WAIT: Duration = Duration::from_secs(2);
+/// How long a service Borg started for itself waits, with no session left, before it ends.
+const IDLE_GRACE: Duration = Duration::from_secs(30);
+/// The request a kept service makes of one started on demand, to take its place.
+const HAND_OVER: &str = "hand-over";
+/// How long a kept service waits for one started on demand to make way.
+const HAND_OVER_WAIT: Duration = Duration::from_secs(5);
+const HAND_OVER_POLL: Duration = Duration::from_millis(100);
 /// The screen sizes a client may ask for.
 const COLUMNS: RangeInclusive<u64> = 20..=500;
 const ROWS: RangeInclusive<u64> = 8..=200;
 
-pub(super) async fn run() -> Result<()> {
-    let (mut service, mut inbox) = Service::start()?;
+/// How long the service runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Lifetime {
+    /// Installed, or run by a supervisor: it runs until stopped.
+    Kept,
+    /// Started by a Borg: it ends once no session has used it for a while, and outlives the
+    /// terminal it was started from.
+    OnDemand,
+}
+
+pub(super) async fn run(lifetime: Lifetime) -> Result<()> {
+    let state = StateDir::locate().context("set HOME or BORG_STATE_DIR for the service")?;
+    let lock = take_lock(&state, lifetime).await?;
+    let (mut service, mut inbox) = Service::start(state, lock, lifetime)?;
     let mut tick = tokio::time::interval(REFRESH_EVERY);
+    let mut idle = Idle::default();
     loop {
         tokio::select! {
-            _ = tick.tick() => service.refresh()?,
+            _ = tick.tick() => {
+                service.refresh()?;
+                if lifetime == Lifetime::OnDemand && idle.over(service.in_use(), Instant::now()) {
+                    return Ok(());
+                }
+            }
             Some((id, event)) = inbox.events.recv() => service.pty_event(&id, event),
             Some((call, reply)) = inbox.calls.recv() => service.answer(call, reply),
             Some(id) = inbox.removed.recv() => {
                 service.removing.remove(&id);
             }
-            Ok((stream, _)) = inbox.listener.accept() => service.serve(stream).await?,
-            Some(_notice) = inbox.notices.recv() => {}
+            Ok((stream, _)) = inbox.listener.accept() => {
+                let _ = service.serve(stream).await;
+                if service.handed_over {
+                    return Ok(());
+                }
+            }
+            Some((session, request)) = inbox.requests.recv() => service.request(&session, request),
+            Some(notice) = inbox.notices.recv() => service.notice(notice),
         }
+    }
+}
+
+/// The lock only one service holds at a time. A kept service asks one started on demand to
+/// make way, and waits for it to go.
+async fn take_lock(state: &StateDir, lifetime: Lifetime) -> Result<fs::File> {
+    fs::create_dir_all(state.path())?;
+    let lock =
+        fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(state.path().join(LOCK))?;
+    if lock.try_lock().is_ok() {
+        return Ok(lock);
+    }
+    ensure!(lifetime == Lifetime::Kept && hand_over().await, "a Borg service is already running");
+    let deadline = Instant::now() + HAND_OVER_WAIT;
+    while Instant::now() < deadline {
+        tokio::time::sleep(HAND_OVER_POLL).await;
+        if lock.try_lock().is_ok() {
+            return Ok(lock);
+        }
+    }
+    anyhow::bail!("the Borg service started on demand did not make way")
+}
+
+/// Asks the running service to make way, which one started on demand does.
+async fn hand_over() -> bool {
+    let reply = tokio::time::timeout(REQUEST_WAIT, super::request_json(json!({ "mode": HAND_OVER }))).await;
+    matches!(reply, Ok(Ok(reply)) if reply["ok"] == true)
+}
+
+/// Since when no session has used the service.
+#[derive(Default)]
+struct Idle(Option<Instant>);
+
+impl Idle {
+    /// Whether the service has had no session for the whole grace period.
+    fn over(&mut self, in_use: bool, now: Instant) -> bool {
+        if in_use {
+            self.0 = None;
+            return false;
+        }
+        now.duration_since(*self.0.get_or_insert(now)) >= IDLE_GRACE
     }
 }
 
@@ -77,6 +151,14 @@ struct Service {
     removed: UnboundedSender<String>,
     /// The process watcher, while the settings ask for it.
     watcher: Option<crate::watch::Handle>,
+    /// The Borgs registered with the service, one for each running session.
+    members: Members,
+    requests: UnboundedSender<(String, Request)>,
+    /// The session whose Borg asked for the pairing link shown last, which approves it.
+    pairing: Option<String>,
+    lifetime: Lifetime,
+    /// A kept service took over, so this one, started on demand, ends.
+    handed_over: bool,
     /// Held while the service runs, so that only one does.
     _lock: fs::File,
 }
@@ -88,17 +170,13 @@ struct Inbox {
     notices: UnboundedReceiver<Msg>,
     events: UnboundedReceiver<(String, PtyEvent)>,
     removed: UnboundedReceiver<String>,
+    requests: UnboundedReceiver<(String, Request)>,
 }
 
 impl Service {
-    /// Takes the service's lock and its socket, and starts the link to borg cloud.
-    fn start() -> Result<(Self, Inbox)> {
-        let state = StateDir::locate().context("set HOME or BORG_STATE_DIR for the service")?;
-        fs::create_dir_all(state.path())?;
+    /// Takes the service's socket, with its lock held, and starts the link to borg cloud.
+    fn start(state: StateDir, lock: fs::File, lifetime: Lifetime) -> Result<(Self, Inbox)> {
         let runtime = launch::private_dir(&service_runtime()?)?;
-        let lock =
-            fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(state.path().join(LOCK))?;
-        lock.try_lock().context("a Borg service is already running")?;
         let socket = service_socket();
         let _ = fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket)?;
@@ -115,10 +193,12 @@ impl Service {
             messages,
             Arc::new(AtomicUsize::new(0)),
         );
-        cloud.set_background_service();
+        let members = Members::default();
+        cloud.set_members(members.clone());
         let consoles = remote_console::Server::new(borg_term::user_shell(), runtime.clone());
         let (events, events_rx) = unbounded_channel();
         let (removed, removed_rx) = unbounded_channel();
+        let (requests, requests_rx) = unbounded_channel();
         let watcher = crate::watch::start(config.watch());
         let service = Self {
             state,
@@ -131,30 +211,30 @@ impl Service {
             removing: HashSet::new(),
             removed,
             watcher,
+            members,
+            requests,
+            pairing: None,
+            lifetime,
+            handed_over: false,
             _lock: lock,
         };
-        Ok((service, Inbox { listener, calls, notices, events: events_rx, removed: removed_rx }))
+        let inbox = Inbox { listener, calls, notices, events: events_rx, removed: removed_rx, requests: requests_rx };
+        Ok((service, inbox))
     }
 
     /// Follows a change of relay in the settings, keeps the link to borg cloud as the plugins
-    /// say, and keeps a PTY running for each named session that is not archived.
+    /// say, and keeps a PTY running for each named session it keeps in the background.
     fn refresh(&mut self) -> Result<()> {
-        if let Ok(Some(current)) = ConfigDir::locate().map(|dir| dir.load()).transpose() {
-            if current.relay != self.config.relay {
-                self.cloud.set_relay(relay(&current));
-            }
-            if current.watch() != self.config.watch() {
-                self.watcher = crate::watch::start(current.watch());
-            }
-            self.config = current;
-        }
-        self.cloud.sync(self.config.plugins.as_ref().is_none_or(|plugins| plugins.agent_cloud));
-        let named: Vec<_> =
-            sessions::ensure_default(&self.state)?.into_iter().filter(|session| !session.archived).collect();
-        let active: HashSet<_> = named.iter().map(|session| session.id.as_str()).collect();
+        self.reload();
+        self.sync_cloud();
+        let kept: Vec<_> = sessions::ensure_default(&self.state)?
+            .into_iter()
+            .filter(|session| session.background && !session.archived)
+            .collect();
+        let active: HashSet<_> = kept.iter().map(|session| session.id.as_str()).collect();
         self.children.retain(|id, _| active.contains(id.as_str()));
-        for session in named {
-            if self.removing.contains(&session.id) {
+        for session in kept {
+            if self.removing.contains(&session.id) || sessions::held(&self.state, &session.id) {
                 continue;
             }
             if let Entry::Vacant(entry) = self.children.entry(session.id) {
@@ -169,6 +249,70 @@ impl Service {
         Ok(())
     }
 
+    /// Whether a session runs here or is registered.
+    fn in_use(&self) -> bool {
+        !self.children.is_empty() || !self.members.sessions().is_empty()
+    }
+
+    /// Reads the settings again, following a change of relay or watcher.
+    fn reload(&mut self) {
+        if let Ok(Some(current)) = ConfigDir::locate().map(|dir| dir.load()).transpose() {
+            if current.relay != self.config.relay {
+                self.cloud.set_relay(relay(&current));
+            }
+            if current.watch() != self.config.watch() {
+                self.watcher = crate::watch::start(current.watch());
+            }
+            self.config = current;
+        }
+    }
+
+    fn sync_cloud(&mut self) {
+        self.cloud.sync(self.config.plugins.as_ref().is_none_or(|plugins| plugins.agent_cloud));
+    }
+
+    /// Keeps a session running in the background from now on, starting its Borg unless it runs
+    /// here already. A session open in a terminal stays there.
+    fn keep_running(&mut self, id: &str) -> Result<()> {
+        if self.children.contains_key(id) {
+            return Ok(());
+        }
+        ensure!(!self.removing.contains(id), "session {id} is being removed");
+        ensure!(!sessions::held(&self.state, id), "session {id} is open in a terminal");
+        let session = sessions::keep(&self.state, id, true)?;
+        ensure!(!session.archived, "session {} is archived", session.name);
+        let child = spawn_child(&session.id, self.events.clone())?;
+        self.children.insert(session.id, child);
+        Ok(())
+    }
+
+    /// A registered Borg's request: a pairing link, which its session then approves, or
+    /// forgetting every paired computer.
+    fn request(&mut self, session: &str, request: Request) {
+        match request {
+            Request::Pair => {
+                self.reload();
+                let link = self.cloud.pair().map_err(|error| format!("{error:#}"));
+                if link.is_ok() {
+                    self.pairing = Some(session.to_owned());
+                }
+                self.members.send(session, ToMember::Link { link });
+                self.sync_cloud();
+            }
+            Request::Forget => {
+                let _ = self.cloud.forget();
+                self.members.broadcast(|| ToMember::Computers { names: Vec::new() });
+            }
+        }
+    }
+
+    /// News from borg cloud: a new pairing reaches every registered Borg.
+    fn notice(&mut self, notice: Msg) {
+        if let Msg::Agent(AgentEvent::Paired { computers }) = notice {
+            self.members.broadcast(|| ToMember::Computers { names: computers.clone() });
+        }
+    }
+
     /// A session's PTY wrote, or closed.
     fn pty_event(&mut self, id: &str, event: PtyEvent) {
         match event {
@@ -180,15 +324,24 @@ impl Service {
             PtyEvent::Closed => {
                 if let Some(child) = self.children.remove(id) {
                     let _ = child.lock().expect("child lock").output.send(Vec::new());
+                    if !self.removing.contains(id) {
+                        let _ = sessions::keep(&self.state, id, false);
+                    }
                 }
             }
         }
     }
 
-    /// A call from borg cloud: removing a session, a console's, a mirror's, or else one for the
-    /// named session opened last.
+    /// A call from borg cloud: removing a session, starting one, a console's, a mirror's, or
+    /// else one for the session the user worked in last.
     fn answer(&mut self, call: Call, reply: oneshot::Sender<Reply>) {
-        if call.tool == "session_delete" {
+        if call.tool == START_CALL {
+            let id = call.args["session"].as_str().unwrap_or_default().to_owned();
+            let _ = reply.send(match self.keep_running(&id) {
+                Ok(()) => Reply::ok("Session running in the background"),
+                Err(error) => Reply::error(format!("{error:#}")),
+            });
+        } else if call.tool == "session_delete" {
             self.delete_session(call, reply);
         } else if call.tool.starts_with("console_") {
             self.consoles.handle(call, reply);
@@ -201,7 +354,15 @@ impl Service {
         } else if call.tool.starts_with("mirror_") {
             let _ = reply.send(mirror(&call, &self.children));
         } else {
-            tokio::spawn(answer_in_session(self.state.path().to_path_buf(), call, reply));
+            let target = if call.tool == crate::link::PAIR_CALL { self.pairing.take() } else { None };
+            let members = self.members.clone();
+            tokio::spawn(async move {
+                let answer = match target.filter(|id| members.place(id).is_some()).or_else(|| members.last_used()) {
+                    Some(session) => members.ask(&session, call).await,
+                    None => Reply::error("no Borg session is running"),
+                };
+                let _ = reply.send(answer);
+            });
         }
     }
 
@@ -220,6 +381,8 @@ impl Service {
             return;
         }
         let child = self.children.remove(&id);
+        let terminal = matches!(self.members.place(&id), Some((Place::Terminal, _)));
+        let members = self.members.clone();
         let removed = self.removed.clone();
         let state = self.state.clone();
         let runtime = self.runtime.clone();
@@ -229,7 +392,19 @@ impl Service {
                 if let Some(child) = child {
                     tokio::task::spawn_blocking(move || child.lock().expect("child lock").pty.stop()).await??;
                 }
-                sessions::delete_remote(&state, &runtime, &id, None).await
+                if terminal {
+                    sessions::archive(&state, &id, true)?;
+                    let stopped = members.ask(&id, Call::new("session_stop", json!({ "id": id }))).await;
+                    if !stopped.ok {
+                        sessions::archive(&state, &id, false)?;
+                        anyhow::bail!("{}", stopped.text);
+                    }
+                }
+                let removed = sessions::delete_remote(&state, &runtime, &id, None).await;
+                if removed.is_err() && terminal {
+                    sessions::archive(&state, &id, false)?;
+                }
+                removed
             }
             .await;
             let answer = match result {
@@ -244,8 +419,9 @@ impl Service {
         });
     }
 
-    /// A terminal client's request, a line of JSON: to attach to a session, to pair, which
-    /// sessions run, or a new size for a session's screen.
+    /// A local client's request, a line of JSON: a Borg registering its session, to attach to
+    /// a session or keep one running, to pair, which sessions run, or a new size for a
+    /// session's screen.
     async fn serve(&mut self, stream: UnixStream) -> Result<()> {
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -255,7 +431,29 @@ impl Service {
         let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
         let mut stream = reader.into_inner();
         match request["mode"].as_str() {
+            Some(REGISTER) => match serde_json::from_value::<Registration>(request) {
+                Ok(registration) => {
+                    tokio::spawn(members::serve(
+                        stream,
+                        registration,
+                        self.members.clone(),
+                        self.cloud.computers(),
+                        self.requests.clone(),
+                    ));
+                }
+                Err(error) => {
+                    let _ = stream.write_all(format!("{error}\n").as_bytes()).await;
+                }
+            },
             Some("attach") => self.attach_client(stream, &request).await,
+            Some("keep") => {
+                let id = request["session"].as_str().unwrap_or_default();
+                let reply = match self.keep_running(id) {
+                    Ok(()) => json!({"ok": true}),
+                    Err(error) => json!({"ok": false, "error": format!("{error:#}")}),
+                };
+                stream.write_all(format!("{reply}\n").as_bytes()).await?;
+            }
             Some("pair") => {
                 let reply = self
                     .cloud
@@ -265,7 +463,27 @@ impl Service {
                 stream.write_all(format!("{reply}\n").as_bytes()).await?;
             }
             Some("status") => {
-                let reply = json!({"ok": true, "sessions": self.children.keys().collect::<Vec<_>>()});
+                let terminals: Vec<String> = self
+                    .members
+                    .sessions()
+                    .into_iter()
+                    .filter_map(|(id, place)| (place == Place::Terminal).then_some(id))
+                    .collect();
+                let reply = json!({
+                    "ok": true,
+                    "sessions": self.children.keys().collect::<Vec<_>>(),
+                    "terminals": terminals,
+                    "kept": self.lifetime == Lifetime::Kept,
+                });
+                stream.write_all(format!("{reply}\n").as_bytes()).await?;
+            }
+            Some(HAND_OVER) => {
+                self.handed_over = self.lifetime == Lifetime::OnDemand;
+                let reply = if self.handed_over {
+                    json!({"ok": true})
+                } else {
+                    json!({"ok": false, "error": "this Borg service keeps running"})
+                };
                 stream.write_all(format!("{reply}\n").as_bytes()).await?;
             }
             Some("resize") => {
@@ -283,21 +501,19 @@ impl Service {
         Ok(())
     }
 
-    /// Attaches a client to a session, starting the PTY of a named session that is not running.
+    /// Attaches a client to a session, keeping it running in the background first unless it
+    /// runs here already.
     async fn attach_client(&mut self, mut stream: UnixStream, request: &Value) {
         let id = request["session"].as_str().unwrap_or_default();
-        if !self.children.contains_key(id)
-            && !self.removing.contains(id)
-            && sessions::list(&self.state)
-                .is_ok_and(|all| all.iter().any(|session| session.id == id && !session.archived))
-            && let Ok(child) = spawn_child(id, self.events.clone())
-        {
-            self.children.insert(id.to_owned(), child);
-        }
-        if let Some(child) = self.children.get(id) {
-            tokio::spawn(attach(stream, child.clone(), request["take"] == true));
-        } else {
-            let _ = stream.write_all(b"Session is offline\n").await;
+        match self.keep_running(id) {
+            Ok(()) => {
+                if let Some(child) = self.children.get(id) {
+                    tokio::spawn(attach(stream, child.clone(), request["take"] == true));
+                }
+            }
+            Err(error) => {
+                let _ = stream.write_all(format!("{error:#}\r\n").as_bytes()).await;
+            }
         }
     }
 
@@ -354,20 +570,18 @@ fn feed(child: &mut Child, bytes: Vec<u8>) {
     let _ = child.output.send(bytes);
 }
 
-/// Answers a call in the named session opened last, through that session's Borg.
-async fn answer_in_session(state: PathBuf, call: Call, reply: oneshot::Sender<Reply>) {
-    let registry = StateDir::at(state);
-    let target = sessions::list(&registry)
-        .ok()
-        .and_then(|all| all.into_iter().filter(|session| !session.archived).max_by_key(|session| session.last_opened));
-    let answer = match target {
-        Some(session) => {
-            match Session::open(&service_runtime().unwrap_or_else(|_| launch::runtime_dir()), Some(&session.id)).await {
-                Some(mut open) => open.call(&call).await.unwrap_or_else(|| Reply::error("session disconnected")),
-                None => Reply::error("no running Borg session is ready"),
-            }
-        }
-        None => Reply::error("no Borg session exists"),
-    };
-    let _ = reply.send(answer);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_service_started_on_demand_ends_after_a_grace_period_with_no_session() {
+        let start = Instant::now();
+        let mut idle = Idle::default();
+        assert!(!idle.over(false, start), "the grace period starts with the first idle look");
+        assert!(!idle.over(false, start + IDLE_GRACE / 2));
+        assert!(!idle.over(true, start + IDLE_GRACE), "a session using it starts the wait over");
+        assert!(!idle.over(false, start + IDLE_GRACE * 3 / 2));
+        assert!(idle.over(false, start + IDLE_GRACE * 5 / 2));
+    }
 }

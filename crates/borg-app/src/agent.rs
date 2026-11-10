@@ -261,8 +261,7 @@ impl Agent {
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            let service_child = std::env::var_os("BORG_SERVICE_CHILD").is_some();
-            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service_child));
+            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone()));
             Some(socket)
         });
         Self { incoming, requeue: calls, socket, messages, clients, waiting: Waiting::default(), next_id: 0 }
@@ -372,7 +371,6 @@ async fn accept(
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
-    service_child: bool,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
@@ -380,7 +378,7 @@ async fn accept(
         note(&messages, "an agent connected");
         let (calls, messages, clients) = (calls.clone(), messages.clone(), clients.clone());
         tokio::spawn(async move {
-            let _ = serve_connection(stream, &calls, service_child).await;
+            let _ = serve_connection(stream, &calls).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
             let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
             note(&messages, "an agent disconnected");
@@ -388,16 +386,11 @@ async fn accept(
     }
 }
 
-async fn serve_connection(
-    stream: UnixStream,
-    calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>,
-    service_child: bool,
-) -> Result<()> {
+async fn serve_connection(stream: UnixStream, calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>) -> Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let decoded =
-            serde_json::from_str::<Call>(&line).map(|call| if service_child { Ok(call) } else { call.external() });
+        let decoded = serde_json::from_str::<Call>(&line).map(Call::external);
         let reply = match decoded {
             Ok(Ok(call)) => {
                 let (sender, receiver) = oneshot::channel();

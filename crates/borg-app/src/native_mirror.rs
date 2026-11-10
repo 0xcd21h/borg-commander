@@ -307,7 +307,7 @@ pub struct Host {
     socket: PathBuf,
 }
 
-fn socket(runtime: &Path, session: &str) -> Result<PathBuf> {
+pub fn socket(runtime: &Path, session: &str) -> Result<PathBuf> {
     let hash = Sha256::digest(session.as_bytes());
     Ok(crate::agent::socket_dir(runtime)?.join(format!("mirror-{}.sock", borg_link::hex(&hash[..12]))))
 }
@@ -342,6 +342,10 @@ impl Host {
         if screen.publish(buffer, cursor) {
             self.shared.output.send_replace(screen.sequence);
         }
+    }
+
+    pub fn socket(&self) -> &Path {
+        &self.socket
     }
 
     pub fn controller(&self) -> Option<String> {
@@ -422,8 +426,9 @@ pub struct Peer {
     write: tokio::net::unix::OwnedWriteHalf,
 }
 impl Peer {
-    pub async fn open(runtime: &Path, session: &str) -> Result<Self> {
-        let stream = UnixStream::connect(socket(runtime, session)?)
+    /// The mirror whose socket is `socket`, as the Borg that serves it said.
+    pub async fn at(socket: &Path) -> Result<Self> {
+        let stream = UnixStream::connect(socket)
             .await
             .context("This running session cannot be mirrored; update and restart its Borg process")?;
         let (read, write) = stream.into_split();

@@ -5,6 +5,16 @@ use super::App;
 use borg_i18n::tr;
 
 impl App {
+    /// Whether borg cloud belongs to another process: the background service this Borg is
+    /// registered with, or the host a viewer shows.
+    pub(super) fn cloud_elsewhere(&self) -> bool {
+        self.cloud_suppressed || self.registered()
+    }
+
+    fn registered(&self) -> bool {
+        self.membership.as_ref().is_some_and(crate::service::Membership::registered)
+    }
+
     pub(super) fn unlock_computer_key(&self, password: borg_core::Password) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
@@ -20,8 +30,14 @@ impl App {
         });
     }
 
-    /// Makes a pairing link for the Connect dialog, or says why there is none.
+    /// Makes a pairing link for the Connect dialog, or says why there is none. The background
+    /// service makes it for a Borg registered with it, and sends it back.
     pub(super) fn start_pairing(&mut self) {
+        if let Some(membership) = self.membership.as_ref().filter(|_| self.registered()) {
+            membership.pair();
+            self.state.agent.pairing = None;
+            return;
+        }
         let pairing = if self.cloud_suppressed {
             Err(tr!(agent_cloud_service_pairs).to_owned())
         } else if !self.state.settings.preferences.agent_cloud {
@@ -32,7 +48,7 @@ impl App {
             self.link.pair().map_err(|error| format!("{error:#}"))
         };
         self.state.agent.pairing = Some(pairing);
-        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_suppressed);
+        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_elsewhere());
     }
 
     /// Saves the relay typed into the Connect dialog, empty for none, in its full form, and
@@ -56,6 +72,10 @@ impl App {
     }
 
     pub(super) fn forget_computers(&mut self) {
+        if let Some(membership) = self.membership.as_ref().filter(|_| self.registered()) {
+            membership.forget();
+            return;
+        }
         if let Err(error) = self.link.forget() {
             self.state.notice = Some(format!("{error:#}"));
         }

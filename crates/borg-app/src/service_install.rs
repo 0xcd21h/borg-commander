@@ -163,9 +163,10 @@ fn installed() -> Option<bool> {
     None
 }
 
-/// How the background service stands here, for the Remote menu's dialog.
+/// How the background service stands here, for the Remote menu's dialog. A service a Borg
+/// started on demand counts as missing or stopped, since it ends with the last session.
 pub async fn check() -> ServiceCheck {
-    let status = if crate::service::available().await {
+    let status = if crate::service::kept().await {
         ServiceStatus::Running
     } else {
         match installed() {

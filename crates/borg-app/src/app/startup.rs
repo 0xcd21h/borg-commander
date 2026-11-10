@@ -56,6 +56,9 @@ impl App {
         }
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
+        let native_mirror =
+            crate::native_mirror::Host::start(&launch.runtime_dir, launch.session_id.as_deref().unwrap_or("default"))?;
+        let membership = start_membership(launch, &agent, native_mirror.socket(), &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
         let search = start_search(launch, &state, &messages);
         let storage = start_storage(launch, &search, &messages);
@@ -77,10 +80,7 @@ impl App {
             remote_catalog: None,
             remote_consoles: crate::remote_console::Clients::new(),
             console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),
-            native_mirror: crate::native_mirror::Host::start(
-                &launch.runtime_dir,
-                launch.session_id.as_deref().unwrap_or("default"),
-            )?,
+            native_mirror,
             palette: palette(&detected.colors),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
@@ -119,7 +119,8 @@ impl App {
             runtime_dir: launch.runtime_dir.clone(),
             mirror_connect: None,
             mirror_ready: None,
-            cloud_suppressed: launch.remote.is_some() || std::env::var_os("BORG_SERVICE_CHILD").is_some(),
+            cloud_suppressed: launch.remote.is_some() || service_child(),
+            membership,
             host_capture: None,
             clipboard: None,
             plain: None,
@@ -244,6 +245,24 @@ fn start_link(
     );
     state.agent.computers = link.computers();
     link
+}
+
+fn service_child() -> bool {
+    std::env::var_os(crate::service::SERVICE_CHILD).is_some()
+}
+
+/// This Borg's registration with the background service, for a named session on this machine.
+fn start_membership(
+    launch: &Launch,
+    agent: &crate::agent::Agent,
+    mirror: &Path,
+    messages: &UnboundedSender<Msg>,
+) -> Option<crate::service::Membership> {
+    let session = launch.session_id.as_deref().filter(|_| launch.remote.is_none() && launch.state_dir.is_some())?;
+    let place = if service_child() { crate::service::Place::Background } else { crate::service::Place::Terminal };
+    let inbox =
+        crate::service::Inbox { calls: agent.requeue_sender(), messages: messages.clone(), clients: agent.clients() };
+    Some(crate::service::Membership::start(session, mirror.to_path_buf(), place, inbox))
 }
 
 /// Marks the runtime folder as in use now and then, for as long as Borg runs.
