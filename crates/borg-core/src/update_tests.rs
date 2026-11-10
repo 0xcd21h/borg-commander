@@ -3186,19 +3186,25 @@ fn disk_cleanup_goes_to_the_host_shell_while_the_command_line_follows_a_containe
 }
 
 #[test]
-fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
+fn the_claude_log_is_saved_and_goes_from_memory_and_disk_when_it_is_turned_off() {
     use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("Nothing remote has happened")));
-    update(&mut state, Msg::Agent(AgentEvent::Note("14:00:00  read /srv/app".into())), now);
+    let read = "2026-11-09 14:00:00  read /srv/app";
+    let effects = update(&mut state, Msg::Agent(AgentEvent::Note(read.into())), now);
+    assert_eq!(effects, vec![Effect::SaveAgentNote(read.into())]);
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert_eq!(state.overlay, Some(Overlay::AgentLog { scroll: None }));
     state.overlay = None;
 
-    assert_eq!(crate::actions::perform(&mut state, Action::ToggleAgentLog, now), vec![Effect::SaveConfig]);
+    assert_eq!(
+        crate::actions::perform(&mut state, Action::ToggleAgentLog, now),
+        vec![Effect::SaveConfig, Effect::ForgetAgentLog]
+    );
     assert!(state.agent.log.is_empty(), "turning the log off forgets it");
-    update(&mut state, Msg::Agent(AgentEvent::Note("14:00:01  showed /srv".into())), now);
+    let effects = update(&mut state, Msg::Agent(AgentEvent::Note("2026-11-09 14:00:01  showed /srv".into())), now);
+    assert!(effects.is_empty(), "nothing is saved while the log is off");
     assert!(state.agent.log.is_empty());
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("The remote log is off")));

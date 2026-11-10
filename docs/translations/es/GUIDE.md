@@ -826,10 +826,17 @@ paquete por su número para obtener sus capas y sus bytes en un volcado hexadeci
 los procesos de las últimas 16 capturas del agente hasta que sale. Los demás archivos muestran sus
 conversaciones en **Proceso desconocido**, salvo que sus paquetes lleven su proceso.
 
-Mientras hay un agente conectado, **◈ Remoto** aparece al principio de la barra de atajos. Haz
-clic en él para ver un registro de lo que ha hecho el agente: lo que ha mirado, leído, analizado,
-mostrado y escrito, y cada comando y cambio, aprobado o rechazado. Borg guarda el registro solo en memoria,
-hasta que sale; para no guardar ningún registro, desactívalo en Opciones → Complementos.
+Mientras hay un agente conectado, **◈ Remoto** aparece al principio de la barra de atajos. Haz clic
+en él, o elige F9 → Remoto → **Registro remoto…** en cualquier momento, para ver un registro de lo
+que ha hecho el agente: lo que ha mirado, leído, analizado, mostrado y escrito, y cada comando y
+cambio, aprobado o rechazado. Cada sesión guarda su registro en disco, legible solo por ti, así que
+puedes volver a una sesión que dejaste en marcha y ver lo que pasó en ella, incluso después de que
+Borg haya salido. Cuando el registro crece mucho, Borg descarta las entradas más antiguas. Antes de
+guardar una entrada, Borg oculta las contraseñas, los tokens y las claves que reconoce, y deja fuera
+la salida de los comandos. Una contraseña pasada como una palabra más no se distingue de las demás,
+así que Borg no puede ocultarla. Para no guardar ningún registro, desactiva
+**Remoto: llevar un registro de lo que hace** en Opciones → Complementos, lo que también borra el
+registro guardado.
 
 ### Borg cloud
 
@@ -1052,7 +1059,7 @@ autorizado no se convierte automáticamente en un host cuyos archivos pueda expl
 Cuando el propietario de la conexión no puede informar del estado de la conexión, los clientes
 emparejados siguen apareciendo, con **Estado de conexión no disponible**. Un mismo Borg puede ser
 host y cliente a la vez. El menú Remoto también ofrece **Reflejar host montado**, **Compartir este
-Borg como host…** y **Servicio en segundo plano…**.
+Borg como host…**, **Registro remoto…** y **Servicio en segundo plano…**.
 
 El selector muestra la versión de Borg de cada host. Al seleccionar una sesión se muestran su
 sistema operativo y su arquitectura, si se ejecuta como servicio en segundo plano o en un terminal,
@@ -1569,8 +1576,8 @@ cada uno y dónde está:
   ejecución cuando `$XDG_RUNTIME_DIR` está definida.
 - **Cachés**: tamaños de carpeta e índices de nombres, en la carpeta de caché (consulta
   [Análisis de tamaño guardados](#saved-size-scans)).
-- **Sesiones e historial**: sesiones, salida del shell, historial de búsquedas y carpetas,
-  colecciones, equipos emparejados con sus claves y lo que Borg aprendió sobre tus discos
+- **Sesiones e historial**: sesiones, salida del shell, registro remoto, historial de búsquedas y
+  carpetas, colecciones, equipos emparejados con sus claves y lo que Borg aprendió sobre tus discos
   (`drives.json`), en la carpeta de estado.
 - **Configuración**: `config.toml` y tus temas.
 - **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.

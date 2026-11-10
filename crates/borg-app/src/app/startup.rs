@@ -172,10 +172,16 @@ fn load_remote_names(state: &mut AppState, dir: &Path) {
     }
 }
 
-/// What the state folder keeps: the 2048 game, the collections, and the search history, which
-/// is cleared while it is off. False when the collections would not load.
+/// What the state folder keeps: the 2048 game, the collections, the log of what agents did, and
+/// the search history; the log and the history are cleared while they are off. False when the
+/// collections would not load.
 fn load_saved(state: &mut AppState, dir: &StateDir) -> bool {
     state.game2048 = dir.load_game2048().ok().flatten();
+    if state.settings.preferences.agent_log {
+        state.agent.restore_log(dir.load_agent_log().unwrap_or_default());
+    } else {
+        let _ = dir.forget_agent_log();
+    }
     let loaded = match dir.load_collections() {
         Ok(collections) => {
             state.collections = collections;

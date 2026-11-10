@@ -14,7 +14,7 @@ expression: describe(&buffer)
 │ ? socket       │ [ ] Watch: unusual process starts                    │                │
 │ · 日本語メモ.tx│ [x] Docker: containers and Compose projects          │                │
 │                │ [x] Follow: remote and container command lines       │                │
-│                │ [x] Remote: log what it does while Borg runs         │                │
+│                │ [x] Remote: keep a log of what it does               │                │
 │                │ [x] Remote: reachable through borg cloud             │                │
 │                │ [ ] Remote: ask before another computer reads        │                │
 │                │                                                      │                │
