@@ -200,7 +200,8 @@ pub struct LinkServer {
     claimed: Option<std::fs::File>,
     /// Whether the user heard that another borg has borg cloud.
     told_taken: bool,
-    background_service: bool,
+    /// The Borgs registered with the background service, when this is the service's link.
+    members: Option<crate::service::Members>,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
@@ -229,7 +230,7 @@ impl LinkServer {
             task: None,
             claimed: None,
             told_taken: false,
-            background_service: false,
+            members: None,
             calls,
             messages,
             clients,
@@ -244,8 +245,10 @@ impl LinkServer {
         self.session_id.as_deref()
     }
 
-    pub fn set_background_service(&mut self) {
-        self.background_service = true;
+    /// Makes this the background service's link, whose calls go to the sessions registered
+    /// with it.
+    pub fn set_members(&mut self, members: crate::service::Members) {
+        self.members = Some(members);
     }
 
     /// Goes through `relay` from now on; the connection to the one before ends.
@@ -321,7 +324,7 @@ impl LinkServer {
             }
             let (Some(relay), Ok(identity)) = (self.relay.clone(), self.identity()) else { return };
             let server = Served {
-                background_service: self.background_service,
+                members: self.members.clone(),
                 relay,
                 identity,
                 shared: self.shared.clone(),

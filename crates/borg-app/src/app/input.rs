@@ -21,6 +21,9 @@ impl App {
         if takes_control && self.native_mirror.local_input() {
             self.state.notice = Some(tr!(mirror_local_control).into());
         }
+        if let Some(membership) = self.membership.as_mut().filter(|_| takes_control) {
+            membership.active(std::time::Instant::now());
+        }
         self.on_terminal_event(event)
     }
 

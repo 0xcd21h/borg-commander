@@ -193,7 +193,7 @@ async fn mirror_control_requires_identity_and_the_selected_session_and_local_inp
     assert!(!host.controls("paired"));
     assert!(!host.shared.call(call("mirror_input", Some("paired"), json!({"session":"session","events":[]}))).await.ok);
     assert!(host.shared.call(call("mirror_take", Some("other"), json!({"session":"session","force":true}))).await.ok);
-    let mut peer = Peer::open(directory.path(), "session").await.unwrap();
+    let mut peer = Peer::at(&socket(directory.path(), "session").unwrap()).await.unwrap();
     assert!(peer.call(&call("mirror_view", Some("paired"), json!({"session":"session"}))).await.unwrap().ok);
     let saved = host.socket.clone();
     drop(host);
