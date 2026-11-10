@@ -70,7 +70,7 @@ const INTERRUPT: u8 = 0x03;
 const END_OF_INPUT: u8 = 0x04;
 const BACKSPACE: [u8; 2] = [0x08, 0x7f];
 const ERASE_LINE: u8 = 0x15;
-const LINE_ENDS: [u8; 2] = [b'\r', b'\n'];
+const LINE_ENDS: [u8; 2] = *b"\r\n";
 const UTF8_CONTINUATION: std::ops::RangeInclusive<u8> = 0x80..=0xbf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
