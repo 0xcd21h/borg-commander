@@ -29,6 +29,15 @@ Para compilar a partir do código-fonte, precisa do Rust 1.97 ou mais recente:
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
+No Linux, a compilação inclui também os programas eBPF do observador de processos, que precisam
+de um compilador nightly e do `bpf-linker`. Quando faltam, a compilação para e mostra os dois
+comandos que os instalam. Para compilar sem os programas, defina `BORG_NO_EBPF=1`. O observador
+ouve então os eventos de processo do kernel:
+
+```sh
+BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
+```
+
 O suporte para Homebrew já está preparado e passará a funcionar quando o tap for publicado:
 
 ```sh
@@ -1985,9 +1994,11 @@ as caixas de diálogo e a proteção de ecrã.
 ### Alertas
 
 O Borg pode observar o que arranca numa máquina e avisá-lo quando algo parece errado. Ative
-**Vigiar: arranques de processos invulgares** em F9 → Opções → Plugins e inicie o serviço em
-segundo plano com `borg service start`. O observador vive nesse serviço, por isso continua a
-observar sem nenhum terminal aberto, e todos os Borg da máquina leem os mesmos alertas.
+**Vigiar: arranques de processos invulgares** em F9 → Opções → Plugins. O observador vive no
+serviço em segundo plano que todos os seus Borg na máquina partilham, por isso todos os Borg leem
+os mesmos alertas. Esse serviço corre enquanto houver um Borg aberto. Para continuar a observar
+sem nenhum terminal aberto, inicie o serviço no arranque do sistema como descreve
+[Sessões com nome e serviço em segundo plano](#named-sessions-and-the-background-service).
 
 **Alt-L** ou **Comando → Alertas** abre a página. A lista ocupa o painel ativo, com o alerta mais
 recente primeiro, e o outro painel mostra o alerta selecionado por inteiro. Cada linha mostra a

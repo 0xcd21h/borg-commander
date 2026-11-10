@@ -22,6 +22,13 @@ curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
+在 Linux 上，构建还会编译进程监视器的 eBPF 程序，它们需要 nightly 编译器和 `bpf-linker`。缺少它们时，构建会停下并打印
+安装它们的两条命令。要在不带这些程序的情况下构建，请设置 `BORG_NO_EBPF=1`，监视器随后会改为接收内核的进程事件：
+
+```sh
+BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
+```
+
 Homebrew 支持已经就绪，tap 发布后即可使用：
 
 ```sh
@@ -789,9 +796,9 @@ macOS 会保护其自身程序（系统完整性保护，System Integrity Protec
 
 ### 警报
 
-Borg 可以监视机器上启动的程序，并在出现可疑情况时告诉你。在 F9 → 选项 → 插件中打开 **监视：异常的进程启动**，然后用
-`borg service start` 启动后台服务。监视器就住在那个服务里，因此不用开着终端也能一直监视，机器上的每个 Borg 读到的
-都是同一批警报。
+Borg 可以监视机器上启动的程序，并在出现可疑情况时告诉你。在 F9 → 选项 → 插件中打开 **监视：异常的进程启动**。监视器就住在
+机器上所有 Borg 共用的后台服务里，因此每个 Borg 读到的都是同一批警报。只要有一个 Borg 开着，这个服务就在运行。要在不开
+终端时也一直监视，请按照[命名会话与后台服务](#named-sessions-and-the-background-service)中的说明让服务开机启动。
 
 **Alt-L** 或 **命令 → 警报** 打开该页面。列表占据活动窗格，最新的警报在最前面，另一个窗格完整显示所选警报。每行显示
 时间、触发的规则、程序、启动它的父进程、它运行时所属的用户，以及该进程现在的状态。列表上方的一行统计警报总数以及
