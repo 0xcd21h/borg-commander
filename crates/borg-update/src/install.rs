@@ -17,6 +17,8 @@ const STAGING_SUFFIX: &str = ".borg-update";
 const EXECUTABLE: u32 = 0o755;
 const ARCHIVE_LIMIT: u64 = 128 * 1024 * 1024;
 const CHECKSUM_LIMIT: u64 = 16 * 1024;
+/// The largest program Borg unpacks from a release, well above what any release holds.
+const BINARY_LIMIT: u64 = 256 * 1024 * 1024;
 
 pub fn asset_name(version: Version, target: &str) -> String {
     format!("{BINARY}-{version}-{target}{ARCHIVE_SUFFIX}")
@@ -47,11 +49,15 @@ pub fn verify(archive: &[u8], checksum_file: &str, name: &str) -> Result<(), Upd
 fn extract(archive: &[u8]) -> Result<Vec<u8>, UpdateError> {
     let mut entries = tar::Archive::new(GzDecoder::new(archive));
     for entry in entries.entries()? {
-        let mut entry = entry?;
-        let is_binary = entry.path()?.file_name().is_some_and(|name| name == BINARY);
+        let entry = entry?;
+        let is_binary =
+            entry.header().entry_type().is_file() && entry.path()?.file_name().is_some_and(|name| name == BINARY);
         if is_binary {
             let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
+            entry.take(BINARY_LIMIT + 1).read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > BINARY_LIMIT {
+                return Err(UpdateError::TooLarge(BINARY.to_owned()));
+            }
             return Ok(bytes);
         }
     }

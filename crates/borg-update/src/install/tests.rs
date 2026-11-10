@@ -120,3 +120,14 @@ fn verifies_checksums_and_extracts_the_binary() {
     assert_eq!(extract(&bundle).unwrap_or_else(|e| panic!("{e}")), b"#!binary");
     assert!(matches!(extract(&archive(&[("README.md", b"x")])), Err(UpdateError::MissingBinary(_))));
 }
+
+#[test]
+fn only_a_regular_file_is_taken_as_the_program() {
+    let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));
+    let mut link = tar::Header::new_gnu();
+    link.set_entry_type(tar::EntryType::Symlink);
+    link.set_size(0);
+    builder.append_link(&mut link, "borg-1.0.0/borg", "/bin/sh").unwrap_or_else(|e| panic!("{e}"));
+    let bundle = builder.into_inner().and_then(|gz| gz.finish()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(extract(&bundle), Err(UpdateError::MissingBinary(_))));
+}
