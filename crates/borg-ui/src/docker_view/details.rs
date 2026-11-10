@@ -1,8 +1,8 @@
 //! The selected project's or container's facts, resource tiles and live charts.
 
 use super::{
-    CHART_MIN_ROWS, DOCKER_TILE_WIDTH, LABEL_WIDTH, MOUNTS_SHOWN, SIDE_BY_SIDE_FROM, columns, cpu, dot, frame, header,
-    local, project_name, running_of, tone, working_label,
+    CHART_MIN_ROWS, DOCKER_TILE_WIDTH, LABEL_WIDTH, MOUNTS_SHOWN, SIDE_BY_SIDE_FROM, columns, cpu, cpu_cells, dot,
+    frame, header, local, project_name, running_of, tone, working_label,
 };
 use crate::{
     Theme,
@@ -47,12 +47,14 @@ impl Facts<'_> {
     }
 }
 
-/// Labelled values in a row of tiles, as in the activity monitor. Returns the rows used.
+/// Labelled values in rows of tiles, as in the activity monitor, spread evenly over as few
+/// rows as fit. Returns the rows used.
 pub(crate) fn tiles(buf: &mut Buffer, area: Rect, tiles: &[(&str, String)], theme: &Theme) -> u16 {
     if tiles.is_empty() || area.width < DOCKER_TILE_WIDTH {
         return 0;
     }
-    let per_row = (area.width / DOCKER_TILE_WIDTH).clamp(1, tiles.len() as u16);
+    let count = tiles.len() as u16;
+    let per_row = count.div_ceil(count.div_ceil((area.width / DOCKER_TILE_WIDTH).clamp(1, count)));
     let width = area.width / per_row;
     let mut y = 0;
     for line in tiles.chunks(usize::from(per_row)) {
@@ -165,14 +167,15 @@ pub(super) fn container_details(
     let body = body(rect);
     let usage = docker.usage.get(&container.id).filter(|_| container.state.is_up());
     let used = usage.map_or(0, |usage| {
-        let stats = usage.latest;
+        let (stats, figures) = (usage.latest, usage.cpu_use());
         let limit =
             if stats.memory_limit > 0 { format!(" / {}", format::size(stats.memory_limit)) } else { String::new() };
         tiles(
             buf,
             body,
             &[
-                (tr!(docker_cpu_tile), format!("{}%", cpu(u64::from(usage.average_cpu())))),
+                (tr!(docker_cpu_now_tile), format!("{}%", cpu(figures.now))),
+                (tr!(docker_cpu_average_tile), format!("{}%", cpu(figures.average))),
                 (tr!(docker_memory_tile), format!("{}{limit}", format::size(stats.memory))),
                 (tr!(docker_network_tile), format!("{} / {}", format::size(stats.net_rx), format::size(stats.net_tx))),
                 (tr!(docker_disk_tile), format!("{} / {}", format::size(stats.read), format::size(stats.written))),
@@ -266,7 +269,8 @@ pub(super) fn group_details(
         buf,
         body,
         &[
-            (tr!(docker_cpu_tile), format!("{}%", cpu(cpu_total))),
+            (tr!(docker_cpu_now_tile), format!("{}%", cpu(cpu_total.now))),
+            (tr!(docker_cpu_average_tile), format!("{}%", cpu(cpu_total.average))),
             (tr!(docker_memory_tile), format::size(memory_total)),
             (tr!(docker_containers_tile), format!("{}/{}", group.running, containers.len())),
         ],
@@ -279,14 +283,14 @@ pub(super) fn group_details(
             break;
         }
         let line = row(rest, y);
-        let [name, cpu_cell, memory, status] = columns(line);
+        let [name, now, average, memory, status] = columns(line);
         Line::from(vec![
             Span::styled(format!("{} ", dot(container)), tone(container, theme)),
             Span::styled(container.label().to_owned(), theme.styles.overlay),
         ])
         .render(name, buf);
         if let Some(usage) = docker.usage.get(&container.id).filter(|_| container.state.is_up()) {
-            text(buf, cpu_cell, cpu(u64::from(usage.average_cpu())), theme.styles.overlay);
+            cpu_cells(buf, [now, average], usage.cpu_use(), theme.styles.overlay);
             text(buf, memory, format::size(usage.latest.memory), theme.styles.overlay);
         }
         let note =

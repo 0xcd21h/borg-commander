@@ -512,8 +512,12 @@ panels are idle. **Refresh status** in the Git menu checks again right away.
 project, with containers that are not part of a project at the end. The other panel shows the
 selected container: its status, ports, networks, mounts, command, and restart policy, plus live
 CPU, memory, network, and disk use with a chart of the last minute. For a project, it shows the
-project's folder, its containers, and their combined use. CPU figures are averaged over the last
-few seconds, like the activity monitor's, so they read steadily. Esc closes the view.
+project's folder, its containers, and their combined use. Esc closes the view.
+
+CPU shows as two figures. **Now %** is the latest reading, and **Avg %** is the average of the last few
+seconds, as in the activity monitor, so it holds steady while a container works in bursts. A list
+too narrow for both shows **Avg %** alone. The details show the same pair as **CPU now** and
+**CPU avg**, and a project adds up both over its running containers.
 
 | Key | Action |
 | --- | --- |
