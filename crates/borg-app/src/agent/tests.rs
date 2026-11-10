@@ -359,3 +359,27 @@ fn an_agents_download_lands_only_in_the_downloads_folder_and_replaces_nothing() 
     assert!(place(Some("reports/taken.csv")).is_err(), "an existing file stays");
     assert_eq!(std::fs::read_to_string(reports.join("taken.csv")).unwrap(), "kept");
 }
+
+/// A command that prints far more than a reply carries is read to its end with only the end
+/// of its output held, and the reply says the start was left out.
+#[tokio::test]
+async fn a_command_that_prints_without_measure_keeps_only_the_end_of_its_output() {
+    const PRINTED: usize = 20 * 1024 * 1024;
+    let folder = tempfile::tempdir().unwrap();
+    let (exit, text) = run(&format!("yes | head -c {PRINTED}; echo the end"), folder.path()).await;
+    assert_eq!(exit, Some(0));
+    assert!(text.starts_with("[earlier output left out]\n") && text.ends_with("the end\n"));
+    assert!(text.len() < 2 * OUTPUT_LIMIT, "{} bytes came back", text.len());
+}
+
+#[test]
+fn output_kept_of_a_command_lets_go_of_its_start() {
+    let mut kept = Vec::new();
+    let piece = vec![b'x'; OUTPUT_PIECE];
+    for _ in 0..(8 * OUTPUT_HELD).div_ceil(OUTPUT_PIECE) {
+        keep_end(&mut kept, &piece);
+        assert!(kept.len() <= 2 * OUTPUT_HELD);
+    }
+    keep_end(&mut kept, b"the end");
+    assert!(kept.ends_with(b"the end") && kept.len() >= OUTPUT_HELD);
+}
