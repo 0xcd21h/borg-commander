@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::Deserialize;
 use ureq::tls::{RootCerts, TlsConfig};
 
@@ -43,9 +45,20 @@ pub fn parse_release(json: &[u8]) -> Result<Option<Release>, UpdateError> {
     Ok(Some(Release { version: raw.tag_name.parse()?, assets: raw.assets }))
 }
 
+/// How long Borg waits to reach the server, for it to start answering, and for a whole download.
+const CONNECT_WAIT: Duration = Duration::from_secs(15);
+const ANSWER_WAIT: Duration = Duration::from_secs(30);
+const DOWNLOAD_WAIT: Duration = Duration::from_secs(15 * 60);
+
 fn agent() -> ureq::Agent {
     let tls = TlsConfig::builder().root_certs(RootCerts::PlatformVerifier).build();
-    ureq::Agent::config_builder().tls_config(tls).build().new_agent()
+    ureq::Agent::config_builder()
+        .tls_config(tls)
+        .timeout_connect(Some(CONNECT_WAIT))
+        .timeout_recv_response(Some(ANSWER_WAIT))
+        .timeout_global(Some(DOWNLOAD_WAIT))
+        .build()
+        .new_agent()
 }
 
 pub(crate) fn fetch(url: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
