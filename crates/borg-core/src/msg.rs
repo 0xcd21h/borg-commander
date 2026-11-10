@@ -416,6 +416,10 @@ pub enum Effect {
     SetRelay(String),
     /// Forgets every computer paired through borg cloud, and ends their sessions.
     ForgetComputers,
+    /// Adds an entry to the log of what agents did that the session keeps on disk.
+    SaveAgentNote(String),
+    /// Removes the session's saved log of what agents did.
+    ForgetAgentLog,
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,

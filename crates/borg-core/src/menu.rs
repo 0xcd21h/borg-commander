@@ -257,6 +257,7 @@ fn remote_menu(state: &AppState) -> Menu {
             ),
             MenuEntry::Separator,
             item(tr!(remote_share_this_borg), "", Action::ConnectClaude),
+            item(tr!(remote_log), "", Action::AgentLog),
             item(tr!(remote_background_service), "", Action::BackgroundService),
         ],
     }
