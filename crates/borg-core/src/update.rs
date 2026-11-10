@@ -76,6 +76,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             }
             listed(state, side, generation, Some(tr!(archive_no_tool).into()))
         }
+        Msg::ComputerKeyLocked { wrong } => {
+            crate::remote::computer_key_locked(state, wrong);
+            Vec::new()
+        }
         Msg::ArchiveLocked { side, generation, wrong } => {
             crate::archive::locked(state, side, generation, wrong);
             Vec::new()

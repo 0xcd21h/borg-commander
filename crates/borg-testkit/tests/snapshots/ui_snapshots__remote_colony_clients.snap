@@ -19,7 +19,7 @@ expression: describe(&buffer)
 ││                                                                                      ││
 ││                                                                                      ││
 ││ This Borg is the host for the selected client.                                       ││
-╰│ Fingerprint: aabb:ccdd:eeff                                                          │╯
+╰│ Fingerprint: aabb-ccdd-eeff-0011 · new on 2026-11-09, was 0102-0304-0506-0708        │╯
  │ Connections: 3                                                                       │
 $│ Tab: switch hosts / clients                                                          │
 F╰───────────────────────── Tab: hosts  R: refresh  Esc: close ─────────────────────────╯

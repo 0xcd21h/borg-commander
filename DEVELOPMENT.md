@@ -69,6 +69,8 @@ crates/
                 and what they match with its evidence, severity and caveat
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
   borg-relay    the relay borgs meet through: it forwards traffic it cannot read
+  borg-local-auth  Touch ID or the password from LocalAuthentication before a key leaves the
+                macOS keychain
   borg-update   release checks and self-update
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
@@ -191,7 +193,9 @@ administrator retry as memory inspection. It never reads the contents of descrip
 Region and match selection schedule a 120 ms debounced bounded preview read, while
 Tab switches focus for scrolling. Late replies cannot replace another selection's
 bytes; unreadable regions do not request a capture. `borg-app::activity` samples through sysinfo
-and executes on-demand memory-map and memory-read requests on background workers.
+and executes on-demand memory-map and memory-read requests on background workers. On Linux the
+sample leaves out each process's threads: `/proc/PID/stat` and `/proc/PID/io` already count every
+thread, and reading each thread's files every second costs more than the rest of the sample.
 macOS maps come from vmmap; Linux maps come from smaps. Process identity combines
 PID and start time and is checked before and after inspection. Captures read at
 most 64 KiB through the safe read-process-memory API. No target is suspended.
@@ -476,7 +480,7 @@ through `aya-build`, with the nightly compiler it names, and the `borg` binary e
 Built for anything else, the crate's binary is empty, so the workspace builds and lints on stable
 everywhere. `src/lib.rs` is the layout both sides share: `Exec` and `Parent` are `#[repr(C)]`, and
 Borg reads records by `offset_of!` on them, so the reader cannot drift from what the kernel writes.
-`kernel.rs` is the only `unsafe` code in Borg: every read the kernel allows a program goes through a
+`kernel.rs` holds the eBPF side's `unsafe` code: every read the kernel allows a program goes through a
 raw pointer, and the kernel's verifier checks each one before it loads the program. The crate denies
 `unsafe_code`, and only `kernel.rs` allows it.
 
@@ -652,8 +656,10 @@ A borg opens a viewer channel for each host session one of its panels mounts (`h
 long-polls `asks_wait` with the version it has. The host answers with an `AskFeed` as soon as its
 `AskBoard` changes, or after 15 seconds: the asks that wait, the last 32 that ended and how, the
 computers Approve all is on for, and the controller when another computer holds the native
-mirror. Answers (`asks_answer`) and `asks_stop` go on a viewer channel opened for each, so they
-never wait behind a poll. The host takes the three `asks_*` calls only on a viewer channel and
+mirror. Answers (`asks_answer`) and `asks_stop` go on a viewer channel opened for each, on a task
+of their own, so they never wait behind a poll and a dropped poll or a closed panel does not lose
+them. The viewer remembers the asks it answered or closed by the host's run and number, so a
+host that restarts shows its new asks even when they reuse a number. The host takes the three `asks_*` calls only on a viewer channel and
 refuses every other call there. `Caller` marks them with `viewer`, which `Call::external` clears,
 so an agent's socket call or session channel cannot claim it. An answer names the host's run, a
 random ID for each process, and the ask's number, and counts only while that ask still waits and
@@ -662,7 +668,64 @@ first answer wins logic. `borg mcp` forwards only the tools it lists, so an agen
 mirror, console, panel or viewer calls. In the background service the asks come from the child's
 socket, which trusts the service; the service tracks the mirror controller there, so the view-only
 check does not apply. Outside the service, a named session other than the one that holds borg
-cloud clears the viewer mark on its socket, so its asks stay on its own screen.
+cloud clears the viewer mark on its socket, so its asks stay on its own screen. These checks keep
+Borg's own connections apart. They cannot stop an agent that runs programs under your account on
+the viewer's computer: it can read the pairing key in Borg's state folder or send keys to the
+terminal Borg runs in, so give such an agent a sandbox when its requests matter.
+
+A borg keeps two kinds of keys in the `link` folder of its state folder. The server key, `key`,
+identifies it to the computers paired with it and loads by itself. A borg that reaches servers
+proves itself with a computer key of its own, which `link::keys` loads once per process, together
+with the keys it retired while some server may still take them. `computer.json` holds the current
+key's public half and when it was made, and `computer.lock` serializes making keys and changing
+`servers.json`. Each `servers.json` entry records the computer key that server takes (`computer`)
+and a key sent in a `rotate` whose answer did not arrive (`offered`). `Remote::open_as` tries the
+offered key, then the one the server takes, then the current one. On a session channel to a server
+whose answer to the hello sets `rotation`, it sends `rotate` with the new public key and a proof:
+an HMAC over the channel's handshake hash and the new key, keyed through HKDF from
+DH(new private, server public) with the label `borg-link rotate 1`. The server checks the proof,
+swaps the key in that computer's entry, keeps its name, saves `computers.json`, and shows a notice
+with both fingerprints; `Caller` ends sessions on the old key at their next message. A computer
+that every key fails on gets the `cloud_key_refused` message.
+
+Where the computer keys live depends on the state folder. When it is the usual one
+(`StateDir::default_root`), a Mac keeps them in a login keychain item, service `Borg Commander` and
+account `computer key` (`link/keychain.rs`), whose access list trusts only the borg binary that
+made it. Before the first read in a process, `borg-local-auth` asks LocalAuthentication for Touch ID
+or the password, and a refusal or a session without the Mac's screen ends the load with a message.
+A `computer-key` file found there moves into the keychain, merged around the key `computer.json`
+names, and is deleted.
+
+On Linux, the usual state folder keeps the computer keys in `computer-key.sealed`
+(`link/sealed.rs`), JSON with `format: 1`. A random data key seals the key text with
+XChaCha20-Poly1305, and a password slot seals the data key under Argon2id v0x13 with a random salt.
+The slot records its cost: an eighth of the machine's memory, clamped to 64 MiB to 1 GiB, 3 passes
+and 4 lanes. An optional agent slot seals the data key again, under HKDF-SHA256 of an ssh-agent
+signature over `borg-commander unlocks this computer's key 1 ` followed by the slot's salt, and
+names the agent key by its fingerprint. Only `ssh-ed25519` and `ssh-rsa` keys qualify, RSA asked
+for SHA-256, and `borg unlock --ssh-agent` signs twice to refuse a key whose signatures change.
+Each box's associated data names what it holds, so a box cannot stand in for another.
+
+`link/unlock.rs` opens the file with the data key held from earlier, then the agent slot, then a
+password from the terminal when the command allows one (`link::ask_in_terminal`; `borg unlock`
+reads lines from stdin when it is no terminal). Otherwise it sends `Msg::ComputerKeyLocked` to the
+TUI once, which opens a masked prompt and answers with `Effect::UnlockComputerKey`, and the load
+fails with `KeyLocked`. A plain `computer-key` file found there is sealed under a new password the
+first time a terminal can ask for one, and is deleted. `link/unlocked.rs` holds the data key per
+state folder in the user keyring, as a `user` key described as `borg-commander:` and 16 bytes of
+SHA-256 of the canonical state path, with possessor and user permissions only and a 12-hour
+timeout that each recall renews. Borg uses the keyring only when the session keyring links the
+user keyring, as pam_keyinit sets up for logins: without that link, the kernel lets a process add a
+key there but not read it back or set its timeout. Elsewhere, as in Docker containers, systemd
+services or wherever seccomp blocks keyctl, `borg --key-agent STATE` holds the key instead. That
+process reads the hex key from stdin, marks itself not dumpable, answers `get`, `put HEX` and
+`forget` lines on the 0600 `link/unlocked.sock` for peers with its own uid, and exits after 12
+hours without a request or on `forget`. A recall tries the keyring and then the agent, `borg lock`
+forgets the key in both, and `borg unlock` fails when neither holds it. The suggested password is 4 words from `link/words.txt`, the
+2,048-word BIP-39 English list as rust-bip39 ships it under CC0, which gives 44 bits.
+
+Everywhere else, including every test, the keys are a 0600 `computer-key` file. `computer_keys`
+loads them on a blocking thread, one load at a time, so parallel connections ask once.
 
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:
@@ -855,6 +918,10 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
 - checks that the tag matches the crate version (`scripts/check-version.sh`),
 - builds static Linux binaries (musl, x86_64 and arm64, with `cargo zigbuild`) and macOS
   binaries (Intel and Apple Silicon),
+- signs the macOS binaries ad hoc with the hardened runtime and
+  `packaging/macos/borg.entitlements`, then checks that they load only system libraries
+  (`scripts/sign-macos.sh`); the debugger entitlement keeps memory reading as administrator
+  working, and Borg running as you never asks macOS for another process's task port,
 - packages each as `borg-<version>-<target>.tar.gz` with a `.sha256` file
   (`scripts/package.sh`),
 - creates the GitHub release with generated notes and attaches everything,
@@ -885,8 +952,9 @@ default, so they cannot download a larger archive and update by installing again
 - No comments in code: names, types and small functions carry the meaning.
 - No magic values: name constants, keep them next to their use.
 - Prefer pure functions and data in, data out. Side effects belong in `borg-app`.
-- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints). The eBPF programs are the
-  one exception ([The eBPF programs](#the-ebpf-programs)).
+- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints). The eBPF programs
+  ([The eBPF programs](#the-ebpf-programs)) and `borg-local-auth`, whose Objective-C calls into
+  LocalAuthentication are all `unsafe`, are the two exceptions.
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
 

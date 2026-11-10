@@ -5,16 +5,16 @@ expression: describe(&buffer)
 ╭ Network · Live · 1s ──────────────────────────────────────────────────────────────────────────────────────────────────────[=]─[-]╮
 │ 1 Ports  2 Processes  3 Connections  4 Interfaces                                                                                │
 │/ Filter by process, host, port or state                                                                                          │
-│Process                                                                                         PID     Down ↓    Up        Conns │
-│browser                                                                                         8239    1.9M/s    29K/s     3     │
-│backup-agent                                                                                    7001    6859/s    683K/s    1     │
-│node                                                                                            4100    28K/s     685/s     1     │
-│postgres                                                                                        812     685/s     28K/s     1     │
-│sshd                                                                                            301     2186/s    11K/s     1     │
-│mail                                                                                            6120    1371/s    392/s     1     │
-│mDNSResponder                                                                                   188     914/s     228/s     0     │
-│Unknown process                                                                                 —       0         0         1     │
-│redis-server                                                                                    977     0         0         0     │
+│Process                                                                                        PID      Down ↓    Up        Conns │
+│browser                                                                                        8239     1.9M/s    29K/s     3     │
+│backup-agent                                                                                   7001     6859/s    683K/s    1     │
+│node                                                                                           4013900  28K/s     685/s     1     │
+│postgres                                                                                       812      685/s     28K/s     1     │
+│sshd                                                                                           301      2186/s    11K/s     1     │
+│mail                                                                                           6120     1371/s    392/s     1     │
+│mDNSResponder                                                                                  188      914/s     228/s     0     │
+│Unknown process                                                                                —        0         0         1     │
+│redis-server                                                                                   977      0         0         0     │
 │                                                                                                                                  │
 │                                                                                                                                  │
 │                                                                                                                                  │
@@ -40,7 +40,7 @@ T Traffic · N Name · C Connections · Ctrl-C Copy PID · Alt-W Maximize       
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-21 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 22-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-9 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 10-22 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 23-51 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 52-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   2: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
-  3: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-95 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 96-96 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 97-103 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 104-104 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 105-113 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 114-114 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 115-123 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 124-124 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 125-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
+  3: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-94 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 95-95 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 96-103 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 104-104 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 105-113 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 114-114 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 115-123 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 124-124 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 125-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   4: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   5: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   6: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
