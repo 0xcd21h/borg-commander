@@ -127,6 +127,21 @@ fn looking_around(ancestors: &[Ancestor]) -> Vec<StartedProcess> {
         .collect()
 }
 
+/// Once a program has run four discovery commands, the run has been reported. Running one of
+/// them again, or starting anything else, adds nothing to it and says nothing more.
+#[test]
+fn a_run_already_reported_stays_quiet_for_what_its_program_starts_next() {
+    let server = [ancestor(13, "/usr/bin/python3", false)];
+    let mut processes = looking_around(&server);
+    for (step, program) in ["/usr/bin/whoami", "/usr/bin/true", "/usr/bin/id"].into_iter().enumerate() {
+        let mut process = started(60 + step as u32, program, None);
+        process.ancestors = server.to_vec();
+        processes.push(process);
+    }
+    let fired = runs(&learned(), processes, Duration::from_secs(1));
+    assert_eq!(fired, [false, false, false, true, false, false, false]);
+}
+
 /// Starts the processes one after another, `apart` apart, and says after which of them a run
 /// of discovery commands fired.
 fn runs(baseline: &Baseline, processes: Vec<StartedProcess>, apart: Duration) -> Vec<bool> {
