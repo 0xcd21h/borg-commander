@@ -561,6 +561,41 @@ mod sealing {
         assert!(!socket.exists(), "an idle agent ends and removes its socket");
         assert!(key_agent::recall(&socket).is_none());
     }
+
+    #[tokio::test]
+    async fn a_client_that_says_nothing_neither_holds_borgs_key_agent_nor_keeps_it_unlocked() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join(key_agent::SOCKET_FILE);
+        let serving = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, Zeroizing::new([6; KEY_LEN]), Duration::from_secs(30)).await }
+        });
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let _silent = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        let asked = socket.clone();
+        let recalled = tokio::task::spawn_blocking(move || key_agent::recall(&asked).map(|key| *key)).await.unwrap();
+        assert_eq!(recalled, Some([6; KEY_LEN]), "a silent client does not keep others waiting");
+        let asked = socket.clone();
+        assert!(tokio::task::spawn_blocking(move || key_agent::forget(&asked)).await.unwrap());
+        serving.await.unwrap().unwrap();
+
+        let idle = tokio::spawn({
+            let socket = socket.clone();
+            async move { key_agent::serve(&socket, Zeroizing::new([7; KEY_LEN]), Duration::from_millis(300)).await }
+        });
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let _silent = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), idle)
+            .await
+            .expect("the agent still ends when idle")
+            .unwrap()
+            .unwrap();
+        assert!(!socket.exists());
+    }
 }
 
 #[cfg(target_os = "linux")]
