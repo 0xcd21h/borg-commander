@@ -190,10 +190,14 @@ fn export(activity: &Activity, folder: &Path) -> Vec<Effect> {
     vec![Effect::ExportMemory { path: folder.join(name), bytes: snapshot.bytes.clone() }]
 }
 
-/// The processes' keys: a column's key sorts by it, again turns the order round, and T shows
-/// the processes as a tree.
+/// The processes' keys: a column's key sorts by it, again turns the order round, T shows the
+/// processes as a tree, and H hides the idle ones.
 fn sort_key(activity: &mut Activity, c: char) {
     let sort = match c.to_ascii_lowercase() {
+        'h' => {
+            activity.hide_idle = !activity.hide_idle;
+            None
+        }
         'm' => Some(ActivitySort::Memory),
         'c' => Some(ActivitySort::Cpu),
         'g' => Some(ActivitySort::Growth),

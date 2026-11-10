@@ -562,7 +562,8 @@ projeto Compose, com os contentores que não pertencem a nenhum projeto no fim. 
 mostra o contentor selecionado: estado, portas, redes, montagens, comando e política de
 reinício, além da utilização de CPU, memória, rede e disco em tempo real, com um gráfico do
 último minuto. Num projeto, mostra a pasta do projeto, os seus contentores e a utilização
-conjunta. Esc fecha a vista.
+conjunta. Os valores de CPU são a média dos últimos segundos, como no monitor de atividade, para
+se lerem sem saltos. Esc fecha a vista.
 
 | Tecla | Ação |
 | --- | --- |
@@ -1554,6 +1555,14 @@ disco. CPU a 100% corresponde a um núcleo totalmente ocupado. As páginas resid
 entre processos contam para cada um deles, pelo que somar a RAM de todos os processos não dá o
 total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amostra.
 
+A CPU é uma média dos últimos segundos em que a utilização mais antiga vai perdendo peso, como no
+`top`, pelo que uma lista ordenada por CPU fica parada enquanto um processo trabalha em rajadas
+curtas. O resumo e a CPU de todo o sistema no topo do monitor são calculados da mesma forma. **H**
+oculta os processos que não usaram CPU nesse tempo, e a linha do filtro indica quantos estão
+ocultos. Um processo que fica parado continua na lista até a sua média descer a 0.0. Na árvore,
+os processos de que descende um processo ocupado continuam na lista com ele. Prima H outra vez
+para voltar a mostrar todos.
+
 | Tecla | Ação |
 | --- | --- |
 | Enter | Abrir o mapa de memória do processo / passar para a pré-visualização da região |
@@ -1561,6 +1570,7 @@ total do sistema. Os débitos de CPU e de disco aparecem a partir da segunda amo
 | C / M / G / N / P | Ordenar por CPU / RAM / crescimento / nome / PID; prima de novo para inverter |
 | I / O | Ordenar por débito de leitura / escrita |
 | T | Mostrar ou ocultar a árvore de processos |
+| H | Ocultar ou mostrar os processos que não usaram CPU nos últimos segundos |
 | Left / Right | Na árvore, recolher ou expandir o ramo do processo selecionado |
 | K | Enviar um sinal ou alterar a prioridade |
 | E | Procurar entropia alta em todos os processos |

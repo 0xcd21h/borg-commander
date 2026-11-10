@@ -8,9 +8,9 @@ expression: describe(&buffer)
 │Name                 CPU %   Memory   Status                    ││  Disk use            D │                                       │
 │▾ blog                                0 of 1 running            ││────────────────────────│et in/out  Disk r/w    Processes       │
 │  ● app              0.0     61M      Up 2 days (Paused)        ││  Start               S │0M / 9.0M  11M / 2.9M  9               │
-│▾ shop               13.5    606M     2 of 3 running            ││  Stop…               X │                                       │
+│▾ shop               15.1    606M     2 of 3 running            ││  Stop…               X │                                       │
 │  ● db               1.2     401M     Up 3 hours (healthy)      ││  Restart…            R │                                       │
-│  ● web              12.3    205M     Up 3 hours (healthy)      ││  Pause               P │                                       │
+│  ● web              13.9    205M     Up 3 hours (healthy)      ││  Pause               P │                                       │
 │  ○ worker                            Exited (1) 12 minutes ago ││────────────────────────│0/tcp                                  │
 │▾ Other containers                    0 of 1 running            ││  Files               F │2.18.0.4                               │
 │  ○ scratch                           Exited (0) 2 days ago     ││  Shell               E │usr/share/nginx/html (ro)              │

@@ -1,7 +1,7 @@
 //! The memory overview: the meters, the history chart, the largest processes, and the
 //! inspected process's place in the process tree.
 
-use super::{Page, SIZE_WIDTH, dim, emphasis, heading, row, size, text};
+use super::{Page, SIZE_WIDTH, dim, emphasis, heading, percent, row, size, text};
 use crate::{Rgb, format, look::Look};
 use borg_core::{Activity, DEFAULT_NICE, HISTORY, Kin, MemoryProtection, MemoryRegion, MemoryTotals, Relative};
 use borg_i18n::{Count, count, tr};
@@ -117,7 +117,7 @@ pub(super) fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut
         (tr!(activity_resident), size(p.resident)),
         (tr!(activity_peak), size(history.map(|h| h.peak))),
         (tr!(activity_since), change(activity.growth(p.key))),
-        (tr!(activity_cpu_tile), p.cpu.map_or_else(|| "—".into(), |v| format!("{:.1}%", f64::from(v) / 100.0))),
+        (tr!(activity_cpu_tile), percent(activity.cpu(p.key))),
         (tr!(activity_virtual), size(p.virtual_bytes)),
     ];
     if let Some(nice) = p.nice.filter(|&nice| nice != DEFAULT_NICE) {

@@ -6,6 +6,7 @@ use crate::{Appearance, Msg, Settings, Startup, ThemeChoice, update};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{path::PathBuf, time::Instant};
 mod control;
+mod cpu;
 mod entropy;
 mod map;
 mod processes;

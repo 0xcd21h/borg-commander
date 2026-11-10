@@ -195,7 +195,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::DockerStats(frame) => {
-            crate::docker::stats(state, frame);
+            crate::docker::stats(state, frame, now);
             Vec::new()
         }
         Msg::DockerShellOutput { container, mode } => {

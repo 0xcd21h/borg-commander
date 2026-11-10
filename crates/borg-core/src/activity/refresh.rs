@@ -188,6 +188,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
                 }
             }
             activity.sample = sample;
+            activity.average_cpu(now);
             activity.rebuild();
             revealed = activity.revealing.take().filter(|&(pid, _)| activity.select_pid(pid));
         }

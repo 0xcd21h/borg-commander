@@ -558,8 +558,9 @@ momento.
 proyecto de Compose, con los contenedores que no forman parte de ningún proyecto al final. El otro
 panel muestra el contenedor seleccionado: su estado, puertos, redes, montajes, comando y política
 de reinicio, además del uso en vivo de CPU, memoria, red y disco con un gráfico del último minuto.
-Para un proyecto, muestra la carpeta del proyecto, sus contenedores y su uso combinado. Esc cierra
-la vista.
+Para un proyecto, muestra la carpeta del proyecto, sus contenedores y su uso combinado. Las cifras
+de CPU son la media de los últimos segundos, como en el monitor de actividad, así que se leen sin
+saltos. Esc cierra la vista.
 
 | Tecla | Acción |
 | --- | --- |
@@ -1566,6 +1567,14 @@ residentes compartidas entre procesos cuentan para cada uno de ellos, así que s
 los procesos no da el total del sistema. Las velocidades de CPU y de disco aparecen a partir de la
 segunda muestra.
 
+La CPU es una media de los últimos segundos en la que el uso más antiguo va perdiendo peso, como en
+`top`, así que una lista ordenada por CPU se queda quieta mientras un proceso trabaja a ráfagas
+cortas. El resumen y la CPU de todo el sistema en la parte superior del monitor se calculan igual.
+**H** oculta los procesos que no usaron CPU en ese tiempo, y la fila del filtro indica cuántos hay
+ocultos. Un proceso que deja de trabajar sigue en la lista hasta que su media baja a 0.0. En el
+árbol, los procesos de los que desciende uno ocupado siguen en la lista con él. Pulsa H otra vez
+para mostrarlos todos.
+
 | Tecla | Acción |
 | --- | --- |
 | Enter | Abrir el mapa de memoria del proceso / pasar a la vista previa de la región |
@@ -1573,6 +1582,7 @@ segunda muestra.
 | C / M / G / N / P | Ordenar por CPU / RAM / crecimiento / nombre / PID; pulsa de nuevo para invertir |
 | I / O | Ordenar por velocidad de lectura / escritura |
 | T | Mostrar u ocultar el árbol de procesos |
+| H | Ocultar o mostrar los procesos que no usaron CPU en los últimos segundos |
 | Left / Right | En el árbol, plegar o desplegar la rama del proceso seleccionado |
 | K | Enviar una señal o cambiar la prioridad |
 | E | Buscar entropía alta en todos los procesos |

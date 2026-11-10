@@ -155,8 +155,9 @@ pub use results::{
 };
 
 pub use activity::{
-    Activity, ActivityData, ActivityPage, ActivityRequest, ActivitySort, HISTORY, MemoryHistory, MemoryProtection,
-    MemoryRegion, MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT, SystemSample,
+    Activity, ActivityData, ActivityPage, ActivityRequest, ActivitySort, CpuAverage, HISTORY, MemoryHistory,
+    MemoryProtection, MemoryRegion, MemorySnapshot, PROCESS_LIMIT, ProcessInfo, ProcessKey, SNAPSHOT_LIMIT,
+    SystemSample,
 };
 
 pub use activity::{Branch, Kin, ListedProcess, Relative};
