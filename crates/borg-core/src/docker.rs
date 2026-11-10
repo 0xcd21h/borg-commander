@@ -12,7 +12,7 @@ use std::{
 use borg_docker::{Action, Container, Details, DiskUse, State, Stats};
 use borg_term::{GridSize, Scroll};
 
-use crate::{AppState, Effect, HISTORY, ShellStatus, Side, View};
+use crate::{AppState, CpuAverage, Effect, HISTORY, ShellStatus, Side, View};
 
 mod disk;
 mod files;
@@ -160,11 +160,25 @@ pub struct DockerGroup {
 }
 
 /// A container's recent CPU and memory, one sample a second.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Usage {
     pub cpu: Vec<u64>,
     pub memory: Vec<u64>,
     pub latest: Stats,
+    /// CPU use averaged over the last few seconds, which the view shows.
+    average: CpuAverage,
+}
+
+impl Usage {
+    fn new(stats: Stats, now: Instant) -> Self {
+        Self { cpu: Vec::new(), memory: Vec::new(), latest: stats, average: CpuAverage::next(None, stats.cpu, now) }
+    }
+
+    /// CPU use averaged over the last few seconds, in hundredths of a percent of one core,
+    /// rounded to the step the view shows.
+    pub fn average_cpu(&self) -> u32 {
+        self.average.shown()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,13 +283,14 @@ impl Docker {
         self.working.iter().find(|w| w.ids.iter().any(|i| i == id)).map(|w| w.action)
     }
 
-    /// Total CPU (hundredths of a percent) and memory of a group's running containers.
+    /// Total CPU (hundredths of a percent, averaged over the last few seconds) and memory of a
+    /// group's running containers.
     pub fn group_usage(&self, group: &DockerGroup) -> (u64, u64) {
         group
             .containers
             .iter()
             .filter_map(|&i| self.usage.get(&self.containers[i].id))
-            .fold((0, 0), |(cpu, memory), usage| (cpu + u64::from(usage.latest.cpu), memory + usage.latest.memory))
+            .fold((0, 0), |(cpu, memory), usage| (cpu + u64::from(usage.average_cpu()), memory + usage.latest.memory))
     }
 
     pub fn list_start(&self, height: usize) -> usize {
@@ -368,9 +383,10 @@ impl Docker {
         vec![Effect::Docker { id, request }]
     }
 
-    fn sample(&mut self, frame: Vec<(String, Stats)>) {
+    fn sample(&mut self, frame: Vec<(String, Stats)>, now: Instant) {
         for (id, stats) in frame {
-            let usage = self.usage.entry(id).or_default();
+            let usage = self.usage.entry(id).or_insert_with(|| Usage::new(stats, now));
+            usage.average = CpuAverage::next(Some(usage.average), stats.cpu, now);
             for (values, value) in [(&mut usage.cpu, u64::from(stats.cpu)), (&mut usage.memory, stats.memory)] {
                 values.push(value);
                 if values.len() > HISTORY {
