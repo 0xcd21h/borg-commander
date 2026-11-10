@@ -4491,11 +4491,37 @@ fn a_kept_service_takes_over_from_one_started_on_demand() -> Result<()> {
     app.wait_until("registered with the service it started", |_| status() == registered(false))?;
     let _kept = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-kept").spawn()?;
     app.wait_until("registered with the kept service", |_| status() == registered(true))?;
-    let mut refused = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-refused").spawn()?;
-    refused.wait_text("already running")?;
-    ensure!(!refused.wait_exit()?.success(), "a second kept service gives up");
+    let refused = second_kept_service(&fixture)?;
+    let said = String::from_utf8_lossy(&refused.stderr);
+    ensure!(!refused.status.success() && said.contains("already running"), "a second kept service gives up: {said}");
     ensure!(status() == registered(true), "the kept service runs on");
     Ok(())
+}
+
+/// Runs `borg service run` beside a kept service and returns what it said as it gave up. A pipe
+/// keeps those words after it exits, where a terminal may lose them.
+fn second_kept_service(fixture: &Fixture) -> Result<std::process::Output> {
+    const GIVE_UP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(50);
+    let mut service = std::process::Command::new(BORG)
+        .args(["service", "run"])
+        .env("HOME", fixture.home())
+        .env("BORG_CONFIG_DIR", fixture.config())
+        .env("XDG_RUNTIME_DIR", fixture.runtime())
+        .env("BORG_STATE_DIR", fixture.state())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let deadline = std::time::Instant::now() + GIVE_UP_WAIT;
+    while service.try_wait()?.is_none() {
+        if std::time::Instant::now() >= deadline {
+            service.kill()?;
+            anyhow::bail!("a second kept service ran on");
+        }
+        std::thread::sleep(POLL);
+    }
+    Ok(service.wait_with_output()?)
 }
 
 /// `borg service attach` keeps a session running in the background and shows it here. Ctrl-]
