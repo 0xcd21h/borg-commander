@@ -141,6 +141,8 @@ pub struct App {
     mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
     mirror_ready: Option<crate::mirror::Connection>,
     cloud_suppressed: bool,
+    /// This Borg's registration with the background service, which then holds borg cloud.
+    membership: Option<crate::service::Membership>,
 }
 
 enum Flow {
@@ -331,7 +333,7 @@ impl App {
         let flow = self.apply(effects)?;
         self.fit_container_shell();
         self.settle_reveals();
-        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_suppressed);
+        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_elsewhere());
         Ok(flow)
     }
 }

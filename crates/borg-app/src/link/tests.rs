@@ -145,7 +145,7 @@ mod rotation {
         });
         let (messages, notices) = tokio::sync::mpsc::unbounded_channel();
         let served = served::Served {
-            background_service: false,
+            members: None,
             relay: relay.clone(),
             identity: server.clone(),
             shared: shared.clone(),

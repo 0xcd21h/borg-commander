@@ -69,6 +69,9 @@ pub struct NamedSession {
     pub archived: bool,
     #[serde(default)]
     pub last_opened: u64,
+    /// The background service keeps this session running.
+    #[serde(default)]
+    pub background: bool,
 }
 
 fn now() -> u64 {
@@ -103,8 +106,13 @@ pub fn ensure_default(state: &StateDir) -> Result<Vec<NamedSession>> {
     if !sessions.is_empty() {
         return Ok(sessions);
     }
-    let default =
-        NamedSession { id: DEFAULT_SESSION.into(), name: "Default".into(), archived: false, last_opened: now() };
+    let default = NamedSession {
+        id: DEFAULT_SESSION.into(),
+        name: "Default".into(),
+        archived: false,
+        last_opened: now(),
+        background: false,
+    };
     save(state, std::slice::from_ref(&default))?;
     Ok(vec![default])
 }
@@ -138,7 +146,7 @@ pub fn create(state: &StateDir, name: &str) -> Result<NamedSession> {
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random)?;
     let id = borg_link::hex(&random);
-    let session = NamedSession { id, name, archived: false, last_opened: now() };
+    let session = NamedSession { id, name, archived: false, last_opened: now(), background: false };
     sessions.push(session.clone());
     save(state, &sessions)?;
     Ok(session)
@@ -169,6 +177,17 @@ pub fn rename(state: &StateDir, target: &str, name: &str) -> Result<NamedSession
     let renamed = session.clone();
     save(state, &sessions)?;
     Ok(renamed)
+}
+
+/// Has the background service keep the session running, or lets it end with its Borg.
+pub fn keep(state: &StateDir, target: &str, background: bool) -> Result<NamedSession> {
+    let mut sessions = list(state)?;
+    let id = resolve(&sessions, target)?.id.clone();
+    let session = sessions.iter_mut().find(|session| session.id == id).expect("resolved session");
+    session.background = background;
+    let kept = session.clone();
+    save(state, &sessions)?;
+    Ok(kept)
 }
 
 pub fn archive(state: &StateDir, target: &str, archived: bool) -> Result<()> {
@@ -539,9 +558,15 @@ mod tests {
 
     #[test]
     fn the_only_session_open_in_another_terminal_starts_in_the_window() {
-        let default =
-            NamedSession { id: DEFAULT_SESSION.into(), name: "Default".into(), archived: false, last_opened: 0 };
-        let web = NamedSession { id: "b".repeat(32), name: "web".into(), archived: false, last_opened: 0 };
+        let default = NamedSession {
+            id: DEFAULT_SESSION.into(),
+            name: "Default".into(),
+            archived: false,
+            last_opened: 0,
+            background: false,
+        };
+        let web =
+            NamedSession { id: "b".repeat(32), name: "web".into(), archived: false, last_opened: 0, background: false };
         let only = [&default];
         let both = [&default, &web];
         assert_eq!(start(&only, false, true).unwrap(), Start::Only(DEFAULT_SESSION.into()));

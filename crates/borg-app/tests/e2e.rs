@@ -4375,6 +4375,156 @@ fn mirror_client_still_controls_background_host_sessions_using_pty_input() -> Re
     Ok(())
 }
 
+/// Runs `borg service` with `args` for the fixture's sessions, and what it printed.
+fn service_command(fixture: &Fixture, args: &[&str]) -> Result<String> {
+    let output =
+        std::process::Command::new(BORG).arg("service").args(args).env("BORG_STATE_DIR", fixture.state()).output()?;
+    ensure!(output.status.success(), "borg service {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A Borg in a terminal registers with the background service, which then holds borg cloud for
+/// the machine. Pairing goes through the service and is approved in the terminal, and a paired
+/// computer's calls reach that terminal's session, counted as an agent there and named in its
+/// dialog. The service starts nothing of its own.
+#[test]
+fn a_borg_in_a_terminal_works_through_the_background_service() -> Result<()> {
+    use base64::Engine;
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let _service =
+        Session::builder(BORG, &host).args(&["service", "run"]).size(100, 30).label("member-service").spawn()?;
+    let mut terminal = Session::builder(BORG, &host).size(130, 34).label("member-terminal").spawn()?;
+    terminal.wait_text(READY)?;
+    terminal.wait_until("the terminal's Borg registered with the service", |_| {
+        service_command(&host, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .is_some_and(|status| {
+                status["terminals"] == serde_json::json!(["default"]) && status["sessions"] == serde_json::json!([])
+            })
+    })?;
+    let (computer, _) = pair_computer(&mut terminal, &host)?;
+    let claim = fs::read_to_string(host.state().join("link").join("cloud.lock"))?;
+    ensure!(
+        claim.trim() != terminal.process_id().context("borg's process")?.to_string(),
+        "the service holds borg cloud"
+    );
+
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let mut channel = link_channel(&runtime, &computer, r#"{"kind":"session"}"#)?;
+    let reply = link_call(&runtime, &mut channel, "host_info", serde_json::json!({}))?;
+    let info: serde_json::Value = serde_json::from_str(reply["text"].as_str().unwrap_or_default())?;
+    ensure!(info["service"] == true && info["sessions"][0]["terminal"] == true, "{info}");
+    let run = serde_json::json!({"tool": "run", "args": {"command": "true"}});
+    runtime.block_on(channel.send(&serde_json::to_vec(&run)?))?;
+    terminal.wait_text("Remote wants to run")?;
+    terminal.wait_text("asked from")?;
+    decline(&mut terminal)?;
+    terminal.send(keys::down())?;
+    terminal.wait_text("◈ Remote")?;
+    let declined: serde_json::Value = runtime.block_on(async {
+        let bytes =
+            tokio::time::timeout(std::time::Duration::from_secs(30), channel.recv()).await??.context("reply")?;
+        Ok::<_, anyhow::Error>(serde_json::from_slice(&bytes)?)
+    })?;
+    ensure!(declined["ok"] == false && declined["text"].as_str().is_some_and(|text| text.contains("declined")));
+
+    let frame =
+        link_call(&runtime, &mut channel, "mirror_frame", serde_json::json!({"session": "default", "after": 0}))?;
+    let frame: serde_json::Value = serde_json::from_str(frame["text"].as_str().unwrap_or_default())?;
+    let data = base64::engine::general_purpose::STANDARD.decode(frame["data"].as_str().unwrap_or_default())?;
+    ensure!(String::from_utf8_lossy(&data).contains("notes.txt"), "the mirror shows the terminal's screen");
+    runtime.block_on(async { drop(channel) });
+    terminal.wait_gone("◈ Remote")?;
+    ensure!(!service_command(&host, &["status"])?.contains("\"sessions\":[\""), "nothing runs in the background");
+    Ok(())
+}
+
+/// The sessions the background service runs, as `borg service status` lists them.
+fn background_sessions(fixture: &Fixture) -> Option<serde_json::Value> {
+    let status = service_command(fixture, &["status"]).ok()?;
+    serde_json::from_str::<serde_json::Value>(&status).ok().map(|status| status["sessions"].clone())
+}
+
+/// With `start-service` on, the first Borg starts the background service as the user and
+/// registers with it; quitting that Borg leaves the service with no session.
+#[test]
+fn the_first_borg_starts_the_background_service_and_registers_with_it() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = false\nstart-service = true\n")?;
+    let terminals = || {
+        service_command(&fixture, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .map(|status| status["terminals"].clone())
+    };
+    let mut app = Session::builder(BORG, &fixture).size(120, 34).label("on-demand-service").spawn()?;
+    app.wait_text(READY)?;
+    app.wait_until("registered with the service it started", |_| terminals() == Some(serde_json::json!(["default"])))?;
+    app.send(keys::f(10))?.send("y")?;
+    ensure!(app.wait_exit()?.success());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while terminals() != Some(serde_json::json!([])) {
+        ensure!(std::time::Instant::now() < deadline, "the service still lists the session");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+/// A service started on demand makes way for one that is installed or run by a supervisor, and
+/// the open Borg registers with the new one. A kept service makes way for none.
+#[test]
+fn a_kept_service_takes_over_from_one_started_on_demand() -> Result<()> {
+    let fixture = fixture()?;
+    fixture.configure("return-to-panels = false\nstart-service = true\n")?;
+    let status = || {
+        service_command(&fixture, &["status"])
+            .ok()
+            .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+            .map(|status| (status["kept"].clone(), status["terminals"].clone()))
+    };
+    let registered = |kept: bool| Some((serde_json::json!(kept), serde_json::json!(["default"])));
+    let mut app = Session::builder(BORG, &fixture).size(120, 34).label("hand-over-terminal").spawn()?;
+    app.wait_text(READY)?;
+    app.wait_until("registered with the service it started", |_| status() == registered(false))?;
+    let _kept = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-kept").spawn()?;
+    app.wait_until("registered with the kept service", |_| status() == registered(true))?;
+    let mut refused = Session::builder(BORG, &fixture).args(&["service", "run"]).label("hand-over-refused").spawn()?;
+    refused.wait_text("already running")?;
+    ensure!(!refused.wait_exit()?.success(), "a second kept service gives up");
+    ensure!(status() == registered(true), "the kept service runs on");
+    Ok(())
+}
+
+/// `borg service attach` keeps a session running in the background and shows it here. Ctrl-]
+/// leaves it running; quitting Borg in it ends it, and the service stops keeping it.
+#[test]
+fn detaching_keeps_a_background_session_and_quitting_borg_in_it_ends_it() -> Result<()> {
+    const DRAWN: &str = "F10Quit";
+    let fixture = fixture()?;
+    let mut service =
+        Session::builder(BORG, &fixture).args(&["service", "run"]).label("background-quit-service").spawn()?;
+    service.wait_until("the service answers", |_| background_sessions(&fixture).is_some())?;
+    let attach = |label| {
+        Session::builder(BORG, &fixture).args(&["service", "attach", "Default"]).size(120, 34).label(label).spawn()
+    };
+    let mut attached = attach("background-quit-detach")?;
+    attached.wait_text(DRAWN)?;
+    attached.send(keys::ctrl(']'))?;
+    ensure!(attached.wait_exit()?.success(), "Ctrl-] detaches");
+    ensure!(background_sessions(&fixture) == Some(serde_json::json!(["default"])), "the session keeps running");
+    let mut attached = attach("background-quit-again")?;
+    attached.wait_text(DRAWN)?;
+    attached.send(keys::f(10))?.send("y")?;
+    service.wait_until("the session ended", |_| background_sessions(&fixture) == Some(serde_json::json!([])))?;
+    attached.wait_exit()?;
+    let registry: serde_json::Value = serde_json::from_slice(&fs::read(fixture.state().join("sessions.json"))?)?;
+    ensure!(registry[0]["background"] == false, "{registry}");
+    Ok(())
+}
+
 #[test]
 fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> Result<()> {
     for background in [false, true] {
@@ -4414,6 +4564,7 @@ fn remote_sessions_can_be_removed_from_colony_without_deleting_host_files() -> R
             broker.send(keys::f(10))?.send("y")?;
             ensure!(broker.wait_exit()?.success());
             drop(broker);
+            service_command(&host, &["keep", "Throwaway"])?;
             Session::builder(BORG, &host)
                 .args(&["service", "run"])
                 .size(130, 34)
@@ -5125,6 +5276,9 @@ fn the_start_window_names_the_sessions_the_background_service_keeps_running() ->
         .env("BORG_STATE_DIR", fixture.state())
         .output()?;
     ensure!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    for name in [SPARE, DEFAULT] {
+        service_command(&fixture, &["keep", name])?;
+    }
     let _service = Session::builder(BORG, &fixture).args(&["service", "run"]).label("start-window-service").spawn()?;
     let mut window = Session::builder(BORG, &fixture).size(100, 30).label("start-window-service-client").spawn()?;
     let listed =
