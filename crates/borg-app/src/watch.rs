@@ -69,7 +69,7 @@ impl Default for Settings {
         Self {
             on: false,
             freeze: true,
-            learning: Duration::from_secs(borg_core::LEARNING_DAYS * 24 * 60 * 60),
+            learning: borg_core::learning_period(borg_core::LEARNING_DAYS),
             limits: Limits::default(),
             allow: Vec::new(),
             keep_running: Vec::new(),

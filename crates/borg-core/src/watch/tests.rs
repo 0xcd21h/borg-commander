@@ -780,6 +780,17 @@ fn an_alert_about_a_process_still_frozen_outlives_newer_alerts() {
     assert_eq!(only_frozen.drop_oldest_unfrozen(), None);
     assert_eq!(only_frozen.drop_oldest().map(|alert| alert.id), Some(1), "it goes when nothing else is left");
 }
+
+#[test]
+fn a_learning_period_longer_than_the_limit_is_the_limit() {
+    let longest = learning_period(LEARNING_DAYS_LIMIT);
+    assert_eq!(learning_period(u64::MAX), longest);
+    assert_eq!(learning_period(LEARNING_DAYS), Duration::from_secs(LEARNING_DAYS * 24 * 60 * 60));
+    let baseline = Baseline::started(SystemTime::now(), learning_period(u64::MAX));
+    assert!(baseline.learning(SystemTime::now()));
+    assert!(baseline.review_ends() > baseline.learned_at());
+}
+
 /// A build's Java daemon runs with every library on its command line, and a script it starts
 /// carries that line in each alert as the command of its parent.
 #[test]

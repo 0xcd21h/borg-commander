@@ -412,7 +412,7 @@ impl Config {
         crate::watch::Settings {
             on: watch.on,
             freeze: watch.freeze,
-            learning: Duration::from_secs(watch.learning_days * 24 * 60 * 60),
+            learning: borg_core::learning_period(watch.learning_days),
             limits: borg_core::Limits {
                 alerts_per_minute: watch.alerts_per_minute,
                 freezes_per_minute: watch.freezes_per_minute,
