@@ -123,17 +123,10 @@ impl Alerts {
             loop {
                 let state = log::folder().ok();
                 if let Some(state) = state {
-                    let changed = tokio::task::spawn_blocking({
-                        let state = state.clone();
-                        move || (log::log_changed(&state), log::read_log(&state))
-                    })
-                    .await;
-                    if let Ok((at, read)) = changed
-                        && at.is_some()
-                        && seen != at
-                    {
-                        seen = at;
-                        let _ = messages.send(Msg::AlertsChanged(Box::new(read)));
+                    let read = tokio::task::spawn_blocking(move || changed_log(&state, seen)).await;
+                    if let Ok(Some((at, log))) = read {
+                        seen = Some(at);
+                        let _ = messages.send(Msg::AlertsChanged(Box::new(log)));
                     }
                 }
                 tokio::time::sleep(READ_EVERY).await;
@@ -148,6 +141,12 @@ impl Drop for Alerts {
             task.abort();
         }
     }
+}
+
+/// The log and when it last changed, read only when that is not the moment already `seen`.
+fn changed_log(state: &Path, seen: Option<SystemTime>) -> Option<(SystemTime, AlertLog)> {
+    let at = log::log_changed(state).filter(|at| seen != Some(*at))?;
+    Some((at, log::read_log(state)))
 }
 
 /// What the page asked for, done: the log as it stands now, and what to tell the user.
