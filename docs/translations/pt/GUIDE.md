@@ -562,8 +562,13 @@ projeto Compose, com os contentores que não pertencem a nenhum projeto no fim. 
 mostra o contentor selecionado: estado, portas, redes, montagens, comando e política de
 reinício, além da utilização de CPU, memória, rede e disco em tempo real, com um gráfico do
 último minuto. Num projeto, mostra a pasta do projeto, os seus contentores e a utilização
-conjunta. Os valores de CPU são a média dos últimos segundos, como no monitor de atividade, para
-se lerem sem saltos. Esc fecha a vista.
+conjunta. Esc fecha a vista.
+
+A CPU aparece duas vezes. **Agora %** é a leitura mais recente, e **Média %** é a média dos
+últimos segundos, como no monitor de atividade, por isso mantém-se estável quando um contentor
+trabalha aos repelões. Uma lista demasiado estreita para os dois mostra apenas **Média %**. Os
+detalhes mostram o mesmo par como **CPU agora** e **CPU média**, e um projeto soma ambos para os
+seus contentores em execução.
 
 | Tecla | Ação |
 | --- | --- |

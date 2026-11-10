@@ -9,8 +9,19 @@ fn histories_add_up_from_their_latest_samples() {
 }
 
 #[test]
-fn narrow_lists_drop_the_status_column() {
-    let wide = columns(Rect::new(0, 0, 80, 1));
-    assert!(wide[3].width > 0 && wide.iter().map(|c| c.width).sum::<u16>() <= 80);
-    assert_eq!(columns(Rect::new(0, 0, 40, 1))[3].width, 0);
+fn narrow_lists_drop_the_momentary_cpu_and_then_the_status() {
+    let widths = |width| columns(Rect::new(0, 0, width, 1)).map(|cell| cell.width);
+    let [name, now, average, memory, status] = widths(80);
+    assert!(now > 0 && status > 0, "a wide list shows every column");
+    assert!(name + now + average + memory + status + 4 <= 80);
+    let [_, now, _, _, status] = widths(58);
+    assert_eq!(now, 0, "the momentary CPU goes first");
+    assert!(status > 0);
+    let [_, now, average, _, status] = widths(40);
+    assert_eq!((now, status), (0, 0));
+    assert!(average > 0, "the average stays");
+    for width in 0..160 {
+        let [name, now, _, _, status] = widths(width);
+        assert!(name >= NAME_MIN || (now, status) == (0, 0), "names keep their room at {width}");
+    }
 }

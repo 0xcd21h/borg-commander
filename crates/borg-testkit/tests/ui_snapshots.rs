@@ -3695,13 +3695,23 @@ fn container(
     }
 }
 
+/// Wide enough for the Docker list to show CPU now beside the average.
+const DOCKER_WIDE: GridSize = GridSize { cols: 132, rows: 34 };
+/// Narrow enough for the Docker list to show the average alone.
+const DOCKER_NARROW: GridSize = GridSize { cols: 80, rows: 34 };
+
+fn resize(stage: &mut Stage, size: GridSize) {
+    stage.send(Msg::Resize { cols: size.cols, rows: size.rows });
+    stage.emulator.resize(GridSize::console(size.cols, size.rows));
+}
+
 /// The Docker view over made-up projects: a list of projects and containers on the left,
 /// the selected container's details and live CPU and memory on the right.
 #[test]
 fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     use borg_core::{DockerData, DockerRequest};
     use borg_docker::{Details, Mount, Network, State, Stats};
-    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let mut stage = stage(DOCKER_WIDE, Motion::STILL)?;
     let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
     stage.state.appearance.select(theme, stage.started, Duration::ZERO);
     let effects = borg_core::update(
@@ -3799,7 +3809,19 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "2 of 3 running")?;
+    ensure_text(&buffer, "Now %  Avg %")?;
     check("docker_project", &stage, buffer)?;
+
+    resize(&mut stage, DOCKER_NARROW);
+    let buffer = stage.render(later)?;
+    anyhow::ensure!(!describe(&buffer).contains("Now %"), "a narrow list shows the average alone");
+    check("docker_project_narrow", &stage, buffer)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "CPU avg")?;
+    check("docker_container_narrow", &stage, buffer)?;
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
+    resize(&mut stage, DOCKER_WIDE);
 
     stage.send(key(KeyCode::Char('x')));
     let Some(borg_core::Overlay::Confirm(confirm)) = stage.state.overlay.clone() else { panic!("stopping asks first") };

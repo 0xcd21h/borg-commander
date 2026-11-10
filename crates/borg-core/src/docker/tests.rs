@@ -95,9 +95,36 @@ fn stats_keep_a_minute_of_history() {
     let usage = &docker.usage["w1"];
     assert_eq!(usage.cpu.len(), HISTORY);
     assert_eq!(usage.latest.cpu, HISTORY as u32 + 4);
-    let average = u64::from(usage.average_cpu());
-    docker.select(4, Instant::now());
-    assert_eq!(docker.group_usage(docker.group().unwrap()), (average, 1024), "a project adds up the averages");
+    assert_eq!(usage.cpu_use().now, u64::from(HISTORY as u32 + 4));
+}
+
+#[test]
+fn a_project_adds_up_both_cpu_figures_of_its_containers() {
+    let mut docker = docker();
+    let start = Instant::now();
+    for second in 0..10u32 {
+        let worker = Stats { cpu: 100 * second, memory: 1024, ..Stats::default() };
+        let app = Stats { cpu: 250, memory: 2048, ..Stats::default() };
+        docker.sample(vec![("w1".into(), worker), ("w2".into(), app), ("a1".into(), app)], start + SECOND * second);
+    }
+    let (worker, app) = (docker.usage["w1"].cpu_use(), docker.usage["w2"].cpu_use());
+    docker.select(2, start);
+    let (cpu, memory) = docker.group_usage(docker.group().unwrap());
+    assert_eq!(cpu, CpuUse { now: 900 + 250, average: worker.average + app.average });
+    assert_eq!(memory, 1024 + 2048, "another project's container is left out");
+}
+
+#[test]
+fn a_burst_shows_at_once_while_the_average_follows() {
+    let mut docker = docker();
+    let start = Instant::now();
+    for second in 0..10u32 {
+        docker.sample(vec![("w1".into(), Stats::default())], start + SECOND * second);
+    }
+    docker.sample(vec![("w1".into(), Stats { cpu: 900, ..Stats::default() })], start + SECOND * 10);
+    let cpu = docker.usage["w1"].cpu_use();
+    assert_eq!(cpu.now, 900);
+    assert!((100..=400).contains(&cpu.average), "the average rises part of the way: {cpu:?}");
 }
 
 #[test]
@@ -108,10 +135,10 @@ fn container_cpu_shows_the_last_few_seconds_averaged() {
     for second in 0..20u32 {
         let cpu = if second % 2 == 0 { 900 } else { 0 };
         docker.sample(vec![("w1".into(), Stats { cpu, ..Stats::default() })], start + SECOND * second);
-        shown.push(docker.usage["w1"].average_cpu());
+        shown.push(docker.usage["w1"].cpu_use().average);
     }
     let settled = &shown[shown.len() / 2..];
     assert!(settled.iter().all(|&cpu| (300..=600).contains(&cpu)), "the figure holds near the average: {shown:?}");
-    assert_eq!(docker.usage["w1"].latest.cpu, 0, "the latest reading stays as it came");
+    assert_eq!(docker.usage["w1"].cpu_use().now, 0, "the latest reading stays as it came");
     assert_eq!(docker.usage["w1"].cpu.last(), Some(&0), "and so does the chart");
 }

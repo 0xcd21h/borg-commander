@@ -558,9 +558,14 @@ momento.
 proyecto de Compose, con los contenedores que no forman parte de ningún proyecto al final. El otro
 panel muestra el contenedor seleccionado: su estado, puertos, redes, montajes, comando y política
 de reinicio, además del uso en vivo de CPU, memoria, red y disco con un gráfico del último minuto.
-Para un proyecto, muestra la carpeta del proyecto, sus contenedores y su uso combinado. Las cifras
-de CPU son la media de los últimos segundos, como en el monitor de actividad, así que se leen sin
-saltos. Esc cierra la vista.
+Para un proyecto, muestra la carpeta del proyecto, sus contenedores y su uso combinado. Esc cierra
+la vista.
+
+La CPU aparece dos veces. **Ahora %** es la lectura más reciente, y **Media %** es la media de los
+últimos segundos, como en el monitor de actividad, así que se mantiene estable mientras un
+contenedor trabaja a ráfagas. Una lista demasiado estrecha para las dos muestra solo **Media %**.
+Los detalles muestran el mismo par como **CPU ahora** y **CPU media**, y un proyecto suma ambas
+cifras de sus contenedores en marcha.
 
 | Tecla | Acción |
 | --- | --- |
