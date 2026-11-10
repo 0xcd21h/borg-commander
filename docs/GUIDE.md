@@ -1877,7 +1877,8 @@ The filter keeps the alerts that contain every word you type, in the rule, its s
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
 leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
 
-Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. Borg keeps
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. An alert about
+a process that is still frozen stays beyond that, so you can always let it go on or kill it. Borg keeps
 the file within 8 MiB, the most it reads back, and leaves out the oldest alerts when they would not
 fit. The **Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)).
 Opening the page marks what it holds as read, and the count of unread alerts follows the log while

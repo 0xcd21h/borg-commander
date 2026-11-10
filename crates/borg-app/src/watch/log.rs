@@ -122,13 +122,13 @@ pub(super) fn load_log(state: &Path) -> Result<(AlertLog, Option<PathBuf>)> {
 }
 
 /// Writes the log, without the oldest alerts it takes for the file to fit [`LOG_BYTES`], so a
-/// log Borg wrote always reads back whole.
-pub fn write_log(state: &Path, log: &mut AlertLog) -> Result<()> {
+/// log Borg wrote always reads back whole. Alerts about processes that are still frozen go last.
+pub(super) fn write_log(state: &Path, log: &mut AlertLog) -> Result<()> {
     let mut bytes = serde_json::to_vec(log)?;
     while bytes.len() > LOG_BYTES && !log.alerts.is_empty() {
         let mut over = bytes.len() - LOG_BYTES;
         while over > 0
-            && let Some(oldest) = log.alerts.pop()
+            && let Some(oldest) = log.drop_oldest()
         {
             over = over.saturating_sub(serde_json::to_vec(&oldest)?.len());
         }

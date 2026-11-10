@@ -720,9 +720,22 @@ fn an_alert_from_earlier_lands_below_the_ones_that_came_after_it() {
     assert_eq!(log.alerts.first().map(|alert| alert.id), Some(id));
 }
 
+fn resumed(mut log: AlertLog) -> AlertLog {
+    for alert in log.alerts.iter_mut().skip(1) {
+        alert.state = AlertState::Resumed;
+    }
+    log
+}
+
 #[test]
 fn the_log_keeps_the_newest_alerts_under_their_own_ids() {
-    let log = log_with(ALERTS_KEPT + 5);
+    let mut log = resumed(log_with(ALERTS_KEPT));
+    for index in 0..5 {
+        let finding = Finding::ShellOnSocket { shell: "sh".into() };
+        let at = moment(Duration::from_secs((ALERTS_KEPT + index) as u64));
+        log.add(at, finding, Response::Frozen, remote_shell(2000 + index as u32));
+        log = resumed(log);
+    }
     assert_eq!(log.alerts.len(), ALERTS_KEPT);
     assert_eq!(log.alerts[0].id, (ALERTS_KEPT + 5) as u64, "the newest alert comes first");
     assert_eq!(log.unread(), ALERTS_KEPT);
@@ -732,6 +745,26 @@ fn the_log_keeps_the_newest_alerts_under_their_own_ids() {
     assert!(read.alerts[0].frozen() && read.alerts[0].resumable());
 }
 
+/// A frozen process waits for the user, and its alert is the only place to let it go on, so
+/// the log drops alerts about anything else first however old the frozen one is.
+#[test]
+fn an_alert_about_a_process_still_frozen_outlives_newer_alerts() {
+    let mut log = log_with(1);
+    let frozen = log.alerts[0].id;
+    for index in 0..ALERTS_KEPT + 5 {
+        let finding = Finding::ShellOnSocket { shell: "sh".into() };
+        let at = moment(Duration::from_secs(60 + index as u64));
+        log.add(at, finding, Response::Alerted, remote_shell(3000 + index as u32));
+    }
+    assert_eq!(log.alerts.len(), ALERTS_KEPT);
+    assert_eq!(log.alerts.last().map(|alert| alert.id), Some(frozen), "the oldest alert is the frozen one");
+    assert!(log.alerts.iter().filter(|alert| alert.id != frozen).all(|alert| !alert.frozen()));
+
+    assert_eq!(log.drop_oldest().map(|alert| alert.id), Some(frozen + 7), "others go before it");
+    let mut only_frozen = log_with(2);
+    assert_eq!(only_frozen.drop_oldest_unfrozen(), None);
+    assert_eq!(only_frozen.drop_oldest().map(|alert| alert.id), Some(1), "it goes when nothing else is left");
+}
 /// A build's Java daemon runs with every library on its command line, and a script it starts
 /// carries that line in each alert as the command of its parent.
 #[test]

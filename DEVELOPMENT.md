@@ -429,7 +429,7 @@ folder as an argument, so its tests run against a folder of fixtures on any syst
 identified by its number together with its start time in clock ticks since boot, read again before
 Borg acts. `watch::freeze` sends the stop, continue and kill signals to a process and its
 descendants, parents first, checking identity before each one. `watch::log` keeps `alerts.json` (the
-newest 200 alerts), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
+newest 200 alerts, and beyond them any about a process still frozen), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
 named by constants in `borg-core::storage` so the Borg's files window and the cleanup rules know
 them. The watcher writes the baseline and never the allowances, while the Alerts page writes the
 allowances and never the baseline, so neither can lose what the other wrote; the watcher takes in

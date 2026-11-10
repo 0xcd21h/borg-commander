@@ -2044,7 +2044,8 @@ Pon `!` delante de una palabra para dejar fuera lo que encuentra: `shell-on-sock
 las shells remotas de todos los demás usuarios.
 
 Las alertas viven en `alerts.json` en la carpeta de estado, accesible solo a su propietario, las
-200 más recientes. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
+200 más recientes. Una alerta sobre un proceso que sigue congelado se conserva más allá de ese
+límite, para que siempre puedas dejarlo seguir o terminarlo. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
 fuera las alertas más antiguas cuando no caben. La ventana **Archivos de Borg** las cuenta en
 **Estado** (consulta [Archivos de Borg](#borgs-files)). Abrir la página marca como leídas las
 alertas que muestra, y la cuenta de alertas sin leer sigue al registro mientras Borg esté abierto,
