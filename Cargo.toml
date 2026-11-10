@@ -39,7 +39,7 @@ ignore             = "0.4"
 jiff               = "0.2"
 portable-pty       = "0.9"
 ratatui            = "0.30"
-rustix             = { version = "1", features = ["process", "termios", "event", "stdio", "fs", "net", "system"] }
+rustix             = { version = "1", features = ["process", "termios", "event", "stdio", "fs", "net", "system", "param"] }
 serde              = { version = "1", features = ["derive"] }
 thiserror          = "2"
 tempfile           = "3"
