@@ -969,6 +969,21 @@ default, so they cannot download a larger archive and update by installing again
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
 
+## Configuration file
+
+`borg-app::config` holds the settings as structs, one per section of `config.toml`, and
+`config::document` reads and writes the file itself. The file is read setting by setting: a
+setting Borg does not have, or a value it cannot use, is left out and told to the user with its
+line, and everything else still loads. Saving changes only the settings that changed, so the
+user's comments, their order and settings Borg does not know stay as they wrote them. Only a file
+that is not TOML fails, and the next save keeps it as `config-unreadable.toml`.
+
+To add a setting, add a field to the section's struct with its default and describe it in the
+guide's sample, which a test loads and expects no remark about. To retire one, remove the field
+and add a line to `RETIRED` in `config::document`: `dropped("name")` for a setting that is gone,
+or a successor function for one that was renamed or reshaped. Nothing else needs to remember the
+old setting: it loads without complaint, and it leaves the file the next time Borg saves.
+
 ## Dependencies
 
 Every crate and npm package ends up on users' machines or in the release build, so each one

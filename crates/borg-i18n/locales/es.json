@@ -1833,5 +1833,9 @@
   "service_stopped": "Se detuvo {label}; sus shells se cerraron y sus sesiones con nombre siguen guardadas.",
   "service_uninstalled": "Se desinstaló {label}; las sesiones con nombre y las claves de emparejamiento siguen guardadas.",
   "watch_root_installed": "Se instaló {unit}. Borg ve ahora todos los procesos de esta máquina.",
-  "watch_root_removed": "Se eliminó {unit}. Borg vigila ahora solo tus propios procesos."
+  "watch_root_removed": "Se eliminó {unit}. Borg vigila ahora solo tus propios procesos.",
+  "config_unknown_setting": "config.toml, línea {line}: Borg no tiene ningún ajuste `{key}`. Se queda en el archivo y no se usa.",
+  "config_invalid_setting": "config.toml, línea {line}: Borg no puede usar `{key}` ({reason}) y usa su valor por defecto.",
+  "config_retired_setting": "config.toml: `{key}` ya no se usa. Borg lo quitará la próxima vez que guarde un ajuste.",
+  "config_moved_setting": "config.toml: `{key}` ahora es `{now}`. Borg lo reescribirá la próxima vez que guarde un ajuste."
 }

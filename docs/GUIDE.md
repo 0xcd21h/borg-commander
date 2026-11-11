@@ -1361,8 +1361,12 @@ changes the guide's language separately.
 Settings are saved in `~/.config/borg-commander/config.toml`, or in the folder set by
 `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. F9 → Options → Settings shows them as checkboxes; Space
 or a click toggles a setting and saves it right away. Esc closes the window.
-When Borg cannot read the file, it starts with its defaults and says why; the first setting you
-then save keeps the unreadable file beside the new one as `config-unreadable.toml`.
+Borg reads the file setting by setting. A setting it does not have, or a value it cannot use, costs
+only that setting: Borg says which line it is when it starts and uses its default there. When Borg
+saves a setting it changes that one and keeps the rest of the file, with your comments, as you wrote
+it. A setting from an older version is read as what replaced it and leaves the file at the next
+save. A file that is not TOML at all starts Borg on its defaults, and the first setting you then
+save keeps that file beside the new one as `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own

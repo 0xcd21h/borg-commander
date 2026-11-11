@@ -1833,5 +1833,9 @@
   "service_stopped": "{label} остановлена; её оболочки закрыты, а именованные сеансы остаются сохранёнными.",
   "service_uninstalled": "{label} удалена; именованные сеансы и ключи сопряжения остаются сохранёнными.",
   "watch_root_installed": "{unit} установлен. Теперь Borg видит все процессы на этой машине.",
-  "watch_root_removed": "{unit} удалён. Теперь Borg следит только за вашими процессами."
+  "watch_root_removed": "{unit} удалён. Теперь Borg следит только за вашими процессами.",
+  "config_unknown_setting": "config.toml, строка {line}: у Borg нет настройки `{key}`. Она остаётся в файле и не используется.",
+  "config_invalid_setting": "config.toml, строка {line}: Borg не может использовать `{key}` ({reason}) и берёт значение по умолчанию.",
+  "config_retired_setting": "config.toml: `{key}` больше не используется. Borg уберёт эту настройку при следующем сохранении.",
+  "config_moved_setting": "config.toml: `{key}` теперь называется `{now}`. Borg перепишет эту настройку при следующем сохранении."
 }

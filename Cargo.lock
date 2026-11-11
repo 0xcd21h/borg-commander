@@ -684,6 +684,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "toml",
+ "toml_edit",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
@@ -4661,6 +4662,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

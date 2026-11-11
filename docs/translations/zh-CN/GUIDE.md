@@ -545,7 +545,7 @@ Alt-E 在当前面板内用 Borg 的编辑器打开所选文件，取代该面�
 
 在 **F9 → 选项 → 语言** 中更改界面语言。选择英语、简体中文、葡萄牙语（葡萄牙）、西班牙语或俄语，然后按 Enter；按 Esc 取消。所选语言会保存在 `config.toml` 中，即 `language = "en"`、`"zh-CN"`、`"pt"`、`"es"` 或 `"ru"`。`BORG_LANGUAGE` 会覆盖已保存的设置。如果两者都未设置，Borg 会遵循 `LC_ALL`、`LC_MESSAGES` 或 `LANG`，遇到不支持的语言则使用英语。命令、路径、文件名和键盘快捷键永远不会被翻译。本网站上的语言菜单只切换本指南的语言，与应用界面语言相互独立。
 
-设置保存在 `~/.config/borg-commander/config.toml` 中，或保存在由 `$XDG_CONFIG_HOME` 或 `$BORG_CONFIG_DIR` 指定的文件夹中。F9 → 选项 → 设置 以复选框的形式列出这些设置；按 Space 或单击可切换某项设置并立即保存。按 Esc 关闭窗口。如果 Borg 无法读取该文件，它会以默认设置启动并说明原因；之后你保存第一项设置时，无法读取的文件会以 `config-unreadable.toml` 为名保留在新文件旁边。
+设置保存在 `~/.config/borg-commander/config.toml` 中，或保存在由 `$XDG_CONFIG_HOME` 或 `$BORG_CONFIG_DIR` 指定的文件夹中。F9 → 选项 → 设置 以复选框的形式列出这些设置；按 Space 或单击可切换某项设置并立即保存。按 Esc 关闭窗口。Borg 会逐项读取该文件。它没有的设置，或它无法使用的值，只影响那一项：Borg 启动时会指出它在哪一行，并对该项使用默认值。Borg 保存某项设置时只修改那一项，文件的其余部分连同你的注释都保持原样。旧版本中的设置会按替代它的设置读取，并在下次保存时从文件中移除。如果文件根本不是 TOML，Borg 会以默认设置启动，之后你保存第一项设置时，该文件会以 `config-unreadable.toml` 为名保留在新文件旁边。
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own

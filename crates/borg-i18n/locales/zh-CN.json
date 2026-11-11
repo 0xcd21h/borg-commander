@@ -1833,5 +1833,9 @@
   "service_stopped": "已停止 {label}；它的 shell 已关闭，已命名的会话仍然保存着。",
   "service_uninstalled": "已卸载 {label}；已命名的会话和配对密钥仍然保存着。",
   "watch_root_installed": "已安装 {unit}。Borg 现在能看到这台机器上的每个进程。",
-  "watch_root_removed": "已移除 {unit}。Borg 现在只监视你自己的进程。"
+  "watch_root_removed": "已移除 {unit}。Borg 现在只监视你自己的进程。",
+  "config_unknown_setting": "config.toml 第 {line} 行：Borg 没有 `{key}` 这项设置。它会留在文件中，但不会被使用。",
+  "config_invalid_setting": "config.toml 第 {line} 行：Borg 无法使用 `{key}`（{reason}），改用默认值。",
+  "config_retired_setting": "config.toml：`{key}` 已不再使用。Borg 下次保存设置时会将其移除。",
+  "config_moved_setting": "config.toml：`{key}` 现在是 `{now}`。Borg 下次保存设置时会改写它。"
 }

@@ -1847,4 +1847,8 @@ catalog! {
     service_uninstalled => "Uninstalled {label}; named workspaces and pairing keys remain saved.",
     watch_root_installed => "Installed {unit}. Borg now hears every process on this machine.",
     watch_root_removed => "Removed {unit}. Borg watches only your own processes now.",
+    config_unknown_setting => "config.toml, line {line}: Borg has no setting `{key}`. It stays in the file and is not used.",
+    config_invalid_setting => "config.toml, line {line}: Borg cannot use `{key}` ({reason}) and uses its default.",
+    config_retired_setting => "config.toml: `{key}` is no longer used. Borg removes it the next time it saves a setting.",
+    config_moved_setting => "config.toml: `{key}` is now `{now}`. Borg rewrites it the next time it saves a setting.",
 }
