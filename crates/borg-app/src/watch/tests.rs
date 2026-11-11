@@ -181,3 +181,11 @@ fn an_alert_reads_as_one_line_for_the_command_line() {
     assert!(line.contains("sh"), "{line}");
     assert!(line.contains(AlertState::Frozen.label()), "{line}");
 }
+
+#[test]
+fn the_command_line_warning_says_how_to_set_delivery_up_and_try_it() {
+    let warned = alert_log(0).unsent(None, SystemTime::now()).expect("nothing takes alerts");
+    let advice = unsent_advice(warned);
+    assert!(advice.starts_with("Alerts stay on this machine."), "{advice}");
+    assert!(advice.contains("borg service watch notify"), "{advice}");
+}

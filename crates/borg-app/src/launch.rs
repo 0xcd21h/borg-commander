@@ -82,6 +82,7 @@ impl Launch {
             search: config.search(),
             index_roots: config.index_roots(),
             folder_history: config.folder_history(),
+            alert_delivery: config.watch().notify.delivery(),
             ..defaults
         };
 

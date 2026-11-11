@@ -5482,6 +5482,7 @@ fn alert_log() -> borg_core::AlertLog {
         freeze: true,
         seen: 48_120,
         suppressed: 0,
+        delivery: borg_core::AlertDelivery::Sent,
     });
 
     let nginx = parent(812, "/usr/sbin/nginx", false);
@@ -5640,6 +5641,45 @@ fn alerts_say_where_a_log_borg_could_not_read_went() -> Result<()> {
     ensure_text(&buffer, "could not read the alert log")?;
     ensure_text(&buffer, "/home/me/.local/state/borg/alerts-unread")?;
     check("alerts_log_kept_aside", &stage, buffer)?;
+    Ok(())
+}
+
+/// A watcher that freezes with nowhere to send its alerts says so above the details, and in the
+/// list's last row once the list takes the whole width.
+#[test]
+fn alerts_say_when_they_reach_nobody() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let mut log = alert_log();
+    log.watch.delivery = borg_core::AlertDelivery::Local;
+    stage.send(Msg::Alerts { id, result: Ok(borg_core::AlertsReply { log, notice: None }) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told.")?;
+    ensure_text(&buffer, "[watch.notify] in config.toml.")?;
+    check("alerts_unsent", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told. Set up [watch.notify] in config.toml.")?;
+    check("alerts_unsent_expanded", &stage, buffer)?;
+    Ok(())
+}
+
+/// Turned on and not running yet, with only a heartbeat set up, the watcher says that a heartbeat
+/// carries no alerts.
+#[test]
+fn alerts_say_that_a_heartbeat_alone_sends_none() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.settings.alert_delivery = borg_core::AlertDelivery::HeartbeatOnly;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let empty = borg_core::AlertsReply { log: borg_core::AlertLog::default(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(empty) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alerts stay on this machine.")?;
+    ensure_text(&buffer, "only says the watcher runs.")?;
+    check("alerts_unsent_heartbeat", &stage, buffer)?;
     Ok(())
 }
 

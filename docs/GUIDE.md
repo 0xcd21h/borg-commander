@@ -1876,6 +1876,9 @@ that all your Borgs on the machine share, so every Borg reads the same alerts. T
 while a Borg is open. To keep watching with no terminal open, start the service at boot as
 [Named sessions and the background service](#named-sessions-and-the-background-service) describes.
 
+Alerts stay on that machine until you name a place to send them, and the page says so while they
+do (see [Alerts off the machine](#alerts-off-the-machine)).
+
 **Alt-L** or **Command → Alerts** opens the page. The list takes the active pane, newest alert
 first, and the other pane shows the selected alert in full. Each row shows the time, the rule that
 fired, the program, the parent that started it, the user it ran as, and what has become of the
@@ -2027,7 +2030,8 @@ capability it does not need, and Borg's own interface keeps running as you. The 
 a socket in the state folder that only its owner can reach, Borg accepts a connection only from a
 process running as root, and the root part connects only to a socket that belongs to the user it was
 installed for. `borg service watch uninstall` removes it, and `borg service watch status` prints
-where the events come from and what has been found.
+where the events come from and what has been found. The install and the status both warn while alerts
+have no place to go (see [Alerts off the machine](#alerts-off-the-machine)).
 
 The programs need Linux 5.8 or later. On an older kernel, or where the root part may not load them,
 it hears the kernel's process events and reads everything from `/proc`, and the page says so under
@@ -2089,6 +2093,20 @@ one answered.
   message for 30 minutes, Borg gave up on one, or Borg could not read its outbox. A service such as
   healthchecks.io tells you when the calls stop, which is what happens when someone kills the
   watcher.
+
+While no place takes alerts, they stay in the log on the machine, and Borg says so wherever you meet
+the watcher. The Alerts page shows **Alerts stay on this machine.** above the details of the
+selected alert, or in the last row of the list when the list is maximized. You get the same line
+when you turn the watcher on in Options → Plugins, from `borg service watch install` and
+`borg service watch status`, and in the service's output when the watcher starts. A heartbeat alone
+does not end the warning. It tells you that the watcher runs and carries no alerts, so add Telegram,
+ntfy or a webhook as well.
+
+The warning gets stronger when Borg is close to acting. From a day before the learning period ends
+it reads **Borg is about to freeze processes here, and nobody will be told.**, and once freezing has
+started, **Borg freezes processes here and nobody is told.** Borg still watches, learns and freezes
+without a place to send alerts, so set one up before the learning period ends on a machine you do
+not look at every day.
 
 The service sends each alert within seconds of writing it down, and also says when the watcher
 starts and when freezing begins. Notices stay on the page unless `level` is `notice`. A message a

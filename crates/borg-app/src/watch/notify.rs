@@ -26,7 +26,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use borg_core::{Alert, Severity, WATCH_OUTBOX, WATCH_OUTBOX_ASIDE, WatchRule, WatchSource, kept_within};
+use borg_core::{
+    Alert, AlertDelivery, Severity, WATCH_OUTBOX, WATCH_OUTBOX_ASIDE, WatchRule, WatchSource, kept_within,
+};
 use borg_i18n::tr;
 use borg_rules::Level;
 use hmac::{Hmac, Mac};
@@ -128,6 +130,18 @@ impl Settings {
     /// Whether anything leaves the machine at all.
     pub fn any(&self) -> bool {
         !self.channels().is_empty() || self.heartbeat.is_some()
+    }
+
+    /// Where alerts go besides the log: a heartbeat carries none, so it does not count as a
+    /// place for them.
+    pub fn delivery(&self) -> AlertDelivery {
+        if !self.channels().is_empty() {
+            AlertDelivery::Sent
+        } else if self.heartbeat.is_some() {
+            AlertDelivery::HeartbeatOnly
+        } else {
+            AlertDelivery::Local
+        }
     }
 
     /// Whether an alert of this level is sent.

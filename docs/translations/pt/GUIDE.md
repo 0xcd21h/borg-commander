@@ -2034,6 +2034,9 @@ os mesmos alertas. Esse serviço corre enquanto houver um Borg aberto. Para cont
 sem nenhum terminal aberto, inicie o serviço no arranque do sistema como descreve
 [Sessões com nome e serviço em segundo plano](#named-sessions-and-the-background-service).
 
+Os alertas ficam nessa máquina até indicar um destino para eles, e a página avisa enquanto assim
+for (consulte [Alertas fora da máquina](#alerts-off-the-machine)).
+
 **Alt-L** ou **Comando → Alertas** abre a página. A lista ocupa o painel ativo, com o alerta mais
 recente primeiro, e o outro painel mostra o alerta selecionado por inteiro. Cada linha mostra a
 hora, a regra que disparou, o programa, o processo-pai que o iniciou, o utilizador com que correu
@@ -2196,7 +2199,8 @@ precisa, e a interface do Borg continua a correr como você. Os dois lados falam
 pasta de estado a que só o dono chega, o Borg aceita uma ligação apenas de um processo que corre
 como root, e a parte root liga-se apenas a um socket que pertence ao utilizador para quem foi
 instalada. `borg service watch uninstall` remove-a, e `borg service watch status` imprime de onde
-vêm os eventos e o que foi encontrado.
+vêm os eventos e o que foi encontrado. A instalação e o estado avisam enquanto os alertas não
+tiverem destino (consulte [Alertas fora da máquina](#alerts-off-the-machine)).
 
 Os programas precisam do Linux 5.8 ou posterior. Num kernel mais antigo, ou onde a parte root não os
 pode carregar, ela ouve os eventos de processo do kernel e lê tudo de `/proc`, e a página indica-o
@@ -2258,6 +2262,20 @@ que cada um respondeu.
   destino não aceita mensagens há 30 minutos, o Borg desistiu de uma, ou o Borg não conseguiu ler a
   sua caixa de saída. Um serviço como o healthchecks.io avisa-o quando as chamadas param, que é o
   que acontece quando alguém mata o observador.
+
+Enquanto nenhum destino receber alertas, eles ficam no registo da máquina, e o Borg avisa onde quer
+que encontre o observador. A página Alertas mostra **Os alertas ficam nesta máquina.** por cima dos
+detalhes do alerta selecionado, ou na última linha da lista quando esta está maximizada. A mesma
+linha aparece quando ativa o observador em Opções → Plugins, em `borg service watch install` e
+`borg service watch status`, e na saída do serviço quando o observador arranca. Um sinal de vida
+sozinho não acaba com o aviso. Diz-lhe que o observador está a correr e não leva alertas, por isso
+adicione também Telegram, ntfy ou um webhook.
+
+O aviso fica mais forte quando o Borg está perto de agir. A partir de um dia antes do fim do período
+de aprendizagem diz **O Borg está prestes a congelar processos aqui e ninguém será avisado.**, e
+depois de o congelamento começar, **O Borg congela processos aqui e ninguém é avisado.** O Borg
+continua a observar, a aprender e a congelar sem um destino para os alertas, por isso configure um
+antes de o período de aprendizagem acabar numa máquina que não consulta todos os dias.
 
 O serviço envia cada alerta poucos segundos depois de o registar e diz também quando o observador
 arranca e quando o congelamento começa. Os alertas de nível nota ficam só na página, a menos que

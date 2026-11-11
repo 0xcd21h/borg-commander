@@ -7,7 +7,7 @@ use borg_rules::{Level, RuleMatch};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::SystemTime};
 
-use super::{Allowance, Finding, Response, StartedProcess, WatchRule};
+use super::{AlertDelivery, Allowance, Finding, Response, StartedProcess, WatchRule};
 use crate::ProcessKey;
 
 /// Alerts the log keeps, newest first.
@@ -58,6 +58,9 @@ pub struct WatchStatus {
     /// Findings left out because too many fired at once.
     #[serde(default)]
     pub suppressed: u64,
+    /// Where the watcher sends alerts besides this log.
+    #[serde(default)]
+    pub delivery: AlertDelivery,
 }
 
 impl Default for WatchStatus {
@@ -69,6 +72,7 @@ impl Default for WatchStatus {
             freeze: false,
             seen: 0,
             suppressed: 0,
+            delivery: AlertDelivery::default(),
         }
     }
 }
