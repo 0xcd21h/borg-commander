@@ -15,7 +15,7 @@ const SOCKET_PARENT: &str = "/tmp";
 const SHARED_NAME: &str = "default";
 const HASH_DIGITS: usize = 16;
 
-pub(super) const OWNER_ONLY: u32 = 0o700;
+const PRIVATE_DIR: u32 = 0o700;
 
 pub(super) const OTHERS: u32 = 0o077;
 
@@ -73,7 +73,7 @@ pub(crate) fn socket_dirs() -> Vec<PathBuf> {
 /// session through it.
 pub(super) fn owner_only(dir: &Path) -> Result<PathBuf> {
     let dir = dir.to_path_buf();
-    std::fs::DirBuilder::new().recursive(true).mode(OWNER_ONLY).create(&dir)?;
+    std::fs::DirBuilder::new().recursive(true).mode(PRIVATE_DIR).create(&dir)?;
     let meta = std::fs::symlink_metadata(&dir)?;
     if !meta.is_dir() || meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & OTHERS != 0 {
         bail!("{} must belong to you and be closed to others", dir.display());
