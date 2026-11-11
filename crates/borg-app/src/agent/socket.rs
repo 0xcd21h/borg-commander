@@ -127,7 +127,7 @@ pub fn connect_info() -> borg_core::ConnectInfo {
 /// This program's path, preferring the one on `PATH` that leads to it, since a package
 /// manager's versioned folder changes with each upgrade.
 pub fn program_path() -> String {
-    let exe = std::env::current_exe().ok();
+    let exe = crate::program::path().ok();
     let real = exe.as_ref().and_then(|exe| std::fs::canonicalize(exe).ok());
     if let (Some(path), Some(real)) = (std::env::var_os("PATH"), &real) {
         for dir in std::env::split_paths(&path).filter(|dir| dir.is_absolute()) {

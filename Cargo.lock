@@ -663,7 +663,6 @@ dependencies = [
  "jiff",
  "linux-keyutils",
  "memchr",
- "portable-pty",
  "ratatui",
  "rcgen",
  "read-process-memory",
@@ -878,6 +877,7 @@ dependencies = [
  "portable-pty",
  "proptest",
  "rustix",
+ "tempfile",
  "tokio",
 ]
 

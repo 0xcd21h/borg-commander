@@ -62,6 +62,7 @@ impl App {
         match call.tool.as_str() {
             "session_stop" => self.stop_session(call, reply),
             "session_delete" => self.delete_session(call, reply),
+            crate::link::HOST_UPDATE_CALL => fail(reply, borg_i18n::tr!(remote_host_update_needs_service).to_owned()),
             tool if tool.starts_with("console_") => {
                 self.console_server.handle(call, reply);
                 Ok(Flow::Continue)

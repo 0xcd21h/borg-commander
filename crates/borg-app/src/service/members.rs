@@ -215,6 +215,9 @@ pub(super) async fn serve(
     let session = registration.session.clone();
     let (sender, mut outgoing) = unbounded_channel();
     let _ = sender.send(ToMember::Computers { names: computers });
+    if let Some(version) = newer_for(&registration, crate::update::VERSION) {
+        let _ = sender.send(ToMember::Relaunch { version });
+    }
     let token = members.join(registration, sender);
     let (read, mut write) = stream.into_split();
     let writing = tokio::spawn(async move {
@@ -241,6 +244,14 @@ pub(super) async fn serve(
     }
     writing.abort();
     members.leave(&session, token);
+}
+
+/// The version a registered Borg moves to: the service's, when the Borg runs an older one
+/// and says so.
+fn newer_for(registration: &Registration, current: &str) -> Option<String> {
+    let theirs: borg_update::Version = registration.version.as_deref()?.parse().ok()?;
+    let ours: borg_update::Version = current.parse().ok()?;
+    (theirs < ours).then(|| current.to_owned())
 }
 
 #[cfg(test)]

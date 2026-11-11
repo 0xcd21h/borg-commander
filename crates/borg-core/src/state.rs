@@ -189,6 +189,8 @@ pub struct AppState {
     pub indexing: Option<PathBuf>,
     /// When the next flash over an empty folder starts, while one is shown.
     pub(crate) glitch_wake: Option<Instant>,
+    /// The newer Borg the session moves to once nothing here would be lost.
+    pub(crate) relaunch: Option<String>,
     generation: u64,
 }
 
@@ -281,6 +283,7 @@ impl AppState {
             next_profile: 0,
             indexing: None,
             glitch_wake: None,
+            relaunch: None,
             generation: 0,
         };
         state.refit();
@@ -295,6 +298,11 @@ impl AppState {
 
     pub fn panel(&self, side: Side) -> &Panel {
         &self.panels[side.index()]
+    }
+
+    /// The host's shell, which a container's shell may stand in for as the console.
+    pub fn host_shell(&self) -> &ShellStatus {
+        self.parked_host.as_ref().unwrap_or(&self.shell)
     }
 
     pub fn active_panel(&self) -> &Panel {

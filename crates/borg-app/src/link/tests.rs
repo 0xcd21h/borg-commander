@@ -16,6 +16,7 @@ fn paired_client_status_counts_connections_per_identity_and_cleans_up_on_drop() 
         computers: vec![computer.clone(), Computer { name: "offline".into(), key: hex(&[8; 32]), changed: None }],
         pairing: None,
         connections: Default::default(),
+        registered: false,
     }));
     let clients = Arc::new(AtomicUsize::new(0));
     let (messages, _) = tokio::sync::mpsc::unbounded_channel();
@@ -133,7 +134,12 @@ mod rotation {
     async fn serve(relay: Relay, server: Identity, computers: Vec<Computer>) -> Stage {
         let server_state = tempfile::tempdir().unwrap();
         save(&server_state.path().join(LINK_DIR).join(COMPUTERS_FILE), &computers).unwrap();
-        let shared = Arc::new(Mutex::new(Shared { computers, pairing: None, connections: Default::default() }));
+        let shared = Arc::new(Mutex::new(Shared {
+            computers,
+            pairing: None,
+            connections: Default::default(),
+            registered: false,
+        }));
         let (calls, mut asked) = tokio::sync::mpsc::unbounded_channel::<(
             crate::agent::Call,
             tokio::sync::oneshot::Sender<crate::agent::Reply>,
@@ -740,7 +746,12 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
         members: None,
         relay,
         identity,
-        shared: Arc::new(Mutex::new(Shared { computers: Vec::new(), pairing: None, connections: Default::default() })),
+        shared: Arc::new(Mutex::new(Shared {
+            computers: Vec::new(),
+            pairing: None,
+            connections: Default::default(),
+            registered: false,
+        })),
         state: None,
         runtime_dir: std::env::temp_dir(),
         session_id: None,

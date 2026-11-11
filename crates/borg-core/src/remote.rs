@@ -109,10 +109,19 @@ pub struct RemoteBrowser {
     pub client_selected: usize,
     pub deleting: Option<(String, String)>,
     pub forgetting: Option<String>,
+    /// The host being updated, until it comes back on the new version.
+    pub updating: Option<String>,
+}
+
+impl RemoteBrowser {
+    /// Whether the list waits for a removal, a forgetting or an update to finish.
+    pub fn busy(&self) -> bool {
+        self.deleting.is_some() || self.forgetting.is_some() || self.updating.is_some()
+    }
 }
 
 pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent) -> Vec<Effect> {
-    if browser.deleting.is_some() || browser.forgetting.is_some() {
+    if browser.busy() {
         if key.code == KeyCode::Esc {
             state.overlay = None;
         }
@@ -170,7 +179,8 @@ fn clients_key(state: &mut AppState, mut browser: RemoteBrowser, code: KeyCode) 
 }
 
 /// The keys of the list of remote sessions: moving, mounting one in the panel or mirroring it,
-/// renaming, deleting a session or forgetting its machine, R to read the list again, and Esc.
+/// renaming, deleting a session or forgetting its machine, U to update the machine, R to read
+/// the list again, and Esc.
 fn sessions_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent) -> Vec<Effect> {
     let last = browser.choices.len().saturating_sub(1);
     if let Some(selected) = moved(browser.selected, last, key.code) {
@@ -194,6 +204,7 @@ fn sessions_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent
         }
         KeyCode::Enter => open_choice(state, browser, true),
         KeyCode::Char('m') | KeyCode::Char('M') => open_choice(state, browser, false),
+        KeyCode::Char('u') | KeyCode::Char('U') => ask_update(state, browser),
         _ => show(state, browser),
     }
 }
@@ -225,6 +236,25 @@ fn ask_delete(state: &mut AppState, mut browser: RemoteBrowser, forget: bool) ->
         purpose: crate::ConfirmPurpose::RemoteSessionDelete {
             machine: choice.machine.clone(),
             session,
+            browser: Box::new(browser),
+        },
+        accept: false,
+    }));
+    Vec::new()
+}
+
+/// U asks before updating the chosen machine, which needs a session there to reach it.
+fn ask_update(state: &mut AppState, mut browser: RemoteBrowser) -> Vec<Effect> {
+    let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
+    if choice.session.is_none() {
+        browser.error = Some(tr!(remote_host_no_session, machine = choice.host_name()));
+        return show(state, browser);
+    }
+    state.overlay = Some(Overlay::Confirm(crate::Confirm {
+        title: tr!(remote_host_update_title),
+        message: tr!(remote_host_update_confirm, machine = choice.host_name()),
+        purpose: crate::ConfirmPurpose::RemoteHostUpdate {
+            machine: choice.machine.clone(),
             browser: Box::new(browser),
         },
         accept: false,
@@ -285,6 +315,7 @@ pub(crate) fn browse(state: &mut AppState) -> Vec<Effect> {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
     }));
     vec![Effect::OpenRemotes]
 }
@@ -332,6 +363,7 @@ pub(crate) fn mirror(state: &mut AppState, machine: String, session: String) -> 
             client_selected: 0,
             deleting: None,
             forgetting: None,
+            updating: None,
         }));
     }
     vec![Effect::MirrorRemote { machine, session }]
@@ -394,6 +426,46 @@ pub(crate) fn deleted(
         });
     }
     effects
+}
+
+/// How an update of a paired host went, as the Borg that asked for it saw the host come back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostUpdate {
+    /// It moved to this version.
+    Moved(String),
+    /// It runs this version, the latest already.
+    Current(String),
+}
+
+pub(crate) fn updated(state: &mut AppState, machine: String, result: Result<HostUpdate, String>) -> Vec<Effect> {
+    let name = state
+        .overlay
+        .as_ref()
+        .and_then(|overlay| match overlay {
+            Overlay::Remotes(browser) => browser.choices.iter().find(|choice| choice.machine == machine),
+            _ => None,
+        })
+        .map_or_else(|| machine.clone(), |choice| choice.host_name().to_owned());
+    let outcome = result.map(|update| match update {
+        HostUpdate::Moved(version) => tr!(remote_host_updated, machine = name, version = version),
+        HostUpdate::Current(version) => tr!(remote_host_current, machine = name, version = version),
+    });
+    match state.overlay.as_mut() {
+        Some(Overlay::Remotes(browser)) if browser.updating.as_ref() == Some(&machine) => {
+            browser.updating = None;
+            match outcome {
+                Ok(notice) => {
+                    state.notice = Some(notice);
+                    browser.error = None;
+                    browser.loading = true;
+                    return vec![Effect::OpenRemotes];
+                }
+                Err(error) => browser.error = Some(error),
+            }
+        }
+        _ => state.notice = Some(outcome.unwrap_or_else(|error| error)),
+    }
+    Vec::new()
 }
 
 pub(crate) fn forgotten(state: &mut AppState, machine: String, result: Result<(), String>) -> Vec<Effect> {

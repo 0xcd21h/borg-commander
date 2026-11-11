@@ -10,7 +10,7 @@ use std::{
 };
 
 use borg_core::{DockerData, DockerRequest, FileOp, Msg};
-use borg_term::{CommandBuilder, Emulator, GridSize, Pty, PtyEvent, Screen, Scroll, ShellSignal, TermMode};
+use borg_term::{Emulator, GridSize, Pty, PtyEvent, Screen, Scroll, ShellSignal, TermMode};
 use borg_vfs::{Batches, Entry, EntryKind};
 use futures::StreamExt;
 use tokio::{
@@ -235,7 +235,7 @@ impl Shells {
         size: GridSize,
         workdir: Option<&Path>,
     ) -> anyhow::Result<()> {
-        let mut command = CommandBuilder::new("docker");
+        let mut command = std::process::Command::new("docker");
         command.args(["exec", "-it", "-e", "TERM=xterm-256color", "-e", "HISTCONTROL=ignorespace"]);
         command.args(["-e", &format!("BORG_PROMPT={prompt}"), "-e", &format!("PROMPT_COMMAND={BASH_PROMPT}")]);
         command.args(["-e", "PS0=\x1b]133;C\x07", "-e", &format!("BORG_SH_PS1={}", sh_prompt(prompt))]);
@@ -244,7 +244,7 @@ impl Shells {
         }
         command.args([&container, "sh", "-c", SHELL_SCRIPT]);
         let (sender, mut receiver) = unbounded_channel();
-        let pty = Pty::spawn(command, size, sender)?;
+        let pty = Pty::spawn(crate::program::path()?, &command, size, sender)?;
         let events = self.events.clone();
         let name = container.clone();
         tokio::spawn(async move {
