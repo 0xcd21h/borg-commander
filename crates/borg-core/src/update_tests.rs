@@ -180,12 +180,12 @@ fn alt_r_reloads_the_active_panel_and_its_menu_names_the_key() {
     assert!(matches!(&effects[..], [Effect::List { side: Side::Right, dir, .. }] if *dir == right), "{effects:?}");
     let rescan = |menu: &crate::menu::Menu| {
         menu.entries.iter().find_map(|entry| match entry {
-            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint),
+            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint.clone()),
             _ => None,
         })
     };
     let menus = menus(&state);
-    assert_eq!((rescan(&menus[0]), rescan(&menus[5])), (Some(""), Some("M-r")));
+    assert_eq!((rescan(&menus[0]).as_deref(), rescan(&menus[5]).as_deref()), (Some(""), Some("M-r")));
 }
 
 #[test]
@@ -4321,4 +4321,19 @@ fn a_paste_over_the_activity_monitor_goes_to_the_dialog_that_is_open() {
     update(&mut state, Msg::Paste(format!("a\nb{}", "x".repeat(500))), now);
     assert!(state.activity.filter.starts_with("abx"));
     assert_eq!(state.activity.filter.chars().count(), 128);
+}
+
+/// A menu names the key the key table binds, so the two cannot drift apart.
+#[test]
+fn menu_hints_are_the_keys_the_key_table_binds() {
+    use crate::keymap::hint;
+    assert_eq!(hint(Action::Copy).as_deref(), Some("F5"));
+    assert_eq!(hint(Action::ToggleShell).as_deref(), Some("C-o"));
+    assert_eq!(hint(Action::EditInPanel).as_deref(), Some("M-e"));
+    assert_eq!(hint(Action::FolderTree).as_deref(), Some("M-S-d"));
+    assert_eq!(hint(Action::MirrorRemote).as_deref(), Some("M-S-m"));
+    assert_eq!(hint(Action::InsertNewline).as_deref(), Some("S-Enter"));
+    assert_eq!(hint(Action::CopyPaths).as_deref(), Some("M-S-Ins"));
+    assert_eq!(hint(Action::NudgeSplit(2)).as_deref(), Some("M-S-→"));
+    assert_eq!(hint(Action::Compress), None);
 }

@@ -5,7 +5,7 @@ expression: describe(&buffer)
     Left    File    Command    Remote    Options    Right    Git    Docker    Search
 │▐↑ ..                       ╭───────────────────────────────────╮                 UP             ▌│
 │ / docs                     │  Browse hosts and sessions…   M-h │                DIR Jan 10 09:30 │
-│ / src                      │  Mirror mounted host        M-S-M │                86K Jun  1  2024 │
+│ / src                      │  Mirror mounted host        M-S-m │                86K Jun  1  2024 │
 │ @ target                   │───────────────────────────────────│               5.0G Jun  1  2024 │
 │ * build.sh                 │  Share this Borg as host…         │               717K Jan 10 09:30 │
 │ · Cargo.toml               │  Remote log…                      │               2.3M Jan 10 09:30 │

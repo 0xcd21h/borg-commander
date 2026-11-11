@@ -7,7 +7,7 @@ pub const RIGHT_MENU: usize = 5;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuItem {
     pub label: &'static str,
-    pub hint: &'static str,
+    pub hint: String,
     pub action: Action,
     pub checked: Option<bool>,
     pub enabled: bool,
@@ -47,12 +47,24 @@ impl Menu {
     }
 }
 
-fn item(label: &'static str, hint: &'static str, action: Action) -> MenuEntry {
+/// An entry whose hint is the key bound to its action, when one is.
+fn item(label: &'static str, action: Action) -> MenuEntry {
+    let hint = crate::keymap::hint(action).unwrap_or_default();
     MenuEntry::Item(MenuItem { label, hint, action, checked: None, enabled: true })
 }
 
-fn check(label: &'static str, hint: &'static str, action: Action, checked: bool) -> MenuEntry {
+fn check(label: &'static str, action: Action, checked: bool) -> MenuEntry {
+    let hint = crate::keymap::hint(action).unwrap_or_default();
     MenuEntry::Item(MenuItem { label, hint, action, checked: Some(checked), enabled: true })
+}
+
+fn keyed_check(label: &'static str, hint: &'static str, action: Action, checked: bool) -> MenuEntry {
+    MenuEntry::Item(MenuItem { label, hint: hint.to_owned(), action, checked: Some(checked), enabled: true })
+}
+
+/// An entry for a key that only the screen it belongs to takes, which the key table does not hold.
+fn keyed(label: &'static str, hint: &'static str, action: Action) -> MenuEntry {
+    MenuEntry::Item(MenuItem { label, hint: hint.to_owned(), action, checked: None, enabled: true })
 }
 
 fn when(entry: MenuEntry, enabled: bool) -> MenuEntry {
@@ -92,14 +104,19 @@ fn docker_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(docker_title),
         entries: vec![
-            check(tr!(docker_menu_containers), "M-c", Action::Docker, state.docker.is_open()),
-            check(tr!(docker_menu_disk), "D", Action::DockerDisk, state.docker.is_open() && state.docker.disk.open),
+            check(tr!(docker_menu_containers), Action::Docker, state.docker.is_open()),
+            keyed_check(
+                tr!(docker_menu_disk),
+                "D",
+                Action::DockerDisk,
+                state.docker.is_open() && state.docker.disk.open,
+            ),
             MenuEntry::Separator,
-            when(item(tr!(docker_menu_start), "S", Action::DockerAct(Docker::Start)), can(Docker::Start)),
-            when(item(tr!(docker_menu_stop), "X", Action::DockerAct(Docker::Stop)), can(Docker::Stop)),
-            when(item(tr!(docker_menu_restart), "R", Action::DockerAct(Docker::Restart)), can(Docker::Restart)),
+            when(keyed(tr!(docker_menu_start), "S", Action::DockerAct(Docker::Start)), can(Docker::Start)),
+            when(keyed(tr!(docker_menu_stop), "X", Action::DockerAct(Docker::Stop)), can(Docker::Stop)),
+            when(keyed(tr!(docker_menu_restart), "R", Action::DockerAct(Docker::Restart)), can(Docker::Restart)),
             when(
-                item(
+                keyed(
                     if pause == Docker::Unpause { tr!(docker_menu_resume) } else { tr!(docker_menu_pause) },
                     "P",
                     Action::DockerAct(pause),
@@ -107,10 +124,10 @@ fn docker_menu(state: &AppState) -> Menu {
                 can(pause),
             ),
             MenuEntry::Separator,
-            when(item(tr!(docker_menu_files), "F", Action::DockerFiles), crate::docker::can_browse(state)),
-            when(item(tr!(docker_menu_shell), "E", Action::DockerShell), crate::docker::can_open_shell(state)),
+            when(keyed(tr!(docker_menu_files), "F", Action::DockerFiles), crate::docker::can_browse(state)),
+            when(keyed(tr!(docker_menu_shell), "E", Action::DockerShell), crate::docker::can_open_shell(state)),
             when(
-                item(
+                keyed(
                     if state.docker.disk.open { tr!(docker_menu_filter_disk) } else { tr!(docker_menu_filter) },
                     "/",
                     Action::DockerFilter,
@@ -129,15 +146,15 @@ fn git_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(git),
         entries: vec![
-            when(item(tr!(repository_status), "", Action::Git(Tool::Status)), available),
-            when(item(tr!(diff_selection), "", Action::Git(Tool::Diff)), selected),
-            when(item(tr!(staged_diff_selection), "", Action::Git(Tool::StagedDiff)), selected),
-            when(item(tr!(recent_commits), "", Action::Git(Tool::Log)), available),
+            when(item(tr!(repository_status), Action::Git(Tool::Status)), available),
+            when(item(tr!(diff_selection), Action::Git(Tool::Diff)), selected),
+            when(item(tr!(staged_diff_selection), Action::Git(Tool::StagedDiff)), selected),
+            when(item(tr!(recent_commits), Action::Git(Tool::Log)), available),
             MenuEntry::Separator,
-            when(item(tr!(stage_selection), "", Action::Git(Tool::Stage)), selected),
-            when(item(tr!(unstage_selection), "", Action::Git(Tool::Unstage)), selected),
+            when(item(tr!(stage_selection), Action::Git(Tool::Stage)), selected),
+            when(item(tr!(unstage_selection), Action::Git(Tool::Unstage)), selected),
             MenuEntry::Separator,
-            item(tr!(refresh_status), "", Action::Rescan(state.active)),
+            item(tr!(refresh_status), Action::Rescan(state.active)),
         ],
     }
 }
@@ -149,27 +166,17 @@ fn panel_menu(title: &'static str, state: &AppState, side: Side) -> Menu {
     Menu {
         title,
         entries: vec![
-            check(
-                tr!(full_listing),
-                "",
-                Action::SetListing(side, ListingMode::Full),
-                panel.mode() == ListingMode::Full,
-            ),
-            check(
-                tr!(brief_listing),
-                "",
-                Action::SetListing(side, ListingMode::Brief),
-                panel.mode() == ListingMode::Brief,
-            ),
+            check(tr!(full_listing), Action::SetListing(side, ListingMode::Full), panel.mode() == ListingMode::Full),
+            check(tr!(brief_listing), Action::SetListing(side, ListingMode::Brief), panel.mode() == ListingMode::Brief),
             MenuEntry::Separator,
-            check(tr!(sort_by_name), "", Action::SetSort(side, SortKey::Name), sorted(SortKey::Name)),
-            check(tr!(sort_by_extension), "", Action::SetSort(side, SortKey::Extension), sorted(SortKey::Extension)),
-            check(tr!(sort_by_size), "", Action::SetSort(side, SortKey::Size), sorted(SortKey::Size)),
-            check(tr!(sort_by_modified), "", Action::SetSort(side, SortKey::Modified), sorted(SortKey::Modified)),
-            check(tr!(reverse_order), "", Action::ToggleReverse(side), sort.reverse),
+            check(tr!(sort_by_name), Action::SetSort(side, SortKey::Name), sorted(SortKey::Name)),
+            check(tr!(sort_by_extension), Action::SetSort(side, SortKey::Extension), sorted(SortKey::Extension)),
+            check(tr!(sort_by_size), Action::SetSort(side, SortKey::Size), sorted(SortKey::Size)),
+            check(tr!(sort_by_modified), Action::SetSort(side, SortKey::Modified), sorted(SortKey::Modified)),
+            check(tr!(reverse_order), Action::ToggleReverse(side), sort.reverse),
             MenuEntry::Separator,
-            check(tr!(show_hidden_files), "M-.", Action::ToggleHidden, state.settings.preferences.show_hidden),
-            item(tr!(rescan), if side == state.active { "M-r" } else { "" }, Action::Rescan(side)),
+            check(tr!(show_hidden_files), Action::ToggleHidden, state.settings.preferences.show_hidden),
+            keyed(tr!(rescan), if side == state.active { "M-r" } else { "" }, Action::Rescan(side)),
         ],
     }
 }
@@ -184,63 +191,63 @@ fn file_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(file),
         entries: vec![
-            when(item(tr!(view), "F3", Action::View), hovered_file),
-            when(item(tr!(edit), "F4", Action::Edit), hovered_file),
-            when(item(tr!(edit_in_panel), "M-E", Action::EditInPanel), hovered_file),
-            when(item(tr!(edit_external), "S-F4", Action::EditExternal), hovered_file),
-            when(item(tr!(copy), "F5", Action::Copy), has_selection),
-            when(item(tr!(move), "F6", Action::Move), has_selection),
-            when(item(tr!(make_directory), "F7", Action::Mkdir), listed),
+            when(item(tr!(view), Action::View), hovered_file),
+            when(item(tr!(edit), Action::Edit), hovered_file),
+            when(item(tr!(edit_in_panel), Action::EditInPanel), hovered_file),
+            when(item(tr!(edit_external), Action::EditExternal), hovered_file),
+            when(item(tr!(copy), Action::Copy), has_selection),
+            when(item(tr!(move), Action::Move), has_selection),
+            when(item(tr!(make_directory), Action::Mkdir), listed),
             when(
-                item(if panel.is_results() { tr!(remove_actions) } else { tr!(delete) }, "F8", Action::Delete),
+                item(if panel.is_results() { tr!(remove_actions) } else { tr!(delete) }, Action::Delete),
                 has_selection,
             ),
             MenuEntry::Separator,
-            when(item(tr!(select_group), "+", Action::SelectGroup), listed),
-            when(item(tr!(unselect_group), "-", Action::UnselectGroup), listed),
-            when(item(tr!(invert_selection), "*", Action::InvertSelection), listed),
+            when(item(tr!(select_group), Action::SelectGroup), listed),
+            when(item(tr!(unselect_group), Action::UnselectGroup), listed),
+            when(item(tr!(invert_selection), Action::InvertSelection), listed),
             MenuEntry::Separator,
-            when(item(tr!(copy_names), "C-Ins", Action::CopyNames), has_selection),
-            when(item(tr!(copy_paths), "M-S-Ins", Action::CopyPaths), has_selection),
+            when(item(tr!(copy_names), Action::CopyNames), has_selection),
+            when(item(tr!(copy_paths), Action::CopyPaths), has_selection),
             MenuEntry::Separator,
-            when(item(tr!(menu_compress), "", Action::Compress), has_selection && !panel.is_results()),
-            when(item(tr!(extract_here), "", Action::ExtractHere), archive && !panel.is_results()),
-            when(item(tr!(extract_to_other_panel), "", Action::ExtractToOther), archive && !panel.is_results()),
+            when(item(tr!(menu_compress), Action::Compress), has_selection && !panel.is_results()),
+            when(item(tr!(extract_here), Action::ExtractHere), archive && !panel.is_results()),
+            when(item(tr!(extract_to_other_panel), Action::ExtractToOther), archive && !panel.is_results()),
             MenuEntry::Separator,
-            item(tr!(quit), "F10", Action::Quit),
+            item(tr!(quit), Action::Quit),
         ],
     }
 }
 
 fn command_menu(state: &AppState) -> Menu {
-    let time_machine = state.backup.available.then(|| item(tr!(backup_title), "M-t", Action::TimeMachine));
+    let time_machine = state.backup.available.then(|| item(tr!(backup_title), Action::TimeMachine));
     Menu {
         title: tr!(command),
         entries: [
-            when(item(tr!(activity_title), "M-m", Action::Activity), state.settings.preferences.system_plugin),
-            when(item(tr!(network_title), "M-n", Action::Network), state.settings.preferences.system_plugin),
-            when(item(tr!(startup_title), "M-u", Action::StartupItems), state.settings.preferences.system_plugin),
-            when(item(tr!(watch_title), "M-l", Action::Alerts), state.settings.preferences.system_plugin),
-            when(item(tr!(docker_title), "M-c", Action::Docker), state.settings.preferences.docker_plugin),
+            when(item(tr!(activity_title), Action::Activity), state.settings.preferences.system_plugin),
+            when(item(tr!(network_title), Action::Network), state.settings.preferences.system_plugin),
+            when(item(tr!(startup_title), Action::StartupItems), state.settings.preferences.system_plugin),
+            when(item(tr!(watch_title), Action::Alerts), state.settings.preferences.system_plugin),
+            when(item(tr!(docker_title), Action::Docker), state.settings.preferences.docker_plugin),
         ]
         .into_iter()
         .chain(time_machine)
         .chain([
-            item(tr!(find_in_folder), "C-s", Action::Find),
-            item(tr!(folder_hotlist), "C-\\", Action::Folders),
-            when(item(tr!(insert_new_line), "S-Enter", Action::InsertNewline), !state.shell.busy()),
-            check(tr!(quick_view), "C-q", Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
-            check(tr!(info), "C-l", Action::Info, state.aside == Some(crate::Aside::Info)),
-            when(item(tr!(jobs), "M-j", Action::Jobs), !state.jobs.is_empty()),
-            item(tr!(swap_panels), "C-u", Action::SwapPanels),
-            item(tr!(same_folder_in_other_panel), "M-o", Action::SameFolder),
-            item(tr!(equal_panel_widths), "", Action::EqualizePanels),
-            item(tr!(widen_left_panel), "M-S-→", Action::NudgeSplit(crate::keymap::SPLIT_STEP)),
-            item(tr!(widen_right_panel), "M-S-←", Action::NudgeSplit(-crate::keymap::SPLIT_STEP)),
+            item(tr!(find_in_folder), Action::Find),
+            item(tr!(folder_hotlist), Action::Folders),
+            when(item(tr!(insert_new_line), Action::InsertNewline), !state.shell.busy()),
+            check(tr!(quick_view), Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
+            check(tr!(info), Action::Info, state.aside == Some(crate::Aside::Info)),
+            when(item(tr!(jobs), Action::Jobs), !state.jobs.is_empty()),
+            item(tr!(swap_panels), Action::SwapPanels),
+            item(tr!(same_folder_in_other_panel), Action::SameFolder),
+            item(tr!(equal_panel_widths), Action::EqualizePanels),
+            item(tr!(widen_left_panel), Action::NudgeSplit(crate::keymap::SPLIT_STEP)),
+            item(tr!(widen_right_panel), Action::NudgeSplit(-crate::keymap::SPLIT_STEP)),
             MenuEntry::Separator,
-            item(tr!(show_shell), "C-o", Action::ToggleShell),
+            item(tr!(show_shell), Action::ToggleShell),
             MenuEntry::Separator,
-            item(tr!(about_borg), "F1", Action::About),
+            item(tr!(about_borg), Action::About),
         ])
         .collect(),
     }
@@ -250,15 +257,15 @@ fn remote_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(remote_menu_title),
         entries: vec![
-            item(tr!(remote_borgs), "M-h", Action::BrowseRemotes),
+            item(tr!(remote_borgs), Action::BrowseRemotes),
             when(
-                item(tr!(remote_mirror_mounted), "M-S-M", Action::MirrorRemote),
+                item(tr!(remote_mirror_mounted), Action::MirrorRemote),
                 state.panels.iter().any(|panel| panel.remote_mount.is_some()),
             ),
             MenuEntry::Separator,
-            item(tr!(remote_share_this_borg), "", Action::ConnectClaude),
-            item(tr!(remote_log), "", Action::AgentLog),
-            item(tr!(remote_background_service), "", Action::BackgroundService),
+            item(tr!(remote_share_this_borg), Action::ConnectClaude),
+            item(tr!(remote_log), Action::AgentLog),
+            item(tr!(remote_background_service), Action::BackgroundService),
         ],
     }
 }
@@ -267,13 +274,13 @@ fn options_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(options),
         entries: vec![
-            item(tr!(theme), "", Action::PickTheme),
-            item(tr!(settings), "", Action::Settings),
-            item(tr!(plugins), "", Action::Plugins),
-            item(tr!(language), "", Action::PickLanguage),
+            item(tr!(theme), Action::PickTheme),
+            item(tr!(settings), Action::Settings),
+            item(tr!(plugins), Action::Plugins),
+            item(tr!(language), Action::PickLanguage),
             MenuEntry::Separator,
-            item(tr!(storage_menu), "", Action::Storage),
-            when(item(tr!(ask_again_menu), "", Action::AskAgain), state.kept_answers > 0),
+            item(tr!(storage_menu), Action::Storage),
+            when(item(tr!(ask_again_menu), Action::AskAgain), state.kept_answers > 0),
         ],
     }
 }
@@ -293,7 +300,13 @@ pub fn settings_items(state: &AppState) -> Vec<MenuItem> {
         (tr!(screensaver_when_idle), Action::ToggleScreensaver, prefs.screensaver),
     ]
     .into_iter()
-    .map(|(label, action, checked)| MenuItem { label, hint: "", action, checked: Some(checked), enabled: true })
+    .map(|(label, action, checked)| MenuItem {
+        label,
+        hint: String::new(),
+        action,
+        checked: Some(checked),
+        enabled: true,
+    })
     .collect()
 }
 
@@ -302,56 +315,56 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
         vec![
             MenuItem {
                 label: tr!(git_status_diffs_stage_unstage),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleGitPlugin,
                 checked: Some(state.settings.preferences.git_plugin),
                 enabled: true,
             },
             MenuItem {
                 label: tr!(system_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleSystemPlugin,
                 checked: Some(state.settings.preferences.system_plugin),
                 enabled: true,
             },
             MenuItem {
                 label: tr!(watch_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleProcessWatch,
                 checked: Some(state.settings.preferences.process_watch),
                 enabled: state.settings.preferences.system_plugin,
             },
             MenuItem {
                 label: tr!(docker_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleDockerPlugin,
                 checked: Some(state.settings.preferences.docker_plugin),
                 enabled: true,
             },
             MenuItem {
                 label: tr!(docker_console_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleDockerConsole,
                 checked: Some(state.settings.preferences.docker_console),
                 enabled: true,
             },
             MenuItem {
                 label: tr!(agent_log_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleAgentLog,
                 checked: Some(state.settings.preferences.agent_log),
                 enabled: true,
             },
             MenuItem {
                 label: tr!(agent_cloud_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleAgentCloud,
                 checked: Some(state.settings.preferences.agent_cloud),
                 enabled: true,
             },
             MenuItem {
                 label: tr!(agent_ask_reads_plugin_label),
-                hint: "",
+                hint: String::new(),
                 action: Action::ToggleAgentAskReads,
                 checked: Some(state.settings.preferences.agent_ask_reads),
                 enabled: state.settings.preferences.agent_cloud,
@@ -370,36 +383,33 @@ fn results_menu(state: &AppState) -> Menu {
     Menu {
         title: tr!(search),
         entries: vec![
-            item(tr!(search_recursively), "C-f", Action::Search),
-            item(tr!(analyze_folder_sizes), "M-d", Action::AnalyzeSpace),
-            item(tr!(folder_size_tree), "M-S-d", Action::FolderTree),
-            item(tr!(calculate_sizes), "M-s", Action::CalculateSizes),
+            item(tr!(search_recursively), Action::Search),
+            item(tr!(analyze_folder_sizes), Action::AnalyzeSpace),
+            item(tr!(folder_size_tree), Action::FolderTree),
+            item(tr!(calculate_sizes), Action::CalculateSizes),
             when(
                 item(
                     if state.sizing.is_some() { tr!(stop_background_sizes) } else { tr!(count_background_sizes) },
-                    "M-i",
                     Action::MeasureSizes,
                 ),
                 state.sizing.is_some() || !result && !state.monitor_open(),
             ),
-            when(item(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
+            when(keyed(tr!(refresh_sizes), "C-r", Action::RefreshSizes), panel.is_size_view()),
             when(
                 check(
                     tr!(index_this_folder),
-                    "",
                     Action::ToggleIndex,
                     state.settings.index_roots.iter().any(|root| root == panel.dir()),
                 ),
                 !result && !panel.foreign(),
             ),
-            item(tr!(open_create_collection), "M-v", Action::OpenCollection),
-            when(item(tr!(collect_in_other_panel), "M-k", Action::Collect), !panel.selection().is_empty()),
+            item(tr!(open_create_collection), Action::OpenCollection),
+            when(item(tr!(collect_in_other_panel), Action::Collect), !panel.selection().is_empty()),
             MenuEntry::Separator,
-            when(item(tr!(filter_results), "C-s", Action::FilterResults), result),
+            when(keyed(tr!(filter_results), "C-s", Action::FilterResults), result),
             when(
                 check(
                     tr!(group_by_folder),
-                    "",
                     Action::GroupResults(if group == Some(crate::ResultGroup::Folder) {
                         crate::ResultGroup::None
                     } else {
@@ -412,7 +422,6 @@ fn results_menu(state: &AppState) -> Menu {
             when(
                 check(
                     tr!(group_by_type),
-                    "",
                     Action::GroupResults(if group == Some(crate::ResultGroup::Type) {
                         crate::ResultGroup::None
                     } else {
@@ -422,19 +431,19 @@ fn results_menu(state: &AppState) -> Menu {
                 ),
                 result && !panel.is_tree(),
             ),
-            when(item(tr!(sort_by_source_folder), "", Action::SetSort(state.active, SortKey::Source)), result),
-            when(check(tr!(expanded_results), "M-w", Action::ToggleExpanded, state.results_expanded()), result),
+            when(item(tr!(sort_by_source_folder), Action::SetSort(state.active, SortKey::Source)), result),
+            when(check(tr!(expanded_results), Action::ToggleExpanded, state.results_expanded()), result),
             MenuEntry::Separator,
-            when(item(tr!(reveal_original), "", Action::RevealOriginal), result && panel.hovered_entry().is_some()),
-            when(item(tr!(remove_references), "F8", Action::RemoveReferences), collection),
-            when(item(tr!(delete_originals), "S-F8", Action::DeleteOriginals), result && !panel.selection().is_empty()),
+            when(item(tr!(reveal_original), Action::RevealOriginal), result && panel.hovered_entry().is_some()),
+            when(keyed(tr!(remove_references), "F8", Action::RemoveReferences), collection),
+            when(item(tr!(delete_originals), Action::DeleteOriginals), result && !panel.selection().is_empty()),
             when(
-                item(tr!(cancel_search), "C-c", Action::CancelSearch),
+                keyed(tr!(cancel_search), "C-c", Action::CancelSearch),
                 matches!(panel.results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Search { .. }))
                     && panel.listing() == &crate::Listing::Loading,
             ),
             when(
-                item(if result { tr!(return_to_folder) } else { tr!(resume_results) }, "M-S-r", Action::BackResults),
+                item(if result { tr!(return_to_folder) } else { tr!(resume_results) }, Action::BackResults),
                 if result {
                     state.result_history[state.active.index()].is_some()
                 } else {
