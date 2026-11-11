@@ -24,7 +24,7 @@ const LOG_COUNT: &str = "30";
 async fn read(reader: impl AsyncRead + Unpin) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     reader.take(OUTPUT_LIMIT + 1).read_to_end(&mut bytes).await?;
-    ensure!(bytes.len() as u64 <= OUTPUT_LIMIT, "Git output exceeds 8 MiB");
+    ensure!(bytes.len() as u64 <= OUTPUT_LIMIT, "{}", tr!(git_output_too_large));
     Ok(bytes)
 }
 
@@ -40,7 +40,7 @@ const NO_MATCH: i32 = 1;
 /// repository's own filter settings. A repository somebody else made can name any program as
 /// a filter, and Git would run it on the files it compares while Borg only looks at a folder.
 fn without_filters(names: &[u8]) -> Result<Vec<String>> {
-    let names = std::str::from_utf8(names).context("a filter in this repository has a name Borg cannot read")?;
+    let names = std::str::from_utf8(names).context(tr!(git_filter_name_unreadable))?;
     let drivers: BTreeSet<&str> = names
         .split('\0')
         .filter_map(|name| name.strip_prefix(FILTER_SECTION)?.rsplit_once('.'))
@@ -84,7 +84,7 @@ async fn command(dir: &Path, settings: &[String], args: &[&str], paths: &[PathBu
     if !paths.is_empty() {
         command.arg("--").args(paths);
     }
-    let mut child = command.spawn().context("Git is not available; install Git or disable the plugin")?;
+    let mut child = command.spawn().context(tr!(git_not_installed))?;
     let (stdout, stderr, status) =
         tokio::try_join!(read(child.stdout.take().unwrap()), read(child.stderr.take().unwrap()), async {
             child.wait().await.map_err(Into::into)
@@ -114,23 +114,23 @@ pub async fn inspect(dir: &Path) -> Result<Option<Repository>> {
         }
         let root = PathBuf::from(OsString::from_vec(bytes));
         let canonical = tokio::fs::canonicalize(dir).await?;
-        let prefix = canonical.strip_prefix(&root).context("Git directory is outside its repository")?.to_path_buf();
+        let prefix = canonical.strip_prefix(&root).context(tr!(git_outside_repository))?.to_path_buf();
         let settings = looking_only(dir).await?;
         let status = ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all", "--", "."];
         let status = successful(command(dir, &settings, &status, &[]).await?)?;
         Repository::parse(root, &status).map(|repository| Some(repository.at_directory(dir.to_path_buf(), prefix)))
     })
     .await
-    .context("Git status timed out")?
+    .context(tr!(git_status_timed_out))?
 }
 
 pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
-    ensure!(!tool.needs_selection() || !paths.is_empty(), "Select files first");
+    ensure!(!tool.needs_selection() || !paths.is_empty(), "{}", tr!(git_select_files_first));
     let paths = paths
         .iter()
         .map(|path| {
             if path.is_absolute() {
-                path.strip_prefix(dir).map(PathBuf::from).context("Selected path is outside the current folder")
+                path.strip_prefix(dir).map(PathBuf::from).context(tr!(git_path_outside_folder))
             } else {
                 Ok(path.clone())
             }

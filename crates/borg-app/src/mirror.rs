@@ -90,12 +90,9 @@ fn banner(output: &mut Vec<u8>, (cols, rows): (u16, u16), controlling: bool) {
     if cols == 0 || rows == 0 {
         return;
     }
-    let status = if controlling {
-        "REMOTE MIRROR - CONTROL: keys/mouse go to host; a key wakes its screensaver."
-    } else {
-        "REMOTE MIRROR - VIEW ONLY: keys/mouse ignored. Ctrl-T or click here: take control."
-    };
-    let exit = "EXIT MIRROR: hold Control and press G (Ctrl-G), or click this line.";
+    let status =
+        if controlling { borg_i18n::tr!(mirror_banner_control) } else { borg_i18n::tr!(mirror_banner_view_only) };
+    let exit = borg_i18n::tr!(mirror_banner_exit);
     let write_line = |row: u16, message: &str| {
         let clipped: String = message.chars().take(cols as usize).collect();
         format!("\x1b[{row};1H\x1b[0m\x1b[7m\x1b[2K{clipped}")

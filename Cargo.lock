@@ -810,6 +810,7 @@ name = "borg-jobs"
 version = "0.10.0"
 dependencies = [
  "borg-drives",
+ "borg-i18n",
  "tempfile",
 ]
 

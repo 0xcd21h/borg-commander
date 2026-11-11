@@ -195,7 +195,7 @@ pub fn install() -> Result<()> {
             .arg(&source)
             .arg(installed_at(&label)))?;
     }
-    println!("Installed {label}. Run `borg service enable` for boot startup and `borg service start` to start it now.");
+    println!("{}", borg_i18n::tr!(service_installed, label = label));
     Ok(())
 }
 
@@ -205,7 +205,7 @@ pub fn enable() -> Result<()> {
     run(elevated("systemctl").args(["enable", &label]))?;
     #[cfg(target_os = "macos")]
     run(elevated("launchctl").args(["enable", &format!("system/{label}")]))?;
-    println!("Enabled {label} at boot.");
+    println!("{}", borg_i18n::tr!(service_enabled, label = label));
     Ok(())
 }
 
@@ -215,7 +215,7 @@ pub fn disable() -> Result<()> {
     run(elevated("systemctl").args(["disable", &label]))?;
     #[cfg(target_os = "macos")]
     run(elevated("launchctl").args(["disable", &format!("system/{label}")]))?;
-    println!("Disabled {label} at boot.");
+    println!("{}", borg_i18n::tr!(service_disabled, label = label));
     Ok(())
 }
 
@@ -225,7 +225,7 @@ pub fn start() -> Result<()> {
     run(elevated("systemctl").args(["start", &label]))?;
     #[cfg(target_os = "macos")]
     run(elevated("launchctl").args(["bootstrap", "system"]).arg(installed_at(&label)))?;
-    println!("Started {label}.");
+    println!("{}", borg_i18n::tr!(service_started, label = label));
     Ok(())
 }
 
@@ -235,7 +235,7 @@ pub fn stop() -> Result<()> {
     run(elevated("systemctl").args(["stop", &label]))?;
     #[cfg(target_os = "macos")]
     run(elevated("launchctl").args(["bootout", &format!("system/{label}")]))?;
-    println!("Stopped {label}; its shells closed and its named workspaces remain saved.");
+    println!("{}", borg_i18n::tr!(service_stopped, label = label));
     Ok(())
 }
 
@@ -251,7 +251,7 @@ pub fn uninstall() -> Result<()> {
     #[cfg(target_os = "macos")]
     run(elevated("rm").arg("--").arg(installed_at(&label)))?;
     let _ = fs::remove_file(source);
-    println!("Uninstalled {label}; named workspaces and pairing keys remain saved.");
+    println!("{}", borg_i18n::tr!(service_uninstalled, label = label));
     Ok(())
 }
 

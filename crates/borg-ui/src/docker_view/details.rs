@@ -208,7 +208,14 @@ pub(super) fn container_details(
             .mounts
             .iter()
             .take(MOUNTS_SHOWN)
-            .map(|m| format!("{} → {}{}", m.source, m.destination, if m.writable { "" } else { " (ro)" }))
+            .map(|m| {
+                format!(
+                    "{} → {}{}",
+                    m.source,
+                    m.destination,
+                    if m.writable { String::new() } else { format!(" {}", tr!(docker_mount_read_only)) }
+                )
+            })
             .collect();
         if details.mounts.len() > MOUNTS_SHOWN {
             mounts.push(format!("+{}", details.mounts.len() - MOUNTS_SHOWN));

@@ -320,7 +320,7 @@ pub fn install() -> Result<()> {
     run(Command::new("sudo").args(["systemctl", "daemon-reload"]))?;
     run(Command::new("sudo").args(["systemctl", "enable", "--now", UNIT]))?;
     let _ = fs::remove_file(&staged);
-    println!("Installed {UNIT}. Borg now hears every process on this machine.");
+    println!("{}", borg_i18n::tr!(watch_root_installed, unit = UNIT));
     Ok(())
 }
 
@@ -328,7 +328,7 @@ pub fn uninstall() -> Result<()> {
     let _ = run(Command::new("sudo").args(["systemctl", "disable", "--now", UNIT]));
     run(Command::new("sudo").args(["rm", "--"]).arg(Path::new(UNITS).join(UNIT)))?;
     run(Command::new("sudo").args(["systemctl", "daemon-reload"]))?;
-    println!("Removed {UNIT}. Borg watches only your own processes now.");
+    println!("{}", borg_i18n::tr!(watch_root_removed, unit = UNIT));
     Ok(())
 }
 
