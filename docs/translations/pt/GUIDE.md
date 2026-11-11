@@ -48,7 +48,9 @@ Execute `borg` na pasta que pretende explorar. F10 sai e Ctrl-O passa da consola
 Para atualizar, execute `borg update` numa cópia transferida, ou use o Homebrew ou o cargo se
 tiver instalado dessa forma. O Borg só instala uma atualização quando a versão publicada traz a
 assinatura do projeto. Se a assinatura faltar ou estiver errada, a cópia instalada fica como está.
-`borg --version` mostra a versão instalada.
+`borg --version` mostra a versão instalada. As sessões abertas
+passam para a nova versão e mantêm as suas shells (consulte
+[Atualizar com sessões abertas](#updating-with-sessions-open)).
 
 ## Temas e ícones
 
@@ -1027,6 +1029,31 @@ comandos usam o sudo, que pede a sua palavra-passe, a menos que seja root. `borg
 executa-o na shell do Borg. Num contentor sem systemd, configure o supervisor de processos do
 contentor para executar `borg service run`.
 
+### Atualizar com sessões abertas
+
+`borg update` instala a nova versão, passa o serviço em segundo plano para ela e avisa quando o
+serviço já a corre. O serviço arranca de novo no seu próprio processo, por isso as sessões que
+mantém conservam as suas shells e os programas que nelas correm. Cada Borg aberto acompanha-o
+quando está inativo: espera que as tarefas em curso terminem, que os ficheiros editados sejam
+guardados ou fechados e que o pedido do agente esteja concluído. Depois arranca de novo no mesmo
+terminal, mantém a sua shell e indica a versão que corre agora.
+
+A atualização guarda a versão que substituiu junto do ficheiro do programa, como `.borg.previous`.
+Se a nova versão não assumir o lugar da anterior em 60 segundos, o Borg repõe a anterior e o
+serviço volta a arrancar com ela. As sessões que mantinha arrancam então com shells novas.
+
+Um serviço iniciado por um Borg mais antigo não consegue mudar sozinho de versão. O `borg update`
+indica-o, e o serviço usa a nova versão da próxima vez que arrancar.
+
+Para atualizar uma máquina emparelhada, selecione-a em [Hosts remotos](#remote-hosts) e prima
+**U**. Depois de confirmar, o host obtém a versão mais recente tal como o `borg update` faz, e o
+seu serviço passa para ela. **Esc** fecha o seletor enquanto a atualização continua. Em seguida, o
+Borg indica a versão que o host corre, ou que a nova versão não arrancou e o host voltou à que
+corria. Um espelho de uma das suas sessões espera por ele e volta a mostrar o host quando este
+regressa (consulte [Espelhar uma sessão](#mirroring-a-session)). Execute antes `borg update` no
+host quando o seu Borg for mais antigo ou correr sem o serviço em segundo plano. Um Borg instalado
+aí com o Homebrew ou o cargo atualiza-se com essa ferramenta no host, e o Borg indica o comando.
+
 ### Painéis remotos
 
 Depois do emparelhamento, `borg --remote MACHINE:SESSION` abre os ficheiros dessa sessão no painel
@@ -1070,8 +1097,9 @@ no seu ecrã, e pode responder-lhes aqui (consulte [O que o agente pode fazer](#
 No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos ou escolha
 **F9 → Remoto → Explorar hosts e sessões…** para ver as máquinas emparelhadas e as respetivas
 sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a partir do qual abriu o
-seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
-**R** para atualizar a lista.
+seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão,
+**U** para atualizar o host (consulte [Atualizar com sessões abertas](#updating-with-sessions-open))
+e **R** para atualizar a lista.
 
 **Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
 que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
@@ -1143,6 +1171,12 @@ assume sempre o controlo retirando-o a outro visualizador. Depois de ter o contr
 tecla acorda um ecrã remoto em repouso, e as teclas e a entrada de rato seguintes chegam-lhe. Um
 visualizador que fique para trás salta os fotogramas de animação antigos e passa diretamente
 para o ecrã atual.
+
+Quando o host deixa de responder, por exemplo durante uma atualização, o espelho mantém o último
+ecrã, indica-o na linha de estado e tenta de novo a cada 2 segundos, durante 100 segundos no
+máximo. Entretanto, **Ctrl-G** sai do espelho. Quando o host regressa, o espelho volta a mostrar o
+seu ecrã, com a versão que corre agora no canto inferior direito. Se o host continuar ausente
+depois disso, o espelho termina com uma mensagem.
 
 Um pedido do agente aparece no espelho tal como o servidor o mostra, e responde-lhe aí quando
 tiver o controlo. Se abriu o espelho a partir de um painel remoto e o pedido ainda esperar quando

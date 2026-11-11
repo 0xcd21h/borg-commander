@@ -40,6 +40,7 @@ mod pattern;
 mod plugins;
 mod pointer;
 mod query;
+mod relaunch;
 mod remote;
 mod results;
 mod service;
@@ -148,7 +149,9 @@ pub use watch::{
     kept_within,
 };
 
-pub use remote::{KeyChange, RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
+pub use remote::{
+    HostUpdate, KeyChange, RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames,
+};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
     COLLECTION_LIMIT, Collection, FirstMatch, PACKED_SHARE, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource,

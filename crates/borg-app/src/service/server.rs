@@ -13,7 +13,9 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use borg_core::{AgentEvent, Msg};
-use borg_term::{GridSize, PtyEvent};
+use borg_term::{GridSize, Pty, PtyEvent};
+use rustix::process::{Pid, WaitOptions, waitpid};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -25,7 +27,10 @@ use tokio::{
 };
 
 use super::{
-    Child, Children, Controller, LOCK, REPLAY_LIMIT, START_CALL, attach, frame_when_ready,
+    CHILD_SCROLLBACK, Child, Children, Controller, LOCK, ON_DEMAND, REPLAY_LIMIT, RUN, SERVICE_COMMAND, START_CALL,
+    adopt_child, attach,
+    carry::{self, Handed, Terminal},
+    forward, frame_when_ready, guard,
     members::{self, Members, Request},
     mirror, service_runtime, service_socket, spawn_child,
     wire::{Place, REGISTER, Registration, ToMember},
@@ -34,7 +39,8 @@ use crate::{
     agent::{Call, Reply},
     config::{Config, ConfigDir},
     launch,
-    link::LinkServer,
+    link::{HostUpdating, LinkServer},
+    relaunch::Carried,
     remote_console,
     session::StateDir,
     sessions,
@@ -48,15 +54,21 @@ const REQUEST_WAIT: Duration = Duration::from_secs(2);
 const IDLE_GRACE: Duration = Duration::from_secs(30);
 /// The request a kept service makes of one started on demand, to take its place.
 const HAND_OVER: &str = "hand-over";
+/// The request to start again on the newer Borg an update put in the program file.
+pub(super) const RELAUNCH: &str = "relaunch";
+/// How long the answer to an update has to reach the paired computer before the service moves.
+const ANSWER_GRACE: Duration = Duration::from_secs(2);
 /// How long a kept service waits for one started on demand to make way.
 const HAND_OVER_WAIT: Duration = Duration::from_secs(5);
 const HAND_OVER_POLL: Duration = Duration::from_millis(100);
 /// The screen sizes a client may ask for.
 const COLUMNS: RangeInclusive<u64> = 20..=500;
+const PRIVATE_SOCKET: u32 = 0o600;
 const ROWS: RangeInclusive<u64> = 8..=200;
 
 /// How long the service runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum Lifetime {
     /// Installed, or run by a supervisor: it runs until stopped.
     Kept,
@@ -65,10 +77,21 @@ pub(super) enum Lifetime {
     OnDemand,
 }
 
-pub(super) async fn run(lifetime: Lifetime) -> Result<()> {
+/// Runs the service, on what the previous service carried when an update started this one in
+/// its place.
+pub(super) async fn run(lifetime: Lifetime, carried: Option<Carried>) -> Result<()> {
     let state = StateDir::locate().context("set HOME or BORG_STATE_DIR for the service")?;
-    let lock = take_lock(&state, lifetime).await?;
+    let handed = carried
+        .and_then(|carried| carry::unpack(carried).inspect_err(|error| eprintln!("borg service: {error:#}")).ok());
+    let (lock, terminals) = match handed {
+        Some(handed) => {
+            collect(handed.guard);
+            (fs::File::from(handed.lock), handed.terminals)
+        }
+        None => (take_lock(&state, lifetime).await?, Vec::new()),
+    };
     let (mut service, mut inbox) = Service::start(state, lock, lifetime)?;
+    service.adopt(terminals);
     let mut tick = tokio::time::interval(REFRESH_EVERY);
     let mut idle = Idle::default();
     loop {
@@ -90,6 +113,10 @@ pub(super) async fn run(lifetime: Lifetime) -> Result<()> {
                     return Ok(());
                 }
             },
+            Some(version) = inbox.relaunches.recv() => {
+                let error = service.move_to(&version);
+                eprintln!("borg service: {error:#}");
+            }
             Some((session, request)) = inbox.requests.recv() => service.request(&session, request),
             Some(notice) = inbox.notices.recv() => service.notice(notice),
         }
@@ -120,6 +147,43 @@ async fn take_lock(state: &StateDir, lifetime: Lifetime) -> Result<fs::File> {
 async fn hand_over() -> bool {
     let reply = tokio::time::timeout(REQUEST_WAIT, super::request_json(json!({ "mode": HAND_OVER }))).await;
     matches!(reply, Ok(Ok(reply)) if reply["ok"] == true)
+}
+
+/// Collects the guard of the move that started this service, once it ends.
+fn collect(guard: Option<u32>) {
+    let Some(guard) = guard.and_then(|guard| i32::try_from(guard).ok()).and_then(Pid::from_raw) else { return };
+    std::thread::spawn(move || waitpid(Some(guard), WaitOptions::empty()));
+}
+
+/// Installs the latest release when it is newer than the Borg in the program file, and says
+/// which version the service runs next.
+async fn install_latest() -> Result<HostUpdating, String> {
+    let current = crate::relaunch::installed_version().await.unwrap_or_else(|| crate::update::VERSION.to_owned());
+    tokio::task::spawn_blocking(move || crate::update::install_newer(&current))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("{error:#}"))?;
+    let installed = crate::relaunch::installed_version().await;
+    Ok(match newer(installed.as_deref(), crate::update::VERSION) {
+        Ok(version) => HostUpdating { version, moving: true },
+        Err(_) => HostUpdating { version: crate::update::VERSION.to_owned(), moving: false },
+    })
+}
+
+/// The version the service moves to: the one in the program file, when it is newer than the
+/// one running.
+pub(super) fn newer(installed: Option<&str>, running: &str) -> Result<String, String> {
+    let installed = installed.ok_or_else(|| borg_i18n::tr!(relaunch_unknown_version).to_owned())?;
+    match (installed.parse::<borg_update::Version>(), running.parse::<borg_update::Version>()) {
+        (Ok(new), Ok(old)) if new > old => Ok(installed.to_owned()),
+        _ => Err(borg_i18n::tr!(relaunch_not_newer, version = running)),
+    }
+}
+
+/// What the newer Borg runs with, to run as this service does.
+fn run_args(lifetime: Lifetime) -> Vec<std::ffi::OsString> {
+    let on_demand = (lifetime == Lifetime::OnDemand).then_some(ON_DEMAND);
+    [SERVICE_COMMAND, RUN].into_iter().chain(on_demand).map(Into::into).collect()
 }
 
 /// Since when no session has used the service.
@@ -159,8 +223,11 @@ struct Service {
     lifetime: Lifetime,
     /// A kept service took over, so this one, started on demand, ends.
     handed_over: bool,
+    /// Where a request to start again on a newer Borg goes, which the service does between
+    /// requests.
+    relaunches: UnboundedSender<String>,
     /// Held while the service runs, so that only one does.
-    _lock: fs::File,
+    lock: fs::File,
 }
 
 /// Where the service's work comes from: its clients, borg cloud, the PTYs and the removals.
@@ -171,16 +238,14 @@ struct Inbox {
     events: UnboundedReceiver<(String, PtyEvent)>,
     removed: UnboundedReceiver<String>,
     requests: UnboundedReceiver<(String, Request)>,
+    relaunches: UnboundedReceiver<String>,
 }
 
 impl Service {
-    /// Takes the service's socket, with its lock held, and starts the link to borg cloud.
+    /// Opens the service's socket, with its lock held, and starts the link to borg cloud.
     fn start(state: StateDir, lock: fs::File, lifetime: Lifetime) -> Result<(Self, Inbox)> {
         let runtime = launch::private_dir(&service_runtime()?)?;
-        let socket = service_socket();
-        let _ = fs::remove_file(&socket);
-        let listener = UnixListener::bind(&socket)?;
-        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
+        let listener = listen()?;
         let config = ConfigDir::locate().map(|dir| dir.load()).transpose()?.unwrap_or_default();
         let (calls_tx, calls) = unbounded_channel();
         let (messages, notices) = unbounded_channel();
@@ -195,10 +260,15 @@ impl Service {
         );
         let members = Members::default();
         cloud.set_members(members.clone());
-        let consoles = remote_console::Server::new(borg_term::user_shell(), runtime.clone());
+        let consoles = remote_console::Server::new(
+            borg_term::user_shell(),
+            crate::program::path()?.to_path_buf(),
+            runtime.clone(),
+        );
         let (events, events_rx) = unbounded_channel();
         let (removed, removed_rx) = unbounded_channel();
         let (requests, requests_rx) = unbounded_channel();
+        let (relaunches, relaunches_rx) = unbounded_channel();
         let watcher = crate::watch::start(config.watch());
         let service = Self {
             state,
@@ -216,10 +286,85 @@ impl Service {
             pairing: None,
             lifetime,
             handed_over: false,
-            _lock: lock,
+            relaunches,
+            lock,
         };
-        let inbox = Inbox { listener, calls, notices, events: events_rx, removed: removed_rx, requests: requests_rx };
+        let inbox = Inbox {
+            listener,
+            calls,
+            notices,
+            events: events_rx,
+            removed: removed_rx,
+            requests: requests_rx,
+            relaunches: relaunches_rx,
+        };
         Ok((service, inbox))
+    }
+
+    /// Starts the newer Borg in place of this service, carrying its lock and the sessions'
+    /// terminals, with a guard to come back if the newer Borg does not come up. The newer Borg
+    /// opens the service's socket again, and Borgs registered with it register again. It
+    /// returns only when the start failed, and the service then runs on as before.
+    fn move_to(&mut self, version: &str) -> anyhow::Error {
+        let mut guard = guard::start(version, self.lifetime, self.cloud.reachable());
+        let error = match self.hand(guard.as_ref().map(std::process::Child::id)) {
+            Ok(carried) => {
+                let Err(error) = crate::relaunch::exec(&run_args(self.lifetime), &carried);
+                match carry::unpack(carried) {
+                    Ok(handed) => self.adopt(handed.terminals),
+                    Err(error) => eprintln!("borg service: {error:#}"),
+                }
+                error
+            }
+            Err(error) => error,
+        };
+        if let Some(mut guard) = guard.take() {
+            let _ = guard.kill();
+            std::thread::spawn(move || guard.wait());
+        }
+        error
+    }
+
+    /// The service taken apart for the move: its lock, and each session's terminal, which
+    /// stops being read here.
+    fn hand(&mut self, guard: Option<u32>) -> Result<Carried> {
+        let lock = self.lock.try_clone()?.into();
+        let children: Vec<_> = self.children.iter().map(|(id, child)| (id.clone(), child.clone())).collect();
+        let mut terminals = Vec::new();
+        for (session, child) in children {
+            let mut child = child.lock().expect("child lock");
+            let screen = child.emulator.carry_ansi(CHILD_SCROLLBACK);
+            let size = GridSize { cols: child.emulator.screen().cols(), rows: child.emulator.screen().rows() };
+            let sequence = child.sequence;
+            match child.pty.detach() {
+                Ok(detached) => terminals.push(Terminal { session, detached, size, sequence, screen }),
+                Err(error) => {
+                    drop(child);
+                    self.adopt(terminals);
+                    return Err(error);
+                }
+            }
+        }
+        carry::pack(Handed { lock, guard, terminals })
+    }
+
+    /// Takes over sessions' terminals: into the sessions that run here, whose terminals were
+    /// handed off for a move that failed, or as new sessions the previous service ran.
+    fn adopt(&mut self, terminals: Vec<Terminal>) {
+        for Terminal { session, detached, size, sequence, screen } in terminals {
+            let adopted = match self.children.get(&session) {
+                Some(child) => Pty::adopt(detached, forward(&session, self.events.clone())).map(|pty| {
+                    child.lock().expect("child lock").pty = pty;
+                }),
+                None => adopt_child(&session, detached, size, &screen, sequence, self.events.clone()).map(|child| {
+                    self.children.insert(session.clone(), child);
+                }),
+            };
+            if let Err(error) = adopted {
+                self.children.remove(&session);
+                eprintln!("borg service: could not take over session {session}: {error:#}");
+            }
+        }
     }
 
     /// Follows a change of relay in the settings, keeps the link to borg cloud as the plugins
@@ -343,6 +488,8 @@ impl Service {
             });
         } else if call.tool == "session_delete" {
             self.delete_session(call, reply);
+        } else if call.tool == crate::link::HOST_UPDATE_CALL {
+            self.update_host(reply);
         } else if call.tool.starts_with("console_") {
             self.consoles.handle(call, reply);
         } else if call.tool == "mirror_frame"
@@ -364,6 +511,26 @@ impl Service {
                 let _ = reply.send(answer);
             });
         }
+    }
+
+    /// Updates this host to the latest Borg for a paired computer. The answer says which
+    /// version the service moves to, and the service moves once the answer is on its way.
+    fn update_host(&self, reply: oneshot::Sender<Reply>) {
+        let relaunches = self.relaunches.clone();
+        tokio::spawn(async move {
+            match install_latest().await {
+                Ok(update) => {
+                    let _ = reply.send(Reply::ok(json!(update).to_string()));
+                    if update.moving {
+                        tokio::time::sleep(ANSWER_GRACE).await;
+                        let _ = relaunches.send(update.version);
+                    }
+                }
+                Err(error) => {
+                    let _ = reply.send(Reply::error(error));
+                }
+            }
+        });
     }
 
     /// Removes a session other than the Default one: its PTY stops, and it may start again only
@@ -474,6 +641,8 @@ impl Service {
                     "sessions": self.children.keys().collect::<Vec<_>>(),
                     "terminals": terminals,
                     "kept": self.lifetime == Lifetime::Kept,
+                    "version": crate::update::VERSION,
+                    "reachable": self.cloud.reachable(),
                 });
                 stream.write_all(format!("{reply}\n").as_bytes()).await?;
             }
@@ -483,6 +652,16 @@ impl Service {
                     json!({"ok": true})
                 } else {
                     json!({"ok": false, "error": "this Borg service keeps running"})
+                };
+                stream.write_all(format!("{reply}\n").as_bytes()).await?;
+            }
+            Some(RELAUNCH) => {
+                let reply = match newer(crate::relaunch::installed_version().await.as_deref(), crate::update::VERSION) {
+                    Ok(version) => {
+                        let _ = self.relaunches.send(version.clone());
+                        json!({"ok": true, "version": version})
+                    }
+                    Err(error) => json!({"ok": false, "error": error}),
                 };
                 stream.write_all(format!("{reply}\n").as_bytes()).await?;
             }
@@ -551,6 +730,15 @@ impl Service {
     }
 }
 
+/// The service's own socket, open only to its user.
+fn listen() -> Result<UnixListener> {
+    let socket = service_socket();
+    let _ = fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket)?;
+    fs::set_permissions(&socket, fs::Permissions::from_mode(PRIVATE_SOCKET))?;
+    Ok(listener)
+}
+
 fn relay(config: &Config) -> Option<borg_link::Relay> {
     config.relay.as_deref().or(crate::link::DEFAULT_RELAY).and_then(borg_link::Relay::parse)
 }
@@ -573,6 +761,20 @@ fn feed(child: &mut Child, bytes: Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_service_moves_only_to_a_newer_borg_in_its_program_file() {
+        assert_eq!(newer(Some("0.12.0"), "0.11.0"), Ok("0.12.0".into()));
+        assert!(newer(Some("0.11.0"), "0.11.0").is_err(), "the same version runs already");
+        assert!(newer(Some("0.10.0"), "0.11.0").is_err(), "an older program file is no update");
+        assert!(newer(None, "0.11.0").is_err(), "a program file that does not answer is no update");
+    }
+
+    #[test]
+    fn the_newer_borg_runs_as_this_service_does() {
+        assert_eq!(run_args(Lifetime::Kept), ["service", "run"]);
+        assert_eq!(run_args(Lifetime::OnDemand), ["service", "run", "--on-demand"]);
+    }
 
     #[test]
     fn a_service_started_on_demand_ends_after_a_grace_period_with_no_session() {

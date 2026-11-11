@@ -359,3 +359,19 @@ fn release_keys_are_64_hex_digits() {
     assert_eq!(crate::signature::parse_key(&"zz".repeat(32)), None);
     assert_eq!(crate::signature::parse_key(&"0a".repeat(32)), Some([0x0a; 32]));
 }
+
+#[test]
+fn an_update_keeps_the_program_it_replaces_hidden_beside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("borg");
+    assert_eq!(previous(&exe), dir.path().join(".borg.previous"));
+    fs::write(&exe, b"old").unwrap();
+    fs::write(previous(&exe), b"older").unwrap();
+    keep_previous(&exe).unwrap();
+    fs::write(exe.with_extension("next"), b"new").unwrap();
+    fs::rename(exe.with_extension("next"), &exe).unwrap();
+    assert_eq!(fs::read(previous(&exe)).unwrap(), b"old");
+    restore_previous(&exe).unwrap();
+    assert_eq!(fs::read(&exe).unwrap(), b"old");
+    assert!(!previous(&exe).exists());
+}

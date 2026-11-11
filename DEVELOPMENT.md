@@ -683,6 +683,20 @@ running and takes over from an on-demand one. Only sessions marked `background` 
 `sessions.json` run inside the service. The test fixture sets `start-service = false`, so
 end-to-end tests that need the service start it themselves.
 
+A newer program file moves a running Borg without ending it (`relaunch`). The old image execs the
+program file with `--resume` and carries its open files over a socketpair that stands in for
+standard output: the real standard output, an unlinked file with a JSON record, and the locks and
+PTYs the record names by place (`app::carry`, `service::carry`). The new image reads them and puts
+standard output back. The service moves between requests, when `borg update` asks over
+`service.sock` (`service::follow`) or a paired computer sends `host_update`. Its listening socket
+stays behind, because macOS empties a listening socket in flight once the old image's sockets
+close; the new service binds `service.sock` again and Borgs register again. A Borg that registers
+with an older version gets `Relaunch` and moves once no job, unsaved file or agent request holds
+it. A guard started from `.borg.previous` with `--guard-update` waits 60 seconds for the service to
+answer as the new version, and otherwise puts the previous program file back, ends the process and
+starts the service again when it ran on demand. A mirror that loses its host connects again for
+up to 100 seconds (`mirror::reconnect`).
+
 A borg keeps two kinds of keys in the `link` folder of its state folder. The server key, `key`,
 identifies it to the computers paired with it and loads by itself. A borg that reaches servers
 proves itself with a computer key of its own, which `link::keys` loads once per process, together

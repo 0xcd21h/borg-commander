@@ -5129,8 +5129,9 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
     local.wait_text("REMOTE MIRROR - CONTROL")?;
     remote.send(keys::f(10))?.send("y")?;
     ensure!(remote.wait_exit()?.success());
-    local.wait_text("Remote mirror:")?;
-    local.wait_until("local panels after remote disconnect", |screen| {
+    local.wait_text("RECONNECTING")?;
+    local.send(keys::ctrl('g'))?;
+    local.wait_until("local panels after leaving a mirror that waits for its host", |screen| {
         panels_ready(screen) && !screen.contains("REMOTE MIRROR")
     })?;
     let shown = local.wait_text("notes.txt")?;

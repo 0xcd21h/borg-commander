@@ -5,7 +5,7 @@ mod signature;
 mod version;
 
 pub use channel::{Channel, channel};
-pub use install::{asset_name, install, install_trusted, verify};
+pub use install::{asset_name, install, install_trusted, previous, restore_previous, verify};
 pub use release::{Asset, LATEST_RELEASE_URL, RELEASES_URL, Release, latest, parse_release};
 pub use signature::RELEASE_PUBLIC_KEYS;
 pub use version::Version;
