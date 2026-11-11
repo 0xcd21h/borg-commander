@@ -383,3 +383,25 @@ fn output_kept_of_a_command_lets_go_of_its_start() {
     keep_end(&mut kept, b"the end");
     assert!(kept.ends_with(b"the end") && kept.len() >= OUTPUT_HELD);
 }
+
+/// A Borg that holds borg cloud passes a paired computer's call on to a session in another
+/// window. The call still counts as one from another computer there, so what that computer
+/// reads waits for approval, and it never counts as a computer the user let through.
+#[test]
+fn a_call_passed_on_from_another_window_still_counts_as_another_computers() {
+    const LAPTOP: &str = "laptop [0123456789abcdef0123456789abcdef]";
+    let passed_on = |tool: &str| {
+        let call = Call { forwarded_from: Some(LAPTOP.into()), ..Call::new(tool, json!({})) };
+        let wire = serde_json::to_string(&call).unwrap();
+        serde_json::from_str::<Call>(&wire).unwrap().external()
+    };
+    let read = passed_on("read").unwrap();
+    let origin = read.origin.expect("it has an origin");
+    assert!(origin.starts_with(LAPTOP) && origin != LAPTOP, "{origin}");
+    assert_eq!(borg_core::computer_name(&origin), "laptop");
+    assert_eq!((read.approved, read.viewer, read.forwarded_from), (false, false, None));
+    assert!(passed_on("approval_mode").is_err(), "Approve all cannot be turned on this way");
+
+    let local = serde_json::from_value::<Call>(json!({ "tool": "read" })).unwrap().external().unwrap();
+    assert_eq!(local.origin, None, "a call that claims nothing is this machine's own");
+}
