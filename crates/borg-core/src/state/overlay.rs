@@ -110,6 +110,10 @@ pub enum ConfirmPurpose {
         machine: String,
         browser: Box<crate::RemoteBrowser>,
     },
+    RemoteHostUpdate {
+        machine: String,
+        browser: Box<crate::RemoteBrowser>,
+    },
     Delete {
         sources: Vec<PathBuf>,
     },

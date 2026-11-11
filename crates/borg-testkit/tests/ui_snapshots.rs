@@ -2153,6 +2153,36 @@ fn remote_session_removal_confirmation_and_progress() -> Result<()> {
 }
 
 #[test]
+fn remote_host_update_confirmation_and_progress() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "production".into(),
+            session: Some("default".into()),
+            name: "Default".into(),
+            info: borg_core::RemoteHostInfo {
+                version: Some("0.10.0".into()),
+                platform: Some("linux / x86_64".into()),
+                service: Some(true),
+                latency_ms: Some(38),
+                relay: "wss://relay.example".into(),
+            },
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_shortcuts", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('u')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_update_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_updating", &stage, buffer)
+}
+
+#[test]
 fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));

@@ -6,6 +6,7 @@ use std::{
         fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use portable_pty::CommandBuilder;
@@ -70,19 +71,21 @@ impl ShellKind {
     }
 }
 
-pub fn shell_command(program: &Path, cwd: &Path, runtime_dir: &Path) -> io::Result<CommandBuilder> {
+pub fn shell_command(program: &Path, cwd: &Path, runtime_dir: &Path) -> io::Result<Command> {
     let kind = ShellKind::detect(program);
     let integration_dir = install(kind, runtime_dir)?;
 
-    let mut cmd = CommandBuilder::new(program);
-    cmd.cwd(cwd);
+    let mut cmd = Command::new(program);
+    cmd.current_dir(cwd);
     cmd.env(SESSION_MARKER, env!("CARGO_PKG_VERSION"));
     cmd.env(ENV_TERM, TERM_NAME);
     cmd.env(ENV_INTEGRATION_DIR, &integration_dir);
     cmd.env(ENV_CD_FILE, cd_request_file(runtime_dir));
 
     match kind {
-        ShellKind::Bash => cmd.args([Path::new("--rcfile"), &integration_dir.join(BASH_RC.name), Path::new("-i")]),
+        ShellKind::Bash => {
+            cmd.args([Path::new("--rcfile"), &integration_dir.join(BASH_RC.name), Path::new("-i")]);
+        }
         ShellKind::Zsh => {
             if let Some(user) = std::env::var_os(ENV_ZDOTDIR) {
                 cmd.env(ENV_USER_ZDOTDIR, user);

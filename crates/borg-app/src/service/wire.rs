@@ -28,6 +28,9 @@ pub(super) struct Registration {
     /// The socket of the Borg's own mirror, for mirrors of a session in a terminal.
     pub mirror: PathBuf,
     pub place: Place,
+    /// The Borg's version. Older Borgs do not say, and cannot start again on a newer one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// From the service to a registered Borg.
@@ -42,6 +45,8 @@ pub(super) enum ToMember {
     Computers { names: Vec<String> },
     /// How many paired computers' connections reach the session now.
     Agents { count: usize },
+    /// The service runs a newer Borg, which the session moves to once nothing would be lost.
+    Relaunch { version: String },
 }
 
 /// From a registered Borg to the service.

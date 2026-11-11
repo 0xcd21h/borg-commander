@@ -8,7 +8,13 @@ use super::*;
 const WAIT: Duration = Duration::from_millis(200);
 
 fn registration(session: &str, place: Place) -> Registration {
-    Registration { session: session.into(), pid: 1, mirror: PathBuf::from(format!("/run/{session}")), place }
+    Registration {
+        session: session.into(),
+        pid: 1,
+        mirror: PathBuf::from(format!("/run/{session}")),
+        place,
+        version: None,
+    }
 }
 
 fn member(members: &Members, session: &str, place: Place) -> (u64, UnboundedReceiver<ToMember>) {
@@ -127,4 +133,16 @@ async fn waiting_for_a_session_ends_when_its_borg_registers() {
     tokio::task::yield_now().await;
     let _work = member(&members, "work", Place::Background);
     assert!(waiting.await.unwrap());
+}
+
+#[test]
+fn only_a_borg_that_says_it_runs_an_older_version_moves_to_the_service_s() {
+    let with = |version: Option<&str>| Registration {
+        version: version.map(str::to_owned),
+        ..registration("work", Place::Terminal)
+    };
+    assert_eq!(newer_for(&with(Some("0.10.0")), "0.11.0").as_deref(), Some("0.11.0"));
+    assert_eq!(newer_for(&with(Some("0.11.0")), "0.11.0"), None, "the same version stays");
+    assert_eq!(newer_for(&with(Some("0.12.0")), "0.11.0"), None, "a newer Borg never moves back");
+    assert_eq!(newer_for(&with(None), "0.11.0"), None, "an older Borg that cannot move is left alone");
 }
