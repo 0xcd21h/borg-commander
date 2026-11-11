@@ -153,7 +153,6 @@ fn initial_state(launch: &Launch, size: Size, now: Instant) -> (AppState, Vec<Ef
         ));
     }
     state.notice = launch.warnings.first().cloned().or(state.notice.take());
-    // The glitch intro plays only where animations do: not over SSH or without truecolor.
     if state.settings.motion == borg_core::Motion::LOCAL {
         state.intro = Some(now);
     }

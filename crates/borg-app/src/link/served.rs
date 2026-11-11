@@ -149,7 +149,6 @@ impl Served {
             match shared.pairing.as_mut() {
                 Some(pairing) if !pairing.claimed && pairing.until > Instant::now() => {
                     if offered.is_some_and(|offered| same(&offered, &pairing.secret)) {
-                        // A link works once.
                         pairing.claimed = true;
                         true
                     } else {

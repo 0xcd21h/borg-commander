@@ -132,7 +132,7 @@ fn install(kind: ShellKind, runtime_dir: &Path) -> io::Result<PathBuf> {
         let path = dir.join(script.name);
         let mut out = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(PRIVATE_FILE).open(&path)?;
         out.write_all(script.body.as_bytes())?;
-        // A script written by an older borg keeps its mode, so close it here too.
+        // `mode` applies only to a file it creates; one already there gets the mode here.
         fs::set_permissions(&path, fs::Permissions::from_mode(PRIVATE_FILE))
     })?;
     Ok(dir)

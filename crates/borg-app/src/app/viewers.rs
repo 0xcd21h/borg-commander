@@ -44,7 +44,6 @@ impl App {
                 }
                 if started.elapsed() > QUIET && said.get().elapsed() > PROGRESS_EVERY {
                     said.set(Instant::now());
-                    // How much of the file is behind the search, in the direction it reads.
                     let done = match direction {
                         borg_core::Direction::Forward => at.wrapping_sub(from).wrapping_add(len) % len,
                         borg_core::Direction::Backward => from.wrapping_sub(at).wrapping_add(len) % len,

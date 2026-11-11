@@ -115,7 +115,6 @@ impl App {
                         format!("The shell in {name} is running something; try again when it is back at its prompt."),
                     );
                 }
-                // A folder runs the command there; the container alone keeps the shell's.
                 let named = at
                     .as_deref()
                     .and_then(|at| at.trim().strip_prefix(agent::DOCKER_SCHEME))
@@ -184,7 +183,6 @@ impl App {
             };
             let location = agent::locate(&self.state, path);
             let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
-            // Small sizes show as bytes; larger ones as the panels show them, with the bytes.
             let shown = if size < 10_000 {
                 format!("{size} bytes")
             } else {

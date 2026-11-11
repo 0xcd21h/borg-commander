@@ -88,7 +88,6 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         if code == KeyCode::F(3) {
             return crate::viewer::open(state, path);
         }
-        // The focused preview scrolls; the keys that act on the process keep working.
         if state.activity.preview_focused && scrolls_preview(code) {
             scroll_preview(&mut state.activity, code);
             return Vec::new();

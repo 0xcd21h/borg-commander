@@ -23,7 +23,6 @@ const PAGE_DOWN: isize = 1;
 const SELECT_ALL: &str = "*";
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
-    // Results take their panel back from the activity monitor and the container list.
     if matches!(
         action,
         Action::Search

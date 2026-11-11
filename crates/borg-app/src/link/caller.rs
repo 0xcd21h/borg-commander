@@ -91,7 +91,6 @@ impl<'a> Caller<'a> {
                     None => break,
                 },
             };
-            // A computer forgotten while connected is cut off.
             if !self.served.shared.lock().expect("link lock").computers.iter().any(|c| c.key == self.key) {
                 break;
             }
