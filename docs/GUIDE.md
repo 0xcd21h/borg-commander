@@ -22,6 +22,17 @@ otherwise uses `~/.local/bin` and adds it to your shell's startup file. When it 
 starts borg; set `BORG_NO_RUN=1` to skip that, or `BORG_INSTALL_DIR` to choose the folder.
 If the same version is already installed, running the installer again skips the download.
 
+The installer can also set borg up as a
+[service that starts at boot](#named-sessions-and-the-background-service). In a terminal it asks
+once before it starts borg, and the answer defaults to no. Set `BORG_SERVICE=1` to set the service
+up without the question, as in an unattended install, or `BORG_SERVICE=0` to skip the question.
+The setup runs `borg service install`, `enable` and `start`, which use sudo unless you are root.
+Without a terminal and without the variable, the installer leaves the service alone and prints how
+to set it up later. Where systemd or launchd is missing, as in most containers, it skips the step
+and says why. If the setup fails, borg stays installed and the installer prints the commands to
+finish by hand. On Linux, the [root part of the watcher](#the-watcher-as-root) stays a separate
+step: install it with `borg service watch install` when you want it.
+
 To build from source, you need Rust 1.97 or newer:
 
 ```sh

@@ -22,6 +22,19 @@ contenedor), y en último caso usa `~/.local/bin` y lo añade al archivo de inic
 terminar, inicia borg; define `BORG_NO_RUN=1` para evitarlo, o `BORG_INSTALL_DIR` para elegir la
 carpeta. Si ya tienes instalada la misma versión, el instalador no vuelve a descargarla.
 
+El instalador también puede configurar borg como un
+[servicio que arranca con el sistema](#named-sessions-and-the-background-service). En un terminal
+pregunta una vez antes de iniciar borg, y la respuesta predeterminada es no. Define
+`BORG_SERVICE=1` para configurar el servicio sin la pregunta, como en una instalación desatendida,
+o `BORG_SERVICE=0` para omitir la pregunta. La configuración ejecuta `borg service install`,
+`enable` y `start`, que usan sudo salvo que seas root. Sin terminal y sin la variable, el
+instalador deja el servicio como está e indica cómo configurarlo más tarde. Donde falta systemd o
+launchd, como en la mayoría de los contenedores, omite este paso y explica el motivo. Si la
+configuración falla, borg sigue instalado y el instalador muestra los comandos para terminarla a
+mano. En Linux, la [parte del vigilante que se ejecuta como root](#the-watcher-as-root) sigue
+siendo un paso aparte: instálala con `borg service watch install`
+cuando la quieras.
+
 Para compilarlo desde el código fuente necesitas Rust 1.97 o posterior:
 
 ```sh
