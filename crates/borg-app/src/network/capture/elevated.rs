@@ -190,7 +190,7 @@ pub(super) async fn start(
     let folder = tempfile::Builder::new().prefix(FOLDER_PREFIX).tempdir().map_err(failed)?;
     let socket = folder.path().join(SOCKET);
     let listener = UnixListener::bind(&socket).map_err(failed)?;
-    let exe = std::env::current_exe().map_err(failed)?;
+    let exe = crate::program::path().map_err(failed)?;
     let mut words: Vec<String> = [exe.to_str(), Some(HELPER), socket.to_str()]
         .into_iter()
         .map(|word| word.map(str::to_owned))

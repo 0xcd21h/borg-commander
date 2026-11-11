@@ -45,7 +45,9 @@ brew install 0xcd21h/tap/borg-commander
 
 Ejecuta `borg` en la carpeta que quieras explorar. F10 sale, y Ctrl-O vuelve de la consola a los
 paneles. Para actualizar, ejecuta `borg update` si descargaste el binario, o usa Homebrew o cargo
-si lo instalaste así. `borg --version` muestra la versión instalada.
+si lo instalaste así. `borg --version` muestra la versión instalada. Las sesiones abiertas pasan
+a la nueva versión y conservan su shell (consulta
+[Actualizar con sesiones abiertas](#updating-with-sessions-open)).
 
 ## Temas e iconos
 
@@ -1021,6 +1023,32 @@ comandos usan sudo, que te pide la contraseña, salvo que seas root. `borg servi
 diálogo muestra el comando del siguiente paso, y Enter lo ejecuta en el shell de Borg. En un
 contenedor sin systemd, haz que el supervisor de procesos del contenedor ejecute `borg service run`.
 
+### Actualizar con sesiones abiertas
+
+`borg update` instala la nueva versión, pasa el servicio en segundo plano a ella y te avisa cuando
+el servicio ya la ejecuta. El servicio vuelve a arrancar en su propio proceso, así que las sesiones
+que mantiene conservan su shell y los programas que se ejecutan en él. Cada Borg abierto lo sigue
+cuando queda inactivo: espera a que terminen las tareas en curso, a que guardes o cierres los
+archivos editados y a que se resuelva la solicitud del agente. Después vuelve a arrancar en el
+mismo terminal, conserva su shell y te dice qué versión ejecuta ahora.
+
+La actualización guarda la versión que sustituyó junto al archivo del programa, como
+`.borg.previous`. Si la nueva versión no toma el relevo en 60 segundos, Borg restaura la anterior y
+el servicio vuelve a arrancar con ella. Las sesiones que mantenía arrancan entonces con shells
+nuevos.
+
+Un servicio iniciado por un Borg más antiguo no puede cambiar de versión por sí solo. `borg update`
+te lo indica, y el servicio usa la nueva versión la próxima vez que arranque.
+
+Para actualizar una máquina emparejada, selecciónala en [Hosts remotos](#remote-hosts) y pulsa
+**U**. Cuando confirmas, el host obtiene la última versión igual que con `borg update`, y su
+servicio pasa a ella. **Esc** cierra el selector mientras la actualización sigue. Después Borg te
+dice qué versión ejecuta el host, o que la nueva versión no arrancó y el host volvió a la que
+ejecutaba. Un espejo de una de sus sesiones lo espera y vuelve a mostrar el host cuando regresa
+(consulta [Reflejar una sesión](#mirroring-a-session)). Ejecuta `borg update` en el host cuando su
+Borg sea más antiguo o funcione sin el servicio en segundo plano. Un Borg instalado allí con
+Homebrew o cargo se actualiza con esa herramienta en el host, y Borg te indica el comando.
+
 ### Paneles remotos
 
 Después de emparejar, `borg --remote MACHINE:SESSION` abre los archivos de esa sesión en el panel
@@ -1063,7 +1091,8 @@ también en tu pantalla, y puedes responderlas aquí (consulta [Qué puede hacer
 En el Borg local, pulsa **Alt-H**, haz clic en **Hosts remotos** en la barra de atajos o elige
 **F9 → Remoto → Explorar hosts y sesiones…** para ver las máquinas emparejadas y sus sesiones con
 nombre. Enter abre los archivos de la sesión seleccionada en el panel desde el que abriste el
-selector, y sustituye lo que mostraba ese panel. Pulsa **M** para reflejar la pantalla de la sesión
+selector, y sustituye lo que mostraba ese panel. Pulsa **M** para reflejar la pantalla de la sesión,
+**U** para actualizar el host (consulta [Actualizar con sesiones abiertas](#updating-with-sessions-open))
 y **R** para actualizar la lista.
 
 **Tab** alterna entre **Hosts** (computadoras a las que este Borg puede llegar) y **Clientes**
@@ -1139,6 +1168,12 @@ control y desconectar el otro terminal, o empieza con `borg mirror MACHINE:SESSI
 tecla activa una pantalla remota en reposo, y las teclas y la entrada del ratón posteriores llegan
 a ella. Un espectador que se queda atrás omite los fotogramas antiguos de
 animación y pasa directamente a la pantalla actual.
+
+Cuando el host deja de responder, por ejemplo mientras se actualiza, el espejo conserva la última
+pantalla, lo indica en su línea de estado y vuelve a intentarlo cada 2 segundos durante 100
+segundos como máximo. Mientras tanto, **Ctrl-G** sale del espejo. Cuando el host vuelve, el espejo
+muestra de nuevo su pantalla, con la versión que ejecuta ahora abajo a la derecha. Si el host sigue
+ausente después de eso, el espejo termina con un mensaje.
 
 Una solicitud del agente aparece en el espejo tal como la muestra el servidor, y la respondes allí
 cuando tengas el control. Si abriste el espejo desde un panel remoto y la solicitud sigue esperando

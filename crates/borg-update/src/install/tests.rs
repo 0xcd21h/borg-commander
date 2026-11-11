@@ -131,3 +131,19 @@ fn only_a_regular_file_is_taken_as_the_program() {
     let bundle = builder.into_inner().and_then(|gz| gz.finish()).unwrap_or_else(|e| panic!("{e}"));
     assert!(matches!(extract(&bundle), Err(UpdateError::MissingBinary(_))));
 }
+
+#[test]
+fn an_update_keeps_the_program_it_replaces_hidden_beside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("borg");
+    assert_eq!(previous(&exe), dir.path().join(".borg.previous"));
+    fs::write(&exe, b"old").unwrap();
+    fs::write(previous(&exe), b"older").unwrap();
+    keep_previous(&exe).unwrap();
+    fs::write(exe.with_extension("next"), b"new").unwrap();
+    fs::rename(exe.with_extension("next"), &exe).unwrap();
+    assert_eq!(fs::read(previous(&exe)).unwrap(), b"old");
+    restore_previous(&exe).unwrap();
+    assert_eq!(fs::read(&exe).unwrap(), b"old");
+    assert!(!previous(&exe).exists());
+}

@@ -226,6 +226,11 @@ impl Agent {
         self.clients > 0
     }
 
+    /// Whether an agent waits for an answer, or runs a command it was allowed.
+    pub(crate) fn busy(&self) -> bool {
+        !self.asks.is_empty() || self.running.is_some()
+    }
+
     /// Starts the log with what agents did in earlier runs of the session, oldest first.
     pub fn restore_log(&mut self, entries: Vec<String>) {
         self.log = entries;

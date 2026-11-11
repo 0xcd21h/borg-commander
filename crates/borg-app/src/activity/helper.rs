@@ -115,7 +115,7 @@ pub(super) async fn elevate_scan(request: &ScanRequest) -> Result<ProcessScan> {
 
 /// Runs Borg's helper with `args` as administrator and reads what it answers.
 pub(super) async fn elevated<T: DeserializeOwned>(args: Vec<String>) -> Result<T> {
-    let exe = std::env::current_exe()?;
+    let exe = crate::program::path()?;
     #[cfg(target_os = "macos")]
     let command = {
         let words =

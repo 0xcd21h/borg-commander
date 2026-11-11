@@ -510,7 +510,7 @@ pub fn setup(host: Option<&str>) -> String {
         ),
         None => (
             "borg".to_owned(),
-            std::env::current_exe().map_or_else(|_| "borg".into(), |exe| exe.display().to_string()),
+            crate::program::path().map_or_else(|_| "borg".into(), |exe| exe.display().to_string()),
             vec!["mcp".to_owned()],
         ),
     };

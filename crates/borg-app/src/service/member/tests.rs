@@ -19,8 +19,13 @@ fn borg(socket: PathBuf) -> Borg {
     let (calls, calls_rx) = unbounded_channel();
     let (messages, messages_rx) = unbounded_channel();
     let clients = Arc::new(AtomicUsize::new(1));
-    let registration =
-        Registration { session: "work".into(), pid: 7, mirror: PathBuf::from("/run/work"), place: Place::Terminal };
+    let registration = Registration {
+        session: "work".into(),
+        pid: 7,
+        mirror: PathBuf::from("/run/work"),
+        place: Place::Terminal,
+        version: Some(crate::update::VERSION.into()),
+    };
     let inbox = Inbox { calls, messages, clients: clients.clone() };
     Borg {
         membership: Membership::start_at(socket, registration, inbox),
