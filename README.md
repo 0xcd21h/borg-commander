@@ -49,7 +49,8 @@ curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts
 ```
 
 The installer verifies the checksum, puts `borg` in `~/.local/bin` (or `/usr/local/bin` as
-root), adds it to your PATH if needed, and starts it. Update with `borg update`. Binaries for
+root), adds it to your PATH if needed, and starts it. Update with `borg update`: open sessions
+move to the new version and keep their shells. Binaries for
 **macOS** (Apple Silicon or Intel) and **Linux** (ARM64 or x86-64) are on
 [Releases](https://github.com/0xcd21h/borg-commander/releases/latest).
 
@@ -86,6 +87,7 @@ or paired targets. `borg --remote MACHINE:SESSION` opens a paired session's file
 panel with F5 copies to and from local folders, and `borg mirror MACHINE:SESSION` shows its live screen in the local terminal.
 Regular sessions can be mirrored while Borg is running, without a background service.
 The mirror displays its control status; Ctrl-T takes control from a view-only mirror, and Ctrl-G exits.
+In Remote hosts (Alt-H), U updates a paired host, and a mirror of it reconnects once the host is back.
 
 **Why the connection cannot be taken over.** Each borg holds its own key. Pairing exchanges
 the keys through a link that only your screen shows, and you confirm in borg that both

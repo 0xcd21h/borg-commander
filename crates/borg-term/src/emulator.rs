@@ -169,6 +169,15 @@ impl Emulator {
         crate::export::snapshot(&self.term)
     }
 
+    /// What a new emulator of the same size takes to look like this one: the last `max_lines`
+    /// lines of scrollback, the screen with its cursor, and the modes the program set.
+    pub fn carry_ansi(&self, max_lines: usize) -> Vec<u8> {
+        let mut out = crate::export::history(&self.term, max_lines);
+        out.extend(crate::export::modes(self.mode()));
+        out.extend(self.snapshot_ansi());
+        out
+    }
+
     pub fn screen(&self) -> Screen<'_> {
         Screen { term: &self.term, input_start: self.input_start }
     }

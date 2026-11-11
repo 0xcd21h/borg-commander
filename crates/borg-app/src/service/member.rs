@@ -59,7 +59,13 @@ pub struct Membership {
 
 impl Membership {
     pub fn start(session: &str, mirror: PathBuf, place: Place, inbox: Inbox) -> Self {
-        let registration = Registration { session: session.to_owned(), pid: std::process::id(), mirror, place };
+        let registration = Registration {
+            session: session.to_owned(),
+            pid: std::process::id(),
+            mirror,
+            place,
+            version: Some(crate::update::VERSION.to_owned()),
+        };
         Self::start_at(service_socket(), registration, inbox)
     }
 
@@ -169,6 +175,14 @@ fn take(message: ToMember, inbox: &Inbox, replies: &UnboundedSender<FromMember>,
             let _ = inbox.messages.send(Msg::Agent(AgentEvent::Paired { computers: names }));
         }
         ToMember::Agents { count } => agents.set(count),
+        ToMember::Relaunch { version } => {
+            let messages = inbox.messages.clone();
+            tokio::spawn(async move {
+                if crate::relaunch::installed_version().await.as_deref() == Some(version.as_str()) {
+                    let _ = messages.send(Msg::Relaunch { version });
+                }
+            });
+        }
     }
 }
 

@@ -13,7 +13,7 @@ use borg_vfs::Local;
 use ratatui::layout::Size;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use super::{App, INDEX_DELAY, WheelBurst, appearance, palette};
+use super::{App, INDEX_DELAY, Resumed, WheelBurst, appearance, palette};
 use crate::{
     launch::{self, Launch},
     preview,
@@ -21,12 +21,19 @@ use crate::{
 };
 
 impl App {
-    pub fn start(launch: &Launch, size: Size, detected: launch::Terminal) -> Result<Self> {
+    /// Starts Borg, on the shell the previous Borg carried when an update started this one in
+    /// its place.
+    pub fn start(launch: &Launch, size: Size, detected: launch::Terminal, resumed: Option<Resumed>) -> Result<Self> {
         let grid = GridSize::console(size.width, size.height);
         let now = Instant::now();
         let (mut state, pending, collections_writable) = initial_state(launch, size, now);
-        let emulator = console(launch, grid, &state);
-        let (pty, pty_events) = spawn_shell(launch, &state, grid)?;
+        let (emulator, pty, pty_events, cd_request) = match resumed {
+            Some(resumed) => resume_shell(resumed, grid, &mut state)?,
+            None => {
+                let (pty, pty_events) = spawn_shell(launch, &state, grid)?;
+                (console(launch, grid, &state), pty, pty_events, borg_term::cd_request_file(&launch.runtime_dir))
+            }
+        };
         let (messages, inbox) = unbounded_channel();
         crate::link::register_unlock_prompt(messages.clone());
 
@@ -68,7 +75,7 @@ impl App {
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
             pty,
-            cd_request: borg_term::cd_request_file(&launch.runtime_dir),
+            cd_request,
             pty_events,
             host_asks: crate::host_asks::Watchers::new(messages.clone()),
             messages,
@@ -79,7 +86,11 @@ impl App {
             drives,
             remote_catalog: None,
             remote_consoles: crate::remote_console::Clients::new(),
-            console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),
+            console_server: crate::remote_console::Server::new(
+                launch.shell.clone(),
+                crate::program::path()?.to_path_buf(),
+                launch.runtime_dir.clone(),
+            ),
             native_mirror,
             palette: palette(&detected.colors),
             themes: launch.themes.clone(),
@@ -125,6 +136,7 @@ impl App {
             clipboard: None,
             plain: None,
             wide_emoji: detected.wide_emoji,
+            relaunching: false,
         })
     }
 }
@@ -219,13 +231,33 @@ fn console(launch: &Launch, grid: GridSize, state: &AppState) -> Emulator {
     emulator
 }
 
+/// The shell the previous Borg carried, its screen, and where it reads the folder to change
+/// into. Borg knows of it what the previous one did, and says that the session moved.
+fn resume_shell(
+    resumed: Resumed,
+    grid: GridSize,
+    state: &mut AppState,
+) -> Result<(Emulator, Pty, UnboundedReceiver<PtyEvent>, PathBuf)> {
+    let Resumed { shell, notice } = resumed;
+    let mut emulator = Emulator::new(grid, state.settings.scrollback);
+    emulator.feed(&shell.screen);
+    let (pty_tx, pty_events) = unbounded_channel();
+    let pty = Pty::adopt(shell.detached, pty_tx)?;
+    let _ = pty.resize(grid);
+    state.shell.integrated = shell.integrated;
+    state.shell.silent_cd = shell.silent_cd;
+    state.intro = None;
+    state.notice = Some(notice);
+    Ok((emulator, pty, pty_events, shell.cd_request))
+}
+
 /// The shell under the panels, started in the active panel's folder.
 fn spawn_shell(launch: &Launch, state: &AppState, grid: GridSize) -> Result<(Pty, UnboundedReceiver<PtyEvent>)> {
     let shell_dir = state.active_panel().dir().to_path_buf();
     let mut command = shell_command(&launch.shell, &shell_dir, &launch.runtime_dir).context("preparing shell")?;
     command.env("BORG_CONFIRM_EXIT", "1");
     let (pty_tx, pty_events) = unbounded_channel();
-    let pty = Pty::spawn(command, grid, pty_tx)?;
+    let pty = Pty::spawn(crate::program::path()?, &command, grid, pty_tx)?;
     Ok((pty, pty_events))
 }
 

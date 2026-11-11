@@ -45,7 +45,6 @@ borg-view = { workspace = true }
 crossterm = { workspace = true }
 futures   = { workspace = true }
 getrandom = { workspace = true }
-portable-pty = { workspace = true }
 jiff      = { workspace = true }
 ratatui   = { workspace = true }
 rustix    = { workspace = true }

@@ -4,7 +4,7 @@ mod release;
 mod version;
 
 pub use channel::{Channel, channel};
-pub use install::{asset_name, install, verify};
+pub use install::{asset_name, install, previous, restore_previous, verify};
 pub use release::{Asset, LATEST_RELEASE_URL, Release, latest, parse_release};
 pub use version::Version;
 

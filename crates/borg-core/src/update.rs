@@ -125,6 +125,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::ParkedSignal { container, signal } => shell::parked_signal(state, container.as_deref(), &signal),
         Msg::ShellExited => vec![Effect::Quit],
+        Msg::Relaunch { version } => crate::relaunch::requested(state, version),
 
         Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
         Msg::KeptAnswers(kept) => {
@@ -231,6 +232,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::remote::deleted(state, machine, session, result)
         }
         Msg::RemoteHostForgotten { machine, result } => crate::remote::forgotten(state, machine, result),
+        Msg::RemoteHostUpdated { machine, result } => crate::remote::updated(state, machine, result),
         Msg::RemoteCatalog { choices, complete } => {
             crate::remote::catalog(state, choices, complete);
             Vec::new()
@@ -257,6 +259,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
     crate::agent::surface(state, now);
+    effects.extend(crate::relaunch::sync(state));
     effects
 }
 
