@@ -118,6 +118,9 @@ fn leave(state: &mut AppState, side: Side) -> Option<Effect> {
     if crate::archive::at_top(state, side) {
         return crate::archive::unmount(state, side);
     }
+    if crate::docker::at_volume_root(state, side) {
+        return crate::docker::leave_volume(state, side);
+    }
     if state.panel(side).is_results() {
         return crate::results::back(state).into_iter().next();
     }

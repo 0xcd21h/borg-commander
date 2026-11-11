@@ -735,6 +735,7 @@ dependencies = [
  "globset",
  "hkdf",
  "hmac 0.12.1",
+ "jiff",
  "proptest",
  "ratatui",
  "serde",

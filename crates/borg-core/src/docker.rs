@@ -19,9 +19,14 @@ mod disk;
 mod files;
 mod keys;
 mod shells;
+mod volume;
 
-pub use disk::{Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, NoCleanup};
+pub use disk::{
+    Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, LastUsed, NoCleanup, VolumeContents,
+};
 pub(crate) use disk::{command_ended, toggle as toggle_disk};
+pub use volume::VolumeMount;
+pub(crate) use volume::{at_root as at_volume_root, refusal as volume_refusal, unmount as leave_volume};
 
 pub(crate) use files::{browse, copy, delete, mkdir, unmount, view};
 pub(crate) use keys::{act, click, paste, route_key, start, stats, tab_key};
@@ -54,6 +59,9 @@ pub enum DockerRequest {
     },
     /// What the engine keeps on disk, which takes a while to measure.
     DiskUse,
+    /// The files of these volumes, by name, where they are on this machine: their newest change
+    /// and what their top holds, a volume at a time.
+    ReadVolumes(Vec<(String, PathBuf)>),
 }
 
 impl DockerRequest {
@@ -75,11 +83,18 @@ pub enum DockerData {
     },
     /// A container file copied out for viewing.
     Fetched(PathBuf),
-    /// Disk use as the context it was measured on reports it, with the CLI's contexts.
+    /// Disk use as the context it was measured on reports it, with the CLI's contexts and the
+    /// volumes whose files Borg can read on this machine.
     DiskUse {
         usage: Box<DiskUse>,
         context: Option<String>,
         contexts: Option<Vec<String>>,
+        folders: HashMap<String, PathBuf>,
+    },
+    /// What one volume's files hold.
+    VolumeRead {
+        name: String,
+        contents: VolumeContents,
     },
     Done,
 }
@@ -388,6 +403,7 @@ impl Docker {
                 self.disk.loading = Some(id);
                 self.disk.stale = false;
             }
+            DockerRequest::ReadVolumes(_) => self.disk.reading = Some(id),
             _ => {
                 self.pending = Some((id, request.clone()));
                 self.next = None;
@@ -547,6 +563,11 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
     if docker.disk.loading == Some(id) {
         docker.disk.loading = None;
         disk::receive(&mut docker.disk, result);
+        let unread = docker.disk.unread();
+        return if unread.is_empty() { Vec::new() } else { docker.request(DockerRequest::ReadVolumes(unread)) };
+    }
+    if docker.disk.reading == Some(id) {
+        disk::read(&mut docker.disk, result);
         return Vec::new();
     }
     if let Some(index) = docker.files.iter().position(|w| w.id == id) {
@@ -590,7 +611,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
             docker.details = Some((id, *details));
             docker.next.get_or_insert(now + REFRESH);
         }
-        Ok(DockerData::Done | DockerData::Fetched(_) | DockerData::DiskUse { .. }) => {}
+        Ok(DockerData::Done | DockerData::Fetched(_) | DockerData::DiskUse { .. } | DockerData::VolumeRead { .. }) => {}
         Err(error) => {
             docker.loaded = true;
             docker.error = Some(error);

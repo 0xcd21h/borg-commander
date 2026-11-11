@@ -46,6 +46,7 @@ const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const CONTAINER_MARK: char = '▣';
 const ARCHIVE_MARK: char = '▤';
+const VOLUME_MARK: char = '▥';
 const PARENT_NAME: &str = "..";
 const COLUMN_SEPARATOR: &str = "│";
 const LEFT_CAP: char = '▐';
@@ -203,11 +204,19 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Styl
             })
         })
         .or_else(|| scene.panel.archive.as_ref().map(|archive| format!(" {ARCHIVE_MARK} {} ", archive.label())))
+        .or_else(|| {
+            let volume = scene.panel.volume.as_ref()?;
+            Some(format!(" {VOLUME_MARK} {} ", tr!(docker_volume_label, name = volume.name.as_str())))
+        })
         .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
     let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };
-    let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), home), width, CRUMB_SEPARATOR);
+    let crumbs = match &scene.panel.volume {
+        Some(volume) => format::crumbs(&volume.inside(scene.panel.dir()), None),
+        None => format::crumbs(scene.panel.dir(), home),
+    };
+    let crumbs = format::fit_crumbs(crumbs, width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);
     let separator = Style { fg: separator.fg, ..style.remove_modifier(Modifier::BOLD) };
     let spans = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {

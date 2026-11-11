@@ -26,6 +26,7 @@ borg-view = { workspace = true }
 borg-edit = { workspace = true }
 crossterm = { workspace = true }
 globset   = { workspace = true }
+jiff      = { workspace = true }
 ratatui   = { workspace = true }
 serde     = { workspace = true }
 thiserror = { workspace = true }

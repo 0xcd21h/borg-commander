@@ -25,6 +25,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
         } else {
             tr!(activity_close_for_files)
         }
+    } else if let Some(notice) = crate::docker::volume_refusal(state, action) {
+        notice
     } else if let Some(notice) = archive_refusal(state, action) {
         return Some(notice);
     } else if remote && needs_local_files(action) {

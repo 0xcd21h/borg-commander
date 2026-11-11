@@ -19,7 +19,7 @@ use tokio::{
     process::Command,
 };
 
-pub use disk::{CacheRecord, DiskUse, Image, Layer, Volume};
+pub use disk::{CacheRecord, Compose, DiskUse, Engine, Image, LastUse, Layer, Volume, VolumeUser};
 pub use model::{Action, Container, Details, File, Frames, Health, Mount, Network, State, Stats, parse_size};
 
 const PROGRAM: &str = "docker";
@@ -73,15 +73,32 @@ pub async fn contexts() -> Result<Vec<String>> {
     Ok(run(&["context", "ls", "--quiet"], QUERY_TIMEOUT).await?.lines().map(str::to_owned).collect())
 }
 
-/// What the engine keeps on disk: images, containers' layers, volumes, build cache and unused
-/// networks.
+/// What the engine keeps on disk: images, containers' layers, volumes with what made them and
+/// what mounts them, build cache and unused networks.
 pub async fn disk_use() -> Result<DiskUse> {
-    let (report, tags, networks) = tokio::try_join!(
+    let (report, tags, networks, volumes, containers, engine) = tokio::try_join!(
         run(&["system", "df", "--verbose", "--format", "json"], DISK_TIMEOUT),
         run(&["image", "ls", "--no-trunc", "--format", disk::TAGS_FORMAT], QUERY_TIMEOUT),
         unused_networks(),
+        inspect_all(&["volume", "ls", "--quiet"], &["volume", "inspect", "--format", disk::VOLUME_FORMAT]),
+        inspect_all(
+            &["container", "ls", "--all", "--no-trunc", "--quiet"],
+            &["inspect", "--type", "container", "--format", disk::CONTAINER_FORMAT],
+        ),
+        run(&["info", "--format", disk::ENGINE_FORMAT], QUERY_TIMEOUT),
     )?;
-    disk::parse(&report, &tags, networks)
+    let outputs = disk::Outputs { report: &report, tags: &tags, volumes: &volumes, containers: &containers };
+    disk::parse(&outputs, networks, disk::parse_engine(&engine)?)
+}
+
+/// Inspects everything `list` names, in one call; nothing when it names nothing.
+async fn inspect_all(list: &[&str], inspect: &[&str]) -> Result<String> {
+    let names = run(list, QUERY_TIMEOUT).await?;
+    let names: Vec<&str> = names.split_whitespace().collect();
+    if names.is_empty() {
+        return Ok(String::new());
+    }
+    run(&[inspect, &names].concat(), QUERY_TIMEOUT).await
 }
 
 async fn unused_networks() -> Result<Vec<String>> {

@@ -26,6 +26,7 @@ mod controls;
 mod details;
 mod disk;
 mod list;
+mod volumes;
 
 pub(crate) use controls::{file_work_label, keybar, panel_mouse, status};
 use details::draw_details;
@@ -81,7 +82,7 @@ pub(crate) fn draw(
     let details = panels[side.other().index()];
     if docker.disk.open {
         if !list.is_empty() {
-            disk::draw_list(state, look, list, spinner, buf);
+            disk::draw_list(state, look, list, spinner, clock, buf);
         }
         if !details.is_empty() {
             disk::draw_details(docker, look, details, clock, buf);

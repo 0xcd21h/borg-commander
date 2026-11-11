@@ -652,11 +652,52 @@ liberta as camadas que nenhuma outra imagem partilha, e por isso o tamanho recup
 muito abaixo do seu tamanho.
 
 → ou Enter expande um tipo nos seus itens, do maior para o menor, e ← volta a recolhê-lo. O outro
-painel mostra o item selecionado: as etiquetas de uma imagem, o ID, o tamanho partilhado, a data
-de criação e o número de contentores; o tipo de um registo da cache de compilação, se está
-partilhado ou em uso e quando uma compilação o usou pela última vez; a imagem e o estado de um
-contentor; o tamanho de um volume e os contentores que o montam. Os tamanhos que o Docker não
-conseguiu medir aparecem como `?`, e `/` filtra todos os tipos de uma vez.
+painel mostra o item selecionado: as etiquetas de uma imagem, o ID, o tamanho partilhado, a data de
+criação e o número de contentores; o tipo de um registo da cache de compilação, se está partilhado
+ou em uso e quando uma compilação o usou pela última vez; a imagem e o estado de um contentor; os
+dados de um volume, descritos nos parágrafos seguintes. Os tamanhos que o Docker não conseguiu
+medir aparecem como `?`, e `/` filtra todos os tipos de uma vez. Também encontra volumes pelo
+projeto Compose e pelos contentores e imagens que os usam.
+
+As linhas dos volumes ocupam o espaço que sobra na coluna Nome com **Último uso**, **Criado**,
+**Projeto** e **Usado por**, tantos quantos couberem, e Alt-W maximiza o painel para os mostrar
+todos. Projeto é o projeto Compose que criou o volume. Usado por lista os contentores que o montam,
+em execução ou parados. Os volumes anónimos aparecem com os primeiros 12 caracteres do ID.
+
+**Último uso** mostra **em uso** enquanto estiver em execução um contentor que monte o volume. Caso
+contrário, indica o dia em que o último desses contentores parou, que o Docker regista com
+exatidão. Depois de os contentores serem removidos, o Docker deixa de ter qualquer registo do uso
+do volume. Quando o Borg consegue ler os ficheiros de um volume, vê também quando foram alterados
+pela última vez, e uma alteração mais recente aparece como esse dia precedido de `~`. Esse dia é
+uma estimativa: ler um ficheiro não deixa rasto, por isso o volume pode ter sido usado depois. Uma
+célula vazia significa que o Borg não sabe nenhum dos dois.
+
+O outro painel mostra a hora completa do último uso e da criação, o projeto **Compose** com o nome
+que o volume tem nele e o **Controlador** quando o volume usa um controlador diferente de `local`
+ou tem opções. Cada contentor que monta o volume ocupa uma linha com o seu estado e o caminho onde
+monta o volume. Num volume anónimo, esses contentores aparecem em **Criado para**, com as
+respetivas imagens. O Docker esquece esse contentor quando é removido. **Pasta** e **Contém**
+mostram onde estão os ficheiros nesta máquina e o que está no topo do volume.
+
+Enter num volume mostra os seus ficheiros no painel, só para leitura. O título marca o painel com ▥
+e **só leitura**, e os caminhos começam no topo do volume. **F3** mostra ficheiros, a pesquisa
+funciona como em qualquer pasta e **F5** copia ficheiros para o outro painel. O Borg recusa tudo o
+que alteraria o volume: editar, mover, eliminar, criar pastas, compactar e copiar para dentro dele.
+`..` no topo do volume devolve o painel à pasta que mostrava antes, e a linha de comandos fica
+nessa pasta o tempo todo. Uma sessão guardada enquanto um painel mostra um volume abre essa pasta
+da próxima vez.
+
+O Borg só lê ficheiros de volumes que estejam nesta máquina. Com o OrbStack no macOS, lê a partilha
+do OrbStack em `~/OrbStack/docker/volumes`, que o macOS trata como um volume de rede: autorize a
+aplicação de terminal em Volumes de rede, em Definições do Sistema › Privacidade e segurança ›
+Ficheiros e pastas. No Linux, lê a pasta do volume quando o motor corre na mesma máquina e o Borg a
+pode abrir, como acontece com o Docker em modo rootless ou quando o Borg corre como root. O Docker
+Desktop guarda os volumes dentro da sua máquina virtual, fora de alcance. Quando o Borg não
+consegue ler um volume, o outro painel explica porquê.
+
+Quando uma medição termina, o Borg lê em segundo plano os volumes a que chega, do maior para o
+menor, e o rodapé mostra **A ler os ficheiros dos volumes…** até acabar. **R** volta a lê-los ao
+medir de novo.
 
 **F8** escreve o comando de limpeza da linha selecionada no prompt da shell do host e mostra a
 consola. Nada é executado até premir Enter, por isso pode ler o comando, alterá-lo ou limpá-lo

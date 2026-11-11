@@ -91,7 +91,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
         active.push(Task::Alerts);
     }
     let docker = &state.docker;
-    let measuring = docker.disk.open && docker.disk.loading.is_some();
+    let measuring = docker.disk.open && (docker.disk.loading.is_some() || docker.disk.reading.is_some());
     if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty() || measuring) {
         active.push(Task::Docker);
     }

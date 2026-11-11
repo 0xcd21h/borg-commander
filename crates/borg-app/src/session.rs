@@ -87,8 +87,8 @@ impl Session {
     pub fn capture(state: &AppState) -> Self {
         let panel = |side: Side| {
             let panel = state.panel(side);
-            // A remote or container panel comes back as the host folder it replaced, and an
-            // archive as the folder that holds it, on the archive.
+            // A remote, container or volume panel comes back as the host folder it replaced, and
+            // an archive as the folder that holds it, on the archive.
             PanelState {
                 dir: panel
                     .remote_mount
@@ -96,13 +96,19 @@ impl Session {
                     .map(|mount| mount.host.clone())
                     .or_else(|| panel.mount.as_ref().map(|mount| mount.host.clone()))
                     .or_else(|| panel.archive.as_ref().map(|archive| archive.host.clone()))
+                    .or_else(|| panel.volume.as_ref().map(|volume| volume.host.clone()))
                     .unwrap_or_else(|| panel.dir().to_path_buf()),
                 focus: panel
                     .archive
                     .as_ref()
                     .and_then(|archive| archive.archive.file_name())
                     .map(|name| name.to_string_lossy().into_owned())
-                    .or_else(|| panel.hovered_entry().filter(|_| !panel.foreign()).map(|entry| entry.name.clone())),
+                    .or_else(|| {
+                        panel
+                            .hovered_entry()
+                            .filter(|_| !panel.foreign() && panel.volume.is_none())
+                            .map(|entry| entry.name.clone())
+                    }),
                 mode: panel.mode().into(),
                 sort: panel.sort().key.into(),
                 reverse: panel.sort().reverse,

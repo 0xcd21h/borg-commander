@@ -653,8 +653,50 @@ recuperable puede quedar muy por debajo de su tamaño.
 panel muestra el elemento seleccionado: las etiquetas de una imagen, su ID, su tamaño compartido,
 su fecha de creación y su número de contenedores; el tipo de un registro de la caché de
 compilación, si está compartido o en uso y cuándo lo usó una compilación por última vez; la imagen
-y el estado de un contenedor; el tamaño de un volumen y los contenedores que lo montan. Los
-tamaños que Docker no pudo medir aparecen como `?`, y `/` filtra todos los tipos a la vez.
+y el estado de un contenedor; los datos de un volumen, que describen los párrafos siguientes. Los
+tamaños que Docker no pudo medir aparecen como `?`, y `/` filtra todos los tipos a la vez. También
+encuentra volúmenes por su proyecto de Compose y por los contenedores e imágenes que los usan.
+
+Las filas de volúmenes llenan el espacio que le sobra a la columna Nombre con **Último uso**,
+**Creado**, **Proyecto** y **Usado por**, tantas como quepan, y Alt-W maximiza el panel para verlas
+todas. Proyecto es el proyecto de Compose que creó el volumen. Usado por enumera los contenedores
+que lo montan, en ejecución o detenidos. Los volúmenes anónimos aparecen con los primeros 12
+caracteres de su ID.
+
+**Último uso** dice **en uso** mientras se ejecute un contenedor que monte el volumen. Si no, da el
+día en que se detuvo el último de esos contenedores, que Docker registra con exactitud. Cuando se
+eliminan los contenedores, Docker deja de guardar registro alguno del uso del volumen. Donde Borg
+puede leer los archivos de un volumen, también mira cuándo cambiaron por última vez, y un cambio
+posterior aparece como ese día con `~` delante. Ese día es una estimación: leer un archivo no deja
+rastro, así que el volumen puede haberse usado después. Una celda vacía significa que Borg no sabe
+ninguno de los dos.
+
+El otro panel muestra la hora completa del último uso y de la creación, el proyecto de **Compose**
+con el nombre que tiene el volumen en él, y el **Controlador** cuando el volumen usa un controlador
+distinto de `local` o tiene opciones. Cada contenedor que monta el volumen ocupa una línea con su
+estado y la ruta donde lo monta. En un volumen anónimo, esos contenedores aparecen en **Creado
+para**, con sus imágenes. Docker olvida ese contenedor en cuanto se elimina. **Carpeta** y
+**Contiene** muestran dónde están los archivos en esta máquina y qué hay en la raíz del volumen.
+
+Enter sobre un volumen muestra sus archivos en el panel, en solo lectura. El título marca el panel
+con ▥ y **solo lectura**, y las rutas empiezan en la raíz del volumen. **F3** muestra archivos, la
+búsqueda funciona como en cualquier carpeta y **F5** copia archivos al otro panel. Borg rechaza
+todo lo que cambiaría el volumen: editar, mover, borrar, crear carpetas, comprimir y copiar dentro
+de él. `..` en la raíz del volumen devuelve el panel a la carpeta que mostraba antes, y la línea de
+comandos se queda en esa carpeta todo el tiempo. Una sesión guardada mientras un panel muestra un
+volumen abre esa carpeta la próxima vez.
+
+Borg solo lee archivos de volúmenes que estén en esta máquina. Con OrbStack en macOS, lee lo que
+OrbStack comparte en `~/OrbStack/docker/volumes`, que macOS trata como un volumen de red: da acceso
+a Volúmenes de red a tu app de terminal en Ajustes del Sistema › Privacidad y seguridad › Archivos
+y carpetas. En Linux, lee la carpeta del volumen cuando el motor se ejecuta en la misma máquina y
+Borg puede abrirla, como con Docker en modo rootless o cuando Borg se ejecuta como root. Docker
+Desktop guarda los volúmenes dentro de su máquina virtual, fuera de alcance. Cuando Borg no puede
+leer un volumen, el otro panel explica por qué.
+
+Cuando termina una medición, Borg lee en segundo plano los volúmenes a los que llega, de mayor a
+menor, y el pie muestra **Leyendo los archivos de los volúmenes…** hasta terminar. **R** los vuelve
+a leer al medir de nuevo.
 
 **F8** escribe el comando de limpieza de la fila seleccionada en el prompt del shell del host y
 muestra la consola. No se ejecuta nada hasta que pulses Enter, así que puedes leer el comando,

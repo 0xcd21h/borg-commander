@@ -4,8 +4,14 @@
 
 use super::DockerData;
 use crate::command::CommandLine;
-use borg_docker::DiskUse;
-use std::{cmp::Reverse, collections::HashSet};
+use borg_docker::{DiskUse, LastUse, Volume};
+use borg_i18n::tr;
+use jiff::Timestamp;
+use std::{
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 mod keys;
 
@@ -14,6 +20,30 @@ pub(crate) use keys::{click, command_ended, measure, on_key, paste, toggle};
 const DOCKER: &str = "docker";
 const CONTEXT_FLAG: &str = "--context";
 const ALL_FLAG: &str = "-a";
+/// An anonymous volume's name is 64 hex digits; the list shows the first ones, as Docker shows IDs.
+const SHORT_NAME: usize = 12;
+
+/// What reading a volume's files found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VolumeContents {
+    /// The newest change to anything in it, its top folder included.
+    pub newest: Option<Timestamp>,
+    /// The names at its top, sorted.
+    pub top: Vec<String>,
+}
+
+/// When a volume was last used, as far as Borg can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastUsed {
+    /// A container that mounts it is up.
+    Now,
+    /// When the last container that mounts it stopped.
+    Stopped(Timestamp),
+    /// An estimate: the newest change to its files, later than any container's stop. Reading
+    /// leaves no trace, so it may have been used since.
+    Changed(Timestamp),
+    Unknown,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiskKind {
@@ -156,6 +186,12 @@ pub struct Disk {
     /// A cleanup command waits at the prompt or runs, so the next command to end measures again.
     typed: bool,
     pub(super) stale: bool,
+    /// Where each volume's files are on this machine, for the volumes Borg can read there.
+    pub folders: HashMap<String, PathBuf>,
+    /// What reading each volume's files found.
+    pub contents: HashMap<String, VolumeContents>,
+    /// The request reading volumes' files, while it runs.
+    pub reading: Option<u64>,
 }
 
 /// The context commands name: the measured one whenever the CLI has another, or when it could
@@ -252,7 +288,10 @@ impl DiskItem {
                 }
             }
             Self::Container(i) => usage.containers[i].name.clone(),
-            Self::Volume(i) => usage.volumes[i].name.clone(),
+            Self::Volume(i) => {
+                let volume = &usage.volumes[i];
+                if volume.anonymous { volume.name.chars().take(SHORT_NAME).collect() } else { volume.name.clone() }
+            }
             Self::Cache(i) => {
                 let record = &usage.cache[i];
                 if record.description.is_empty() { record.kind.clone() } else { record.description.clone() }
@@ -284,7 +323,10 @@ impl DiskItem {
             Self::Container(i) => vec![usage.containers[i].name.as_str(), usage.containers[i].image.as_str()],
             Self::Volume(i) => {
                 let volume = &usage.volumes[i];
-                std::iter::once(volume.name.as_str()).chain(volume.users.iter().map(String::as_str)).collect()
+                std::iter::once(volume.name.as_str())
+                    .chain(volume.compose.as_ref().map(|compose| compose.project.as_str()))
+                    .chain(volume.users.iter().flat_map(|user| [user.container.as_str(), user.image.as_str()]))
+                    .collect()
             }
             Self::Cache(i) => vec![usage.cache[i].description.as_str(), usage.cache[i].kind.as_str()],
         };
@@ -335,6 +377,50 @@ impl Disk {
 
     pub fn mark_count(&self) -> usize {
         self.marks.len()
+    }
+
+    /// When `volume` was last used: now or when its last container stopped, as Docker tells, or
+    /// the newest change to its files when that is later or Docker tells nothing.
+    pub fn last_used(&self, volume: &Volume) -> LastUsed {
+        let changed = self.contents.get(&volume.name).and_then(|contents| contents.newest);
+        match (volume.last_use(), changed) {
+            (LastUse::Now, _) => LastUsed::Now,
+            (LastUse::Stopped(stopped), Some(changed)) if changed > stopped => LastUsed::Changed(changed),
+            (LastUse::Stopped(stopped), _) => LastUsed::Stopped(stopped),
+            (LastUse::Unknown, Some(changed)) => LastUsed::Changed(changed),
+            (LastUse::Unknown, None) => LastUsed::Unknown,
+        }
+    }
+
+    /// The selected volume, if the cursor is on one.
+    pub fn volume(&self) -> Option<&Volume> {
+        match (self.usage.as_ref()?, self.row()?) {
+            (usage, DiskRow::Item(_, DiskItem::Volume(index))) => usage.volumes.get(index),
+            _ => None,
+        }
+    }
+
+    /// Why Borg cannot show a volume's files: OrbStack shares them, but this machine did not let
+    /// Borg read the share, or the engine keeps them in its virtual machine, elsewhere, or where
+    /// only root reads.
+    pub fn unreachable(&self) -> &'static str {
+        if self.usage.as_ref().is_some_and(|usage| usage.engine.orbstack()) {
+            tr!(docker_volume_share_denied)
+        } else {
+            tr!(docker_volume_out_of_reach)
+        }
+    }
+
+    /// The volumes whose files Borg can read and has not read yet, biggest first.
+    pub(super) fn unread(&self) -> Vec<(String, PathBuf)> {
+        let Some(usage) = &self.usage else { return Vec::new() };
+        let mut volumes: Vec<&Volume> = usage.volumes.iter().collect();
+        volumes.sort_by_key(|volume| Reverse(volume.size));
+        volumes
+            .into_iter()
+            .filter(|volume| !self.contents.contains_key(&volume.name))
+            .filter_map(|volume| Some((volume.name.clone(), self.folders.get(&volume.name)?.clone())))
+            .collect()
     }
 
     /// Everything the kinds would free together.
@@ -490,14 +576,27 @@ impl Disk {
 
 pub(super) fn receive(disk: &mut Disk, result: Result<DockerData, String>) {
     match result {
-        Ok(DockerData::DiskUse { usage, context, contexts }) => {
+        Ok(DockerData::DiskUse { usage, context, contexts, folders }) => {
+            let names: HashSet<&str> = usage.volumes.iter().map(|volume| volume.name.as_str()).collect();
+            disk.contents.retain(|name, _| names.contains(name.as_str()) && folders.contains_key(name));
             disk.usage = Some(*usage);
             disk.context = named_context(context, contexts);
+            disk.folders = folders;
             disk.error = None;
             disk.rebuild();
         }
         Ok(_) => {}
         Err(error) => disk.error = Some(error),
+    }
+}
+
+/// One volume's files read, or the end of reading them.
+pub(super) fn read(disk: &mut Disk, result: Result<DockerData, String>) {
+    match result {
+        Ok(DockerData::VolumeRead { name, contents }) => {
+            disk.contents.insert(name, contents);
+        }
+        Ok(_) | Err(_) => disk.reading = None,
     }
 }
 

@@ -127,6 +127,8 @@ pub struct Panel {
     pub remote_mount: Option<RemoteMount>,
     /// The archive whose files this panel shows.
     pub archive: Option<crate::ArchiveMount>,
+    /// The Docker volume whose files this panel shows, read only.
+    pub volume: Option<crate::VolumeMount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,13 +166,18 @@ impl Panel {
             mount: None,
             remote_mount: None,
             archive: None,
+            volume: None,
         }
     }
 
-    /// The folder a shell beside the panel works in: the panel's own, or the one that holds the
-    /// archive it shows.
+    /// The folder a shell beside the panel works in: the panel's own, the one that holds the
+    /// archive it shows, or the one it showed before a volume.
     pub fn shell_folder(&self) -> &Path {
-        self.archive.as_ref().map_or(&self.dir, |mount| &mount.host)
+        self.archive
+            .as_ref()
+            .map(|mount| &mount.host)
+            .or_else(|| self.volume.as_ref().map(|volume| &volume.host))
+            .unwrap_or(&self.dir)
     }
 
     /// Whether the panel shows files from somewhere other than this machine's folders: a

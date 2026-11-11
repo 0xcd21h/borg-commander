@@ -9,7 +9,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use borg_core::{DockerData, DockerRequest, FileOp, Msg};
+use borg_core::{DockerData, DockerRequest, FileOp, Msg, VolumeContents};
 use borg_term::{CommandBuilder, Emulator, GridSize, Pty, PtyEvent, Screen, Scroll, ShellSignal, TermMode};
 use borg_vfs::{Batches, Entry, EntryKind};
 use futures::StreamExt;
@@ -27,6 +27,8 @@ pub struct Docker {
     query: Option<JoinHandle<()>>,
     /// Measuring disk use takes seconds, so it runs beside the list's refreshes.
     disk: Option<JoinHandle<()>>,
+    /// Reading volumes' files takes longer still, a volume at a time, after measuring.
+    volumes: Option<JoinHandle<()>>,
     watch: Option<JoinHandle<()>>,
     /// Where container files are copied out for viewing; removed on exit.
     scratch: PathBuf,
@@ -34,10 +36,18 @@ pub struct Docker {
 
 impl Docker {
     pub fn new(messages: UnboundedSender<Msg>, scratch: PathBuf) -> Self {
-        Self { messages, query: None, disk: None, watch: None, scratch }
+        Self { messages, query: None, disk: None, volumes: None, watch: None, scratch }
     }
 
     pub fn request(&mut self, id: u64, request: DockerRequest) {
+        if let DockerRequest::ReadVolumes(volumes) = request {
+            let messages = self.messages.clone();
+            let task = tokio::spawn(read_volumes(id, volumes, messages));
+            if let Some(previous) = self.volumes.replace(task) {
+                previous.abort();
+            }
+            return;
+        }
         let messages = self.messages.clone();
         let query = request.is_query();
         let disk = request == DockerRequest::DiskUse;
@@ -56,12 +66,25 @@ impl Docker {
                 DockerRequest::DiskUse => {
                     let (context, contexts, usage) =
                         tokio::join!(borg_docker::context(), borg_docker::contexts(), borg_docker::disk_use());
-                    usage.map(|usage| DockerData::DiskUse {
-                        usage: Box::new(usage),
-                        context: context.ok(),
-                        contexts: contexts.ok(),
-                    })
+                    match usage {
+                        Ok(usage) => {
+                            let folders = tokio::task::spawn_blocking({
+                                let usage = usage.clone();
+                                move || readable_folders(&usage)
+                            })
+                            .await
+                            .unwrap_or_default();
+                            Ok(DockerData::DiskUse {
+                                usage: Box::new(usage),
+                                context: context.ok(),
+                                contexts: contexts.ok(),
+                                folders,
+                            })
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
+                DockerRequest::ReadVolumes(_) => Ok(DockerData::Done),
             };
             let _ = messages.send(Msg::Docker { id, result: result.map_err(|error| format!("{error:#}")) });
         });
@@ -112,15 +135,73 @@ impl Docker {
             task.abort();
         }
     }
+
+    /// Stops reading volumes' files once the view no longer waits for them.
+    pub fn cancel_volumes(&mut self) {
+        if let Some(task) = self.volumes.take() {
+            task.abort();
+        }
+    }
 }
 
 impl Drop for Docker {
     fn drop(&mut self) {
         self.cancel();
         self.cancel_disk();
+        self.cancel_volumes();
         self.watch(false);
         let _ = std::fs::remove_dir_all(&self.scratch);
     }
+}
+
+/// The volumes whose files Borg can read on this machine, by name: through OrbStack's share,
+/// or in the engine's own folders when it runs here and Borg may read them.
+fn readable_folders(usage: &borg_docker::DiskUse) -> HashMap<String, PathBuf> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return HashMap::new() };
+    let host = crate::agent::hostname();
+    usage
+        .volumes
+        .iter()
+        .filter_map(|volume| Some((volume.name.clone(), volume.folder(&usage.engine, &home, &host)?)))
+        .filter(|(_, folder)| std::fs::read_dir(folder).is_ok())
+        .collect()
+}
+
+/// Reads each volume's files in turn and reports what it holds, then that it is done.
+async fn read_volumes(id: u64, volumes: Vec<(String, PathBuf)>, messages: UnboundedSender<Msg>) {
+    for (name, folder) in volumes {
+        let Ok(Ok(contents)) = tokio::task::spawn_blocking(move || volume_contents(&folder)).await else { continue };
+        let read = DockerData::VolumeRead { name, contents };
+        if messages.send(Msg::Docker { id, result: Ok(read) }).is_err() {
+            return;
+        }
+    }
+    let _ = messages.send(Msg::Docker { id, result: Ok(DockerData::Done) });
+}
+
+/// When anything in a volume's folder last changed, and the names at its top. The change time
+/// counts, since unpacking keeps the times files had elsewhere.
+fn volume_contents(folder: &Path) -> io::Result<VolumeContents> {
+    use std::os::unix::fs::MetadataExt;
+    let changed = |meta: &std::fs::Metadata| {
+        jiff::Timestamp::new(meta.ctime(), i32::try_from(meta.ctime_nsec()).unwrap_or(0)).ok()
+    };
+    let mut top: Vec<String> =
+        std::fs::read_dir(folder)?.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    top.sort();
+    let mut newest = changed(&std::fs::symlink_metadata(folder)?);
+    let mut folders = vec![folder.to_path_buf()];
+    while let Some(dir) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            newest = newest.max(changed(&meta));
+            if meta.is_dir() {
+                folders.push(entry.path());
+            }
+        }
+    }
+    Ok(VolumeContents { newest, top })
 }
 
 async fn files(container: &str, op: FileOp, scratch: &std::path::Path) -> anyhow::Result<DockerData> {
@@ -482,4 +563,27 @@ fn free_name(runtime: &tokio::runtime::Handle, container: &str, inbound: bool, d
         host_stat(&candidates)
     };
     borg_jobs::unique_by(dest, |candidate| taken.contains_key(candidate))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_volume_s_newest_change_counts_every_level_and_its_top_lists_by_name() {
+        let volume = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(volume.path().join("deps/release")).unwrap();
+        std::fs::write(volume.path().join(".cargo-lock"), b"").unwrap();
+        let before = volume_contents(volume.path()).unwrap();
+        assert_eq!(before.top, [".cargo-lock", "deps"]);
+        std::thread::sleep(Duration::from_millis(20));
+        let deep = volume.path().join("deps/release/libshop.rlib");
+        std::fs::write(&deep, b"built").unwrap();
+        std::os::unix::fs::symlink("/nowhere", volume.path().join("deps/link")).unwrap();
+        let after = volume_contents(volume.path()).unwrap();
+        assert!(after.newest > before.newest, "a file three levels down moves it: {before:?} {after:?}");
+        let written = std::fs::metadata(&deep).unwrap().modified().unwrap();
+        assert!(after.newest >= jiff::Timestamp::try_from(written).ok());
+        assert!(volume_contents(&volume.path().join("gone")).is_err());
+    }
 }
