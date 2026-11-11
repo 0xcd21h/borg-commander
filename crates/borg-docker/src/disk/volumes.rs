@@ -15,10 +15,11 @@ use crate::State;
 /// One line per volume from `docker volume inspect`.
 pub(crate) const VOLUME_FORMAT: &str = "{{json .}}";
 
-/// One line per container from `docker inspect`: its state, times, image and mounts.
+/// One line per container from `docker inspect`: its state, times, image, mounts and labels.
 pub(crate) const CONTAINER_FORMAT: &str = concat!(
     r#"{"name":{{json .Name}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"#,
-    r#""started":{{json .State.StartedAt}},"finished":{{json .State.FinishedAt}},"mounts":{{json .Mounts}}}"#,
+    r#""started":{{json .State.StartedAt}},"finished":{{json .State.FinishedAt}},"mounts":{{json .Mounts}},"#,
+    r#""labels":{{json .Config.Labels}}}"#,
 );
 
 /// The engine's system and host name from `docker info`.
@@ -62,6 +63,8 @@ pub struct Engine {
     pub system: String,
     /// The name of the machine it runs on.
     pub host: String,
+    /// Whether it has the image of Borg's volume helper, so opening a volume needs no download.
+    pub helper: bool,
 }
 
 impl Engine {
@@ -112,6 +115,7 @@ struct ContainerRow {
     started: Option<String>,
     finished: Option<String>,
     mounts: Option<Vec<MountRow>>,
+    labels: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]
@@ -167,6 +171,9 @@ pub(crate) fn parse_users(text: &str) -> Result<HashMap<String, Vec<VolumeUser>>
     let mut users: HashMap<String, Vec<VolumeUser>> = HashMap::new();
     for line in lines(text) {
         let row: ContainerRow = serde_json::from_str(line).context("reading docker inspect output")?;
+        if row.labels.as_ref().is_some_and(|labels| labels.contains_key(crate::helper::LABEL)) {
+            continue;
+        }
         let state = State::parse(&row.state);
         let (started, finished) = (instant(row.started.as_deref()), instant(row.finished.as_deref()));
         let container = row.name.trim_start_matches(NAME_PREFIX).to_owned();
@@ -188,7 +195,7 @@ pub(crate) fn parse_users(text: &str) -> Result<HashMap<String, Vec<VolumeUser>>
 
 pub(crate) fn parse_engine(text: &str) -> Result<Engine> {
     let row: EngineRow = serde_json::from_str(text.trim()).context("reading docker info output")?;
-    Ok(Engine { system: row.system, host: row.host })
+    Ok(Engine { system: row.system, host: row.host, helper: false })
 }
 
 /// When the containers in `users` last had the volume mounted.
@@ -257,6 +264,7 @@ mod tests {
             users["shop_static"].iter().map(|user| (user.container.as_str(), user.read_only)).collect();
         assert_eq!(statics, [("shop-web-1", true), ("shop-migrate-1", false)]);
         assert!(!users.contains_key("/home/me/projects/shop/init.sql"), "bind mounts are not volumes");
+        assert!(!users.contains_key("blog_uploads"), "Borg's own helper doesn't count as using it");
     }
 
     #[test]
@@ -274,19 +282,19 @@ mod tests {
     fn files_are_reachable_through_orbstack_or_on_the_engine_s_own_machine() {
         let home = Path::new("/home/me");
         let mountpoint = Some(Path::new("/var/lib/docker/volumes/shop_data/_data"));
-        let orbstack = Engine { system: "OrbStack".into(), host: "orbstack".into() };
+        let orbstack = Engine { system: "OrbStack".into(), host: "orbstack".into(), helper: false };
         assert_eq!(
             folder("shop_data", mountpoint, &orbstack, home, "mac"),
             Some(PathBuf::from("/home/me/OrbStack/docker/volumes/shop_data"))
         );
-        let local = Engine { system: "Ubuntu 24.04.1 LTS".into(), host: "box".into() };
+        let local = Engine { system: "Ubuntu 24.04.1 LTS".into(), host: "box".into(), helper: false };
         assert_eq!(folder("shop_data", mountpoint, &local, home, "box").as_deref(), mountpoint);
         assert_eq!(
             folder("shop_data", mountpoint, &local, home, "laptop"),
             None,
             "a remote engine's folders are not here"
         );
-        let desktop = Engine { system: "Docker Desktop".into(), host: "docker-desktop".into() };
+        let desktop = Engine { system: "Docker Desktop".into(), host: "docker-desktop".into(), helper: false };
         assert_eq!(folder("shop_data", mountpoint, &desktop, home, "mac"), None);
         assert_eq!(folder("shop_data", None, &local, home, "box"), None);
     }
@@ -294,6 +302,6 @@ mod tests {
     #[test]
     fn the_engine_names_its_system_and_host() {
         let engine = parse_engine(r#"{"system":"OrbStack","host":"orbstack"}"#).unwrap();
-        assert_eq!(engine, Engine { system: "OrbStack".into(), host: "orbstack".into() });
+        assert_eq!(engine, Engine { system: "OrbStack".into(), host: "orbstack".into(), helper: false });
     }
 }

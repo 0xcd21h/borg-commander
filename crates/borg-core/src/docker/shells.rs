@@ -77,7 +77,12 @@ pub(super) fn wanted_console(state: &AppState) -> Console {
     }
     let follow = state.settings.preferences.docker_plugin && state.settings.preferences.docker_console;
     match state.active_panel().mount.as_ref() {
-        Some(mount) if follow && !state.docker.is_open() && state.docker.failed_console.as_ref() != Some(&mount.id) => {
+        Some(mount)
+            if follow
+                && !state.docker.is_open()
+                && state.active_panel().volume.is_none()
+                && state.docker.failed_console.as_ref() != Some(&mount.id) =>
+        {
             Console::Container(mount.id.clone())
         }
         _ => Console::Host,

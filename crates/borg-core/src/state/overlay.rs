@@ -135,6 +135,10 @@ pub enum ConfirmPurpose {
         alert: u64,
         process: crate::ProcessKey,
     },
+    /// Downloading the image of the helper container that shows a volume's files.
+    VolumeHelper {
+        volume: String,
+    },
     /// A capture the system refused: Yes runs it again as administrator.
     Capture {
         request: Box<crate::CaptureRequest>,

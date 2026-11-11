@@ -3949,7 +3949,7 @@ fn disk_use() -> borg_docker::DiskUse {
             record("r4", "source.local", MB, false, true, "local source for context"),
         ],
         networks: vec!["blog_default".into()],
-        engine: Engine { system: "OrbStack".into(), host: "orbstack".into() },
+        engine: Engine { system: "OrbStack".into(), host: "orbstack".into(), helper: false },
     }
 }
 
@@ -4083,6 +4083,70 @@ fn docker_volumes_show_their_last_use_and_open_read_only() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "blog_uploads · read only")?;
     check("docker_volume_panel", &stage, buffer)
+}
+
+/// Disk use on an engine whose volume files Borg cannot read here: the details say a helper
+/// container shows them, Enter asks before downloading its image, and the panel then shows the
+/// volume from the helper, read only.
+#[test]
+fn docker_volumes_borg_cannot_read_open_through_a_helper_after_asking() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: Vec::new() }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let measured =
+        DockerData::DiskUse { usage: Box::new(disk_use()), context: None, contexts: None, folders: Default::default() };
+    stage.send(Msg::Docker { id, result: Ok(measured) });
+    for _ in 0..6 {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "To open it without a helper")?;
+    check("docker_disk_volume_helper", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Download the busybox image")?;
+    check("docker_volume_helper_confirm", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::OpenVolume { pull: true, .. } } => Some(*id),
+            _ => None,
+        })
+        .context("Yes downloads the image and starts the helper")?;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Docker { id, result: Ok(DockerData::Helper("e1a9c0ffee".into())) },
+        stage.started,
+    );
+    for effect in effects {
+        let Effect::List { side, generation, dir } = effect else { continue };
+        assert_eq!(dir, PathBuf::from(borg_docker::helper::ROOT), "the panel starts at the volume's top");
+        let entries = vec![
+            entry("2025", EntryKind::Dir, 4096, OLD, false),
+            entry("index.json", EntryKind::File, 18_412, RECENT, false),
+        ];
+        stage.send(Msg::Batch { side, generation, entries });
+        stage.send(Msg::Listed { side, generation, error: None });
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "blog_uploads · read only")?;
+    check("docker_volume_helper_panel", &stage, buffer)
 }
 
 /// The network screen over a made-up machine after half a minute of samples: the ports and

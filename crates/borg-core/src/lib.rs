@@ -81,7 +81,7 @@ pub use discovery::{
 };
 pub use docker::{
     ContainerShell, CpuUse, Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, Docker, DockerData,
-    DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, LastUsed, Mount, NoCleanup, ShellRequest, Usage,
+    DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, LastUsed, Mount, NoCleanup, Opening, ShellRequest, Usage,
     VolumeContents, VolumeMount, Working, container_shell_busy, shell_rect,
 };
 pub use editor::{

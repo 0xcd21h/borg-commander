@@ -192,8 +192,10 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
 /// source, so they never pass for a local folder.
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
     let mount = scene.panel.mount.as_ref();
-    let label = mount
-        .map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name))
+    let volume = scene.panel.volume.as_ref();
+    let label = volume
+        .map(|volume| format!(" {VOLUME_MARK} {} ", tr!(docker_volume_label, name = volume.name.as_str())))
+        .or_else(|| mount.map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name)))
         .or_else(|| {
             scene.panel.remote_mount.as_ref().map(|remote| {
                 format!(
@@ -204,15 +206,11 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Styl
             })
         })
         .or_else(|| scene.panel.archive.as_ref().map(|archive| format!(" {ARCHIVE_MARK} {} ", archive.label())))
-        .or_else(|| {
-            let volume = scene.panel.volume.as_ref()?;
-            Some(format!(" {VOLUME_MARK} {} ", tr!(docker_volume_label, name = volume.name.as_str())))
-        })
         .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
     let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };
-    let crumbs = match &scene.panel.volume {
+    let crumbs = match volume {
         Some(volume) => format::crumbs(&volume.inside(scene.panel.dir()), None),
         None => format::crumbs(scene.panel.dir(), home),
     };

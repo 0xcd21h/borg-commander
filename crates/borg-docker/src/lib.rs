@@ -4,6 +4,7 @@
 
 use borg_i18n::tr;
 mod disk;
+pub mod helper;
 mod model;
 
 use std::{
@@ -88,7 +89,8 @@ pub async fn disk_use() -> Result<DiskUse> {
         run(&["info", "--format", disk::ENGINE_FORMAT], QUERY_TIMEOUT),
     )?;
     let outputs = disk::Outputs { report: &report, tags: &tags, volumes: &volumes, containers: &containers };
-    disk::parse(&outputs, networks, disk::parse_engine(&engine)?)
+    let engine = disk::Engine { helper: helper::present().await, ..disk::parse_engine(&engine)? };
+    disk::parse(&outputs, networks, engine)
 }
 
 /// Inspects everything `list` names, in one call; nothing when it names nothing.

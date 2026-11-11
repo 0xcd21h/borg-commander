@@ -384,7 +384,7 @@ impl AppState {
         }
         let generation = self.next_generation();
         let panel = self.panel_mut(side);
-        if panel.volume.as_ref().is_some_and(|volume| !volume.holds(&dir)) {
+        if panel.volume.as_ref().is_some_and(|volume| !volume.holds(&dir) || !volume.shown_by(panel.mount.as_ref())) {
             panel.volume = None;
         }
         panel.navigate(dir.clone(), generation, focus);

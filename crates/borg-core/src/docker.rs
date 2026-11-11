@@ -25,8 +25,11 @@ pub use disk::{
     Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, LastUsed, NoCleanup, VolumeContents,
 };
 pub(crate) use disk::{command_ended, toggle as toggle_disk};
-pub use volume::VolumeMount;
-pub(crate) use volume::{at_root as at_volume_root, refusal as volume_refusal, unmount as leave_volume};
+pub use volume::{Opening, VolumeMount};
+pub(crate) use volume::{
+    at_root as at_volume_root, open as open_volume, refusal as volume_refusal, release as release_helpers,
+    unmount as leave_volume,
+};
 
 pub(crate) use files::{browse, copy, delete, mkdir, unmount, view};
 pub(crate) use keys::{act, click, paste, route_key, start, stats, tab_key};
@@ -62,6 +65,13 @@ pub enum DockerRequest {
     /// The files of these volumes, by name, where they are on this machine: their newest change
     /// and what their top holds, a volume at a time.
     ReadVolumes(Vec<(String, PathBuf)>),
+    /// A helper container that shows a volume's files, after downloading its image when `pull`.
+    OpenVolume {
+        name: String,
+        pull: bool,
+    },
+    /// Removes the helper container with this ID.
+    CloseVolume(String),
 }
 
 impl DockerRequest {
@@ -91,6 +101,8 @@ pub enum DockerData {
         contexts: Option<Vec<String>>,
         folders: HashMap<String, PathBuf>,
     },
+    /// The ID of a helper container that shows a volume's files.
+    Helper(String),
     /// What one volume's files hold.
     VolumeRead {
         name: String,
@@ -244,6 +256,8 @@ pub struct Docker {
     pub shell_tab: bool,
     pub pending: Option<(u64, DockerRequest)>,
     pub disk: Disk,
+    /// The helper containers Borg started to show volumes, removed once no panel shows them.
+    pub helpers: Vec<String>,
     collapsed: HashSet<Option<String>>,
     selected: Option<Key>,
     watching: bool,
@@ -404,6 +418,10 @@ impl Docker {
                 self.disk.stale = false;
             }
             DockerRequest::ReadVolumes(_) => self.disk.reading = Some(id),
+            DockerRequest::OpenVolume { name, pull } => {
+                self.disk.opening = Some(volume::Opening { id, name: name.clone(), pull: *pull });
+            }
+            DockerRequest::CloseVolume(_) => {}
             _ => {
                 self.pending = Some((id, request.clone()));
                 self.next = None;
@@ -451,6 +469,7 @@ pub(crate) fn close(state: &mut AppState) {
     docker.filtering = false;
     docker.disk.open = false;
     docker.disk.filtering = false;
+    docker.disk.opening = None;
     if docker.disk.loading.take().is_some() {
         docker.disk.stale = true;
     }
@@ -570,6 +589,12 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
         disk::read(&mut docker.disk, result);
         return Vec::new();
     }
+    if let Ok(DockerData::Helper(container)) = &result {
+        docker.helpers.push(container.clone());
+    }
+    if let Some(opening) = docker.disk.opening.take_if(|opening| opening.id == id) {
+        return volume::opened(state, opening, result);
+    }
     if let Some(index) = docker.files.iter().position(|w| w.id == id) {
         let work = docker.files.remove(index);
         return finish_files(state, work, result);
@@ -611,7 +636,13 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
             docker.details = Some((id, *details));
             docker.next.get_or_insert(now + REFRESH);
         }
-        Ok(DockerData::Done | DockerData::Fetched(_) | DockerData::DiskUse { .. } | DockerData::VolumeRead { .. }) => {}
+        Ok(
+            DockerData::Done
+            | DockerData::Fetched(_)
+            | DockerData::DiskUse { .. }
+            | DockerData::VolumeRead { .. }
+            | DockerData::Helper(_),
+        ) => {}
         Err(error) => {
             docker.loaded = true;
             docker.error = Some(error);

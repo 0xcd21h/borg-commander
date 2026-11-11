@@ -243,8 +243,12 @@ pub(super) fn details(
         sheet.fact(buf, label, value);
     }
     let gone = (volume.anonymous && volume.users.is_empty()).then(|| tr!(docker_disk_maker_gone));
-    let reach = if disk.folders.contains_key(&volume.name) { tr!(docker_disk_browse) } else { disk.unreachable() };
-    for paragraph in [note, gone, Some(reach)].into_iter().flatten() {
+    let (reach, hint) = if disk.folders.contains_key(&volume.name) {
+        (tr!(docker_disk_browse), None)
+    } else {
+        (tr!(docker_disk_browse_helper), disk.share_hint())
+    };
+    for paragraph in [note, gone, Some(reach), hint].into_iter().flatten() {
         sheet.gap();
         sheet.paragraph(buf, paragraph, dim(theme));
     }

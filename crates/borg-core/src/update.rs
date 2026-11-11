@@ -252,6 +252,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     crate::watch::sync(state, now);
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
+    effects.extend(crate::docker::release_helpers(state));
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);

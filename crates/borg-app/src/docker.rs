@@ -3,9 +3,10 @@
 //! open, and folder listings for panels that show a container's filesystem.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -32,11 +33,13 @@ pub struct Docker {
     watch: Option<JoinHandle<()>>,
     /// Where container files are copied out for viewing; removed on exit.
     scratch: PathBuf,
+    /// The helper containers started to show volumes and not removed yet; removed on exit.
+    helpers: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Docker {
     pub fn new(messages: UnboundedSender<Msg>, scratch: PathBuf) -> Self {
-        Self { messages, query: None, disk: None, volumes: None, watch: None, scratch }
+        Self { messages, query: None, disk: None, volumes: None, watch: None, scratch, helpers: Arc::default() }
     }
 
     pub fn request(&mut self, id: u64, request: DockerRequest) {
@@ -52,6 +55,7 @@ impl Docker {
         let query = request.is_query();
         let disk = request == DockerRequest::DiskUse;
         let scratch = self.scratch.join(id.to_string());
+        let helpers = self.helpers.clone();
         let task = tokio::spawn(async move {
             let result = match request {
                 DockerRequest::List => {
@@ -85,6 +89,11 @@ impl Docker {
                     }
                 }
                 DockerRequest::ReadVolumes(_) => Ok(DockerData::Done),
+                DockerRequest::OpenVolume { name, pull } => open_volume(&name, pull, &helpers).await,
+                DockerRequest::CloseVolume(id) => {
+                    lock(&helpers).remove(&id);
+                    borg_docker::helper::remove(&id).await.map(|()| DockerData::Done)
+                }
             };
             let _ = messages.send(Msg::Docker { id, result: result.map_err(|error| format!("{error:#}")) });
         });
@@ -151,7 +160,23 @@ impl Drop for Docker {
         self.cancel_volumes();
         self.watch(false);
         let _ = std::fs::remove_dir_all(&self.scratch);
+        let helpers: Vec<String> = lock(&self.helpers).drain().collect();
+        borg_docker::helper::remove_now(&helpers);
     }
+}
+
+fn lock(helpers: &Mutex<HashSet<String>>) -> std::sync::MutexGuard<'_, HashSet<String>> {
+    helpers.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Starts a helper container that shows `volume`, downloading its image first when `pull`.
+async fn open_volume(volume: &str, pull: bool, helpers: &Mutex<HashSet<String>>) -> anyhow::Result<DockerData> {
+    if pull {
+        borg_docker::helper::pull().await?;
+    }
+    let id = borg_docker::helper::start(volume).await?;
+    lock(helpers).insert(id.clone());
+    Ok(DockerData::Helper(id))
 }
 
 /// The volumes whose files Borg can read on this machine, by name: through OrbStack's share,

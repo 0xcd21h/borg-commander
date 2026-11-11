@@ -192,6 +192,8 @@ pub struct Disk {
     pub contents: HashMap<String, VolumeContents>,
     /// The request reading volumes' files, while it runs.
     pub reading: Option<u64>,
+    /// The helper container starting for the volume Enter opens.
+    pub opening: Option<super::Opening>,
 }
 
 /// The context commands name: the measured one whenever the CLI has another, or when it could
@@ -400,15 +402,10 @@ impl Disk {
         }
     }
 
-    /// Why Borg cannot show a volume's files: OrbStack shares them, but this machine did not let
-    /// Borg read the share, or the engine keeps them in its virtual machine, elsewhere, or where
-    /// only root reads.
-    pub fn unreachable(&self) -> &'static str {
-        if self.usage.as_ref().is_some_and(|usage| usage.engine.orbstack()) {
-            tr!(docker_volume_share_denied)
-        } else {
-            tr!(docker_volume_out_of_reach)
-        }
+    /// How Borg could read volumes' files without a helper: on OrbStack, by being allowed its
+    /// share.
+    pub fn share_hint(&self) -> Option<&'static str> {
+        self.usage.as_ref().is_some_and(|usage| usage.engine.orbstack()).then(|| tr!(docker_volume_share_denied))
     }
 
     /// The volumes whose files Borg can read and has not read yet, biggest first.

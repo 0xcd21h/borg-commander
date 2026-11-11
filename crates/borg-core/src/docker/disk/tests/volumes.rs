@@ -1,5 +1,5 @@
 use super::*;
-use crate::VolumeMount;
+use crate::{ConfirmPurpose, Overlay, VolumeMount};
 use std::path::{Path, PathBuf};
 
 fn time(text: &str) -> Timestamp {
@@ -119,7 +119,7 @@ fn enter_shows_a_reachable_volume_read_only_until_its_top_is_left() {
     assert_eq!(listed(&effects), [Path::new("/vol/blog_uploads")]);
     arrive(&mut state, &effects);
     let root = PathBuf::from("/vol/blog_uploads");
-    let mount = VolumeMount { name: "blog_uploads".into(), root: root.clone(), host: host.clone() };
+    let mount = VolumeMount { name: "blog_uploads".into(), root: root.clone(), host: host.clone(), helper: None };
     assert_eq!(state.panel(side).volume.as_ref(), Some(&mount));
     assert_eq!(state.panel(side).shell_folder(), host, "the shell stays out of the volume");
 
@@ -159,20 +159,105 @@ fn going_anywhere_else_leaves_the_volume() {
     assert_ne!(state.notice.as_deref(), Some(tr!(docker_volume_read_only)));
 }
 
+/// The volumes `effects` ask a helper container to show, with whether its image downloads first.
+fn opens(effects: &[Effect]) -> Vec<(u64, String, bool)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Docker { id, request: crate::DockerRequest::OpenVolume { name, pull } } => {
+                Some((*id, name.clone(), *pull))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The helper containers `effects` remove.
+fn closes(effects: &[Effect]) -> Vec<String> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Docker { request: crate::DockerRequest::CloseVolume(id), .. } => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+const HELPER: &str = "e1a9c0ffee";
+
 #[test]
-fn enter_on_a_volume_out_of_reach_says_why() {
+fn enter_on_a_volume_borg_cannot_read_asks_before_downloading_the_helper() {
     let (mut state, _) = measured_with(&[]);
-    select_volume(&mut state, DiskKind::NamedVolumes, "blog_uploads");
-    assert!(press(&mut state, KeyCode::Enter).is_empty());
-    assert!(state.docker.disk.open);
-    assert_eq!(state.notice.as_deref(), Some(tr!(docker_volume_out_of_reach)));
     state.docker.disk.usage.as_mut().unwrap().engine.system = "OrbStack".into();
-    press(&mut state, KeyCode::Enter);
+    let side = state.docker.side.unwrap();
+    let host = state.panel(side).dir().to_path_buf();
+    select_volume(&mut state, DiskKind::NamedVolumes, "blog_uploads");
+    assert!(press(&mut state, KeyCode::Enter).is_empty(), "nothing downloads before the answer");
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("asks first: {:?}", state.overlay) };
+    assert_eq!(confirm.purpose, ConfirmPurpose::VolumeHelper { volume: "blog_uploads".into() });
+    assert!(confirm.message.contains("busybox"), "{}", confirm.message);
+
+    let effects = press(&mut state, KeyCode::Enter);
+    let [(id, ref name, true)] = opens(&effects)[..] else { panic!("Yes downloads and starts it: {effects:?}") };
+    assert_eq!(name, "blog_uploads");
+    assert!(state.docker.disk.opening.as_ref().is_some_and(|opening| opening.pull));
+    assert!(press(&mut state, KeyCode::Enter).is_empty(), "a second Enter waits for the first");
+
+    let now = state.epoch;
+    let effects = update(&mut state, Msg::Docker { id, result: Ok(DockerData::Helper(HELPER.into())) }, now);
+    assert!(!state.docker.is_open());
+    assert_eq!(listed(&effects), [Path::new(borg_docker::helper::ROOT)]);
+    arrive(&mut state, &effects);
+    let panel = state.panel(side);
     assert_eq!(
-        state.notice.as_deref(),
-        Some(tr!(docker_volume_share_denied)),
-        "OrbStack shares them, so access was refused"
+        panel.mount.as_ref().map(|mount| (mount.id.as_str(), mount.name.as_str())),
+        Some((HELPER, "blog_uploads"))
     );
+    assert_eq!(panel.volume.as_ref().and_then(|volume| volume.helper.as_deref()), Some(HELPER));
+    assert_eq!(state.console, Console::Host, "the command line stays on this machine");
+    assert!(state.docker.disk.usage.as_ref().unwrap().engine.helper, "the image is there for next time");
+
+    crate::actions::perform(&mut state, Action::Delete, now);
+    assert_eq!(state.notice.as_deref(), Some(tr!(docker_volume_read_only)));
+    let effects = crate::actions::perform(&mut state, Action::Leave, now);
+    assert_eq!(listed(&effects), [host.as_path()], "`..` at its top returns to the folder before");
+    let panel = state.panel(side);
+    assert_eq!((panel.mount.as_ref(), panel.volume.as_ref()), (None, None));
+    let effects = update(&mut state, Msg::Tick, now);
+    assert_eq!(closes(&effects), [HELPER], "the helper goes once no panel shows it");
+    assert!(state.docker.helpers.is_empty());
+}
+
+#[test]
+fn a_helper_starts_without_asking_once_the_engine_has_its_image() {
+    let (mut state, _) = measured_with(&[]);
+    state.docker.disk.usage.as_mut().unwrap().engine.helper = true;
+    select_volume(&mut state, DiskKind::NamedVolumes, "blog_uploads");
+    let effects = press(&mut state, KeyCode::Enter);
+    assert_eq!(state.overlay, None);
+    assert!(matches!(&opens(&effects)[..], [(_, name, false)] if name == "blog_uploads"));
+}
+
+#[test]
+fn a_helper_nobody_waits_for_any_more_is_removed_and_a_failure_says_why() {
+    let (mut state, _) = measured_with(&[]);
+    state.docker.disk.usage.as_mut().unwrap().engine.helper = true;
+    select_volume(&mut state, DiskKind::NamedVolumes, "blog_uploads");
+    let [(id, _, _)] = opens(&press(&mut state, KeyCode::Enter))[..] else { panic!("starts a helper") };
+    let now = state.epoch;
+    crate::actions::perform(&mut state, Action::DockerDisk, now);
+    let effects = update(&mut state, Msg::Docker { id, result: Ok(DockerData::Helper(HELPER.into())) }, now);
+    assert!(state.panels.iter().all(|panel| panel.mount.is_none() && panel.volume.is_none()));
+    assert_eq!(closes(&effects), [HELPER]);
+
+    let (mut state, _) = measured_with(&[]);
+    state.docker.disk.usage.as_mut().unwrap().engine.helper = true;
+    select_volume(&mut state, DiskKind::NamedVolumes, "blog_uploads");
+    let [(id, _, _)] = opens(&press(&mut state, KeyCode::Enter))[..] else { panic!("starts a helper") };
+    update(&mut state, Msg::Docker { id, result: Err("no such volume".into()) }, now);
+    assert_eq!(state.docker.disk.opening, None);
+    assert_eq!(state.notice.as_deref(), Some("Docker: no such volume"));
+    assert!(state.docker.disk.open);
 }
 
 #[test]

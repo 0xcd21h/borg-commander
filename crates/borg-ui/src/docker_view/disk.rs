@@ -227,8 +227,17 @@ pub(super) fn draw_list(
         ..inner
     };
     let line = row(footer, 0);
+    let opening = disk.opening.as_ref().map(|opening| {
+        if opening.pull {
+            tr!(docker_disk_pulling, image = borg_docker::helper::IMAGE_NAME)
+        } else {
+            tr!(docker_disk_starting).to_owned()
+        }
+    });
     if let Some(spinner) = spinner.filter(|_| disk.loading.is_some()) {
         spinner.line(tr!(docker_disk_measuring), look, dim(theme)).render(line, buf);
+    } else if let Some((spinner, opening)) = spinner.zip(opening) {
+        spinner.line(&opening, look, dim(theme)).render(line, buf);
     } else if let Some(spinner) = spinner.filter(|_| disk.reading.is_some()) {
         spinner.line(tr!(docker_disk_reading), look, dim(theme)).render(line, buf);
     } else if let Some(error) = &disk.error {

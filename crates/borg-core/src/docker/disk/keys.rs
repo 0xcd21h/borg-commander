@@ -76,21 +76,6 @@ fn clean(state: &mut AppState) -> Vec<Effect> {
 
 /// Enter on a volume: its files in the panel, read only, where Borg can read them on this
 /// machine; otherwise why it cannot.
-fn browse(state: &mut AppState) -> Vec<Effect> {
-    let disk = &state.docker.disk;
-    let Some(volume) = disk.volume() else { return Vec::new() };
-    match disk.folders.get(&volume.name) {
-        Some(folder) => {
-            let (name, folder) = (volume.name.clone(), folder.clone());
-            crate::docker::volume::browse(state, name, folder)
-        }
-        None => {
-            state.notice = Some(disk.unreachable().into());
-            Vec::new()
-        }
-    }
-}
-
 fn fold(disk: &mut Disk, open: bool) {
     match disk.row() {
         Some(DiskRow::Kind(group)) => {
@@ -157,7 +142,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
                 let open = !disk.unfolded(group.kind);
                 fold(disk, open);
             } else if disk.volume().is_some() {
-                return browse(state);
+                return crate::docker::volume::browse(state);
             }
         }
         KeyCode::Char('/') => disk.filtering = true,

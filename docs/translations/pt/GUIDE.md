@@ -667,7 +667,7 @@ em execução ou parados. Os volumes anónimos aparecem com os primeiros 12 cara
 **Último uso** mostra **em uso** enquanto estiver em execução um contentor que monte o volume. Caso
 contrário, indica o dia em que o último desses contentores parou, que o Docker regista com
 exatidão. Depois de os contentores serem removidos, o Docker deixa de ter qualquer registo do uso
-do volume. Quando o Borg consegue ler os ficheiros de um volume, vê também quando foram alterados
+do volume. Quando o Borg lê diretamente os ficheiros de um volume, vê também quando foram alterados
 pela última vez, e uma alteração mais recente aparece como esse dia precedido de `~`. Esse dia é
 uma estimativa: ler um ficheiro não deixa rasto, por isso o volume pode ter sido usado depois. Uma
 célula vazia significa que o Borg não sabe nenhum dos dois.
@@ -680,24 +680,33 @@ respetivas imagens. O Docker esquece esse contentor quando é removido. **Pasta*
 mostram onde estão os ficheiros nesta máquina e o que está no topo do volume.
 
 Enter num volume mostra os seus ficheiros no painel, só para leitura. O título marca o painel com ▥
-e **só leitura**, e os caminhos começam no topo do volume. **F3** mostra ficheiros, a pesquisa
-funciona como em qualquer pasta e **F5** copia ficheiros para o outro painel. O Borg recusa tudo o
-que alteraria o volume: editar, mover, eliminar, criar pastas, compactar e copiar para dentro dele.
-`..` no topo do volume devolve o painel à pasta que mostrava antes, e a linha de comandos fica
-nessa pasta o tempo todo. Uma sessão guardada enquanto um painel mostra um volume abre essa pasta
-da próxima vez.
+e **só leitura**, e os caminhos começam no topo do volume. **F3** mostra ficheiros e **F5** copia
+ficheiros para o outro painel. O Borg recusa tudo o que alteraria o volume: editar, mover,
+eliminar, criar pastas, compactar e copiar para dentro dele. `..` no topo do volume devolve o
+painel à pasta que mostrava antes, e a linha de comandos fica nessa pasta o tempo todo. Uma sessão
+guardada enquanto um painel mostra um volume abre essa pasta da próxima vez.
 
-O Borg só lê ficheiros de volumes que estejam nesta máquina. Com o OrbStack no macOS, lê a partilha
-do OrbStack em `~/OrbStack/docker/volumes`, que o macOS trata como um volume de rede: autorize a
-aplicação de terminal em Volumes de rede, em Definições do Sistema › Privacidade e segurança ›
-Ficheiros e pastas. No Linux, lê a pasta do volume quando o motor corre na mesma máquina e o Borg a
-pode abrir, como acontece com o Docker em modo rootless ou quando o Borg corre como root. O Docker
-Desktop guarda os volumes dentro da sua máquina virtual, fora de alcance. Quando o Borg não
-consegue ler um volume, o outro painel explica porquê.
+O Borg lê diretamente os ficheiros de um volume quando estão nesta máquina. Com o OrbStack no
+macOS, estão na partilha do OrbStack em `~/OrbStack/docker/volumes`, que o macOS trata como um
+volume de rede: autorize a aplicação de terminal em Volumes de rede, em Definições do Sistema ›
+Privacidade e segurança › Ficheiros e pastas. No Linux, o Borg lê a pasta do volume quando o motor
+corre na mesma máquina e o Borg a pode abrir, como acontece com o Docker em modo rootless ou quando
+o Borg corre como root. A pesquisa e os tamanhos funcionam então como em qualquer pasta.
 
-Quando uma medição termina, o Borg lê em segundo plano os volumes a que chega, do maior para o
-menor, e o rodapé mostra **A ler os ficheiros dos volumes…** até acabar. **R** volta a lê-los ao
-medir de novo.
+Nos outros casos, como com o Docker Desktop, um contexto remoto ou o Docker no Linux quando só o
+root lê as suas pastas, o Borg mostra os ficheiros através de um contentor auxiliar. O auxiliar
+executa a imagem `busybox`, fixada numa só compilação, sem rede, com o sistema de ficheiros só de
+leitura e sem outro privilégio além de ler ficheiros, e monta o volume só para leitura. Da primeira
+vez, o Borg pergunta antes de o Docker transferir a imagem, com cerca de 2 MB, que depois fica no
+motor como `borg-commander/volume-helper`. O rodapé mostra **A transferir busybox…** ou **A iniciar
+o contentor auxiliar…** até o painel abrir. O Borg remove o auxiliar quando o painel sai do volume
+ou quando o Borg termina, e um auxiliar que fique para trás para sozinho ao fim de um dia. Aí, a
+pesquisa e os tamanhos só funcionam no host, como nos ficheiros de um contentor, e o espaço em
+disco não conta o auxiliar entre os contentores que usam o volume.
+
+Quando uma medição termina, o Borg lê em segundo plano os volumes a que chega diretamente, do maior
+para o menor, e o rodapé mostra **A ler os ficheiros dos volumes…** até acabar. **R** volta a
+lê-los ao medir de novo.
 
 **F8** escreve o comando de limpeza da linha selecionada no prompt da shell do host e mostra a
 consola. Nada é executado até premir Enter, por isso pode ler o comando, alterá-lo ou limpá-lo

@@ -609,12 +609,12 @@ Volume rows fill the room the Name column has to spare with **Last used**, **Cre
 Project is the Compose project that made the volume. Used by lists the containers that mount it,
 running or stopped. Anonymous volumes go by the first 12 characters of their ID.
 
-**Last used** reads **in use** while a container that mounts the volume runs. Otherwise it gives the
-day the last of those containers stopped, which Docker records exactly. Once the containers are
-removed, Docker keeps no record of the volume's use. Where Borg can read a volume's files, it also
-looks at when they last changed, and a later change shows as that day with `~` in front. That day
-is an estimate: reading a file leaves no trace, so the volume may have been used since. An empty
-cell means Borg knows neither.
+**Last used** reads **in use** while a container that mounts the volume runs. Otherwise it gives
+the day the last of those containers stopped, which Docker records exactly. Once the containers are
+removed, Docker keeps no record of the volume's use. Where Borg reads a volume's files directly, it
+also looks at when they last changed, and a later change shows as that day with `~` in front. That
+day is an estimate: reading a file leaves no trace, so the volume may have been used since. An
+empty cell means Borg knows neither.
 
 The other panel shows the full time of the last use and of the creation, the **Compose** project
 with the volume's name in it, and the **Driver** when the volume uses a driver other than `local`
@@ -624,22 +624,31 @@ their images. Docker forgets that container once it is removed. **Folder** and *
 the files are on this machine and what is at the volume's top.
 
 Enter on a volume shows its files in the panel, read only. The title marks the panel with ▥ and
-**read only**, and paths start at the volume's top. **F3** views files, search works as in any
-folder, and **F5** copies files out to the other panel. Borg refuses anything that would change
-the volume: editing, moving, deleting, new folders, packing, and copies into it. `..` at the
-volume's top returns the panel to the folder it showed before, and the command line stays in that
-folder all along. A session saved while a panel shows a volume opens that folder next time.
+**read only**, and paths start at the volume's top. **F3** views files, and **F5** copies files out
+to the other panel. Borg refuses anything that would change the volume: editing, moving, deleting,
+new folders, packing, and copies into it. `..` at the volume's top returns the panel to the folder
+it showed before, and the command line stays in that folder all along. A session saved while a
+panel shows a volume opens that folder next time.
 
-Borg reads volume files only where they are on this machine. With OrbStack on macOS, it reads
-OrbStack's share in `~/OrbStack/docker/volumes`, which macOS treats as a network volume: allow your
-terminal app Network Volumes in System Settings › Privacy & Security › Files & Folders. On Linux,
-it reads the volume's folder when the engine runs on the same machine and Borg may open it, as with
-rootless Docker or when Borg runs as root. Docker Desktop keeps volumes inside its virtual
-machine, out of reach. The other panel says why when Borg can't read a volume.
+Borg reads a volume's files directly when they are on this machine. With OrbStack on macOS, they
+are in OrbStack's share in `~/OrbStack/docker/volumes`, which macOS treats as a network volume:
+allow your terminal app Network Volumes in System Settings › Privacy & Security › Files & Folders.
+On Linux, Borg reads the volume's folder when the engine runs on the same machine and Borg may open
+it, as with rootless Docker or when Borg runs as root. Search and sizes then work as in any folder.
 
-Once a measurement ends, Borg reads the volumes it can reach in the background, biggest first,
-and the footer shows **Reading volume files…** until it is done. **R** reads them again as it
-measures.
+Elsewhere, such as with Docker Desktop, a remote context, or Docker on Linux where only root reads
+its folders, Borg shows the files through a helper container. The helper runs the `busybox` image,
+pinned to one build, with no network, a read-only file system, and no privilege beyond reading
+files, and it mounts the volume read only. The first time, Borg asks before Docker downloads the
+image, about 2 MB, which then stays on the engine as `borg-commander/volume-helper`. The footer
+shows **Downloading busybox…** or **Starting the helper container…** until the panel opens. Borg
+removes the helper when the panel leaves the volume or when Borg quits, and a helper left behind
+stops by itself after a day. Search and sizes only work on the host there, as in a container's
+files, and disk use doesn't count the helper among the containers that use the volume.
+
+Once a measurement ends, Borg reads the volumes it reaches directly in the background, biggest
+first, and the footer shows **Reading volume files…** until it is done. **R** reads them again as
+it measures.
 
 **F8** types the cleanup command for the selected row at the host shell's prompt and shows the
 console. Nothing runs until you press Enter, so you can read the command, change it, or clear it
