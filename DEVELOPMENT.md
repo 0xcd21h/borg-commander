@@ -934,6 +934,9 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
   working, and Borg running as you never asks macOS for another process's task port,
 - packages each as `borg-<version>-<target>.tar.gz` with a `.sha256` file
   (`scripts/package.sh`),
+- signs every `.sha256` file with the Ed25519 key in the `RELEASE_SIGNING_KEY` secret and
+  attaches the result as `<archive>.tar.gz.sha256.sig` (`scripts/sign-release.sh`); the step
+  fails when the secret is missing or its public half is not in `RELEASE_PUBLIC_KEYS`,
 - creates the GitHub release with generated notes and attaches everything,
 - renders the Homebrew formula from `packaging/homebrew/borg-commander.rb.in`
   (`scripts/homebrew-formula.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
@@ -949,9 +952,28 @@ action with the released version (for example `0.2.0`) to publish it without mak
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release
 from the GitHub API, pick the archive for the target borg was built for (`BORG_TARGET`, set by
-`crates/borg-app/build.rs`), verify the checksum and swap the binary in place. GNU Linux builds
-can also update to the published static MUSL build for the same architecture when no exact
-target archive is available.
+`crates/borg-app/build.rs`), verify the signature and the checksum, and swap the binary in
+place. GNU Linux builds can also update to the published static MUSL build for the same
+architecture when no exact target archive is available.
+
+The signature is the 64 raw bytes of an Ed25519 signature over the checksum file, which holds
+the archive's SHA-256 and its name. The name carries the version and the target, so a signed
+checksum from another release or platform is refused. Signing the checksum file keeps the
+signing step small: it never reads the archives. The trusted public keys are
+`RELEASE_PUBLIC_KEYS` in `crates/borg-update/src/signature.rs`, 64 hex digits each, and a
+signature from any of them is accepted. The private key exists only as the
+`RELEASE_SIGNING_KEY` secret (a PEM file from `openssl genpkey -algorithm ed25519`) and in the
+owner's own backup. `borg update` refuses a release whose signature is missing or was made
+with a key that is not in the list, and a build with an empty list refuses every update.
+
+The list holds more than one key only while the signing key changes: one release, signed with
+the old key, adds the new key, and later releases are signed with the new one. A copy older
+than that release cannot check the latest one. `borg update` then reads the 30 newest releases
+(`RELEASES_URL`), installs the newest one above its own version that it can check, and asks to
+be run again. That copy knows the new key and finishes the update.
+
+Versions released before signing check only the checksum, so the first signed release reaches
+them that way. Every later update is checked against the key.
 
 Archive downloads have an explicit 128 MiB limit; release metadata and checksum downloads
 have smaller limits. Borg 0.8.2 and earlier read downloads with the HTTP library's 10 MiB

@@ -4,12 +4,15 @@ use ureq::tls::{RootCerts, TlsConfig};
 use crate::{UpdateError, Version};
 
 pub const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/0xcd21h/borg-commander/releases/latest";
+/// Newest first. A copy that cannot check the latest release looks here for the newest one it can.
+pub const RELEASES_URL: &str = "https://api.github.com/repos/0xcd21h/borg-commander/releases?per_page=30";
 const USER_AGENT_HEADER: &str = "User-Agent";
 const USER_AGENT: &str = concat!("borg-commander/", env!("CARGO_PKG_VERSION"));
 const ACCEPT_HEADER: &str = "Accept";
 const GITHUB_JSON: &str = "application/vnd.github+json";
 const NOT_FOUND: u16 = 404;
 const RELEASE_METADATA_LIMIT: u64 = 1024 * 1024;
+const RELEASE_LIST_LIMIT: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Asset {
@@ -67,6 +70,19 @@ pub fn latest(url: &str, current: Version) -> Result<Option<Release>, UpdateErro
     }
 }
 
+/// Reads each entry with `parse_release`, so a list is held to the same rules as one release.
+/// Drafts, prereleases and entries that do not read as a release are left out.
+pub(crate) fn parse_releases(json: &[u8]) -> Result<Vec<Release>, UpdateError> {
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_slice(json).map_err(|e| UpdateError::Release(e.to_string()))?;
+    let release = |entry: &serde_json::Value| parse_release(&serde_json::to_vec(entry).ok()?).ok().flatten();
+    Ok(entries.iter().filter_map(release).collect())
+}
+
+pub(crate) fn releases(url: &str) -> Result<Vec<Release>, UpdateError> {
+    parse_releases(&fetch(url, RELEASE_LIST_LIMIT)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +110,18 @@ mod tests {
     fn ignores_prereleases() {
         let pre = SAMPLE.replace(r#""prerelease": false"#, r#""prerelease": true"#);
         assert_eq!(parse_release(pre.as_bytes()).ok().flatten(), None);
+    }
+
+    #[test]
+    fn reads_a_release_list_and_leaves_out_what_is_not_a_release() {
+        let pre = SAMPLE.replace(r#""prerelease": false"#, r#""prerelease": true"#).replace("v0.3.1", "v0.4.0");
+        let odd = SAMPLE.replace("v0.3.1", "nightly");
+        let list = format!("[{}, {pre}, {odd}, {SAMPLE}]", SAMPLE.replace("v0.3.1", "v0.3.2"));
+        let versions: Vec<String> = parse_releases(list.as_bytes())
+            .unwrap_or_else(|e| panic!("{e}"))
+            .iter()
+            .map(|release| release.version.to_string())
+            .collect();
+        assert_eq!(versions, ["0.3.2", "0.3.1"]);
     }
 }

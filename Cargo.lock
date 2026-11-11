@@ -940,6 +940,7 @@ name = "borg-update"
 version = "0.10.0"
 dependencies = [
  "flate2",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",

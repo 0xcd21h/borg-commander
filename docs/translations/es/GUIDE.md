@@ -45,7 +45,9 @@ brew install 0xcd21h/tap/borg-commander
 
 Ejecuta `borg` en la carpeta que quieras explorar. F10 sale, y Ctrl-O vuelve de la consola a los
 paneles. Para actualizar, ejecuta `borg update` si descargaste el binario, o usa Homebrew o cargo
-si lo instalaste así. `borg --version` muestra la versión instalada.
+si lo instalaste así. Borg solo instala una actualización cuando la versión publicada lleva la
+firma del proyecto. Si la firma falta o es incorrecta, la copia que tienes queda como está.
+`borg --version` muestra la versión instalada.
 
 ## Temas e iconos
 
