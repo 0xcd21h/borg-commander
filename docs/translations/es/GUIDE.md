@@ -60,7 +60,9 @@ brew install 0xcd21h/tap/borg-commander
 
 Ejecuta `borg` en la carpeta que quieras explorar. F10 sale, y Ctrl-O vuelve de la consola a los
 paneles. Para actualizar, ejecuta `borg update` si descargaste el binario, o usa Homebrew o cargo
-si lo instalaste así. `borg --version` muestra la versión instalada. Las sesiones abiertas pasan
+si lo instalaste así. Borg solo instala una actualización cuando la versión publicada lleva la
+firma del proyecto. Si la firma falta o es incorrecta, la copia que tienes queda como está.
+`borg --version` muestra la versión instalada. Las sesiones abiertas pasan
 a la nueva versión y conservan su shell (consulta
 [Actualizar con sesiones abiertas](#updating-with-sessions-open)).
 
@@ -1342,11 +1344,12 @@ hexadecimales y vuelve a pulsarla para volver al texto. Un archivo binario, que 
 byte a cero en sus primeros 4 KiB, se abre en filas hexadecimales en ambos, y `h` muestra su texto.
 Cada fila empieza con su posición en el archivo y luego muestra sus bytes en hexadecimal y los
 mismos bytes como texto, con un punto en cada byte que no se puede imprimir. Las posiciones y los
-bytes a cero se ven atenuados. Una fila tiene 16 bytes, o 8, 4, 2 o 1 cuando no hay espacio para 16.
-Borg lee solo las filas que hay en pantalla, así que las flechas, PgUp/PgDn, Space, Home y End
-recorren al instante un archivo de varios gigabytes. La barra de búsqueda también funciona en las
-filas hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos
-Markdown y JSON muestran los bytes tal como están escritos.
+bytes a cero se ven atenuados. Una fila tiene tantos bytes como quepan en el ancho: 64, 32, 16, 8,
+4, 2 o 1, con un espacio más ancho después de cada octavo byte. Borg lee solo las filas que hay en
+pantalla, así que las flechas, PgUp/PgDn, Space, Home y End recorren al instante un archivo de
+varios gigabytes. La barra de búsqueda también funciona en las filas hexadecimales y marca cada
+coincidencia en las dos columnas. En hexadecimal, los archivos Markdown y JSON muestran los bytes
+tal como están escritos.
 
 En el visor, una franja de entropía recorre el borde derecho de las filas hexadecimales. La entropía
 indica lo variados que son los bytes, desde 0 bits por byte para un solo byte repetido hasta 8 para
@@ -1534,6 +1537,13 @@ web cambia el idioma de la guía por separado.
 Los ajustes se guardan en `~/.config/borg-commander/config.toml`, o en la carpeta indicada por
 `$XDG_CONFIG_HOME` o `$BORG_CONFIG_DIR`. F9 → Opciones → Configuración los muestra como casillas;
 Space o un clic activa o desactiva un ajuste y lo guarda al instante. Esc cierra la ventana.
+Borg lee el archivo ajuste por ajuste. Un ajuste que no tiene, o un valor que no puede usar, solo
+afecta a ese ajuste: Borg dice en qué línea está al arrancar y usa ahí su valor por defecto. Cuando
+Borg guarda un ajuste cambia solo ese y conserva el resto del archivo, con tus comentarios, tal como
+lo escribiste. Un ajuste de una versión anterior se lee como lo que lo sustituyó y sale del archivo
+en el siguiente guardado. Un archivo que no es TOML en absoluto hace que Borg arranque con sus
+valores por defecto, y el primer ajuste que guardes después conserva ese archivo junto al nuevo como
+`config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -1581,7 +1591,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -1820,12 +1830,13 @@ con tus propios permisos y deja en paz el descriptor del proceso.
 ### Vista previa de la región
 
 Cuando seleccionas una región legible, Borg captura hasta 64 KiB de ella en el otro panel. Si el
-principio de la región solo contiene ceros, la captura salta hasta la primera página con datos, y
-la línea sobre los bytes indica en qué parte de la región está la ventana. Cuando te mueves rápido,
-Borg espera un momento antes de leer; seleccionar otra región borra la vista previa anterior y
-cancela su lectura pendiente. Las regiones que no se pueden leer muestran un mensaje.
-Pulsa **Tab** o **Enter** para desplazarte por la vista previa. **Esc** ahí vuelve a la lista, y
-**Esc** en el mapa vuelve a la lista de procesos con el cursor y el filtro como estaban.
+principio de la región solo contiene ceros, la captura salta hasta la primera página con datos, y la
+línea sobre los bytes indica en qué parte de la región está la ventana. Cada fila empieza con su
+posición contada desde el principio de la región, y un panel ancho muestra más bytes por fila.
+Cuando te mueves rápido, Borg espera un momento antes de leer; seleccionar otra región borra la
+vista previa anterior y cancela su lectura pendiente. Las regiones que no se pueden leer muestran un
+mensaje. Pulsa **Tab** o **Enter** para desplazarte por la vista previa. **Esc** ahí vuelve a la
+lista, y **Esc** en el mapa vuelve a la lista de procesos con el cursor y el filtro como estaban.
 
 Las series de filas a cero se agrupan en una sola fila, como "· 60K bytes en cero ·". **]** y **[**
 saltan al bloque de datos siguiente y anterior, y **>** y **<** capturan los 64 KiB siguientes y
@@ -2056,6 +2067,9 @@ mismas alertas. Ese servicio funciona mientras haya un Borg abierto. Para seguir
 ninguna terminal abierta, haz que el servicio arranque con el sistema como describe
 [Sesiones con nombre y el servicio en segundo plano](#named-sessions-and-the-background-service).
 
+Las alertas se quedan en esa máquina hasta que indiques un destino para ellas, y la página lo
+recuerda mientras tanto (consulta [Alertas fuera de la máquina](#alerts-off-the-machine)).
+
 **Alt-L** o **Comando → Alertas** abre la página. La lista ocupa el panel activo, con la alerta
 más reciente primero, y el otro panel muestra la alerta seleccionada por completo. Cada fila
 muestra la hora, la regla que se disparó, el programa, el proceso padre que lo inició, el usuario
@@ -2094,7 +2108,8 @@ Pon `!` delante de una palabra para dejar fuera lo que encuentra: `shell-on-sock
 las shells remotas de todos los demás usuarios.
 
 Las alertas viven en `alerts.json` en la carpeta de estado, accesible solo a su propietario, las
-200 más recientes. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
+200 más recientes. Una alerta sobre un proceso que sigue congelado se conserva más allá de ese
+límite, para que siempre puedas dejarlo seguir o terminarlo. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
 fuera las alertas más antiguas cuando no caben. La ventana **Archivos de Borg** las cuenta en
 **Estado** (consulta [Archivos de Borg](#borgs-files)). Abrir la página marca como leídas las
 alertas que muestra, y la cuenta de alertas sin leer sigue al registro mientras Borg esté abierto,
@@ -2220,7 +2235,8 @@ interfaz de Borg sigue corriendo como tú. Los dos lados hablan por un socket de
 al que solo llega su propietario, Borg acepta una conexión únicamente de un proceso que corre como
 root, y la parte root se conecta únicamente a un socket que pertenece al usuario para el que se
 instaló. `borg service watch uninstall` la quita, y `borg service watch status` imprime de dónde
-vienen los eventos y qué se ha encontrado.
+vienen los eventos y qué se ha encontrado. La instalación y el estado avisan mientras las alertas no
+tengan destino (consulta [Alertas fuera de la máquina](#alerts-off-the-machine)).
 
 Los programas necesitan Linux 5.8 o posterior. En un kernel más antiguo, o donde la parte root no
 puede cargarlos, escucha los eventos de procesos del kernel y lee todo de `/proc`, y la página lo
@@ -2284,6 +2300,20 @@ que respondió cada uno.
   de salida. Un servicio como healthchecks.io te avisa cuando las llamadas se detienen, que es lo
   que ocurre cuando alguien mata al vigilante.
 
+Mientras ningún destino reciba alertas, se quedan en el registro de la máquina, y Borg lo dice allí
+donde te encuentres con el vigilante. La página Alertas muestra **Las alertas se quedan en esta
+máquina.** encima de los detalles de la alerta seleccionada, o en la última fila de la lista cuando
+está maximizada. Verás la misma línea al activar el vigilante en Opciones → Complementos, en
+`borg service watch install` y `borg service watch status`, y en la salida del servicio cuando
+arranca el vigilante. Un latido por sí solo no quita el aviso. Te dice que el vigilante está en
+marcha y no lleva alertas, así que añade también Telegram, ntfy o un webhook.
+
+El aviso se vuelve más fuerte cuando Borg está cerca de actuar. Desde un día antes de que termine
+el periodo de aprendizaje dice **Borg está a punto de congelar procesos aquí y nadie recibirá
+aviso.**, y una vez empezada la congelación, **Borg congela procesos aquí y nadie recibe aviso.**
+Borg sigue vigilando, aprendiendo y congelando sin un destino para las alertas, así que configura
+uno antes de que termine el periodo de aprendizaje en una máquina que no revisas a diario.
+
 El servicio envía cada alerta pocos segundos después de anotarla, y también avisa cuando el
 vigilante arranca y cuando empieza la congelación. Las alertas de nivel nota se quedan en la
 página salvo que `level` sea `notice`. Un mensaje que un destino rechaza espera en
@@ -2326,7 +2356,9 @@ Conócelas antes de confiar en él.
   se ejecuta durante la semana de aprendizaje cuenta como normal.
 - Sin el vigilante como root, Borg solo ve tus propios procesos, y un comando que termina en menos
   de un cuarto de segundo puede desaparecer antes de que Borg mire. Los servicios que se ejecutan
-  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root.
+  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root. Cuando el
+  vigilante como root se detiene, Borg vuelve a vigilar tus propios procesos hasta que se ejecute de
+  nuevo.
 - Antes de Linux 5.8, o donde la parte root no puede cargar sus programas, Borg lee cada proceso
   nuevo en `/proc` después de que el kernel lo informa. Un comando que termina al instante puede
   haber desaparecido para entonces, y un proceso puede cambiar antes su línea de comandos.
@@ -2430,7 +2462,7 @@ estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5
 | `port:443`, `port:ssh` | Filas con ese número de puerto o servicio |
 | `proc:node`, `process:node` | Filas cuyo nombre de proceso contiene el texto |
 | `pid:4100` | Filas de ese PID |
-| `host:example` | Filas cuya dirección o nombre de host contiene el texto |
+| `host:example` | Filas cuya dirección o nombre de host contiene el texto; una dirección completa conserva solo esa dirección |
 | `state:listen`, `state:time` | Filas TCP en un estado que contiene el texto |
 | `proto:udp`, `proto:tcp` | Filas de ese protocolo |
 | `if:en0`, `interface:en0` | Interfaces cuyo nombre contiene el texto |
@@ -2518,8 +2550,8 @@ para cada forma de mirarla:
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
   detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y sus
-  bytes en un volcado hexadecimal. Un volcado pone 16 bytes en cada línea, y menos en un panel
-  estrecho, para que el texto siga cabiendo al lado. F3 muestra los bytes del paquete como filas
+  bytes en un volcado hexadecimal. Un volcado dispone sus bytes como las filas hexadecimales del visor, con
+  tantos en cada línea como quepan en el panel. F3 muestra los bytes del paquete como filas
   hexadecimales en el visor.
 
 | Tecla | Acción |

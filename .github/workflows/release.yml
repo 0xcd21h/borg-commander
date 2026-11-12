@@ -136,6 +136,12 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Sign the checksum files
+        shell: bash
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: scripts/sign-release.sh dist
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

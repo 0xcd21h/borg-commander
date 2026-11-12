@@ -8,7 +8,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::Line,
-    widgets::{Block, Widget},
+    widgets::{Block, Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -350,4 +350,35 @@ pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String
         Some(Row::Group { label, count, .. }) => tr!(items_enter_folds_group, count = count, label = label),
         _ => String::new(),
     }
+}
+
+/// Draws a full-width screen's pane: its border, its title cut to fit before the controls, and
+/// the controls themselves. Gives the room inside.
+pub(crate) fn pane_frame(
+    expanded: bool,
+    look: &Look<'_>,
+    rect: Rect,
+    title: &str,
+    focused: bool,
+    buf: &mut Buffer,
+) -> Rect {
+    let theme = look.theme;
+    let styles = &theme.styles;
+    Clear.render(rect, buf);
+    let controls = controls(rect, expanded);
+    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
+    let block = Block::bordered()
+        .border_type(theme.border.into())
+        .style(styles.overlay)
+        .border_style(if focused { styles.border_active } else { styles.border })
+        .title(Line::styled(
+            format::truncate_end(&format!(" {title} "), usize::from(room)),
+            if focused { styles.title_active } else { styles.title },
+        ));
+    let inner = block.inner(rect);
+    block.render(rect, buf);
+    for (r, label, _) in controls {
+        text(buf, r, label, styles.menu);
+    }
+    inner
 }

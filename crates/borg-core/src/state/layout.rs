@@ -24,6 +24,21 @@ impl AppState {
         self.active_panel().results.as_ref().is_some_and(|results| results.expanded)
     }
 
+    /// The side whose pane takes the whole width, when a screen other than the activity monitor
+    /// is open and expanded: the pane that has the focus.
+    fn expanded_screen(&self) -> Option<Side> {
+        let focused = |side: Side, details: bool| if details { side.other() } else { side };
+        let network = self.network.side.filter(|_| self.network.expanded);
+        let startup = self.startup_items.side.filter(|_| self.startup_items.expanded);
+        let alerts = self.alerts.side.filter(|_| self.alerts.expanded);
+        let docker = self.docker.side.filter(|_| self.docker.expanded);
+        network
+            .map(|side| focused(side, self.network.details_focused))
+            .or(startup)
+            .or(alerts)
+            .or(docker.map(|side| focused(side, self.docker.details_focused)))
+    }
+
     pub fn layout(&self, now: Instant) -> Layout {
         let mut layout = Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now));
         if let Some(side) = self.activity.side {
@@ -31,59 +46,16 @@ impl AppState {
                 layout.panels = inspection_panels(layout.panels);
             }
             if self.activity.expanded {
-                let left = layout.panels[0];
-                let right = layout.panels[1];
-                let focus = if self.activity.preview_focused { side.other() } else { side };
-                layout.panels[focus.index()] =
-                    ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
-                layout.panels[focus.other().index()] = Default::default();
+                expand(&mut layout, if self.activity.preview_focused { side.other() } else { side });
             }
             return layout;
         }
-        if let Some(side) = self.network.side
-            && self.network.expanded
-        {
-            let left = layout.panels[0];
-            let right = layout.panels[1];
-            let focus = if self.network.details_focused { side.other() } else { side };
-            layout.panels[focus.index()] =
-                ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
-            layout.panels[focus.other().index()] = Default::default();
-            return layout;
-        }
-        if let Some(side) = self.startup_items.side
-            && self.startup_items.expanded
-        {
-            let left = layout.panels[0];
-            let right = layout.panels[1];
-            layout.panels[side.index()] = ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
-            layout.panels[side.other().index()] = Default::default();
-            return layout;
-        }
-        if let Some(side) = self.alerts.side
-            && self.alerts.expanded
-        {
-            let left = layout.panels[0];
-            let right = layout.panels[1];
-            layout.panels[side.index()] = ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
-            layout.panels[side.other().index()] = Default::default();
-            return layout;
-        }
-        if let Some(side) = self.docker.side
-            && self.docker.expanded
-        {
-            let left = layout.panels[0];
-            let right = layout.panels[1];
-            let focus = if self.docker.details_focused { side.other() } else { side };
-            layout.panels[focus.index()] =
-                ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
-            layout.panels[focus.other().index()] = Default::default();
+        if let Some(focus) = self.expanded_screen() {
+            expand(&mut layout, focus);
             return layout;
         }
         if self.results_expanded() {
-            let left = layout.panels[0];
-            let right = layout.panels[1];
-            let mut whole = ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left };
+            let mut whole = whole_width(&layout);
             let other = if self.aside.is_some() && whole.height >= RESULT_PREVIEW_MIN_ROWS {
                 let height = whole.height / RESULT_PREVIEW_DIVISOR;
                 whole.height -= height;
@@ -170,4 +142,16 @@ pub(super) fn inspection_panels([left, right]: [ratatui::layout::Rect; 2]) -> [r
         ratatui::layout::Rect { width: split, ..outer },
         ratatui::layout::Rect { x: outer.x + split, width: outer.width - split, ..outer },
     ]
+}
+
+/// Both panels' room as one pane.
+fn whole_width(layout: &Layout) -> ratatui::layout::Rect {
+    let (left, right) = (layout.panels[0], layout.panels[1]);
+    ratatui::layout::Rect { width: right.right().saturating_sub(left.x), ..left }
+}
+
+/// Gives the pane on `focus` the whole width and the other one none.
+fn expand(layout: &mut Layout, focus: Side) {
+    layout.panels[focus.index()] = whole_width(layout);
+    layout.panels[focus.other().index()] = Default::default();
 }

@@ -413,7 +413,6 @@ pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<Edit
             editor.follow(rows, columns);
             editor.paint(rows);
             if let EditorSlot::Panel(side) = slot {
-                // The panel's files give way to the editor, and previews to both.
                 state.active = side;
                 state.aside = None;
                 state.preview_focused = false;

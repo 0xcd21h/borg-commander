@@ -6,7 +6,7 @@ expression: describe(&buffer)
 │▐↑ ..    ╭────────────────────────────╮   ▌││▐↑ ..                      UP             ▌│
 │ / docs  │  View                   F3 │024 ││ / journal                DIR Jan 10 09:30 │
 │ / src   │  Edit                   F4 │:30 ││ · auth.log               86K Jun  1  2024 │
-│ @ target│  Edit in panel         M-E │:30 ││ · dmesg.0               5.0G Jun  1  2024 │
+│ @ target│  Edit in panel         M-e │:30 ││ · dmesg.0               5.0G Jun  1  2024 │
 │ * build.│  Edit in $EDITOR      S-F4 │:30 ││ · kern.log              717K Jan 10 09:30 │
 │ · Cargo.│  Copy                   F5 │:30 ││ · syslog                2.3M Jan 10 09:30 │
 │ @ latest│  Move                   F6 │:30 ││                                           │

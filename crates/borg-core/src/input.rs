@@ -75,7 +75,7 @@ impl LineInput {
 
     fn word_start(&self) -> usize {
         let before = self.text[..self.cursor].trim_end();
-        before.rfind(char::is_whitespace).map_or(0, |i| i + 1)
+        before.char_indices().rfind(|(_, c)| c.is_whitespace()).map_or(0, |(at, space)| at + space.len_utf8())
     }
 
     /// Where the next word ends, past any spaces before it.
@@ -112,6 +112,15 @@ mod tests {
         press(&mut input, KeyCode::Right);
         press(&mut input, KeyCode::Backspace);
         assert_eq!(input.text(), "lXlo");
+    }
+
+    #[test]
+    fn deleting_a_word_after_a_wide_or_unbreakable_space_keeps_what_came_before() {
+        for space in ['\u{3000}', '\u{a0}', ' '] {
+            let mut input = LineInput::new(format!("tar{space}archive"));
+            ctrl(&mut input, 'w');
+            assert_eq!(input.text(), format!("tar{space}"));
+        }
     }
 
     #[test]

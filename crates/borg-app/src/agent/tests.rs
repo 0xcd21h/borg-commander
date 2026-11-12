@@ -359,3 +359,49 @@ fn an_agents_download_lands_only_in_the_downloads_folder_and_replaces_nothing() 
     assert!(place(Some("reports/taken.csv")).is_err(), "an existing file stays");
     assert_eq!(std::fs::read_to_string(reports.join("taken.csv")).unwrap(), "kept");
 }
+
+/// A command that prints far more than a reply carries is read to its end with only the end
+/// of its output held, and the reply says the start was left out.
+#[tokio::test]
+async fn a_command_that_prints_without_measure_keeps_only_the_end_of_its_output() {
+    const PRINTED: usize = 20 * 1024 * 1024;
+    let folder = tempfile::tempdir().unwrap();
+    let (exit, text) = run(&format!("yes | head -c {PRINTED}; echo the end"), folder.path()).await;
+    assert_eq!(exit, Some(0));
+    assert!(text.starts_with("[earlier output left out]\n") && text.ends_with("the end\n"));
+    assert!(text.len() < 2 * OUTPUT_LIMIT, "{} bytes came back", text.len());
+}
+
+#[test]
+fn output_kept_of_a_command_lets_go_of_its_start() {
+    let mut kept = Vec::new();
+    let piece = vec![b'x'; OUTPUT_PIECE];
+    for _ in 0..(8 * OUTPUT_HELD).div_ceil(OUTPUT_PIECE) {
+        keep_end(&mut kept, &piece);
+        assert!(kept.len() <= 2 * OUTPUT_HELD);
+    }
+    keep_end(&mut kept, b"the end");
+    assert!(kept.ends_with(b"the end") && kept.len() >= OUTPUT_HELD);
+}
+
+/// A Borg that holds borg cloud passes a paired computer's call on to a session in another
+/// window. The call still counts as one from another computer there, so what that computer
+/// reads waits for approval, and it never counts as a computer the user let through.
+#[test]
+fn a_call_passed_on_from_another_window_still_counts_as_another_computers() {
+    const LAPTOP: &str = "laptop [0123456789abcdef0123456789abcdef]";
+    let passed_on = |tool: &str| {
+        let call = Call { forwarded_from: Some(LAPTOP.into()), ..Call::new(tool, json!({})) };
+        let wire = serde_json::to_string(&call).unwrap();
+        serde_json::from_str::<Call>(&wire).unwrap().external()
+    };
+    let read = passed_on("read").unwrap();
+    let origin = read.origin.expect("it has an origin");
+    assert!(origin.starts_with(LAPTOP) && origin != LAPTOP, "{origin}");
+    assert_eq!(borg_core::computer_name(&origin), "laptop");
+    assert_eq!((read.approved, read.viewer, read.forwarded_from), (false, false, None));
+    assert!(passed_on("approval_mode").is_err(), "Approve all cannot be turned on this way");
+
+    let local = serde_json::from_value::<Call>(json!({ "tool": "read" })).unwrap().external().unwrap();
+    assert_eq!(local.origin, None, "a call that claims nothing is this machine's own");
+}

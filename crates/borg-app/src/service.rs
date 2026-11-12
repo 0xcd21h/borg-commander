@@ -451,7 +451,7 @@ fn keyboard() -> tokio::sync::mpsc::UnboundedReceiver<Vec<u8>> {
 /// The watcher's own subcommands: installing the part that runs as root, and what it found.
 async fn watch_command(args: &[String]) -> Result<()> {
     match args {
-        [action] if action == "install" => crate::watch::install_root(),
+        [action] if action == "install" => crate::watch::install(),
         [action] if action == "uninstall" => crate::watch::uninstall_root(),
         [action] if action == "status" => {
             println!("{}", crate::watch::report()?);

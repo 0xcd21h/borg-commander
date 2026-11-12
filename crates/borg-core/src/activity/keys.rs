@@ -2,6 +2,7 @@
 //! focus, the preview, Esc and Enter, and the lists' own keys. The keys of the page with the
 //! focus are in `pages`, and the memory search form's in `form`.
 
+use crate::screens::FILTER_LIMIT;
 use std::time::Instant;
 
 use borg_i18n::tr;
@@ -87,7 +88,6 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         if code == KeyCode::F(3) {
             return crate::viewer::open(state, path);
         }
-        // The focused preview scrolls; the keys that act on the process keep working.
         if state.activity.preview_focused && scrolls_preview(code) {
             scroll_preview(&mut state.activity, code);
             return Vec::new();
@@ -108,7 +108,8 @@ pub(crate) fn paste(activity: &mut Activity, text: &str) {
     if let Some(form) = activity.search_form.as_mut() {
         form::paste(form, text);
     } else if activity.filtering {
-        activity.filter.extend(text.chars().take(128));
+        let room = FILTER_LIMIT.saturating_sub(activity.filter.chars().count());
+        activity.filter.extend(text.chars().filter(|c| !c.is_control()).take(room));
         activity.rebuild();
     }
 }

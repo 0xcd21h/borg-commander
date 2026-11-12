@@ -13,6 +13,18 @@ pub(super) fn flip(state: &mut AppState, flag: impl FnOnce(&mut Preferences) -> 
     vec![Effect::SaveConfig]
 }
 
+/// Turns the process watcher on or off. Turned on with nowhere to send its alerts, it says
+/// that they stay on this machine.
+pub(super) fn toggle_process_watch(state: &mut AppState) -> Vec<Effect> {
+    let effects = flip(state, |prefs| &mut prefs.process_watch);
+    if state.settings.preferences.process_watch
+        && let Some(unsent) = crate::Unsent::configured(state.settings.alert_delivery)
+    {
+        state.notice = Some(unsent.line());
+    }
+    effects
+}
+
 /// Changes a preference that changes the screen's layout, and saves it.
 pub(super) fn preference(state: &mut AppState, change: impl FnOnce(&mut Preferences)) -> Vec<Effect> {
     change(&mut state.settings.preferences);

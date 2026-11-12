@@ -91,7 +91,6 @@ impl<'a> Caller<'a> {
                     None => break,
                 },
             };
-            // A computer forgotten while connected is cut off.
             if !self.served.shared.lock().expect("link lock").computers.iter().any(|c| c.key == self.key) {
                 break;
             }
@@ -317,6 +316,7 @@ impl<'a> Caller<'a> {
         {
             self.sessions.insert(entry.id.clone(), open);
         }
+        call.forwarded_from = call.origin.clone();
         let reply = match self.sessions.get_mut(&entry.id) {
             Some(open) => open.call(&call).await,
             None => None,

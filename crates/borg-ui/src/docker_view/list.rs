@@ -1,6 +1,6 @@
 //! The container list: Compose projects and their containers, with the filter row above them.
 
-use super::{CPU_WIDTH, DOWN, FILTER_ROW, HEADER_ROW, MEMORY_WIDTH, NAME_MIN, SHELL_MARK, STATUS_WIDTH, UP, frame};
+use super::{CPU_WIDTH, DOWN, FILTER_ROW, HEADER_ROW, MEMORY_WIDTH, NAME_MIN, SHELL_MARK, STATUS_WIDTH, UP};
 use crate::{
     Theme,
     activity_view::{FOOTER_ROWS, body, dim, emphasis, heading, readable, row, text, wrap},
@@ -103,7 +103,7 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
         Some(context) => format!("{} · {context}", tr!(docker_title)),
         None => tr!(docker_title).into(),
     };
-    let inner = frame(docker, look, rect, &title, focused, buf);
+    let inner = crate::results_view::pane_frame(docker.expanded, look, rect, &title, focused, buf);
     if inner.is_empty() {
         return;
     }

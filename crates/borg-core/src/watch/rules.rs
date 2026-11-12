@@ -368,6 +368,15 @@ impl History {
         }
         commands
     }
+
+    /// Whether `current` is a discovery command the program had not run within the window
+    /// ending at `at`, so it is this start that makes the run longer.
+    fn lengthens(&self, surveyor: &Surveyor, current: &str, at: SystemTime) -> bool {
+        let ran = |commands: &BTreeMap<String, SystemTime>| {
+            commands.get(current).is_some_and(|seen| within_window(*seen, at))
+        };
+        looks_around(current) && !self.surveys.get(surveyor).is_some_and(ran)
+    }
 }
 
 fn within_window(seen: SystemTime, at: SystemTime) -> bool {
@@ -453,7 +462,7 @@ pub fn examine(
     let mut surveyed = false;
     if let Some(surveyor) = &surveyor {
         let run = history.run(surveyor, &program, now);
-        if run.len() == DISCOVERY_RUN {
+        if run.len() == DISCOVERY_RUN && history.lengthens(surveyor, &program, now) {
             surveyed = process.copy_of_parent()
                 || baseline.allows(process)
                 || run.iter().all(|command| baseline.surveyed(surveyor, command));

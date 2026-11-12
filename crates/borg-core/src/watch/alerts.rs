@@ -7,7 +7,7 @@ use borg_rules::{Level, RuleMatch};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::SystemTime};
 
-use super::{Allowance, Finding, Response, StartedProcess, WatchRule};
+use super::{AlertDelivery, Allowance, Finding, Response, StartedProcess, WatchRule};
 use crate::ProcessKey;
 
 /// Alerts the log keeps, newest first.
@@ -58,6 +58,9 @@ pub struct WatchStatus {
     /// Findings left out because too many fired at once.
     #[serde(default)]
     pub suppressed: u64,
+    /// Where the watcher sends alerts besides this log.
+    #[serde(default)]
+    pub delivery: AlertDelivery,
 }
 
 impl Default for WatchStatus {
@@ -69,6 +72,7 @@ impl Default for WatchStatus {
             freeze: false,
             seen: 0,
             suppressed: 0,
+            delivery: AlertDelivery::default(),
         }
     }
 }
@@ -221,7 +225,8 @@ impl AlertLog {
     }
 
     /// Puts an alert among the others under an id of its own, newest first, and drops the oldest
-    /// over the limit. The alert keeps the process with its commands cut to
+    /// over the limit. An alert about a process that is still frozen stays, since it is the only
+    /// place the user can let that process go on. The alert keeps the process with its commands cut to
     /// [`super::COMMAND_KEPT`] bytes.
     pub fn add(&mut self, at: SystemTime, finding: Finding, response: Response, process: StartedProcess) -> u64 {
         self.next_id = self.next_id.saturating_add(1);
@@ -239,8 +244,19 @@ impl AlertLog {
         };
         let place = self.alerts.iter().position(|other| other.at <= at).unwrap_or(self.alerts.len());
         self.alerts.insert(place, alert);
-        self.alerts.truncate(ALERTS_KEPT);
+        while self.alerts.len() > ALERTS_KEPT && self.drop_oldest_unfrozen().is_some() {}
         id
+    }
+
+    /// Takes out the oldest alert that is not about a process still frozen.
+    pub fn drop_oldest_unfrozen(&mut self) -> Option<Alert> {
+        let place = self.alerts.iter().rposition(|alert| !alert.frozen())?;
+        Some(self.alerts.remove(place))
+    }
+
+    /// Takes out the oldest alert, about a frozen process only when no other is left.
+    pub fn drop_oldest(&mut self) -> Option<Alert> {
+        self.drop_oldest_unfrozen().or_else(|| self.alerts.pop())
     }
 
     pub fn find(&mut self, id: u64) -> Option<&mut Alert> {

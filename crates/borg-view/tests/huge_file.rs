@@ -39,7 +39,7 @@ fn opens_and_jumps_through_a_five_gigabyte_file_without_loading_it() -> Result<(
     pager.end()?;
     assert_eq!(
         pager.rows().last().map(String::as_str),
-        Some("13ffffff0  20 76 65 72 79 20 6c 61 72 67 65 20 6c 6f 67 0a   very large log.")
+        Some("13ffffff0  20 76 65 72 79 20 6c 61  72 67 65 20 6c 6f 67 0a   very large log.")
     );
     assert_eq!(pager.percent(), 100);
     pager.home()?;

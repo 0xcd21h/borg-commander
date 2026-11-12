@@ -11,13 +11,8 @@ use borg_core::STAGING_SUFFIX;
 /// Writes this process has staged, so each one stages under a name of its own.
 static STAGED: AtomicU64 = AtomicU64::new(0);
 
-pub fn write_atomically(path: &Path, contents: &[u8]) -> Result<()> {
-    let staging = staging(path);
-    fs::write(&staging, contents).with_context(|| format!("writing {}", staging.display()))?;
-    replace(&staging, path)
-}
-
-/// Like `write_atomically`, for a file only its owner may read.
+/// Replaces the file whole with one only its owner may read, as everything Borg saves is: its
+/// configuration holds tokens, and its state says what the user did and where.
 pub fn write_privately(path: &Path, contents: &[u8]) -> Result<()> {
     use std::{io::Write, os::unix::fs::OpenOptionsExt};
     let staging = staging(path);
