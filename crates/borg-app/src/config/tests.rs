@@ -137,6 +137,22 @@ fn saving_keeps_a_configuration_borg_could_not_read_beside_the_new_one() {
     assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), kept, "a readable one is replaced as before");
 }
 
+/// N in the update offer turns the daily check off: the file keeps what the user wrote, and the
+/// next check reads it as off.
+#[test]
+fn turning_the_update_check_off_keeps_the_rest_of_the_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let dir = ConfigDir(folder.path().to_path_buf());
+    std::fs::write(dir.file(), "# mine\ntheme = \"neon\"\n").unwrap();
+    let mut config = dir.load().unwrap();
+    assert!(config.update_check(), "on unless the file says otherwise");
+    config.update_check = Some(false);
+    dir.save(&config).unwrap();
+    let text = std::fs::read_to_string(dir.file()).unwrap();
+    assert!(text.contains("# mine") && text.contains("update-check = false"), "{text}");
+    assert!(!dir.load().unwrap().update_check());
+}
+
 fn remarked(text: &str) -> (Config, Vec<Remark>) {
     let loaded = document::load::<Config>(text).unwrap();
     (loaded.settings, loaded.remarks)

@@ -43,6 +43,7 @@ mod status_view;
 mod storage_view;
 mod term_view;
 mod theme;
+mod update_view;
 mod viewer_view;
 
 pub use draw::{Pixels, Scene, draw, draw_into, draw_with_cursor};

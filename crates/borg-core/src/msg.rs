@@ -300,6 +300,8 @@ pub enum Msg {
     Relaunch {
         version: String,
     },
+    /// A release newer than the running Borg, which the daily check found.
+    UpdateAvailable(crate::UpdateOffer),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -580,5 +582,9 @@ pub enum Effect {
     CheckService,
     /// Starts the newer Borg in place of this one, handing it the shell and the session.
     Relaunch,
+    /// Remembers that you skipped this release, so the daily check offers the next one only.
+    SkipUpdate(String),
+    /// Turns the daily look for a new release off in the config.
+    StopUpdateChecks,
     Quit,
 }

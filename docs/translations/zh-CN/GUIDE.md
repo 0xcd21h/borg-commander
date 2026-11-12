@@ -39,6 +39,8 @@ brew install 0xcd21h/tap/borg-commander
 
 在要浏览的文件夹中运行 `borg`。按 F10 退出，按 Ctrl-O 从控制台切回面板。如果是下载安装的，运行 `borg update` 即可更新；如果是通过 Homebrew 或 cargo 安装的，请用相应的工具更新。只有带有项目签名的版本，Borg 才会安装；签名缺失或不匹配时，现有的程序保持不变。`borg --version` 会显示已安装的版本。打开的会话会切换到新版本，并保留各自的 Shell（参见[在会话打开时更新](#updating-with-sessions-open)）。
 
+Borg 每天检查一次新版本。有新版本时，Borg 会在面板显示、且你已有 2 秒没有操作键盘或鼠标时提示更新。按 **Enter** 会在 Borg 的 Shell 中运行 `borg update`；如果 Borg 是通过 Homebrew 或 cargo 安装的，则运行相应工具的命令。按 **S** 会跳过该版本，等下一个版本发布后 Borg 再提示。按 **Esc** 会关闭提示，Borg 会在一天后再次询问。按 **N** 会在配置中设置 `update-check = false`，从而关闭每日检查；改为 `update-check = true` 可重新开启。Borg 把上次检查的时间和你跳过的版本保存在状态文件夹中的 `update-check` 文件里。
+
 ## 主题与图标
 
 在 F9 → 选项 → 主题 中选择主题。[主题一览](../../../README.md#themes) 展示了全部六款主题：Midnight、Aurora、Neon、Classic、Paper 和 Ember。
@@ -586,7 +588,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
-update-check = true         # look for a new release once a day
+update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud

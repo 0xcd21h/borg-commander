@@ -64,6 +64,14 @@ signature. If the signature is missing or wrong, the copy you have stays as it i
 `borg --version` prints the installed version. Open sessions move to
 the new version and keep their shells (see [Updating with sessions open](#updating-with-sessions-open)).
 
+Once a day, Borg looks for a new release. When one is out, Borg offers it once the panels show and
+you have not touched the keyboard or mouse for 2 seconds. **Enter** runs `borg update` in Borg's
+shell, or the Homebrew or cargo command when one of those installed Borg. **S** skips that version,
+and Borg offers the next one once it is out. **Esc** closes the offer, and Borg asks again a day
+later. **N** turns the daily check off by setting `update-check = false` in the config, and
+`update-check = true` turns it back on. Borg keeps the time of the last check and the version you
+skipped in `update-check` in its state folder.
+
 ## Themes and icons
 
 Choose a theme in F9 → Options → Theme. The [theme gallery](../README.md#themes) shows all six:
@@ -1475,7 +1483,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
-update-check = true         # look for a new release once a day
+update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud

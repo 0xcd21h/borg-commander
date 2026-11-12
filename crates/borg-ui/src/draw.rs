@@ -377,6 +377,7 @@ fn paint_overlay(
         ),
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Service(offer) => (crate::service_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::Update(offer) => (crate::update_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Storage(window) => {
             (crate::storage_view::draw(state, window, scene.clock, theme, screen, buf), None, Unfold::FromCenter)
         }

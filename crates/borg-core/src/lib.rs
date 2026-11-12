@@ -51,6 +51,7 @@ mod startup_items;
 mod state;
 mod storage;
 mod update;
+mod update_offer;
 mod viewer;
 mod watch;
 
@@ -139,6 +140,7 @@ pub use storage::{
     socket_leftovers,
 };
 pub use update::update;
+pub use update_offer::UpdateOffer;
 pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
 pub use watch::{
     ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertDelivery, AlertLog, AlertState, Alerts, AlertsReply, AlertsRequest,

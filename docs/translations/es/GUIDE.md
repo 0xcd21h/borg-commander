@@ -66,6 +66,14 @@ firma del proyecto. Si la firma falta o es incorrecta, la copia que tienes queda
 a la nueva versión y conservan su shell (consulta
 [Actualizar con sesiones abiertas](#updating-with-sessions-open)).
 
+Una vez al día, Borg busca una nueva versión. Cuando sale una, Borg te la ofrece en cuanto se ven
+los paneles y llevas 2 segundos sin tocar el teclado ni el ratón. **Enter** ejecuta `borg update`
+en el shell de Borg, o el comando de Homebrew o cargo si Borg se instaló con uno de ellos. **S**
+omite esa versión, y Borg te ofrece la siguiente cuando salga. **Esc** cierra la oferta, y Borg
+vuelve a preguntar un día después. **N** desactiva la comprobación diaria poniendo
+`update-check = false` en la configuración, y `update-check = true` la vuelve a activar. Borg guarda la hora de la última comprobación y la versión que omitiste en el
+archivo `update-check`, en su carpeta de estado.
+
 ## Temas e iconos
 
 Elige un tema en F9 → Opciones → Tema. La [galería de temas](../../../README.md#themes) muestra
@@ -1608,7 +1616,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
-update-check = true         # look for a new release once a day
+update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud

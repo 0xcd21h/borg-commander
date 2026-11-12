@@ -202,6 +202,8 @@ pub enum Overlay {
     Install(crate::InstallOffer),
     /// The command that installs or starts the background service, before it runs in the shell.
     Service(crate::ServiceOffer),
+    /// A newer Borg and the command that installs it, before it runs in the shell.
+    Update(crate::UpdateOffer),
     /// Where Borg keeps its own files, how much each place holds, and the leftovers.
     Storage(crate::StorageWindow),
 }

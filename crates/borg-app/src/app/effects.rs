@@ -40,6 +40,8 @@ impl App {
             Effect::ScanStorage => self.storage.scan(),
             Effect::CleanStorage(paths) => self.storage.clean(paths),
             Effect::CheckService => self.check_service(),
+            Effect::SkipUpdate(version) => self.skip_update(&version),
+            Effect::StopUpdateChecks => self.stop_update_checks(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
             Effect::Network { id } => self.network.request(id),
@@ -237,6 +239,19 @@ impl App {
             let result = crate::plugins::run(dir, tool, paths, size).await.map_err(|error| format!("{error:#}"));
             let _ = messages.send(Msg::GitFinished { id, result });
         });
+    }
+
+    fn skip_update(&mut self, version: &str) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = crate::update::skip(dir, version)
+        {
+            self.state.notice = Some(tr!(update_skip_error, error = error));
+        }
+    }
+
+    fn stop_update_checks(&mut self) {
+        self.config.update_check = Some(false);
+        self.save_config();
     }
 
     fn check_service(&self) {
