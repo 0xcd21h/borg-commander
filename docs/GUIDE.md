@@ -45,7 +45,9 @@ brew install 0xcd21h/tap/borg-commander
 
 Run `borg` in the folder you want to browse. F10 quits, and Ctrl-O switches from the console
 back to the panels. To update, run `borg update` for a downloaded copy, or use Homebrew or cargo
-if you installed it that way. `borg --version` prints the installed version. Open sessions move to
+if you installed it that way. Borg installs an update only when the release carries the project's
+signature. If the signature is missing or wrong, the copy you have stays as it is.
+`borg --version` prints the installed version. Open sessions move to
 the new version and keep their shells (see [Updating with sessions open](#updating-with-sessions-open)).
 
 ## Themes and icons

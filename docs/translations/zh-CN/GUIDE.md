@@ -35,7 +35,7 @@ Homebrew 支持已经就绪，tap 发布后即可使用：
 brew install 0xcd21h/tap/borg-commander
 ```
 
-在要浏览的文件夹中运行 `borg`。按 F10 退出，按 Ctrl-O 从控制台切回面板。如果是下载安装的，运行 `borg update` 即可更新；如果是通过 Homebrew 或 cargo 安装的，请用相应的工具更新。`borg --version` 会显示已安装的版本。打开的会话会切换到新版本，并保留各自的 Shell（参见[在会话打开时更新](#updating-with-sessions-open)）。
+在要浏览的文件夹中运行 `borg`。按 F10 退出，按 Ctrl-O 从控制台切回面板。如果是下载安装的，运行 `borg update` 即可更新；如果是通过 Homebrew 或 cargo 安装的，请用相应的工具更新。只有带有项目签名的版本，Borg 才会安装；签名缺失或不匹配时，现有的程序保持不变。`borg --version` 会显示已安装的版本。打开的会话会切换到新版本，并保留各自的 Shell（参见[在会话打开时更新](#updating-with-sessions-open)）。
 
 ## 主题与图标
 
