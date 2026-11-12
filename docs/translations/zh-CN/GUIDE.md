@@ -557,7 +557,7 @@ Alt-E 在当前面板内用 Borg 的编辑器打开所选文件，取代该面�
 
 在 **F9 → 选项 → 语言** 中更改界面语言。选择英语、简体中文、葡萄牙语（葡萄牙）、西班牙语或俄语，然后按 Enter；按 Esc 取消。所选语言会保存在 `config.toml` 中，即 `language = "en"`、`"zh-CN"`、`"pt"`、`"es"` 或 `"ru"`。`BORG_LANGUAGE` 会覆盖已保存的设置。如果两者都未设置，Borg 会遵循 `LC_ALL`、`LC_MESSAGES` 或 `LANG`，遇到不支持的语言则使用英语。命令、路径、文件名和键盘快捷键永远不会被翻译。本网站上的语言菜单只切换本指南的语言，与应用界面语言相互独立。
 
-设置保存在 `~/.config/borg-commander/config.toml` 中，或保存在由 `$XDG_CONFIG_HOME` 或 `$BORG_CONFIG_DIR` 指定的文件夹中。F9 → 选项 → 设置 以复选框的形式列出这些设置；按 Space 或单击可切换某项设置并立即保存。按 Esc 关闭窗口。
+设置保存在 `~/.config/borg-commander/config.toml` 中，或保存在由 `$XDG_CONFIG_HOME` 或 `$BORG_CONFIG_DIR` 指定的文件夹中。F9 → 选项 → 设置 以复选框的形式列出这些设置；按 Space 或单击可切换某项设置并立即保存。按 Esc 关闭窗口。如果 Borg 无法读取该文件，它会以默认设置启动并说明原因；之后你保存第一项设置时，无法读取的文件会以 `config-unreadable.toml` 为名保留在新文件旁边。
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -605,7 +605,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -840,7 +840,7 @@ Borg 可以监视机器上启动的程序，并在出现可疑情况时告诉你
 筛选会保留包含你输入的每个词的警报，可匹配规则、规则短名、原因、程序、父进程、用户、命令以及 Borg 的处置。在词语前
 加 `!` 可排除它匹配到的内容：`shell-on-socket !root` 会保留除 root 之外每个用户的远程 shell。
 
-警报保存在状态文件夹中的 `alerts.json` 里，仅所有者可读，保留最新的 200 条。Borg 写入的文件不超过 8 MiB，即它能
+警报保存在状态文件夹中的 `alerts.json` 里，仅所有者可读，保留最新的 200 条。关于仍被冻结的进程的警报会在此之外继续保留，因此你始终可以让它继续运行或结束它。Borg 写入的文件不超过 8 MiB，即它能
 读回的上限，放不下时先舍弃最旧的警报。**Borg 的文件** 窗口把它们计入 **状态**（见 [Borg 的文件](#borgs-files)）。
 打开页面即把其中的警报标记为已读，而未读警报的数量会在 Borg 打开期间一直跟随记录变化，无论该页面是否打开。
 
@@ -967,7 +967,7 @@ Borg 发现无法读取的 `watch-outbox.json` 时，会把它重命名为 `watc
 
 - 在已经运行的程序内部执行的代码不会启动任何新东西，所以没有规则会看它。自身解释器被人接管的 Web 应用，名称和父进程都和平常一样。
 - 监视器启动之前就在运行的进程永远不会被检查，而学习周内运行的一切都会被当作正常。
-- 没有以 root 身份运行的监视器时，Borg 只能看到你自己的进程，而在四分之一秒内结束的命令可能在 Borg 查看之前就已消失。以其他用户身份运行的服务，例如 `www-data` 或 `postgres`，需要以 root 身份运行的监视器。
+- 没有以 root 身份运行的监视器时，Borg 只能看到你自己的进程，而在四分之一秒内结束的命令可能在 Borg 查看之前就已消失。以其他用户身份运行的服务，例如 `www-data` 或 `postgres`，需要以 root 身份运行的监视器。以 root 身份运行的监视器停止后，Borg 会重新只监视你自己的进程，直到它再次运行。
 - 在 Linux 5.8 之前，或者 root 那一部分无法加载它的程序时，Borg 会在内核报告之后到 `/proc` 中读取每个新进程。立即结束的命令到那时可能已经消失，进程也可能先改掉自己的命令行。
 - 有些内核不发送进程事件，例如某些虚拟机和容器主机。这时以 root 身份运行的 Borg 和以 root 身份运行的监视器会每秒查看所有进程四次，短命令可能在它们查看之前就已结束。
 - 大量进程同时启动时，内核与 Borg 之间的队列可能被填满，内核随后会丢弃事件，于是有些启动永远不会被检查。
@@ -1019,7 +1019,7 @@ P 用于有端口的页面，C 用于统计连接数的页面。点击列标题�
 | `port:443`、`port:ssh` | 使用该端口号或服务的行 |
 | `proc:node`、`process:node` | 进程名包含该文本的行 |
 | `pid:4100` | 该 PID 的行 |
-| `host:example` | 地址或主机名包含该文本的行 |
+| `host:example` | 地址或主机名包含该文本的行；完整的地址只保留该地址 |
 | `state:listen`、`state:time` | 状态名包含该文本的 TCP 行 |
 | `proto:udp`、`proto:tcp` | 该协议的行 |
 | `if:en0`、`interface:en0` | 名称包含该文本的接口 |

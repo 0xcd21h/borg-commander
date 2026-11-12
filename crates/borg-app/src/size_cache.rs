@@ -139,7 +139,7 @@ impl ScanStore {
             let old = keys.remove(0);
             let _ = fs::remove_file(file(dir, &old));
         }
-        crate::store::write_atomically(&dir.join(INDEX), &serde_json::to_vec(&keys).ok()?).ok()?;
+        crate::store::write_privately(&dir.join(INDEX), &serde_json::to_vec(&keys).ok()?).ok()?;
         Some(())
     }
 }
@@ -184,7 +184,7 @@ impl SizeCache {
                 }
             });
             if let Ok(bytes) = serde_json::to_vec(&keys) {
-                let _ = crate::store::write_atomically(&dir.join(INDEX), &bytes);
+                let _ = crate::store::write_privately(&dir.join(INDEX), &bytes);
             }
         }
         self.0.changing.fetch_sub(1, Ordering::SeqCst);

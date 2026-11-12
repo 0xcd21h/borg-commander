@@ -19,7 +19,9 @@ pub use alerts::{
     ALERTS_KEPT, Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Evidence, WatchSource, WatchStatus,
     filtered as alerts_filtered,
 };
-pub use baseline::{Allowance, Baseline, LEARNING_DAYS, PAIRS_LIMIT, ParentChild, review_ends};
+pub use baseline::{
+    Allowance, Baseline, LEARNING_DAYS, LEARNING_DAYS_LIMIT, PAIRS_LIMIT, ParentChild, learning_period, review_ends,
+};
 pub use event::{Ancestor, COMMAND_CUT, COMMAND_KEPT, StartedProcess, StreamKind, kept_within};
 pub(crate) use keys::{click, kill, paste, route_key};
 pub use response::{

@@ -2,16 +2,18 @@ use std::{
     ffi::{OsStr, OsString},
     fs::File,
     io::{self, PipeReader, PipeWriter, Read, Write},
+    ops::Deref,
     os::{fd::OwnedFd, unix::process::CommandExt},
     path::Path,
     process::{Command, Stdio},
+    sync::{Arc, Condvar, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
 };
 
 use anyhow::{Context, Result};
 use rustix::{
-    event::{PollFd, PollFlags, poll},
+    event::{PollFd, PollFlags, Timespec, poll},
     fs::{Mode, OFlags},
     io::{Errno, FdFlags, fcntl_setfd},
     process::{Pid, Signal, WaitOptions, kill_process, waitpid},
@@ -30,9 +32,65 @@ pub const LEAD: &str = "--lead-terminal";
 const HANGUP_CHECKS: u32 = 5;
 const HANGUP_CHECK_EVERY: Duration = Duration::from_millis(50);
 
+/// Output Borg holds that nobody has taken in yet, at most. A program that writes faster than
+/// Borg shows it waits at this point, as it would in any terminal, and Borg's memory stays put.
+const UNREAD_LIMIT: usize = 8 * 1024 * 1024;
+/// How often a reader waiting for room looks whether its terminal has gone meanwhile.
+const ROOM_CHECK_EVERY: Duration = Duration::from_millis(100);
+
+/// How much output has been read from a terminal and not yet taken in.
+#[derive(Debug, Default)]
+struct Unread {
+    bytes: Mutex<usize>,
+    taken: Condvar,
+}
+
+impl Unread {
+    /// Waits until there is room for more output. Gives false when `gone` says the terminal is
+    /// no longer there to read.
+    fn wait_for_room(&self, gone: impl Fn() -> bool) -> bool {
+        let mut bytes = self.bytes.lock().expect("unread output");
+        while *bytes >= UNREAD_LIMIT {
+            if gone() {
+                return false;
+            }
+            bytes = self.taken.wait_timeout(bytes, ROOM_CHECK_EVERY).expect("unread output").0;
+        }
+        true
+    }
+
+    fn chunk(self: &Arc<Self>, bytes: Vec<u8>) -> Chunk {
+        *self.bytes.lock().expect("unread output") += bytes.len();
+        Chunk { bytes, unread: Arc::clone(self) }
+    }
+}
+
+/// A piece of a terminal's output, which counts as unread until it is dropped.
+#[derive(Debug)]
+pub struct Chunk {
+    bytes: Vec<u8>,
+    unread: Arc<Unread>,
+}
+
+impl Deref for Chunk {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Drop for Chunk {
+    fn drop(&mut self) {
+        let mut unread = self.unread.bytes.lock().expect("unread output");
+        *unread = unread.saturating_sub(self.bytes.len());
+        self.unread.taken.notify_all();
+    }
+}
+
 #[derive(Debug)]
 pub enum PtyEvent {
-    Output(Vec<u8>),
+    Output(Chunk),
     Closed,
 }
 
@@ -250,10 +308,22 @@ fn winsize(size: GridSize) -> Winsize {
     Winsize { ws_row: size.rows, ws_col: size.cols, ws_xpixel: 0, ws_ypixel: 0 }
 }
 
-/// Reads the terminal until its program closes it, or until the pipe from [`Pty`] closes.
+/// Whether the pipe from [`Pty`] has closed or been written to, without waiting for it.
+fn woken(wake: &PipeReader) -> bool {
+    let mut watched = [PollFd::new(wake, PollFlags::IN)];
+    let at_once = Timespec { tv_sec: 0, tv_nsec: 0 };
+    matches!(poll(&mut watched, Some(&at_once)), Ok(ready) if ready > 0)
+}
+
+/// Reads the terminal until its program closes it, or until the pipe from [`Pty`] closes. It
+/// reads no further ahead than [`UNREAD_LIMIT`] of what has been taken in.
 fn pump(mut reader: File, wake: &PipeReader, events: &UnboundedSender<PtyEvent>) {
+    let unread = Arc::new(Unread::default());
     let mut buf = vec![0; READ_CHUNK];
     loop {
+        if !unread.wait_for_room(|| woken(wake)) {
+            return;
+        }
         let mut watched = [PollFd::new(&reader, PollFlags::IN), PollFd::new(wake, PollFlags::IN)];
         match poll(&mut watched, None) {
             Ok(_) => {}
@@ -268,7 +338,7 @@ fn pump(mut reader: File, wake: &PipeReader, events: &UnboundedSender<PtyEvent>)
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(_) => break,
             Ok(n) => {
-                if events.send(PtyEvent::Output(buf[..n].to_vec())).is_err() {
+                if events.send(PtyEvent::Output(unread.chunk(buf[..n].to_vec()))).is_err() {
                     return;
                 }
             }

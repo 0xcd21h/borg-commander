@@ -1395,6 +1395,8 @@ changes the guide's language separately.
 Settings are saved in `~/.config/borg-commander/config.toml`, or in the folder set by
 `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. F9 → Options → Settings shows them as checkboxes; Space
 or a click toggles a setting and saves it right away. Esc closes the window.
+When Borg cannot read the file, it starts with its defaults and says why; the first setting you
+then save keeps the unreadable file beside the new one as `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -1442,7 +1444,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -1911,7 +1913,8 @@ The filter keeps the alerts that contain every word you type, in the rule, its s
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
 leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
 
-Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. Borg keeps
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. An alert about
+a process that is still frozen stays beyond that, so you can always let it go on or kill it. Borg keeps
 the file within 8 MiB, the most it reads back, and leaves out the oldest alerts when they would not
 fit. The **Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)).
 Opening the page marks what it holds as read, and the count of unread alerts follows the log while
@@ -2132,7 +2135,8 @@ before you rely on it.
   learning week counts as normal.
 - Without the root watcher, Borg sees only your own processes, and a command that ends within a
   quarter of a second can be gone before Borg looks. Services that run as another user, such as
-  `www-data` or `postgres`, need the root watcher.
+  `www-data` or `postgres`, need the root watcher. When the root watcher stops, Borg goes back to
+  watching your own processes until it runs again.
 - Before Linux 5.8, or where the root part cannot load its programs, Borg reads each new process in
   `/proc` after the kernel reports it. A command that ends at once can be gone by then, and a
   process can change its command line first.
@@ -2231,7 +2235,7 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 | `port:443`, `port:ssh` | Rows on that port number or service |
 | `proc:node`, `process:node` | Rows whose process name contains the text |
 | `pid:4100` | Rows of that PID |
-| `host:example` | Rows whose address or host name contains the text |
+| `host:example` | Rows whose address or host name contains the text; a whole address keeps that address alone |
 | `state:listen`, `state:time` | TCP rows in a state that contains the text |
 | `proto:udp`, `proto:tcp` | Rows of that protocol |
 | `if:en0`, `interface:en0` | Interfaces whose name contains the text |

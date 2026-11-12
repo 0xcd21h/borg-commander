@@ -34,6 +34,8 @@ pub enum UpdateError {
     NoReleaseKey,
     #[error("the release archive has no {0} inside")]
     MissingBinary(String),
+    #[error("{0} in the release archive is larger than Borg installs")]
+    TooLarge(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

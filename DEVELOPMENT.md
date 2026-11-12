@@ -415,7 +415,7 @@ out, tested in `watch/tests.rs`.
 them ([The eBPF programs](#the-ebpf-programs)), else from the kernel's proc connector over netlink
 (`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
 fixtures, so its tests run on macOS, and a bounded queue lets the kernel drop events, which the
-reader survives, when the watcher falls behind), from the root watcher once it connects, or from
+reader survives, when the watcher falls behind), from the root watcher while it is connected, or from
 looking at the user's own process list four times a second (every process's when Borg runs as root,
 and in the root watcher on a kernel without the proc connector, which says so with
 `FromRoot::Polling`). Looking finds forks along with programs that start, so a copy of its parent
@@ -429,12 +429,13 @@ folder as an argument, so its tests run against a folder of fixtures on any syst
 identified by its number together with its start time in clock ticks since boot, read again before
 Borg acts. `watch::freeze` sends the stop, continue and kill signals to a process and its
 descendants, parents first, checking identity before each one. `watch::log` keeps `alerts.json` (the
-newest 200 alerts), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
+newest 200 alerts, and beyond them any about a process still frozen), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
 named by constants in `borg-core::storage` so the Borg's files window and the cleanup rules know
 them. The watcher writes the baseline and never the allowances, while the Alerts page writes the
 allowances and never the baseline, so neither can lose what the other wrote; the watcher takes in
-new allowances on its own tick, once a minute. Both sides change `alerts.json` by reading it fresh,
-changing it and writing it back, so what the page marked read or let go on survives the watcher's
+new allowances on its own tick, once a minute. Both sides change `alerts.json` and
+`watch-allowed.json` through `watch::log`, which locks `watch.lock` in the state folder, reads the
+file fresh, changes it and writes it back, and refuses to write over allowances it cannot read, so what the page marked read or let go on survives the watcher's
 next alert, and the watcher rereads the log once a minute to learn whether the week has been
 reviewed. `AlertLog::add` keeps each command at most `COMMAND_KEPT` bytes, its start and its end, and
 `watch::log::write_log` drops the oldest alerts until the file fits the bytes Borg reads back, so
