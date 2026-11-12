@@ -1,12 +1,20 @@
 //! What the engine keeps on disk, as `docker system df --verbose` reports it, with every tag of
-//! each image and the networks no container uses.
+//! each image, the networks no container uses, and what each volume is.
 
 use anyhow::{Context, Result};
 use jiff::Timestamp;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::{State, parse_size};
+
+mod volumes;
+
+pub(crate) use volumes::{CONTAINER_FORMAT, ENGINE_FORMAT, VOLUME_FORMAT, parse_engine};
+pub use volumes::{Compose, Engine, LastUse, VolumeUser};
 
 /// One line per tag, with the image's full ID, from `docker image ls`.
 pub(crate) const TAGS_FORMAT: &str = r#"{"id":{{json .ID}},"repository":{{json .Repository}},"tag":{{json .Tag}}}"#;
@@ -22,7 +30,6 @@ const SHORT_ID: usize = 12;
 const ANONYMOUS_LABEL: &str = "com.docker.volume.anonymous";
 const LABEL_SEPARATOR: char = ',';
 const LABEL_VALUE: char = '=';
-const MOUNT_SEPARATOR: char = ',';
 const TRUE: &str = "true";
 /// Docker's CLI prints times as Go does, "2026-10-20 09:10:02.5 +0000 UTC", in the CLI's zone
 /// or in UTC; the abbreviation at the end adds nothing to the offset.
@@ -103,13 +110,30 @@ pub struct Volume {
     /// Docker made it for a container's unnamed mount, so `docker volume prune` removes it
     /// without `--all`.
     pub anonymous: bool,
-    /// The names of the containers that mount it.
-    pub users: Vec<String>,
+    pub created: Option<Timestamp>,
+    pub compose: Option<Compose>,
+    pub driver: String,
+    /// The driver's options, such as an NFS share's address.
+    pub options: Vec<(String, String)>,
+    /// Where the engine keeps its files.
+    pub mountpoint: Option<PathBuf>,
+    /// The containers that mount it, running or not.
+    pub users: Vec<VolumeUser>,
 }
 
 impl Volume {
     pub fn in_use(&self) -> bool {
         self.links != Some(0)
+    }
+
+    pub fn last_use(&self) -> LastUse {
+        volumes::last_use(&self.users)
+    }
+
+    /// Where its files are on the machine named `host`, whose home folder is `home`, if the
+    /// engine keeps them there or shares them.
+    pub fn folder(&self, engine: &Engine, home: &Path, host: &str) -> Option<PathBuf> {
+        volumes::folder(&self.name, self.mountpoint.as_deref(), engine, home, host)
     }
 }
 
@@ -142,6 +166,16 @@ pub struct DiskUse {
     pub cache: Vec<CacheRecord>,
     /// The networks no container is connected to, which `docker network prune` removes.
     pub networks: Vec<String>,
+    pub engine: Engine,
+}
+
+/// What the CLI printed for a disk use report: `docker system df`, the image tags, and the
+/// volumes and containers inspected.
+pub(crate) struct Outputs<'a> {
+    pub report: &'a str,
+    pub tags: &'a str,
+    pub volumes: &'a str,
+    pub containers: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -177,7 +211,6 @@ struct ContainerRow {
     state: String,
     status: String,
     size: String,
-    mounts: String,
 }
 
 #[derive(Deserialize)]
@@ -251,9 +284,11 @@ fn names(text: &str) -> Result<HashMap<String, Names>> {
     Ok(names)
 }
 
-pub(crate) fn parse(report: &str, tags: &str, networks: Vec<String>) -> Result<DiskUse> {
-    let report: Report = serde_json::from_str(report.trim()).context("reading docker system df output")?;
-    let mut names = names(tags)?;
+pub(crate) fn parse(outputs: &Outputs<'_>, networks: Vec<String>, engine: Engine) -> Result<DiskUse> {
+    let report: Report = serde_json::from_str(outputs.report.trim()).context("reading docker system df output")?;
+    let mut names = names(outputs.tags)?;
+    let mut facts = volumes::parse_volumes(outputs.volumes)?;
+    let mut users = volumes::parse_users(outputs.containers)?;
     let images = report
         .images
         .unwrap_or_default()
@@ -277,22 +312,24 @@ pub(crate) fn parse(report: &str, tags: &str, networks: Vec<String>) -> Result<D
         })
         .collect();
     let rows = report.containers.unwrap_or_default();
-    let mut users: HashMap<&str, Vec<String>> = HashMap::new();
-    for row in &rows {
-        for mount in row.mounts.split(MOUNT_SEPARATOR).filter(|mount| !mount.is_empty()) {
-            users.entry(mount).or_default().push(row.names.clone());
-        }
-    }
     let volumes = report
         .volumes
         .unwrap_or_default()
         .into_iter()
-        .map(|row| Volume {
-            users: users.get(row.name.as_str()).cloned().unwrap_or_default(),
-            size: parse_size(&row.size),
-            links: row.links.parse().ok(),
-            anonymous: anonymous(&row.labels),
-            name: row.name,
+        .map(|row| {
+            let facts = facts.remove(&row.name).unwrap_or_default();
+            Volume {
+                users: users.remove(&row.name).unwrap_or_default(),
+                size: parse_size(&row.size),
+                links: row.links.parse().ok(),
+                anonymous: anonymous(&row.labels),
+                created: facts.created,
+                compose: facts.compose,
+                driver: facts.driver,
+                options: facts.options,
+                mountpoint: facts.mountpoint,
+                name: row.name,
+            }
         })
         .collect();
     let containers = rows
@@ -320,7 +357,7 @@ pub(crate) fn parse(report: &str, tags: &str, networks: Vec<String>) -> Result<D
             description: row.description,
         })
         .collect();
-    Ok(DiskUse { images, containers, volumes, cache, networks })
+    Ok(DiskUse { images, containers, volumes, cache, networks, engine })
 }
 
 /// The names of the networks `docker network prune` would remove among those inspected.
@@ -339,9 +376,15 @@ mod tests {
     const REPORT: &str = include_str!("../tests/fixtures/system-df.json");
     const TAGS: &str = include_str!("../tests/fixtures/image-tags.jsonl");
     const NETWORKS: &str = include_str!("../tests/fixtures/network-inspect.jsonl");
+    const VOLUMES: &str = include_str!("../tests/fixtures/volume-inspect.jsonl");
+    const CONTAINERS: &str = include_str!("../tests/fixtures/container-inspect.jsonl");
+
+    fn outputs() -> Outputs<'static> {
+        Outputs { report: REPORT, tags: TAGS, volumes: VOLUMES, containers: CONTAINERS }
+    }
 
     fn usage() -> DiskUse {
-        parse(REPORT, TAGS, parse_networks(NETWORKS).unwrap()).unwrap()
+        parse(&outputs(), parse_networks(NETWORKS).unwrap(), Engine::default()).unwrap()
     }
 
     fn image<'a>(usage: &'a DiskUse, label: &str) -> &'a Image {
@@ -389,13 +432,28 @@ mod tests {
     fn volumes_know_who_mounts_them_and_which_are_anonymous() {
         let usage = usage();
         let volume = |name: &str| usage.volumes.iter().find(|v| v.name == name).unwrap();
-        assert_eq!(volume("shop_data").users, ["shop-db-1"]);
+        let users = |name: &str| volume(name).users.iter().map(|user| user.container.clone()).collect::<Vec<_>>();
+        assert_eq!(users("shop_data"), ["shop-db-1"]);
         assert!(volume("shop_data").in_use() && !volume("shop_data").anonymous);
         assert!(!volume("blog_uploads").in_use() && volume("blog_uploads").users.is_empty());
         assert_eq!(volume("scratch-notes").size, None);
         let anonymous: Vec<(bool, Vec<String>)> =
-            usage.volumes.iter().filter(|v| v.anonymous).map(|v| (v.in_use(), v.users.clone())).collect();
+            usage.volumes.iter().filter(|v| v.anonymous).map(|v| (v.in_use(), users(&v.name))).collect();
         assert_eq!(anonymous, [(false, Vec::new()), (true, vec!["shop-worker-1".to_owned()])]);
+    }
+
+    #[test]
+    fn volumes_carry_what_inspecting_them_and_their_containers_tells() {
+        let usage = usage();
+        let volume = |name: &str| usage.volumes.iter().find(|v| v.name == name).unwrap();
+        let uploads = volume("blog_uploads");
+        assert_eq!(uploads.compose.as_ref().map(|compose| compose.project.as_str()), Some("blog"));
+        assert_eq!(uploads.created, Some("2026-06-13T10:09:31Z".parse().unwrap()));
+        assert_eq!(uploads.last_use(), LastUse::Unknown, "no container is left to tell");
+        assert_eq!(volume("shop_static").last_use(), LastUse::Now);
+        let anonymous = volume("7c2f8e1d0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d");
+        assert_eq!(anonymous.last_use(), LastUse::Stopped("2026-11-07T17:48:03.5Z".parse().unwrap()));
+        assert_eq!(anonymous.users[0].path, "/app/data");
     }
 
     #[test]
@@ -418,6 +476,7 @@ mod tests {
     #[test]
     fn an_empty_engine_reports_nothing() {
         let empty = r#"{"Images":[],"Containers":[],"Volumes":[],"BuildCache":null}"#;
-        assert_eq!(parse(empty, "", Vec::new()).unwrap(), DiskUse::default());
+        let outputs = Outputs { report: empty, tags: "", volumes: "", containers: "" };
+        assert_eq!(parse(&outputs, Vec::new(), Engine::default()).unwrap(), DiskUse::default());
     }
 }

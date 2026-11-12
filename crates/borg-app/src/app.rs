@@ -333,6 +333,9 @@ impl App {
         if self.state.docker.disk.loading.is_none() {
             self.docker.cancel_disk();
         }
+        if self.state.docker.disk.reading.is_none() {
+            self.docker.cancel_volumes();
+        }
         if self.state.network.pending.is_none() {
             self.network.cancel();
         }
