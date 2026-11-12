@@ -49,8 +49,10 @@ curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts
 ```
 
 The installer verifies the checksum, puts `borg` in `~/.local/bin` (or `/usr/local/bin` as
-root), adds it to your PATH if needed, and starts it. Update with `borg update`: open sessions
-move to the new version and keep their shells. Binaries for
+root), adds it to your PATH if needed, and starts it. In a terminal it also asks whether borg
+should start at boot as a service, which keeps sessions running with no terminal open. That is
+optional and the default answer is n; `BORG_SERVICE=1` sets it up without the question, and
+F9 → Remote → **Background service…** sets it up later. Update with `borg update`: open sessions move to the new version and keep their shells. Binaries for
 **macOS** (Apple Silicon or Intel) and **Linux** (ARM64 or x86-64) are on
 [Releases](https://github.com/0xcd21h/borg-commander/releases/latest).
 

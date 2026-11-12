@@ -23,6 +23,21 @@ arranque da sua shell. No fim, inicia o borg; defina `BORG_NO_RUN=1` para o impe
 `BORG_INSTALL_DIR` para escolher a pasta. Se a mesma versão já estiver instalada, voltar a
 executar o instalador dispensa a transferência.
 
+O instalador também pode configurar o borg como um
+[serviço que arranca com o sistema](#named-sessions-and-the-background-service). O serviço é
+opcional. Com ele, as sessões que mantém com `borg service keep NAME` continuam em execução sem
+terminal aberto, e uma máquina emparelhada chega a este computador depois de um reinício. Num
+terminal, o instalador pergunta uma vez antes de iniciar o borg, e a resposta predefinida é n.
+Defina `BORG_SERVICE=1` para configurar o serviço sem a pergunta, como numa instalação autónoma,
+ou `BORG_SERVICE=0` para dispensar a pergunta. A configuração executa `borg service install`,
+`enable` e `start`, que usam sudo, a menos que seja root. Sem terminal e sem a variável, o
+instalador deixa o serviço como está. Pode configurá-lo mais tarde dentro do borg, em F9 → Remoto →
+**Serviço em segundo plano…**. Onde não há systemd nem launchd, como na maioria dos contentores, o
+instalador salta este passo e diz porquê. Se a configuração falhar, o borg continua instalado e o
+instalador mostra os comandos para a concluir à mão. Em Linux, a
+[parte do observador que corre como root](#the-watcher-as-root) continua a ser um passo à parte:
+instale-a com `borg service watch install` quando a quiser.
+
 Para compilar a partir do código-fonte, precisa do Rust 1.97 ou mais recente:
 
 ```sh
