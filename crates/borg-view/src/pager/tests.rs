@@ -262,7 +262,7 @@ fn hex_rows_keep_their_place_through_resizes_and_back_to_text() {
     assert!(document.formatted());
     ok(document.toggle_hex());
     assert!(!document.formatted(), "hex rows show the document's source");
-    assert_eq!(document.rows()[0], format!("0000  23 20 54 69 74 6c 65 0a 0a 54 65 78 74 0a{:8}# Title..Text.", ""));
+    assert_eq!(document.rows()[0], format!("0000  23 20 54 69 74 6c 65 0a  0a 54 65 78 74 0a{:8}# Title..Text.", ""));
     ok(document.toggle_source());
     assert!(!document.formatted() && document.hex(), "s leaves hex rows alone");
 }

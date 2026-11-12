@@ -1329,11 +1329,12 @@ hexadecimais e prima-o de novo para voltar ao texto. Um ficheiro binário, que o
 um byte a zero nos primeiros 4 KiB, abre em linhas hexadecimais em ambos, e `h` mostra o seu texto.
 Cada linha começa com a sua posição no ficheiro e mostra depois os seus bytes em hexadecimal e os
 mesmos bytes como texto, com um ponto em cada byte que não é imprimível. As posições e os bytes a
-zero aparecem esbatidos. Uma linha tem 16 bytes, ou 8, 4, 2 ou 1 quando não há espaço para 16. O
-Borg lê apenas as linhas que estão no ecrã, pelo que as setas, PgUp/PgDn, Space, Home e End
-percorrem de imediato um ficheiro de vários gigabytes. A barra de pesquisa também funciona nas
-linhas hexadecimais e marca cada correspondência nas duas colunas. Em hexadecimal, os ficheiros
-Markdown e JSON mostram os bytes tal como estão escritos.
+zero aparecem esbatidos. Uma linha tem tantos bytes quantos couberem na largura: 64, 32, 16, 8, 4, 2
+ou 1, com um espaço maior a seguir a cada oitavo byte. O Borg lê apenas as linhas que estão no ecrã,
+pelo que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato um ficheiro de vários
+gigabytes. A barra de pesquisa também funciona nas linhas hexadecimais e marca cada correspondência
+nas duas colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes tal como estão
+escritos.
 
 No visualizador, uma faixa de entropia acompanha o lado direito das linhas hexadecimais. A entropia
 indica quão variados são os bytes, de 0 bits por byte para um único byte repetido a 8 para bytes tão
@@ -1799,11 +1800,12 @@ suas próprias permissões, e deixa o descritor do processo em paz.
 
 ### Pré-visualização de regiões
 
-Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início
-da região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por
-cima dos bytes indica em que ponto da região está a janela. Quando se move depressa, o Borg espera
-um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela a
-leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
+Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início da
+região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por cima
+dos bytes indica em que ponto da região está a janela. Cada linha começa pela sua posição a contar
+do início da região, e um painel largo mostra mais bytes por linha. Quando se move depressa, o Borg
+espera um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela
+a leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
 **Enter** para percorrer a pré-visualização. **Esc** aí volta à lista, e **Esc** no mapa volta à
 lista de processos com o cursor e o filtro como estavam.
 
@@ -2494,8 +2496,8 @@ para cada forma de a ver:
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
-  hexadecimal. Um dump põe 16 bytes em cada linha, e menos num painel estreito, para que o texto
-  continue a caber ao lado. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
+  hexadecimal. Um dump dispõe os bytes como as linhas hexadecimais do visualizador, com tantos
+  em cada linha quantos couberem no painel. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
 
 | Tecla | Ação |
 | --- | --- |

@@ -1219,10 +1219,11 @@ Press `h` in the text viewer or in the quick view to see the file's bytes as hex
 again to go back to the text. A binary file, which Borg spots by a zero byte in its first 4 KiB,
 opens as hex rows in both, and `h` shows its text. Each row starts with its offset in the file, then
 shows its bytes in hex and the same bytes as text, with a dot for each byte that does not print.
-Offsets and zero bytes are dimmed. A row holds 16 bytes, or 8, 4, 2 or 1 when 16 do not fit. Borg
-reads only the rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a
-file of several gigabytes at once. The find bar works in hex rows too and marks each match in both
-columns. In hex, Markdown and JSON files show their bytes as written.
+Offsets and zero bytes are dimmed. A row holds as many bytes as fit the width: 64, 32, 16, 8, 4, 2
+or 1, with a wider space after every eighth byte. Borg reads only the rows on the screen, so the
+arrow keys, PgUp/PgDn, Space, Home and End move through a file of several gigabytes at once. The
+find bar works in hex rows too and marks each match in both columns. In hex, Markdown and JSON files
+show their bytes as written.
 
 In the viewer, an entropy strip runs down the right edge of the hex rows. Entropy says how varied
 the bytes are, from 0 bits per byte for one byte repeated to 8 for bytes as random as compressed,
@@ -1665,13 +1666,14 @@ permissions and leaves the process's descriptor alone.
 
 ### Region preview
 
-When you select a readable region, Borg captures up to 64 KiB of it in the other pane. If the
-start of the region holds only zeros, the capture skips ahead to the first page with data, and
-the line above the bytes says where in the region the window is. When you move quickly, Borg
-waits a moment before reading; selecting another region clears the old preview and cancels its
-pending read. Regions that cannot be read show a message instead. Press **Tab** or **Enter** to
-scroll the preview. **Esc** there goes back to the list, and **Esc** in the map goes back to the
-process list with its cursor and filter as they were.
+When you select a readable region, Borg captures up to 64 KiB of it in the other pane. If the start
+of the region holds only zeros, the capture skips ahead to the first page with data, and the line
+above the bytes says where in the region the window is. Each row starts with its offset from the
+start of the region, and a wide pane shows more bytes on a row. When you move quickly, Borg waits a
+moment before reading; selecting another region clears the old preview and cancels its pending read.
+Regions that cannot be read show a message instead. Press **Tab** or **Enter** to scroll the
+preview. **Esc** there goes back to the list, and **Esc** in the map goes back to the process list
+with its cursor and filter as they were.
 
 Runs of zero rows collapse into a single row, such as "· 60K zero bytes ·". **]** and **[** jump
 to the next and previous block of data, and **>** and **<** capture the next and previous 64 KiB
@@ -2316,8 +2318,8 @@ way to look at it:
 - **4 Packets** shows every packet in order with its time from the start, protocol, length and a
   summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
   its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
-  as a hex dump. A dump puts 16 bytes on each line, and fewer in a narrow pane so their text still
-  fits beside them. F3 opens the packet's bytes in the viewer as hex rows.
+  as a hex dump. A dump lays its bytes out as the viewer's hex rows do, with as many on each line as
+  fit the pane. F3 opens the packet's bytes in the viewer as hex rows.
 
 | Key | Action |
 | --- | --- |
