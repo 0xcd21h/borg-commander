@@ -13,7 +13,7 @@ use borg_core::{
     MemoryGroup, MemoryProtection, PageClass, RegionRow, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
-use borg_view::entropy::Entropy;
+use borg_view::{Mark, Paint, entropy::Entropy};
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
@@ -199,7 +199,9 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
         text(buf, row(body, 0), note, dim(theme));
         return;
     };
+    let layout = activity.snapshot_layout(usize::from(body.width));
     let columns = activity.snapshot_columns(usize::from(body.width));
+    let origin = activity.snapshot_origin();
     let details = tr!(
         activity_capture_label,
         pid = snapshot.process.pid,
@@ -225,44 +227,60 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
         text(buf, row(body, 1), note, dim(theme));
     }
     let hit = activity.marked();
-    let printable = |b: u8| if b.is_ascii_graphic() || b == b' ' { char::from(b) } else { '.' };
+    let mark = |offset: usize| {
+        let at = snapshot.address.saturating_add(offset as u64);
+        let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset) != snapshot.bytes.get(offset));
+        if hit.as_ref().is_some_and(|hit| hit.contains(&at)) {
+            Mark::Current
+        } else if changed {
+            Mark::Match
+        } else {
+            Mark::None
+        }
+    };
+    let look_of = |paint: &Paint, mark: Mark| match mark {
+        Mark::Current => theme.styles.cursor.add_modifier(Modifier::BOLD),
+        Mark::Match => theme.styles.marked.add_modifier(Modifier::BOLD),
+        Mark::None if paint.dim => dim(theme),
+        Mark::None => theme.styles.overlay,
+    };
     let rows = activity.snapshot_rows(columns);
     for (y, shown) in
         rows.into_iter().skip(activity.offset).take(usize::from(body.height.saturating_sub(2))).enumerate()
     {
-        let address = Span::styled(format!("{:016x}  ", snapshot.address + shown.start() as u64), dim(theme));
+        let offset = (snapshot.address - origin) + shown.start() as u64;
+        let label =
+            || Span::styled(format!("{:width$}", layout.offset(offset), width = layout.offset_width()), dim(theme));
         let line = match shown {
             SnapshotRow::Zeros { len, .. } => Line::from(vec![
-                address,
+                label(),
                 Span::styled(tr!(activity_zero_run, size = size(Some(len as u64))), dim(theme)),
             ]),
-            SnapshotRow::Bytes(offset) => {
-                let chunk = &snapshot.bytes[offset..(offset + columns).min(snapshot.bytes.len())];
-                let mut spans = vec![address];
-                for (i, &byte) in chunk.iter().enumerate() {
-                    let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset + i) != Some(&byte));
-                    let at = snapshot.address.saturating_add((offset + i) as u64);
-                    let style = if hit.as_ref().is_some_and(|hit| hit.contains(&at)) {
-                        theme.styles.cursor.add_modifier(Modifier::BOLD)
-                    } else if changed {
-                        theme.styles.marked.add_modifier(Modifier::BOLD)
-                    } else {
-                        theme.styles.overlay
-                    };
-                    spans.push(Span::styled(
-                        if activity.text { printable(byte).to_string() } else { format!("{byte:02x} ") },
-                        style,
-                    ));
+            SnapshotRow::Bytes(start) => {
+                let chunk = &snapshot.bytes[start..(start + columns).min(snapshot.bytes.len())];
+                if activity.text {
+                    let shown = chunk.iter().enumerate().map(|(i, &byte)| {
+                        Span::styled(printable(byte).to_string(), look_of(&Paint::default(), mark(start + i)))
+                    });
+                    Line::from(std::iter::once(label()).chain(shown).collect::<Vec<_>>())
+                } else {
+                    let within = |at: u64| mark(start + (at - offset) as usize);
+                    let runs = layout.runs(offset, chunk, &within);
+                    Line::from(
+                        runs.into_iter()
+                            .map(|run| Span::styled(run.text, look_of(&run.paint, run.mark)))
+                            .collect::<Vec<_>>(),
+                    )
                 }
-                if !activity.text {
-                    let ascii: String = chunk.iter().map(|&b| printable(b)).collect();
-                    spans.push(Span::styled(format!(" {ascii:columns$}"), theme.styles.overlay));
-                }
-                Line::from(spans)
             }
         };
         line.render(row(body, (y + 2) as u16), buf);
     }
+}
+
+fn printable(byte: u8) -> char {
+    const UNPRINTED: char = '.';
+    if byte.is_ascii_graphic() || byte == b' ' { char::from(byte) } else { UNPRINTED }
 }
 
 /// How the page map draws a class: a glyph that tells it apart without colour, and a colour.

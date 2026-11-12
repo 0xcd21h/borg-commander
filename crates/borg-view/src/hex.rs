@@ -3,7 +3,7 @@
 
 use crate::{Mark, Paint, Run};
 
-/// The most bytes a row shows.
+/// The bytes a row shows when nothing limits its width.
 const HEX_WIDTH: usize = 16;
 const OFFSET_DIGITS: usize = 4;
 const HEX_GAP: &str = "  ";
@@ -12,7 +12,10 @@ const HEX_CELLS: usize = 3;
 const HEX_DIGIT_BITS: u32 = 4;
 const FEWEST_BYTES: usize = 1;
 /// Bytes on a row, from the most to the fewest, for its rows to fit their width.
-const ROW_BYTES: [usize; 5] = [HEX_WIDTH, 8, 4, 2, FEWEST_BYTES];
+const ROW_BYTES: [usize; 7] = [64, 32, HEX_WIDTH, GROUP_BYTES, 4, 2, FEWEST_BYTES];
+/// Bytes that stand together in hex, with a wider space before the next group.
+const GROUP_BYTES: usize = 8;
+const GROUP_GAP: &str = "  ";
 /// What a byte that does not print shows as in the text column.
 const UNPRINTED: char = '.';
 const BYTE_GAP: &str = " ";
@@ -30,8 +33,7 @@ impl HexLayout {
         Self { columns: HEX_WIDTH, digits: offset_digits(len) }
     }
 
-    /// The most bytes a row, up to `HEX_WIDTH`, whose rows fit `width` cells, for a dump of
-    /// `len` bytes.
+    /// The most bytes a row whose rows fit `width` cells, for a dump of `len` bytes.
     pub fn fitting(width: usize, len: u64) -> Self {
         let digits = offset_digits(len);
         let fits = |columns: usize| Self { columns, digits }.width() <= width;
@@ -40,7 +42,17 @@ impl HexLayout {
 
     /// Cells a row takes: its offset, its bytes in hex and the bytes that print as text.
     pub fn width(self) -> usize {
-        self.digits + HEX_GAP.len() + self.hex_cells() + HEX_GAP.len() + self.columns
+        self.offset_width() + hex_cells(self.columns) + HEX_GAP.len() + self.columns
+    }
+
+    /// Cells a row's offset takes, with the space after it.
+    pub fn offset_width(self) -> usize {
+        self.digits + HEX_GAP.len()
+    }
+
+    /// `offset` as a row shows it.
+    pub fn offset(self, offset: u64) -> String {
+        format!("{offset:0digits$x}", digits = self.digits)
     }
 
     /// The rows a dump of `len` bytes takes.
@@ -74,27 +86,32 @@ impl HexLayout {
         let looks: Vec<(Paint, Mark)> =
             bytes.iter().zip(offset..).map(|(&byte, at)| (paint_of(byte), mark(at))).collect();
         let mut runs = Vec::new();
-        let digits = self.digits;
-        push(&mut runs, &format!("{offset:0digits$x}"), (faint(), Mark::None));
+        push(&mut runs, &self.offset(offset), (faint(), Mark::None));
         push(&mut runs, HEX_GAP, plain());
         for (index, (byte, &look)) in bytes.iter().zip(&looks).enumerate() {
             if let Some(&before) = index.checked_sub(1).and_then(|before| looks.get(before)) {
-                push(&mut runs, BYTE_GAP, between(before, look));
+                push(&mut runs, gap_before(index), between(before, look));
             }
             push(&mut runs, &format!("{byte:02x}"), look);
         }
-        let used = (bytes.len() * HEX_CELLS).saturating_sub(BYTE_GAP.len());
-        push(&mut runs, &" ".repeat(self.hex_cells().saturating_sub(used)), plain());
+        push(&mut runs, &" ".repeat(hex_cells(self.columns).saturating_sub(hex_cells(bytes.len()))), plain());
         push(&mut runs, HEX_GAP, plain());
         for (&byte, &look) in bytes.iter().zip(&looks) {
             push(&mut runs, printed(byte).encode_utf8(&mut [0; 4]), look);
         }
         runs
     }
+}
 
-    fn hex_cells(self) -> usize {
-        self.columns * HEX_CELLS - BYTE_GAP.len()
-    }
+/// Cells `count` bytes take in hex, with the spaces between them.
+fn hex_cells(count: usize) -> usize {
+    let groups = count.saturating_sub(1) / GROUP_BYTES;
+    (count * HEX_CELLS).saturating_sub(BYTE_GAP.len()) + groups * (GROUP_GAP.len() - BYTE_GAP.len())
+}
+
+/// The space before the byte at `index` of a row, wider where a group starts.
+fn gap_before(index: usize) -> &'static str {
+    if index.is_multiple_of(GROUP_BYTES) { GROUP_GAP } else { BYTE_GAP }
 }
 
 /// Hex digits for the offsets of a dump of `len` bytes, at least `OFFSET_DIGITS`.
