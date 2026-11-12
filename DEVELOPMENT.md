@@ -649,6 +649,10 @@ fills its terminal again once control returns to it or the viewer lets go. A cop
 viewer controls the session travels with that viewer's next frame as a base64 `clipboard` field,
 which the viewer passes to its terminal as OSC 52 after checking it is plain base64; view-only
 viewers never receive it.
+The viewer does not trust a frame's bytes. `mirror::host_output` passes only text, the cursor,
+color, erase, scroll and mode sequences Borg draws with, a clipboard copy, and inline images sent
+as data. It drops everything the terminal would answer, such as status, color and clipboard
+queries, along with titles, links, images read from a file, and any sequence cut short.
 Copies also stay in `borg-core::clipboard`, so Ctrl-V works in Borg's own fields anywhere.
 
 Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel) or `viewer`.
