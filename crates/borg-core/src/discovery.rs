@@ -92,6 +92,8 @@ pub struct SearchForm {
     pub error: Option<String>,
     /// The recalled query's place in the history, and what was typed before recalling.
     pub recalled: Option<(usize, String)>,
+    /// Opened to analyze space, which keeps the search's own values for the next time.
+    pub space: bool,
 }
 
 impl SearchForm {
@@ -101,6 +103,16 @@ impl SearchForm {
             _ => None,
         };
         let root = request.map_or_else(|| state.active_panel().dir().to_path_buf(), |r| r.root.clone());
+        if let Some(draft) = state.search_draft.as_ref().filter(|_| request.is_none() && !space) {
+            return Self {
+                root: LineInput::new(root.display().to_string()),
+                original_root: root,
+                selected: 0,
+                error: None,
+                recalled: None,
+                ..draft.clone()
+            };
+        }
         let mut contents = FindBar::default();
         if let Some(query) = request.and_then(|r| r.options.contents.as_ref()) {
             contents.load(query);
@@ -124,6 +136,7 @@ impl SearchForm {
             selected: 0,
             error: None,
             recalled: None,
+            space,
         }
     }
 
@@ -257,6 +270,7 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
     match key.code {
         KeyCode::Esc => {
             state.overlay = None;
+            keep_draft(state, form);
             return Vec::new();
         }
         KeyCode::Tab | KeyCode::Down => form.selected = form.step(false),
@@ -273,11 +287,12 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
                 match crate::results::name_search(state, root, query, form.hidden, form.skip, options) {
                     Ok(request) => {
                         state.overlay = None;
+                        form.contents.remember(&mut state.find_recent);
+                        keep_draft(state, form);
                         let mut effects = Vec::new();
                         if state.settings.search.history && state.search_history.record(&request.query, &request.root) {
                             effects.push(Effect::SaveSearchHistory);
                         }
-                        form.contents.remember(&mut state.find_recent);
                         effects.extend(crate::results::start_search(state, request));
                         return effects;
                     }
@@ -321,6 +336,13 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
     }
     state.overlay = Some(Overlay::Search(form));
     Vec::new()
+}
+
+/// Keeps what the dialog holds for the next time it opens, unless it measured space.
+fn keep_draft(state: &mut AppState, form: SearchForm) {
+    if !form.space {
+        state.search_draft = Some(form);
+    }
 }
 
 /// What the form asks the search for, or why it cannot search. Folder sizes and file counts

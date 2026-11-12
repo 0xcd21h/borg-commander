@@ -105,7 +105,8 @@ preview.
   `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d`
   (changed in the last week), `mod:>1y` and `in:src` (a folder anywhere in the path). Recent
   searches are listed below the form, with those made in the same folder first; click one, or
-  press Ctrl-P and Ctrl-N in the query field, to reuse it. Names match in any alphabet whatever
+  press Ctrl-P and Ctrl-N in the query field, to reuse it. The dialog opens with the query and
+  the choices you last left in it, set to the folder you are in. Names match in any alphabet whatever
   the case of a glob, and accented letters match however the file system stores them. Matches
   close to the search folder appear first, while the rest of the tree is still being read.
 - **Alt-K:** collect the marked files, or the current file, into a collection in the other panel.
@@ -255,7 +256,8 @@ collection, F5 adds references to it instead. F6 needs a real folder as its dest
 collection, F8 removes references and leaves the files alone; in search results, F8 asks to
 delete the original files. Shift-F8 deletes the original files from a collection too, after
 you confirm. When both a folder and files inside it are marked, the job handles the folder once.
-**Reveal original** opens the file's folder in the other panel. Left or Esc hides the results,
+**Reveal original** or Alt-Shift-O opens the file's folder in the other panel, with the cursor on
+the file. Left or Esc hides the results,
 and Alt-Shift-R brings them back where you left them. Tab switches between panels even when the
 shell has an unfinished command. The shell always stays in a real folder. F10 always asks before
 quitting.
@@ -394,6 +396,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
 | Alt-O | Open this panel's folder in the other panel |
+| Alt-Shift-O | In search results or a collection, open the file's own folder in the other panel |
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
@@ -546,7 +549,8 @@ panels are idle. **Refresh status** in the Git menu checks again right away.
 project, with containers that are not part of a project at the end. The other panel shows the
 selected container: its status, ports, networks, mounts, command, and restart policy, plus live
 CPU, memory, network, and disk use with a chart of the last minute. For a project, it shows the
-project's folder, its containers, and their combined use. Esc closes the view.
+project's folder, its containers, and their combined use. Esc closes the view and keeps its
+filter for the next time.
 
 CPU shows as two figures. **Now %** is the latest reading, and **Avg %** is the average of the last few
 seconds, as in the activity monitor, so it holds steady while a container works in bursts. A list
@@ -564,11 +568,18 @@ too narrow for both shows **Avg %** alone. The details show the same pair as **C
 | Alt-1 | Show the container's overview again, also from inside its shell |
 | D | Show disk use, or the containers again |
 | `/` | Filter by name, service, image or project |
+| Alt-O | Open the folder of the Compose file beside the list |
 | Tab | Switch between the list and the details |
 | Alt-W | Maximize the focused pane |
 
 Stop and restart ask for confirmation first. On a project, an action only affects the
 containers it would change, so Start starts only the stopped ones.
+
+**Alt-O** opens the folder of the Compose file that started the container or project in the
+other panel, with the cursor on the file, or the project's folder when Compose names no file.
+The list stays as it was, as in the activity monitor (see
+[Activity and memory](#activity-and-memory)). A container that Compose did not start has no folder
+on this computer, so Alt-O says so, and **F** browses its files instead.
 
 ### Container files
 
@@ -1659,9 +1670,23 @@ with it. Press H again to show them all.
 | K | Send a signal or change the priority |
 | E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
+| Alt-O | Open the folder of the selected program beside the list |
 | Space | Pause or resume sampling |
 | R | Refresh the current view |
 | Esc | Go back; in the process list, close the monitor or return to the network screen |
+
+**Alt-O** opens the folder of the selected process's program in the other pane, with the cursor
+on the program, and the files take the keys. The list keeps its filter, its order and the process
+you selected. **Tab** moves the keys between the list and the files, and Alt-O on another row
+moves the files there. **Esc** in the list, or **Alt-M**, brings the overview back, and Alt-M
+again closes the monitor. In the open files and the memory map, Alt-O shows the selected open file
+or the file the region maps. When the program was deleted while it runs, its folder opens with a
+notice. A notice also tells you when the file is not in its folder on this computer, as happens
+for a program that runs inside a container. Alerts, startup items and the Docker view work the
+same way.
+
+Every screen keeps its filter when you close it and shows it again when it opens. To clear a
+filter, press **/** and then **Esc**.
 
 Click a column heading to sort, and double-click a process to open its memory map. The overview
 shows current resident memory, the highest value seen, the change since monitoring started, CPU,
@@ -1781,7 +1806,8 @@ before you suspect it.
 
 Press **/** in the memory pane, or **Ctrl-F** in either pane, to search memory. Choose a mode,
 whether case must match, and whether to search the process's readable memory or the current
-capture. **Text** searches UTF-8, UTF-16 (both byte orders), and UTF-32 (both byte orders).
+capture. The form opens with what it held when you last closed it. **Text** searches UTF-8,
+UTF-16 (both byte orders), and UTF-32 (both byte orders).
 **Unicode** also normalizes compatibility characters and combining sequences: for example,
 `𝐁𝐨𝐫𝐠` matches `Borg`. It does not treat different letters as equal just because they look
 alike. **Hex** takes byte pairs such as `42 6F 72 67`.
@@ -1981,11 +2007,12 @@ push the end of a command out of view. Ctrl-C copies the command as the log keep
 | C | Let a frozen process go on running |
 | K | End the process, after a question |
 | A | Allow starts like this one from now on |
+| Alt-O | Open the folder of the alert's program beside the list |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
 | R | Read the log again |
 | Ctrl-C | Copy the command the process ran |
 | Alt-W | Maximize the list |
-| Esc | Clear the filter, then close the page |
+| Esc | Close the page, which keeps its filter |
 
 The filter keeps the alerts that contain every word you type, in the rule, its short name, the
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
@@ -2304,11 +2331,12 @@ place of the address once it is known.
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
-| Esc | Go back to the list, then clear the filter, then close the screen or return to the activity monitor |
+| Esc | Go back to the list, then close the screen or return to the activity monitor |
 
 P sorts the pages that have a port, and C the pages that count connections. Click a column
 heading to sort by it, and double-click a row to show its process. Enter on a row without a
-process moves into the details. The activity monitor that Enter and K open has the process
+process moves into the details. A row names a process and no program file, so Alt-O here tells you
+to press Enter and then Alt-O in the activity monitor. The activity monitor that Enter and K open has the process
 selected, so its memory, signals and priority are one key away (see
 [Signals and priority](#signals-and-priority)). Esc there brings you back to the network screen
 on the row you left, with its charts.
@@ -2642,15 +2670,17 @@ and its details say **Turned off in its own file, so it does not start.**
 
 | Key | Action |
 | --- | --- |
-| Enter | Close the screen and show the item's file in the panel |
+| Enter, Alt-O | Open the folder of the item's file beside the list |
 | F3 / F4 | View / edit the item's file |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
 | R | Read every place again |
 | Ctrl-C | Copy what the item runs |
 | Alt-W | Maximize the list |
-| Esc | Clear the filter, then close the screen |
+| Esc | Close the screen, which keeps its filter |
 
-Double-click a row to show its file in the panel. The filter keeps the items that contain every
+Enter or a double-click opens the folder of the item's file in the other pane, with the cursor on
+the file, and the list stays as it was. Tab moves between the list and the files, and Esc in the
+list or Alt-U brings the details back. The filter keeps the items that contain every
 word you type, in the place, the name, what it runs, the file's path, the owner, the user it runs
 as, when it runs, **found** or **missing**, and the names of the rules it matched. Put `!` before a
 word to leave out what it matches: `root !timer` keeps root's items other than timers. Each place

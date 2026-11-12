@@ -6,7 +6,7 @@ use std::time::Instant;
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{FILTER_LIMIT, PAGE, StartupItems, close, place_in_folder, reread};
+use super::{FILTER_LIMIT, PAGE, StartupItems, close, reread};
 use crate::{Action, AppState, EditorSlot, Effect};
 
 pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
@@ -95,27 +95,16 @@ fn filter_key(startup: &mut StartupItems, key: &KeyEvent) -> bool {
     true
 }
 
-/// Esc clears a filter, then closes the screen.
+/// Esc closes the screen, which keeps its filter for the next time it opens.
 fn escape(state: &mut AppState) -> Vec<Effect> {
-    let startup = &mut state.startup_items;
-    if !startup.filter.is_empty() {
-        startup.filter.clear();
-        startup.rebuild();
-    } else {
-        close(state);
-    }
+    close(state);
     Vec::new()
 }
 
-/// Enter closes the screen and shows the selected item's file in the panel it covered.
+/// Enter shows the selected item's file in a panel beside the list, as Alt-O does.
 fn show_in_panel(state: &mut AppState) -> Vec<Effect> {
-    let Some((folder, name)) = state.startup_items.selected().and_then(|item| place_in_folder(&item.file)) else {
-        return Vec::new();
-    };
-    let side = state.startup_items.side.unwrap_or(state.active);
-    close(state);
-    state.active = side;
-    vec![state.navigate(side, folder, Some(name))]
+    let Some(list) = state.startup_items.side else { return Vec::new() };
+    crate::screens::show_row(state, crate::screens::Screen::Startup, list)
 }
 
 fn view(state: &mut AppState) -> Vec<Effect> {

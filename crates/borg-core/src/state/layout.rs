@@ -42,7 +42,7 @@ impl AppState {
     pub fn layout(&self, now: Instant) -> Layout {
         let mut layout = Layout::new(self.cols, self.rows, self.chrome(), self.split.value(now));
         if let Some(side) = self.activity.side {
-            if self.activity.inspecting() {
+            if self.activity.inspecting() && self.lent.is_none() {
                 layout.panels = inspection_panels(layout.panels);
             }
             if self.activity.expanded {
@@ -54,7 +54,7 @@ impl AppState {
             expand(&mut layout, focus);
             return layout;
         }
-        if self.results_expanded() {
+        if self.results_expanded() && self.lent.is_none() {
             let mut whole = whole_width(&layout);
             let other = if self.aside.is_some() && whole.height >= RESULT_PREVIEW_MIN_ROWS {
                 let height = whole.height / RESULT_PREVIEW_DIVISOR;

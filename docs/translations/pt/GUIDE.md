@@ -112,7 +112,8 @@ funcionam com o visualizador e com a pré-visualização.
   `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d`
   (alterado na última semana), `mod:>1y` e `in:src` (uma pasta em qualquer ponto do caminho). As
   pesquisas recentes aparecem por baixo do formulário, com as feitas na mesma pasta em primeiro
-  lugar; clique numa delas, ou prima Ctrl-P e Ctrl-N no campo de pesquisa, para a reutilizar. Os
+  lugar; clique numa delas, ou prima Ctrl-P e Ctrl-N no campo de pesquisa, para a reutilizar. A
+  janela abre com a pesquisa e as opções que lá deixou da última vez, na pasta onde está. Os
   nomes correspondem em qualquer alfabeto, seja qual for a capitalização de um glob, e as letras
   acentuadas correspondem independentemente da forma como o sistema de ficheiros as guarda. As
   correspondências próximas da pasta de pesquisa aparecem primeiro, enquanto o resto da árvore
@@ -282,7 +283,8 @@ precisa de uma pasta real como destino. Numa coleção, F8 remove referências e
 ficheiros; nos resultados de pesquisa, F8 pede confirmação para eliminar os ficheiros originais.
 Shift-F8 também elimina os ficheiros originais a partir de uma coleção, depois de confirmar. Quando
 estão marcados uma pasta e ficheiros dentro dela, a tarefa trata a pasta uma única vez. **Revelar
-original** abre a pasta do ficheiro no outro painel. Left ou Esc ocultam os resultados, e
+original** ou Alt-Shift-O abre a pasta do ficheiro no outro painel, com o cursor no ficheiro. Left
+ou Esc ocultam os resultados, e
 Alt-Shift-R repõe-nos onde os deixou. Tab alterna entre os painéis mesmo quando a shell tem um
 comando por terminar. A shell fica sempre numa pasta real. F10 pede sempre confirmação antes de
 sair.
@@ -432,6 +434,7 @@ instantes.
 | Alt-Shift-Left/Right | Redimensionar os painéis |
 | Ctrl-U | Trocar os painéis |
 | Alt-O | Abrir a pasta deste painel no outro painel |
+| Alt-Shift-O | Nos resultados de pesquisa ou numa coleção, abrir a pasta do próprio ficheiro no outro painel |
 | Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
@@ -598,7 +601,7 @@ projeto Compose, com os contentores que não pertencem a nenhum projeto no fim. 
 mostra o contentor selecionado: estado, portas, redes, montagens, comando e política de
 reinício, além da utilização de CPU, memória, rede e disco em tempo real, com um gráfico do
 último minuto. Num projeto, mostra a pasta do projeto, os seus contentores e a utilização
-conjunta. Esc fecha a vista.
+conjunta. Esc fecha a vista e guarda o filtro para a próxima vez.
 
 A CPU aparece duas vezes. **Agora %** é a leitura mais recente, e **Média %** é a média dos
 últimos segundos, como no monitor de atividade, por isso mantém-se estável quando um contentor
@@ -617,11 +620,18 @@ seus contentores em execução.
 | Alt-1 | Voltar a mostrar a visão geral do contentor, também a partir da shell |
 | D | Mostrar o espaço em disco, ou voltar aos contentores |
 | `/` | Filtrar por nome, serviço, imagem ou projeto |
+| Alt-O | Abrir a pasta do ficheiro Compose ao lado da lista |
 | Tab | Alternar entre a lista e os detalhes |
 | Alt-W | Maximizar o painel com o foco |
 
 Parar e reiniciar pedem confirmação primeiro. Num projeto, uma ação só afeta os contentores que
 alteraria, pelo que Começar só inicia os contentores parados.
+
+**Alt-O** abre no outro painel a pasta do ficheiro Compose que iniciou o contentor ou o projeto,
+com o cursor no ficheiro, ou a pasta do projeto quando o Compose não indica nenhum ficheiro. A
+lista fica como estava, tal como no monitor de atividade (consulte
+[Atividade e memória](#activity-and-memory)). Um contentor que o Compose não iniciou não tem pasta
+neste computador, por isso Alt-O indica-o, e **F** explora os seus ficheiros.
 
 ### Ficheiros do contentor
 
@@ -1792,9 +1802,23 @@ para voltar a mostrar todos.
 | K | Enviar um sinal ou alterar a prioridade |
 | E | Procurar entropia alta em todos os processos |
 | Alt-N | Mostrar o tráfego do processo selecionado no ecrã de rede |
+| Alt-O | Abrir a pasta do programa selecionado ao lado da lista |
 | Space | Pausar ou retomar a amostragem |
 | R | Atualizar a vista atual |
 | Esc | Voltar; na lista de processos, fechar o monitor ou regressar ao ecrã de rede |
+
+**Alt-O** abre a pasta do programa do processo selecionado no outro painel, com o cursor no
+programa, e os ficheiros passam a receber as teclas. A lista mantém o filtro, a ordem e o processo
+que selecionou. **Tab** passa as teclas entre a lista e os ficheiros, e Alt-O noutra linha leva os
+ficheiros para lá. **Esc** na lista, ou **Alt-M**, traz de volta o resumo, e Alt-M outra vez fecha
+o monitor. Nos ficheiros abertos e no mapa de memória, Alt-O mostra o ficheiro aberto selecionado
+ou o ficheiro que a região mapeia. Quando o programa foi eliminado enquanto corre, a sua pasta abre
+com um aviso. Um aviso indica também quando o ficheiro não está na sua pasta neste computador, como
+acontece com um programa que corre dentro de um contentor. Os alertas, os itens de arranque e a
+vista Docker funcionam da mesma forma.
+
+Cada ecrã guarda o filtro quando o fecha e volta a mostrá-lo quando o abre. Para limpar um filtro,
+prima **/** e depois **Esc**.
 
 Clique no cabeçalho de uma coluna para ordenar, e faça duplo clique num processo para abrir o seu
 mapa de memória. O resumo mostra a memória residente atual, o valor mais alto observado, a
@@ -1924,8 +1948,8 @@ região contém antes de suspeitar dela.
 
 Prima **/** no painel de memória, ou **Ctrl-F** em qualquer dos painéis, para pesquisar a
 memória. Escolha um modo, se as maiúsculas e minúsculas têm de coincidir, e se quer pesquisar a
-memória legível do processo ou a captura atual. **Texto** pesquisa UTF-8, UTF-16 (nas duas ordens
-de bytes) e UTF-32 (nas duas ordens de bytes). **Unicode** normaliza também os caracteres de
+memória legível do processo ou a captura atual. O formulário abre com o que tinha quando o fechou
+da última vez. **Texto** pesquisa UTF-8, UTF-16 (nas duas ordens de bytes) e UTF-32 (nas duas ordens de bytes). **Unicode** normaliza também os caracteres de
 compatibilidade e as sequências combinadas: por exemplo,
 `𝐁𝐨𝐫𝐠` corresponde a `Borg`. Não trata como iguais letras diferentes só por serem parecidas.
 **Bytes hexadecimais** aceita pares de bytes como `42 6F 72 67`.
@@ -2146,11 +2170,12 @@ registo o guarda.
 | C | Deixar um processo congelado continuar a correr |
 | K | Terminar o processo, depois de uma pergunta |
 | A | Permitir arranques como este a partir de agora |
+| Alt-O | Abrir a pasta do programa do alerta ao lado da lista |
 | `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
 | R | Ler o registo de novo |
 | Ctrl-C | Copiar o comando que o processo correu |
 | Alt-W | Maximizar a lista |
-| Esc | Limpar o filtro e depois fechar a página |
+| Esc | Fechar a página, que guarda o filtro |
 
 O filtro mantém os alertas que contêm todas as palavras que escrever, na regra, no seu nome curto,
 no motivo, no programa, no processo-pai, no utilizador, no comando e no que o Borg fez. Ponha `!`
@@ -2483,11 +2508,13 @@ endereço assim que o conhece.
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
 | Alt-W | Maximizar o painel com o foco |
-| Esc | Voltar à lista, depois limpar o filtro e depois fechar o ecrã ou regressar ao monitor de atividade |
+| Esc | Voltar à lista e depois fechar o ecrã ou regressar ao monitor de atividade |
 
 P ordena as páginas que têm porta, e C as que contam ligações. Clique no cabeçalho de uma coluna
 para ordenar por ela, e faça duplo clique numa linha para mostrar o processo. Enter numa linha sem
-processo passa para os detalhes. O monitor de atividade que Enter e K abrem tem o processo
+processo passa para os detalhes. Uma linha indica um processo e nenhum ficheiro de programa, por
+isso Alt-O aqui diz-lhe para premir Enter e depois Alt-O no monitor de atividade. O monitor de
+atividade que Enter e K abrem tem o processo
 selecionado, por isso a memória, os sinais e a prioridade ficam à distância de uma tecla (consulte
 [Sinais e prioridade](#signals-and-priority)). Esc aí leva-o de volta ao ecrã de rede, à linha
 onde estava e com os gráficos.
@@ -2844,15 +2871,17 @@ próprio ficheiro desativa aparece esbatido, e os detalhes dizem
 
 | Tecla | Ação |
 | --- | --- |
-| Enter | Fechar o ecrã e mostrar o ficheiro do item no painel |
+| Enter, Alt-O | Abrir a pasta do ficheiro do item ao lado da lista |
 | F3 / F4 | Ver / editar o ficheiro do item |
 | `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
 | R | Ler de novo todos os locais |
 | Ctrl-C | Copiar o que o item executa |
 | Alt-W | Maximizar a lista |
-| Esc | Limpar o filtro e depois fechar o ecrã |
+| Esc | Fechar o ecrã, que guarda o filtro |
 
-Faça duplo clique numa linha para mostrar o ficheiro no painel. O filtro mantém os itens que contêm
+Enter ou um duplo clique abre a pasta do ficheiro do item no outro painel, com o cursor no
+ficheiro, e a lista fica como estava. Tab alterna entre a lista e os ficheiros, e Esc na lista ou
+Alt-U traz de volta os detalhes. O filtro mantém os itens que contêm
 todas as palavras que escrever, no local, no nome, no que executa, no caminho do ficheiro, no
 proprietário, no utilizador com que corre, em quando corre, em **existe** ou **em falta** e nos
 nomes das regras a que correspondeu. Ponha `!` antes de uma palavra para excluir o que ela encontra:

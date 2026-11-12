@@ -220,3 +220,34 @@ fn search_key_of(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
     let Some(Overlay::Search(form)) = state.overlay.take() else { panic!("search window") };
     search_key(state, form, &key)
 }
+
+#[test]
+fn the_dialog_opens_with_what_it_held_when_it_closed_in_the_current_folder() {
+    let (mut state, _) = AppState::new(
+        crate::Startup::at("/work".into()),
+        100,
+        30,
+        crate::Settings::default(),
+        crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+        std::time::Instant::now(),
+    );
+    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    let mut form = SearchForm::new(&state, false);
+    assert_eq!(form.pattern.text(), "*");
+    form.pattern = LineInput::new("*.log");
+    form.kind = SearchKind::Files;
+    form.minimum = LineInput::new("10M");
+    form.root = LineInput::new("/elsewhere");
+    form.selected = KIND_FIELD;
+    search_key(&mut state, form, &esc);
+    assert_eq!(state.overlay, None);
+
+    let form = SearchForm::new(&state, false);
+    assert_eq!((form.pattern.text(), form.kind, form.minimum.text()), ("*.log", SearchKind::Files, "10M"));
+    assert_eq!((form.root.text(), form.selected), ("/work", 0), "it searches where you are, from the first field");
+
+    let space = SearchForm::new(&state, true);
+    assert_eq!((space.pattern.text(), space.kind), ("*", SearchKind::FolderTotals));
+    search_key(&mut state, space, &esc);
+    assert_eq!(SearchForm::new(&state, false).pattern.text(), "*.log", "analyzing space keeps the search's values");
+}

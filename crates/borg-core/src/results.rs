@@ -527,9 +527,10 @@ pub(crate) fn back(state: &mut AppState) -> Vec<Effect> {
     if sizes && !state.panel(side).is_results() { vec![state.reload(side)] } else { Vec::new() }
 }
 
+/// Opens the folder of the result under the cursor in the other panel, with the cursor on it.
 pub(crate) fn reveal(state: &mut AppState) -> Vec<Effect> {
     let panel = state.active_panel();
-    let Some(entry) = panel.hovered_entry() else { return Vec::new() };
+    let Some(entry) = panel.hovered_entry().filter(|_| panel.is_results()) else { return Vec::new() };
     let path = entry.path(panel.dir());
     let Some(parent) = path.parent() else { return Vec::new() };
     let side = state.active.other();

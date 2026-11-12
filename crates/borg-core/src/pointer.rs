@@ -233,8 +233,8 @@ fn open_menu(state: &mut AppState, index: usize) -> Vec<Effect> {
     Vec::new()
 }
 
-/// A click or the wheel with no window open: on a monitor beside the panels, or on the panels,
-/// their trees and their results.
+/// A click or the wheel with no window open: on a screen over the panels, whose list then takes
+/// the keys from a file panel it lends, or on the panels, their trees and their results.
 fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     match pointer {
         Pointer::CdChoice(row) => crate::folders::pick(state, row),
@@ -246,6 +246,7 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         | Pointer::ActivitySort(_)
             if state.activity.side.is_some() =>
         {
+            crate::screens::focus_list(state);
             monitors::activity(state, pointer, now)
         }
         Pointer::DockerExpand { .. }
@@ -255,6 +256,7 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         | Pointer::DockerControl { .. }
             if state.docker.is_open() =>
         {
+            crate::screens::focus_list(state);
             monitors::containers(state, pointer, now)
         }
         Pointer::NetworkExpand { .. }
@@ -266,16 +268,19 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         | Pointer::NetworkControl { .. }
             if state.network.is_open() =>
         {
+            crate::screens::focus_list(state);
             monitors::network(state, pointer, now)
         }
         Pointer::StartupExpand(_) | Pointer::StartupHide | Pointer::StartupRow { .. } | Pointer::StartupControl(_)
             if state.startup_items.is_open() =>
         {
+            crate::screens::focus_list(state);
             monitors::startup(state, pointer, now)
         }
         Pointer::AlertsExpand(_) | Pointer::AlertsHide | Pointer::AlertsRow { .. } | Pointer::AlertsControl(_)
             if state.alerts.is_open() =>
         {
+            crate::screens::focus_list(state);
             monitors::alerts(state, pointer, now)
         }
         Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),

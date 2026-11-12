@@ -12,8 +12,13 @@ use crate::{
 /// The longest query, in bytes.
 const QUERY_LIMIT: usize = 512;
 
+/// The form as it was when it last closed, on its query, or else an empty one.
+pub(super) fn reopen(activity: &Activity) -> MemorySearchForm {
+    activity.search_draft.clone().map_or_else(new, |draft| MemorySearchForm { selected: 0, ..draft })
+}
+
 /// An empty form, for text that matches its case.
-pub(super) fn new() -> MemorySearchForm {
+fn new() -> MemorySearchForm {
     MemorySearchForm {
         input: crate::LineInput::default(),
         mode: MemorySearchMode::Text,
@@ -29,12 +34,14 @@ pub(super) fn on_key(activity: &mut Activity, mut form: MemorySearchForm, key: &
     match key.code {
         KeyCode::Esc => {
             activity.error = None;
+            activity.search_draft = Some(form);
             return Vec::new();
         }
         KeyCode::Tab | KeyCode::Down => form.selected = (form.selected + 1) % 4,
         KeyCode::BackTab | KeyCode::Up => form.selected = (form.selected + 3) % 4,
         KeyCode::Enter => {
             if let Some(effects) = submit(activity, &form) {
+                activity.search_draft = Some(form);
                 return effects;
             }
         }
