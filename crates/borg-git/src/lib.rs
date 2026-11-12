@@ -2,6 +2,7 @@ use borg_i18n::tr;
 mod model;
 
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     path::{Path, PathBuf},
     process::{Output as ProcessOutput, Stdio},
@@ -27,10 +28,50 @@ async fn read(reader: impl AsyncRead + Unpin) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-async fn command(dir: &Path, args: &[&str], paths: &[PathBuf]) -> Result<ProcessOutput> {
+/// Settings that keep Git from starting a program only because a setting names one.
+const NO_PROGRAMS: [&str; 4] = ["-c", "core.fsmonitor=false", "-c", "log.showSignature=false"];
+const FILTER_SECTION: &str = "filter.";
+/// The settings of a filter that name a program Git runs on the files it reads.
+const FILTER_PROGRAMS: [&str; 3] = ["clean", "smudge", "process"];
+/// What `git config --get-regexp` exits with when no setting matches.
+const NO_MATCH: i32 = 1;
+
+/// Settings that turn off the filters named in `names`, the NUL-separated names of a
+/// repository's own filter settings. A repository somebody else made can name any program as
+/// a filter, and Git would run it on the files it compares while Borg only looks at a folder.
+fn without_filters(names: &[u8]) -> Result<Vec<String>> {
+    let names = std::str::from_utf8(names).context("a filter in this repository has a name Borg cannot read")?;
+    let drivers: BTreeSet<&str> = names
+        .split('\0')
+        .filter_map(|name| name.strip_prefix(FILTER_SECTION)?.rsplit_once('.'))
+        .map(|(driver, _)| driver)
+        .collect();
+    let settings = drivers.into_iter().flat_map(|driver| {
+        let programs = FILTER_PROGRAMS.iter().map(move |program| format!("{FILTER_SECTION}{driver}.{program}="));
+        programs.chain([format!("{FILTER_SECTION}{driver}.required=false")])
+    });
+    Ok(settings.flat_map(|setting| ["-c".to_owned(), setting]).collect())
+}
+
+/// The settings to look at the repository at `dir` with, so that nothing its own configuration
+/// names is run. Filters set up for the user, as Git LFS is, stay as they are.
+async fn looking_only(dir: &Path) -> Result<Vec<String>> {
+    let listed =
+        command(dir, &[], &["config", "--local", "--includes", "-z", "--name-only", "--get-regexp", "^filter\\."], &[])
+            .await?;
+    if listed.status.code() == Some(NO_MATCH) && listed.stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+    without_filters(&successful(listed)?)
+}
+
+async fn command(dir: &Path, settings: &[String], args: &[&str], paths: &[PathBuf]) -> Result<ProcessOutput> {
     let mut command = Command::new("git");
     command
-        .args(["--no-pager", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "color.ui=false", "-C"])
+        .args(["--no-pager", "--literal-pathspecs", "-c", "color.ui=false"])
+        .args(NO_PROGRAMS)
+        .args(settings)
+        .arg("-C")
         .arg(dir)
         .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -58,7 +99,7 @@ fn successful(output: ProcessOutput) -> Result<Vec<u8>> {
 
 pub async fn inspect(dir: &Path) -> Result<Option<Repository>> {
     tokio::time::timeout(STATUS_TIMEOUT, async {
-        let root = command(dir, &["rev-parse", "--show-toplevel"], &[]).await?;
+        let root = command(dir, &[], &["rev-parse", "--show-toplevel"], &[]).await?;
         if !root.status.success() {
             let error = String::from_utf8_lossy(&root.stderr);
             if error.contains("not a git repository") || error.contains("must be run in a work tree") {
@@ -74,10 +115,9 @@ pub async fn inspect(dir: &Path) -> Result<Option<Repository>> {
         let root = PathBuf::from(OsString::from_vec(bytes));
         let canonical = tokio::fs::canonicalize(dir).await?;
         let prefix = canonical.strip_prefix(&root).context("Git directory is outside its repository")?.to_path_buf();
-        let status = successful(
-            command(dir, &["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all", "--", "."], &[])
-                .await?,
-        )?;
+        let settings = looking_only(dir).await?;
+        let status = ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all", "--", "."];
+        let status = successful(command(dir, &settings, &status, &[]).await?)?;
         Repository::parse(root, &status).map(|repository| Some(repository.at_directory(dir.to_path_buf(), prefix)))
     })
     .await
@@ -105,7 +145,7 @@ pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
         Tool::Unstage => ("", &["restore", "--staged"]),
     };
     let has_head = if matches!(tool, Tool::Unstage | Tool::Log) {
-        command(dir, &["rev-parse", "--verify", "HEAD"], &[]).await?.status.success()
+        command(dir, &[], &["rev-parse", "--verify", "HEAD"], &[]).await?.status.success()
     } else {
         true
     };
@@ -115,7 +155,8 @@ pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
     let args =
         if tool == Tool::Unstage && !has_head { &["rm", "--cached", "--ignore-unmatch", "-r", "-f"][..] } else { args };
     let selected = if tool.needs_selection() { paths.as_slice() } else { &[] };
-    let mut text = successful(command(dir, args, selected).await?)?;
+    let settings = if tool.changes_index() { Vec::new() } else { looking_only(dir).await? };
+    let mut text = successful(command(dir, &settings, args, selected).await?)?;
     if tool.changes_index() {
         return Ok(Output::IndexUpdated);
     }
@@ -126,3 +167,6 @@ pub async fn run(dir: &Path, tool: Tool, paths: &[PathBuf]) -> Result<Output> {
 }
 
 use std::os::unix::ffi::OsStringExt;
+
+#[cfg(test)]
+mod tests;

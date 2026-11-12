@@ -89,10 +89,33 @@ pub fn census(
     MemoryCensus { process, start, end: region.end, page: PAGE, stride, pages, residency }
 }
 
+/// Bytes of one entry in Linux's page map.
+#[cfg(target_os = "linux")]
+const MAP_ENTRY: u64 = 8;
+
+/// Where the page map keeps the kernel pages that hold `count` of Borg's pages from `address`:
+/// the first kernel page and how many follow. The kernel's pages are 4 KiB on most machines
+/// and 16 or 64 KiB on some, while Borg always counts in pages of [`PAGE`] bytes.
+#[cfg(any(target_os = "linux", test))]
+fn kernel_pages(address: u64, count: usize, kernel_page: u64) -> (u64, usize) {
+    let first = address / kernel_page;
+    let last = (address + (count as u64 * PAGE).saturating_sub(1)) / kernel_page;
+    (first, (last - first + 1) as usize)
+}
+
+/// Which of the kernel pages read from `first` holds each of Borg's `count` pages from `address`.
+#[cfg(any(target_os = "linux", test))]
+fn kernel_page_of(address: u64, count: usize, kernel_page: u64, first: u64) -> impl Iterator<Item = usize> {
+    (0..count as u64).map(move |page| ((address + page * PAGE) / kernel_page - first) as usize)
+}
+
 /// Whether pages are in memory, from Linux's page map, which whoever may read the process's
 /// memory may read too.
 #[cfg(target_os = "linux")]
-pub struct Residency(Option<std::fs::File>);
+pub struct Residency {
+    map: Option<std::fs::File>,
+    kernel_page: u64,
+}
 
 #[cfg(target_os = "linux")]
 impl Residency {
@@ -102,19 +125,23 @@ impl Residency {
     pub const FILE: u64 = 1 << 61;
 
     pub fn open(pid: u32) -> Self {
-        Self(std::fs::File::open(format!("/proc/{pid}/pagemap")).ok())
+        let map = std::fs::File::open(format!("/proc/{pid}/pagemap")).ok();
+        Self { map, kernel_page: rustix::param::page_size() as u64 }
     }
 
     pub fn resident(&self, address: u64) -> Option<bool> {
         Some(self.entries(address, 1)?[0] & Self::PRESENT != 0)
     }
 
-    /// The page map entries of `count` pages from `address`.
+    /// The page map entries of `count` of Borg's pages from `address`, each the entry of the
+    /// kernel page that holds it.
     pub fn entries(&self, address: u64, count: usize) -> Option<Vec<u64>> {
         use std::os::unix::fs::FileExt;
-        let mut bytes = vec![0u8; count * 8];
-        self.0.as_ref()?.read_exact_at(&mut bytes, address / PAGE * 8).ok()?;
-        Some(bytes.as_chunks::<8>().0.iter().map(|entry| u64::from_le_bytes(*entry)).collect())
+        let (first, length) = kernel_pages(address, count, self.kernel_page);
+        let mut bytes = vec![0u8; length * MAP_ENTRY as usize];
+        self.map.as_ref()?.read_exact_at(&mut bytes, first * MAP_ENTRY).ok()?;
+        let read: Vec<u64> = bytes.as_chunks::<8>().0.iter().map(|entry| u64::from_le_bytes(*entry)).collect();
+        Some(kernel_page_of(address, count, self.kernel_page, first).map(|at| read[at]).collect())
     }
 }
 
@@ -181,5 +208,20 @@ mod tests {
         );
         assert_eq!((census.pages[1].entropy, census.highest()), (None, census.pages[0].entropy));
         assert_eq!(census.address(1), PAGE * 3);
+    }
+
+    /// Borg counts in 4 KiB pages. Where the kernel's pages are larger, several of Borg's pages
+    /// share one entry of the page map, and the entry is found by the kernel's page size.
+    #[test]
+    fn page_map_entries_are_found_by_the_kernels_own_page_size() {
+        const SMALL: u64 = 4 * 1024;
+        const LARGE: u64 = 16 * 1024;
+        assert_eq!(kernel_pages(5 * PAGE, 3, SMALL), (5, 3));
+        assert_eq!(kernel_page_of(5 * PAGE, 3, SMALL, 5).collect::<Vec<_>>(), [0, 1, 2]);
+
+        assert_eq!(kernel_pages(5 * PAGE, 1, LARGE), (1, 1));
+        let (first, length) = kernel_pages(6 * PAGE, 4, LARGE);
+        assert_eq!((first, length), (1, 2), "pages 6 and 7 lie in kernel page 1, pages 8 and 9 in 2");
+        assert_eq!(kernel_page_of(6 * PAGE, 4, LARGE, first).collect::<Vec<_>>(), [0, 0, 1, 1]);
     }
 }

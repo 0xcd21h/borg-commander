@@ -19,6 +19,9 @@ const WRITE_BIT: char = 'w';
 const EXECUTE_BITS: [char; 3] = ['x', 's', 't'];
 const PERMISSION_BITS: [u32; 9] = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001];
 const SEVEN_ZIP_TIME: &str = "%Y-%m-%d %H:%M:%S";
+/// Characters bsdtar reads as a pattern in the name of an entry to take out.
+const PATTERN_CHARACTERS: [char; 4] = ['\\', '*', '?', '['];
+const PATTERN_ESCAPE: char = '\\';
 
 pub(crate) fn index(tool: &Tool, archive: &Path, bytes: u64, password: Option<&str>) -> Result<Index, Error> {
     if password.is_some() {
@@ -147,7 +150,27 @@ fn local_time(text: &str) -> Option<SystemTime> {
     Some(SystemTime::from(zoned.timestamp()))
 }
 
-/// Streams each wanted entry out of the program, one run per entry.
+/// An entry's name as bsdtar takes it to mean that entry alone, not a pattern other entries
+/// could match.
+pub(crate) fn literal_pattern(name: &str) -> String {
+    name.chars().fold(String::with_capacity(name.len()), |mut pattern, character| {
+        if PATTERN_CHARACTERS.contains(&character) {
+            pattern.push(PATTERN_ESCAPE);
+        }
+        pattern.push(character);
+        pattern
+    })
+}
+
+/// Whether the program has written everything it had, which reading once more tells.
+fn finished(output: &mut impl Read) -> bool {
+    matches!(output.read(&mut [0]), Ok(0))
+}
+
+/// Streams each wanted entry out of the program, one run per entry. A run whose entry was not
+/// read to its end is stopped, so leaving an entry out or cancelling never waits for the
+/// program to unpack the rest of it. What the program says is wrong is read as it comes, so a
+/// program with much to say never waits for Borg while Borg waits for it.
 pub(crate) fn each(
     tool: &Tool,
     archive: &Path,
@@ -162,22 +185,29 @@ pub(crate) fn each(
         let mut command = Command::new(&tool.program);
         match tool.kind {
             ToolKind::SevenZip => command.args(["x", "-so", "-spd", "-ba", "--"]).arg(archive).arg(&item.raw),
-            ToolKind::Bsdtar => command.args(["-xOqf"]).arg(archive).arg("--").arg(&item.raw),
+            ToolKind::Bsdtar => command.args(["-xOqf"]).arg(archive).arg("--").arg(literal_pattern(&item.raw)),
         };
         let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
         let mut stdout = child.stdout.take().ok_or(Error::NoTool)?;
+        let said = child.stderr.take().map(|mut stderr| {
+            std::thread::spawn(move || {
+                let mut errors = String::new();
+                let _ = stderr.read_to_string(&mut errors);
+                errors
+            })
+        });
         let flow = visit(item, &mut stdout);
-        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
-        drop(stdout);
-        let mut errors = String::new();
-        if let Some(mut stderr) = child.stderr.take() {
-            let _ = stderr.read_to_string(&mut errors);
+        let read_whole = flow.is_ok() && finished(&mut stdout);
+        if !read_whole {
+            let _ = child.kill();
         }
+        drop(stdout);
         let status = child.wait()?;
+        let errors = said.and_then(|said| said.join().ok()).unwrap_or_default();
         if flow? == Flow::Stop {
             break;
         }
-        if !status.success() {
+        if read_whole && !status.success() {
             return Err(Error::Tool(tool.name(), errors.trim().to_owned()));
         }
     }

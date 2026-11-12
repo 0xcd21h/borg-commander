@@ -21,8 +21,7 @@ fn writers_saving_one_file_at_once_each_replace_it_whole() -> Result<()> {
             .map(|writer| {
                 let file = &file;
                 scope.spawn(move || -> Result<()> {
-                    let save = if writer % 2 == 0 { write_atomically } else { write_privately };
-                    (0..WRITES).try_for_each(|write| save(file, contents(writer, write).as_bytes()))
+                    (0..WRITES).try_for_each(|write| write_privately(file, contents(writer, write).as_bytes()))
                 })
             })
             .collect();
@@ -34,5 +33,23 @@ fn writers_saving_one_file_at_once_each_replace_it_whole() -> Result<()> {
     let left: Vec<_> =
         fs::read_dir(dir.path())?.map(|entry| entry.map(|entry| entry.file_name())).collect::<Result<_, _>>()?;
     assert_eq!(left, [file.file_name().unwrap_or_default()]);
+    Ok(())
+}
+
+/// The configuration holds tokens and the state says what the user did, so a save leaves the
+/// file readable by its owner alone, whatever it was before.
+#[test]
+fn a_saved_file_is_its_owners_alone_even_where_it_replaces_one_others_could_read() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    const OWNER_ONLY: u32 = 0o600;
+    const READABLE_BY_ALL: u32 = 0o644;
+    const PERMISSIONS: u32 = 0o777;
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "old")?;
+    fs::set_permissions(&file, fs::Permissions::from_mode(READABLE_BY_ALL))?;
+    write_privately(&file, b"new")?;
+    assert_eq!(fs::read(&file)?, b"new");
+    assert_eq!(fs::metadata(&file)?.permissions().mode() & PERMISSIONS, OWNER_ONLY);
     Ok(())
 }

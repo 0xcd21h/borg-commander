@@ -1519,6 +1519,8 @@ web cambia el idioma de la guía por separado.
 Los ajustes se guardan en `~/.config/borg-commander/config.toml`, o en la carpeta indicada por
 `$XDG_CONFIG_HOME` o `$BORG_CONFIG_DIR`. F9 → Opciones → Configuración los muestra como casillas;
 Space o un clic activa o desactiva un ajuste y lo guarda al instante. Esc cierra la ventana.
+Cuando Borg no puede leer el archivo, arranca con sus valores por defecto y dice por qué; el primer
+ajuste que guardes después conserva el archivo ilegible junto al nuevo como `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -1566,7 +1568,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -2079,7 +2081,8 @@ Pon `!` delante de una palabra para dejar fuera lo que encuentra: `shell-on-sock
 las shells remotas de todos los demás usuarios.
 
 Las alertas viven en `alerts.json` en la carpeta de estado, accesible solo a su propietario, las
-200 más recientes. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
+200 más recientes. Una alerta sobre un proceso que sigue congelado se conserva más allá de ese
+límite, para que siempre puedas dejarlo seguir o terminarlo. Borg mantiene el archivo dentro de 8 MiB, lo máximo que vuelve a leer, y deja
 fuera las alertas más antiguas cuando no caben. La ventana **Archivos de Borg** las cuenta en
 **Estado** (consulta [Archivos de Borg](#borgs-files)). Abrir la página marca como leídas las
 alertas que muestra, y la cuenta de alertas sin leer sigue al registro mientras Borg esté abierto,
@@ -2311,7 +2314,9 @@ Conócelas antes de confiar en él.
   se ejecuta durante la semana de aprendizaje cuenta como normal.
 - Sin el vigilante como root, Borg solo ve tus propios procesos, y un comando que termina en menos
   de un cuarto de segundo puede desaparecer antes de que Borg mire. Los servicios que se ejecutan
-  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root.
+  como otro usuario, como `www-data` o `postgres`, necesitan el vigilante como root. Cuando el
+  vigilante como root se detiene, Borg vuelve a vigilar tus propios procesos hasta que se ejecute de
+  nuevo.
 - Antes de Linux 5.8, o donde la parte root no puede cargar sus programas, Borg lee cada proceso
   nuevo en `/proc` después de que el kernel lo informa. Un comando que termina al instante puede
   haber desaparecido para entonces, y un proceso puede cambiar antes su línea de comandos.
@@ -2415,7 +2420,7 @@ estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5
 | `port:443`, `port:ssh` | Filas con ese número de puerto o servicio |
 | `proc:node`, `process:node` | Filas cuyo nombre de proceso contiene el texto |
 | `pid:4100` | Filas de ese PID |
-| `host:example` | Filas cuya dirección o nombre de host contiene el texto |
+| `host:example` | Filas cuya dirección o nombre de host contiene el texto; una dirección completa conserva solo esa dirección |
 | `state:listen`, `state:time` | Filas TCP en un estado que contiene el texto |
 | `proto:udp`, `proto:tcp` | Filas de ese protocolo |
 | `if:en0`, `interface:en0` | Interfaces cuyo nombre contiene el texto |

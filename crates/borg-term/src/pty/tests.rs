@@ -130,3 +130,34 @@ async fn the_launcher_gives_the_command_the_terminal_as_its_own() {
     child.kill().unwrap();
     child.wait().unwrap();
 }
+
+fn waiting(events: &mut UnboundedReceiver<PtyEvent>) -> Vec<PtyEvent> {
+    std::iter::from_fn(|| events.try_recv().ok()).collect()
+}
+
+fn bytes_of(events: &[PtyEvent]) -> usize {
+    events.iter().map(|event| if let PtyEvent::Output(chunk) = event { chunk.len() } else { 0 }).sum()
+}
+
+/// A program that never stops writing is read only as far as the limit while nobody takes its
+/// output in, read further once somebody does, and its reader still stops when the terminal goes.
+#[test]
+fn output_nobody_takes_in_is_read_no_further_than_the_limit() {
+    const SETTLE: Duration = Duration::from_millis(300);
+    let (sender, mut events) = unbounded_channel();
+    let (wake, stop) = io::pipe().unwrap();
+    let endless = File::open("/dev/zero").unwrap();
+    let reader = thread::spawn(move || pump(endless, &wake, &sender));
+    thread::sleep(SETTLE);
+    let held = waiting(&mut events);
+    let read = bytes_of(&held);
+    assert!((UNREAD_LIMIT..UNREAD_LIMIT + READ_CHUNK).contains(&read), "{read} bytes were read");
+    thread::sleep(SETTLE);
+    assert!(waiting(&mut events).is_empty(), "nothing more is read while that output is held");
+    drop(held);
+    thread::sleep(SETTLE);
+    let more = waiting(&mut events);
+    assert!(bytes_of(&more) >= UNREAD_LIMIT, "reading goes on once the output is taken in");
+    drop(stop);
+    reader.join().unwrap();
+}

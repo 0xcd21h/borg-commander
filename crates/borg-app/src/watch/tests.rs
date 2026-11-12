@@ -181,3 +181,86 @@ fn an_alert_reads_as_one_line_for_the_command_line() {
     assert!(line.contains("sh"), "{line}");
     assert!(line.contains(AlertState::Frozen.label()), "{line}");
 }
+
+/// An allowances file that is there but that Borg cannot read is left as it is: allowing one
+/// more start would otherwise write a list of one over every start allowed before.
+#[tokio::test]
+async fn allowing_a_start_never_writes_over_allowances_borg_cannot_read() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    log::write_log(state, &mut alert_log(1)).unwrap();
+    let damaged = b"[{\"program\":".to_vec();
+    std::fs::write(log::allowed_path(state), &damaged).unwrap();
+    let allowance = alert_log(1).alerts[0].allowance();
+
+    let refused = answer(state, &AlertsRequest::Allow { alert: 1, allowance }).await;
+    assert!(refused.is_err(), "the page says what went wrong");
+    assert_eq!(std::fs::read(log::allowed_path(state)).unwrap(), damaged);
+    assert_eq!(log::read_log(state).alerts[0].state, AlertState::Frozen, "and the alert is not marked allowed");
+}
+
+/// The page and the watcher change one log. Each change starts from the log as the state folder
+/// holds it under a lock, so with both writing at once every alert and every mark is kept.
+#[test]
+fn changes_to_the_log_from_several_writers_at_once_are_all_kept() {
+    const WRITERS: usize = 4;
+    const ALERTS_EACH: usize = 10;
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    std::thread::scope(|scope| {
+        for _ in 0..WRITERS {
+            scope.spawn(|| {
+                for _ in 0..ALERTS_EACH {
+                    let next = alert_log(1).alerts[0].clone();
+                    log::change_log(state, |log| {
+                        log.add(SystemTime::UNIX_EPOCH, next.finding, Response::Alerted, next.process);
+                    })
+                    .unwrap();
+                    log::change_log(state, AlertLog::mark_seen).unwrap();
+                }
+            });
+        }
+    });
+    let log = log::read_log(state);
+    assert_eq!(log.alerts.len(), WRITERS * ALERTS_EACH);
+    let ids: HashSet<u64> = log.alerts.iter().map(|alert| alert.id).collect();
+    assert_eq!(ids.len(), WRITERS * ALERTS_EACH, "no two alerts share an id");
+}
+
+fn sources_after_the_root_watcher(link: root::RootLink, root: UnboundedReceiver<StartedProcess>) -> Sources {
+    Sources {
+        kernel: None,
+        kernel_source: WatchSource::Off,
+        root: Some(root),
+        link: Some(link),
+        own: None,
+        uid: Some(rustix::process::getuid().as_raw()),
+        heard_root: true,
+    }
+}
+
+/// The root watcher may stop at any time. Borg then looks at the user's own processes again
+/// instead of waiting for a watcher that says nothing more.
+#[tokio::test]
+async fn borg_looks_at_its_own_processes_again_once_the_root_watcher_has_gone() {
+    const SETTLE: Duration = Duration::from_millis(100);
+    let folder = tempfile::tempdir().unwrap();
+    let (link, root) = root::RootLink::listen(folder.path()).await.unwrap();
+    let mut sources = sources_after_the_root_watcher(link, root);
+    let processes = Processes::default();
+    let _ = tokio::time::timeout(SETTLE, sources.next(&processes)).await;
+    assert!(sources.own.is_some() && !sources.heard_root);
+    assert_eq!(sources.label(), WatchSource::OwnProcesses);
+}
+
+/// With no root watcher connected, Borg signals a process itself at once, where asking a
+/// watcher that is not there would wait and then do it whenever the watcher came back.
+#[tokio::test]
+async fn a_process_is_signalled_by_borg_itself_while_no_root_watcher_is_connected() {
+    let folder = tempfile::tempdir().unwrap();
+    let (link, root) = root::RootLink::listen(folder.path()).await.unwrap();
+    let mut sources = sources_after_the_root_watcher(link, root);
+    let nobody = ProcessKey { pid: i32::MAX as u32, start: 0 };
+    let outcome = sources.act(&Processes::default(), root::Act::Freeze, nobody).await;
+    assert_eq!(outcome, ControlOutcome::Gone, "Borg looked for the process itself");
+}
