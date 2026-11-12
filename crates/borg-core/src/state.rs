@@ -191,6 +191,10 @@ pub struct AppState {
     pub(crate) glitch_wake: Option<Instant>,
     /// The newer Borg the session moves to once nothing here would be lost.
     pub(crate) relaunch: Option<String>,
+    /// A newer release, offered once the panels show and you pause.
+    pub(crate) update_offer: Option<crate::UpdateOffer>,
+    /// The shell runs the command that updates Borg, whose end gives a notice.
+    pub(crate) updating: bool,
     generation: u64,
 }
 
@@ -284,6 +288,8 @@ impl AppState {
             indexing: None,
             glitch_wake: None,
             relaunch: None,
+            update_offer: None,
+            updating: false,
             generation: 0,
         };
         state.refit();

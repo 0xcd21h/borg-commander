@@ -44,6 +44,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
         Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
+        Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
         Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
         None => Vec::new(),
     }

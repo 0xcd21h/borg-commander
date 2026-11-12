@@ -4524,6 +4524,40 @@ fn remote_menu_offers_to_install_the_background_service() -> Result<()> {
     Ok(())
 }
 
+/// A newer release found by the daily check waits until the keyboard rests, then the dialog
+/// offers `borg update`, and a click on S in its bottom line skips the version.
+#[test]
+fn a_newer_release_is_offered_once_the_keyboard_rests() -> Result<()> {
+    use borg_core::{Effect, Overlay, UpdateOffer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let start = stage.started;
+    let offer = UpdateOffer {
+        version: "0.11.0".into(),
+        current: "0.10.0".into(),
+        program: "/usr/local/bin/borg".into(),
+        manager: None,
+    };
+    stage.send(Msg::UpdateAvailable(offer.clone()));
+    assert_eq!(stage.state.overlay, None, "it waits for a pause");
+    let later = stage.state.wake_at().unwrap();
+    borg_core::update(&mut stage.state, Msg::Tick, later);
+    assert_eq!(stage.state.overlay, Some(Overlay::Update(offer)));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "/usr/local/bin/borg update")?;
+    check("update_offer", &stage, buffer.clone())?;
+
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (column, row) = screen.find("S Skip version").unwrap();
+    let click =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, click, false, start).unwrap();
+    let effects = borg_core::update(&mut stage.state, msg, later);
+    assert_eq!(effects, [Effect::SkipUpdate("0.11.0".into())]);
+    assert_eq!(stage.state.overlay, None);
+    Ok(())
+}
+
 /// Remote → Remote log… opens the log with no agent connected: what agents did before Borg
 /// started again, each entry with its date.
 #[test]

@@ -1,14 +1,13 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
 use borg_core::{AppState, ListingMode, PanelSetup, Side, Sort, SortKey, Startup};
 use serde::{Deserialize, Serialize};
 
-use crate::store::write_privately;
+use crate::{store::write_privately, update::UpdateCheck};
 
 mod agent_log;
 
@@ -404,18 +403,13 @@ impl StateDir {
         }
     }
 
-    pub fn update_check_due(&self, now: SystemTime, every: Duration) -> bool {
-        let last = fs::read_to_string(self.root.join(UPDATE_CHECK_FILE))
-            .ok()
-            .and_then(|text| text.trim().parse::<u64>().ok())
-            .map(|secs| UNIX_EPOCH + Duration::from_secs(secs));
-        last.is_none_or(|last| now.duration_since(last).is_ok_and(|age| age >= every))
+    pub fn update_check(&self) -> UpdateCheck {
+        fs::read_to_string(self.root.join(UPDATE_CHECK_FILE)).map(|text| UpdateCheck::parse(&text)).unwrap_or_default()
     }
 
-    pub fn record_update_check(&self, now: SystemTime) -> Result<()> {
+    pub fn save_update_check(&self, check: &UpdateCheck) -> Result<()> {
         self.ensure()?;
-        let secs = now.duration_since(UNIX_EPOCH).map(|age| age.as_secs()).unwrap_or_default();
-        write_privately(&self.root.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
+        write_privately(&self.root.join(UPDATE_CHECK_FILE), check.text().as_bytes())
     }
 
     fn ensure(&self) -> Result<()> {

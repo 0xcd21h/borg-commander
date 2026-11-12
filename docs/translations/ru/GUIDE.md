@@ -67,6 +67,14 @@ brew install 0xcd21h/tap/borg-commander
 версию. Открытые сеансы переходят на новую версию и сохраняют свои оболочки (см.
 [Обновление при открытых сеансах](#updating-with-sessions-open)).
 
+Раз в день Borg проверяет, вышла ли новая версия. Если вышла, Borg предложит её, когда на экране
+панели и вы 2 секунды не трогаете клавиатуру и мышь. **Enter** запускает `borg update` в оболочке
+Borg или команду Homebrew либо cargo, если Borg установлен через них. **S** пропускает эту версию,
+и Borg предложит следующую, когда она выйдет. **Esc** закрывает предложение, и Borg спросит снова
+через день. **N** отключает ежедневную проверку, задавая `update-check = false` в конфигурации,
+а `update-check = true` включает её снова. Время
+последней проверки и пропущенную версию Borg хранит в файле `update-check` в своей папке состояния.
+
 ## Темы и значки
 
 Тема выбирается в меню F9 → Параметры → Тема. В [галерее тем](../../../README.md#themes) показаны
@@ -1570,7 +1578,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
-update-check = true         # look for a new release once a day
+update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud

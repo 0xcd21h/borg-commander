@@ -1,5 +1,6 @@
 use super::*;
 use std::os::unix::ffi::OsStringExt;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
 fn game2048_round_trips_and_rejects_corrupt_or_oversized_saves() {
@@ -78,15 +79,17 @@ fn a_remote_log_past_its_limit_loads_its_newest_whole_entries() {
 }
 
 #[test]
-fn update_checks_are_due_once_a_day() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+fn the_update_check_keeps_when_it_ran_and_the_skipped_version() {
+    let dir = tempfile::tempdir().unwrap();
     let state = StateDir::at(dir.path().join("state"));
-    let day = Duration::from_secs(86_400);
-    let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
-    assert!(state.update_check_due(now, day));
-    state.record_update_check(now).unwrap_or_else(|e| panic!("{e}"));
-    assert!(!state.update_check_due(now + day / 2, day));
-    assert!(state.update_check_due(now + day, day));
+    assert_eq!(state.update_check(), UpdateCheck::default(), "no file yet");
+    let checked = Some(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+    state.save_update_check(&UpdateCheck { checked, skipped: None }).unwrap();
+    crate::update::skip(&state, "0.11.0").unwrap();
+    let skipped = Some("0.11.0".parse().unwrap());
+    assert_eq!(state.update_check(), UpdateCheck { checked, skipped });
+    let text = fs::read_to_string(state.path().join(UPDATE_CHECK_FILE)).unwrap();
+    assert_eq!(text, "1800000000\n0.11.0\n");
 }
 
 fn saved(left: &Path, right: &Path) -> Session {

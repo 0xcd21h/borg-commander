@@ -126,6 +126,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         Msg::ParkedSignal { container, signal } => shell::parked_signal(state, container.as_deref(), &signal),
         Msg::ShellExited => vec![Effect::Quit],
         Msg::Relaunch { version } => crate::relaunch::requested(state, version),
+        Msg::UpdateAvailable(offer) => {
+            crate::update_offer::available(state, offer);
+            Vec::new()
+        }
 
         Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
         Msg::KeptAnswers(kept) => {
@@ -260,6 +264,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
     crate::agent::surface(state, now);
+    crate::update_offer::surface(state, now);
     effects.extend(crate::relaunch::sync(state));
     effects
 }
