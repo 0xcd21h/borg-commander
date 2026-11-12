@@ -1,6 +1,6 @@
 //! Native panel access to a named session on a paired machine.
 
-use std::{io, path::PathBuf};
+use std::{io, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use borg_vfs::{Batches, Entry};
@@ -9,9 +9,20 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use borg_core::HostUpdate;
+
 use crate::{agent::Call, link, session::StateDir};
 
 const DELETE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// How long a paired host has to download an update and say what it does with it.
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(180);
+/// How long a host has to come back after it moved. Its guard gives the newer Borg a minute
+/// before it goes back to the previous one.
+const RETURN_WAIT: Duration = Duration::from_secs(100);
+const RETURN_POLL: Duration = Duration::from_secs(2);
+const HOST_INFO_TIMEOUT: Duration = Duration::from_secs(5);
+/// How a host names a call it does not know.
+const UNKNOWN_TOOL: &str = "unknown tool";
 
 pub async fn delete_session(machine: &str, session: &str) -> Result<()> {
     tokio::time::timeout(DELETE_TIMEOUT, async {
@@ -20,7 +31,7 @@ pub async fn delete_session(machine: &str, session: &str) -> Result<()> {
         let mut remote = link::Remote::open(state.path(), &server).await?;
         let reply = remote.call(&Call::new("session_delete", json!({"id":session}))).await?;
         if !reply.ok {
-            if reply.text.to_ascii_lowercase().contains("unknown tool") {
+            if reply.text.to_ascii_lowercase().contains(UNKNOWN_TOOL) {
                 bail!(borg_i18n::tr!(remote_session_delete_upgrade));
             }
             bail!("{}", reply.text);
@@ -29,6 +40,80 @@ pub async fn delete_session(machine: &str, session: &str) -> Result<()> {
     })
     .await
     .context(borg_i18n::tr!(remote_session_delete_timeout))?
+}
+
+/// Updates a paired host to the latest Borg, and waits for it to come back on that version.
+pub async fn update_host(machine: &str) -> Result<HostUpdate> {
+    let state = StateDir::locate().context("Borg has no state folder")?;
+    let server = link::server(state.path(), machine)?;
+    let (before, updating) = tokio::time::timeout(UPDATE_TIMEOUT, async {
+        let mut remote = link::Remote::open(state.path(), &server).await?;
+        let before = host_version(&mut remote).await?;
+        let reply = remote.call(&Call::new(link::HOST_UPDATE_CALL, json!({}))).await?;
+        if !reply.ok {
+            return Err(refused(&reply.text));
+        }
+        Ok((before, serde_json::from_str::<link::HostUpdating>(&reply.text)?))
+    })
+    .await
+    .context(borg_i18n::tr!(remote_host_update_no_answer, machine = machine))??;
+    if !updating.moving {
+        return Ok(HostUpdate::Current(updating.version));
+    }
+    let deadline = tokio::time::Instant::now() + RETURN_WAIT;
+    let mut away = false;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(RETURN_POLL).await;
+        let seen = tokio::time::timeout(HOST_INFO_TIMEOUT, async {
+            let mut remote = link::Remote::open(state.path(), &server).await?;
+            host_version(&mut remote).await
+        })
+        .await;
+        let seen = seen.ok().and_then(Result::ok);
+        away |= seen.is_none();
+        match returned(seen.as_deref(), away, &before, &updating.version) {
+            Some(Return::Moved) => return Ok(HostUpdate::Moved(updating.version)),
+            Some(Return::Back) => {
+                bail!(borg_i18n::tr!(remote_host_update_back, machine = machine, version = updating.version))
+            }
+            None => {}
+        }
+    }
+    bail!(borg_i18n::tr!(remote_host_update_timeout, machine = machine, version = updating.version))
+}
+
+/// How a host that moved to a newer Borg came back.
+#[derive(Debug, PartialEq, Eq)]
+enum Return {
+    Moved,
+    /// It went away and came back on the version it ran before.
+    Back,
+}
+
+fn returned(seen: Option<&str>, away: bool, before: &str, version: &str) -> Option<Return> {
+    match seen? {
+        seen if seen == version => Some(Return::Moved),
+        seen if away && seen == before => Some(Return::Back),
+        _ => None,
+    }
+}
+
+async fn host_version(remote: &mut link::Remote) -> Result<String> {
+    let reply = remote.call(&Call::new("host_info", json!({}))).await?;
+    if !reply.ok {
+        return Err(refused(&reply.text));
+    }
+    Ok(serde_json::from_str::<HostInfo>(&reply.text)?.version)
+}
+
+/// Why a host refused to update, which a host that does not know the calls says by naming
+/// them unknown.
+fn refused(text: &str) -> anyhow::Error {
+    if text.to_ascii_lowercase().contains(UNKNOWN_TOOL) {
+        anyhow::anyhow!(borg_i18n::tr!(remote_host_update_upgrade))
+    } else {
+        anyhow::anyhow!("{text}")
+    }
 }
 
 #[derive(Deserialize)]
@@ -222,4 +307,25 @@ pub fn listing(machine: String, session: String, dir: PathBuf) -> Batches {
         }
     })
     .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_host_that_moved_is_done_once_it_answers_as_the_new_borg_or_went_back() {
+        assert_eq!(returned(Some("0.12.0"), false, "0.11.0", "0.12.0"), Some(Return::Moved));
+        assert_eq!(returned(Some("0.11.0"), false, "0.11.0", "0.12.0"), None, "it may not have moved yet");
+        assert_eq!(returned(None, true, "0.11.0", "0.12.0"), None);
+        assert_eq!(returned(Some("0.11.0"), true, "0.11.0", "0.12.0"), Some(Return::Back));
+        assert_eq!(returned(Some("0.12.0"), true, "0.11.0", "0.12.0"), Some(Return::Moved));
+    }
+
+    #[test]
+    fn a_host_that_knows_no_update_call_is_asked_to_update_itself() {
+        let older = refused("unknown tool host_update").to_string();
+        assert_eq!(older, borg_i18n::tr!(remote_host_update_upgrade));
+        assert_eq!(refused("Borg came from Homebrew").to_string(), "Borg came from Homebrew");
+    }
 }

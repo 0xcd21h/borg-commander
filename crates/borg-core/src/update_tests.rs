@@ -264,6 +264,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
@@ -288,6 +289,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),
@@ -3875,6 +3877,74 @@ fn forgetting_an_offline_host_confirms_locally_and_restores_its_panels_and_conso
     assert!(state.remote_consoles.contains_key(&("other".into(), "default".into())));
     assert!(
         matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.forgetting.is_none() && browser.choices.len()==1 && browser.choices[0].machine=="other")
+    );
+}
+
+#[test]
+fn u_updates_the_chosen_host_after_asking_and_reports_how_it_came_back() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    let host = |machine: &str, session: Option<&str>| crate::RemoteChoice {
+        machine: machine.into(),
+        session: session.map(Into::into),
+        name: "Default".into(),
+        ..Default::default()
+    };
+    update(
+        &mut state,
+        Msg::RemoteCatalog { choices: vec![host("server", Some("default")), host("gone", None)], complete: true },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Confirm(confirm)) if !confirm.accept && confirm.message.contains("server") && matches!(&confirm.purpose, crate::ConfirmPurpose::RemoteHostUpdate { machine, .. } if machine == "server"))
+    );
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Enter)), now).is_empty(), "No is the default");
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none()));
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now),
+        vec![Effect::UpdateRemoteHost { machine: "server".into() }]
+    );
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.as_deref() == Some("server")));
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now).is_empty(), "one update at a time");
+    let effects = update(
+        &mut state,
+        Msg::RemoteHostUpdated { machine: "server".into(), result: Ok(crate::HostUpdate::Moved("0.12.0".into())) },
+        now,
+    );
+    assert_eq!(effects, vec![Effect::OpenRemotes]);
+    assert!(state.notice.as_deref().is_some_and(|notice| notice.contains("server") && notice.contains("0.12.0")));
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none() && browser.loading));
+
+    update(
+        &mut state,
+        Msg::RemoteCatalog { choices: vec![host("server", Some("default")), host("gone", None)], complete: true },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now);
+    update(&mut state, Msg::RemoteHostUpdated { machine: "server".into(), result: Err("no network".into()) }, now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none() && browser.error.as_deref() == Some("no network"))
+    );
+
+    update(&mut state, Msg::Key(key(KeyCode::Down)), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.error.as_deref().is_some_and(|error| error.contains("gone"))),
+        "a host with no session cannot be reached to update"
+    );
+
+    state.overlay = None;
+    update(
+        &mut state,
+        Msg::RemoteHostUpdated { machine: "server".into(), result: Ok(crate::HostUpdate::Current("0.12.0".into())) },
+        now,
+    );
+    assert!(
+        state.notice.as_deref().is_some_and(|notice| notice.contains("already")),
+        "the result still shows once the list is closed"
     );
 }
 

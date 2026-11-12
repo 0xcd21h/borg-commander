@@ -84,6 +84,7 @@ impl App {
             Effect::MirrorRemote { machine, session } => self.mirror_remote(machine, session),
             Effect::CancelRemoteConnection => self.mirror_connect = None,
             Effect::ForgetRemoteHost { machine } => self.forget_remote_host(machine),
+            Effect::UpdateRemoteHost { machine } => self.update_remote_host(machine),
             Effect::DeleteRemoteSession { machine, session } => self.delete_remote_session(machine, session),
             Effect::CloseRemoteConsole { machine, session } => self.remote_consoles.close(&(machine, session)),
             Effect::SaveRemoteName { identity, session, name } => self.save_remote_name(identity, session, name),
@@ -123,6 +124,10 @@ impl App {
             }
             Effect::JobControl { id, command } => self.control_job(id, command),
             Effect::Peek { aside, path, at, size } => self.peek(aside, path, at, size),
+            Effect::Relaunch => {
+                self.relaunching = true;
+                return Ok(Flow::Quit);
+            }
             Effect::Quit => return Ok(Flow::Quit),
         }
         Ok(Flow::Continue)

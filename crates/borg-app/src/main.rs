@@ -28,6 +28,8 @@ mod network;
 mod peek;
 mod plugins;
 mod preview;
+mod program;
+mod relaunch;
 mod remote;
 mod remote_console;
 mod remote_copy;
@@ -49,7 +51,7 @@ mod tools;
 mod update;
 mod watch;
 
-use std::{env, io::stdout, process::ExitCode};
+use std::{env, ffi::OsString, fs, io::stdout, os::fd::OwnedFd, process::ExitCode};
 
 use anyhow::Result;
 use borg_i18n::tr;
@@ -61,27 +63,60 @@ use crossterm::{
     execute,
     terminal::{EndSynchronizedUpdate, supports_keyboard_enhancement},
 };
-use ratatui::DefaultTerminal;
 
-use crate::{app::App, launch::Launch};
+use crate::{
+    app::{App, Exit},
+    launch::Launch,
+    relaunch::Carried,
+};
 
 const USAGE_ERROR: u8 = 2;
+/// The argument that opens a session by its name or ID.
+const SESSION: &str = "--session";
+/// The exit code of a Borg that could not run the command it leads a terminal for, as a shell
+/// gives for a command it cannot run.
+const LEAD_FAILED: u8 = 127;
+
+fn main() -> Result<ExitCode> {
+    let args: Vec<OsString> = env::args_os().collect();
+    if let [_, flag, program, rest @ ..] = args.as_slice()
+        && flag == borg_term::LEAD
+    {
+        let error = borg_term::lead(program, rest);
+        set_language();
+        eprintln!("{}", tr!(lead_failed, program = program.to_string_lossy(), error = error));
+        return Ok(ExitCode::from(LEAD_FAILED));
+    }
+    program::remember();
+    start(args)
+}
 
 #[tokio::main]
-async fn main() -> Result<ExitCode> {
+async fn start(args: Vec<OsString>) -> Result<ExitCode> {
     set_language();
-    match env::args().nth(1).as_deref() {
-        None => open(None, None).await,
-        Some("--session") => match env::args().nth(2) {
-            Some(name) => open(Some(name), None).await,
+    let given = args.get(1..).unwrap_or_default();
+    let (given, carried) = match relaunch::split_resume(given) {
+        Some(rest) => (rest, resume()),
+        None => (given, None),
+    };
+    let args: Vec<String> = given.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+    match args.first().map(String::as_str) {
+        None => open(None, None, carried).await,
+        Some(SESSION) => match args.get(1) {
+            Some(name) => open(Some(name.clone()), None, carried).await,
             None => Ok(usage("usage: borg --session NAME")),
         },
-        Some("--remote") => match env::args().nth(2) {
-            Some(target) => open(None, Some(target)).await,
+        Some("--remote") => match args.get(1) {
+            Some(target) => open(None, Some(target.clone()), None).await,
             None => Ok(usage("usage: borg --remote MACHINE:SESSION")),
         },
-        Some(command) => subcommand(command).await,
+        Some(command) => subcommand(command, &args[1..], carried).await,
     }
+}
+
+/// What the previous Borg carried into this one, which starts afresh when it cannot be had.
+fn resume() -> Option<Carried> {
+    relaunch::resume().inspect_err(|error| eprintln!("{}", tr!(resume_failed, error = error))).ok()
 }
 
 /// Speaks the language the settings or `BORG_LANGUAGE` ask for, or else the system's.
@@ -96,8 +131,7 @@ fn set_language() {
 }
 
 /// A subcommand, which does its work and exits.
-async fn subcommand(command: &str) -> Result<ExitCode> {
-    let args: Vec<String> = env::args().skip(2).collect();
+async fn subcommand(command: &str, args: &[String], carried: Option<Carried>) -> Result<ExitCode> {
     if matches!(command, "pair" | "get" | "put" | "mirror") {
         link::ask_in_terminal();
     }
@@ -107,10 +141,11 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
                 eprintln!("borg has no folder for sessions: set HOME or BORG_STATE_DIR");
                 return Ok(ExitCode::FAILURE);
             };
-            finished("borg sessions", sessions::command(&state, &args))
+            finished("borg sessions", sessions::command(&state, args))
         }
-        "service" => finished("borg service", service::command(&args).await),
-        "storage" => match storage::command(&args) {
+        "service" => finished("borg service", service::command(args, carried).await),
+        service::GUARD => finished("borg --guard-update", service::guard(args).await),
+        "storage" => match storage::command(args) {
             Ok(code) => code,
             Err(error) => {
                 eprintln!("borg storage: {error:#}");
@@ -123,24 +158,24 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
             finished("borg mirror", mirror::command(target, force).await)
         }
         "--inspect-process" => {
-            activity::helper(&args).await?;
+            activity::helper(args).await?;
             ExitCode::SUCCESS
         }
         "--capture-traffic" => {
-            network::capture_helper(&args).await?;
+            network::capture_helper(args).await?;
             ExitCode::SUCCESS
         }
-        "--watch-root" => finished("borg --watch-root", watch::root_helper(&args).await),
-        "mcp" => return mcp(&args).await,
-        "pair" => finished("borg pair", link::pair_command(&args).await),
-        "get" => finished("borg get", link::get_command(&args).await),
-        "put" => finished("borg put", link::put_command(&args).await),
-        "unlock" => finished("borg unlock", link::unlock_command(&args).await),
+        "--watch-root" => finished("borg --watch-root", watch::root_helper(args).await),
+        "mcp" => return mcp(args).await,
+        "pair" => finished("borg pair", link::pair_command(args).await),
+        "get" => finished("borg get", link::get_command(args).await),
+        "put" => finished("borg put", link::put_command(args).await),
+        "unlock" => finished("borg unlock", link::unlock_command(args).await),
         "lock" => finished("borg lock", link::lock_command()),
         #[cfg(target_os = "linux")]
-        "--key-agent" => finished("borg --key-agent", link::key_agent_command(&args).await),
+        "--key-agent" => finished("borg --key-agent", link::key_agent_command(args).await),
         "--version" | "-V" => {
-            println!("borg {}", update::VERSION);
+            println!("{}{}", update::VERSION_NAME, update::VERSION);
             ExitCode::SUCCESS
         }
         "--help" | "-h" => {
@@ -148,7 +183,10 @@ async fn subcommand(command: &str) -> Result<ExitCode> {
             ExitCode::SUCCESS
         }
         "update" => match tokio::task::spawn_blocking(update::run).await? {
-            Ok(()) => ExitCode::SUCCESS,
+            Ok(()) => {
+                service::after_update().await;
+                ExitCode::SUCCESS
+            }
             Err(error) => {
                 eprintln!("{}", tr!(cli_update_failed, error = error));
                 ExitCode::FAILURE
@@ -207,27 +245,38 @@ fn usage(text: &str) -> ExitCode {
 
 /// Opens Borg in this terminal, on the session asked for or a remote Borg's, or on the one
 /// chosen in the start window. A session the background service keeps running is attached to
-/// instead; any other registers with the service while it runs.
-async fn open(requested_session: Option<String>, requested_remote: Option<String>) -> Result<ExitCode> {
+/// instead; any other registers with the service while it runs. `carried` is what the previous
+/// Borg handed over when an update started this one in its place.
+async fn open(
+    requested_session: Option<String>,
+    requested_remote: Option<String>,
+    carried: Option<Carried>,
+) -> Result<ExitCode> {
     if env::var_os(borg_term::SESSION_MARKER).is_some() {
         eprintln!("{}", tr!(cli_already_running));
         return Ok(ExitCode::FAILURE);
     }
+    let resumed = carried.and_then(|carried| {
+        app::unpack(carried, tr!(relaunched, version = update::VERSION))
+            .inspect_err(|error| eprintln!("{}", tr!(resume_failed, error = error)))
+            .ok()
+    });
     let remote = match requested_remote {
         Some(target) => Some(remote::resolve(&target).await?),
         None => None,
     };
     let service_child = env::var_os(service::SERVICE_CHILD).is_some();
+    let fresh = resumed.is_none() && remote.is_none() && !service_child;
     let starts_service =
         config::ConfigDir::locate().and_then(|dir| dir.load().ok()).is_none_or(|config| config.start_service());
-    if remote.is_none() && !service_child && starts_service && session::StateDir::locate().is_some() {
+    if fresh && starts_service && session::StateDir::locate().is_some() {
         service::start_on_demand().await;
     }
     let selected_id = if let Some(target) = &remote {
         Some(remote::viewer_id(target))
     } else if let Some(state) = session::StateDir::locate() {
         let chosen = match requested_session.as_deref() {
-            Some(id) if service_child => Some(sessions::find(&state, id)?),
+            Some(id) if service_child || resumed.is_some() => Some(sessions::find(&state, id)?),
             requested => sessions::choose(&state, requested).await?,
         };
         let Some(session) = chosen else { return Ok(ExitCode::SUCCESS) };
@@ -235,16 +284,17 @@ async fn open(requested_session: Option<String>, requested_remote: Option<String
     } else {
         None
     };
-    if remote.is_none()
-        && !service_child
+    if fresh
         && let Some(session) = &selected_id
         && service::running_sessions().await.contains(session)
     {
         service::attach_session(session, false).await?;
         return Ok(ExitCode::SUCCESS);
     }
-    let _session_lock = match session::StateDir::locate().zip(selected_id.as_ref()) {
-        Some((state, session)) => match sessions::lock(&state, session) {
+    let (carried_lock, mut resumed) = resumed.unzip();
+    let session_lock = match (carried_lock.flatten(), session::StateDir::locate().zip(selected_id.as_ref())) {
+        (Some(lock), _) => Some(lock),
+        (None, Some((state, session))) => match sessions::lock(&state, session) {
             Ok(lock) => Some(lock),
             Err(sessions::LockError::Busy(busy)) => {
                 eprintln!("{}", busy.explained());
@@ -252,25 +302,57 @@ async fn open(requested_session: Option<String>, requested_remote: Option<String
             }
             Err(sessions::LockError::Io(error)) => return Err(error.into()),
         },
-        None => None,
+        (None, None) => None,
     };
     let launch = Launch::detect(selected_id.as_deref(), remote)?;
-    let mut terminal = ratatui::try_init()?;
-
-    let modes = TerminalModes { enhanced: supports_keyboard_enhancement().unwrap_or(false) };
-    execute!(stdout(), EnableBracketedPaste, EnableMouseCapture)?;
-    if modes.enhanced {
-        execute!(stdout(), PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES))?;
+    loop {
+        let mut terminal = ratatui::try_init()?;
+        let modes = TerminalModes::enter()?;
+        let detected = launch::terminal(launch.graphics);
+        let exit = App::start(&launch, terminal.size()?, detected, resumed.take())?.run(&mut terminal).await;
+        let Ok(Exit::Relaunch(shell)) = exit else {
+            drop(modes);
+            return exit.map(|_| ExitCode::SUCCESS);
+        };
+        modes.hand_over();
+        let lock = session_lock.as_ref().map(fs::File::try_clone).transpose()?.map(OwnedFd::from);
+        let carried = app::pack(lock, shell)?;
+        let args: Vec<OsString> = selected_id.iter().flat_map(|id| [SESSION.into(), id.into()]).collect();
+        let Err(error) = relaunch::exec(&args, &carried);
+        resumed = Some(app::unpack(carried, format!("{error:#}"))?.1);
     }
-
-    let detected = launch::terminal(launch.graphics);
-    let result = run(&launch, &mut terminal, detected).await;
-    drop(modes);
-    result.map(|()| ExitCode::SUCCESS)
 }
 
+/// The terminal modes Borg sets for itself, set back when it ends.
 struct TerminalModes {
     enhanced: bool,
+    screen: Screen,
+}
+
+/// What happens to Borg's screen when it ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Screen {
+    /// The terminal shows what it did before Borg.
+    Restore,
+    /// The newer Borg starting in this terminal takes the screen as it is.
+    Keep,
+}
+
+impl TerminalModes {
+    fn enter() -> Result<Self> {
+        let modes = Self { enhanced: supports_keyboard_enhancement().unwrap_or(false), screen: Screen::Restore };
+        execute!(stdout(), EnableBracketedPaste, EnableMouseCapture)?;
+        if modes.enhanced {
+            execute!(stdout(), PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES))?;
+        }
+        Ok(modes)
+    }
+
+    /// Sets the modes back for the newer Borg that starts in this terminal next and sets them
+    /// again, keeping the screen it draws on.
+    fn hand_over(mut self) {
+        self.screen = Screen::Keep;
+    }
 }
 
 impl Drop for TerminalModes {
@@ -279,10 +361,11 @@ impl Drop for TerminalModes {
             let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
         }
         let _ = execute!(stdout(), EndSynchronizedUpdate, DisableBracketedPaste, DisableMouseCapture);
-        ratatui::restore();
+        match self.screen {
+            Screen::Restore => ratatui::restore(),
+            Screen::Keep => {
+                let _ = crossterm::terminal::disable_raw_mode();
+            }
+        }
     }
-}
-
-async fn run(launch: &Launch, terminal: &mut DefaultTerminal, detected: launch::Terminal) -> Result<()> {
-    App::start(launch, terminal.size()?, detected)?.run(terminal).await
 }
