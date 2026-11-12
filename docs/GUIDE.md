@@ -256,7 +256,7 @@ collection, F5 adds references to it instead. F6 needs a real folder as its dest
 collection, F8 removes references and leaves the files alone; in search results, F8 asks to
 delete the original files. Shift-F8 deletes the original files from a collection too, after
 you confirm. When both a folder and files inside it are marked, the job handles the folder once.
-**Reveal original** or Alt-Shift-O opens the file's folder in the other panel, with the cursor on
+**Reveal original** or Alt-O opens the file's folder in the other panel, with the cursor on
 the file. Left or Esc hides the results,
 and Alt-Shift-R brings them back where you left them. Tab switches between panels even when the
 shell has an unfinished command. The shell always stays in a real folder. F10 always asks before
@@ -395,8 +395,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-H | Remote hosts: paired machines and their sessions |
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
-| Alt-O | Open this panel's folder in the other panel |
-| Alt-Shift-O | In search results or a collection, open the file's own folder in the other panel |
+| Alt-O | Open this panel's folder in the other panel; in search results or a collection, the folder of the file under the cursor |
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
@@ -516,9 +515,11 @@ and a second Esc closes the window. The hotlist holds up to 256 folders.
 Alt-O or **Command → Same folder in other panel** opens the active panel's folder in the other
 panel, so both show the same place. The folder takes the place of the quick view, Info, or a
 container's or remote machine's files there. If the other panel showed search results or a
-collection, Alt-Shift-R there brings them back. From search results, Alt-O opens the folder the
-search started from. A collection has no folder of its own, and container and remote folders open in
-one panel only, so in those Alt-O shows a notice, as it does while the other panel holds an editor.
+collection, Alt-Shift-R there brings them back. In search results and collections, Alt-O opens the
+folder of the file under the cursor, with the cursor on the file, as **Reveal original** does. Until
+a search finds something, Alt-O opens the folder it started from. Container and remote folders open
+in one panel only, so in those Alt-O shows a notice, as it does in an empty collection and while the
+other panel holds an editor.
 While you type a command, Alt-O goes to the shell.
 
 The hotlist is saved in `config.toml` under `[folders]`. Borg remembers the last 64 folders the

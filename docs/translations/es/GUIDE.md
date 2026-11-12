@@ -280,7 +280,7 @@ necesita una carpeta real como destino. En una colección, F8 quita referencias 
 intactos; en los resultados de búsqueda, F8 pide confirmación para eliminar los archivos originales.
 Shift-F8 también elimina los archivos originales desde una colección, tras confirmarlo. Si marcas
 una carpeta y archivos que contiene, la tarea procesa la carpeta una sola vez. **Mostrar original**
-o Alt-Shift-O abre la carpeta del archivo en el otro panel, con el cursor en el archivo. Left o Esc
+o Alt-O abre la carpeta del archivo en el otro panel, con el cursor en el archivo. Left o Esc
 ocultan los resultados, y Alt-Shift-R los
 recupera tal como los dejaste. Tab cambia de panel incluso si el shell tiene un comando a medio
 escribir. El shell siempre permanece en una carpeta real. F10 siempre pregunta antes de salir.
@@ -429,8 +429,7 @@ momento.
 | Alt-H | Hosts remotos: máquinas emparejadas y sus sesiones |
 | Alt-Shift-Left/Right | Cambiar el tamaño de los paneles |
 | Ctrl-U | Intercambiar los paneles |
-| Alt-O | Abrir la carpeta de este panel en el otro panel |
-| Alt-Shift-O | En resultados de búsqueda o en una colección, abrir la carpeta del propio archivo en el otro panel |
+| Alt-O | Abrir la carpeta de este panel en el otro panel; en resultados de búsqueda o en una colección, la carpeta del archivo bajo el cursor |
 | Alt-J | Tareas: pausar o cancelar copias, movimientos y eliminaciones en curso |
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
@@ -560,10 +559,12 @@ carpetas.
 Alt-O o **Comando → Misma carpeta en el otro panel** abre la carpeta del panel activo en el otro
 panel, para que ambos muestren el mismo lugar. La carpeta ocupa el lugar de la vista rápida, de
 Información o de los archivos de un contenedor o de una máquina remota en ese panel. Si el otro
-panel mostraba resultados de búsqueda o una colección, Alt-Shift-R en ese panel los recupera. Desde
-resultados de búsqueda, Alt-O abre la carpeta donde empezó la búsqueda. Una colección no tiene
-carpeta propia, y las carpetas de contenedores y las remotas se abren en un solo panel, así que en
-esos casos Alt-O muestra un aviso, igual que cuando el otro panel tiene un editor. Mientras escribes
+panel mostraba resultados de búsqueda o una colección, Alt-Shift-R en ese panel los recupera. En
+resultados de búsqueda y en colecciones, Alt-O abre la carpeta del archivo bajo el cursor, con el
+cursor en el archivo, igual que **Mostrar original**. Mientras una búsqueda no encuentra nada, Alt-O
+abre la carpeta donde empezó. Las carpetas de contenedores y las remotas se abren en un solo panel,
+así que en esos casos Alt-O muestra un aviso, igual que en una colección vacía y cuando el otro panel
+tiene un editor. Mientras escribes
 un comando, Alt-O pasa al shell.
 
 Las favoritas se guardan en `config.toml`, en la sección `[folders]`. Borg recuerda las últimas 64

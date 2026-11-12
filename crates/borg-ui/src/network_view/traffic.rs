@@ -194,6 +194,7 @@ fn draw_list(
         shown: view.len(view.page),
         total: view.totals[view.page.index()],
         placeholder: tr!(traffic_filter_placeholder),
+        esc_clears: true,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);

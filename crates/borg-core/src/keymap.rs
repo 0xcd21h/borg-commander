@@ -199,7 +199,6 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('s'), ALT, Action::CalculateSizes, Scope::Panels),
     bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
     bind(KeyCode::Char('R'), ALT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('O'), ALT, Action::RevealOriginal, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
     bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
     // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.

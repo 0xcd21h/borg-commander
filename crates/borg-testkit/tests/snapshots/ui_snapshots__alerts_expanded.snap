@@ -4,7 +4,7 @@ expression: describe(&buffer)
 ---
 ╭ Alerts ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────[=]─[-]╮
 │5 alerts · 4 unread                                                                                                               │
-│ Filter  www-data !temporary 2 of 5 · / edit · Esc clear                                                                          │
+│ Filter  www-data !temporary 2 of 5 · / edit                                                                                      │
 │Time             Rule                 Program                                                   Parent       User      Response   │
 │2026-01-15 11:58 Shell on a network … sh                                                        nginx        www-data  Frozen     │
 │2026-01-15 11:55 Library forced into… curl                                                      nginx        www-data  Running    │
@@ -39,7 +39,7 @@ Alt-O Program · Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity monitor
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 9-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
-  2: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 9-29 Rgb(17, 168, 205) Rgb(38, 38, 38) BOLD | 30-56 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 57-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
+  2: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 9-29 Rgb(17, 168, 205) Rgb(38, 38, 38) BOLD | 30-44 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 45-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   3: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-16 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 17-17 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 18-37 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 38-38 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 39-95 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 96-96 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 97-108 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 109-109 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 110-118 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 119-119 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 120-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   4: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-17 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 18-37 Rgb(241, 76, 76) Rgb(38, 38, 38) BOLD | 38-96 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 97-101 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 102-109 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 110-117 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 118-119 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 120-125 Rgb(241, 76, 76) Rgb(38, 38, 38) BOLD | 126-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   5: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE

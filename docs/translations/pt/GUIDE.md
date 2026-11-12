@@ -283,7 +283,7 @@ precisa de uma pasta real como destino. Numa coleção, F8 remove referências e
 ficheiros; nos resultados de pesquisa, F8 pede confirmação para eliminar os ficheiros originais.
 Shift-F8 também elimina os ficheiros originais a partir de uma coleção, depois de confirmar. Quando
 estão marcados uma pasta e ficheiros dentro dela, a tarefa trata a pasta uma única vez. **Revelar
-original** ou Alt-Shift-O abre a pasta do ficheiro no outro painel, com o cursor no ficheiro. Left
+original** ou Alt-O abre a pasta do ficheiro no outro painel, com o cursor no ficheiro. Left
 ou Esc ocultam os resultados, e
 Alt-Shift-R repõe-nos onde os deixou. Tab alterna entre os painéis mesmo quando a shell tem um
 comando por terminar. A shell fica sempre numa pasta real. F10 pede sempre confirmação antes de
@@ -433,8 +433,7 @@ instantes.
 | Alt-H | Hosts remotos: máquinas emparelhadas e as respetivas sessões |
 | Alt-Shift-Left/Right | Redimensionar os painéis |
 | Ctrl-U | Trocar os painéis |
-| Alt-O | Abrir a pasta deste painel no outro painel |
-| Alt-Shift-O | Nos resultados de pesquisa ou numa coleção, abrir a pasta do próprio ficheiro no outro painel |
+| Alt-O | Abrir a pasta deste painel no outro painel; nos resultados de pesquisa ou numa coleção, a pasta do ficheiro sob o cursor |
 | Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
@@ -564,10 +563,11 @@ segundo Esc fecha a janela. As favoritas guardam até 256 pastas.
 Alt-O ou **Comando → Mesma pasta no outro painel** abre a pasta do painel ativo no outro painel,
 para que ambos mostrem o mesmo sítio. A pasta ocupa o lugar da pré-visualização, das Informações ou
 dos ficheiros de um contentor ou de uma máquina remota nesse painel. Se o outro painel mostrava
-resultados de pesquisa ou uma coleção, Alt-Shift-R nesse painel volta a mostrá-los. A partir de
-resultados de pesquisa, Alt-O abre a pasta onde a pesquisa começou. Uma coleção não tem pasta
-própria, e as pastas de contentores e as remotas só abrem num painel, por isso nesses casos Alt-O
-mostra uma notificação, tal como acontece quando o outro painel tem um editor. Enquanto escreve um
+resultados de pesquisa ou uma coleção, Alt-Shift-R nesse painel volta a mostrá-los. Nos resultados
+de pesquisa e nas coleções, Alt-O abre a pasta do ficheiro sob o cursor, com o cursor no ficheiro,
+tal como **Revelar original**. Enquanto uma pesquisa não encontra nada, Alt-O abre a pasta onde ela
+começou. As pastas de contentores e as remotas só abrem num painel, por isso nesses casos Alt-O
+mostra uma notificação, tal como acontece numa coleção vazia e quando o outro painel tem um editor. Enquanto escreve um
 comando, Alt-O passa para a shell.
 
 As favoritas ficam guardadas em `config.toml`, na secção `[folders]`. O Borg lembra-se das últimas
