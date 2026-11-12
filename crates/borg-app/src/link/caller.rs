@@ -317,6 +317,7 @@ impl<'a> Caller<'a> {
         {
             self.sessions.insert(entry.id.clone(), open);
         }
+        call.forwarded_from = call.origin.clone();
         let reply = match self.sessions.get_mut(&entry.id) {
             Some(open) => open.call(&call).await,
             None => None,

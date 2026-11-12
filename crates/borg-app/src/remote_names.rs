@@ -44,7 +44,7 @@ pub fn rename(state: &Path, identity: &str, session: Option<&str>, name: &str) -
     if bytes.len() as u64 > MAX_BYTES {
         bail!("remote names file is too large");
     }
-    crate::store::write_atomically(&state.join(FILE), &bytes)?;
+    crate::store::write_privately(&state.join(FILE), &bytes)?;
     Ok(names)
 }
 

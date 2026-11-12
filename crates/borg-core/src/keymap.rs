@@ -196,13 +196,9 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('a'), CTRL_ALT, Action::ApprovalModeOff, Scope::Anywhere),
     bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
-    bind(KeyCode::Char('D'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
-    bind(KeyCode::Char('d'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('s'), ALT, Action::CalculateSizes, Scope::Panels),
     bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
     bind(KeyCode::Char('R'), ALT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('R'), ALT_SHIFT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('r'), ALT_SHIFT, Action::BackResults, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
     bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
     // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.
@@ -262,10 +258,27 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];
 
+/// The letter Shift makes of `typed`, where there is exactly one.
+fn shifted(typed: char) -> char {
+    let mut upper = typed.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(letter), None) => letter,
+        _ => typed,
+    }
+}
+
+/// The key as the bindings name it. A terminal reports a shifted letter either as the capital
+/// alone or as the small letter with Shift, and bindings name the capital without Shift.
+fn as_bound(key: &KeyEvent) -> (KeyCode, KeyModifiers) {
+    match key.code {
+        KeyCode::Char(typed) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            (KeyCode::Char(shifted(typed)), key.modifiers - KeyModifiers::SHIFT)
+        }
+        code => (code, key.modifiers),
+    }
+}
+
 pub fn lookup(key: &KeyEvent, context: Context) -> Option<Action> {
-    let modifiers = match key.code {
-        KeyCode::Char(_) => key.modifiers - KeyModifiers::SHIFT,
-        _ => key.modifiers,
-    };
-    KEYMAP.iter().find(|b| b.code == key.code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
+    let (code, modifiers) = as_bound(key);
+    KEYMAP.iter().find(|b| b.code == code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
 }

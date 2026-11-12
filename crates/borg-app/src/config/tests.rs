@@ -156,3 +156,27 @@ fn the_hotlist_keeps_home_as_a_tilde_and_survives_saving_preferences() {
     let off: Config = toml::from_str("[folders]\nhistory = false\n").unwrap();
     assert!(!off.folder_history() && off.hotlist().is_empty());
 }
+
+/// A configuration Borg cannot read starts it on its defaults. Saving a preference then keeps
+/// the file the user wrote under another name, where it used to be written over.
+#[test]
+fn saving_keeps_a_configuration_borg_could_not_read_beside_the_new_one() {
+    let folder = tempfile::tempdir().unwrap();
+    let dir = ConfigDir(folder.path().to_path_buf());
+    let written_by_hand = "theme = \"neon\"\n[watch\nfreeze = false\n";
+    std::fs::write(dir.file(), written_by_hand).unwrap();
+    assert!(dir.load().is_err());
+
+    dir.save(&Config::default()).unwrap();
+    assert!(dir.load().is_ok());
+    let aside = folder.path().join(CONFIG_ASIDE);
+    assert_eq!(std::fs::read_to_string(&aside).unwrap(), written_by_hand);
+
+    std::fs::write(dir.file(), written_by_hand).unwrap();
+    dir.save(&Config::default()).unwrap();
+    let kept = std::fs::read_dir(folder.path()).unwrap().count();
+    assert_eq!(kept, 3, "a second unreadable file is kept under a name of its own");
+
+    dir.save(&Config::default()).unwrap();
+    assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), kept, "a readable one is replaced as before");
+}

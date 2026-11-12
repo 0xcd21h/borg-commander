@@ -398,7 +398,7 @@ impl Processes {
             }
             Err(_) => return None,
         };
-        let uid = self.user(pid).unwrap_or_default();
+        let uid = self.user(pid)?;
         let command = command_of(&self.block(pid, "cmdline"));
         let link = program.as_deref().and_then(|program| self.started_by_link(pid, &stat.name, &command, program));
         let ancestors = self.ancestors(stat.parent);

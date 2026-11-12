@@ -205,6 +205,14 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         ),
         Some(Action::BackResults)
     );
+    let panels = crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false };
+    let alt_shift = KeyModifiers::ALT | KeyModifiers::SHIFT;
+    for (reported, action) in [('r', Action::BackResults), ('d', Action::FolderTree), ('D', Action::FolderTree)] {
+        let shifted = KeyEvent::new(KeyCode::Char(reported), alt_shift);
+        assert_eq!(crate::keymap::lookup(&shifted, panels), Some(action), "Alt-Shift with {reported}");
+    }
+    let plain = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT);
+    assert_eq!(crate::keymap::lookup(&plain, panels), Some(Action::AnalyzeSpace));
     assert_eq!(
         crate::keymap::lookup(
             &KeyEvent::new(KeyCode::Char('M'), KeyModifiers::ALT | KeyModifiers::SHIFT),
@@ -392,6 +400,13 @@ fn shell_exit_defaults_to_no_and_only_yes_closes_borg() {
     assert!(state.overlay.is_none());
     update(&mut state, request(), now);
     assert_eq!(press(&mut state, now, key(KeyCode::Esc)), vec![Effect::CancelShellExit { token: "42-77".into() }]);
+    update(&mut state, request(), now);
+    let other_key = press(&mut state, now, key(KeyCode::Char('x')));
+    assert!(
+        state.overlay.is_some() || other_key == vec![Effect::CancelShellExit { token: "42-77".into() }],
+        "a question that closes always answers the shell, which waits for it"
+    );
+    state.overlay = None;
     update(&mut state, request(), now);
     assert!(press(&mut state, now, key(KeyCode::Char('y'))).contains(&Effect::Quit));
     crate::actions::perform(&mut state, Action::Quit, now);
@@ -4327,4 +4342,34 @@ fn a_locked_computer_key_asks_for_its_password_and_hands_it_to_the_app() {
         "an open dialog stays"
     );
     assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_key_locked).into()));
+}
+
+/// A remote panel on the other side leaves the local panel its own work: a new folder there
+/// touches nothing remote. Moving into the remote panel is still refused, and so is a new folder
+/// in the remote panel itself.
+#[test]
+fn a_remote_panel_on_the_other_side_does_not_take_the_local_panels_own_actions() {
+    let (mut state, now) = setup();
+    let unavailable = Some(borg_i18n::tr!(remote_operation_unavailable).to_owned());
+    let remote = crate::RemoteMount {
+        machine: "machine".into(),
+        session: "session".into(),
+        name: "server".into(),
+        host: PathBuf::from("/"),
+    };
+    let other = state.active.other();
+    state.panel_mut(other).remote_mount = Some(remote.clone());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_ne!(state.notice, unavailable);
+    state.overlay = None;
+    crate::actions::perform(&mut state, Action::Move, now);
+    assert_eq!(state.notice, unavailable);
+
+    state.notice = None;
+    state.panel_mut(other).remote_mount = None;
+    let here = state.active;
+    state.panel_mut(here).remote_mount = Some(remote);
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_eq!(state.notice, unavailable);
 }

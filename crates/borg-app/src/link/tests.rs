@@ -787,3 +787,18 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
     server.abort();
     stand_in.abort();
 }
+
+/// A list of paired servers that is there but that Borg cannot read is left as it is: forgetting
+/// one server would otherwise save an empty list over all the others.
+#[test]
+fn a_list_borg_cannot_read_is_never_saved_over() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join(LINK_DIR).join(SERVERS_FILE);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(store::load_to_change::<Server>(&path).unwrap().is_empty(), "no file yet is an empty list");
+    let damaged = b"[{\"name\":".to_vec();
+    std::fs::write(&path, &damaged).unwrap();
+    assert!(store::load_to_change::<Server>(&path).is_err());
+    assert!(forget_server(folder.path(), "anything").is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), damaged);
+}

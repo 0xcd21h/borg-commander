@@ -143,10 +143,10 @@ pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown,
 pub use watch::{
     ALERTS_CHROME_ROWS, ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertLog, AlertState, Alerts, AlertsReply,
     AlertsRequest, Allowance, Ancestor, Baseline, COMMAND_CUT, COMMAND_KEPT, Evidence, FIRST_PERSON,
-    FREEZES_PER_MINUTE, Finding as WatchFinding, Guard, History, LEARNING_DAYS, Limits, NEVER_FROZEN, Outcome,
-    PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess, StreamKind, WatchRule,
-    WatchSource, WatchStatus, Watcher, alerts_filtered, decide as decide_response, examine as examine_start,
-    kept_within,
+    FREEZES_PER_MINUTE, Finding as WatchFinding, Guard, History, LEARNING_DAYS, LEARNING_DAYS_LIMIT, Limits,
+    NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess,
+    StreamKind, WatchRule, WatchSource, WatchStatus, Watcher, alerts_filtered, decide as decide_response,
+    examine as examine_start, kept_within, learning_period,
 };
 
 pub use remote::{

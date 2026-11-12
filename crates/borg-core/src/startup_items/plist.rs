@@ -232,6 +232,9 @@ struct Binary<'a> {
     reference_size: usize,
     count: usize,
     top: usize,
+    /// Objects Borg may still read. A list can name one object many times, and lists of such
+    /// lists a few levels deep stand for more objects than any machine holds.
+    budget: std::cell::Cell<usize>,
 }
 
 const MARKER_SIMPLE: u8 = 0x0;
@@ -257,7 +260,8 @@ impl<'a> Binary<'a> {
             return None;
         }
         let offsets = bytes.get(table..table.checked_add(count.checked_mul(offset_size)?)?)?;
-        Some(Self { bytes, offsets, offset_size, reference_size, count, top })
+        let budget = std::cell::Cell::new(bytes.len());
+        Some(Self { bytes, offsets, offset_size, reference_size, count, top, budget })
     }
 
     fn top(&self) -> Option<Value> {
@@ -268,6 +272,7 @@ impl<'a> Binary<'a> {
         if index >= self.count || depth > BINARY_DEPTH {
             return None;
         }
+        self.budget.set(self.budget.get().checked_sub(1)?);
         let at =
             usize::try_from(be(self.offsets.get(index * self.offset_size..(index + 1) * self.offset_size)?)?).ok()?;
         let marker = *self.bytes.get(at)?;

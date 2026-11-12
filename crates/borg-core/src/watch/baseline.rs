@@ -15,6 +15,8 @@ use super::{
 
 /// Days Borg learns before it freezes anything.
 pub const LEARNING_DAYS: u64 = 7;
+/// The longest Borg learns, whatever the configuration asks for.
+pub const LEARNING_DAYS_LIMIT: u64 = 365;
 /// Days after learning ends that freezing waits for the user to see what Borg would have frozen
 /// meanwhile. After that it starts anyway, so a machine nobody looks at is still protected.
 pub const REVIEW_DAYS: u64 = 3;
@@ -71,6 +73,11 @@ fn names_of(process: &StartedProcess) -> Vec<String> {
     names
 }
 
+/// How long Borg learns when the configuration asks for `days`.
+pub fn learning_period(days: u64) -> Duration {
+    Duration::from_secs(days.min(LEARNING_DAYS_LIMIT) * DAY_SECONDS)
+}
+
 /// When freezing starts on its own for a machine that finished learning at `learned_at`.
 pub fn review_ends(learned_at: SystemTime) -> SystemTime {
     learned_at + Duration::from_secs(REVIEW_DAYS * DAY_SECONDS)
@@ -96,7 +103,7 @@ pub struct Baseline {
 
 impl Default for Baseline {
     fn default() -> Self {
-        Self::started(SystemTime::UNIX_EPOCH, Duration::from_secs(LEARNING_DAYS * DAY_SECONDS))
+        Self::started(SystemTime::UNIX_EPOCH, learning_period(LEARNING_DAYS))
     }
 }
 
