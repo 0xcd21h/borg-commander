@@ -15,7 +15,7 @@ use crate::key::{Identity, KEY_LEN, PublicKey};
 pub(crate) const NOISE: &str = "Noise_IK_25519_ChaChaPoly_BLAKE2s";
 /// Binds every handshake to this protocol, so a message from another one cannot pass for it.
 const PROLOGUE: &[u8] = b"borg-link 1";
-pub(crate) const NOISE_LIMIT: usize = 65_535;
+pub const NOISE_LIMIT: usize = 65_535;
 const TAG: usize = 16;
 /// Payload bytes per Noise message: what is left after the tag and the byte that says
 /// whether more of the message follows.

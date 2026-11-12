@@ -663,7 +663,6 @@ dependencies = [
  "jiff",
  "linux-keyutils",
  "memchr",
- "portable-pty",
  "ratatui",
  "rcgen",
  "read-process-memory",
@@ -684,6 +683,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "toml",
+ "toml_edit",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
@@ -811,6 +811,7 @@ name = "borg-jobs"
 version = "0.10.0"
 dependencies = [
  "borg-drives",
+ "borg-i18n",
  "tempfile",
 ]
 
@@ -877,6 +878,7 @@ dependencies = [
  "portable-pty",
  "proptest",
  "rustix",
+ "tempfile",
  "tokio",
 ]
 
@@ -941,6 +943,7 @@ name = "borg-update"
 version = "0.10.0"
 dependencies = [
  "flate2",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4661,6 +4664,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

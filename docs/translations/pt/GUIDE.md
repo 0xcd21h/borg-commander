@@ -46,7 +46,11 @@ brew install 0xcd21h/tap/borg-commander
 
 Execute `borg` na pasta que pretende explorar. F10 sai e Ctrl-O passa da consola para os painéis.
 Para atualizar, execute `borg update` numa cópia transferida, ou use o Homebrew ou o cargo se
-tiver instalado dessa forma. `borg --version` mostra a versão instalada.
+tiver instalado dessa forma. O Borg só instala uma atualização quando a versão publicada traz a
+assinatura do projeto. Se a assinatura faltar ou estiver errada, a cópia instalada fica como está.
+`borg --version` mostra a versão instalada. As sessões abertas
+passam para a nova versão e mantêm as suas shells (consulte
+[Atualizar com sessões abertas](#updating-with-sessions-open)).
 
 ## Temas e ícones
 
@@ -1075,6 +1079,31 @@ comandos usam o sudo, que pede a sua palavra-passe, a menos que seja root. `borg
 executa-o na shell do Borg. Num contentor sem systemd, configure o supervisor de processos do
 contentor para executar `borg service run`.
 
+### Atualizar com sessões abertas
+
+`borg update` instala a nova versão, passa o serviço em segundo plano para ela e avisa quando o
+serviço já a corre. O serviço arranca de novo no seu próprio processo, por isso as sessões que
+mantém conservam as suas shells e os programas que nelas correm. Cada Borg aberto acompanha-o
+quando está inativo: espera que as tarefas em curso terminem, que os ficheiros editados sejam
+guardados ou fechados e que o pedido do agente esteja concluído. Depois arranca de novo no mesmo
+terminal, mantém a sua shell e indica a versão que corre agora.
+
+A atualização guarda a versão que substituiu junto do ficheiro do programa, como `.borg.previous`.
+Se a nova versão não assumir o lugar da anterior em 60 segundos, o Borg repõe a anterior e o
+serviço volta a arrancar com ela. As sessões que mantinha arrancam então com shells novas.
+
+Um serviço iniciado por um Borg mais antigo não consegue mudar sozinho de versão. O `borg update`
+indica-o, e o serviço usa a nova versão da próxima vez que arrancar.
+
+Para atualizar uma máquina emparelhada, selecione-a em [Hosts remotos](#remote-hosts) e prima
+**U**. Depois de confirmar, o host obtém a versão mais recente tal como o `borg update` faz, e o
+seu serviço passa para ela. **Esc** fecha o seletor enquanto a atualização continua. Em seguida, o
+Borg indica a versão que o host corre, ou que a nova versão não arrancou e o host voltou à que
+corria. Um espelho de uma das suas sessões espera por ele e volta a mostrar o host quando este
+regressa (consulte [Espelhar uma sessão](#mirroring-a-session)). Execute antes `borg update` no
+host quando o seu Borg for mais antigo ou correr sem o serviço em segundo plano. Um Borg instalado
+aí com o Homebrew ou o cargo atualiza-se com essa ferramenta no host, e o Borg indica o comando.
+
 ### Painéis remotos
 
 Depois do emparelhamento, `borg --remote MACHINE:SESSION` abre os ficheiros dessa sessão no painel
@@ -1118,8 +1147,9 @@ no seu ecrã, e pode responder-lhes aqui (consulte [O que o agente pode fazer](#
 No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos ou escolha
 **F9 → Remoto → Explorar hosts e sessões…** para ver as máquinas emparelhadas e as respetivas
 sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a partir do qual abriu o
-seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
-**R** para atualizar a lista.
+seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão,
+**U** para atualizar o host (consulte [Atualizar com sessões abertas](#updating-with-sessions-open))
+e **R** para atualizar a lista.
 
 **Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
 que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
@@ -1191,6 +1221,12 @@ assume sempre o controlo retirando-o a outro visualizador. Depois de ter o contr
 tecla acorda um ecrã remoto em repouso, e as teclas e a entrada de rato seguintes chegam-lhe. Um
 visualizador que fique para trás salta os fotogramas de animação antigos e passa diretamente
 para o ecrã atual.
+
+Quando o host deixa de responder, por exemplo durante uma atualização, o espelho mantém o último
+ecrã, indica-o na linha de estado e tenta de novo a cada 2 segundos, durante 100 segundos no
+máximo. Entretanto, **Ctrl-G** sai do espelho. Quando o host regressa, o espelho volta a mostrar o
+seu ecrã, com a versão que corre agora no canto inferior direito. Se o host continuar ausente
+depois disso, o espelho termina com uma mensagem.
 
 Um pedido do agente aparece no espelho tal como o servidor o mostra, e responde-lhe aí quando
 tiver o controlo. Se abriu o espelho a partir de um painel remoto e o pedido ainda esperar quando
@@ -1345,11 +1381,12 @@ hexadecimais e prima-o de novo para voltar ao texto. Um ficheiro binário, que o
 um byte a zero nos primeiros 4 KiB, abre em linhas hexadecimais em ambos, e `h` mostra o seu texto.
 Cada linha começa com a sua posição no ficheiro e mostra depois os seus bytes em hexadecimal e os
 mesmos bytes como texto, com um ponto em cada byte que não é imprimível. As posições e os bytes a
-zero aparecem esbatidos. Uma linha tem 16 bytes, ou 8, 4, 2 ou 1 quando não há espaço para 16. O
-Borg lê apenas as linhas que estão no ecrã, pelo que as setas, PgUp/PgDn, Space, Home e End
-percorrem de imediato um ficheiro de vários gigabytes. A barra de pesquisa também funciona nas
-linhas hexadecimais e marca cada correspondência nas duas colunas. Em hexadecimal, os ficheiros
-Markdown e JSON mostram os bytes tal como estão escritos.
+zero aparecem esbatidos. Uma linha tem tantos bytes quantos couberem na largura: 64, 32, 16, 8, 4, 2
+ou 1, com um espaço maior a seguir a cada oitavo byte. O Borg lê apenas as linhas que estão no ecrã,
+pelo que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato um ficheiro de vários
+gigabytes. A barra de pesquisa também funciona nas linhas hexadecimais e marca cada correspondência
+nas duas colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes tal como estão
+escritos.
 
 No visualizador, uma faixa de entropia acompanha o lado direito das linhas hexadecimais. A entropia
 indica quão variados são os bytes, de 0 bits por byte para um único byte repetido a 8 para bytes tão
@@ -1532,6 +1569,13 @@ muda o idioma do guia de forma independente.
 As definições ficam guardadas em `~/.config/borg-commander/config.toml`, ou na pasta indicada por
 `$XDG_CONFIG_HOME` ou `$BORG_CONFIG_DIR`. F9 → Opções → Definições mostra-as como caixas de
 verificação; Space ou um clique alterna uma definição e guarda-a de imediato. Esc fecha a janela.
+O Borg lê o ficheiro definição a definição. Uma definição que não tem, ou um valor que não consegue
+usar, afeta apenas essa definição: o Borg diz em que linha está ao arrancar e usa aí a predefinição.
+Quando o Borg guarda uma definição altera só essa e mantém o resto do ficheiro, com os seus
+comentários, tal como o escreveu. Uma definição de uma versão anterior é lida como aquilo que a
+substituiu e sai do ficheiro na gravação seguinte. Um ficheiro que não é TOML de todo faz o Borg
+arrancar com as predefinições, e a primeira definição que guardar depois mantém esse ficheiro ao
+lado do novo como `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -1579,7 +1623,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -1813,11 +1857,12 @@ suas próprias permissões, e deixa o descritor do processo em paz.
 
 ### Pré-visualização de regiões
 
-Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início
-da região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por
-cima dos bytes indica em que ponto da região está a janela. Quando se move depressa, o Borg espera
-um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela a
-leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
+Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início da
+região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por cima
+dos bytes indica em que ponto da região está a janela. Cada linha começa pela sua posição a contar
+do início da região, e um painel largo mostra mais bytes por linha. Quando se move depressa, o Borg
+espera um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela
+a leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
 **Enter** para percorrer a pré-visualização. **Esc** aí volta à lista, e **Esc** no mapa volta à
 lista de processos com o cursor e o filtro como estavam.
 
@@ -2050,6 +2095,9 @@ os mesmos alertas. Esse serviço corre enquanto houver um Borg aberto. Para cont
 sem nenhum terminal aberto, inicie o serviço no arranque do sistema como descreve
 [Sessões com nome e serviço em segundo plano](#named-sessions-and-the-background-service).
 
+Os alertas ficam nessa máquina até indicar um destino para eles, e a página avisa enquanto assim
+for (consulte [Alertas fora da máquina](#alerts-off-the-machine)).
+
 **Alt-L** ou **Comando → Alertas** abre a página. A lista ocupa o painel ativo, com o alerta mais
 recente primeiro, e o outro painel mostra o alerta selecionado por inteiro. Cada linha mostra a
 hora, a regra que disparou, o programa, o processo-pai que o iniciou, o utilizador com que correu
@@ -2087,7 +2135,8 @@ antes de uma palavra para deixar de fora o que ela apanha: `shell-on-socket !roo
 shells remotas de todos os outros utilizadores.
 
 Os alertas vivem em `alerts.json` na pasta de estado, acessível só ao dono, os 200 mais recentes.
-O Borg mantém o ficheiro dentro de 8 MiB, o máximo que lê de volta, e deixa de fora os alertas mais
+Um alerta sobre um processo que continua congelado fica para além desse limite, para que possa
+sempre deixá-lo continuar ou terminá-lo. O Borg mantém o ficheiro dentro de 8 MiB, o máximo que lê de volta, e deixa de fora os alertas mais
 antigos quando não cabem. A janela **Ficheiros do Borg** conta-os em **Estado** (veja
 [Ficheiros do Borg](#borgs-files)). Abrir a página marca como lidos os alertas que ela mostra, e a
 contagem de alertas não lidos acompanha o registo enquanto o Borg estiver aberto, esteja a página
@@ -2212,7 +2261,8 @@ precisa, e a interface do Borg continua a correr como você. Os dois lados falam
 pasta de estado a que só o dono chega, o Borg aceita uma ligação apenas de um processo que corre
 como root, e a parte root liga-se apenas a um socket que pertence ao utilizador para quem foi
 instalada. `borg service watch uninstall` remove-a, e `borg service watch status` imprime de onde
-vêm os eventos e o que foi encontrado.
+vêm os eventos e o que foi encontrado. A instalação e o estado avisam enquanto os alertas não
+tiverem destino (consulte [Alertas fora da máquina](#alerts-off-the-machine)).
 
 Os programas precisam do Linux 5.8 ou posterior. Num kernel mais antigo, ou onde a parte root não os
 pode carregar, ela ouve os eventos de processo do kernel e lê tudo de `/proc`, e a página indica-o
@@ -2275,6 +2325,20 @@ que cada um respondeu.
   sua caixa de saída. Um serviço como o healthchecks.io avisa-o quando as chamadas param, que é o
   que acontece quando alguém mata o observador.
 
+Enquanto nenhum destino receber alertas, eles ficam no registo da máquina, e o Borg avisa onde quer
+que encontre o observador. A página Alertas mostra **Os alertas ficam nesta máquina.** por cima dos
+detalhes do alerta selecionado, ou na última linha da lista quando esta está maximizada. A mesma
+linha aparece quando ativa o observador em Opções → Plugins, em `borg service watch install` e
+`borg service watch status`, e na saída do serviço quando o observador arranca. Um sinal de vida
+sozinho não acaba com o aviso. Diz-lhe que o observador está a correr e não leva alertas, por isso
+adicione também Telegram, ntfy ou um webhook.
+
+O aviso fica mais forte quando o Borg está perto de agir. A partir de um dia antes do fim do período
+de aprendizagem diz **O Borg está prestes a congelar processos aqui e ninguém será avisado.**, e
+depois de o congelamento começar, **O Borg congela processos aqui e ninguém é avisado.** O Borg
+continua a observar, a aprender e a congelar sem um destino para os alertas, por isso configure um
+antes de o período de aprendizagem acabar numa máquina que não consulta todos os dias.
+
 O serviço envia cada alerta poucos segundos depois de o registar e diz também quando o observador
 arranca e quando o congelamento começa. Os alertas de nível nota ficam só na página, a menos que
 `level` seja `notice`. Uma mensagem que um destino recusa espera em `watch-outbox.json`, na pasta
@@ -2316,7 +2380,9 @@ Conheça-as antes de confiar nele.
   corre durante a semana de aprendizagem conta como normal.
 - Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
   em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
-  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root. Quando o
+  observador como root deixa de correr, o Borg volta a observar os seus próprios processos até que ele corra de
+  novo.
 - Antes do Linux 5.8, ou onde a parte root não consegue carregar os seus programas, o Borg lê cada
   processo novo em `/proc` depois de o kernel o comunicar. Um comando que termina de imediato pode
   já ter desaparecido, e um processo pode mudar antes a sua linha de comandos.
@@ -2419,7 +2485,7 @@ funcionam. Uma palavra com nome de campo procura apenas nesse campo:
 | `port:443`, `port:ssh` | Linhas com esse número de porta ou serviço |
 | `proc:node`, `process:node` | Linhas cujo nome de processo contém o texto |
 | `pid:4100` | Linhas desse PID |
-| `host:example` | Linhas cujo endereço ou nome do host contém o texto |
+| `host:example` | Linhas cujo endereço ou nome do host contém o texto; um endereço completo mantém apenas esse endereço |
 | `state:listen`, `state:time` | Linhas TCP num estado que contém o texto |
 | `proto:udp`, `proto:tcp` | Linhas desse protocolo |
 | `if:en0`, `interface:en0` | Interfaces cujo nome contém o texto |
@@ -2505,8 +2571,8 @@ para cada forma de a ver:
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
-  hexadecimal. Um dump põe 16 bytes em cada linha, e menos num painel estreito, para que o texto
-  continue a caber ao lado. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
+  hexadecimal. Um dump dispõe os bytes como as linhas hexadecimais do visualizador, com tantos
+  em cada linha quantos couberem no painel. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
 
 | Tecla | Ação |
 | --- | --- |

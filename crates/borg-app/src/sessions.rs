@@ -12,7 +12,7 @@ use borg_core::{DEFAULT_SESSION, SESSION_NAME_LIMIT};
 use borg_i18n::{Count, tr};
 use serde::{Deserialize, Serialize};
 
-use crate::{session::StateDir, store::write_atomically};
+use crate::{session::StateDir, store::write_privately};
 
 const REGISTRY: &str = "sessions.json";
 /// The file in a session's folder that a running Borg holds locked.
@@ -119,7 +119,7 @@ pub fn ensure_default(state: &StateDir) -> Result<Vec<NamedSession>> {
 
 fn save(state: &StateDir, sessions: &[NamedSession]) -> Result<()> {
     fs::create_dir_all(state.path())?;
-    write_atomically(&path(state), &serde_json::to_vec_pretty(sessions)?)
+    write_privately(&path(state), &serde_json::to_vec_pretty(sessions)?)
 }
 
 fn validate_name(name: &str, sessions: &[NamedSession], except: Option<&str>) -> Result<String> {

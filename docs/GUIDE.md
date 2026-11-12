@@ -45,7 +45,10 @@ brew install 0xcd21h/tap/borg-commander
 
 Run `borg` in the folder you want to browse. F10 quits, and Ctrl-O switches from the console
 back to the panels. To update, run `borg update` for a downloaded copy, or use Homebrew or cargo
-if you installed it that way. `borg --version` prints the installed version.
+if you installed it that way. Borg installs an update only when the release carries the project's
+signature. If the signature is missing or wrong, the copy you have stays as it is.
+`borg --version` prints the installed version. Open sessions move to
+the new version and keep their shells (see [Updating with sessions open](#updating-with-sessions-open)).
 
 ## Themes and icons
 
@@ -989,6 +992,31 @@ undo them. You can also choose F9 → Remote → **Background service…**: the 
 for the next step, and Enter runs it in Borg's shell. In a container without systemd, have the
 container's process supervisor run `borg service run`.
 
+### Updating with sessions open
+
+`borg update` installs the new version, then moves the background service to it and tells you once
+the service runs it. The service starts again in its own process, so the sessions it keeps hold on
+to their shells and the programs running in them. Every open Borg follows when it is idle: it
+waits for running jobs to finish, for edited files to be saved or closed, and for an agent's
+request to be done. Then it starts again in the same terminal, keeps its shell, and says which
+version it runs now.
+
+The update keeps the version it replaced next to the program file, as `.borg.previous`. When the
+new version does not take over within 60 seconds, Borg puts the previous one back and the service
+starts again on it. The sessions it kept then start with new shells.
+
+A service started by an older Borg cannot move by itself. `borg update` says so, and the service
+uses the new version the next time it starts.
+
+To update a paired machine, select it in [Remote hosts](#remote-hosts) and press **U**. After you
+confirm, the host gets the latest release the way `borg update` does, and its service moves to it.
+**Esc** closes the picker while the update goes on. Borg then tells you which version the host
+runs, or that the new version did not start and the host went back to the one it ran. A mirror of
+one of its sessions waits for it and shows the host again once it is back (see
+[Mirroring a session](#mirroring-a-session)). Run `borg update` on the host instead when its Borg
+is older or runs without the background service. Borg installed there with Homebrew or cargo is
+updated with that tool on the host, and Borg names the command.
+
 ### Remote panels
 
 After pairing, `borg --remote MACHINE:SESSION` opens that session's files in the left panel.
@@ -1029,7 +1057,8 @@ and you can answer them here (see [What the agent can do](#what-the-agent-can-do
 In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or choose
 **F9 → Remote → Browse hosts and sessions…** to see paired machines and their named sessions.
 Enter opens the selected session's files in the panel you opened the picker from, replacing what
-that panel showed. Press **M** to mirror the session's screen, and **R** to refresh the list.
+that panel showed. Press **M** to mirror the session's screen, **U** to update the host (see
+[Updating with sessions open](#updating-with-sessions-open)), and **R** to refresh the list.
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
@@ -1095,6 +1124,11 @@ detach the other terminal, or start with `borg mirror MACHINE:SESSION --take`; `
 takes control from another viewer. Once you have control, the first key wakes a sleeping remote
 screen, and later keys and mouse input reach it. A viewer that falls behind skips old animation
 frames and jumps straight to the current screen.
+
+When the host stops answering, for example while it updates, the mirror keeps the last screen,
+says so on its status line, and tries again every 2 seconds for up to 100 seconds. **Ctrl-G**
+leaves it meanwhile. Once the host is back, the mirror shows its screen again, with the version it
+runs now at the bottom right. A host that is still away after that ends the mirror with a message.
 
 An agent's request shows in the mirror as the server shows it, and you answer it there once you
 have control. If you opened the mirror from a remote panel and the request still waits when you
@@ -1234,10 +1268,11 @@ Press `h` in the text viewer or in the quick view to see the file's bytes as hex
 again to go back to the text. A binary file, which Borg spots by a zero byte in its first 4 KiB,
 opens as hex rows in both, and `h` shows its text. Each row starts with its offset in the file, then
 shows its bytes in hex and the same bytes as text, with a dot for each byte that does not print.
-Offsets and zero bytes are dimmed. A row holds 16 bytes, or 8, 4, 2 or 1 when 16 do not fit. Borg
-reads only the rows on the screen, so the arrow keys, PgUp/PgDn, Space, Home and End move through a
-file of several gigabytes at once. The find bar works in hex rows too and marks each match in both
-columns. In hex, Markdown and JSON files show their bytes as written.
+Offsets and zero bytes are dimmed. A row holds as many bytes as fit the width: 64, 32, 16, 8, 4, 2
+or 1, with a wider space after every eighth byte. Borg reads only the rows on the screen, so the
+arrow keys, PgUp/PgDn, Space, Home and End move through a file of several gigabytes at once. The
+find bar works in hex rows too and marks each match in both columns. In hex, Markdown and JSON files
+show their bytes as written.
 
 In the viewer, an entropy strip runs down the right edge of the hex rows. Entropy says how varied
 the bytes are, from 0 bits per byte for one byte repeated to 8 for bytes as random as compressed,
@@ -1408,6 +1443,12 @@ changes the guide's language separately.
 Settings are saved in `~/.config/borg-commander/config.toml`, or in the folder set by
 `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. F9 → Options → Settings shows them as checkboxes; Space
 or a click toggles a setting and saves it right away. Esc closes the window.
+Borg reads the file setting by setting. A setting it does not have, or a value it cannot use, costs
+only that setting: Borg says which line it is when it starts and uses its default there. When Borg
+saves a setting it changes that one and keeps the rest of the file, with your comments, as you wrote
+it. A setting from an older version is read as what replaced it and leaves the file at the next
+save. A file that is not TOML at all starts Borg on its defaults, and the first setting you then
+save keeps that file beside the new one as `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -1455,7 +1496,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -1678,13 +1719,14 @@ permissions and leaves the process's descriptor alone.
 
 ### Region preview
 
-When you select a readable region, Borg captures up to 64 KiB of it in the other pane. If the
-start of the region holds only zeros, the capture skips ahead to the first page with data, and
-the line above the bytes says where in the region the window is. When you move quickly, Borg
-waits a moment before reading; selecting another region clears the old preview and cancels its
-pending read. Regions that cannot be read show a message instead. Press **Tab** or **Enter** to
-scroll the preview. **Esc** there goes back to the list, and **Esc** in the map goes back to the
-process list with its cursor and filter as they were.
+When you select a readable region, Borg captures up to 64 KiB of it in the other pane. If the start
+of the region holds only zeros, the capture skips ahead to the first page with data, and the line
+above the bytes says where in the region the window is. Each row starts with its offset from the
+start of the region, and a wide pane shows more bytes on a row. When you move quickly, Borg waits a
+moment before reading; selecting another region clears the old preview and cancels its pending read.
+Regions that cannot be read show a message instead. Press **Tab** or **Enter** to scroll the
+preview. **Esc** there goes back to the list, and **Esc** in the map goes back to the process list
+with its cursor and filter as they were.
 
 Runs of zero rows collapse into a single row, such as "· 60K zero bytes ·". **]** and **[** jump
 to the next and previous block of data, and **>** and **<** capture the next and previous 64 KiB
@@ -1891,6 +1933,9 @@ that all your Borgs on the machine share, so every Borg reads the same alerts. T
 while a Borg is open. To keep watching with no terminal open, start the service at boot as
 [Named sessions and the background service](#named-sessions-and-the-background-service) describes.
 
+Alerts stay on that machine until you name a place to send them, and the page says so while they
+do (see [Alerts off the machine](#alerts-off-the-machine)).
+
 **Alt-L** or **Command → Alerts** opens the page. The list takes the active pane, newest alert
 first, and the other pane shows the selected alert in full. Each row shows the time, the rule that
 fired, the program, the parent that started it, the user it ran as, and what has become of the
@@ -1924,7 +1969,8 @@ The filter keeps the alerts that contain every word you type, in the rule, its s
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
 leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
 
-Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. Borg keeps
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. An alert about
+a process that is still frozen stays beyond that, so you can always let it go on or kill it. Borg keeps
 the file within 8 MiB, the most it reads back, and leaves out the oldest alerts when they would not
 fit. The **Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)).
 Opening the page marks what it holds as read, and the count of unread alerts follows the log while
@@ -2042,7 +2088,8 @@ capability it does not need, and Borg's own interface keeps running as you. The 
 a socket in the state folder that only its owner can reach, Borg accepts a connection only from a
 process running as root, and the root part connects only to a socket that belongs to the user it was
 installed for. `borg service watch uninstall` removes it, and `borg service watch status` prints
-where the events come from and what has been found.
+where the events come from and what has been found. The install and the status both warn while alerts
+have no place to go (see [Alerts off the machine](#alerts-off-the-machine)).
 
 The programs need Linux 5.8 or later. On an older kernel, or where the root part may not load them,
 it hears the kernel's process events and reads everything from `/proc`, and the page says so under
@@ -2105,6 +2152,20 @@ one answered.
   healthchecks.io tells you when the calls stop, which is what happens when someone kills the
   watcher.
 
+While no place takes alerts, they stay in the log on the machine, and Borg says so wherever you meet
+the watcher. The Alerts page shows **Alerts stay on this machine.** above the details of the
+selected alert, or in the last row of the list when the list is maximized. You get the same line
+when you turn the watcher on in Options → Plugins, from `borg service watch install` and
+`borg service watch status`, and in the service's output when the watcher starts. A heartbeat alone
+does not end the warning. It tells you that the watcher runs and carries no alerts, so add Telegram,
+ntfy or a webhook as well.
+
+The warning gets stronger when Borg is close to acting. From a day before the learning period ends
+it reads **Borg is about to freeze processes here, and nobody will be told.**, and once freezing has
+started, **Borg freezes processes here and nobody is told.** Borg still watches, learns and freezes
+without a place to send alerts, so set one up before the learning period ends on a machine you do
+not look at every day.
+
 The service sends each alert within seconds of writing it down, and also says when the watcher
 starts and when freezing begins. Notices stay on the page unless `level` is `notice`. A message a
 place refuses waits in `watch-outbox.json` in the state folder and is tried again, 5 seconds later
@@ -2145,7 +2206,8 @@ before you rely on it.
   learning week counts as normal.
 - Without the root watcher, Borg sees only your own processes, and a command that ends within a
   quarter of a second can be gone before Borg looks. Services that run as another user, such as
-  `www-data` or `postgres`, need the root watcher.
+  `www-data` or `postgres`, need the root watcher. When the root watcher stops, Borg goes back to
+  watching your own processes until it runs again.
 - Before Linux 5.8, or where the root part cannot load its programs, Borg reads each new process in
   `/proc` after the kernel reports it. A command that ends at once can be gone by then, and a
   process can change its command line first.
@@ -2244,7 +2306,7 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 | `port:443`, `port:ssh` | Rows on that port number or service |
 | `proc:node`, `process:node` | Rows whose process name contains the text |
 | `pid:4100` | Rows of that PID |
-| `host:example` | Rows whose address or host name contains the text |
+| `host:example` | Rows whose address or host name contains the text; a whole address keeps that address alone |
 | `state:listen`, `state:time` | TCP rows in a state that contains the text |
 | `proto:udp`, `proto:tcp` | Rows of that protocol |
 | `if:en0`, `interface:en0` | Interfaces whose name contains the text |
@@ -2327,8 +2389,8 @@ way to look at it:
 - **4 Packets** shows every packet in order with its time from the start, protocol, length and a
   summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
   its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
-  as a hex dump. A dump puts 16 bytes on each line, and fewer in a narrow pane so their text still
-  fits beside them. F3 opens the packet's bytes in the viewer as hex rows.
+  as a hex dump. A dump lays its bytes out as the viewer's hex rows do, with as many on each line as
+  fit the pane. F3 opens the packet's bytes in the viewer as hex rows.
 
 | Key | Action |
 | --- | --- |

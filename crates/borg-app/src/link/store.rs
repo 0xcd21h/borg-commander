@@ -75,19 +75,22 @@ pub(super) fn load<T: DeserializeOwned>(path: &Path) -> Vec<T> {
     std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
 }
 
+/// A list to change and save again: empty when its file is not there yet, and an error when the
+/// file is there but Borg cannot read it, so a save never writes an empty list over it.
+pub(super) fn load_to_change<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
 /// Writes a list owner-only, replacing the old one whole.
 pub(super) fn save<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
-    use std::io::Write as _;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let staged = path.with_extension(format!("{}.new", std::process::id()));
-    let mut file =
-        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(PRIVATE_FILE).open(&staged)?;
-    file.write_all(&serde_json::to_vec_pretty(items)?)?;
-    drop(file);
-    std::fs::rename(&staged, path)?;
-    Ok(())
+    crate::store::write_privately(path, &serde_json::to_vec_pretty(items)?)
 }
 
 /// A name from the other side, kept short and printable.
@@ -116,7 +119,7 @@ pub fn servers(state: &Path) -> Vec<Server> {
 pub fn forget_server(state: &Path, name: &str) -> Result<bool> {
     let lock = super::keys::lock(state)?;
     let path = state.join(LINK_DIR).join(SERVERS_FILE);
-    let mut servers: Vec<Server> = load(&path);
+    let mut servers: Vec<Server> = load_to_change(&path)?;
     let before = servers.len();
     servers.retain(|server| server.name != name);
     save(&path, &servers)?;

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use borg_core::{AppState, ListingMode, PanelSetup, Side, Sort, SortKey, Startup};
 use serde::{Deserialize, Serialize};
 
-use crate::store::{write_atomically, write_privately};
+use crate::store::write_privately;
 
 mod agent_log;
 
@@ -185,7 +185,7 @@ impl StateDir {
 
     pub fn save_session(&self, session: &Session) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
+        write_privately(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
     }
 
     pub fn load_game2048(&self) -> Result<Option<borg_core::Game2048>> {
@@ -204,7 +204,7 @@ impl StateDir {
 
     pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+        write_privately(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
     }
 
     pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {
@@ -255,7 +255,7 @@ impl StateDir {
         let bytes = serde_json::to_vec(&saved)?;
         anyhow::ensure!(bytes.len() as u64 <= MAX_COLLECTION_BYTES, "collections exceed storage limit");
         self.ensure()?;
-        write_atomically(&self.root.join(COLLECTIONS_FILE), &bytes)
+        write_privately(&self.root.join(COLLECTIONS_FILE), &bytes)
     }
 
     pub fn load_search_history(&self) -> Result<borg_core::SearchHistory> {
@@ -346,7 +346,7 @@ impl StateDir {
 
     pub fn save_terminal(&self, bytes: &[u8]) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.session_path(TERMINAL_FILE), bytes)
+        write_privately(&self.session_path(TERMINAL_FILE), bytes)
     }
 
     pub fn forget_terminal(&self) -> Result<()> {
@@ -415,7 +415,7 @@ impl StateDir {
     pub fn record_update_check(&self, now: SystemTime) -> Result<()> {
         self.ensure()?;
         let secs = now.duration_since(UNIX_EPOCH).map(|age| age.as_secs()).unwrap_or_default();
-        write_atomically(&self.root.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
+        write_privately(&self.root.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
     }
 
     fn ensure(&self) -> Result<()> {

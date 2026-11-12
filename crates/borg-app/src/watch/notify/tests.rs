@@ -584,3 +584,32 @@ fn a_secret_never_shows_in_what_went_wrong() {
     assert_eq!(received.recv().unwrap().line, "POST / HTTP/1.1");
     assert!(!error.to_string().contains("hidden-topic") && !error.to_string().contains("SECRET"), "{error}");
 }
+
+fn heartbeat() -> Heartbeat {
+    Heartbeat { url: "https://hc-ping.com/check".into(), every: Duration::from_secs(HEARTBEAT_MINUTES * 60) }
+}
+
+#[test]
+fn with_no_place_set_up_alerts_stay_on_this_machine() {
+    assert_eq!(Settings::default().delivery(), AlertDelivery::Local);
+}
+
+#[test]
+fn one_place_that_takes_alerts_is_enough_for_them_to_be_sent() {
+    let ntfy = Ntfy { url: "https://ntfy.sh/a-topic".into(), token: None };
+    let settings = Settings { ntfy: Some(ntfy), ..Settings::default() };
+    assert_eq!(settings.delivery(), AlertDelivery::Sent);
+    let with_heartbeat = Settings { heartbeat: Some(heartbeat()), ..settings };
+    assert_eq!(with_heartbeat.delivery(), AlertDelivery::Sent);
+    let telegram = Telegram { token: "123:abc".into(), chat: "1".into() };
+    assert_eq!(Settings { telegram: Some(telegram), ..Settings::default() }.delivery(), AlertDelivery::Sent);
+    let webhook = Webhook { url: "https://example.com/borg".into(), secret: None };
+    assert_eq!(Settings { webhook: Some(webhook), ..Settings::default() }.delivery(), AlertDelivery::Sent);
+}
+
+#[test]
+fn a_heartbeat_alone_carries_no_alerts() {
+    let settings = Settings { heartbeat: Some(heartbeat()), ..Settings::default() };
+    assert!(settings.any(), "the heartbeat still leaves the machine");
+    assert_eq!(settings.delivery(), AlertDelivery::HeartbeatOnly);
+}

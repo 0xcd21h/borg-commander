@@ -25,7 +25,7 @@ use tokio::{
     net::{UnixListener, UnixStream},
     sync::{
         mpsc::{Receiver, UnboundedReceiver, UnboundedSender, unbounded_channel},
-        oneshot,
+        oneshot, watch,
     },
 };
 
@@ -79,6 +79,8 @@ pub struct RootLink {
     next_id: u64,
     /// How the root watcher hears processes, as it said when it connected.
     source: Arc<Mutex<WatchSource>>,
+    /// Whether the root watcher is connected now.
+    connected: watch::Receiver<bool>,
 }
 
 impl RootLink {
@@ -96,11 +98,14 @@ impl RootLink {
         let answers = Arc::clone(&waiting);
         let source = Arc::new(Mutex::new(WatchSource::Kernel));
         let said = Arc::clone(&source);
+        let (up, connected) = watch::channel(false);
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 if !runs_as_root(&stream) {
                     continue;
                 }
+                while outgoing.try_recv().is_ok() {}
+                up.send_replace(true);
                 let (reader, mut writer) = stream.into_split();
                 let mut incoming = lines_of(reader);
                 let started = started.clone();
@@ -123,14 +128,27 @@ impl RootLink {
                         },
                     }
                 }
+                up.send_replace(false);
+                answers.lock().expect("waiting acts").clear();
             }
         });
-        Ok((Self { acts, waiting, next_id: 0, source }, processes))
+        Ok((Self { acts, waiting, next_id: 0, source, connected }, processes))
     }
 
     /// How the root watcher hears processes.
     pub fn source(&self) -> WatchSource {
         *self.source.lock().expect("the root watcher's source")
+    }
+
+    /// Whether the root watcher is connected now. What Borg asks of it while it is away is
+    /// dropped when it comes back, so nothing is done to a process long after it was asked.
+    pub fn connected(&self) -> bool {
+        *self.connected.borrow()
+    }
+
+    /// Waits until the root watcher is not connected.
+    pub async fn gone(&mut self) {
+        let _ = self.connected.wait_for(|connected| !connected).await;
     }
 
     /// Asks the root watcher to stop, continue or end a process, and waits for its answer.
@@ -260,12 +278,20 @@ async fn send(writer: &mut tokio::net::unix::OwnedWriteHalf, message: &FromRoot)
     Ok(())
 }
 
-/// The unit that runs the root watcher, as the user installing it would read it.
+/// A path as one quoted word of a unit's command line, with the characters systemd would read
+/// as the end of the word, a specifier or a variable written so that they stand for themselves.
+fn unit_word(path: &str) -> String {
+    let literal = path.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$");
+    format!("\"{literal}\"")
+}
+
+/// The unit that runs the root watcher, as the user installing it would read it. The watcher
+/// ends whenever Borg's service goes away, so the unit starts it again however it ended.
 fn unit(program: &str, socket: &Path, uid: u32) -> String {
     format!(
-        "[Unit]\nDescription=Borg Commander process watcher for user {uid}\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=\"{}\" --watch-root \"{}\" {uid}\nRestart=on-failure\nRestartSec=5\nProtectHome=read-only\nNoNewPrivileges=yes\nCapabilityBoundingSet=CAP_NET_ADMIN CAP_KILL CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_BPF CAP_PERFMON\nLimitMEMLOCK=64M\n\n[Install]\nWantedBy=multi-user.target\n",
-        program.replace('"', "\\\""),
-        socket.display()
+        "[Unit]\nDescription=Borg Commander process watcher for user {uid}\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart={} --watch-root {} {uid}\nRestart=always\nRestartSec=5\nProtectHome=read-only\nNoNewPrivileges=yes\nCapabilityBoundingSet=CAP_NET_ADMIN CAP_KILL CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_BPF CAP_PERFMON\nLimitMEMLOCK=64M\n\n[Install]\nWantedBy=multi-user.target\n",
+        unit_word(program),
+        unit_word(&socket.display().to_string())
     )
 }
 
@@ -294,7 +320,7 @@ pub fn install() -> Result<()> {
     run(Command::new("sudo").args(["systemctl", "daemon-reload"]))?;
     run(Command::new("sudo").args(["systemctl", "enable", "--now", UNIT]))?;
     let _ = fs::remove_file(&staged);
-    println!("Installed {UNIT}. Borg now hears every process on this machine.");
+    println!("{}", borg_i18n::tr!(watch_root_installed, unit = UNIT));
     Ok(())
 }
 
@@ -302,7 +328,7 @@ pub fn uninstall() -> Result<()> {
     let _ = run(Command::new("sudo").args(["systemctl", "disable", "--now", UNIT]));
     run(Command::new("sudo").args(["rm", "--"]).arg(Path::new(UNITS).join(UNIT)))?;
     run(Command::new("sudo").args(["systemctl", "daemon-reload"]))?;
-    println!("Removed {UNIT}. Borg watches only your own processes now.");
+    println!("{}", borg_i18n::tr!(watch_root_removed, unit = UNIT));
     Ok(())
 }
 
@@ -326,6 +352,7 @@ mod tests {
             "ExecStart=\"/usr/local/bin/borg\" --watch-root \"/home/sam/.local/state/borg/watch.sock\" 1000"
         ));
         assert!(text.contains("NoNewPrivileges=yes"));
+        assert!(text.contains("Restart=always"), "it ends whenever Borg's service does, and starts again");
         assert!(text.contains("CapabilityBoundingSet=CAP_NET_ADMIN"));
         assert!(text.contains(" CAP_BPF CAP_PERFMON\n"), "it may load its programs into the kernel");
     }
@@ -334,6 +361,12 @@ mod tests {
     fn a_program_path_with_quotes_cannot_break_out_of_the_unit() {
         let text = unit("/tmp/bo\"rg", Path::new("/tmp/watch.sock"), 1);
         assert!(text.contains("ExecStart=\"/tmp/bo\\\"rg\""), "{text}");
+    }
+
+    #[test]
+    fn a_path_systemd_would_expand_stands_for_itself_in_the_unit() {
+        let text = unit("/opt/100%/b$org", Path::new("/home/a\\b/watch.sock"), 1);
+        assert!(text.contains("ExecStart=\"/opt/100%%/b$$org\" --watch-root \"/home/a\\\\b/watch.sock\" 1"), "{text}");
     }
 
     /// Borg takes processes only from a connection that runs as root. Run as anyone else, this

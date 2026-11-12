@@ -16,6 +16,7 @@ fn paired_client_status_counts_connections_per_identity_and_cleans_up_on_drop() 
         computers: vec![computer.clone(), Computer { name: "offline".into(), key: hex(&[8; 32]), changed: None }],
         pairing: None,
         connections: Default::default(),
+        registered: false,
     }));
     let clients = Arc::new(AtomicUsize::new(0));
     let (messages, _) = tokio::sync::mpsc::unbounded_channel();
@@ -133,7 +134,12 @@ mod rotation {
     async fn serve(relay: Relay, server: Identity, computers: Vec<Computer>) -> Stage {
         let server_state = tempfile::tempdir().unwrap();
         save(&server_state.path().join(LINK_DIR).join(COMPUTERS_FILE), &computers).unwrap();
-        let shared = Arc::new(Mutex::new(Shared { computers, pairing: None, connections: Default::default() }));
+        let shared = Arc::new(Mutex::new(Shared {
+            computers,
+            pairing: None,
+            connections: Default::default(),
+            registered: false,
+        }));
         let (calls, mut asked) = tokio::sync::mpsc::unbounded_channel::<(
             crate::agent::Call,
             tokio::sync::oneshot::Sender<crate::agent::Reply>,
@@ -740,7 +746,12 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
         members: None,
         relay,
         identity,
-        shared: Arc::new(Mutex::new(Shared { computers: Vec::new(), pairing: None, connections: Default::default() })),
+        shared: Arc::new(Mutex::new(Shared {
+            computers: Vec::new(),
+            pairing: None,
+            connections: Default::default(),
+            registered: false,
+        })),
         state: None,
         runtime_dir: std::env::temp_dir(),
         session_id: None,
@@ -775,4 +786,19 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
     assert!(next.starts_with("late-"), "a closed session frees its place, and the refused one stays refused: {next}");
     server.abort();
     stand_in.abort();
+}
+
+/// A list of paired servers that is there but that Borg cannot read is left as it is: forgetting
+/// one server would otherwise save an empty list over all the others.
+#[test]
+fn a_list_borg_cannot_read_is_never_saved_over() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join(LINK_DIR).join(SERVERS_FILE);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(store::load_to_change::<Server>(&path).unwrap().is_empty(), "no file yet is an empty list");
+    let damaged = b"[{\"name\":".to_vec();
+    std::fs::write(&path, &damaged).unwrap();
+    assert!(store::load_to_change::<Server>(&path).is_err());
+    assert!(forget_server(folder.path(), "anything").is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), damaged);
 }

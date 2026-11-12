@@ -196,13 +196,9 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('a'), CTRL_ALT, Action::ApprovalModeOff, Scope::Anywhere),
     bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
-    bind(KeyCode::Char('D'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
-    bind(KeyCode::Char('d'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('s'), ALT, Action::CalculateSizes, Scope::Panels),
     bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
     bind(KeyCode::Char('R'), ALT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('R'), ALT_SHIFT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('r'), ALT_SHIFT, Action::BackResults, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
     bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
     // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.
@@ -262,10 +258,56 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];
 
+const CONTROL_HINT: &str = "C-";
+const ALT_HINT: &str = "M-";
+const SHIFT_HINT: &str = "S-";
+
+/// A key as menus name it, with a capital letter written as Shift and the small one.
+fn key_hint(code: KeyCode) -> (bool, String) {
+    match code {
+        KeyCode::Char(letter) if letter.is_uppercase() => (true, letter.to_lowercase().collect()),
+        KeyCode::Char(letter) => (false, letter.to_string()),
+        KeyCode::F(number) => (false, format!("F{number}")),
+        KeyCode::Insert => (false, "Ins".to_owned()),
+        KeyCode::Enter => (false, "Enter".to_owned()),
+        KeyCode::Left => (false, "←".to_owned()),
+        KeyCode::Right => (false, "→".to_owned()),
+        other => (false, other.to_string()),
+    }
+}
+
+/// The first key bound to `action`, as menus show it: `C-` for Ctrl, `M-` for Alt and `S-` for
+/// Shift before the key.
+pub fn hint(action: Action) -> Option<String> {
+    let binding = KEYMAP.iter().find(|binding| binding.action == action)?;
+    let (capital, key) = key_hint(binding.code);
+    let held =
+        |modifier: KeyModifiers, name: &'static str| if binding.modifiers.contains(modifier) { name } else { "" };
+    let shift = if capital { SHIFT_HINT } else { held(KeyModifiers::SHIFT, SHIFT_HINT) };
+    Some(format!("{}{}{shift}{key}", held(KeyModifiers::CONTROL, CONTROL_HINT), held(KeyModifiers::ALT, ALT_HINT)))
+}
+
+/// The letter Shift makes of `typed`, where there is exactly one.
+fn shifted(typed: char) -> char {
+    let mut upper = typed.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(letter), None) => letter,
+        _ => typed,
+    }
+}
+
+/// The key as the bindings name it. A terminal reports a shifted letter either as the capital
+/// alone or as the small letter with Shift, and bindings name the capital without Shift.
+fn as_bound(key: &KeyEvent) -> (KeyCode, KeyModifiers) {
+    match key.code {
+        KeyCode::Char(typed) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            (KeyCode::Char(shifted(typed)), key.modifiers - KeyModifiers::SHIFT)
+        }
+        code => (code, key.modifiers),
+    }
+}
+
 pub fn lookup(key: &KeyEvent, context: Context) -> Option<Action> {
-    let modifiers = match key.code {
-        KeyCode::Char(_) => key.modifiers - KeyModifiers::SHIFT,
-        _ => key.modifiers,
-    };
-    KEYMAP.iter().find(|b| b.code == key.code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
+    let (code, modifiers) = as_bound(key);
+    KEYMAP.iter().find(|b| b.code == code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
 }

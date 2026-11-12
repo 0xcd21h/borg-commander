@@ -1,4 +1,4 @@
-use super::{KEY_FILE, LINK_DIR, PRIVATE_FILE, SERVERS_FILE, Server, load, save};
+use super::{KEY_FILE, LINK_DIR, PRIVATE_FILE, SERVERS_FILE, Server, load, load_to_change, save};
 use anyhow::{Context, Result, bail};
 use borg_link::{Identity, hex};
 use serde::{Deserialize, Serialize};
@@ -294,7 +294,7 @@ pub(super) fn legacy_key(state: &Path) -> Option<Identity> {
 pub(super) fn retire_unused(state: &Path) -> Result<()> {
     let _lock = lock(state)?;
     let Some(keys) = read(state)? else { return Ok(()) };
-    let used: HashSet<String> = load::<Server>(&state.join(LINK_DIR).join(SERVERS_FILE))
+    let used: HashSet<String> = load_to_change::<Server>(&state.join(LINK_DIR).join(SERVERS_FILE))?
         .into_iter()
         .flat_map(|server| [server.computer, server.offered])
         .flatten()
@@ -313,7 +313,7 @@ pub(super) fn retire_unused(state: &Path) -> Result<()> {
 pub(super) fn update_server(state: &Path, server: &str, change: impl FnOnce(&mut Server)) -> Result<()> {
     let _lock = lock(state)?;
     let path = state.join(LINK_DIR).join(SERVERS_FILE);
-    let mut servers: Vec<Server> = load(&path);
+    let mut servers: Vec<Server> = load_to_change(&path)?;
     if let Some(entry) = servers.iter_mut().find(|entry| entry.key == server) {
         change(entry);
         save(&path, &servers)?;

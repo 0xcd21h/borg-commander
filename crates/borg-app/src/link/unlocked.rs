@@ -60,7 +60,7 @@ impl Cache {
 
 fn start_agent(socket: &Path, key: &DataKey) -> Result<()> {
     let state = socket.parent().and_then(Path::parent).context("the unlock socket has no state folder")?;
-    let mut child = Command::new(std::env::current_exe()?)
+    let mut child = Command::new(crate::program::path()?)
         .arg(AGENT_FLAG)
         .arg(state)
         .stdin(Stdio::piped())

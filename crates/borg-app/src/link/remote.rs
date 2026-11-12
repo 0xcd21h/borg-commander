@@ -3,7 +3,7 @@
 use super::{
     APPROVAL_WAIT, Answer, Hello, LINK_DIR, ROTATE_CALL, SERVERS_FILE, Server, clean_name,
     keys::{ComputerKeys, computer_keys, legacy_key, lock, retire_unused, saved_server, update_server},
-    load, save, this_computer,
+    load_to_change, save, this_computer,
 };
 use crate::agent::{Call, Reply};
 use anyhow::{Context, Result, bail};
@@ -37,7 +37,7 @@ pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&PairingCode)) ->
     }
     let lock = lock(state)?;
     let path = state.join(LINK_DIR).join(SERVERS_FILE);
-    let mut servers: Vec<Server> = load(&path);
+    let mut servers: Vec<Server> = load_to_change(&path)?;
     servers.retain(|server| server.key != hex(&link.server));
     let base = clean_name(&answer.name).replace(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_', "-");
     let mut name = base.clone();

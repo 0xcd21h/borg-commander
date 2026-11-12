@@ -53,7 +53,7 @@ use keys::KeyLocked;
 pub use remote::{CHUNK, Existing, Remote, download_in_session, pair, upload_in_session};
 use served::Served;
 pub use store::{Computer, KeyChanged, Server, forget_server, identity, server, servers};
-use store::{claim, clean_name, load, same, save, state_dir, this_computer};
+use store::{claim, clean_name, load, load_to_change, same, save, state_dir, this_computer};
 
 static UNLOCK_PROMPT: std::sync::OnceLock<UnboundedSender<Msg>> = std::sync::OnceLock::new();
 static UNLOCK_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -118,6 +118,16 @@ const NAME_LIMIT: usize = 40;
 pub const DEFAULT_RELAY: Option<&str> = None;
 /// The internal call that asks the user to approve a pairing.
 pub const PAIR_CALL: &str = "_pair";
+/// The call that updates a paired host to the latest Borg.
+pub const HOST_UPDATE_CALL: &str = "host_update";
+
+/// A host's answer to [`HOST_UPDATE_CALL`]: the version its service runs next, and whether it
+/// moves to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostUpdating {
+    pub version: String,
+    pub moving: bool,
+}
 /// What waits for an answer in a session, the next time it changes.
 pub const ASKS_WAIT: &str = "asks_wait";
 /// An answer to an ask waiting in a session.
@@ -185,6 +195,8 @@ struct Shared {
     computers: Vec<Computer>,
     pairing: Option<Pairing>,
     connections: std::collections::HashMap<String, usize>,
+    /// The relay has this Borg registered now, so paired computers reach it.
+    registered: bool,
 }
 
 /// The server's side: this borg reachable through the relay by the computers paired with it.
@@ -219,7 +231,12 @@ impl LinkServer {
     ) -> Self {
         let computers =
             state.as_ref().map(|state| load(&state.join(LINK_DIR).join(COMPUTERS_FILE))).unwrap_or_default();
-        let shared = Arc::new(Mutex::new(Shared { computers, pairing: None, connections: Default::default() }));
+        let shared = Arc::new(Mutex::new(Shared {
+            computers,
+            pairing: None,
+            connections: Default::default(),
+            registered: false,
+        }));
         Self {
             state,
             runtime_dir,
@@ -259,6 +276,11 @@ impl LinkServer {
                 task.abort();
             }
         }
+    }
+
+    /// Whether paired computers reach this Borg through the relay now.
+    pub fn reachable(&self) -> bool {
+        self.task.as_ref().is_some_and(|task| !task.is_finished()) && self.shared.lock().expect("link lock").registered
     }
 
     pub fn computers(&self) -> Vec<String> {
@@ -340,6 +362,7 @@ impl LinkServer {
             if let Some(task) = self.task.take() {
                 task.abort();
             }
+            self.shared.lock().expect("link lock").registered = false;
             self.claimed = None;
         }
     }

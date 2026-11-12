@@ -1,7 +1,7 @@
 //! Disk use: a row per kind of what Docker keeps, their items below them, and in the other pane
 //! what the selected row is and the command F8 types for it.
 
-use super::{FILTER_ROW, HEADER_ROW, frame, volumes};
+use super::{FILTER_ROW, HEADER_ROW, volumes};
 use crate::{
     activity_view::{FOOTER_ROWS, body, dim, emphasis, heading, row, text, wrap},
     format,
@@ -131,7 +131,7 @@ pub(super) fn draw_list(
     let disk = &docker.disk;
     let theme = look.theme;
     let styles = &theme.styles;
-    let inner = frame(docker, look, rect, &title(docker), true, buf);
+    let inner = crate::results_view::pane_frame(docker.expanded, look, rect, &title(docker), true, buf);
     if inner.is_empty() {
         return;
     }
@@ -331,14 +331,14 @@ pub(super) fn label_width(labels: &[&str]) -> u16 {
 pub(super) fn draw_details(docker: &Docker, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
     let disk = &docker.disk;
     let (Some(usage), Some(row), Some(group)) = (&disk.usage, disk.row(), disk.group()) else {
-        frame(docker, look, rect, tr!(docker_disk_title), false, buf);
+        crate::results_view::pane_frame(docker.expanded, look, rect, tr!(docker_disk_title), false, buf);
         return;
     };
     let name = match row {
         DiskRow::Kind(_) => kind_name(group.kind).to_owned(),
         DiskRow::Item(_, item) => item.label(usage),
     };
-    let inner = frame(docker, look, rect, &name, false, buf);
+    let inner = crate::results_view::pane_frame(docker.expanded, look, rect, &name, false, buf);
     if inner.is_empty() {
         return;
     }

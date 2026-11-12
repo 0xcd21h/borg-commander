@@ -100,7 +100,6 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
     if let Some((label, waiting)) = jobs(state) {
         items.insert(0, (label, Action::Jobs, waiting));
     }
-    // A connected agent stays in sight; its chip opens the log, and the mode chip stops automatic approvals.
     if state.agent.connected() {
         items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));
     }

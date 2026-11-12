@@ -337,7 +337,6 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         return effects;
     }
     let Some(viewer) = state.viewer.as_mut() else { return Vec::new() };
-    // A search runs in the background: Esc stops it before it closes the viewer.
     if key.code == KeyCode::Esc && viewer.searching.is_some() {
         return stop(viewer);
     }

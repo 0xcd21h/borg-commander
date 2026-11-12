@@ -180,12 +180,12 @@ fn alt_r_reloads_the_active_panel_and_its_menu_names_the_key() {
     assert!(matches!(&effects[..], [Effect::List { side: Side::Right, dir, .. }] if *dir == right), "{effects:?}");
     let rescan = |menu: &crate::menu::Menu| {
         menu.entries.iter().find_map(|entry| match entry {
-            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint),
+            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint.clone()),
             _ => None,
         })
     };
     let menus = menus(&state);
-    assert_eq!((rescan(&menus[0]), rescan(&menus[5])), (Some(""), Some("M-r")));
+    assert_eq!((rescan(&menus[0]).as_deref(), rescan(&menus[5]).as_deref()), (Some(""), Some("M-r")));
 }
 
 #[test]
@@ -205,6 +205,14 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         ),
         Some(Action::BackResults)
     );
+    let panels = crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false };
+    let alt_shift = KeyModifiers::ALT | KeyModifiers::SHIFT;
+    for (reported, action) in [('r', Action::BackResults), ('d', Action::FolderTree), ('D', Action::FolderTree)] {
+        let shifted = KeyEvent::new(KeyCode::Char(reported), alt_shift);
+        assert_eq!(crate::keymap::lookup(&shifted, panels), Some(action), "Alt-Shift with {reported}");
+    }
+    let plain = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT);
+    assert_eq!(crate::keymap::lookup(&plain, panels), Some(Action::AnalyzeSpace));
     assert_eq!(
         crate::keymap::lookup(
             &KeyEvent::new(KeyCode::Char('M'), KeyModifiers::ALT | KeyModifiers::SHIFT),
@@ -264,6 +272,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
@@ -288,6 +297,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),
@@ -390,6 +400,13 @@ fn shell_exit_defaults_to_no_and_only_yes_closes_borg() {
     assert!(state.overlay.is_none());
     update(&mut state, request(), now);
     assert_eq!(press(&mut state, now, key(KeyCode::Esc)), vec![Effect::CancelShellExit { token: "42-77".into() }]);
+    update(&mut state, request(), now);
+    let other_key = press(&mut state, now, key(KeyCode::Char('x')));
+    assert!(
+        state.overlay.is_some() || other_key == vec![Effect::CancelShellExit { token: "42-77".into() }],
+        "a question that closes always answers the shell, which waits for it"
+    );
+    state.overlay = None;
     update(&mut state, request(), now);
     assert!(press(&mut state, now, key(KeyCode::Char('y'))).contains(&Effect::Quit));
     crate::actions::perform(&mut state, Action::Quit, now);
@@ -1342,7 +1359,7 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
 
     press(&mut state, now, key(KeyCode::Char('h')));
     assert!(shown(&state).hex());
-    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f 77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
+    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f  77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
     press(&mut state, now, key(KeyCode::Down));
     assert_eq!(shown(&state).offset(), 16, "a row is 16 bytes in 80 columns");
     press(&mut state, now, key(KeyCode::PageDown));
@@ -1399,7 +1416,7 @@ fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
     let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
 
     assert!(shown(&state).hex(), "a zero byte near the start opens the file as hex rows");
-    let row = format!("0000  7f 45 4c 46 02 01 01 00 00 00 74 65 78 74 0a{:5}.ELF......text.", "");
+    let row = format!("0000  7f 45 4c 46 02 01 01 00  00 00 74 65 78 74 0a{:5}.ELF......text.", "");
     assert_eq!(shown(&state).rows()[0], row);
     press(&mut state, now, key(KeyCode::Char('h')));
     assert!(!shown(&state).hex(), "h shows the text");
@@ -3884,6 +3901,74 @@ fn forgetting_an_offline_host_confirms_locally_and_restores_its_panels_and_conso
 }
 
 #[test]
+fn u_updates_the_chosen_host_after_asking_and_reports_how_it_came_back() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    let host = |machine: &str, session: Option<&str>| crate::RemoteChoice {
+        machine: machine.into(),
+        session: session.map(Into::into),
+        name: "Default".into(),
+        ..Default::default()
+    };
+    update(
+        &mut state,
+        Msg::RemoteCatalog { choices: vec![host("server", Some("default")), host("gone", None)], complete: true },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Confirm(confirm)) if !confirm.accept && confirm.message.contains("server") && matches!(&confirm.purpose, crate::ConfirmPurpose::RemoteHostUpdate { machine, .. } if machine == "server"))
+    );
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Enter)), now).is_empty(), "No is the default");
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none()));
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now),
+        vec![Effect::UpdateRemoteHost { machine: "server".into() }]
+    );
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.as_deref() == Some("server")));
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now).is_empty(), "one update at a time");
+    let effects = update(
+        &mut state,
+        Msg::RemoteHostUpdated { machine: "server".into(), result: Ok(crate::HostUpdate::Moved("0.12.0".into())) },
+        now,
+    );
+    assert_eq!(effects, vec![Effect::OpenRemotes]);
+    assert!(state.notice.as_deref().is_some_and(|notice| notice.contains("server") && notice.contains("0.12.0")));
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none() && browser.loading));
+
+    update(
+        &mut state,
+        Msg::RemoteCatalog { choices: vec![host("server", Some("default")), host("gone", None)], complete: true },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now);
+    update(&mut state, Msg::RemoteHostUpdated { machine: "server".into(), result: Err("no network".into()) }, now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none() && browser.error.as_deref() == Some("no network"))
+    );
+
+    update(&mut state, Msg::Key(key(KeyCode::Down)), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.error.as_deref().is_some_and(|error| error.contains("gone"))),
+        "a host with no session cannot be reached to update"
+    );
+
+    state.overlay = None;
+    update(
+        &mut state,
+        Msg::RemoteHostUpdated { machine: "server".into(), result: Ok(crate::HostUpdate::Current("0.12.0".into())) },
+        now,
+    );
+    assert!(
+        state.notice.as_deref().is_some_and(|notice| notice.contains("already")),
+        "the result still shows once the list is closed"
+    );
+}
+
+#[test]
 fn shift_f8_forgets_a_host_even_when_its_default_session_is_available() {
     let (mut state, now) = setup();
     crate::actions::perform(&mut state, Action::BrowseRemotes, now);
@@ -4262,4 +4347,68 @@ fn a_locked_computer_key_asks_for_its_password_and_hands_it_to_the_app() {
         "an open dialog stays"
     );
     assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_key_locked).into()));
+}
+
+/// A remote panel on the other side leaves the local panel its own work: a new folder there
+/// touches nothing remote. Moving into the remote panel is still refused, and so is a new folder
+/// in the remote panel itself.
+#[test]
+fn a_remote_panel_on_the_other_side_does_not_take_the_local_panels_own_actions() {
+    let (mut state, now) = setup();
+    let unavailable = Some(borg_i18n::tr!(remote_operation_unavailable).to_owned());
+    let remote = crate::RemoteMount {
+        machine: "machine".into(),
+        session: "session".into(),
+        name: "server".into(),
+        host: PathBuf::from("/"),
+    };
+    let other = state.active.other();
+    state.panel_mut(other).remote_mount = Some(remote.clone());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_ne!(state.notice, unavailable);
+    state.overlay = None;
+    crate::actions::perform(&mut state, Action::Move, now);
+    assert_eq!(state.notice, unavailable);
+
+    state.notice = None;
+    state.panel_mut(other).remote_mount = None;
+    let here = state.active;
+    state.panel_mut(here).remote_mount = Some(remote);
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_eq!(state.notice, unavailable);
+}
+
+/// A paste goes to the dialog that is open, not to the activity monitor's filter behind it,
+/// and the filter takes what fits of a paste, without control characters.
+#[test]
+fn a_paste_over_the_activity_monitor_goes_to_the_dialog_that_is_open() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::Activity, now);
+    assert!(state.activity.side.is_some());
+    state.activity.filtering = true;
+    crate::actions::perform(&mut state, Action::Quit, now);
+    assert!(state.overlay.is_some());
+    update(&mut state, Msg::Paste("for the dialog".into()), now);
+    assert_eq!(state.activity.filter, "");
+
+    state.overlay = None;
+    update(&mut state, Msg::Paste(format!("a\nb{}", "x".repeat(500))), now);
+    assert!(state.activity.filter.starts_with("abx"));
+    assert_eq!(state.activity.filter.chars().count(), 128);
+}
+
+/// A menu names the key the key table binds, so the two cannot drift apart.
+#[test]
+fn menu_hints_are_the_keys_the_key_table_binds() {
+    use crate::keymap::hint;
+    assert_eq!(hint(Action::Copy).as_deref(), Some("F5"));
+    assert_eq!(hint(Action::ToggleShell).as_deref(), Some("C-o"));
+    assert_eq!(hint(Action::EditInPanel).as_deref(), Some("M-e"));
+    assert_eq!(hint(Action::FolderTree).as_deref(), Some("M-S-d"));
+    assert_eq!(hint(Action::MirrorRemote).as_deref(), Some("M-S-m"));
+    assert_eq!(hint(Action::InsertNewline).as_deref(), Some("S-Enter"));
+    assert_eq!(hint(Action::CopyPaths).as_deref(), Some("M-S-Ins"));
+    assert_eq!(hint(Action::NudgeSplit(2)).as_deref(), Some("M-S-→"));
+    assert_eq!(hint(Action::Compress), None);
 }

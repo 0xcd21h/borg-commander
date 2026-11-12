@@ -33,7 +33,6 @@ pub(crate) fn on_key(state: &mut AppState, slot: EditorSlot, key: &KeyEvent) -> 
         None if editor.find.open => on_bar(state, &mut editor, key),
         None => on_edit(state, &mut editor, key),
     };
-    // A key that closed the editor leaves it closed; otherwise it stays, also while its file is read again.
     if !editor.closed {
         settle(state, editor);
     }
@@ -160,7 +159,6 @@ pub(crate) fn on_pointer(state: &mut AppState, slot: EditorSlot, pointer: Pointe
             Vec::new()
         }
         (Pointer::EditorScroll(_, delta), prompt) => {
-            // The view moves and the cursor stays where it is, until a key brings it back.
             editor.top = editor.top.saturating_add_signed(delta).min(editor.buffer.lines().saturating_sub(1));
             editor.prompt = prompt;
             follow = false;

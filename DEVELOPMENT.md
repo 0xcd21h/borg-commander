@@ -415,7 +415,7 @@ out, tested in `watch/tests.rs`.
 them ([The eBPF programs](#the-ebpf-programs)), else from the kernel's proc connector over netlink
 (`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
 fixtures, so its tests run on macOS, and a bounded queue lets the kernel drop events, which the
-reader survives, when the watcher falls behind), from the root watcher once it connects, or from
+reader survives, when the watcher falls behind), from the root watcher while it is connected, or from
 looking at the user's own process list four times a second (every process's when Borg runs as root,
 and in the root watcher on a kernel without the proc connector, which says so with
 `FromRoot::Polling`). Looking finds forks along with programs that start, so a copy of its parent
@@ -429,12 +429,13 @@ folder as an argument, so its tests run against a folder of fixtures on any syst
 identified by its number together with its start time in clock ticks since boot, read again before
 Borg acts. `watch::freeze` sends the stop, continue and kill signals to a process and its
 descendants, parents first, checking identity before each one. `watch::log` keeps `alerts.json` (the
-newest 200 alerts), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
+newest 200 alerts, and beyond them any about a process still frozen), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
 named by constants in `borg-core::storage` so the Borg's files window and the cleanup rules know
 them. The watcher writes the baseline and never the allowances, while the Alerts page writes the
 allowances and never the baseline, so neither can lose what the other wrote; the watcher takes in
-new allowances on its own tick, once a minute. Both sides change `alerts.json` by reading it fresh,
-changing it and writing it back, so what the page marked read or let go on survives the watcher's
+new allowances on its own tick, once a minute. Both sides change `alerts.json` and
+`watch-allowed.json` through `watch::log`, which locks `watch.lock` in the state folder, reads the
+file fresh, changes it and writes it back, and refuses to write over allowances it cannot read, so what the page marked read or let go on survives the watcher's
 next alert, and the watcher rereads the log once a minute to learn whether the week has been
 reviewed. `AlertLog::add` keeps each command at most `COMMAND_KEPT` bytes, its start and its end, and
 `watch::log::write_log` drops the oldest alerts until the file fits the bytes Borg reads back, so
@@ -682,6 +683,20 @@ service ends 30 seconds after its last session goes. An installed or supervised 
 running and takes over from an on-demand one. Only sessions marked `background` in
 `sessions.json` run inside the service. The test fixture sets `start-service = false`, so
 end-to-end tests that need the service start it themselves.
+
+A newer program file moves a running Borg without ending it (`relaunch`). The old image execs the
+program file with `--resume` and carries its open files over a socketpair that stands in for
+standard output: the real standard output, an unlinked file with a JSON record, and the locks and
+PTYs the record names by place (`app::carry`, `service::carry`). The new image reads them and puts
+standard output back. The service moves between requests, when `borg update` asks over
+`service.sock` (`service::follow`) or a paired computer sends `host_update`. Its listening socket
+stays behind, because macOS empties a listening socket in flight once the old image's sockets
+close; the new service binds `service.sock` again and Borgs register again. A Borg that registers
+with an older version gets `Relaunch` and moves once no job, unsaved file or agent request holds
+it. A guard started from `.borg.previous` with `--guard-update` waits 60 seconds for the service to
+answer as the new version, and otherwise puts the previous program file back, ends the process and
+starts the service again when it ran on demand. A mirror that loses its host connects again for
+up to 100 seconds (`mirror::reconnect`).
 
 A borg keeps two kinds of keys in the `link` folder of its state folder. The server key, `key`,
 identifies it to the computers paired with it and loads by itself. A borg that reaches servers
@@ -934,6 +949,9 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
   working, and Borg running as you never asks macOS for another process's task port,
 - packages each as `borg-<version>-<target>.tar.gz` with a `.sha256` file
   (`scripts/package.sh`),
+- signs every `.sha256` file with the Ed25519 key in the `RELEASE_SIGNING_KEY` secret and
+  attaches the result as `<archive>.tar.gz.sha256.sig` (`scripts/sign-release.sh`); the step
+  fails when the secret is missing or its public half is not in `RELEASE_PUBLIC_KEYS`,
 - creates the GitHub release with generated notes and attaches everything,
 - renders the Homebrew formula from `packaging/homebrew/borg-commander.rb.in`
   (`scripts/homebrew-formula.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
@@ -949,9 +967,28 @@ action with the released version (for example `0.2.0`) to publish it without mak
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release
 from the GitHub API, pick the archive for the target borg was built for (`BORG_TARGET`, set by
-`crates/borg-app/build.rs`), verify the checksum and swap the binary in place. GNU Linux builds
-can also update to the published static MUSL build for the same architecture when no exact
-target archive is available.
+`crates/borg-app/build.rs`), verify the signature and the checksum, and swap the binary in
+place. GNU Linux builds can also update to the published static MUSL build for the same
+architecture when no exact target archive is available.
+
+The signature is the 64 raw bytes of an Ed25519 signature over the checksum file, which holds
+the archive's SHA-256 and its name. The name carries the version and the target, so a signed
+checksum from another release or platform is refused. Signing the checksum file keeps the
+signing step small: it never reads the archives. The trusted public keys are
+`RELEASE_PUBLIC_KEYS` in `crates/borg-update/src/signature.rs`, 64 hex digits each, and a
+signature from any of them is accepted. The private key exists only as the
+`RELEASE_SIGNING_KEY` secret (a PEM file from `openssl genpkey -algorithm ed25519`) and in the
+owner's own backup. `borg update` refuses a release whose signature is missing or was made
+with a key that is not in the list, and a build with an empty list refuses every update.
+
+The list holds more than one key only while the signing key changes: one release, signed with
+the old key, adds the new key, and later releases are signed with the new one. A copy older
+than that release cannot check the latest one. `borg update` then reads the 30 newest releases
+(`RELEASES_URL`), installs the newest one above its own version that it can check, and asks to
+be run again. That copy knows the new key and finishes the update.
+
+Versions released before signing check only the checksum, so the first signed release reaches
+them that way. Every later update is checked against the key.
 
 Archive downloads have an explicit 128 MiB limit; release metadata and checksum downloads
 have smaller limits. Borg 0.8.2 and earlier read downloads with the HTTP library's 10 MiB
@@ -967,6 +1004,21 @@ default, so they cannot download a larger archive and update by installing again
   LocalAuthentication are all `unsafe`, are the two exceptions.
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
+
+## Configuration file
+
+`borg-app::config` holds the settings as structs, one per section of `config.toml`, and
+`config::document` reads and writes the file itself. The file is read setting by setting: a
+setting Borg does not have, or a value it cannot use, is left out and told to the user with its
+line, and everything else still loads. Saving changes only the settings that changed, so the
+user's comments, their order and settings Borg does not know stay as they wrote them. Only a file
+that is not TOML fails, and the next save keeps it as `config-unreadable.toml`.
+
+To add a setting, add a field to the section's struct with its default and describe it in the
+guide's sample, which a test loads and expects no remark about. To retire one, remove the field
+and add a line to `RETIRED` in `config::document`: `dropped("name")` for a setting that is gone,
+or a successor function for one that was renamed or reshaped. Nothing else needs to remember the
+old setting: it loads without complaint, and it leaves the file the next time Borg saves.
 
 ## Dependencies
 

@@ -23,6 +23,7 @@ const RECENT: u64 = 1_768_037_400;
 const OLD: u64 = 1_717_200_000;
 const SIZE: GridSize = GridSize { cols: 90, rows: 22 };
 const NARROW: GridSize = GridSize { cols: 44, rows: 12 };
+const WIDE: GridSize = GridSize { cols: 150, rows: 12 };
 const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
@@ -306,7 +307,7 @@ fn binary_sample() -> Vec<u8> {
 fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
     use std::sync::Arc;
 
-    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow")] {
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow"), (WIDE, "viewer_hex_wide")] {
         let mut stage = stage(size, Motion::STILL)?;
         let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
         let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
@@ -2150,6 +2151,36 @@ fn remote_session_removal_confirmation_and_progress() -> Result<()> {
     stage.send(key(KeyCode::Char('y')));
     let buffer = stage.render(stage.started)?;
     check("remote_session_removing", &stage, buffer)
+}
+
+#[test]
+fn remote_host_update_confirmation_and_progress() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "production".into(),
+            session: Some("default".into()),
+            name: "Default".into(),
+            info: borg_core::RemoteHostInfo {
+                version: Some("0.10.0".into()),
+                platform: Some("linux / x86_64".into()),
+                service: Some(true),
+                latency_ms: Some(38),
+                relay: "wss://relay.example".into(),
+            },
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_shortcuts", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('u')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_update_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_updating", &stage, buffer)
 }
 
 #[test]
@@ -5630,6 +5661,7 @@ fn alert_log() -> borg_core::AlertLog {
         freeze: true,
         seen: 48_120,
         suppressed: 0,
+        delivery: borg_core::AlertDelivery::Sent,
     });
 
     let nginx = parent(812, "/usr/sbin/nginx", false);
@@ -5788,6 +5820,45 @@ fn alerts_say_where_a_log_borg_could_not_read_went() -> Result<()> {
     ensure_text(&buffer, "could not read the alert log")?;
     ensure_text(&buffer, "/home/me/.local/state/borg/alerts-unread")?;
     check("alerts_log_kept_aside", &stage, buffer)?;
+    Ok(())
+}
+
+/// A watcher that freezes with nowhere to send its alerts says so above the details, and in the
+/// list's last row once the list takes the whole width.
+#[test]
+fn alerts_say_when_they_reach_nobody() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let mut log = alert_log();
+    log.watch.delivery = borg_core::AlertDelivery::Local;
+    stage.send(Msg::Alerts { id, result: Ok(borg_core::AlertsReply { log, notice: None }) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told.")?;
+    ensure_text(&buffer, "[watch.notify] in config.toml.")?;
+    check("alerts_unsent", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told. Set up [watch.notify] in config.toml.")?;
+    check("alerts_unsent_expanded", &stage, buffer)?;
+    Ok(())
+}
+
+/// Turned on and not running yet, with only a heartbeat set up, the watcher says that a heartbeat
+/// carries no alerts.
+#[test]
+fn alerts_say_that_a_heartbeat_alone_sends_none() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.settings.alert_delivery = borg_core::AlertDelivery::HeartbeatOnly;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let empty = borg_core::AlertsReply { log: borg_core::AlertLog::default(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(empty) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alerts stay on this machine.")?;
+    ensure_text(&buffer, "only says the watcher runs.")?;
+    check("alerts_unsent_heartbeat", &stage, buffer)?;
     Ok(())
 }
 

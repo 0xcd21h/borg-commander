@@ -23,7 +23,6 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     if let Some(form) = activity.search_form.take() {
         return form::on_key(activity, form, key);
     }
-    // Typing edits the filter; the arrows and paging keys still move through the matches.
     let moving = matches!(
         key.code,
         KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End

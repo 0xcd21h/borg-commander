@@ -4,7 +4,7 @@
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io::{self, Read, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     thread,
     time::Duration,
@@ -80,6 +80,7 @@ impl Partial {
         if clones {
             let partial = Self::take(real);
             fs::copy(real, &partial.path)?;
+            fs::set_permissions(&partial.path, fs::Permissions::from_mode(PRIVATE))?;
             let file = OpenOptions::new().read(true).write(true).open(&partial.path)?;
             return Ok((partial, file));
         }

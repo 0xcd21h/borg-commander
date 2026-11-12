@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "eb3f18f34b682c9b24667df0b93dff5666ade1153fc2780be060d0fd97bd68e6",
+      "source": "3ba3192511d624f7f7b6571ace48fffbee111b4d4cdffaea1ae1489fc2b4b5d5",
       "protected": {
-        "code blocks": "ce72f432c120500f4b5b2c68415613eafeee38128436675642dfa7239cc40a4e",
-        "inline code": "d9c2b1fb06949b64dc91336b20eadb8f3fb7e5b6854918310c11c8732a4dddd0",
+        "code blocks": "8c6bbe83e1b8a447d33ec2b3057e4287234d59853d735dd2f632db0468bca192",
+        "inline code": "2e021d444e6540a6a810a0b8f18433e2b025005a2fc9f0ed10177d3da4a6485e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
+        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
       },
       "headings": [
         {
@@ -120,6 +120,10 @@
         {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -276,12 +280,12 @@
       ]
     },
     "pt": {
-      "source": "eb3f18f34b682c9b24667df0b93dff5666ade1153fc2780be060d0fd97bd68e6",
+      "source": "3ba3192511d624f7f7b6571ace48fffbee111b4d4cdffaea1ae1489fc2b4b5d5",
       "protected": {
-        "code blocks": "ce72f432c120500f4b5b2c68415613eafeee38128436675642dfa7239cc40a4e",
-        "inline code": "d9c2b1fb06949b64dc91336b20eadb8f3fb7e5b6854918310c11c8732a4dddd0",
+        "code blocks": "8c6bbe83e1b8a447d33ec2b3057e4287234d59853d735dd2f632db0468bca192",
+        "inline code": "2e021d444e6540a6a810a0b8f18433e2b025005a2fc9f0ed10177d3da4a6485e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
+        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
       },
       "headings": [
         {
@@ -395,6 +399,10 @@
         {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -551,12 +559,12 @@
       ]
     },
     "es": {
-      "source": "eb3f18f34b682c9b24667df0b93dff5666ade1153fc2780be060d0fd97bd68e6",
+      "source": "3ba3192511d624f7f7b6571ace48fffbee111b4d4cdffaea1ae1489fc2b4b5d5",
       "protected": {
-        "code blocks": "ce72f432c120500f4b5b2c68415613eafeee38128436675642dfa7239cc40a4e",
-        "inline code": "d9c2b1fb06949b64dc91336b20eadb8f3fb7e5b6854918310c11c8732a4dddd0",
+        "code blocks": "8c6bbe83e1b8a447d33ec2b3057e4287234d59853d735dd2f632db0468bca192",
+        "inline code": "2e021d444e6540a6a810a0b8f18433e2b025005a2fc9f0ed10177d3da4a6485e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
+        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
       },
       "headings": [
         {
@@ -670,6 +678,10 @@
         {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -826,12 +838,12 @@
       ]
     },
     "ru": {
-      "source": "eb3f18f34b682c9b24667df0b93dff5666ade1153fc2780be060d0fd97bd68e6",
+      "source": "3ba3192511d624f7f7b6571ace48fffbee111b4d4cdffaea1ae1489fc2b4b5d5",
       "protected": {
-        "code blocks": "ce72f432c120500f4b5b2c68415613eafeee38128436675642dfa7239cc40a4e",
-        "inline code": "d9c2b1fb06949b64dc91336b20eadb8f3fb7e5b6854918310c11c8732a4dddd0",
+        "code blocks": "8c6bbe83e1b8a447d33ec2b3057e4287234d59853d735dd2f632db0468bca192",
+        "inline code": "2e021d444e6540a6a810a0b8f18433e2b025005a2fc9f0ed10177d3da4a6485e",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "993df81d359c8d15ae2ba99ec2a89a99ceb2578bcf77dc3bbbd4c990938984bc"
+        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
       },
       "headings": [
         {
@@ -945,6 +957,10 @@
         {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,

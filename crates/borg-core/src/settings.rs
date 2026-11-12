@@ -108,6 +108,8 @@ pub struct Settings {
     pub screensaver_after: Duration,
     pub listing_batch: usize,
     pub scrollback: usize,
+    /// Where the configuration sends the watcher's alerts.
+    pub alert_delivery: crate::AlertDelivery,
 }
 
 impl Settings {
@@ -128,6 +130,7 @@ impl Default for Settings {
             screensaver_after: DEFAULT_SCREENSAVER_AFTER,
             listing_batch: 2048,
             scrollback: 10_000,
+            alert_delivery: crate::AlertDelivery::default(),
         }
     }
 }

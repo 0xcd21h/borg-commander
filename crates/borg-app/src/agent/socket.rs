@@ -15,7 +15,7 @@ const SOCKET_PARENT: &str = "/tmp";
 const SHARED_NAME: &str = "default";
 const HASH_DIGITS: usize = 16;
 
-pub(super) const OWNER_ONLY: u32 = 0o700;
+const PRIVATE_DIR: u32 = 0o700;
 
 pub(super) const OTHERS: u32 = 0o077;
 
@@ -73,7 +73,7 @@ pub(crate) fn socket_dirs() -> Vec<PathBuf> {
 /// session through it.
 pub(super) fn owner_only(dir: &Path) -> Result<PathBuf> {
     let dir = dir.to_path_buf();
-    std::fs::DirBuilder::new().recursive(true).mode(OWNER_ONLY).create(&dir)?;
+    std::fs::DirBuilder::new().recursive(true).mode(PRIVATE_DIR).create(&dir)?;
     let meta = std::fs::symlink_metadata(&dir)?;
     if !meta.is_dir() || meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & OTHERS != 0 {
         bail!("{} must belong to you and be closed to others", dir.display());
@@ -127,7 +127,7 @@ pub fn connect_info() -> borg_core::ConnectInfo {
 /// This program's path, preferring the one on `PATH` that leads to it, since a package
 /// manager's versioned folder changes with each upgrade.
 pub fn program_path() -> String {
-    let exe = std::env::current_exe().ok();
+    let exe = crate::program::path().ok();
     let real = exe.as_ref().and_then(|exe| std::fs::canonicalize(exe).ok());
     if let (Some(path), Some(real)) = (std::env::var_os("PATH"), &real) {
         for dir in std::env::split_paths(&path).filter(|dir| dir.is_absolute()) {

@@ -2,6 +2,7 @@
 //! project or container with its live resource use in the other. Ctrl-O stays the host
 //! console.
 
+use crate::screens::{CHROME_ROWS, FILTER_LIMIT, PAGE};
 use borg_i18n::tr;
 use std::{
     collections::{HashMap, HashSet},
@@ -45,8 +46,6 @@ const REFRESH: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_secs(5);
 /// Moving through the list inspects the container the cursor rests on, not every one it passes.
 const INSPECT_DELAY: Duration = Duration::from_millis(150);
-const PAGE: usize = 10;
-const FILTER_LIMIT: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DockerRequest {
@@ -451,10 +450,7 @@ pub(crate) fn open(state: &mut AppState, now: Instant) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
-    state.activity.side = None;
-    crate::network::close(state);
-    crate::startup_items::close(state);
-    crate::watch::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Docker);
     let docker = &mut state.docker;
     docker.side = Some(state.active);
     docker.details_focused = false;
@@ -550,7 +546,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
         }
         return effects;
     }
-    let rows = state.layout(now).panels[docker_side(state).index()].height.saturating_sub(6);
+    let rows = state.layout(now).panels[docker_side(state).index()].height.saturating_sub(CHROME_ROWS);
     let docker = &mut state.docker;
     docker.keep_visible(usize::from(rows));
     docker.disk.keep_visible(usize::from(rows));

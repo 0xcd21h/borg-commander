@@ -208,7 +208,6 @@ pub fn draw_connect(
     let width = screen.width.saturating_sub(MARGIN).min(CONNECT_WIDTH);
     let inner_width = width.saturating_sub(4);
     let [start, keep] = borg_core::connect_commands(info, connect.target.text().trim());
-    // Through borg cloud: the command that pairs, or why there is none yet.
     let (cloud, cloud_style, cloud_note) = match &state.agent.pairing {
         Some(Ok(link)) => (borg_core::pair_command(link), styles.input, tr!(agent_connect_cloud_note)),
         Some(Err(reason)) => (reason.clone(), note, ""),
@@ -225,7 +224,6 @@ pub fn draw_connect(
         (borg_core::CONNECT_START, tr!(agent_connect_start), command_rows(&start, inner_width), styles.input, ""),
         (borg_core::CONNECT_KEEP, tr!(agent_connect_keep), command_rows(&keep, inner_width), styles.input, ""),
     ];
-    // A relay typed in, which Enter saves.
     let relay_changed = connect.relay.text().trim() != info.relay;
     // The intro and a gap, each block with a gap after, the relay field with its note, the
     // SSH target with its note, and the paired computers.

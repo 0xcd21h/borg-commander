@@ -9,7 +9,7 @@ use std::{
 };
 
 use borg_link::{
-    KEY_LEN, PublicKey, hex,
+    KEY_LEN, NOISE_LIMIT, PublicKey, hex,
     relay::{ACCEPT, CONNECT, LIMITED, LISTEN, OFFLINE, READY, SESSION, challenge, verify},
     unhex,
 };
@@ -43,8 +43,6 @@ const REGISTRATION_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 /// a session are pinged as often, since proxies in front close sockets that stay quiet.
 const PING_EVERY: Duration = Duration::from_secs(30);
 const SILENCE_LIMIT: Duration = Duration::from_secs(90);
-/// The largest frame forwarded: one Noise message.
-const FRAME_LIMIT: usize = 65_535;
 /// A session's bandwidth, in bytes per second, with a burst on top, and the most it may
 /// carry in all.
 const RATE: f64 = 2.0 * 1024.0 * 1024.0;
@@ -139,7 +137,7 @@ async fn close(mut socket: Socket, code: u16, reason: &'static str) {
 #[expect(clippy::result_large_err, reason = "the upgrade callback's error type is tungstenite's")]
 pub async fn handle(hub: Arc<Mutex<Hub>>, stream: Box<dyn Io>, address: IpAddr) {
     let mut path = String::new();
-    let config = WebSocketConfig::default().max_message_size(Some(FRAME_LIMIT)).max_frame_size(Some(FRAME_LIMIT));
+    let config = WebSocketConfig::default().max_message_size(Some(NOISE_LIMIT)).max_frame_size(Some(NOISE_LIMIT));
     let upgrade = tokio_tungstenite::accept_hdr_async_with_config(
         stream,
         |request: &Request, response: Response| {
@@ -399,11 +397,9 @@ async fn forward(client: Socket, server: Socket) -> (u64, (u16, &'static str)) {
         let bytes = match message {
             Some(Ok(Message::Binary(bytes))) => bytes,
             Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
+            Some(Err(tokio_tungstenite::tungstenite::Error::Capacity(_))) => break (LIMITED, "frame too large"),
             _ => break (u16::from(CloseCode::Normal), "closed"),
         };
-        if bytes.len() > FRAME_LIMIT {
-            break (LIMITED, "frame too large");
-        }
         carried += bytes.len() as u64;
         if carried > SESSION_BYTES {
             break (LIMITED, "session carried too much");

@@ -55,7 +55,6 @@ impl App {
                 self.remote_consoles.set_input_mode(&key, foreground, raw_input);
                 let Some(emulator) = self.remote_consoles.emulator(&key) else { return Ok(Flow::Continue) };
                 let signals = emulator.feed(&bytes);
-                // What a command Borg typed writes is held back and echoes nothing typed.
                 let echoed = !bytes.is_empty() && !emulator.concealing();
                 let replies = emulator.drain_replies();
                 for reply in replies {
@@ -99,7 +98,7 @@ impl App {
         match event {
             PtyEvent::Output(bytes) => {
                 if let Some((_, captured)) = self.host_capture.as_mut() {
-                    captured.extend_from_slice(&bytes);
+                    crate::agent::keep_end(captured, &bytes);
                 }
                 let signals = self.emulator.feed(&bytes);
                 for reply in self.emulator.drain_replies() {

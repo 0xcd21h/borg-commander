@@ -15,7 +15,6 @@ use crossterm::{
     execute,
     terminal::LeaveAlternateScreen,
 };
-use portable_pty::CommandBuilder;
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -33,11 +32,16 @@ use crate::{
     sessions,
 };
 
+mod carry;
+mod follow;
+mod guard;
 mod member;
 mod members;
 mod server;
 mod wire;
 
+pub use follow::after_update;
+pub use guard::{GUARD, run as guard};
 pub use member::{Inbox, Membership};
 pub use members::{Lease, Members};
 pub use wire::Place;
@@ -50,12 +54,20 @@ pub const SERVICE_CHILD: &str = "BORG_SERVICE_CHILD";
 pub const START_CALL: &str = "_service_start";
 const LOCK: &str = "service.lock";
 const REPLAY_LIMIT: usize = 1024 * 1024;
+/// The screen a session in the background starts with, until a client resizes it.
+const CHILD_SIZE: GridSize = GridSize { cols: 100, rows: 32 };
+const CHILD_SCROLLBACK: usize = 2000;
+/// How many pieces of a session's output wait for a client that reads slowly.
+const CHILD_OUTPUT_BACKLOG: usize = 256;
 /// How much of a terminal's input or output moves at once.
 const CHUNK: usize = 8192;
 /// The key that leaves an attached session: Ctrl-].
 const DETACH: u8 = 0x1d;
 /// How long the service has to say which sessions it keeps running.
 const STATUS_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+/// The subcommand of the service, and its action that runs it.
+const SERVICE_COMMAND: &str = "service";
+const RUN: &str = "run";
 /// Marks a service that Borg started for itself, which ends once no session uses it.
 const ON_DEMAND: &str = "--on-demand";
 /// How long a Borg waits for the service it started to answer.
@@ -104,13 +116,34 @@ pub fn runtime_dir() -> Result<PathBuf> {
 }
 
 fn spawn_child(id: &str, events: UnboundedSender<(String, PtyEvent)>) -> Result<Arc<Mutex<Child>>> {
-    let mut command = CommandBuilder::new(std::env::current_exe()?);
+    let program = crate::program::path()?;
+    let mut command = std::process::Command::new(program);
     command.args(["--session", id]);
     command.env(SERVICE_CHILD, "1");
     command.env("BORG_RUNTIME_DIR", service_runtime()?);
     command.env("TERM", "xterm-256color");
+    let pty = Pty::spawn(program, &command, CHILD_SIZE, forward(id, events))?;
+    Ok(child(pty, Emulator::new(CHILD_SIZE, CHILD_SCROLLBACK), 0))
+}
+
+/// A session's terminal the previous service carried, with the screen it showed.
+fn adopt_child(
+    id: &str,
+    detached: borg_term::Detached,
+    size: GridSize,
+    screen: &[u8],
+    sequence: u64,
+    events: UnboundedSender<(String, PtyEvent)>,
+) -> Result<Arc<Mutex<Child>>> {
+    let pty = Pty::adopt(detached, forward(id, events))?;
+    let mut emulator = Emulator::new(size, CHILD_SCROLLBACK);
+    emulator.feed(screen);
+    Ok(child(pty, emulator, sequence))
+}
+
+/// Where a session's terminal reports, marked with the session.
+fn forward(id: &str, events: UnboundedSender<(String, PtyEvent)>) -> UnboundedSender<PtyEvent> {
     let (sender, mut receiver) = unbounded_channel();
-    let pty = Pty::spawn(command, GridSize { cols: 100, rows: 32 }, sender)?;
     let id = id.to_owned();
     tokio::spawn(async move {
         while let Some(event) = receiver.recv().await {
@@ -119,16 +152,20 @@ fn spawn_child(id: &str, events: UnboundedSender<(String, PtyEvent)>) -> Result<
             }
         }
     });
-    let (output, _) = broadcast::channel(256);
-    Ok(Arc::new(Mutex::new(Child {
+    sender
+}
+
+fn child(pty: Pty, emulator: Emulator, sequence: u64) -> Arc<Mutex<Child>> {
+    let (output, _) = broadcast::channel(CHILD_OUTPUT_BACKLOG);
+    Arc::new(Mutex::new(Child {
         pty,
-        emulator: Emulator::new(GridSize { cols: 100, rows: 32 }, 2000),
+        emulator,
         replay: VecDeque::new(),
         output,
         controller: None,
         next_client: 0,
-        sequence: 0,
-    })))
+        sequence,
+    }))
 }
 
 async fn attach(mut stream: UnixStream, child: Arc<Mutex<Child>>, take: bool) -> Result<()> {
@@ -304,9 +341,9 @@ pub async fn start_on_demand() {
     if available().await {
         return;
     }
-    let Ok(program) = std::env::current_exe() else { return };
+    let Ok(program) = crate::program::path() else { return };
     let started = std::process::Command::new(program)
-        .args(["service", "run", ON_DEMAND])
+        .args([SERVICE_COMMAND, RUN, ON_DEMAND])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -414,7 +451,7 @@ fn keyboard() -> tokio::sync::mpsc::UnboundedReceiver<Vec<u8>> {
 /// The watcher's own subcommands: installing the part that runs as root, and what it found.
 async fn watch_command(args: &[String]) -> Result<()> {
     match args {
-        [action] if action == "install" => crate::watch::install_root(),
+        [action] if action == "install" => crate::watch::install(),
         [action] if action == "uninstall" => crate::watch::uninstall_root(),
         [action] if action == "status" => {
             println!("{}", crate::watch::report()?);
@@ -425,7 +462,9 @@ async fn watch_command(args: &[String]) -> Result<()> {
     }
 }
 
-pub async fn command(args: &[String]) -> Result<()> {
+/// `borg service`: `carried` is what the previous service handed over when an update started
+/// this one in its place.
+pub async fn command(args: &[String], carried: Option<crate::relaunch::Carried>) -> Result<()> {
     match args {
         [action] if action == "install" => crate::service_install::install(),
         [action] if action == "uninstall" => crate::service_install::uninstall(),
@@ -433,8 +472,8 @@ pub async fn command(args: &[String]) -> Result<()> {
         [action] if action == "disable" => crate::service_install::disable(),
         [action] if action == "start" => crate::service_install::start(),
         [action] if action == "stop" => crate::service_install::stop(),
-        [action] if action == "run" => server::run(server::Lifetime::Kept).await,
-        [action, flag] if action == "run" && flag == ON_DEMAND => server::run(server::Lifetime::OnDemand).await,
+        [action] if action == RUN => server::run(server::Lifetime::Kept, carried).await,
+        [action, flag] if action == RUN && flag == ON_DEMAND => server::run(server::Lifetime::OnDemand, carried).await,
         [action] if action == "status" => {
             println!("{}", request_json(json!({"mode": "status"})).await?);
             Ok(())

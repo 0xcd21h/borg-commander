@@ -327,6 +327,17 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
                 vec![Effect::OpenRemotes]
             }
         }
+        (answer, ConfirmPurpose::RemoteHostUpdate { machine, mut browser }) => {
+            browser.error = None;
+            if answer == Some(true) {
+                browser.updating = Some(machine.clone());
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::UpdateRemoteHost { machine }]
+            } else {
+                state.overlay = Some(Overlay::Remotes(*browser));
+                Vec::new()
+            }
+        }
         (answer, ConfirmPurpose::RemoteSessionDelete { machine, session, mut browser }) => {
             browser.error = None;
             if answer == Some(true) {
@@ -361,7 +372,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             effects.push(Effect::Quit);
             effects
         }
-        (Some(false), ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
+        (Some(false) | None, ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
         (answer, ConfirmPurpose::RemoteShellExit { token }) => {
             let close = answer == Some(true);
             if let (true, crate::Console::Remote { machine, session }) = (close, &state.console) {
