@@ -10,7 +10,7 @@
 use anyhow::{Context, Result};
 use borg_core::{
     Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Allowance, Baseline, ControlOutcome, Evidence, Guard,
-    Limits, Msg, Outcome, ProcessKey, Response, StartedProcess, WatchSource, WatchStatus, Watcher,
+    Limits, Msg, Outcome, ProcessKey, Response, StartedProcess, Unsent, WatchSource, WatchStatus, Watcher,
 };
 use borg_i18n::tr;
 use std::{
@@ -34,7 +34,9 @@ mod netlink;
 pub mod notify;
 mod root;
 
-pub use root::{Act as WatchAct, helper as root_helper, install as install_root, uninstall as uninstall_root};
+pub use root::{Act as WatchAct, helper as root_helper, uninstall as uninstall_root};
+
+use root::install as install_root;
 
 use facts::Processes;
 
@@ -519,8 +521,12 @@ impl Watch {
             freeze: settings.freeze,
             seen: 0,
             suppressed: 0,
+            delivery: settings.notify.delivery(),
         };
         let log = change_log(&state, &status, |_| {})?;
+        if let Some(unsent) = log.unsent(None, SystemTime::now()) {
+            eprintln!("borg watch: {}", unsent.line());
+        }
         let (jobs, found) = examiner(crate::rule_scan::compile(crate::rule_scan::folder().as_deref()));
         let first_person = facts::first_person();
         let host = settings.notify.name.clone().unwrap_or_else(host_name);
@@ -921,11 +927,37 @@ pub fn test_notify() -> Result<()> {
     Ok(())
 }
 
-/// `borg service watch`: where the watcher's events come from, and what it has found.
+/// The warning with how to set delivery up and try it, for the command line.
+fn unsent_advice(unsent: Unsent) -> String {
+    format!("{}\n{}", unsent.line(), tr!(watch_unsent_test))
+}
+
+fn configured() -> Result<Settings> {
+    Ok(crate::config::ConfigDir::locate().map(|dir| dir.load()).transpose()?.unwrap_or_default().watch())
+}
+
+/// `borg service watch install`: installs the root watcher, then says so when the alerts it
+/// leads to reach nobody.
+pub fn install() -> Result<()> {
+    install_root()?;
+    let log = log::read_log(&log::folder()?);
+    if let Some(unsent) = log.unsent(Some(configured()?.notify.delivery()), SystemTime::now()) {
+        println!("{}", unsent_advice(unsent));
+    }
+    Ok(())
+}
+
+/// `borg service watch status`: where the watcher's events come from, whether its alerts reach
+/// anybody, and what it has found.
 pub fn report() -> Result<String> {
     let state = log::folder()?;
     let log = log::read_log(&state);
+    let configured = configured()?;
     let mut lines = vec![tr!(watch_watching, source = log.watch.source.label())];
+    let turned_on = configured.on.then(|| configured.notify.delivery());
+    if let Some(unsent) = log.unsent(turned_on, SystemTime::now()) {
+        lines.push(unsent_advice(unsent));
+    }
     lines.extend(log.alerts.iter().map(describe));
     Ok(lines.join("\n"))
 }

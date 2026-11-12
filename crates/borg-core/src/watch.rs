@@ -11,6 +11,7 @@ use crate::{AppState, Effect, Side, View};
 
 mod alerts;
 mod baseline;
+mod delivery;
 mod event;
 mod keys;
 mod response;
@@ -23,6 +24,7 @@ pub use alerts::{
 pub use baseline::{
     Allowance, Baseline, LEARNING_DAYS, LEARNING_DAYS_LIMIT, PAIRS_LIMIT, ParentChild, learning_period, review_ends,
 };
+pub use delivery::{AlertDelivery, FREEZING_SOON, Freezing, Unsent};
 pub use event::{Ancestor, COMMAND_CUT, COMMAND_KEPT, StartedProcess, StreamKind, kept_within};
 pub(crate) use keys::{click, kill, paste, route_key};
 pub use response::{

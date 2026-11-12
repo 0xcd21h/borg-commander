@@ -2052,6 +2052,9 @@ mismas alertas. Ese servicio funciona mientras haya un Borg abierto. Para seguir
 ninguna terminal abierta, haz que el servicio arranque con el sistema como describe
 [Sesiones con nombre y el servicio en segundo plano](#named-sessions-and-the-background-service).
 
+Las alertas se quedan en esa máquina hasta que indiques un destino para ellas, y la página lo
+recuerda mientras tanto (consulta [Alertas fuera de la máquina](#alerts-off-the-machine)).
+
 **Alt-L** o **Comando → Alertas** abre la página. La lista ocupa el panel activo, con la alerta
 más reciente primero, y el otro panel muestra la alerta seleccionada por completo. Cada fila
 muestra la hora, la regla que se disparó, el programa, el proceso padre que lo inició, el usuario
@@ -2217,7 +2220,8 @@ interfaz de Borg sigue corriendo como tú. Los dos lados hablan por un socket de
 al que solo llega su propietario, Borg acepta una conexión únicamente de un proceso que corre como
 root, y la parte root se conecta únicamente a un socket que pertenece al usuario para el que se
 instaló. `borg service watch uninstall` la quita, y `borg service watch status` imprime de dónde
-vienen los eventos y qué se ha encontrado.
+vienen los eventos y qué se ha encontrado. La instalación y el estado avisan mientras las alertas no
+tengan destino (consulta [Alertas fuera de la máquina](#alerts-off-the-machine)).
 
 Los programas necesitan Linux 5.8 o posterior. En un kernel más antiguo, o donde la parte root no
 puede cargarlos, escucha los eventos de procesos del kernel y lee todo de `/proc`, y la página lo
@@ -2280,6 +2284,20 @@ que respondió cada uno.
   destino lleva 30 minutos sin aceptar mensajes, Borg abandonó uno, o Borg no pudo leer su bandeja
   de salida. Un servicio como healthchecks.io te avisa cuando las llamadas se detienen, que es lo
   que ocurre cuando alguien mata al vigilante.
+
+Mientras ningún destino reciba alertas, se quedan en el registro de la máquina, y Borg lo dice allí
+donde te encuentres con el vigilante. La página Alertas muestra **Las alertas se quedan en esta
+máquina.** encima de los detalles de la alerta seleccionada, o en la última fila de la lista cuando
+está maximizada. Verás la misma línea al activar el vigilante en Opciones → Complementos, en
+`borg service watch install` y `borg service watch status`, y en la salida del servicio cuando
+arranca el vigilante. Un latido por sí solo no quita el aviso. Te dice que el vigilante está en
+marcha y no lleva alertas, así que añade también Telegram, ntfy o un webhook.
+
+El aviso se vuelve más fuerte cuando Borg está cerca de actuar. Desde un día antes de que termine
+el periodo de aprendizaje dice **Borg está a punto de congelar procesos aquí y nadie recibirá
+aviso.**, y una vez empezada la congelación, **Borg congela procesos aquí y nadie recibe aviso.**
+Borg sigue vigilando, aprendiendo y congelando sin un destino para las alertas, así que configura
+uno antes de que termine el periodo de aprendizaje en una máquina que no revisas a diario.
 
 El servicio envía cada alerta pocos segundos después de anotarla, y también avisa cuando el
 vigilante arranca y cuando empieza la congelación. Las alertas de nivel nota se quedan en la

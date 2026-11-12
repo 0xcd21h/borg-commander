@@ -1561,6 +1561,13 @@ catalog! {
     watch_review_until => "Freezing waits until {until}, or until you have seen what Borg would have frozen while it learned",
     watch_seen => "{count} starts seen",
     watch_suppressed => "{count} findings left out because too many fired at once",
+    watch_unsent => "{state} {fix}",
+    watch_unsent_local => "Alerts stay on this machine.",
+    watch_unsent_soon => "Borg is about to freeze processes here, and nobody will be told.",
+    watch_unsent_freezing => "Borg freezes processes here and nobody is told.",
+    watch_unsent_fix => "Set up [watch.notify] in config.toml.",
+    watch_unsent_fix_heartbeat => "The heartbeat only says the watcher runs. Add Telegram, ntfy or a webhook to [watch.notify] in config.toml.",
+    watch_unsent_test => "Then run borg service watch notify to send a test message. The guide explains each place under Alerts off the machine.",
 
     watch_time_column => "Time",
     watch_rule_column => "Rule",
