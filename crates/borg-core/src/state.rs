@@ -391,7 +391,11 @@ impl AppState {
             self.last_results[side.index()] = Some(self.panel(side).clone());
         }
         let generation = self.next_generation();
-        self.panel_mut(side).navigate(dir.clone(), generation, focus);
+        let panel = self.panel_mut(side);
+        if panel.volume.as_ref().is_some_and(|volume| !volume.holds(&dir) || !volume.shown_by(panel.mount.as_ref())) {
+            panel.volume = None;
+        }
+        panel.navigate(dir.clone(), generation, focus);
         Effect::List { side, generation, dir }
     }
 

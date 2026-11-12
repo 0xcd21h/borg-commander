@@ -1,6 +1,6 @@
 use super::*;
 use crate::{Action, AppState, Appearance, Console, Effect, Msg, Settings, Startup, ThemeChoice, View, update};
-use borg_docker::{CacheRecord, Image, Layer, State, Volume};
+use borg_docker::{CacheRecord, Image, Layer, State, Volume, VolumeUser};
 use borg_i18n::tr;
 use crossterm::event::KeyCode;
 use std::time::Instant;
@@ -31,13 +31,30 @@ fn layer(name: &str, state: State, size: u64) -> Layer {
     }
 }
 
+fn user(container: &str, state: State, finished: Option<&str>) -> VolumeUser {
+    VolumeUser {
+        container: container.into(),
+        image: "postgres:16".into(),
+        state,
+        path: "/var/lib/postgresql/data".into(),
+        read_only: false,
+        started: None,
+        finished: finished.map(|time| time.parse().unwrap()),
+    }
+}
+
 fn volume(name: &str, size: Option<u64>, users: &[&str], anonymous: bool) -> Volume {
     Volume {
         name: name.into(),
         size,
         links: Some(users.len() as u32),
         anonymous,
-        users: users.iter().map(|user| (*user).to_owned()).collect(),
+        created: None,
+        compose: None,
+        driver: "local".into(),
+        options: Vec::new(),
+        mountpoint: None,
+        users: users.iter().map(|container| user(container, State::Running, None)).collect(),
     }
 }
 
@@ -87,6 +104,7 @@ fn usage() -> DiskUse {
             record("r3", 5 * MB, false, true),
         ],
         networks: vec!["blog_default".into(), "shop_backend".into()],
+        engine: borg_docker::Engine::default(),
     }
 }
 
@@ -302,6 +320,7 @@ fn measured() -> AppState {
         usage: Box::new(usage()),
         context: Some("default".into()),
         contexts: Some(vec!["default".into()]),
+        folders: HashMap::new(),
     };
     update(&mut state, Msg::Docker { id, result: Ok(data) }, now);
     assert!(state.docker.disk.loading.is_none());
@@ -385,3 +404,5 @@ fn a_name_with_a_control_character_types_no_command() {
     disk.select(kind_row(&disk, DiskKind::UnusedNetworks));
     assert_eq!(disk.cleanup().map(|line| line.line()), Err(NoCleanup::ControlCharacter), "nor a context's name");
 }
+
+mod volumes;

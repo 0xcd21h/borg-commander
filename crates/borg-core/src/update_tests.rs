@@ -3193,7 +3193,12 @@ fn disk_cleanup_goes_to_the_host_shell_while_the_command_line_follows_a_containe
         })
         .expect("opening disk use measures it");
     let usage = borg_docker::DiskUse { networks: vec!["shop_backend".into()], ..Default::default() };
-    let measured = crate::DockerData::DiskUse { usage: Box::new(usage), context: None, contexts: None };
+    let measured = crate::DockerData::DiskUse {
+        usage: Box::new(usage),
+        context: None,
+        contexts: None,
+        folders: Default::default(),
+    };
     let effects = update(&mut state, Msg::Docker { id, result: Ok(measured) }, now);
     assert!(effects.contains(&Effect::UseConsole(Console::Host)), "the Docker view keeps the host's: {effects:?}");
     press(&mut state, now, key(KeyCode::End));

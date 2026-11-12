@@ -13,7 +13,7 @@ expression: describe(&buffer)
 │▸ Stopped containers                       2     46M         46M││F8 types                                                        │
 │▸ Unused anonymous volumes                 1    488M        488M││docker --context desktop-linux builder prune                    │
 │▸ Unused named volumes                     1    820M        820M││                                                                │
-│▸ Volumes in use                           1    298M           0││                                                                │
+│▸ Volumes in use                           2    337M           0││                                                                │
 │  Unused networks                          1                    ││                                                                │
 │                                                                ││                                                                │
 │                                                                ││                                                                │

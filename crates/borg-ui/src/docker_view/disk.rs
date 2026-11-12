@@ -1,7 +1,7 @@
 //! Disk use: a row per kind of what Docker keeps, their items below them, and in the other pane
 //! what the selected row is and the command F8 types for it.
 
-use super::{FILTER_ROW, HEADER_ROW};
+use super::{FILTER_ROW, HEADER_ROW, volumes};
 use crate::{
     activity_view::{FOOTER_ROWS, body, dim, emphasis, heading, row, text, wrap},
     format,
@@ -62,7 +62,7 @@ fn about(kind: DiskKind) -> &'static str {
     }
 }
 
-fn size(value: Option<u64>) -> String {
+pub(super) fn size(value: Option<u64>) -> String {
     value.map_or_else(|| UNKNOWN.into(), format::size)
 }
 
@@ -84,6 +84,13 @@ pub(super) fn columns(area: Rect) -> [Rect; 4] {
     })
 }
 
+/// The part of `area` from `start` cells in, `width` wide.
+fn cell(area: Rect, start: usize, width: usize) -> Rect {
+    let x = area.x.saturating_add(u16::try_from(start).unwrap_or(u16::MAX)).min(area.right());
+    let width = u16::try_from(width).unwrap_or(u16::MAX).min(area.right() - x);
+    Rect { x, width, ..area }
+}
+
 /// Text at the right edge of `area`, as numbers line up.
 fn right(buf: &mut Buffer, area: Rect, value: &str, style: Style) {
     let pad = usize::from(area.width).saturating_sub(value.width());
@@ -97,7 +104,29 @@ fn title(docker: &Docker) -> String {
     }
 }
 
-pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: Option<Spinner>, buf: &mut Buffer) {
+/// A kind's row label: its fold mark and name.
+fn kind_label(disk: &Disk, group: &DiskGroup) -> String {
+    let fold = match (group.items.is_empty(), disk.unfolded(group.kind)) {
+        (true, _) => ' ',
+        (false, true) => UNFOLDED,
+        (false, false) => FOLDED,
+    };
+    format!("{fold} {}", kind_name(group.kind))
+}
+
+fn item_label(disk: &Disk, usage: &DiskUse, item: DiskItem) -> String {
+    let mark = if disk.marked(item) { MARK } else { " " };
+    format!("  {mark} {}", item.label(usage))
+}
+
+pub(super) fn draw_list(
+    state: &AppState,
+    look: &Look<'_>,
+    rect: Rect,
+    spinner: Option<Spinner>,
+    clock: &Zoned,
+    buf: &mut Buffer,
+) {
     let docker = &state.docker;
     let disk = &docker.disk;
     let theme = look.theme;
@@ -129,6 +158,15 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
     if disk.rows.is_empty() {
         text(buf, row(body, 0), tr!(docker_disk_no_matches), dim(theme));
     }
+    let name_width = usize::from(columns(row(body, 0))[0].width);
+    let facts = volumes::list_layout(
+        disk,
+        usage,
+        name_width,
+        clock,
+        |kind| disk.groups.iter().find(|group| group.kind == kind).map_or(0, |group| kind_label(disk, group).width()),
+        |item| item_label(disk, usage, item).width(),
+    );
     let start = disk.list_start(usize::from(body.height));
     for (offset, (index, &item)) in disk.rows.iter().enumerate().skip(start).take(usize::from(body.height)).enumerate()
     {
@@ -140,13 +178,18 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
         match item {
             DiskRow::Kind(group) => {
                 let DiskGroup { kind, totals, ref items } = disk.groups[group];
-                let fold = match (items.is_empty(), disk.unfolded(kind)) {
-                    (true, _) => ' ',
-                    (false, true) => UNFOLDED,
-                    (false, false) => FOLDED,
-                };
                 let style = if selected { base } else { heading(theme) };
-                text(buf, name, format!("{fold} {}", kind_name(kind)), style.add_modifier(Modifier::BOLD));
+                let label = kind_label(disk, &disk.groups[group]);
+                let after = label.width() + 1;
+                text(buf, name, label, style.add_modifier(Modifier::BOLD));
+                if kind.holds_data() && disk.unfolded(kind) && !items.is_empty() {
+                    let quiet = if selected { base } else { dim(theme) };
+                    for (start, width, heading) in
+                        volumes::headings(&facts).into_iter().filter(|(start, ..)| *start >= after)
+                    {
+                        text(buf, cell(name, start, width), format::truncate_end(heading, width), quiet);
+                    }
+                }
                 right(buf, count, &totals.count.to_string(), base);
                 if kind != DiskKind::UnusedNetworks {
                     right(buf, bytes, &format::size(totals.size), base);
@@ -163,9 +206,16 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
                 } else {
                     base
                 };
-                let mark = if marked { MARK } else { " " };
-                let label = format!("  {mark} {}", item.label(usage));
-                text(buf, name, format::truncate_end(&label, usize::from(name.width)), style);
+                let label = item_label(disk, usage, item);
+                if let DiskItem::Volume(index) = item {
+                    text(buf, name, format::truncate_end(&label, facts.label), style);
+                    let quiet = if selected { base } else { dim(theme) };
+                    for (start, width, value) in volumes::cells(&facts, disk, &usage.volumes[index], clock) {
+                        text(buf, cell(name, start, width), format::truncate_end(&value, width), quiet);
+                    }
+                } else {
+                    text(buf, name, format::truncate_end(&label, usize::from(name.width)), style);
+                }
                 right(buf, bytes, &size(item.size(usage)), style);
                 right(buf, frees, &size(item.frees(usage)), if selected { base } else { dim(theme) });
             }
@@ -177,8 +227,19 @@ pub(super) fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, spinner: 
         ..inner
     };
     let line = row(footer, 0);
+    let opening = disk.opening.as_ref().map(|opening| {
+        if opening.pull {
+            tr!(docker_disk_pulling, image = borg_docker::helper::IMAGE_NAME)
+        } else {
+            tr!(docker_disk_starting).to_owned()
+        }
+    });
     if let Some(spinner) = spinner.filter(|_| disk.loading.is_some()) {
         spinner.line(tr!(docker_disk_measuring), look, dim(theme)).render(line, buf);
+    } else if let Some((spinner, opening)) = spinner.zip(opening) {
+        spinner.line(&opening, look, dim(theme)).render(line, buf);
+    } else if let Some(spinner) = spinner.filter(|_| disk.reading.is_some()) {
+        spinner.line(tr!(docker_disk_reading), look, dim(theme)).render(line, buf);
     } else if let Some(error) = &disk.error {
         text(buf, line, format::truncate_end(error, usize::from(line.width)), styles.notice);
     } else if let Some(notice) = &state.notice {
@@ -224,15 +285,15 @@ fn filter_row(disk: &Disk, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
 }
 
 /// Lines down a pane: facts with their labels in a column, and wrapped paragraphs.
-struct Sheet<'a> {
+pub(super) struct Sheet<'a> {
     area: Rect,
     y: u16,
-    label: u16,
-    look: &'a Look<'a>,
+    pub label: u16,
+    pub look: &'a Look<'a>,
 }
 
 impl Sheet<'_> {
-    fn fact(&mut self, buf: &mut Buffer, label: &str, value: impl Into<String>) {
+    pub fn fact(&mut self, buf: &mut Buffer, label: &str, value: impl Into<String>) {
         let value = value.into();
         if value.is_empty() || self.y >= self.area.height {
             return;
@@ -245,7 +306,7 @@ impl Sheet<'_> {
         self.y += 1;
     }
 
-    fn paragraph(&mut self, buf: &mut Buffer, value: &str, style: Style) {
+    pub fn paragraph(&mut self, buf: &mut Buffer, value: &str, style: Style) {
         for line in wrap(value, usize::from(self.area.width)) {
             if self.y >= self.area.height {
                 return;
@@ -255,7 +316,7 @@ impl Sheet<'_> {
         }
     }
 
-    fn gap(&mut self) {
+    pub fn gap(&mut self) {
         if self.y > 0 {
             self.y += 1;
         }
@@ -263,7 +324,7 @@ impl Sheet<'_> {
 }
 
 /// The label column for `labels`: the widest and a space, within reason.
-fn label_width(labels: &[&str]) -> u16 {
+pub(super) fn label_width(labels: &[&str]) -> u16 {
     (labels.iter().map(|label| label.width()).max().unwrap_or(0) + 2).min(LABEL_LIMIT) as u16
 }
 
@@ -284,6 +345,9 @@ pub(super) fn draw_details(docker: &Docker, look: &Look<'_>, rect: Rect, clock: 
     let mut sheet = Sheet { area: inner, y: 0, label: 0, look };
     match row {
         DiskRow::Kind(_) => kind_details(&mut sheet, disk, usage, group, buf),
+        DiskRow::Item(_, DiskItem::Volume(index)) => {
+            volumes::details(&mut sheet, disk, &usage.volumes[index], DiskItem::Volume(index), clock, buf);
+        }
         DiskRow::Item(_, item) => item_details(&mut sheet, usage, item, clock, buf),
     }
     sheet.gap();
@@ -342,10 +406,7 @@ fn item_details(sheet: &mut Sheet<'_>, usage: &DiskUse, item: DiskItem, clock: &
                 (tr!(docker_disk_id), layer.id.get(..SHORT_ID).unwrap_or(&layer.id).to_owned()),
             ]
         }
-        DiskItem::Volume(index) => {
-            let volume = &usage.volumes[index];
-            vec![(tr!(docker_disk_size), size(volume.size)), (tr!(docker_disk_used_by), volume.users.join(", "))]
-        }
+        DiskItem::Volume(_) => Vec::new(),
         DiskItem::Cache(index) => {
             let record = &usage.cache[index];
             let yes = |value: bool| if value { tr!(docker_disk_yes) } else { tr!(docker_disk_no) }.to_owned();
@@ -399,14 +460,18 @@ pub(super) fn buttons(disk: &Disk) -> Vec<(&'static str, KeyCode)> {
             (tr!(activity_filter_clear_button), KeyCode::Esc),
         ];
     }
-    vec![
-        (tr!(docker_clean_button), KeyCode::F(8)),
-        (tr!(ins_mark), KeyCode::Insert),
-        (tr!(docker_refresh_button), KeyCode::Char('r')),
-        (tr!(activity_filter_button), KeyCode::Char('/')),
-        (tr!(docker_containers_button), KeyCode::Char('d')),
-        (tr!(activity_back_button), KeyCode::Esc),
-    ]
+    let files = disk.volume().map(|_| (tr!(docker_disk_files_button), KeyCode::Enter));
+    files
+        .into_iter()
+        .chain([
+            (tr!(docker_clean_button), KeyCode::F(8)),
+            (tr!(ins_mark), KeyCode::Insert),
+            (tr!(docker_refresh_button), KeyCode::Char('r')),
+            (tr!(activity_filter_button), KeyCode::Char('/')),
+            (tr!(docker_containers_button), KeyCode::Char('d')),
+            (tr!(activity_back_button), KeyCode::Esc),
+        ])
+        .collect()
 }
 
 pub(super) fn hint(disk: &Disk) -> &'static str {
