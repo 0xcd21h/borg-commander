@@ -69,8 +69,10 @@ else
 fi
 if $unicode; then
     done_mark="✓" fail_mark="✗" wait_mark="◌" arrow="›" rule="·"
+    service_menu="F9 → Remote → Background service…"
 else
     done_mark="ok" fail_mark="x" wait_mark=".." arrow=">" rule="-"
+    service_menu="F9, Remote, Background service"
 fi
 
 cleanup() {
@@ -328,11 +330,15 @@ case "${service}" in
             fi
         else
             if [ -z "${service}" ] && $terminal; then
-                printf '  %s%s%s Start borg at boot as a background service? It uses sudo. %s[y/N]%s ' "${accent}" "${arrow}" "${reset}" "${dim}" "${reset}"
+                note "Service" "optional. It starts borg at boot, so sessions you keep with"
+                printf '               %sborg service keep NAME%s stay running with no terminal open,\n' "${accent}" "${reset}"
+                printf '               and a paired computer reaches this machine after a restart.\n'
+                printf '               You can set it up later in borg: %s%s%s\n\n' "${accent}" "${service_menu}" "${reset}"
+                printf '  %s%s%s Start borg at boot as a background service? It uses sudo. %s[y/N, default n]%s ' "${accent}" "${arrow}" "${reset}" "${dim}" "${reset}"
                 read -r service </dev/tty || service=""
                 printf '\n'
             elif [ -z "${service}" ]; then
-                note "Service" "not set up. To start borg at boot, run ${accent}BORG_SERVICE=1${reset} with the installer, or ${accent}borg service install${reset}, ${accent}enable${reset} and ${accent}start${reset}."
+                note "Service" "optional, not set up. To start borg at boot later, choose ${accent}${service_menu}${reset} in borg, or run ${accent}borg service install${reset}, ${accent}enable${reset} and ${accent}start${reset}."
                 printf '\n'
             fi
             case "${service}" in

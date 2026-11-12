@@ -23,15 +23,18 @@ starts borg; set `BORG_NO_RUN=1` to skip that, or `BORG_INSTALL_DIR` to choose t
 If the same version is already installed, running the installer again skips the download.
 
 The installer can also set borg up as a
-[service that starts at boot](#named-sessions-and-the-background-service). In a terminal it asks
-once before it starts borg, and the answer defaults to no. Set `BORG_SERVICE=1` to set the service
-up without the question, as in an unattended install, or `BORG_SERVICE=0` to skip the question.
-The setup runs `borg service install`, `enable` and `start`, which use sudo unless you are root.
-Without a terminal and without the variable, the installer leaves the service alone and prints how
-to set it up later. Where systemd or launchd is missing, as in most containers, it skips the step
-and says why. If the setup fails, borg stays installed and the installer prints the commands to
-finish by hand. On Linux, the [root part of the watcher](#the-watcher-as-root) stays a separate
-step: install it with `borg service watch install` when you want it.
+[service that starts at boot](#named-sessions-and-the-background-service). The service is optional.
+With it, sessions you keep with `borg service keep NAME` stay running with no terminal open, and a
+paired computer reaches this machine after a restart. In a terminal the installer asks once before
+it starts borg, and the default answer is n. Set `BORG_SERVICE=1` to set the service up without
+the question, as in an unattended install, or `BORG_SERVICE=0` to skip the question. The setup
+runs `borg service install`, `enable` and `start`, which use sudo unless you are root. Without a
+terminal and without the variable, the installer leaves the service alone. You can set it up later
+inside borg, from F9 → Remote → **Background service…**. Where systemd or launchd is missing, as
+in most containers, the installer skips the step and says why. If the setup fails, borg stays
+installed and the installer prints the commands to finish by hand. On Linux, the
+[root part of the watcher](#the-watcher-as-root) stays a separate step: install it with
+`borg service watch install` when you want it.
 
 To build from source, you need Rust 1.97 or newer:
 

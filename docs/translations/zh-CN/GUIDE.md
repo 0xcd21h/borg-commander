@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/0xcd21h/borg-commander/main/scripts
 
 安装脚本会校验压缩包的校验和，并把 `borg` 放到 PATH 中的某个文件夹里，因此在同一个终端中就能直接运行。如果 `~/.local/bin` 已在 PATH 中，就选用它；否则，如果 `/usr/local/bin` 可写（例如在容器中以 root 身份运行），就选用它；都不满足时，则使用 `~/.local/bin`，并将其添加到 Shell 的启动文件中。安装完成后会自动启动 borg；设置 `BORG_NO_RUN=1` 可跳过这一步，设置 `BORG_INSTALL_DIR` 可指定安装文件夹。如果已经安装了相同版本，再次运行安装脚本时会跳过下载。
 
-安装脚本还可以把 borg 设置为[开机启动的服务](#named-sessions-and-the-background-service)。在终端中，它会在启动 borg 之前询问一次，默认回答为否。设置 `BORG_SERVICE=1` 可不经询问直接设置服务，适合无人值守的安装；设置 `BORG_SERVICE=0` 则跳过询问。设置过程会运行 `borg service install`、`enable` 和 `start`，除非你是 root，否则它们会使用 sudo。既没有终端也没有设置该变量时，安装脚本不会改动服务，只会提示以后如何设置。在没有 systemd 或 launchd 的环境中（大多数容器都是如此），它会跳过这一步并说明原因。如果设置失败，borg 仍然保持已安装状态，安装脚本会给出需要手动完成的命令。在 Linux 上，[监视器的 root 部分](#the-watcher-as-root)仍是单独的一步：需要时用 `borg service watch install` 安装。
+安装脚本还可以把 borg 设置为[开机启动的服务](#named-sessions-and-the-background-service)。这项服务是可选的。有了它，用 `borg service keep NAME` 保留的会话在没有终端时也会继续运行，已配对的计算机在本机重启后仍能连接到它。在终端中，安装脚本会在启动 borg 之前询问一次，默认回答为 n。设置 `BORG_SERVICE=1` 可不经询问直接设置服务，适合无人值守的安装；设置 `BORG_SERVICE=0` 则跳过询问。设置过程会运行 `borg service install`、`enable` 和 `start`，除非你是 root，否则它们会使用 sudo。既没有终端也没有设置该变量时，安装脚本不会改动服务。以后可以在 borg 中通过 F9 → 远程 → **后台服务…** 来设置。在没有 systemd 或 launchd 的环境中（大多数容器都是如此），安装脚本会跳过这一步并说明原因。如果设置失败，borg 仍然保持已安装状态，安装脚本会给出需要手动完成的命令。在 Linux 上，[监视器的 root 部分](#the-watcher-as-root)仍是单独的一步：需要时用 `borg service watch install` 安装。
 
 从源码构建需要 Rust 1.97 或更高版本：
 
