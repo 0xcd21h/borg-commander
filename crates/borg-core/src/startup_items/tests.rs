@@ -511,3 +511,37 @@ fn a_failed_read_is_shown_and_the_list_stays() {
     assert_eq!(state.startup_items.error.as_deref(), Some("no home folder"));
     assert_eq!(state.startup_items.len(), 3);
 }
+
+/// A binary property list of lists that each name the next one many times: a few hundred bytes
+/// that stand for more objects than could ever be read.
+fn nested_lists(levels: usize) -> Vec<u8> {
+    const ITEMS: u8 = 14;
+    const ARRAY: u8 = 0xA0;
+    const TRUE: u8 = 0x09;
+    const OFFSET_SIZE: u8 = 2;
+    const REFERENCE_SIZE: u8 = 2;
+    let mut bytes = b"bplist00".to_vec();
+    let mut offsets = Vec::new();
+    for level in 0..levels {
+        offsets.push(bytes.len() as u16);
+        bytes.push(ARRAY | ITEMS);
+        for _ in 0..ITEMS {
+            bytes.extend((level as u16 + 1).to_be_bytes());
+        }
+    }
+    offsets.push(bytes.len() as u16);
+    bytes.push(TRUE);
+    let table = bytes.len() as u64;
+    bytes.extend(offsets.iter().flat_map(|offset| offset.to_be_bytes()));
+    bytes.extend([0, 0, 0, 0, 0, 0, OFFSET_SIZE, REFERENCE_SIZE]);
+    bytes.extend((offsets.len() as u64).to_be_bytes());
+    bytes.extend(0u64.to_be_bytes());
+    bytes.extend(table.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn a_small_plist_that_stands_for_countless_objects_reads_as_nothing_at_once() {
+    assert!(matches!(plist::parse(&nested_lists(1)), Some(plist::Value::Array(items)) if items.len() == 14));
+    assert_eq!(plist::parse(&nested_lists(40)), None);
+}

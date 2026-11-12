@@ -12,7 +12,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
     let side = state.active;
     let mounted = state.panel(side).mount.is_some();
     let other_mounted = state.panel(side.other()).mount.is_some();
-    let remote = state.panel(side).remote_mount.is_some() || state.panel(side.other()).remote_mount.is_some();
+    let remote_here = state.panel(side).remote_mount.is_some();
+    let remote_there = state.panel(side.other()).remote_mount.is_some();
     let notice = if state.monitor_open() && on_files(action) {
         if state.docker.is_open() {
             tr!(docker_close_for_files)
@@ -27,7 +28,7 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
         }
     } else if let Some(notice) = archive_refusal(state, action) {
         return Some(notice);
-    } else if remote && needs_local_files(action) {
+    } else if needs_local_files(action) && (remote_here || (remote_there && !stays_in_this_panel(action))) {
         tr!(remote_operation_unavailable)
     } else if (mounted && needs_this_machine(action)) || (other_mounted && action == Action::ExtractToOther) {
         tr!(docker_not_in_container)
@@ -93,6 +94,14 @@ fn on_files(action: Action) -> bool {
 /// Actions that write into the other panel's folder.
 fn writes_to_other(action: Action) -> bool {
     matches!(action, Action::Copy | Action::Move | Action::ExtractToOther | Action::Collect)
+}
+
+/// Actions that touch only the active panel's own folder, whatever the other panel shows.
+fn stays_in_this_panel(action: Action) -> bool {
+    matches!(
+        action,
+        Action::Delete | Action::DeleteOriginals | Action::Edit | Action::EditExternal | Action::Mkdir | Action::Git(_)
+    )
 }
 
 /// Actions that work on files where Borg runs, which no remote panel holds.

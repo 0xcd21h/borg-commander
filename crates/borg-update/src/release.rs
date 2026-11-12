@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::Deserialize;
 use ureq::tls::{RootCerts, TlsConfig};
 
@@ -9,6 +11,9 @@ const USER_AGENT: &str = concat!("borg-commander/", env!("CARGO_PKG_VERSION"));
 const ACCEPT_HEADER: &str = "Accept";
 const GITHUB_JSON: &str = "application/vnd.github+json";
 const NOT_FOUND: u16 = 404;
+/// Where every file of a release is downloaded from. An address anywhere else is refused, so
+/// Borg only ever installs what this project published.
+const RELEASE_DOWNLOADS: &str = "https://github.com/0xcd21h/borg-commander/releases/download/";
 const RELEASE_METADATA_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -40,12 +45,26 @@ pub fn parse_release(json: &[u8]) -> Result<Option<Release>, UpdateError> {
     if raw.draft || raw.prerelease {
         return Ok(None);
     }
+    if let Some(elsewhere) = raw.assets.iter().find(|asset| !asset.url.starts_with(RELEASE_DOWNLOADS)) {
+        return Err(UpdateError::Release(format!("{} is not among this project's downloads", elsewhere.name)));
+    }
     Ok(Some(Release { version: raw.tag_name.parse()?, assets: raw.assets }))
 }
 
+/// How long Borg waits to reach the server, for it to start answering, and for a whole download.
+const CONNECT_WAIT: Duration = Duration::from_secs(15);
+const ANSWER_WAIT: Duration = Duration::from_secs(30);
+const DOWNLOAD_WAIT: Duration = Duration::from_secs(15 * 60);
+
 fn agent() -> ureq::Agent {
     let tls = TlsConfig::builder().root_certs(RootCerts::PlatformVerifier).build();
-    ureq::Agent::config_builder().tls_config(tls).build().new_agent()
+    ureq::Agent::config_builder()
+        .tls_config(tls)
+        .timeout_connect(Some(CONNECT_WAIT))
+        .timeout_recv_response(Some(ANSWER_WAIT))
+        .timeout_global(Some(DOWNLOAD_WAIT))
+        .build()
+        .new_agent()
 }
 
 pub(crate) fn fetch(url: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
@@ -76,8 +95,8 @@ mod tests {
         "draft": false,
         "prerelease": false,
         "assets": [
-            { "name": "borg-0.3.1-x86_64-apple-darwin.tar.gz", "browser_download_url": "https://example.test/a.tar.gz" },
-            { "name": "borg-0.3.1-x86_64-apple-darwin.tar.gz.sha256", "browser_download_url": "https://example.test/a.sha256" }
+            { "name": "borg-0.3.1-x86_64-apple-darwin.tar.gz", "browser_download_url": "https://github.com/0xcd21h/borg-commander/releases/download/v0.3.1/a.tar.gz" },
+            { "name": "borg-0.3.1-x86_64-apple-darwin.tar.gz.sha256", "browser_download_url": "https://github.com/0xcd21h/borg-commander/releases/download/v0.3.1/a.sha256" }
         ]
     }"#;
 
@@ -87,7 +106,21 @@ mod tests {
             parse_release(SAMPLE.as_bytes()).unwrap_or_else(|e| panic!("{e}")).unwrap_or_else(|| panic!("release"));
         assert_eq!(release.version.to_string(), "0.3.1");
         assert_eq!(release.assets.len(), 2);
-        assert_eq!(release.assets[0].url, "https://example.test/a.tar.gz");
+        assert!(release.assets[0].url.starts_with(RELEASE_DOWNLOADS));
+    }
+
+    #[test]
+    fn a_release_that_points_anywhere_but_this_projects_downloads_is_refused() {
+        for elsewhere in [
+            "https://example.test/a.tar.gz",
+            "http://github.com/0xcd21h/borg-commander/releases/download/v0.3.1/a.tar.gz",
+            "https://github.com/someone-else/borg-commander/releases/download/v0.3.1/a.tar.gz",
+            "https://github.com.example.test/0xcd21h/borg-commander/releases/download/v0.3.1/a.tar.gz",
+        ] {
+            let moved = SAMPLE
+                .replace("https://github.com/0xcd21h/borg-commander/releases/download/v0.3.1/a.tar.gz", elsewhere);
+            assert!(matches!(parse_release(moved.as_bytes()), Err(UpdateError::Release(_))), "{elsewhere}");
+        }
     }
 
     #[test]

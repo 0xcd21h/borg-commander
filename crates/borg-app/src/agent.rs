@@ -81,27 +81,49 @@ pub struct Call {
     /// that shows this session, and never on an agent's.
     #[serde(default)]
     pub viewer: bool,
+    /// The paired computer a Borg in another window passes this call on for. Any program on
+    /// this machine can write it, so it only ever adds approvals: the call is treated as one
+    /// from another computer, under a name no paired computer has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded_from: Option<String>,
 }
 
 /// The prefix of tools and arguments only the session itself uses.
 const INTERNAL: char = '_';
+/// What marks the origin of a call passed on from another window. A paired computer's own
+/// origin ends with its key in brackets, so no computer's origin ends like this.
+const FORWARDED: &str = " ↪";
+/// The tool that turns Approve all on, which a call passed on from another window may not use.
+const APPROVAL_MODE: &str = "approval_mode";
 
 impl Call {
     pub fn new(tool: &str, args: Value) -> Self {
-        Self { tool: tool.to_owned(), args, origin: None, approved: false, viewer: false }
+        Self { tool: tool.to_owned(), args, origin: None, approved: false, viewer: false, forwarded_from: None }
     }
 
     /// A call the session makes for this one, with its origin and approval.
     pub fn follow(&self, tool: &str, args: Value) -> Self {
-        Self { tool: tool.to_owned(), args, origin: self.origin.clone(), approved: self.approved, viewer: self.viewer }
+        Self {
+            tool: tool.to_owned(),
+            args,
+            origin: self.origin.clone(),
+            approved: self.approved,
+            viewer: self.viewer,
+            forwarded_from: None,
+        }
     }
 
     /// A call as it may come from outside: internal tools are refused, and internal arguments
     /// (such as a container already looked up) are left out, so a client cannot pass them off.
+    /// It cannot claim a paired computer's name or an approval either. One that says it is
+    /// passed on for another computer is taken as remote, and may not turn Approve all on.
     pub fn external(mut self) -> Result<Self, Reply> {
-        self.origin = None;
+        self.origin = self.forwarded_from.take().map(|from| format!("{from}{FORWARDED}"));
         self.approved = false;
         self.viewer = false;
+        if self.origin.is_some() && self.tool == APPROVAL_MODE {
+            return Err(Reply::error("Approve all is not available for a session in another window"));
+        }
         if self.tool.starts_with(INTERNAL) {
             return Err(Reply::error(format!("unknown tool {}", self.tool)));
         }
@@ -417,6 +439,34 @@ async fn serve_connection(stream: UnixStream, calls: &UnboundedSender<(Call, one
     Ok(())
 }
 
+/// Output of a running command Borg holds at most twice over; what a reply carries is cut from
+/// its end, so a command that prints without end never fills Borg's memory.
+const OUTPUT_HELD: usize = 4 * OUTPUT_LIMIT;
+const OUTPUT_PIECE: usize = 64 * 1024;
+
+/// Adds `bytes` to the output kept of a command, letting go of its start once there is far
+/// more than a reply carries.
+pub(crate) fn keep_end(kept: &mut Vec<u8>, bytes: &[u8]) {
+    kept.extend_from_slice(bytes);
+    if kept.len() > 2 * OUTPUT_HELD {
+        kept.drain(..kept.len() - OUTPUT_HELD);
+    }
+}
+
+/// Reads a command's output to its end, keeping the end of it.
+async fn end_of(mut output: impl tokio::io::AsyncRead + Unpin) -> Vec<u8> {
+    use tokio::io::AsyncReadExt as _;
+    let mut kept = Vec::new();
+    let mut piece = vec![0; OUTPUT_PIECE];
+    while let Ok(read) = output.read(&mut piece).await {
+        if read == 0 {
+            break;
+        }
+        keep_end(&mut kept, &piece[..read]);
+    }
+    kept
+}
+
 /// Runs a command with `sh`, keeping the end of its output when there is a lot of it.
 async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
     let child = Command::new("sh")
@@ -428,11 +478,15 @@ async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn();
-    let Ok(child) = child else { return (None, "could not start sh\n".into()) };
-    match tokio::time::timeout(COMMAND_TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(output)) => {
-            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
+    let Ok(mut child) = child else { return (None, "could not start sh\n".into()) };
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        return (None, "could not start sh\n".into());
+    };
+    let finished = async { tokio::join!(end_of(stdout), end_of(stderr), child.wait()) };
+    match tokio::time::timeout(COMMAND_TIMEOUT, finished).await {
+        Ok((stdout, stderr, Ok(status))) => {
+            let mut text = String::from_utf8_lossy(&stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&stderr));
             if text.len() > OUTPUT_LIMIT {
                 let cut = text.len() - OUTPUT_LIMIT;
                 let start = (cut..text.len()).find(|&i| text.is_char_boundary(i)).unwrap_or(text.len());
@@ -441,9 +495,9 @@ async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
             if !text.is_empty() && !text.ends_with('\n') {
                 text.push('\n');
             }
-            (output.status.code(), text)
+            (status.code(), text)
         }
-        Ok(Err(error)) => (None, format!("{error}\n")),
+        Ok((_, _, Err(error))) => (None, format!("{error}\n")),
         Err(_) => (None, "stopped after 10 minutes\n".into()),
     }
 }

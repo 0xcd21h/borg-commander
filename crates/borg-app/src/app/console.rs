@@ -99,7 +99,7 @@ impl App {
         match event {
             PtyEvent::Output(bytes) => {
                 if let Some((_, captured)) = self.host_capture.as_mut() {
-                    captured.extend_from_slice(&bytes);
+                    crate::agent::keep_end(captured, &bytes);
                 }
                 let signals = self.emulator.feed(&bytes);
                 for reply in self.emulator.drain_replies() {
