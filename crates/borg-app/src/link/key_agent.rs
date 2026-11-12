@@ -20,7 +20,6 @@ const PUT: &str = "put";
 const FORGET: &str = "forget";
 const DONE: &str = "ok";
 const LINE_LIMIT: u64 = 256;
-const OWNER_ONLY: u32 = 0o600;
 const CLIENT_WAIT: Duration = Duration::from_secs(5);
 const REQUEST_WAIT: Duration = Duration::from_secs(1);
 
@@ -31,7 +30,7 @@ fn decode(line: &str) -> Option<DataKey> {
 pub(super) async fn serve(socket: &Path, key: DataKey, idle: Duration) -> Result<()> {
     std::fs::remove_file(socket).ok();
     let listener = UnixListener::bind(socket).with_context(|| format!("listening on {}", socket.display()))?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(OWNER_ONLY))?;
+    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(super::PRIVATE_FILE))?;
     let own = rustix::process::getuid().as_raw();
     let mut key = key;
     let mut deadline = Instant::now() + idle;

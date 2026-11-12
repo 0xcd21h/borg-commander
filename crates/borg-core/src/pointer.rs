@@ -185,7 +185,6 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         if resting || state.overlay.is_some() || state.effective_view() != View::Panels {
             return Vec::new();
         }
-        // A click goes to the panel's editor; the wheel scrolls it where it is.
         if !matches!(pointer, Pointer::EditorScroll(..)) {
             state.active = side;
         }
@@ -198,7 +197,6 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         return Vec::new();
     }
     state.notice = None;
-    // Finding in a panel ends at a click, which then acts on the panels.
     if let Some(Overlay::Find(find)) = state.overlay.clone() {
         crate::find::on_key(state, find, &crossterm::event::KeyCode::Esc.into());
     }

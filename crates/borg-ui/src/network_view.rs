@@ -1,15 +1,10 @@
 //! The network screen: a page of ports, processes, connections or interfaces in one pane, and
 //! the selected row's details and traffic in the other. It shares the activity monitor's look.
 
-use crate::{activity_view::text, format, look::Look, spinner::Spinner};
+use crate::{format, look::Look, spinner::Spinner};
 use borg_core::{AppState, Network, NetworkPage, NetworkSort, Socket};
 use borg_i18n::tr;
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    text::Line,
-    widgets::{Block, Clear, Widget},
-};
+use ratatui::{buffer::Buffer, layout::Rect};
 use std::net::{IpAddr, SocketAddr};
 use unicode_width::UnicodeWidthStr;
 
@@ -62,28 +57,6 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: st
     if !details.is_empty() {
         details::draw_details(network, look, details, buf);
     }
-}
-
-fn frame(network: &Network, look: &Look<'_>, rect: Rect, title: &str, focused: bool, buf: &mut Buffer) -> Rect {
-    let theme = look.theme;
-    let styles = &theme.styles;
-    Clear.render(rect, buf);
-    let controls = crate::results_view::controls(rect, network.expanded);
-    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(if focused { styles.border_active } else { styles.border })
-        .title(Line::styled(
-            format::truncate_end(&format!(" {title} "), usize::from(room)),
-            if focused { styles.title_active } else { styles.title },
-        ));
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    for (r, label, _) in controls {
-        text(buf, r, label, styles.menu);
-    }
-    inner
 }
 
 fn page_label(page: NetworkPage) -> &'static str {

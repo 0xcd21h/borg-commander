@@ -22,7 +22,6 @@ pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
     if let Some(approval) = state.approval.take() {
         return crate::agent::on_approval_key(state, approval, key, now);
     }
-    // A full-screen program gets the keys, unless a dialog shows over it.
     if state.shell.captured() && state.overlay.is_none() {
         return forward(state, key, now);
     }
@@ -235,7 +234,7 @@ pub(super) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     if state.docker.is_open() && state.view == View::Panels && state.overlay.is_none() {
         return crate::docker::paste(state, text);
     }
-    if state.activity.side.is_some() && state.view == View::Panels {
+    if state.activity.side.is_some() && state.view == View::Panels && state.overlay.is_none() {
         crate::activity::paste(&mut state.activity, text);
         return Vec::new();
     }

@@ -2,7 +2,7 @@
 //! pane, and the selected row's details, or a packet's layers and bytes, in the other.
 
 use super::{
-    FILTER_ROW, HEADER_ROW, PID_WIDTH, TABS_ROW, UNKNOWN, frame,
+    FILTER_ROW, HEADER_ROW, PID_WIDTH, TABS_ROW, UNKNOWN,
     list::{FilterLine, filter_line},
     spread, tab_cells,
 };
@@ -179,7 +179,7 @@ fn draw_list(
     let styles = &theme.styles;
     let focused = !network.details_focused;
     let title = format!("{}{SEPARATOR}{}", tr!(traffic_title), source(view));
-    let inner = frame(network, look, rect, &title, focused, buf);
+    let inner = crate::results_view::pane_frame(network.expanded, look, rect, &title, focused, buf);
     if inner.is_empty() {
         return;
     }
@@ -322,7 +322,14 @@ fn draw_details(network: &Network, view: &TrafficView, look: &Look<'_>, rect: Re
         TrafficPage::Connections => view.flow().map(|(index, _)| view.endpoint(view.ends[index].remote)),
         TrafficPage::Packets => view.packet().map(|(index, _)| tr!(traffic_packet_title, number = index + 1)),
     };
-    let inner = frame(network, look, rect, title.as_deref().unwrap_or(page_label(view.page)), focused, buf);
+    let inner = crate::results_view::pane_frame(
+        network.expanded,
+        look,
+        rect,
+        title.as_deref().unwrap_or(page_label(view.page)),
+        focused,
+        buf,
+    );
     if inner.is_empty() || title.is_none() {
         return;
     }

@@ -3,6 +3,7 @@
 //! Alerts page that shows the lot. Everything here is data in and data out; the app watches
 //! the machine, keeps the log and carries out the freeze.
 
+use crate::screens::{CHROME_ROWS, FILTER_LIMIT, PAGE};
 use borg_i18n::tr;
 use std::time::Instant;
 
@@ -29,11 +30,6 @@ pub use response::{
     Watcher, decide,
 };
 pub use rules::{Finding, History, PRELOAD_VARIABLES, WatchRule, examine};
-
-/// Rows the list pane's frame, summary, filter, column titles and footer take.
-pub const ALERTS_CHROME_ROWS: u16 = 6;
-const FILTER_LIMIT: usize = 128;
-const PAGE: usize = 10;
 
 /// The Alerts page: the log, what the filter keeps of it, and where the cursor is.
 #[derive(Debug, Clone, Default)]
@@ -126,10 +122,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
-    state.activity.side = None;
-    crate::docker::close(state);
-    crate::network::close(state);
-    crate::startup_items::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Alerts);
     let alerts = &mut state.alerts;
     alerts.side = Some(state.active);
     alerts.error = None;
@@ -164,7 +157,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
     let side = state.alerts.side.unwrap_or(state.active);
     let list = state.layout(now).panels[side.index()];
     if !list.is_empty() {
-        state.alerts.keep_visible(usize::from(list.height.saturating_sub(ALERTS_CHROME_ROWS)));
+        state.alerts.keep_visible(usize::from(list.height.saturating_sub(CHROME_ROWS)));
     }
 }
 

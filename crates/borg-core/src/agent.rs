@@ -647,7 +647,6 @@ pub(crate) fn on_connect_key(state: &mut AppState, mut connect: Connect, key: &K
             state.overlay = Some(Overlay::Connect(connect));
             return vec![Effect::ForgetComputers];
         }
-        // A relay typed in is saved, and borg cloud asks it for a pairing link.
         KeyCode::Enter if connect.pick == CONNECT_CLOUD && connect.relay.text().trim() != state.agent.connect.relay => {
             let relay = connect.relay.text().trim().to_owned();
             state.agent.connect.relay = relay.clone();

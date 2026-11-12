@@ -314,7 +314,6 @@ impl App {
         let Some(path) = text(&call, "path") else { return fail(reply, "show needs a path".into()) };
         let location = agent::locate(&self.state, &path);
         let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
-        // A folder opens and a file is selected in its folder; a container is asked which.
         let requeue = self.agent.requeue_sender();
         tokio::spawn(async move {
             let folder = agent::is_folder(&spot).await;

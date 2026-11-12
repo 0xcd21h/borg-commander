@@ -21,7 +21,6 @@ const REPORT_EVERY: Duration = Duration::from_millis(50);
 const PARTIAL_PREFIX: &str = ".";
 const PARTIAL_SUFFIX: &str = ".borg-partial";
 const FIRST_COPY: u32 = 2;
-const INTO_ITSELF: &str = "cannot copy a folder into itself";
 const BUFFERED_FILE_BYTES: usize = 1024 * 1024;
 const BATCH_BYTES: usize = 64 * 1024 * 1024;
 const BATCH_FILES: usize = 4096;
@@ -360,7 +359,7 @@ impl Job<'_> {
         let dest_root = if dest_root == root.source { unique(dest_root) } else { dest_root.to_path_buf() };
         let is_dir = root.items.first().is_some_and(|item| item.kind == Kind::Dir);
         if is_dir && dest_root.starts_with(&root.source) {
-            return Err(Halt::Failed(format!("{}: {INTO_ITSELF}", root.source.display())));
+            return Err(Halt::Failed(format!("{}: {}", root.source.display(), borg_i18n::tr!(copy_into_itself))));
         }
 
         let mut complete = true;

@@ -65,8 +65,8 @@ impl Launch {
         let shell = borg_term::user_shell();
         let cwd = env::current_dir().context("reading current directory")?;
         let config_dir = ConfigDir::locate();
-        let (config, mut warnings) = match config_dir.as_ref().map(ConfigDir::load) {
-            Some(Ok(config)) => (config, Vec::new()),
+        let (config, mut warnings) = match config_dir.as_ref().map(ConfigDir::read) {
+            Some(Ok(loaded)) => (loaded.settings, loaded.remarks.iter().map(crate::config::Remark::told).collect()),
             Some(Err(e)) => (Config::default(), vec![format!("{e:#}")]),
             None => (Config::default(), Vec::new()),
         };

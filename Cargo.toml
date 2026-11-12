@@ -91,6 +91,7 @@ icy_sixel          = "0.7"
 tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util", "io-std", "net"] }
 tokio-stream       = "0.1"
 toml               = "1"
+toml_edit          = "0.25"
 unicode-width      = "0.2"
 two-face           = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 pulldown-cmark     = "0.13"

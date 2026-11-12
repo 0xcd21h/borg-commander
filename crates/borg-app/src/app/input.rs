@@ -59,7 +59,6 @@ impl App {
     }
 
     pub(super) fn on_terminal_event(&mut self, event: Event) -> Result<Flow> {
-        // While text is shown plainly, a key brings borg back and does nothing else.
         if self.plain.is_some() {
             if let Event::Key(key) = event
                 && key.kind == KeyEventKind::Press

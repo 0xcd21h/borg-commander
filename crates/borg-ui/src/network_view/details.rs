@@ -1,7 +1,7 @@
 //! The details pane: the selected port, process, connection or interface, its traffic over the
 //! last minute, and the connections it has.
 
-use super::{DOWN, Field, UP, cells, column, endpoint, frame, list::reach, open, page_label, rate, socket_rate};
+use super::{DOWN, Field, UP, cells, column, endpoint, list::reach, open, page_label, rate, socket_rate};
 use crate::{
     activity_view::{Unit, body, dim, emphasis, heading, row, text},
     docker_view::{Facts, Series, charts, tiles},
@@ -25,19 +25,55 @@ pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, buf: 
     match network.page {
         NetworkPage::Ports => match network.port() {
             Some(listener) => port(network, listener, look, rect, buf),
-            None => _ = frame(network, look, rect, page_label(network.page), focused, buf),
+            None => {
+                _ = crate::results_view::pane_frame(
+                    network.expanded,
+                    look,
+                    rect,
+                    page_label(network.page),
+                    focused,
+                    buf,
+                )
+            }
         },
         NetworkPage::Processes => match network.process() {
             Some(entry) => process(network, entry, look, rect, buf),
-            None => _ = frame(network, look, rect, page_label(network.page), focused, buf),
+            None => {
+                _ = crate::results_view::pane_frame(
+                    network.expanded,
+                    look,
+                    rect,
+                    page_label(network.page),
+                    focused,
+                    buf,
+                )
+            }
         },
         NetworkPage::Connections => match network.connection() {
             Some((socket, rate)) => connection(network, socket, rate, look, rect, buf),
-            None => _ = frame(network, look, rect, page_label(network.page), focused, buf),
+            None => {
+                _ = crate::results_view::pane_frame(
+                    network.expanded,
+                    look,
+                    rect,
+                    page_label(network.page),
+                    focused,
+                    buf,
+                )
+            }
         },
         NetworkPage::Interfaces => match network.interface() {
             Some((interface, rate)) => interface_details(network, interface, rate, look, rect, buf),
-            None => _ = frame(network, look, rect, page_label(network.page), focused, buf),
+            None => {
+                _ = crate::results_view::pane_frame(
+                    network.expanded,
+                    look,
+                    rect,
+                    page_label(network.page),
+                    focused,
+                    buf,
+                )
+            }
         },
     }
 }
@@ -85,7 +121,7 @@ fn below(area: Rect, used: u16) -> Rect {
 fn port(network: &Network, listener: &PortRow, look: &Look<'_>, rect: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let title = format!("{} {}", listener.transport.name(), listener.port);
-    let inner = frame(network, look, rect, &title, network.details_focused, buf);
+    let inner = crate::results_view::pane_frame(network.expanded, look, rect, &title, network.details_focused, buf);
     if inner.is_empty() {
         return;
     }
@@ -106,7 +142,14 @@ fn port(network: &Network, listener: &PortRow, look: &Look<'_>, rect: Rect, buf:
 
 fn process(network: &Network, entry: &ProcessRow, look: &Look<'_>, rect: Rect, buf: &mut Buffer) {
     let theme = look.theme;
-    let inner = frame(network, look, rect, &network.name(entry.pid), network.details_focused, buf);
+    let inner = crate::results_view::pane_frame(
+        network.expanded,
+        look,
+        rect,
+        &network.name(entry.pid),
+        network.details_focused,
+        buf,
+    );
     if inner.is_empty() {
         return;
     }
@@ -183,7 +226,7 @@ fn connections(network: &Network, look: &Look<'_>, area: Rect, buf: &mut Buffer)
 fn connection(network: &Network, socket: &Socket, rate: Rate, look: &Look<'_>, rect: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let title = socket.remote.map_or_else(|| page_label(network.page).to_owned(), |remote| endpoint(network, remote));
-    let inner = frame(network, look, rect, &title, network.details_focused, buf);
+    let inner = crate::results_view::pane_frame(network.expanded, look, rect, &title, network.details_focused, buf);
     if inner.is_empty() {
         return;
     }
@@ -233,7 +276,8 @@ fn interface_details(
     buf: &mut Buffer,
 ) {
     let theme = look.theme;
-    let inner = frame(network, look, rect, &interface.name, network.details_focused, buf);
+    let inner =
+        crate::results_view::pane_frame(network.expanded, look, rect, &interface.name, network.details_focused, buf);
     if inner.is_empty() {
         return;
     }
