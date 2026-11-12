@@ -1359,7 +1359,7 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
 
     press(&mut state, now, key(KeyCode::Char('h')));
     assert!(shown(&state).hex());
-    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f 77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
+    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f  77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
     press(&mut state, now, key(KeyCode::Down));
     assert_eq!(shown(&state).offset(), 16, "a row is 16 bytes in 80 columns");
     press(&mut state, now, key(KeyCode::PageDown));
@@ -1416,7 +1416,7 @@ fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
     let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
 
     assert!(shown(&state).hex(), "a zero byte near the start opens the file as hex rows");
-    let row = format!("0000  7f 45 4c 46 02 01 01 00 00 00 74 65 78 74 0a{:5}.ELF......text.", "");
+    let row = format!("0000  7f 45 4c 46 02 01 01 00  00 00 74 65 78 74 0a{:5}.ELF......text.", "");
     assert_eq!(shown(&state).rows()[0], row);
     press(&mut state, now, key(KeyCode::Char('h')));
     assert!(!shown(&state).hex(), "h shows the text");
