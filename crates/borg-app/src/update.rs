@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use borg_core::Msg;
-use borg_update::{LATEST_RELEASE_URL, Version, channel, install, latest};
+use borg_update::{LATEST_RELEASE_URL, RELEASES_URL, Version, channel, install_trusted, latest};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::session::StateDir;
@@ -28,8 +28,15 @@ pub fn run() -> Result<()> {
         None => println!("borg {current} is up to date."),
         Some(release) => {
             println!("Updating borg {current} → {}…", release.version);
-            install(&release, TARGET, &exe)?;
-            println!("Updated. Restart borg to use {}.", release.version);
+            let installed = install_trusted(&release, RELEASES_URL, current, TARGET, &exe)?;
+            if installed == release.version {
+                println!("Updated. Restart borg to use {installed}.");
+            } else {
+                println!(
+                    "Updated to {installed}, the newest release this copy could check. Run `borg update` again to reach {}.",
+                    release.version
+                );
+            }
         }
     }
     Ok(())
@@ -44,7 +51,7 @@ pub fn install_newer(current: &str) -> Result<()> {
     }
     let current: Version = current.parse().context("reading the installed version")?;
     if let Some(release) = latest(LATEST_RELEASE_URL, current)? {
-        install(&release, TARGET, &exe)?;
+        install_trusted(&release, RELEASES_URL, current, TARGET, &exe)?;
     }
     Ok(())
 }

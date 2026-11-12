@@ -45,7 +45,9 @@ brew install 0xcd21h/tap/borg-commander
 
 Ejecuta `borg` en la carpeta que quieras explorar. F10 sale, y Ctrl-O vuelve de la consola a los
 paneles. Para actualizar, ejecuta `borg update` si descargaste el binario, o usa Homebrew o cargo
-si lo instalaste así. `borg --version` muestra la versión instalada. Las sesiones abiertas pasan
+si lo instalaste así. Borg solo instala una actualización cuando la versión publicada lleva la
+firma del proyecto. Si la firma falta o es incorrecta, la copia que tienes queda como está.
+`borg --version` muestra la versión instalada. Las sesiones abiertas pasan
 a la nueva versión y conservan su shell (consulta
 [Actualizar con sesiones abiertas](#updating-with-sessions-open)).
 
@@ -1327,11 +1329,12 @@ hexadecimales y vuelve a pulsarla para volver al texto. Un archivo binario, que 
 byte a cero en sus primeros 4 KiB, se abre en filas hexadecimales en ambos, y `h` muestra su texto.
 Cada fila empieza con su posición en el archivo y luego muestra sus bytes en hexadecimal y los
 mismos bytes como texto, con un punto en cada byte que no se puede imprimir. Las posiciones y los
-bytes a cero se ven atenuados. Una fila tiene 16 bytes, o 8, 4, 2 o 1 cuando no hay espacio para 16.
-Borg lee solo las filas que hay en pantalla, así que las flechas, PgUp/PgDn, Space, Home y End
-recorren al instante un archivo de varios gigabytes. La barra de búsqueda también funciona en las
-filas hexadecimales y marca cada coincidencia en las dos columnas. En hexadecimal, los archivos
-Markdown y JSON muestran los bytes tal como están escritos.
+bytes a cero se ven atenuados. Una fila tiene tantos bytes como quepan en el ancho: 64, 32, 16, 8,
+4, 2 o 1, con un espacio más ancho después de cada octavo byte. Borg lee solo las filas que hay en
+pantalla, así que las flechas, PgUp/PgDn, Space, Home y End recorren al instante un archivo de
+varios gigabytes. La barra de búsqueda también funciona en las filas hexadecimales y marca cada
+coincidencia en las dos columnas. En hexadecimal, los archivos Markdown y JSON muestran los bytes
+tal como están escritos.
 
 En el visor, una franja de entropía recorre el borde derecho de las filas hexadecimales. La entropía
 indica lo variados que son los bytes, desde 0 bits por byte para un solo byte repetido hasta 8 para
@@ -1812,12 +1815,13 @@ con tus propios permisos y deja en paz el descriptor del proceso.
 ### Vista previa de la región
 
 Cuando seleccionas una región legible, Borg captura hasta 64 KiB de ella en el otro panel. Si el
-principio de la región solo contiene ceros, la captura salta hasta la primera página con datos, y
-la línea sobre los bytes indica en qué parte de la región está la ventana. Cuando te mueves rápido,
-Borg espera un momento antes de leer; seleccionar otra región borra la vista previa anterior y
-cancela su lectura pendiente. Las regiones que no se pueden leer muestran un mensaje.
-Pulsa **Tab** o **Enter** para desplazarte por la vista previa. **Esc** ahí vuelve a la lista, y
-**Esc** en el mapa vuelve a la lista de procesos con el cursor y el filtro como estaban.
+principio de la región solo contiene ceros, la captura salta hasta la primera página con datos, y la
+línea sobre los bytes indica en qué parte de la región está la ventana. Cada fila empieza con su
+posición contada desde el principio de la región, y un panel ancho muestra más bytes por fila.
+Cuando te mueves rápido, Borg espera un momento antes de leer; seleccionar otra región borra la
+vista previa anterior y cancela su lectura pendiente. Las regiones que no se pueden leer muestran un
+mensaje. Pulsa **Tab** o **Enter** para desplazarte por la vista previa. **Esc** ahí vuelve a la
+lista, y **Esc** en el mapa vuelve a la lista de procesos con el cursor y el filtro como estaban.
 
 Las series de filas a cero se agrupan en una sola fila, como "· 60K bytes en cero ·". **]** y **[**
 saltan al bloque de datos siguiente y anterior, y **>** y **<** capturan los 64 KiB siguientes y
@@ -2513,8 +2517,8 @@ para cada forma de mirarla:
 - **4 Paquetes** muestra todos los paquetes en orden con su tiempo desde el inicio, protocolo,
   longitud y un resumen como `ClientHello example.com` o `A example.com → 203.0.113.10`. Los
   detalles muestran sus capas (Ethernet, IP, TCP o UDP, y DNS, TLS o HTTP cuando Borg los lee) y sus
-  bytes en un volcado hexadecimal. Un volcado pone 16 bytes en cada línea, y menos en un panel
-  estrecho, para que el texto siga cabiendo al lado. F3 muestra los bytes del paquete como filas
+  bytes en un volcado hexadecimal. Un volcado dispone sus bytes como las filas hexadecimales del visor, con
+  tantos en cada línea como quepan en el panel. F3 muestra los bytes del paquete como filas
   hexadecimales en el visor.
 
 | Tecla | Acción |
