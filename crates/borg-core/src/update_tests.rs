@@ -180,12 +180,12 @@ fn alt_r_reloads_the_active_panel_and_its_menu_names_the_key() {
     assert!(matches!(&effects[..], [Effect::List { side: Side::Right, dir, .. }] if *dir == right), "{effects:?}");
     let rescan = |menu: &crate::menu::Menu| {
         menu.entries.iter().find_map(|entry| match entry {
-            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint),
+            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint.clone()),
             _ => None,
         })
     };
     let menus = menus(&state);
-    assert_eq!((rescan(&menus[0]), rescan(&menus[5])), (Some(""), Some("M-r")));
+    assert_eq!((rescan(&menus[0]).as_deref(), rescan(&menus[5]).as_deref()), (Some(""), Some("M-r")));
 }
 
 #[test]
@@ -1359,7 +1359,7 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
 
     press(&mut state, now, key(KeyCode::Char('h')));
     assert!(shown(&state).hex());
-    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f 77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
+    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f  77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
     press(&mut state, now, key(KeyCode::Down));
     assert_eq!(shown(&state).offset(), 16, "a row is 16 bytes in 80 columns");
     press(&mut state, now, key(KeyCode::PageDown));
@@ -1416,7 +1416,7 @@ fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
     let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
 
     assert!(shown(&state).hex(), "a zero byte near the start opens the file as hex rows");
-    let row = format!("0000  7f 45 4c 46 02 01 01 00 00 00 74 65 78 74 0a{:5}.ELF......text.", "");
+    let row = format!("0000  7f 45 4c 46 02 01 01 00  00 00 74 65 78 74 0a{:5}.ELF......text.", "");
     assert_eq!(shown(&state).rows()[0], row);
     press(&mut state, now, key(KeyCode::Char('h')));
     assert!(!shown(&state).hex(), "h shows the text");
@@ -4372,4 +4372,38 @@ fn a_remote_panel_on_the_other_side_does_not_take_the_local_panels_own_actions()
     state.panel_mut(here).remote_mount = Some(remote);
     crate::actions::perform(&mut state, Action::Mkdir, now);
     assert_eq!(state.notice, unavailable);
+}
+
+/// A paste goes to the dialog that is open, not to the activity monitor's filter behind it,
+/// and the filter takes what fits of a paste, without control characters.
+#[test]
+fn a_paste_over_the_activity_monitor_goes_to_the_dialog_that_is_open() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::Activity, now);
+    assert!(state.activity.side.is_some());
+    state.activity.filtering = true;
+    crate::actions::perform(&mut state, Action::Quit, now);
+    assert!(state.overlay.is_some());
+    update(&mut state, Msg::Paste("for the dialog".into()), now);
+    assert_eq!(state.activity.filter, "");
+
+    state.overlay = None;
+    update(&mut state, Msg::Paste(format!("a\nb{}", "x".repeat(500))), now);
+    assert!(state.activity.filter.starts_with("abx"));
+    assert_eq!(state.activity.filter.chars().count(), 128);
+}
+
+/// A menu names the key the key table binds, so the two cannot drift apart.
+#[test]
+fn menu_hints_are_the_keys_the_key_table_binds() {
+    use crate::keymap::hint;
+    assert_eq!(hint(Action::Copy).as_deref(), Some("F5"));
+    assert_eq!(hint(Action::ToggleShell).as_deref(), Some("C-o"));
+    assert_eq!(hint(Action::EditInPanel).as_deref(), Some("M-e"));
+    assert_eq!(hint(Action::FolderTree).as_deref(), Some("M-S-d"));
+    assert_eq!(hint(Action::MirrorRemote).as_deref(), Some("M-S-m"));
+    assert_eq!(hint(Action::InsertNewline).as_deref(), Some("S-Enter"));
+    assert_eq!(hint(Action::CopyPaths).as_deref(), Some("M-S-Ins"));
+    assert_eq!(hint(Action::NudgeSplit(2)).as_deref(), Some("M-S-→"));
+    assert_eq!(hint(Action::Compress), None);
 }

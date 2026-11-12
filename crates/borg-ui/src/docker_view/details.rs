@@ -2,7 +2,7 @@
 
 use super::{
     CHART_MIN_ROWS, DOCKER_TILE_WIDTH, LABEL_WIDTH, MOUNTS_SHOWN, SIDE_BY_SIDE_FROM, columns, cpu, cpu_cells, dot,
-    frame, header, local, project_name, running_of, tone, working_label,
+    header, local, project_name, running_of, tone, working_label,
 };
 use crate::{
     Theme,
@@ -133,7 +133,7 @@ pub(super) fn draw_details(
             Some(project) => format!("{project} › {}", container.label()),
             None => container.label().to_owned(),
         };
-        let inner = frame(docker, look, rect, &title, focused, buf);
+        let inner = crate::results_view::pane_frame(docker.expanded, look, rect, &title, focused, buf);
         if inner.is_empty() {
             return None;
         }
@@ -147,10 +147,10 @@ pub(super) fn draw_details(
         }
         container_details(docker, container, look, rect, clock, buf);
     } else if let Some(group) = docker.group() {
-        let inner = frame(docker, look, rect, &project_name(group), focused, buf);
+        let inner = crate::results_view::pane_frame(docker.expanded, look, rect, &project_name(group), focused, buf);
         group_details(docker, group, look, inner, rect, buf);
     } else {
-        frame(docker, look, rect, tr!(docker_container), focused, buf);
+        crate::results_view::pane_frame(docker.expanded, look, rect, tr!(docker_container), focused, buf);
     }
     None
 }
@@ -208,7 +208,14 @@ pub(super) fn container_details(
             .mounts
             .iter()
             .take(MOUNTS_SHOWN)
-            .map(|m| format!("{} → {}{}", m.source, m.destination, if m.writable { "" } else { " (ro)" }))
+            .map(|m| {
+                format!(
+                    "{} → {}{}",
+                    m.source,
+                    m.destination,
+                    if m.writable { String::new() } else { format!(" {}", tr!(docker_mount_read_only)) }
+                )
+            })
             .collect();
         if details.mounts.len() > MOUNTS_SHOWN {
             mounts.push(format!("+{}", details.mounts.len() - MOUNTS_SHOWN));

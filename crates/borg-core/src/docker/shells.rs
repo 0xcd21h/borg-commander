@@ -196,7 +196,6 @@ pub(crate) fn shell_closed(state: &mut AppState, container: &str, now: Instant) 
         docker.shell_tab = false;
     }
     if state.console == Console::Container(container.to_owned()) {
-        // The console returns to the host; a shell that never got going is not reopened.
         state.shell = state.parked_host.take().unwrap_or_else(|| ShellStatus::new(state.active_panel().dir().into()));
         state.console = Console::Host;
         state.view = View::Panels;

@@ -2,7 +2,7 @@
 //! machine's traffic in the footer.
 
 use super::{
-    DOWN, FILTER_ROW, Field, HEADER_ROW, TABS_ROW, UNKNOWN, UP, cells, columns, endpoint, first_address, frame, rate,
+    DOWN, FILTER_ROW, Field, HEADER_ROW, TABS_ROW, UNKNOWN, UP, cells, columns, endpoint, first_address, rate,
     socket_rate, tabs,
 };
 use crate::{
@@ -46,7 +46,14 @@ pub(super) fn draw_list(
     let styles = &theme.styles;
     let focused = !network.details_focused;
     let status = if network.paused { tr!(activity_paused) } else { tr!(activity_live) };
-    let inner = frame(network, look, rect, &format!("{} · {status}", tr!(network_title)), focused, buf);
+    let inner = crate::results_view::pane_frame(
+        network.expanded,
+        look,
+        rect,
+        &format!("{} · {status}", tr!(network_title)),
+        focused,
+        buf,
+    );
     if inner.is_empty() {
         return;
     }

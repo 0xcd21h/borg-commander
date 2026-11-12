@@ -17,7 +17,6 @@ use crate::app::{picture, span};
 
 pub fn open(path: &Path, size: (usize, usize), cell: (u16, u16), cancelled: Arc<AtomicBool>) -> Result<Content> {
     ensure!(fs::metadata(path)?.is_file(), tr!(not_a_regular_file));
-    // A file named like a picture that holds something else reads as text.
     if is_picture(path) && holds_picture(path) {
         let bounds = (span(size.0, cell.0), span(size.1, cell.1));
         return picture(path, bounds).map(Content::Image);

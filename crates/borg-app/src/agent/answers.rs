@@ -197,7 +197,6 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
     if let Some(process) = state.activity.process().filter(|_| state.activity.side.is_some()) {
         let _ = writeln!(text, "Activity monitor open, on {} (PID {})", process.name, process.key.pid);
     }
-    // Long runs of empty rows read as one, to keep the text short.
     let shown = |lines: &[String]| {
         let end = lines.iter().rposition(|line| !line.is_empty()).map_or(0, |last| last + 1);
         let mut out: Vec<String> = Vec::new();

@@ -23,6 +23,7 @@ const RECENT: u64 = 1_768_037_400;
 const OLD: u64 = 1_717_200_000;
 const SIZE: GridSize = GridSize { cols: 90, rows: 22 };
 const NARROW: GridSize = GridSize { cols: 44, rows: 12 };
+const WIDE: GridSize = GridSize { cols: 150, rows: 12 };
 const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
@@ -306,7 +307,7 @@ fn binary_sample() -> Vec<u8> {
 fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
     use std::sync::Arc;
 
-    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow")] {
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow"), (WIDE, "viewer_hex_wide")] {
         let mut stage = stage(size, Motion::STILL)?;
         let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
         let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;

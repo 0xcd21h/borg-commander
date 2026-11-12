@@ -83,6 +83,7 @@ tokio-rustls       = { version = "0.26", default-features = false, features = ["
 rustls-acme        = { version = "0.15", default-features = false, features = ["ring", "tls12", "webpki-roots", "tokio"] }
 rustls-platform-verifier = "0.7"
 rustls-native-certs = "0.8"
+ring               = "0.17"
 rcgen              = { version = "0.13", default-features = false, features = ["ring", "pem", "x509-parser"] }
 time               = "0.3"
 httparse           = "1"
@@ -90,6 +91,7 @@ icy_sixel          = "0.7"
 tokio              = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util", "io-std", "net"] }
 tokio-stream       = "0.1"
 toml               = "1"
+toml_edit          = "0.25"
 unicode-width      = "0.2"
 two-face           = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 pulldown-cmark     = "0.13"

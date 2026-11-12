@@ -55,7 +55,6 @@ impl App {
                 self.remote_consoles.set_input_mode(&key, foreground, raw_input);
                 let Some(emulator) = self.remote_consoles.emulator(&key) else { return Ok(Flow::Continue) };
                 let signals = emulator.feed(&bytes);
-                // What a command Borg typed writes is held back and echoes nothing typed.
                 let echoed = !bytes.is_empty() && !emulator.concealing();
                 let replies = emulator.drain_replies();
                 for reply in replies {

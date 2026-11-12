@@ -1023,7 +1023,7 @@ fn f3_shows_a_conversations_stream_or_a_packets_bytes_as_hex_rows() {
     assert_eq!(shown(&state), Some(Shown::Bytes("192.168.1.20:51000 → 93.184.216.34:80".into())));
     assert!(pager(&state).hex());
     assert_eq!(pager(&state).len(), (request.len() + answer.len()) as u64, "both sides' turns, one after another");
-    assert_eq!(pager(&state).rows()[0], "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
+    assert_eq!(pager(&state).rows()[0], "0000  47 45 54 20 2f 20 48 54  54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
     press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
     assert!(state.viewer.is_none() && state.network.viewer.is_some(), "Esc goes back to the traffic");
 

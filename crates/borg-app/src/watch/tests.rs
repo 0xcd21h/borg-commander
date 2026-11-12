@@ -272,3 +272,17 @@ async fn a_process_is_signalled_by_borg_itself_while_no_root_watcher_is_connecte
     let outcome = sources.act(&Processes::default(), root::Act::Freeze, nobody).await;
     assert_eq!(outcome, ControlOutcome::Gone, "Borg looked for the process itself");
 }
+
+/// A Borg that only shows the count of unread alerts looks at when the log last changed, and
+/// reads it again only when that moved.
+#[test]
+fn the_log_is_read_again_only_when_it_has_changed() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path();
+    assert!(changed_log(state, None).is_none(), "no log yet, nothing to read");
+    log::write_log(state, &mut alert_log(2)).unwrap();
+    let (at, log) = changed_log(state, None).expect("a new log is read");
+    assert_eq!(log.alerts.len(), 2);
+    assert!(changed_log(state, Some(at)).is_none(), "the same log is not read twice");
+    assert!(changed_log(state, Some(at - Duration::from_secs(60))).is_some());
+}

@@ -258,6 +258,35 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];
 
+const CONTROL_HINT: &str = "C-";
+const ALT_HINT: &str = "M-";
+const SHIFT_HINT: &str = "S-";
+
+/// A key as menus name it, with a capital letter written as Shift and the small one.
+fn key_hint(code: KeyCode) -> (bool, String) {
+    match code {
+        KeyCode::Char(letter) if letter.is_uppercase() => (true, letter.to_lowercase().collect()),
+        KeyCode::Char(letter) => (false, letter.to_string()),
+        KeyCode::F(number) => (false, format!("F{number}")),
+        KeyCode::Insert => (false, "Ins".to_owned()),
+        KeyCode::Enter => (false, "Enter".to_owned()),
+        KeyCode::Left => (false, "←".to_owned()),
+        KeyCode::Right => (false, "→".to_owned()),
+        other => (false, other.to_string()),
+    }
+}
+
+/// The first key bound to `action`, as menus show it: `C-` for Ctrl, `M-` for Alt and `S-` for
+/// Shift before the key.
+pub fn hint(action: Action) -> Option<String> {
+    let binding = KEYMAP.iter().find(|binding| binding.action == action)?;
+    let (capital, key) = key_hint(binding.code);
+    let held =
+        |modifier: KeyModifiers, name: &'static str| if binding.modifiers.contains(modifier) { name } else { "" };
+    let shift = if capital { SHIFT_HINT } else { held(KeyModifiers::SHIFT, SHIFT_HINT) };
+    Some(format!("{}{}{shift}{key}", held(KeyModifiers::CONTROL, CONTROL_HINT), held(KeyModifiers::ALT, ALT_HINT)))
+}
+
 /// The letter Shift makes of `typed`, where there is exactly one.
 fn shifted(typed: char) -> char {
     let mut upper = typed.to_uppercase();

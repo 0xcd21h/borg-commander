@@ -8,7 +8,11 @@ use std::{
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 
-use crate::{Release, UpdateError, Version, release::fetch};
+use crate::{
+    Release, UpdateError, Version,
+    release::{fetch, releases},
+    signature::{PublicKey, SIGNATURE_LIMIT, SIGNATURE_SUFFIX, release_keys, verify_signature},
+};
 
 const BINARY: &str = "borg";
 const ARCHIVE_SUFFIX: &str = ".tar.gz";
@@ -49,6 +53,15 @@ pub fn verify(archive: &[u8], checksum_file: &str, name: &str) -> Result<(), Upd
     if hex(&Sha256::digest(archive)) == expected { Ok(()) } else { Err(UpdateError::Checksum(name.to_owned())) }
 }
 
+/// The signature covers the checksum file, which names the archive it belongs to. Checking that
+/// name keeps a signed checksum of another version or target from being accepted for this one.
+fn verify_signed(checksum_file: &[u8], signature: &[u8], name: &str, keys: &[PublicKey]) -> Result<(), UpdateError> {
+    verify_signature(keys, checksum_file, signature, name)?;
+    let text = String::from_utf8_lossy(checksum_file);
+    let named = text.split_whitespace().nth(1).map(|file| file.trim_start_matches('*'));
+    if named == Some(name) { Ok(()) } else { Err(UpdateError::Checksum(name.to_owned())) }
+}
+
 fn extract(archive: &[u8]) -> Result<Vec<u8>, UpdateError> {
     let mut entries = tar::Archive::new(GzDecoder::new(archive));
     for entry in entries.entries()? {
@@ -77,9 +90,69 @@ fn download(release: &Release, name: &str, limit: u64) -> Result<Vec<u8>, Update
 }
 
 pub fn install(release: &Release, target: &str, exe: &Path) -> Result<PathBuf, UpdateError> {
+    install_signed(release, target, exe, &release_keys()?)
+}
+
+/// Installs `latest`, or the newest release between `current` and it that this copy can check
+/// when `latest` is signed with a key this copy does not know. Returns the version installed.
+/// The copy installed that way knows the newer keys and can take the next step itself.
+pub fn install_trusted(
+    latest: &Release,
+    releases_url: &str,
+    current: Version,
+    target: &str,
+    exe: &Path,
+) -> Result<Version, UpdateError> {
+    let keys = release_keys()?;
+    match install_signed(latest, target, exe, &keys) {
+        Ok(_) => Ok(latest.version),
+        Err(UpdateError::Signature(name)) => {
+            let earlier = releases(releases_url)?.into_iter().filter(|release| release.version < latest.version);
+            install_newest_trusted(earlier.collect(), current, target, exe, &keys)?.ok_or(UpdateError::Signature(name))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn install_newest_trusted(
+    mut releases: Vec<Release>,
+    current: Version,
+    target: &str,
+    exe: &Path,
+    keys: &[PublicKey],
+) -> Result<Option<Version>, UpdateError> {
+    releases.retain(|release| release.version > current);
+    releases.sort_by_key(|release| std::cmp::Reverse(release.version));
+    for release in releases {
+        match install_signed(&release, target, exe, keys) {
+            Ok(_) => return Ok(Some(release.version)),
+            Err(
+                UpdateError::Signature(_)
+                | UpdateError::Unsigned(_)
+                | UpdateError::MissingAsset(_)
+                | UpdateError::Checksum(_),
+            ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(None)
+}
+
+fn install_signed(release: &Release, target: &str, exe: &Path, keys: &[PublicKey]) -> Result<PathBuf, UpdateError> {
     let name = release_asset_name(release, target);
-    let archive = download(release, &name, ARCHIVE_LIMIT)?;
+    if !release.assets.iter().any(|asset| asset.name == name) {
+        return Err(UpdateError::MissingAsset(name));
+    }
     let checksum = download(release, &format!("{name}{CHECKSUM_SUFFIX}"), CHECKSUM_LIMIT)?;
+    let signature =
+        download(release, &format!("{name}{CHECKSUM_SUFFIX}{SIGNATURE_SUFFIX}"), SIGNATURE_LIMIT).map_err(|error| {
+            match error {
+                UpdateError::MissingAsset(_) | UpdateError::NoRelease => UpdateError::Unsigned(name.clone()),
+                other => other,
+            }
+        })?;
+    verify_signed(&checksum, &signature, &name, keys)?;
+    let archive = download(release, &name, ARCHIVE_LIMIT)?;
     verify(&archive, &String::from_utf8_lossy(&checksum), &name)?;
     let binary = extract(&archive)?;
 

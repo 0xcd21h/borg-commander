@@ -46,6 +46,7 @@ const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const CONTAINER_MARK: char = '▣';
 const ARCHIVE_MARK: char = '▤';
+const REMOTE_MARK: char = '◈';
 const PARENT_NAME: &str = "..";
 const COLUMN_SEPARATOR: &str = "│";
 const LEFT_CAP: char = '▐';
@@ -195,15 +196,13 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Styl
         .map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name))
         .or_else(|| {
             scene.panel.remote_mount.as_ref().map(|remote| {
-                format!(
-                    " ◈ Host {}:{} ",
-                    scene.state.remote_host_name(&remote.machine),
-                    scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name)
-                )
+                let machine = scene.state.remote_host_name(&remote.machine);
+                let session = scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name);
+                format!(" {REMOTE_MARK} {} ", tr!(panel_remote_host, machine = machine, session = session))
             })
         })
         .or_else(|| scene.panel.archive.as_ref().map(|archive| format!(" {ARCHIVE_MARK} {} ", archive.label())))
-        .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
+        .or_else(|| scene.client_of_remote.then(|| format!(" {REMOTE_MARK} {} ", tr!(panel_remote_client))));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
     let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };

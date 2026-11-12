@@ -53,25 +53,13 @@ pub struct Config {
     pub language: Option<String>,
     pub status_line: Option<bool>,
     pub menu_bar: Option<bool>,
-    #[serde(skip_serializing)]
-    pub animations: Option<bool>,
     pub show_hidden: Option<bool>,
     pub return_to_panels: Option<bool>,
     pub restore_terminal: Option<bool>,
-    #[serde(skip_serializing)]
-    pub startup_animation: Option<bool>,
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
-    #[serde(skip_serializing)]
-    pub delight: Option<bool>,
-    #[serde(skip_serializing)]
-    pub icons: Option<bool>,
     pub icon_spacing: Option<u8>,
-    #[serde(skip_serializing)]
-    pub nerd_font: Option<bool>,
     pub icon_style: Option<IconStyle>,
-    #[serde(rename = "pixel-chrome", skip_serializing)]
-    pub _legacy_pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
     pub update_check: Option<bool>,
@@ -357,15 +345,11 @@ impl Config {
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
-            nerd_font: self.effective_icon_style().nerd_font(program, term),
+            nerd_font: self.icon_style.unwrap_or_default().nerd_font(program, term),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
         }
-    }
-
-    fn effective_icon_style(&self) -> IconStyle {
-        self.icon_style.unwrap_or(if self.nerd_font == Some(true) { IconStyle::Nerd } else { IconStyle::Auto })
     }
 
     pub fn search(&self) -> borg_core::SearchSettings {
@@ -489,19 +473,13 @@ impl Config {
             language: Some(prefs.language.code().to_owned()),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),
-            animations: None,
             show_hidden: Some(prefs.show_hidden),
             return_to_panels: Some(prefs.after_command == AfterCommand::ReturnToPanels),
             restore_terminal: Some(prefs.restore_terminal),
-            startup_animation: None,
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
-            delight: None,
-            icons: None,
             icon_spacing: self.icon_spacing,
-            nerd_font: None,
-            icon_style: Some(self.effective_icon_style()),
-            _legacy_pixel_chrome: None,
+            icon_style: Some(self.icon_style.unwrap_or_default()),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
             update_check: self.update_check,
@@ -566,27 +544,47 @@ impl ConfigDir {
         self.0.join(RULES_DIR)
     }
 
+    /// The settings, without what Borg has to say about the file.
     pub fn load(&self) -> Result<Config> {
+        self.read().map(|loaded| loaded.settings)
+    }
+
+    /// The settings and Borg's remarks on the file: settings it does not have, values it cannot
+    /// use and settings it has retired. Only a file that is not TOML at all fails.
+    pub fn read(&self) -> Result<Loaded<Config>> {
+        let path = self.file();
+        match self.text()? {
+            Some(text) => document::load(&text).with_context(|| format!("reading {}", path.display())),
+            None => Ok(Loaded { settings: Config::default(), remarks: Vec::new() }),
+        }
+    }
+
+    fn text(&self) -> Result<Option<String>> {
         let path = self.file();
         match fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).with_context(|| format!("parsing {}", path.display())),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Config::default()),
+            Ok(text) => Ok(Some(text)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
     }
 
-    /// Saves the configuration. One that is there but that Borg could not read started Borg on
-    /// its defaults, so it is kept aside first and what the user wrote in it is not lost.
+    /// Saves the settings into the file as the user keeps it: what changed is written, and the
+    /// rest of the file, with its comments, stays. A file that is not TOML at all started Borg
+    /// on its defaults, so it is kept aside and a new one is written.
     pub fn save(&self, config: &Config) -> Result<()> {
         fs::create_dir_all(&self.0).with_context(|| format!("creating {}", self.0.display()))?;
-        self.keep_unreadable()?;
-        write_privately(&self.file(), toml::to_string(config)?.as_bytes())
+        let text = self.text()?.unwrap_or_default();
+        let saved = match document::save(&text, config) {
+            Ok(saved) => saved,
+            Err(_) => {
+                self.keep_aside()?;
+                document::save("", config)?
+            }
+        };
+        write_privately(&self.file(), saved.as_bytes())
     }
 
-    fn keep_unreadable(&self) -> Result<()> {
-        if self.load().is_ok() {
-            return Ok(());
-        }
+    fn keep_aside(&self) -> Result<()> {
         let taken = |name: &Path| fs::symlink_metadata(name).is_ok();
         let aside = self.0.join(CONFIG_ASIDE);
         let aside = if taken(&aside) { borg_jobs::unique_by(&aside, taken) } else { aside };
@@ -598,6 +596,10 @@ impl ConfigDir {
         self.0.join(CONFIG_FILE)
     }
 }
+
+mod document;
+
+pub use document::{Loaded, Remark};
 
 #[cfg(test)]
 mod tests;

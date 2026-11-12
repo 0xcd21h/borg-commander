@@ -17,7 +17,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Clear, Widget},
+    widgets::Widget,
 };
 use std::time::Instant;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -103,28 +103,6 @@ fn unsent_style(unsent: Unsent, look: &Look<'_>) -> Style {
     severity_style(severity, look.theme)
 }
 
-fn frame(alerts: &Alerts, look: &Look<'_>, rect: Rect, title: &str, focused: bool, buf: &mut Buffer) -> Rect {
-    let theme = look.theme;
-    let styles = &theme.styles;
-    Clear.render(rect, buf);
-    let controls = crate::results_view::controls(rect, alerts.expanded);
-    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(if focused { styles.border_active } else { styles.border })
-        .title(Line::styled(
-            format::truncate_end(&format!(" {title} "), usize::from(room)),
-            if focused { styles.title_active } else { styles.title },
-        ));
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    for (r, label, _) in controls {
-        text(buf, r, label, styles.menu);
-    }
-    inner
-}
-
 /// What a list column shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Field {
@@ -199,7 +177,7 @@ fn draw_list(
     let alerts = &state.alerts;
     let theme = look.theme;
     let styles = &theme.styles;
-    let inner = frame(alerts, look, rect, tr!(watch_title), true, buf);
+    let inner = crate::results_view::pane_frame(alerts.expanded, look, rect, tr!(watch_title), true, buf);
     if inner.is_empty() {
         return;
     }
@@ -446,7 +424,7 @@ fn draw_unsent(unsent: Unsent, look: &Look<'_>, area: Rect, buf: &mut Buffer) ->
 fn draw_details(alerts: &Alerts, look: &Look<'_>, rect: Rect, clock: &Zoned, unsent: Option<Unsent>, buf: &mut Buffer) {
     let theme = look.theme;
     let title = alerts.selected().map_or(tr!(watch_title), |alert| alert.rule().label());
-    let inner = frame(alerts, look, rect, title, false, buf);
+    let inner = crate::results_view::pane_frame(alerts.expanded, look, rect, title, false, buf);
     let inner = match unsent {
         Some(unsent) => draw_unsent(unsent, look, inner, buf),
         None => inner,

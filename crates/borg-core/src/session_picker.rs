@@ -2,6 +2,7 @@
 //! was last used and what runs it now, opens one, names a new one, and removes one that nothing
 //! runs after asking, with No chosen first.
 
+use crate::screens::PAGE;
 use std::{cmp::Reverse, time::SystemTime};
 
 use borg_i18n::tr;
@@ -17,8 +18,6 @@ use crate::{
 pub const DEFAULT_SESSION: &str = "default";
 /// The most characters a session's name has.
 pub const SESSION_NAME_LIMIT: usize = 40;
-/// How many rows PgUp and PgDn move the choice.
-const PAGE: usize = 10;
 
 /// What keeps a session running right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

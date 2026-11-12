@@ -3,11 +3,15 @@ use super::*;
 #[test]
 fn rows_hold_as_many_bytes_as_fit_and_offsets_as_many_digits_as_the_length_needs() {
     assert_eq!(HexLayout::fitting(80, 100).columns, 16);
-    assert_eq!(HexLayout::fitting(71, 100).columns, 16);
-    assert_eq!(HexLayout::fitting(70, 100).columns, 8);
+    assert_eq!(HexLayout::fitting(72, 100).columns, 16);
+    assert_eq!(HexLayout::fitting(71, 100).columns, 8);
     assert_eq!(HexLayout::fitting(30, 100).columns, 4);
     assert_eq!(HexLayout::fitting(0, 100).columns, 1);
-    assert_eq!(HexLayout::fitting(80, 100).width(), 71);
+    assert_eq!(HexLayout::fitting(80, 100).width(), 72);
+    assert_eq!(HexLayout::fitting(137, 100).columns, 16);
+    assert_eq!(HexLayout::fitting(138, 100).columns, 32);
+    assert_eq!(HexLayout::fitting(269, 100).columns, 32);
+    assert_eq!(HexLayout::fitting(270, 100).columns, 64, "a wide page shows more bytes on a row");
     assert_eq!(HexLayout::full(0).digits, 4);
     assert_eq!(HexLayout::full(0x1_0000).digits, 4);
     assert_eq!(HexLayout::full(0x1_0001).digits, 5);
@@ -19,7 +23,7 @@ fn rows_hold_as_many_bytes_as_fit_and_offsets_as_many_digits_as_the_length_needs
 #[test]
 fn a_row_shows_its_offset_its_bytes_in_hex_and_those_that_print() {
     let layout = HexLayout::full(0x1_0001);
-    assert_eq!(layout.line(0x1_0000, b"A"), format!("10000  41{:45}  A", ""));
+    assert_eq!(layout.line(0x1_0000, b"A"), format!("10000  41{:46}  A", ""));
     let layout = HexLayout::fitting(40, 100);
     assert_eq!(layout.columns, 8);
     assert_eq!(layout.line(8, b"Hi \x00\x7f\xffok"), "0008  48 69 20 00 7f ff 6f 6b  Hi ...ok");
@@ -63,8 +67,8 @@ fn a_dump_gives_every_row_and_a_narrow_one_keeps_the_text_beside_fewer_bytes() {
     assert_eq!(
         lines,
         [
-            "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..",
-            &format!("0010  {:<47}  Host", "48 6f 73 74")
+            "0000  47 45 54 20 2f 20 48 54  54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..",
+            &format!("0010  {:<48}  Host", "48 6f 73 74")
         ]
     );
     assert_eq!(lines[0].len(), layout.width());
@@ -72,4 +76,17 @@ fn a_dump_gives_every_row_and_a_narrow_one_keeps_the_text_beside_fewer_bytes() {
         HexLayout::fitting(64, 100).lines(b"GET / HTTP/1.1"),
         ["0000  47 45 54 20 2f 20 48 54  GET / HT", "0008  54 50 2f 31 2e 31        TP/1.1"]
     );
+}
+
+#[test]
+fn bytes_stand_in_groups_of_eight_and_a_match_across_two_groups_reads_as_one() {
+    let layout = HexLayout::fitting(138, 100);
+    let bytes: Vec<u8> = (0..20).collect();
+    assert_eq!(
+        layout.line(0, &bytes),
+        format!("0000  00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f  10 11 12 13{:37}  ....................", "")
+    );
+    assert_eq!(layout.line(0, &bytes).len(), layout.width() - (layout.columns - bytes.len()));
+    let runs = layout.runs(0, &bytes[..10], &|at| if (7..=8).contains(&at) { Mark::Match } else { Mark::None });
+    assert!(runs.iter().any(|run| run.text == "07  08" && run.mark == Mark::Match));
 }

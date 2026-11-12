@@ -23,7 +23,6 @@ const PAGE_DOWN: isize = 1;
 const SELECT_ALL: &str = "*";
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
-    // Results take their panel back from the activity monitor and the container list.
     if matches!(
         action,
         Action::Search
@@ -34,11 +33,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             | Action::Folders
             | Action::BackResults
     ) {
-        state.activity.side = None;
-        crate::docker::close(state);
-        crate::network::close(state);
-        crate::startup_items::close(state);
-        crate::watch::close(state);
+        crate::screens::close_all(state);
     }
     if let Some(notice) = refusals::refusal(state, action) {
         state.notice = Some(notice);

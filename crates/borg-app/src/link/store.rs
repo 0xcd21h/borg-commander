@@ -87,17 +87,10 @@ pub(super) fn load_to_change<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>>
 
 /// Writes a list owner-only, replacing the old one whole.
 pub(super) fn save<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
-    use std::io::Write as _;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let staged = path.with_extension(format!("{}.new", std::process::id()));
-    let mut file =
-        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(PRIVATE_FILE).open(&staged)?;
-    file.write_all(&serde_json::to_vec_pretty(items)?)?;
-    drop(file);
-    std::fs::rename(&staged, path)?;
-    Ok(())
+    crate::store::write_privately(path, &serde_json::to_vec_pretty(items)?)
 }
 
 /// A name from the other side, kept short and printable.
