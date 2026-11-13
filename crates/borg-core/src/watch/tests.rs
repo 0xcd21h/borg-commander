@@ -1085,3 +1085,18 @@ fn turning_the_watcher_on_with_nowhere_to_send_alerts_says_so() {
     assert!(state.settings.preferences.process_watch);
     assert_eq!(state.notice, None);
 }
+
+#[test]
+fn the_context_menu_on_an_alert_copies_its_pid_and_asks_before_killing() {
+    let (mut state, now) = opened();
+    let pid = state.alerts.selected().unwrap().process.key.pid;
+    press(&mut state, KeyCode::F(10), KeyModifiers::SHIFT);
+    let copied = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(copied.iter().any(|effect| matches!(effect, Effect::Copy(text) if *text == pid.to_string())));
+    press(&mut state, KeyCode::F(10), KeyModifiers::SHIFT);
+    crate::context_menu::choose_labelled(&mut state, "Kill", now);
+    assert!(matches!(
+        &state.overlay,
+        Some(Overlay::Confirm(confirm)) if matches!(confirm.purpose, ConfirmPurpose::AlertKill { .. })
+    ));
+}

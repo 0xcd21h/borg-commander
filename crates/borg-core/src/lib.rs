@@ -11,6 +11,7 @@ mod capture;
 mod clipboard;
 mod command;
 mod contents;
+mod context_menu;
 mod delete_check;
 mod delight;
 mod discovery;
@@ -79,6 +80,7 @@ pub use backup::{
 pub use busy::{Busy, SPINNER_DELAY, Task};
 pub use clipboard::Clipboard;
 pub use contents::{CONTENTS_SIZE_LIMIT, LineMatch, Scan, scan as scan_contents};
+pub use context_menu::{ContextCommand, ContextMenu};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use discovery::{
     CONTENTS_FIELD, CollectionPicker, FILES_FIELD, HIDDEN_FIELD, KIND_FIELD, MINIMUM_FIELD, PATTERN_FIELD, ROOT_FIELD,

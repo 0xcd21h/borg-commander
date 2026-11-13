@@ -30,7 +30,7 @@ pub use capture::{
 };
 use filter::Haystack;
 pub use filter::NetworkFilter;
-pub(crate) use keys::{click, paste, route_key, show_page, sort_by};
+pub(crate) use keys::{click, copied_text, paste, route_key, show_page, sort_by};
 pub use model::{Interface, InterfaceKind, NetworkSample, PortKey, Socket, SocketKey, TcpState, Transport, service};
 use rows::Source;
 pub use rows::{ConnectionRow, Exposure, InterfaceRow, PortRow, ProcessRow};

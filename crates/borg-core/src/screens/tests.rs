@@ -198,6 +198,31 @@ fn the_files_beside_a_screen_take_deletes_while_copies_wait_for_it_to_close() {
 }
 
 #[test]
+fn the_context_menu_beside_a_screen_names_the_file_and_in_the_list_the_row() {
+    let mut state = monitor(vec![process(7, Some(WORKER))]);
+    let files = state.activity.side.unwrap().other();
+    let (_, generation) = listing(&alt(&mut state, 'o'), files).unwrap();
+    list(&mut state, files, generation, &["worker"]);
+
+    assert_eq!(context_menu_title(&mut state), "worker");
+    let now = state.epoch;
+    crate::context_menu::choose_labelled(&mut state, tr!(copy), now);
+    assert_eq!(state.overlay, None);
+    assert_eq!(state.notice.as_deref(), Some(tr!(activity_close_for_files)));
+
+    press(&mut state, KeyCode::Tab, KeyModifiers::NONE);
+    assert_eq!(context_menu_title(&mut state), "worker-7 7");
+}
+
+fn context_menu_title(state: &mut AppState) -> String {
+    press(state, KeyCode::F(10), KeyModifiers::SHIFT);
+    match &state.overlay {
+        Some(crate::Overlay::ContextMenu(menu)) => menu.menu.title.clone(),
+        other => panic!("no context menu: {other:?}"),
+    }
+}
+
+#[test]
 fn a_row_without_a_file_says_so_and_network_rows_point_to_the_monitor() {
     let mut unknown = monitor(vec![process(7, None)]);
     assert!(alt(&mut unknown, 'o').is_empty());

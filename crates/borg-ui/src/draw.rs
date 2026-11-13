@@ -296,7 +296,7 @@ fn backdrop(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, overlay: &Overl
     let bar = bar_of(layout, overlay);
     let amount = match overlay {
         Overlay::Find(_) => return,
-        Overlay::Menu(_) => MENU_BACKDROP,
+        Overlay::Menu(_) | Overlay::ContextMenu(_) => MENU_BACKDROP,
         _ => BACKDROP,
     };
     fx::fade_to_background(buf, backdrop_area(layout, overlay), amount, scene.palette);
@@ -348,6 +348,9 @@ fn paint_overlay(
                 .map(|menu| menu_view::draw_dropdown(menu, cursor.item, x, top, theme, screen, buf))
                 .unwrap_or_default();
             (rect, None, Unfold::Down)
+        }
+        Overlay::ContextMenu(context) => {
+            (menu_view::draw_context_menu(context, theme, screen, buf), None, Unfold::Down)
         }
         Overlay::Settings { selected } | Overlay::Plugins { selected } => {
             (crate::settings_view::draw(state, *selected, theme, screen, buf), None, Unfold::FromCenter)

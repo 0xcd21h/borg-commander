@@ -218,7 +218,7 @@ fn copy(state: &mut AppState) -> Vec<Effect> {
     crate::clipboard::copy(state, text)
 }
 
-fn copied_text(network: &Network) -> Option<String> {
+pub(crate) fn copied_text(network: &Network) -> Option<String> {
     match network.page {
         NetworkPage::Ports => {
             let row = network.port()?;

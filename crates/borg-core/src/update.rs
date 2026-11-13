@@ -31,11 +31,17 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
     effects
 }
 
+/// Does what `key` does where it is pressed, as a menu entry standing for it needs.
+pub(crate) fn press(state: &mut AppState, key: &crossterm::event::KeyEvent, now: Instant) -> Vec<Effect> {
+    keys::on_key(state, key, now)
+}
+
 /// Hands each message to the part of the state it is for.
 fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     match msg {
         Msg::Key(key) => keys::on_key(state, &key, now),
         Msg::Pointer(pointer) => crate::pointer::on_pointer(state, pointer, now),
+        Msg::ContextMenu { pick, column, row } => crate::context_menu::on_right_click(state, pick, (column, row), now),
         Msg::Paste(text) => keys::on_paste(state, &text),
         Msg::Resize { cols, rows } => {
             state.resize(cols, rows, now);

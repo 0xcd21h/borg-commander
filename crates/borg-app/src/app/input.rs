@@ -143,7 +143,7 @@ impl App {
         if left {
             self.last_click = match &msg {
                 Some(Msg::Pointer(
-                    borg_core::Pointer::Panel { mark: false, .. }
+                    borg_core::Pointer::Panel { .. }
                     | borg_core::Pointer::EditorClick { select: false, word: false, .. },
                 )) if !double => Some((event.column, event.row, now)),
                 _ => None,

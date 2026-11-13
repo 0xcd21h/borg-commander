@@ -70,7 +70,10 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if let Some(handled) = menu_mouse(state, &mouse, &layout) {
         return handled;
     }
-    if let Some(side) = state.lent.filter(|side| state.monitor_open() && layout.panels[side.index()].contains(point)) {
+    if event.kind == MouseEventKind::Down(MouseButton::Right) {
+        return context_menu_at(state, &mouse, &layout, now);
+    }
+    if let Some(side) = lent_panel_at(state, &layout, point) {
         return panel_mouse(state, side, &mouse, layout.panels[side.index()], (layout.screen, now));
     }
     if state.files_beside_focused() && layout.keybar.contains(point) {
@@ -144,9 +147,22 @@ fn overlay_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<Option
         Overlay::Settings { .. } | Overlay::Plugins { .. } => {
             click.then(|| crate::settings_view::item_at(state, point, screen)).flatten().map(Pointer::Setting)
         }
+        Overlay::ContextMenu(context) => context_menu_mouse(context, mouse, screen),
         _ => return None,
     };
     Some(pointer.map(Msg::Pointer))
+}
+
+/// A click on an entry of the context menu chooses it, and a click of either button beside the
+/// menu closes it.
+fn context_menu_mouse(context: &borg_core::ContextMenu, mouse: &Mouse, screen: Rect) -> Option<Pointer> {
+    let right = mouse.event.kind == MouseEventKind::Down(MouseButton::Right);
+    let rect = menu_view::context_rect(context, screen);
+    let entries = menu_view::entries_area(rect);
+    if mouse.click && entries.contains(mouse.point) {
+        return Some(Pointer::MenuItem(usize::from(mouse.point.y - entries.y)));
+    }
+    ((mouse.click || right) && !rect.contains(mouse.point)).then_some(Pointer::DismissMenu)
 }
 
 /// The collections picker: the wheel scrolls it, a click picks or opens a collection, and its
@@ -228,12 +244,7 @@ fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Op
         let menu = all.get(cursor.menu)?;
         let x = menu_view::title_positions(&all)[cursor.menu];
         let rect = menu_view::dropdown_rect(menu, x, bar?.bottom(), layout.screen);
-        let inner = Rect {
-            x: rect.x + 1,
-            y: rect.y + 1,
-            width: rect.width.saturating_sub(2),
-            height: rect.height.saturating_sub(2),
-        };
+        let inner = menu_view::entries_area(rect);
         if inner.contains(point) {
             Some(Pointer::MenuItem(usize::from(point.y - inner.y)))
         } else {
@@ -241,6 +252,37 @@ fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Op
         }
     };
     Some(dropdown().map(Msg::Pointer))
+}
+
+/// A right-click on a row of a panel or a screen: the row it would pick with a click, and the
+/// context menu for it. Elsewhere it does nothing.
+fn context_menu_at(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout, now: Instant) -> Option<Msg> {
+    let event = MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), ..mouse.event };
+    let click = Mouse { event, point: mouse.point, click: true, double: false };
+    let picked = if let Some(side) = lent_panel_at(state, layout, click.point) {
+        panel_mouse(state, side, &click, layout.panels[side.index()], (layout.screen, now))
+    } else if state.monitor_open() {
+        monitor_mouse(state, &click, layout)
+    } else {
+        let side = Side::ALL.into_iter().find(|side| layout.panels[side.index()].contains(click.point))?;
+        panel_mouse(state, side, &click, layout.panels[side.index()], (layout.screen, now))
+    };
+    let Some(Msg::Pointer(pick)) = picked else { return None };
+    let row = matches!(
+        pick,
+        Pointer::Panel { .. }
+            | Pointer::ActivityRow { preview: false, .. }
+            | Pointer::DockerRow { .. }
+            | Pointer::NetworkRow { .. }
+            | Pointer::StartupRow { .. }
+            | Pointer::AlertsRow { .. }
+    );
+    row.then_some(Msg::ContextMenu { pick, column: mouse.event.column, row: mouse.event.row })
+}
+
+/// The pane of files beside an open screen, when the pointer is on it.
+fn lent_panel_at(state: &AppState, layout: &borg_core::Layout, point: Position) -> Option<Side> {
+    state.lent.filter(|side| state.monitor_open() && layout.panels[side.index()].contains(point))
 }
 
 /// The activity monitor, the container view and the network screen take the mouse in the
@@ -329,8 +371,7 @@ fn panel_mouse(state: &AppState, side: Side, mouse: &Mouse, rect: Rect, (screen,
         return Some(Msg::Pointer(Pointer::ScrollPanel { side, delta }));
     }
     let (click, point) = (mouse.click, mouse.point);
-    let mark = mouse.event.kind == MouseEventKind::Down(MouseButton::Right);
-    if !click && !mark {
+    if !click {
         return None;
     }
     if click && point.y + 1 == rect.bottom() && state.sizing.as_ref().is_some_and(|scan| scan.side == side) {
@@ -338,7 +379,7 @@ fn panel_mouse(state: &AppState, side: Side, mouse: &Mouse, rect: Rect, (screen,
     }
     let open = mouse.double && click;
     if state.panel(side).is_results() {
-        return results_mouse(state, side, rect, mouse, mark);
+        return results_mouse(state, side, rect, mouse);
     }
     let (_, content) = panel_view::geometry(rect);
     if !content.contains(point) {
@@ -350,12 +391,12 @@ fn panel_mouse(state: &AppState, side: Side, mouse: &Mouse, rect: Rect, (screen,
     let column = cells.iter().position(|cell| cell.contains(point))?;
     let scroll = state.motions[side.index()].scroll(now, panel.scroll());
     let index = scroll + column * panel.rows().max(1) + usize::from(point.y - content.y);
-    Some(Msg::Pointer(Pointer::Panel { side, index, open, mark }))
+    Some(Msg::Pointer(Pointer::Panel { side, index, open }))
 }
 
 /// A click in results: on a column heading it sorts by it, on a tree's arrow it opens or closes
 /// the branch, and on a row it picks the entry.
-fn results_mouse(state: &AppState, side: Side, rect: Rect, mouse: &Mouse, mark: bool) -> Option<Msg> {
+fn results_mouse(state: &AppState, side: Side, rect: Rect, mouse: &Mouse) -> Option<Msg> {
     let (click, point) = (mouse.click, mouse.point);
     let panel = state.panel(side);
     let (header, body) = crate::results_view::geometry(rect);
@@ -381,7 +422,7 @@ fn results_mouse(state: &AppState, side: Side, rect: Rect, mouse: &Mouse, mark: 
             return Some(Msg::Pointer(Pointer::TreeNode { side, index }));
         }
     }
-    Some(Msg::Pointer(Pointer::Panel { side, index, open: mouse.double && click, mark }))
+    Some(Msg::Pointer(Pointer::Panel { side, index, open: mouse.double && click }))
 }
 
 /// A click on a key that `rect`'s border lists, or a click beside a dialog that closes on one.

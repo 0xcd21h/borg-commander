@@ -98,7 +98,11 @@ fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Ef
     if let Some(effects) = crate::screens::lent_key(state, key) {
         return Some(effects);
     }
-    let screen = state.view == View::Panels && !state.files_beside_focused();
+    let panels = state.view == View::Panels;
+    if panels && crate::context_menu::opens(key) && crate::editor::focused(state).is_none() {
+        return Some(crate::context_menu::open(state, None));
+    }
+    let screen = panels && !state.files_beside_focused();
     if state.docker.is_open() && screen {
         return Some(crate::docker::route_key(state, key, now));
     }

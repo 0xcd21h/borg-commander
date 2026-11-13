@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "2e2c1922cacdc90f00b2cd7fc8207e681eacdb5f1c5e8ab739f79544cde868f5",
+      "source": "e31bc7a90f60cf6ccc3732d921dea2c81c848d5eaf058bfce112ff9f59fcc04d",
       "protected": {
         "code blocks": "1a402f3d5f2d1fef4c58f4b50902020027a55a7f2663cb6d88cd118f1c701f53",
-        "inline code": "fc1cb24248389260dbd6f4feec604cd6bc857d8d14c467d365ea2ca0a5c4a7fc",
+        "inline code": "004c5203c88632a9de9794af05d0779b26d0ca71c793268ed3c509b541035490",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
+        "heading levels": "ef1876f860460113354176bdb1e30c5b189ef763e7f234762b1899f8755dc2e2"
       },
       "headings": [
         {
@@ -68,6 +68,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Context menu"
         },
         {
           "level": 3,
@@ -280,12 +284,12 @@
       ]
     },
     "pt": {
-      "source": "2e2c1922cacdc90f00b2cd7fc8207e681eacdb5f1c5e8ab739f79544cde868f5",
+      "source": "e31bc7a90f60cf6ccc3732d921dea2c81c848d5eaf058bfce112ff9f59fcc04d",
       "protected": {
         "code blocks": "1a402f3d5f2d1fef4c58f4b50902020027a55a7f2663cb6d88cd118f1c701f53",
-        "inline code": "fc1cb24248389260dbd6f4feec604cd6bc857d8d14c467d365ea2ca0a5c4a7fc",
+        "inline code": "004c5203c88632a9de9794af05d0779b26d0ca71c793268ed3c509b541035490",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
+        "heading levels": "ef1876f860460113354176bdb1e30c5b189ef763e7f234762b1899f8755dc2e2"
       },
       "headings": [
         {
@@ -347,6 +351,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Context menu"
         },
         {
           "level": 3,
@@ -559,12 +567,12 @@
       ]
     },
     "es": {
-      "source": "2e2c1922cacdc90f00b2cd7fc8207e681eacdb5f1c5e8ab739f79544cde868f5",
+      "source": "e31bc7a90f60cf6ccc3732d921dea2c81c848d5eaf058bfce112ff9f59fcc04d",
       "protected": {
         "code blocks": "1a402f3d5f2d1fef4c58f4b50902020027a55a7f2663cb6d88cd118f1c701f53",
-        "inline code": "fc1cb24248389260dbd6f4feec604cd6bc857d8d14c467d365ea2ca0a5c4a7fc",
+        "inline code": "004c5203c88632a9de9794af05d0779b26d0ca71c793268ed3c509b541035490",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
+        "heading levels": "ef1876f860460113354176bdb1e30c5b189ef763e7f234762b1899f8755dc2e2"
       },
       "headings": [
         {
@@ -626,6 +634,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Context menu"
         },
         {
           "level": 3,
@@ -838,12 +850,12 @@
       ]
     },
     "ru": {
-      "source": "2e2c1922cacdc90f00b2cd7fc8207e681eacdb5f1c5e8ab739f79544cde868f5",
+      "source": "e31bc7a90f60cf6ccc3732d921dea2c81c848d5eaf058bfce112ff9f59fcc04d",
       "protected": {
         "code blocks": "1a402f3d5f2d1fef4c58f4b50902020027a55a7f2663cb6d88cd118f1c701f53",
-        "inline code": "fc1cb24248389260dbd6f4feec604cd6bc857d8d14c467d365ea2ca0a5c4a7fc",
+        "inline code": "004c5203c88632a9de9794af05d0779b26d0ca71c793268ed3c509b541035490",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "e8619d7c242617e958ed9f81409c37c70886af89a85db7571a077827a8fe8866"
+        "heading levels": "ef1876f860460113354176bdb1e30c5b189ef763e7f234762b1899f8755dc2e2"
       },
       "headings": [
         {
@@ -905,6 +917,10 @@
         {
           "level": 2,
           "title": "Mouse and console"
+        },
+        {
+          "level": 3,
+          "title": "Context menu"
         },
         {
           "level": 3,

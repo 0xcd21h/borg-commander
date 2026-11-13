@@ -163,6 +163,13 @@ pub enum Msg {
     },
     Key(KeyEvent),
     Pointer(crate::Pointer),
+    /// A right-click at a cell: `pick` puts the cursor on the row under it, and the context
+    /// menu opens there.
+    ContextMenu {
+        pick: crate::Pointer,
+        column: u16,
+        row: u16,
+    },
     Paste(String),
     Resize {
         cols: u16,

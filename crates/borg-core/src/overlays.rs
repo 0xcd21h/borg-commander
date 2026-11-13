@@ -36,6 +36,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Languages(picker)) => on_languages(state, picker, key),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
+        Some(Overlay::ContextMenu(menu)) => crate::context_menu::on_key(state, menu, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
         Some(Overlay::AgentLog { scroll }) => crate::agent::on_log_key(state, scroll, key),

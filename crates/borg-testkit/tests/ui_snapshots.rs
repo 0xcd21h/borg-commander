@@ -211,6 +211,27 @@ fn file_menu_open() -> Result<()> {
 }
 
 #[test]
+fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -> Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let at = |kind, column, row| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+    let right = at(MouseEventKind::Down(MouseButton::Right), 8, 6);
+    let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::ContextMenu { .. })), "{msg:?}");
+    stage.send(msg.unwrap());
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Copy folder path")?;
+    check("context_menu", &stage, buffer)?;
+    let copy_name = at(MouseEventKind::Down(MouseButton::Left), 12, 9);
+    let msg = borg_ui::mouse_input(&stage.state, copy_name, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::MenuItem(1)))), "{msg:?}");
+    let outside = at(MouseEventKind::Down(MouseButton::Right), SIZE.cols - 2, 2);
+    let msg = borg_ui::mouse_input(&stage.state, outside, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::DismissMenu))), "{msg:?}");
+    Ok(())
+}
+
+#[test]
 fn copy_and_delete_dialogs() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
@@ -5704,6 +5725,27 @@ fn startup_items_show_an_item_s_file_beside_the_list() -> Result<()> {
     ensure_text(&buffer, "reboot_job_fetch")?;
     ensure_text(&buffer, "crontabs")?;
     check("startup_items_file_beside", &stage, buffer)?;
+
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let (column, row) = screen.find("alex").context("alex in the files")?;
+    let right = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::ContextMenu { .. })), "{msg:?}");
+    stage.send(msg.unwrap());
+    let menu = match &stage.state.overlay {
+        Some(borg_core::Overlay::ContextMenu(menu)) => menu.menu.title.clone(),
+        other => anyhow::bail!("a right-click on a file opens its menu: {other:?}"),
+    };
+    assert_eq!(menu, "alex", "the menu names the file under the pointer");
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.files_beside_focused(), "Esc closes the menu and the files keep the keys");
+    stage.send(key(KeyCode::Down));
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
 
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
