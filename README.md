@@ -61,18 +61,18 @@ F9 → Remote → **Background service…** sets it up later. Update with `borg 
 
 ## What you can do with it
 
-- **Work in two panels with your own shell below.** Bash, zsh or fish keep their history and completion, and Ctrl-O shows the whole console.
-- **Free up disk space.** Alt-I sizes folders while you browse, Alt-Shift-D shows the largest branches first, and Alt-D finds every heavy folder such as `node_modules`.
-- **Find files and the text inside them.** Ctrl-F searches names and contents below a folder, and F4 opens a hit in the editor at the match.
-- **Read and edit in place.** F3 shows code, Markdown, images and hex, and F4 edits with highlighting, find and replace.
-- **Copy and move large trees.** Jobs run in the background with progress, pause and conflict handling, and a cancelled copy run again skips what is already there.
-- **See what a process is doing.** Alt-M sorts processes by CPU, memory or disk, K signals one, and Enter opens its memory map.
-- **See what talks to the network.** Alt-N lists listening ports and who can reach them, traffic per process, and R captures packets.
-- **Check what starts on its own.** Alt-U lists launch agents, systemd units, cron jobs, shell startup files and SSH keys, newest change first.
-- **Catch a suspicious process on Linux.** The watcher flags a shell started by a web server or a program run from `/tmp`, and can freeze it until you decide.
-- **Manage containers.** Alt-C lists Compose projects with live CPU and memory, and opens a container's files in a panel or a shell inside it.
-- **Let Claude work on any machine with you.** Pair once, and Claude on your computer reaches your borg over MCP and asks before every change.
-- **Reach your machines without an open port.** Remote panels and live mirrors of paired machines go through an end-to-end encrypted relay.
+- **Two-Panel File Manager with an Embedded Shell.** Your own bash, zsh or fish keeps its history and completion, and Ctrl-O shows the whole console.
+- **Disk Usage Analyzer.** Alt-I sizes folders while you browse, Alt-Shift-D shows the largest branches first, and Alt-D finds every heavy folder such as `node_modules`.
+- **Search and Replace Across Files.** Ctrl-F searches names and contents below a folder, F4 opens a hit at the match, and Ctrl-R replaces the text in every file found.
+- **Viewer, Hex Viewer and Editor.** F3 shows code, Markdown, images and hex, and F4 edits with syntax highlighting, find and replace.
+- **Resumable Background Copy.** Copies and moves of large trees run as jobs with progress, pause and conflict handling, and a cancelled copy run again skips what is already there.
+- **Process Monitor and Memory Inspector.** Alt-M sorts processes by CPU, memory or disk, Enter opens a process's memory map and open files, and K sends it a signal.
+- **Network Monitor and Packet Capture.** Alt-N lists listening ports with who can reach them and traffic per process, and R captures packets.
+- **Startup and Persistence Audit.** Alt-U lists launch agents, systemd units, cron jobs, shell startup files and SSH keys, newest change first.
+- **Linux Threat Detection.** A watcher checks every program start, flags a shell started by a web server or a program run from `/tmp`, and can freeze it until you decide.
+- **Docker Dashboard.** Alt-C lists Compose projects with live CPU and memory, and opens a container's files in a panel or a shell inside it.
+- **MCP Server for Claude.** Pair once, and Claude on your computer works on any of your machines through Borg, which asks before every change.
+- **Remote Control Without Open Ports.** Drive your servers from your laptop: remote panels and live mirrors go through an end-to-end encrypted relay.
 
 ## Borg and a plain shell
 
