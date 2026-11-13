@@ -249,6 +249,31 @@ fn copy_and_delete_dialogs() -> Result<()> {
 }
 
 #[test]
+fn delete_dialog_with_its_size_and_the_programs_using_the_files() -> Result<()> {
+    use borg_core::{DeleteFound, DeleteSize, FileHolder};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
+    let Some(borg_core::Overlay::Confirm(borg_core::Confirm {
+        purpose: borg_core::ConfirmPurpose::Delete { check: Some(asked), .. },
+        ..
+    })) = &stage.state.overlay
+    else {
+        panic!("F8 on a folder here checks its files");
+    };
+    let id = asked.id;
+    let size = DeleteSize { bytes: 3_435_973_837, files: 41_200, complete: false };
+    let holders = ["postgres", "tail", "vim", "less", "rsync"]
+        .into_iter()
+        .zip(1..)
+        .map(|(name, pid)| FileHolder { pid: 800 + pid, name: name.into() })
+        .collect();
+    stage.send(Msg::DeleteChecked { id, found: DeleteFound::Size(size) });
+    stage.send(Msg::DeleteChecked { id, found: DeleteFound::Holders(Ok(holders)) });
+    let buffer = stage.render(stage.started)?;
+    check("delete_dialog_in_use", &stage, buffer)
+}
+
+#[test]
 fn copy_dialog_keeps_shortcuts_visible_in_a_narrow_terminal() -> Result<()> {
     let mut stage = stage(NARROW, Motion::STILL)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::F(5)));
@@ -1808,6 +1833,23 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
 }
 
 #[test]
+fn ctrl_r_in_contents_results_asks_what_replaces_the_text() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    contents_results(&mut stage)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)));
+    for msg in chars("fixme") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace \"todo\" in 3 files with:")?;
+    check("search_contents_replace", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::from(KeyCode::Enter)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace every match of \"todo\"")?;
+    check("search_contents_replace_confirm", &stage, buffer)
+}
+
+#[test]
 fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Result<()> {
     use borg_core::{Action, Pointer};
     use std::sync::Arc;
@@ -2855,7 +2897,7 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "/ edit")?;
     check("activity_filter_applied", &stage, buffer)?;
-    stage.send(key(KeyCode::Esc));
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Esc));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
     check("activity_memory", &stage, buffer)?;
@@ -5660,8 +5702,58 @@ fn startup_items_list_what_starts_on_its_own_newest_first() -> Result<()> {
     assert!(stage.state.startup_items.expanded, "Alt-W gives the list the whole width");
     check("startup_items_expanded", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
-    assert!(!stage.state.startup_items.is_open(), "Esc clears the filter, then closes the screen");
+    stage.send(key(KeyCode::Esc));
+    assert!(!stage.state.startup_items.is_open(), "Esc closes the screen");
+    assert_eq!(stage.state.startup_items.filter, "root !timer", "the filter stays for the next time");
+    Ok(())
+}
+
+/// Enter on a startup item opens its file's folder in a panel beside the list, with the cursor
+/// on the file, and the list keeps its place. Tab gives the list the keys, which dims the files
+/// and shows how to bring the details back.
+#[test]
+fn startup_items_show_an_item_s_file_beside_the_list() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let crontabs = ["alex", "me", "root"].map(|name| entry(name, EntryKind::File, 512, RECENT, false));
+    list_after(&mut stage, key(KeyCode::Enter), crontabs.to_vec())?;
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.files_beside_focused(), "the files take the keys");
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
+    ensure_text(&buffer, "reboot_job_fetch")?;
+    ensure_text(&buffer, "crontabs")?;
+    check("startup_items_file_beside", &stage, buffer)?;
+
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let (column, row) = screen.find("alex").context("alex in the files")?;
+    let right = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::ContextMenu { .. })), "{msg:?}");
+    stage.send(msg.unwrap());
+    let menu = match &stage.state.overlay {
+        Some(borg_core::Overlay::ContextMenu(menu)) => menu.menu.title.clone(),
+        other => anyhow::bail!("a right-click on a file opens its menu: {other:?}"),
+    };
+    assert_eq!(menu, "alex", "the menu names the file under the pointer");
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.files_beside_focused(), "Esc closes the menu and the files keep the keys");
+    stage.send(key(KeyCode::Down));
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
+
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alt-O Show file")?;
+    check("startup_items_file_beside_list_keys", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.lent.is_none() && stage.state.startup_items.is_open(), "the details come back");
     Ok(())
 }
 

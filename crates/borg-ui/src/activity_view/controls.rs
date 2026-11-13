@@ -13,7 +13,12 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
+pub(super) fn buttons(
+    activity: &Activity,
+    page: ActivityPage,
+    gives_back: bool,
+    area: Rect,
+) -> Vec<(Rect, &'static str, KeyCode)> {
     let mut specs: Vec<_> = if activity.retry.is_some() && activity.error.is_some() {
         vec![(tr!(activity_admin_button), KeyCode::Char('a')), (tr!(activity_back_button), KeyCode::Esc)]
     } else {
@@ -49,6 +54,7 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
             ActivityPage::Regions => vec![
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_capture_button), KeyCode::Enter),
+                (tr!(activity_signal_button), KeyCode::Char('k')),
                 (
                     if activity.map { tr!(activity_bytes_button) } else { tr!(activity_page_map_button) },
                     KeyCode::Char('m'),
@@ -59,8 +65,11 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
             ActivityPage::Files | ActivityPage::FileDetails => {
-                let mut specs =
-                    vec![(tr!(activity_refresh_button), KeyCode::Char('r')), (tr!(activity_back_button), KeyCode::Esc)];
+                let mut specs = vec![
+                    (tr!(activity_signal_button), KeyCode::Char('k')),
+                    (tr!(activity_refresh_button), KeyCode::Char('r')),
+                    (tr!(activity_back_button), KeyCode::Esc),
+                ];
                 if activity.previewable_file().is_some() {
                     specs.insert(0, (tr!(process_file_view_button), KeyCode::F(3)));
                 }
@@ -129,6 +138,7 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
     if activity.retry.is_some() && activity.error.is_none() {
         specs.insert(0, (tr!(activity_admin_button), KeyCode::Char('a')));
     }
+    let specs = crate::keybar::lent_esc(specs, gives_back);
     let mut x = area.x;
     specs
         .into_iter()
@@ -151,7 +161,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
     let controls = if activity.search_form.is_some() {
         vec![(row(area, 0), tr!(memory_submit_button), KeyCode::Enter)]
     } else {
-        buttons(activity, page, row(area, 0))
+        buttons(activity, page, state.esc_gives_back(), row(area, 0))
     };
     for (rect, label, _) in controls {
         text(buf, rect, label, theme.styles.key);
@@ -199,7 +209,7 @@ pub(crate) fn panel_mouse(
             return Some(Msg::Pointer(Pointer::ActivityControl { preview: true, code: KeyCode::Enter }));
         }
         let page = if preview { activity.page } else { activity.list };
-        return buttons(activity, page, row(layout.keybar, 0))
+        return buttons(activity, page, state.esc_gives_back(), row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
             .map(|(_, _, code)| Msg::Pointer(Pointer::ActivityControl { preview, code }));

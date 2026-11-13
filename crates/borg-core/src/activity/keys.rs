@@ -44,7 +44,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if matches!(code, KeyCode::Char('k' | 'K'))
         && !modifiers.contains(KeyModifiers::CONTROL)
         && !state.activity.filtering
-        && state.activity.list == ActivityPage::Processes
+        && about_one_process(state.activity.list)
     {
         return super::open_control(state);
     }
@@ -101,6 +101,22 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             None => in_focused_page(state, key, now),
         },
     }
+}
+
+/// Lists that show the selected process or what belongs to it, where K signals that process: the
+/// processes themselves and the process window's memory map, open files, memory search and
+/// findings.
+fn about_one_process(page: ActivityPage) -> bool {
+    matches!(
+        page,
+        ActivityPage::Processes
+            | ActivityPage::Regions
+            | ActivityPage::Snapshot
+            | ActivityPage::Files
+            | ActivityPage::FileDetails
+            | ActivityPage::Search
+            | ActivityPage::Findings
+    )
 }
 
 /// Pastes into the memory search form's query, or into the processes' filter while it is typed.
@@ -195,8 +211,8 @@ fn scroll_preview(activity: &mut Activity, code: KeyCode) {
 }
 
 /// Esc takes the focus back from the preview, or else steps back a page. On the processes it
-/// stops and clears a filter before it closes the monitor, or goes back to the network screen
-/// the monitor was opened from.
+/// clears the filter being typed, or else closes the monitor, which keeps its filter for the
+/// next time it opens, or goes back to the network screen the monitor was opened from.
 fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let activity = &mut state.activity;
     activity.error = None;
@@ -205,7 +221,7 @@ fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
         activity.preview_focused = false;
     } else if activity.list != ActivityPage::Processes {
         step_back(activity, now);
-    } else if activity.filtering || !activity.filter.is_empty() {
+    } else if activity.filtering {
         activity.filtering = false;
         activity.filter.clear();
         activity.rebuild();

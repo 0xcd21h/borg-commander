@@ -105,7 +105,8 @@ preview.
   `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d`
   (changed in the last week), `mod:>1y` and `in:src` (a folder anywhere in the path). Recent
   searches are listed below the form, with those made in the same folder first; click one, or
-  press Ctrl-P and Ctrl-N in the query field, to reuse it. Names match in any alphabet whatever
+  press Ctrl-P and Ctrl-N in the query field, to reuse it. The dialog opens with the query and
+  the choices you last left in it, set to the folder you are in. Names match in any alphabet whatever
   the case of a glob, and accented letters match however the file system stores them. Matches
   close to the search folder appear first, while the rest of the tree is still being read.
 - **Alt-K:** collect the marked files, or the current file, into a collection in the other panel.
@@ -146,6 +147,15 @@ same in the other panel, so the results stay in view. Borg reads the files in th
 the context line counts the files read. Binary files (a NUL byte in the first 8 KiB) and files over
 64 MiB stay unread and are counted as binary or too large. Ctrl-C stops the search, and it stops at
 20,000 files like any search.
+
+Ctrl-R in the results, or **Replace in files…** in the File menu, replaces the text in the marked
+files, or in every file the results show when none is marked. Type what goes in its place and press
+Enter; leave the field empty to remove the text. A second question names the text and the files and
+starts on **No**. Press Y to change them. Borg keeps no copy of the old text. The search's switches
+apply, so a whole-word search replaces whole words, and with a regular expression `$1` puts back the
+first group. Borg writes each file the way its editor saves, so permissions and links stay. It skips
+files that are not text, are larger than 32 MiB, or changed while the job ran. The job shows in
+Alt-J, and the results refresh when it ends.
 
 ### Scanning files with rules
 
@@ -255,7 +265,8 @@ collection, F5 adds references to it instead. F6 needs a real folder as its dest
 collection, F8 removes references and leaves the files alone; in search results, F8 asks to
 delete the original files. Shift-F8 deletes the original files from a collection too, after
 you confirm. When both a folder and files inside it are marked, the job handles the folder once.
-**Reveal original** opens the file's folder in the other panel. Left or Esc hides the results,
+**Reveal original** or Alt-O opens the file's folder in the other panel, with the cursor on
+the file. Left or Esc hides the results,
 and Alt-Shift-R brings them back where you left them. Tab switches between panels even when the
 shell has an unfinished command. The shell always stays in a real folder. F10 always asks before
 quitting.
@@ -394,7 +405,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-H | Remote hosts: paired machines and their sessions |
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
-| Alt-O | Open this panel's folder in the other panel |
+| Alt-O | Open this panel's folder in the other panel; in search results or a collection, the folder of the file under the cursor |
 | Alt-J | Jobs: pause or cancel running copies, moves and deletes |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
@@ -551,9 +562,11 @@ and a second Esc closes the window. The hotlist holds up to 256 folders.
 Alt-O or **Command → Same folder in other panel** opens the active panel's folder in the other
 panel, so both show the same place. The folder takes the place of the quick view, Info, or a
 container's or remote machine's files there. If the other panel showed search results or a
-collection, Alt-Shift-R there brings them back. From search results, Alt-O opens the folder the
-search started from. A collection has no folder of its own, and container and remote folders open in
-one panel only, so in those Alt-O shows a notice, as it does while the other panel holds an editor.
+collection, Alt-Shift-R there brings them back. In search results and collections, Alt-O opens the
+folder of the file under the cursor, with the cursor on the file, as **Reveal original** does. Until
+a search finds something, Alt-O opens the folder it started from. Container and remote folders open
+in one panel only, so in those Alt-O shows a notice, as it does in an empty collection and while the
+other panel holds an editor.
 While you type a command, Alt-O goes to the shell.
 
 The hotlist is saved in `config.toml` under `[folders]`. Borg remembers the last 64 folders the
@@ -584,7 +597,8 @@ panels are idle. **Refresh status** in the Git menu checks again right away.
 project, with containers that are not part of a project at the end. The other panel shows the
 selected container: its status, ports, networks, mounts, command, and restart policy, plus live
 CPU, memory, network, and disk use with a chart of the last minute. For a project, it shows the
-project's folder, its containers, and their combined use. Esc closes the view.
+project's folder, its containers, and their combined use. Esc closes the view and keeps its
+filter for the next time.
 
 CPU shows as two figures. **Now %** is the latest reading, and **Avg %** is the average of the last few
 seconds, as in the activity monitor, so it holds steady while a container works in bursts. A list
@@ -602,11 +616,18 @@ too narrow for both shows **Avg %** alone. The details show the same pair as **C
 | Alt-1 | Show the container's overview again, also from inside its shell |
 | D | Show disk use, or the containers again |
 | `/` | Filter by name, service, image or project |
+| Alt-O | Open the folder of the Compose file beside the list |
 | Tab | Switch between the list and the details |
 | Alt-W | Maximize the focused pane |
 
 Stop and restart ask for confirmation first. On a project, an action only affects the
 containers it would change, so Start starts only the stopped ones.
+
+**Alt-O** opens the folder of the Compose file that started the container or project in the
+other panel, with the cursor on the file, or the project's folder when Compose names no file.
+The list stays as it was, as in the activity monitor (see
+[Activity and memory](#activity-and-memory)). A container that Compose did not start has no folder
+on this computer, so Alt-O says so, and **F** browses its files instead.
 
 ### Container files
 
@@ -1249,6 +1270,18 @@ ignores case unless the query contains uppercase letters.
 F5, F6, and F8 start copy, move, and delete jobs. Alt-J opens the list of jobs, where you can
 pause or cancel them.
 
+The Delete dialog starts on **No**, so Enter on its own keeps the files. To delete them, press Y,
+or move to **Yes** with Tab or an arrow key and press Enter.
+
+While the Delete dialog asks, Borg counts the files you are about to remove and shows their number
+and size under the question. Counting stops after 3 seconds, and then the line starts with
+**At least**. Borg also looks for programs that have those files open, run from them, or work in
+one of those folders, and names them. A program that keeps a deleted file open keeps its disk
+space too, until it closes the file. Press K to open the activity monitor on the first of them
+with **Signal or priority**, and stop it before you delete. Borg sees the programs your user may
+inspect, which on most systems means your own. Files in archives, containers, and remote panels
+are deleted without these checks.
+
 The Copy dialog has an **Optimize copying for hard drives** checkbox. Press Tab to reach it and
 Space to toggle it, or click it. It is unchecked for every new copy. In this mode, Borg reads
 small files into memory in batches and then writes each batch, which can cut down on disk seeking
@@ -1642,7 +1675,8 @@ still starting up keeps what it made. This is what goes:
 
 Sessions, history, settings and captures stay until you delete them. The line under the note says
 how much is left over right now and what the last cleanup removed. F8 removes what is left over
-after asking, and the question lists the folders it comes from.
+after asking. The question lists the folders it comes from and starts on **No**, so press Y to
+remove them.
 
 Each capture Borg saves goes on a list of the 1,000 newest. The window shows the ones still on
 disk under **Captures Borg saved**, with their size and date, and **with keys** when a `.keylog`
@@ -1694,12 +1728,27 @@ with it. Press H again to show them all.
 | T | Show or hide the process tree |
 | H | Hide or show the processes that used no CPU in the last few seconds |
 | Left / Right | In the tree, fold the selected process's branch or unfold it |
-| K | Send a signal or change the priority |
+| K | Send a signal or change the priority, also from the process window |
 | E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
+| Alt-O | Open the folder of the selected program beside the list |
 | Space | Pause or resume sampling |
 | R | Refresh the current view |
 | Esc | Go back; in the process list, close the monitor or return to the network screen |
+
+**Alt-O** opens the folder of the selected process's program in the other pane, with the cursor on
+the program, and the files take the keys. The list keeps its filter, its order and the process you
+selected. **Tab** moves the keys between the list and the files, and Alt-O on another row moves the
+files there. In those files you can view, edit, delete, compress, extract, and make folders. Copies
+and moves need the other panel, so they wait until the monitor closes. **Esc** in the list, or
+**Alt-M**, brings the overview back, and Alt-M again closes the monitor. In the open files and the
+memory map, Alt-O shows the selected open file or the file the region maps. When the program was
+deleted while it runs, its folder opens with a notice. A notice also tells you when the file is not
+in its folder on this computer, as happens for a program that runs inside a container. Alerts,
+startup items and the Docker view work the same way.
+
+Every screen keeps its filter when you close it and shows it again when it opens. To clear a
+filter, press **/** and then **Esc**.
 
 Click a column heading to sort, and double-click a process to open its memory map. The overview
 shows current resident memory, the highest value seen, the change since monitoring started, CPU,
@@ -1721,8 +1770,8 @@ While a filter applies, the list is flat.
 
 ### Signals and priority
 
-K opens **Signal or priority** for the selected process. Press a choice's letter, or move to it
-and press Enter. Esc closes the dialog and sends nothing.
+K opens **Signal or priority** for the selected process, in the list and in its process window
+with the memory map or open files. Press a choice's letter, or move to it and press Enter. Esc closes the dialog and sends nothing.
 
 | Key | Choice | What it does |
 | --- | --- | --- |
@@ -1819,7 +1868,8 @@ before you suspect it.
 
 Press **/** in the memory pane, or **Ctrl-F** in either pane, to search memory. Choose a mode,
 whether case must match, and whether to search the process's readable memory or the current
-capture. **Text** searches UTF-8, UTF-16 (both byte orders), and UTF-32 (both byte orders).
+capture. The form opens with what it held when you last closed it. **Text** searches UTF-8,
+UTF-16 (both byte orders), and UTF-32 (both byte orders).
 **Unicode** also normalizes compatibility characters and combining sequences: for example,
 `𝐁𝐨𝐫𝐠` matches `Borg`. It does not treat different letters as equal just because they look
 alike. **Hex** takes byte pairs such as `42 6F 72 67`.
@@ -2019,11 +2069,12 @@ push the end of a command out of view. Ctrl-C copies the command as the log keep
 | C | Let a frozen process go on running |
 | K | End the process, after a question |
 | A | Allow starts like this one from now on |
+| Alt-O | Open the folder of the alert's program beside the list |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
 | R | Read the log again |
 | Ctrl-C | Copy the command the process ran |
 | Alt-W | Maximize the list |
-| Esc | Clear the filter, then close the page |
+| Esc | Close the page, which keeps its filter |
 
 The filter keeps the alerts that contain every word you type, in the rule, its short name, the
 reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
@@ -2342,11 +2393,12 @@ place of the address once it is known.
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
-| Esc | Go back to the list, then clear the filter, then close the screen or return to the activity monitor |
+| Esc | Go back to the list, then close the screen or return to the activity monitor |
 
 P sorts the pages that have a port, and C the pages that count connections. Click a column
 heading to sort by it, and double-click a row to show its process. Enter on a row without a
-process moves into the details. The activity monitor that Enter and K open has the process
+process moves into the details. A row names a process and no program file, so Alt-O here tells you
+to press Enter and then Alt-O in the activity monitor. The activity monitor that Enter and K open has the process
 selected, so its memory, signals and priority are one key away (see
 [Signals and priority](#signals-and-priority)). Esc there brings you back to the network screen
 on the row you left, with its charts.
@@ -2680,15 +2732,17 @@ and its details say **Turned off in its own file, so it does not start.**
 
 | Key | Action |
 | --- | --- |
-| Enter | Close the screen and show the item's file in the panel |
+| Enter, Alt-O | Open the folder of the item's file beside the list |
 | F3 / F4 | View / edit the item's file |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
 | R | Read every place again |
 | Ctrl-C | Copy what the item runs |
 | Alt-W | Maximize the list |
-| Esc | Clear the filter, then close the screen |
+| Esc | Close the screen, which keeps its filter |
 
-Double-click a row to show its file in the panel. The filter keeps the items that contain every
+Enter or a double-click opens the folder of the item's file in the other pane, with the cursor on
+the file, and the list stays as it was. Tab moves between the list and the files, and Esc in the
+list or Alt-U brings the details back. The filter keeps the items that contain every
 word you type, in the place, the name, what it runs, the file's path, the owner, the user it runs
 as, when it runs, **found** or **missing**, and the names of the rules it matched. Put `!` before a
 word to leave out what it matches: `root !timer` keeps root's items other than timers. Each place

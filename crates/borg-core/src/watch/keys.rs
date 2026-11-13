@@ -95,15 +95,9 @@ fn filter_key(alerts: &mut Alerts, key: &KeyEvent) -> bool {
     true
 }
 
-/// Esc clears a filter, then closes the page.
+/// Esc closes the page, which keeps its filter for the next time it opens.
 fn escape(state: &mut AppState) -> Vec<Effect> {
-    let alerts = &mut state.alerts;
-    if !alerts.filter.is_empty() {
-        alerts.filter.clear();
-        alerts.rebuild();
-    } else {
-        close(state);
-    }
+    close(state);
     Vec::new()
 }
 

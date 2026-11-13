@@ -73,6 +73,12 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if event.kind == MouseEventKind::Down(MouseButton::Right) {
         return context_menu_at(state, &mouse, &layout, now);
     }
+    if let Some(side) = lent_panel_at(state, &layout, point) {
+        return panel_mouse(state, side, &mouse, layout.panels[side.index()], (layout.screen, now));
+    }
+    if state.files_beside_focused() && layout.keybar.contains(point) {
+        return chrome_mouse(state, &mouse, &layout).flatten();
+    }
     if state.monitor_open() {
         return monitor_mouse(state, &mouse, &layout);
     }
@@ -253,7 +259,9 @@ fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Op
 fn context_menu_at(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout, now: Instant) -> Option<Msg> {
     let event = MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), ..mouse.event };
     let click = Mouse { event, point: mouse.point, click: true, double: false };
-    let picked = if state.monitor_open() {
+    let picked = if let Some(side) = lent_panel_at(state, layout, click.point) {
+        panel_mouse(state, side, &click, layout.panels[side.index()], (layout.screen, now))
+    } else if state.monitor_open() {
         monitor_mouse(state, &click, layout)
     } else {
         let side = Side::ALL.into_iter().find(|side| layout.panels[side.index()].contains(click.point))?;
@@ -270,6 +278,11 @@ fn context_menu_at(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout, 
             | Pointer::AlertsRow { .. }
     );
     row.then_some(Msg::ContextMenu { pick, column: mouse.event.column, row: mouse.event.row })
+}
+
+/// The pane of files beside an open screen, when the pointer is on it.
+fn lent_panel_at(state: &AppState, layout: &borg_core::Layout, point: Position) -> Option<Side> {
+    state.lent.filter(|side| state.monitor_open() && layout.panels[side.index()].contains(point))
 }
 
 /// The activity monitor, the container view and the network screen take the mouse in the

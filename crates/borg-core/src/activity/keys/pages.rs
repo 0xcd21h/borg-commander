@@ -51,7 +51,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         KeyCode::Char('/')
             if !matches!(activity.page, ActivityPage::Processes | ActivityPage::Files | ActivityPage::FileDetails) =>
         {
-            activity.search_form = Some(form::new());
+            activity.search_form = Some(form::reopen(activity));
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && scanning(activity) => {
             return vec![Effect::CancelMemorySearch];

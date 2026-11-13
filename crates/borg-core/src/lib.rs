@@ -12,6 +12,7 @@ mod clipboard;
 mod command;
 mod contents;
 mod context_menu;
+mod delete_check;
 mod delight;
 mod discovery;
 mod docker;
@@ -43,6 +44,7 @@ mod pointer;
 mod query;
 mod relaunch;
 mod remote;
+mod replace;
 mod results;
 mod screens;
 mod service;
@@ -157,6 +159,7 @@ pub use remote::{
     HostUpdate, KeyChange, RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames,
 };
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
+pub use replace::ReplaceRequest;
 pub use results::{
     COLLECTION_LIMIT, Collection, FirstMatch, PACKED_SHARE, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource,
     Results, SearchProgress, SearchRequest, looks_packed, selected_paths,
@@ -208,4 +211,5 @@ pub use capture::{
     StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
 };
 
+pub use delete_check::{DeleteCheck, DeleteFound, DeleteSize, FileHolder};
 pub use measure::SizeScan;

@@ -14,7 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-fn buttons(alerts: &Alerts, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
+fn buttons(alerts: &Alerts, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let specs: Vec<(&'static str, KeyCode)> = if alerts.filtering {
         vec![(tr!(activity_filter_keep_button), KeyCode::Enter), (tr!(activity_filter_clear_button), KeyCode::Esc)]
     } else {
@@ -32,6 +32,7 @@ fn buttons(alerts: &Alerts, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
         .flatten()
         .collect()
     };
+    let specs = crate::keybar::lent_esc(specs, gives_back);
     let mut x = area.x;
     specs
         .into_iter()
@@ -50,7 +51,7 @@ fn buttons(alerts: &Alerts, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
     let alerts = &state.alerts;
     buf.set_style(area, theme.styles.key_label);
-    for (rect, label, _) in buttons(alerts, row(area, 0)) {
+    for (rect, label, _) in buttons(alerts, state.esc_gives_back(), row(area, 0)) {
         text(buf, rect, label, theme.styles.key);
     }
     let hint = if alerts.filtering { tr!(watch_filter_hint) } else { tr!(watch_hint) };
@@ -77,7 +78,7 @@ pub(crate) fn panel_mouse(
         if !left_click {
             return None;
         }
-        return buttons(alerts, row(layout.keybar, 0))
+        return buttons(alerts, state.esc_gives_back(), row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
             .map(|(_, _, code)| Msg::Pointer(Pointer::AlertsControl(code)));

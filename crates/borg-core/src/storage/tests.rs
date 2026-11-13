@@ -360,7 +360,14 @@ fn f8_asks_before_removing_the_leftovers_and_yes_removes_them_and_measures_again
     assert!(matches!(state.overlay, Some(Overlay::Storage(_))), "No goes back to the window");
 
     key(&mut state, KeyCode::F(8));
-    let effects = key(&mut state, KeyCode::Enter);
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("F8 asks again") };
+    assert!(!confirm.accept, "the question starts on No");
+    let kept = key(&mut state, KeyCode::Enter);
+    assert!(!kept.iter().any(|effect| matches!(effect, Effect::CleanStorage(_))), "Enter alone removes nothing");
+    assert!(matches!(state.overlay, Some(Overlay::Storage(_))));
+
+    key(&mut state, KeyCode::F(8));
+    let effects = key(&mut state, KeyCode::Char(crate::keyboard::YES_KEY));
     let removed: Vec<&PathBuf> = effects
         .iter()
         .find_map(|effect| match effect {

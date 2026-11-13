@@ -145,19 +145,14 @@ fn filter_key(network: &mut Network, key: &KeyEvent) -> bool {
     true
 }
 
-/// Esc gives the list back the keys, then clears a filter, then closes the screen or goes back
-/// to the activity monitor it was opened from.
+/// Esc gives the list back the keys, then closes the screen, which keeps its filter for the
+/// next time it opens, or goes back to the activity monitor it was opened from.
 fn escape(state: &mut AppState) -> Vec<Effect> {
-    let network = &mut state.network;
-    if network.details_focused {
-        network.details_focused = false;
-    } else if !network.filter.is_empty() {
-        network.filter.clear();
-        network.rebuild();
-    } else {
-        return leave(state);
+    if state.network.details_focused {
+        state.network.details_focused = false;
+        return Vec::new();
     }
-    Vec::new()
+    leave(state)
 }
 
 /// Enter shows the selected row's process in the activity monitor; on a row without one it

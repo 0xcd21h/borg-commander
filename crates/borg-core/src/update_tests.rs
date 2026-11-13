@@ -900,12 +900,17 @@ fn failed_operations_leave_a_notice() {
 }
 
 #[test]
-fn delete_confirms_and_can_be_cancelled() {
+fn delete_asks_first_starting_on_no_so_enter_alone_keeps_the_files() {
     let (mut state, now) = setup_with(vec![file("a")]);
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, key(KeyCode::F(8)));
     let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("expected confirm") };
     assert_eq!(confirm.message, "Delete \"a\" permanently?");
+    assert!(!confirm.accept, "the question starts on No");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Enter took No");
+
+    press(&mut state, now, key(KeyCode::F(8)));
     assert!(press(&mut state, now, key(KeyCode::Char('n'))).is_empty());
 
     press(&mut state, now, key(KeyCode::F(8)));
@@ -1576,6 +1581,94 @@ fn found_in(state: &mut AppState, now: Instant, query: &borg_view::Query, files:
         .collect();
     update(state, Msg::Found { side, generation, found }, now);
     update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+fn port_found_in_three_files(state: &mut AppState, now: Instant) -> borg_view::Query {
+    let query = borg_view::Query { text: "port".into(), words: true, ..Default::default() };
+    let line =
+        crate::LineMatch { line: 1, offset: 0, before: String::new(), found: "port".into(), after: String::new() };
+    found_in(state, now, &query, vec![("a.conf", line.clone()), ("b.conf", line.clone()), ("c.conf", line)]);
+    query
+}
+
+fn replace_question(state: &AppState) -> (&str, bool) {
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("Enter asks once more: {:?}", state.overlay) };
+    (confirm.message.as_str(), confirm.accept)
+}
+
+#[test]
+fn ctrl_r_in_a_contents_search_replaces_in_every_file_it_found_or_in_the_marked_ones() {
+    let (mut state, now) = setup();
+    let query = port_found_in_three_files(&mut state, now);
+    assert!(press(&mut state, now, ctrl('r')).is_empty());
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("Ctrl-R asks what to put in place") };
+    assert_eq!(prompt.label, "Replace \"port\" in 3 files with:");
+    type_text(&mut state, now, " listen ");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    let asked = "Replace every match of \"port\" with \" listen \" in 3 files? Borg keeps no copy of the old text.";
+    assert_eq!(replace_question(&state), (asked, false), "the question starts on No");
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    let files: Vec<PathBuf> = ["a.conf", "b.conf", "c.conf"].map(|name| Path::new("/home").join(name)).to_vec();
+    let request = crate::ReplaceRequest { query: query.clone(), with: " listen ".into(), files };
+    assert!(effects.contains(&Effect::StartReplace { id: 0, request }), "{effects:?}");
+    assert!(state.overlay.is_none());
+    assert_eq!(state.jobs[0].kind, crate::JobKind::Replace);
+
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, ctrl('r'));
+    press(&mut state, now, key(KeyCode::Enter));
+    let (asked, _) = replace_question(&state);
+    assert!(asked.starts_with("Remove every match of \"port\" from \""), "nothing typed removes the text: {asked}");
+    assert!(asked.contains("a.conf\"?"), "one file is named: {asked}");
+    let only = crate::ReplaceRequest { query, with: String::new(), files: vec![PathBuf::from("/home/a.conf")] };
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    assert!(effects.contains(&Effect::StartReplace { id: 1, request: only }), "{effects:?}");
+}
+
+#[test]
+fn enter_or_esc_on_the_replace_question_changes_no_file() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    for answer in [KeyCode::Enter, KeyCode::Esc, KeyCode::Char('n')] {
+        press(&mut state, now, ctrl('r'));
+        press(&mut state, now, key(KeyCode::Enter));
+        replace_question(&state);
+        let effects = press(&mut state, now, key(answer));
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartReplace { .. })), "{answer:?}: {effects:?}");
+        assert!(state.overlay.is_none() && state.jobs.is_empty(), "{answer:?} replaces nothing");
+    }
+}
+
+#[test]
+fn a_finished_replace_says_how_many_files_changed_and_searches_again() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    press(&mut state, now, ctrl('r'));
+    type_text(&mut state, now, "listen");
+    press(&mut state, now, key(KeyCode::Enter));
+    press(&mut state, now, key(KeyCode::Char('y')));
+    let outcome = Outcome::Done { done: Totals { files: 2, bytes: 0 }, skipped: 1 };
+    let effects = update(&mut state, Msg::Job { id: 0, event: Event::Finished(outcome) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Replaced text in 2 files · 1 skipped"));
+    let again = effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { side: Side::Left, request, .. } if request.options.refresh));
+    assert!(again, "the results show what the files hold now: {effects:?}");
+}
+
+#[test]
+fn ctrl_r_replaces_only_where_a_search_looked_for_text() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    press(&mut state, now, ctrl('r'));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Esc replaces nothing");
+
+    let (mut state, now) = setup();
+    crate::results::collection(&mut state, "Bundle", Side::Left);
+    assert!(crate::actions::perform(&mut state, Action::ReplaceInFiles, now).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("Replacing needs the results of a search for text in files."));
+    assert!(state.overlay.is_none());
 }
 
 #[test]
@@ -2517,10 +2610,10 @@ fn delete_in_the_context_menu_asks_first_and_deletes_nothing() {
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, shift(KeyCode::F(10)));
     let effects = choose_context(&mut state, now, "Delete");
-    assert!(effects.is_empty(), "{effects:?}");
+    assert!(effects.iter().all(|effect| matches!(effect, Effect::CheckDelete { .. })), "{effects:?}");
     assert!(matches!(
         &state.overlay,
-        Some(Overlay::Confirm(confirm)) if matches!(&confirm.purpose, crate::ConfirmPurpose::Delete { sources } if sources == &[Path::new("/home/keep.txt")])
+        Some(Overlay::Confirm(confirm)) if !confirm.accept && matches!(&confirm.purpose, crate::ConfirmPurpose::Delete { sources, .. } if sources == &[Path::new("/home/keep.txt")])
     ));
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.overlay.is_none());
@@ -3139,7 +3232,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert_eq!(effects, [Effect::View { path: "/run/motd".into(), at: None }]);
 
     crate::actions::perform(&mut state, Action::Delete, now);
-    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
     assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Delete { paths: vec!["/motd".into()] }));
     crate::actions::perform(&mut state, Action::Mkdir, now);
     type_text(&mut state, now, "cache");
@@ -4199,6 +4292,75 @@ fn a_question_answers_to_the_letters_its_buttons_show() {
         effects,
         vec![Effect::StartJob { id: 0, spec: Spec::Delete { sources: vec![PathBuf::from("/home/a")] } }]
     );
+}
+
+fn delete_check(state: &AppState) -> &crate::DeleteCheck {
+    match &state.overlay {
+        Some(Overlay::Confirm(crate::Confirm {
+            purpose: crate::ConfirmPurpose::Delete { check: Some(check), .. },
+            ..
+        })) => check,
+        other => panic!("a delete dialog that checks its files: {other:?}"),
+    }
+}
+
+/// Opens the delete dialog on "a" and gives back the number of its check.
+fn ask_to_delete(state: &mut AppState, now: Instant) -> u64 {
+    press(state, now, key(KeyCode::Down));
+    let effects = press(state, now, key(KeyCode::F(8)));
+    let [Effect::CheckDelete { id, sources }] = &effects[..] else { panic!("F8 checks the files: {effects:?}") };
+    assert_eq!(sources, &[PathBuf::from("/home/a")]);
+    *id
+}
+
+#[test]
+fn the_delete_dialog_takes_the_size_and_the_programs_using_the_files() {
+    use crate::{DeleteFound, DeleteSize, FileHolder};
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = ask_to_delete(&mut state, now);
+    let size = DeleteSize { bytes: 5, files: 1, complete: true };
+    update(&mut state, Msg::DeleteChecked { id: id + 1, found: DeleteFound::Size(size) }, now);
+    assert_eq!(delete_check(&state).size, None, "an answer for another dialog is dropped");
+
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Size(size) }, now);
+    let postgres = FileHolder { pid: 812, name: "postgres".into() };
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Holders(Ok(vec![postgres.clone()])) }, now);
+    let check = delete_check(&state);
+    assert_eq!((check.size, check.holders.clone()), (Some(size), Some(Ok(vec![postgres]))));
+
+    press(&mut state, now, key(KeyCode::Esc));
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Size(size) }, now);
+    assert!(state.overlay.is_none(), "an answer after the dialog closed opens nothing");
+}
+
+#[test]
+fn k_in_the_delete_dialog_signals_the_program_using_the_files_and_deletes_nothing() {
+    use crate::{DeleteFound, FileHolder};
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = ask_to_delete(&mut state, now);
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert!(effects.is_empty() && state.overlay.is_none(), "with no program found, K only closes: {effects:?}");
+
+    let id_again = ask_to_delete(&mut state, now);
+    assert_ne!(id, id_again);
+    let holders = vec![FileHolder { pid: 812, name: "postgres".into() }, FileHolder { pid: 40, name: "tail".into() }];
+    update(&mut state, Msg::DeleteChecked { id: id_again, found: DeleteFound::Holders(Ok(holders)) }, now);
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartJob { .. })));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.activity.side, Some(Side::Left));
+    assert!(state.activity.reveals(812), "the monitor opens on the first program, with its signals");
+}
+
+#[test]
+fn deleting_in_a_container_checks_nothing_on_this_computer() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let host = PathBuf::from("/home");
+    state.panel_mut(Side::Left).mount = Some(crate::Mount { id: "c0ffee".into(), name: "web".into(), host });
+    press(&mut state, now, key(KeyCode::Down));
+    assert!(press(&mut state, now, key(KeyCode::F(8))).is_empty());
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("F8 still asks") };
+    assert!(matches!(confirm.purpose, crate::ConfirmPurpose::Delete { check: None, .. }));
 }
 
 #[test]

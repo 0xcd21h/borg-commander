@@ -120,6 +120,16 @@ fn for_focus(state: &AppState) -> Option<Menu<ContextCommand>> {
     if state.view != View::Panels {
         return None;
     }
+    if state.monitor_open() && !state.files_beside_focused() {
+        return for_screen(state);
+    }
+    if state.docked[state.active.index()].is_some() {
+        return None;
+    }
+    files::entries(state)
+}
+
+fn for_screen(state: &AppState) -> Option<Menu<ContextCommand>> {
     if state.docker.is_open() {
         return screens::container(state);
     }
@@ -132,13 +142,7 @@ fn for_focus(state: &AppState) -> Option<Menu<ContextCommand>> {
     if state.alerts.is_open() {
         return screens::alert(&state.alerts);
     }
-    if state.startup_items.is_open() {
-        return screens::startup_item(&state.startup_items);
-    }
-    if state.docked[state.active.index()].is_some() {
-        return None;
-    }
-    files::entries(state)
+    screens::startup_item(&state.startup_items)
 }
 
 fn entry(label: &'static str, hint: String, command: ContextCommand) -> MenuEntry<ContextCommand> {

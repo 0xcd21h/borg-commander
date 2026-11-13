@@ -309,12 +309,22 @@ pub enum Msg {
     },
     /// A release newer than the running Borg, which the daily check found.
     UpdateAvailable(crate::UpdateOffer),
+    /// What counting or checking the files of the delete dialog `id` found.
+    DeleteChecked {
+        id: u64,
+        found: crate::DeleteFound,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     CancelShellExit {
         token: String,
+    },
+    /// Counts what deleting `sources` removes and finds the programs that have them open.
+    CheckDelete {
+        id: u64,
+        sources: Vec<PathBuf>,
     },
     MeasureSizes {
         id: u64,
@@ -542,6 +552,11 @@ pub enum Effect {
     StartUnpack {
         id: u64,
         request: crate::UnpackRequest,
+    },
+    /// A job that replaces text in files.
+    StartReplace {
+        id: u64,
+        request: crate::ReplaceRequest,
     },
     /// A job that changes an archive.
     StartRewrite {

@@ -104,6 +104,26 @@ impl Search {
         self.regex.find_iter(line).filter(|found| !found.is_empty()).map(|found| found.range()).collect()
     }
 
+    /// `text` with each match replaced by `with`, line by line as the editor and the viewer find
+    /// them, and how many there were. Line breaks, `\r\n` included, stay as they were.
+    pub fn replace_all(&self, text: &str, with: &str) -> (String, usize) {
+        let mut out = String::with_capacity(text.len());
+        let mut count = 0;
+        for line in text.split_inclusive('\n') {
+            let body = line.strip_suffix('\n').unwrap_or(line);
+            let body = body.strip_suffix('\r').unwrap_or(body);
+            let mut kept = 0;
+            for range in self.in_line(body.as_bytes()) {
+                out.push_str(&body[kept..range.start]);
+                out.push_str(&self.replacement(body.as_bytes(), range.clone(), with));
+                kept = range.end;
+                count += 1;
+            }
+            out.push_str(&line[kept..]);
+        }
+        (out, count)
+    }
+
     /// `with` for the match at `range` of `line`: with a regular expression's groups, such as
     /// `$1`, filled in.
     pub fn replacement(&self, line: &[u8], range: Range<usize>, with: &str) -> String {

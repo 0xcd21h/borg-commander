@@ -59,6 +59,33 @@ F9 → Remote → **Background service…** sets it up later. Update with `borg 
 [Controls, settings, and source installation →](docs/GUIDE.md) ·
 [Build, test, and contribute →](DEVELOPMENT.md)
 
+## What you can do with it
+
+- **Work in two panels with your own shell below.** Bash, zsh or fish keep their history and completion, and Ctrl-O shows the whole console.
+- **Free up disk space.** Alt-I sizes folders while you browse, Alt-Shift-D shows the largest branches first, and Alt-D finds every heavy folder such as `node_modules`.
+- **Find files and the text inside them.** Ctrl-F searches names and contents below a folder, and F4 opens a hit in the editor at the match.
+- **Read and edit in place.** F3 shows code, Markdown, images and hex, and F4 edits with highlighting, find and replace.
+- **Copy and move large trees.** Jobs run in the background with progress, pause and conflict handling, and a cancelled copy run again skips what is already there.
+- **See what a process is doing.** Alt-M sorts processes by CPU, memory or disk, K signals one, and Enter opens its memory map.
+- **See what talks to the network.** Alt-N lists listening ports and who can reach them, traffic per process, and R captures packets.
+- **Check what starts on its own.** Alt-U lists launch agents, systemd units, cron jobs, shell startup files and SSH keys, newest change first.
+- **Catch a suspicious process on Linux.** The watcher flags a shell started by a web server or a program run from `/tmp`, and can freeze it until you decide.
+- **Manage containers.** Alt-C lists Compose projects with live CPU and memory, and opens a container's files in a panel or a shell inside it.
+- **Let Claude work on any machine with you.** Pair once, and Claude on your computer reaches your borg over MCP and asks before every change.
+- **Reach your machines without an open port.** Remote panels and live mirrors of paired machines go through an end-to-end encrypted relay.
+
+## Borg and a plain shell
+
+The same jobs, done once in a plain shell and once in Borg. Shell keys count every character of
+the commands an experienced admin types, plus Enter.
+
+| Job | Plain shell | Borg | Shell keys | Borg keys |
+| --- | --- | --- | ---: | ---: |
+| Free disk space taken by core dumps and old ISOs | `du -d1 \| sort -h` folder by folder, `ls`, `rm` | Alt-Shift-D, mark, F8 | 223 | 33 |
+| Find a launch agent and an SSH key that should not be there | `ls`, `plutil -p`, `crontab -l`, `cat`, `sed -i` | Alt-U, F3 to read, delete from the panel | 302 | 16 |
+| Stop a runaway process and delete the log it fills | `ps \| grep`, `lsof -p`, `kill`, `rm` | Alt-M, filter, its open files, F8, K | 88 | 26 |
+| Finish a copy you cancelled halfway | `rsync -a` with the same paths again | F5 again, skip what is already there | 101 | 62 |
+
 ## Claude in any terminal
 
 Open borg on a server, in a container, or in a terminal in your browser, and Claude on your

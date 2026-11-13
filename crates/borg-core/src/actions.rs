@@ -82,6 +82,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         | Action::RemoveReferences
         | Action::CancelSearch => crate::results::perform(state, action),
         Action::DeleteOriginals => files::confirm_delete(state),
+        Action::ReplaceInFiles => crate::replace::ask(state),
         Action::Quit => dialogs::confirm_quit(state),
         Action::Jobs => crate::jobs::open_list(state),
         Action::ToggleShell => shell::toggle_shell(state),

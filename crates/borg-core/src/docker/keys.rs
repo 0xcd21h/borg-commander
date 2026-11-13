@@ -248,9 +248,6 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Esc => {
             if docker.details_focused {
                 docker.details_focused = false;
-            } else if !docker.filter.is_empty() {
-                docker.filter.clear();
-                docker.rebuild();
             } else {
                 close(state);
             }
