@@ -4,7 +4,7 @@ expression: describe(&buffer)
 ---
 ╭ Startup items ────────────────────────────────────────────────────────────────────────────────────────────────────────────[=]─[-]╮
 │8 items · 1 matched a rule                                                                                                        │
-│ Filter  root !timer 3 of 8 · / edit · Esc clear                                                                                  │
+│ Filter  root !timer 3 of 8 · / edit                                                                                              │
 │Modified         Place         Runs                                                            Owner     Program  Rules           │
 │2026-01-12 17:20 Preload       /usr/local/lib/libhook.so                                       root      found                    │
 │2025-08-14 11:02 Service       /usr/sbin/sshd -D $SSHD_OPTS                                    root      found                    │
@@ -39,7 +39,7 @@ F3 View · F4 Edit · R Read again · Ctrl-C Copy command · Alt-W Maximize     
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-15 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 16-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
-  2: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 9-21 Rgb(17, 168, 205) Rgb(38, 38, 38) BOLD | 22-48 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 49-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
+  2: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 9-21 Rgb(17, 168, 205) Rgb(38, 38, 38) BOLD | 22-36 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 37-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   3: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-16 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 17-17 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 18-30 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 31-31 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 32-94 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 95-95 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 96-104 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 105-105 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 106-113 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 114-114 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 115-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   4: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-17 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 18-24 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 25-95 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 96-99 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 100-105 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 106-110 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 111-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   5: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE

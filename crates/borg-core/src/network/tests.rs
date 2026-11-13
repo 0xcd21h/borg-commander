@@ -361,7 +361,7 @@ fn the_cursor_follows_the_busiest_row_until_it_is_moved() {
 }
 
 #[test]
-fn typing_filters_and_esc_steps_back() {
+fn typing_filters_and_esc_closes_keeping_the_filter() {
     let (mut state, _) = opened();
     press(&mut state, KeyCode::Char('3'), KeyModifiers::NONE);
     press(&mut state, KeyCode::Char('/'), KeyModifiers::NONE);
@@ -373,10 +373,13 @@ fn typing_filters_and_esc_steps_back() {
     assert!(!state.network.filtering);
     assert_eq!(state.network.filter, "sshd");
     press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!state.network.is_open());
+    press(&mut state, KeyCode::Char('n'), KeyModifiers::ALT);
+    assert_eq!((state.network.filter.as_str(), state.network.connections.len()), ("sshd", 1), "the filter comes back");
+    press(&mut state, KeyCode::Char('/'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
     assert!(state.network.filter.is_empty());
     assert_eq!(state.network.connections.len(), 4);
-    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
-    assert!(!state.network.is_open());
 }
 
 #[test]

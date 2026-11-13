@@ -25,6 +25,7 @@ impl App {
     fn carry_out(&mut self, effect: Effect) -> Result<Flow> {
         match effect {
             Effect::CancelShellExit { token } => self.pty.write(format!("{token}:no\n").as_bytes())?,
+            Effect::CheckDelete { id, sources } => crate::delete_check::check(id, sources, self.messages.clone()),
             Effect::MeasureSizes { id, root } => self.search.measure(id, root),
             Effect::CancelMeasure => self.search.cancel_measure(),
             Effect::CancelMemorySearch => self.monitor.cancel_search(),

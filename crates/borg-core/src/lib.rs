@@ -11,6 +11,7 @@ mod capture;
 mod clipboard;
 mod command;
 mod contents;
+mod delete_check;
 mod delight;
 mod discovery;
 mod docker;
@@ -208,4 +209,5 @@ pub use capture::{
     StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
 };
 
+pub use delete_check::{DeleteCheck, DeleteFound, DeleteSize, FileHolder};
 pub use measure::SizeScan;

@@ -10,6 +10,7 @@ mod archive;
 mod backup;
 mod code_signature;
 mod config;
+mod delete_check;
 mod docker;
 mod document;
 mod edit_file;

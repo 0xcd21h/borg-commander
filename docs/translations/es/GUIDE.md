@@ -111,8 +111,9 @@ funcionan con el visor y la vista previa rápida.
   `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d` (modificado en la
   última semana), `mod:>1y` e `in:src` (una carpeta en cualquier parte de la ruta). Las búsquedas
   recientes aparecen bajo el formulario, primero las hechas en la misma carpeta; haz clic en una,
-  o pulsa Ctrl-P y Ctrl-N en el campo de consulta, para reutilizarla. Los nombres coinciden en
-  cualquier alfabeto sean cuales sean las mayúsculas del patrón glob, y las letras acentuadas
+  o pulsa Ctrl-P y Ctrl-N en el campo de consulta, para reutilizarla. El diálogo se abre con la
+  consulta y las opciones que dejaste en él la última vez, en la carpeta donde estás. Los nombres
+  coinciden en cualquier alfabeto sean cuales sean las mayúsculas del patrón glob, y las letras acentuadas
   coinciden sin importar cómo las guarde el sistema de archivos. Las coincidencias cercanas a la
   carpeta de búsqueda aparecen primero, mientras se sigue leyendo el resto del árbol.
 - **Alt-K:** reúne los archivos marcados, o el archivo actual, en una colección en el otro panel.
@@ -290,7 +291,8 @@ necesita una carpeta real como destino. En una colección, F8 quita referencias 
 intactos; en los resultados de búsqueda, F8 pide confirmación para eliminar los archivos originales.
 Shift-F8 también elimina los archivos originales desde una colección, tras confirmarlo. Si marcas
 una carpeta y archivos que contiene, la tarea procesa la carpeta una sola vez. **Mostrar original**
-abre la carpeta del archivo en el otro panel. Left o Esc ocultan los resultados, y Alt-Shift-R los
+o Alt-O abre la carpeta del archivo en el otro panel, con el cursor en el archivo. Left o Esc
+ocultan los resultados, y Alt-Shift-R los
 recupera tal como los dejaste. Tab cambia de panel incluso si el shell tiene un comando a medio
 escribir. El shell siempre permanece en una carpeta real. F10 siempre pregunta antes de salir.
 
@@ -438,7 +440,7 @@ momento.
 | Alt-H | Hosts remotos: máquinas emparejadas y sus sesiones |
 | Alt-Shift-Left/Right | Cambiar el tamaño de los paneles |
 | Ctrl-U | Intercambiar los paneles |
-| Alt-O | Abrir la carpeta de este panel en el otro panel |
+| Alt-O | Abrir la carpeta de este panel en el otro panel; en resultados de búsqueda o en una colección, la carpeta del archivo bajo el cursor |
 | Alt-J | Tareas: pausar o cancelar copias, movimientos y eliminaciones en curso |
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
@@ -568,10 +570,12 @@ carpetas.
 Alt-O o **Comando → Misma carpeta en el otro panel** abre la carpeta del panel activo en el otro
 panel, para que ambos muestren el mismo lugar. La carpeta ocupa el lugar de la vista rápida, de
 Información o de los archivos de un contenedor o de una máquina remota en ese panel. Si el otro
-panel mostraba resultados de búsqueda o una colección, Alt-Shift-R en ese panel los recupera. Desde
-resultados de búsqueda, Alt-O abre la carpeta donde empezó la búsqueda. Una colección no tiene
-carpeta propia, y las carpetas de contenedores y las remotas se abren en un solo panel, así que en
-esos casos Alt-O muestra un aviso, igual que cuando el otro panel tiene un editor. Mientras escribes
+panel mostraba resultados de búsqueda o una colección, Alt-Shift-R en ese panel los recupera. En
+resultados de búsqueda y en colecciones, Alt-O abre la carpeta del archivo bajo el cursor, con el
+cursor en el archivo, igual que **Mostrar original**. Mientras una búsqueda no encuentra nada, Alt-O
+abre la carpeta donde empezó. Las carpetas de contenedores y las remotas se abren en un solo panel,
+así que en esos casos Alt-O muestra un aviso, igual que en una colección vacía y cuando el otro panel
+tiene un editor. Mientras escribes
 un comando, Alt-O pasa al shell.
 
 Las favoritas se guardan en `config.toml`, en la sección `[folders]`. Borg recuerda las últimas 64
@@ -606,7 +610,7 @@ proyecto de Compose, con los contenedores que no forman parte de ningún proyect
 panel muestra el contenedor seleccionado: su estado, puertos, redes, montajes, comando y política
 de reinicio, además del uso en vivo de CPU, memoria, red y disco con un gráfico del último minuto.
 Para un proyecto, muestra la carpeta del proyecto, sus contenedores y su uso combinado. Esc cierra
-la vista.
+la vista y guarda su filtro para la próxima vez.
 
 La CPU aparece dos veces. **Ahora %** es la lectura más reciente, y **Media %** es la media de los
 últimos segundos, como en el monitor de actividad, así que se mantiene estable mientras un
@@ -625,11 +629,18 @@ cifras de sus contenedores en marcha.
 | Alt-1 | Volver a mostrar el resumen del contenedor, también desde su shell |
 | D | Mostrar el uso de disco, o volver a los contenedores |
 | `/` | Filtrar por nombre, servicio, imagen o proyecto |
+| Alt-O | Abrir la carpeta del archivo Compose junto a la lista |
 | Tab | Alternar entre la lista y los detalles |
 | Alt-W | Maximizar el panel con el foco |
 
 Detener y reiniciar piden confirmación antes. En un proyecto, una acción solo afecta a los
 contenedores que cambiaría, así que Iniciar solo inicia los que están detenidos.
+
+**Alt-O** abre en el otro panel la carpeta del archivo Compose que inició el contenedor o el
+proyecto, con el cursor en el archivo, o la carpeta del proyecto cuando Compose no indica ningún
+archivo. La lista se queda como estaba, igual que en el monitor de actividad (consulta
+[Actividad y memoria](#activity-and-memory)). Un contenedor que Compose no inició no tiene carpeta
+en esta computadora, así que Alt-O lo indica, y **F** explora sus archivos.
 
 ### Archivos del contenedor
 
@@ -1327,6 +1338,19 @@ mayúsculas.
 F5, F6 y F8 inician tareas de copia, movimiento y eliminación. Alt-J abre la lista de tareas,
 donde puedes pausarlas o cancelarlas.
 
+El diálogo Eliminar empieza en **No**, así que Enter por sí solo conserva los archivos. Para
+eliminarlos, pulsa Y, o pasa a **Sí** con Tab o una tecla de flecha y pulsa Enter.
+
+Mientras el diálogo Eliminar pregunta, Borg cuenta los archivos que vas a quitar y muestra su
+número y su tamaño debajo de la pregunta. El recuento se detiene a los 3 segundos, y entonces la
+línea empieza por **Al menos**. Borg también busca los programas que tienen esos archivos
+abiertos, se ejecutan desde ellos o trabajan en una de esas carpetas, y muestra sus nombres. Un
+programa que mantiene abierto un archivo eliminado conserva también su espacio en disco hasta que
+lo cierra. Pulsa K para abrir el monitor de actividad en el primero de ellos con
+**Señal o prioridad**, y detenlo antes de eliminar. Borg ve los programas que tu usuario puede
+inspeccionar, que en la mayoría de los sistemas son los tuyos. Los archivos de archivos
+comprimidos, contenedores y paneles remotos se eliminan sin estas comprobaciones.
+
 El diálogo Copiar tiene una casilla **Optimizar la copia para discos duros**. Pulsa Tab para
 llegar a ella y Space para marcarla o desmarcarla, o haz clic en ella. Está desmarcada en cada
 copia nueva. En este modo, Borg lee los archivos pequeños en memoria por lotes y luego escribe cada
@@ -1753,7 +1777,8 @@ está arrancando conserva lo que acaba de crear. Esto es lo que se elimina:
 
 Las sesiones, el historial, la configuración y las capturas se conservan hasta que los elimines. La
 línea bajo la nota dice cuánto sobra ahora mismo y qué eliminó la última limpieza. F8 elimina los
-restos tras preguntar, y la pregunta indica las carpetas de las que vienen.
+restos tras preguntar. La pregunta indica las carpetas de las que vienen y empieza en **No**, así
+que pulsa Y para eliminarlos.
 
 Cada captura que guarda Borg entra en una lista de las 1000 más recientes. La ventana muestra las
 que siguen en el disco bajo **Capturas guardadas por Borg**, con su tamaño y fecha, y **con claves**
@@ -1812,9 +1837,25 @@ para mostrarlos todos.
 | K | Enviar una señal o cambiar la prioridad |
 | E | Buscar entropía alta en todos los procesos |
 | Alt-N | Mostrar el tráfico del proceso seleccionado en la pantalla de red |
+| Alt-O | Abrir la carpeta del programa seleccionado junto a la lista |
 | Space | Pausar o reanudar el muestreo |
 | R | Actualizar la vista actual |
 | Esc | Volver; en la lista de procesos, cerrar el monitor o regresar a la pantalla de red |
+
+**Alt-O** abre la carpeta del programa del proceso seleccionado en el otro panel, con el cursor en
+el programa, y los archivos reciben las teclas. La lista conserva su filtro, su orden y el proceso
+que seleccionaste. **Tab** pasa las teclas entre la lista y los archivos, y Alt-O en otra fila lleva
+los archivos allí. En esos archivos puedes ver, editar, eliminar, comprimir y extraer, y crear
+carpetas. Copiar y mover necesitan el otro panel, así que esperan a que se cierre el monitor.
+**Esc** en la lista, o **Alt-M**, recupera el resumen, y Alt-M otra vez cierra el monitor. En los
+archivos abiertos y en el mapa de memoria, Alt-O muestra el archivo abierto seleccionado o el
+archivo que mapea la región. Si el programa se eliminó mientras se ejecuta, su carpeta se abre con
+un aviso. Un aviso también te dice cuándo el archivo no está en su carpeta en esta computadora, como
+pasa con un programa que se ejecuta dentro de un contenedor. Las alertas, los elementos de inicio y
+la vista de Docker funcionan igual.
+
+Cada pantalla guarda su filtro al cerrarla y lo vuelve a mostrar al abrirla. Para borrar un filtro,
+pulsa **/** y después **Esc**.
 
 Haz clic en el encabezado de una columna para ordenar, y doble clic en un proceso para abrir su
 mapa de memoria. El resumen muestra la memoria residente actual, el valor más alto observado, el
@@ -1943,8 +1984,8 @@ contiene la región antes de sospechar de ella.
 
 Pulsa **/** en el panel de memoria, o **Ctrl-F** en cualquiera de los dos paneles, para buscar en
 la memoria. Elige un modo, si deben coincidir las mayúsculas y si quieres buscar en la memoria
-legible del proceso o en la captura actual. **Texto** busca en UTF-8, UTF-16 (ambos órdenes de
-bytes) y UTF-32 (ambos órdenes de bytes). **Unicode** además normaliza los caracteres de
+legible del proceso o en la captura actual. El formulario se abre con lo que tenía cuando lo
+cerraste por última vez. **Texto** busca en UTF-8, UTF-16 (ambos órdenes de bytes) y UTF-32 (ambos órdenes de bytes). **Unicode** además normaliza los caracteres de
 compatibilidad y las secuencias combinadas: por ejemplo, `𝐁𝐨𝐫𝐠` coincide con `Borg`. No
 considera iguales letras distintas solo porque se parezcan. **Hex** acepta pares de
 bytes como `42 6F 72 67`.
@@ -2167,11 +2208,12 @@ tal como lo guarda el registro.
 | C | Dejar que un proceso congelado siga corriendo |
 | K | Terminar el proceso, después de una pregunta |
 | A | Permitir arranques como este desde ahora |
+| Alt-O | Abrir la carpeta del programa de la alerta junto a la lista |
 | `/` | Filtrar las filas; ↑↓ siguen moviendo, Enter mantiene el filtro, Esc lo borra |
 | R | Volver a leer el registro |
 | Ctrl-C | Copiar el comando que ejecutó el proceso |
 | Alt-W | Maximizar la lista |
-| Esc | Borrar el filtro y después cerrar la página |
+| Esc | Cerrar la página, que guarda su filtro |
 
 El filtro mantiene las alertas que contienen todas las palabras que escribas, en la regla, su
 nombre corto, el motivo, el programa, el proceso padre, el usuario, el comando y lo que hizo Borg.
@@ -2508,11 +2550,13 @@ en lugar de la dirección en cuanto lo conoce.
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
 | Alt-W | Maximizar el panel con el foco |
-| Esc | Volver a la lista, después borrar el filtro y después cerrar la pantalla o regresar al monitor de actividad |
+| Esc | Volver a la lista y después cerrar la pantalla o regresar al monitor de actividad |
 
 P ordena las páginas que tienen puerto, y C las que cuentan conexiones. Haz clic en el encabezado de
 una columna para ordenar por ella, y doble clic en una fila para mostrar su proceso. Enter en una
-fila sin proceso pasa a los detalles. El monitor de actividad que abren Enter y K tiene el proceso
+fila sin proceso pasa a los detalles. Una fila indica un proceso y ningún archivo de programa, así
+que Alt-O aquí te dice que pulses Enter y después Alt-O en el monitor de actividad. El monitor de
+actividad que abren Enter y K tiene el proceso
 seleccionado, así que su memoria, sus señales y su prioridad quedan a una tecla (consulta [Señales y
 prioridad](#signals-and-priority)). Esc allí te devuelve a la pantalla de red, a la fila donde
 estabas y con sus gráficos.
@@ -2872,15 +2916,17 @@ viene la regla. Un elemento que su propio archivo desactiva aparece atenuado, y 
 
 | Tecla | Acción |
 | --- | --- |
-| Enter | Cerrar la pantalla y mostrar el archivo del elemento en el panel |
+| Enter, Alt-O | Abrir la carpeta del archivo del elemento junto a la lista |
 | F3 / F4 | Ver / editar el archivo del elemento |
 | `/` | Filtrar las filas; ↑↓ siguen moviendo, Enter conserva el filtro, Esc lo borra |
 | R | Volver a leer todos los lugares |
 | Ctrl-C | Copiar lo que ejecuta el elemento |
 | Alt-W | Maximizar la lista |
-| Esc | Borrar el filtro y después cerrar la pantalla |
+| Esc | Cerrar la pantalla, que guarda su filtro |
 
-Haz doble clic en una fila para mostrar su archivo en el panel. El filtro conserva los elementos que
+Enter o un doble clic abre la carpeta del archivo del elemento en el otro panel, con el cursor en
+el archivo, y la lista se queda como estaba. Tab alterna entre la lista y los archivos, y Esc en la
+lista o Alt-U recupera los detalles. El filtro conserva los elementos que
 contienen todas las palabras que escribas, en el lugar, el nombre, lo que ejecuta, la ruta del
 archivo, el propietario, el usuario con el que se ejecuta, cuándo se ejecuta, **existe** o
 **falta**, y los nombres de las reglas con las que coincidió. Pon `!` delante de una palabra para

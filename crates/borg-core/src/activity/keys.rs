@@ -195,8 +195,8 @@ fn scroll_preview(activity: &mut Activity, code: KeyCode) {
 }
 
 /// Esc takes the focus back from the preview, or else steps back a page. On the processes it
-/// stops and clears a filter before it closes the monitor, or goes back to the network screen
-/// the monitor was opened from.
+/// clears the filter being typed, or else closes the monitor, which keeps its filter for the
+/// next time it opens, or goes back to the network screen the monitor was opened from.
 fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let activity = &mut state.activity;
     activity.error = None;
@@ -205,7 +205,7 @@ fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
         activity.preview_focused = false;
     } else if activity.list != ActivityPage::Processes {
         step_back(activity, now);
-    } else if activity.filtering || !activity.filter.is_empty() {
+    } else if activity.filtering {
         activity.filtering = false;
         activity.filter.clear();
         activity.rebuild();
