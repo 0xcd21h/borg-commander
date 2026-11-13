@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "borg-app"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -695,7 +695,7 @@ dependencies = [
 
 [[package]]
 name = "borg-archive"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "borg-drives",
  "borg-i18n",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "borg-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "aes-gcm",
  "borg-archive",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "borg-docker"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "borg-i18n",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "borg-drives"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "rustix",
  "serde",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "borg-edit"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "proptest",
  "ropey",
@@ -779,7 +779,7 @@ dependencies = [
 
 [[package]]
 name = "borg-gfx"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "base64 0.22.1",
  "icy_sixel",
@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "borg-git"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "borg-i18n",
@@ -801,14 +801,14 @@ dependencies = [
 
 [[package]]
 name = "borg-i18n"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "borg-jobs"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "borg-drives",
  "borg-i18n",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "borg-link"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -835,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "borg-local-auth"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "block2",
  "objc2",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "borg-relay"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "borg-link",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "borg-rules"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "boreal",
  "borg-i18n",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "borg-term"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -884,7 +884,7 @@ dependencies = [
 
 [[package]]
 name = "borg-testkit"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "borg-ui"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "borg-core",
  "borg-docker",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "borg-update"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "flate2",
  "ring",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "borg-vfs"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "futures",
  "serde",
@@ -965,7 +965,7 @@ dependencies = [
 
 [[package]]
 name = "borg-view"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "proptest",
  "pulldown-cmark",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "borg-watch-ebpf"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "aya-ebpf",
 ]

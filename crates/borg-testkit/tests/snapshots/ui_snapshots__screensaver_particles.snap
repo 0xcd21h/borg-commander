@@ -23,7 +23,7 @@ expression: describe(&buffer)
                                                            ⢠⠐⢠⠆  ⠠⠈  ⢔⠁ ⠄ ⠁
                                                       ⢀⢀⠐⠔  ⠉⠠⠂   ⢐
                                                  ⢀⡀⠠ ⠠⠄⠠⡄⠡  ⠂ ⠂
-                                                ⠁  ⠈             ◈ Borg Commander v0.10.0
+                                                ⠁  ⠈             ◈ Borg Commander v0.11.0
 --- styles ---
   0: 0-89 Reset Rgb(30, 30, 30) NONE
   1: 0-51 Reset Rgb(30, 30, 30) NONE | 52-52 Rgb(94, 74, 145) Rgb(30, 30, 30) NONE | 53-53 Rgb(92, 70, 140) Rgb(30, 30, 30) NONE | 54-54 Rgb(84, 63, 125) Rgb(30, 30, 30) NONE | 55-55 Rgb(94, 74, 145) Rgb(30, 30, 30) NONE | 56-56 Rgb(94, 73, 144) Rgb(30, 30, 30) NONE | 57-57 Rgb(93, 72, 143) Rgb(30, 30, 30) NONE | 58-89 Reset Rgb(30, 30, 30) NONE

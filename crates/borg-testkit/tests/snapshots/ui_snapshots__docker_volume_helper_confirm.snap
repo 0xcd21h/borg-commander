@@ -35,7 +35,7 @@ expression: describe(&buffer)
 blog_uploads
 $
 Enter Files  F8 Clean up  Ins Mark  R Refresh  / Filter  D Containers  Esc Back
-↑↓ Move · ←→ Fold · Space Mark · * Invert · F8 types the command at the prompt, where Enter runs it        ◈ Borg Commander v0.10.0
+↑↓ Move · ←→ Fold · Space Mark · * Invert · F8 types the command at the prompt, where Enter runs it        ◈ Borg Commander v0.11.0
 --- styles ---
   0: 0-0 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 1-10 Rgb(157, 157, 157) Rgb(38, 38, 38) BOLD | 11-57 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 58-60 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 61-61 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 62-64 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 65-65 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 66-66 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 67-80 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 81-123 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 124-126 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 127-127 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 128-130 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 131-131 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE
   1: 0-65 Rgb(26, 110, 130) Rgb(38, 38, 38) NONE | 66-66 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE | 67-79 Rgb(101, 101, 101) Rgb(38, 38, 38) NONE | 80-130 Rgb(143, 143, 143) Rgb(38, 38, 38) NONE | 131-131 Rgb(73, 73, 73) Rgb(38, 38, 38) NONE

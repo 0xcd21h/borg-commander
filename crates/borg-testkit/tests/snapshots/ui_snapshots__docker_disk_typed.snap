@@ -35,7 +35,7 @@ $ docker --context desktop-linux rmi shop-worker:1.3 e5f6a7b8c9d0
 
 
 
- Borg console · Ctrl-O panels · wheel / Shift-PgUp/PgDn history · Shift-drag select                        ◈ Borg Commander v0.10.0
+ Borg console · Ctrl-O panels · wheel / Shift-PgUp/PgDn history · Shift-drag select                        ◈ Borg Commander v0.11.0
 --- styles ---
   0: 0-131 Reset Reset NONE
   1: 0-131 Reset Reset NONE
