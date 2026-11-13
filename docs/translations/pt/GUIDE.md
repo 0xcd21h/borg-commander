@@ -1810,12 +1810,14 @@ para voltar a mostrar todos.
 **Alt-O** abre a pasta do programa do processo selecionado no outro painel, com o cursor no
 programa, e os ficheiros passam a receber as teclas. A lista mantém o filtro, a ordem e o processo
 que selecionou. **Tab** passa as teclas entre a lista e os ficheiros, e Alt-O noutra linha leva os
-ficheiros para lá. **Esc** na lista, ou **Alt-M**, traz de volta o resumo, e Alt-M outra vez fecha
-o monitor. Nos ficheiros abertos e no mapa de memória, Alt-O mostra o ficheiro aberto selecionado
-ou o ficheiro que a região mapeia. Quando o programa foi eliminado enquanto corre, a sua pasta abre
-com um aviso. Um aviso indica também quando o ficheiro não está na sua pasta neste computador, como
-acontece com um programa que corre dentro de um contentor. Os alertas, os itens de arranque e a
-vista Docker funcionam da mesma forma.
+ficheiros para lá. Nesses ficheiros pode ver, editar, apagar, comprimir e extrair, e criar pastas.
+Copiar e mover precisam do outro painel, por isso esperam que o monitor feche. **Esc** na lista, ou
+**Alt-M**, traz de volta o resumo, e Alt-M outra vez fecha o monitor. Nos ficheiros abertos e no
+mapa de memória, Alt-O mostra o ficheiro aberto selecionado ou o ficheiro que a região mapeia.
+Quando o programa foi eliminado enquanto corre, a sua pasta abre com um aviso. Um aviso indica
+também quando o ficheiro não está na sua pasta neste computador, como acontece com um programa que
+corre dentro de um contentor. Os alertas, os itens de arranque e a vista Docker funcionam da mesma
+forma.
 
 Cada ecrã guarda o filtro quando o fecha e volta a mostrá-lo quando o abre. Para limpar um filtro,
 prima **/** e depois **Esc**.

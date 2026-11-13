@@ -1676,15 +1676,16 @@ with it. Press H again to show them all.
 | R | Refresh the current view |
 | Esc | Go back; in the process list, close the monitor or return to the network screen |
 
-**Alt-O** opens the folder of the selected process's program in the other pane, with the cursor
-on the program, and the files take the keys. The list keeps its filter, its order and the process
-you selected. **Tab** moves the keys between the list and the files, and Alt-O on another row
-moves the files there. **Esc** in the list, or **Alt-M**, brings the overview back, and Alt-M
-again closes the monitor. In the open files and the memory map, Alt-O shows the selected open file
-or the file the region maps. When the program was deleted while it runs, its folder opens with a
-notice. A notice also tells you when the file is not in its folder on this computer, as happens
-for a program that runs inside a container. Alerts, startup items and the Docker view work the
-same way.
+**Alt-O** opens the folder of the selected process's program in the other pane, with the cursor on
+the program, and the files take the keys. The list keeps its filter, its order and the process you
+selected. **Tab** moves the keys between the list and the files, and Alt-O on another row moves the
+files there. In those files you can view, edit, delete, compress, extract, and make folders. Copies
+and moves need the other panel, so they wait until the monitor closes. **Esc** in the list, or
+**Alt-M**, brings the overview back, and Alt-M again closes the monitor. In the open files and the
+memory map, Alt-O shows the selected open file or the file the region maps. When the program was
+deleted while it runs, its folder opens with a notice. A notice also tells you when the file is not
+in its folder on this computer, as happens for a program that runs inside a container. Alerts,
+startup items and the Docker view work the same way.
 
 Every screen keeps its filter when you close it and shows it again when it opens. To clear a
 filter, press **/** and then **Esc**.

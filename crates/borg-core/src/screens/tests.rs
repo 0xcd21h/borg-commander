@@ -178,6 +178,26 @@ fn a_program_deleted_while_it_runs_or_missing_from_its_folder_gets_a_notice() {
 }
 
 #[test]
+fn the_files_beside_a_screen_take_deletes_while_copies_wait_for_it_to_close() {
+    let mut state = monitor(vec![process(7, Some(WORKER))]);
+    let files = state.activity.side.unwrap().other();
+    let (_, generation) = listing(&alt(&mut state, 'o'), files).unwrap();
+    list(&mut state, files, generation, &["worker"]);
+
+    press(&mut state, KeyCode::F(8), KeyModifiers::NONE);
+    assert!(matches!(
+        &state.overlay,
+        Some(crate::Overlay::Confirm(confirm)) if matches!(confirm.purpose, crate::ConfirmPurpose::Delete { .. })
+    ));
+    assert_eq!(state.notice, None);
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+
+    press(&mut state, KeyCode::F(5), KeyModifiers::NONE);
+    assert_eq!(state.overlay, None, "the other panel lies under the monitor");
+    assert_eq!(state.notice.as_deref(), Some(tr!(activity_close_for_files)));
+}
+
+#[test]
 fn a_row_without_a_file_says_so_and_network_rows_point_to_the_monitor() {
     let mut unknown = monitor(vec![process(7, None)]);
     assert!(alt(&mut unknown, 'o').is_empty());

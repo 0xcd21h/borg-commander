@@ -1819,13 +1819,15 @@ para mostrarlos todos.
 
 **Alt-O** abre la carpeta del programa del proceso seleccionado en el otro panel, con el cursor en
 el programa, y los archivos reciben las teclas. La lista conserva su filtro, su orden y el proceso
-que seleccionaste. **Tab** pasa las teclas entre la lista y los archivos, y Alt-O en otra fila
-lleva los archivos allí. **Esc** en la lista, o **Alt-M**, recupera el resumen, y Alt-M otra vez
-cierra el monitor. En los archivos abiertos y en el mapa de memoria, Alt-O muestra el archivo
-abierto seleccionado o el archivo que mapea la región. Si el programa se eliminó mientras se
-ejecuta, su carpeta se abre con un aviso. Un aviso también te dice cuándo el archivo no está en su
-carpeta en esta computadora, como pasa con un programa que se ejecuta dentro de un contenedor. Las
-alertas, los elementos de inicio y la vista de Docker funcionan igual.
+que seleccionaste. **Tab** pasa las teclas entre la lista y los archivos, y Alt-O en otra fila lleva
+los archivos allí. En esos archivos puedes ver, editar, eliminar, comprimir y extraer, y crear
+carpetas. Copiar y mover necesitan el otro panel, así que esperan a que se cierre el monitor.
+**Esc** en la lista, o **Alt-M**, recupera el resumen, y Alt-M otra vez cierra el monitor. En los
+archivos abiertos y en el mapa de memoria, Alt-O muestra el archivo abierto seleccionado o el
+archivo que mapea la región. Si el programa se eliminó mientras se ejecuta, su carpeta se abre con
+un aviso. Un aviso también te dice cuándo el archivo no está en su carpeta en esta computadora, como
+pasa con un programa que se ejecuta dentro de un contenedor. Las alertas, los elementos de inicio y
+la vista de Docker funcionan igual.
 
 Cada pantalla guarda su filtro al cerrarla y lo vuelve a mostrar al abrirla. Para borrar un filtro,
 pulsa **/** y después **Esc**.
