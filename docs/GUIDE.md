@@ -1656,7 +1656,7 @@ with it. Press H again to show them all.
 | T | Show or hide the process tree |
 | H | Hide or show the processes that used no CPU in the last few seconds |
 | Left / Right | In the tree, fold the selected process's branch or unfold it |
-| K | Send a signal or change the priority |
+| K | Send a signal or change the priority, also from the process window |
 | E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
 | Space | Pause or resume sampling |
@@ -1683,8 +1683,8 @@ While a filter applies, the list is flat.
 
 ### Signals and priority
 
-K opens **Signal or priority** for the selected process. Press a choice's letter, or move to it
-and press Enter. Esc closes the dialog and sends nothing.
+K opens **Signal or priority** for the selected process, in the list and in its process window
+with the memory map or open files. Press a choice's letter, or move to it and press Enter. Esc closes the dialog and sends nothing.
 
 | Key | Choice | What it does |
 | --- | --- | --- |
