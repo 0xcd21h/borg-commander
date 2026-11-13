@@ -1313,6 +1313,10 @@ contenha maiúsculas.
 F5, F6 e F8 iniciam tarefas de cópia, movimentação e eliminação. Alt-J abre a lista de tarefas,
 onde as pode pausar ou cancelar.
 
+A caixa de diálogo Eliminar abre com **Não** selecionado, por isso Enter sozinho mantém os
+ficheiros. Para os eliminar, prima Y, ou passe para **Sim** com Tab ou uma tecla de seta e prima
+Enter.
+
 Enquanto a caixa de diálogo Eliminar pergunta, o Borg conta os ficheiros que está prestes a
 remover e mostra o número e o tamanho por baixo da pergunta. A contagem para ao fim de 3 segundos,
 e nesse caso a linha começa por **Pelo menos**. O Borg procura também os programas que têm esses
@@ -1745,7 +1749,8 @@ Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
 
 As sessões, o histórico, as definições e as capturas ficam guardados até os eliminar. A linha por
 baixo da nota diz quanto resta neste momento e o que a última limpeza removeu. F8 remove os restos
-depois de perguntar, e a pergunta indica as pastas de onde vêm.
+depois de perguntar. A pergunta indica as pastas de onde vêm e abre com **Não** selecionado, por
+isso prima Y para os remover.
 
 Cada captura que o Borg guarda entra numa lista das 1000 mais recentes. A janela mostra as que ainda
 estão no disco em **Capturas guardadas pelo Borg**, com o tamanho e a data, e **com chaves** quando

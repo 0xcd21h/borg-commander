@@ -306,6 +306,11 @@ fn an_archive_opens_as_a_folder_views_deletes_and_copies_files_out() -> Result<(
     app.send(keys::f(8))?;
     app.wait_text("permanently")?;
     app.send(keys::enter())?;
+    app.wait_gone("permanently")?;
+    ensure!(app.settle()?.contains("readme.md"), "No is selected first and keeps the file");
+    app.send(keys::f(8))?;
+    app.wait_text("permanently")?;
+    app.send("y")?;
     app.wait_until("readme gone from the archive", |s| s.contains("▤ zip") && !s.contains("readme.md"))?;
     let left = zip::ZipArchive::new(fs::File::open(fixture.work().join("site.zip"))?)?;
     ensure!(left.index_for_name("readme.md").is_none(), "the archive still holds readme.md");
@@ -1011,6 +1016,11 @@ fn file_operations_run_through_the_shell() -> Result<()> {
     app.wait_text("Delete \"alpha\" permanently?")?;
     app.checkpoint("delete-confirm")?;
     app.send(keys::enter())?;
+    app.wait_gone("Delete \"alpha\" permanently?")?;
+    ensure!(work.join("alpha").exists(), "No is selected first and keeps the folder");
+    app.send(keys::f(8))?;
+    app.wait_text("Delete \"alpha\" permanently?")?;
+    app.send("y")?;
     app.wait_until("alpha deleted", |_| !work.join("alpha").exists())?;
     app.wait_gone("/ alpha")?;
     Ok(())

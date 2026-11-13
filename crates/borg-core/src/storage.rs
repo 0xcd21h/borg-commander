@@ -237,7 +237,7 @@ fn ask_to_clean(state: &mut AppState, window: StorageWindow) -> Vec<Effect> {
             lines.join("\n")
         ),
         purpose: ConfirmPurpose::CleanStorage { paths, window: Box::new(window) },
-        accept: true,
+        accept: false,
     }));
     Vec::new()
 }

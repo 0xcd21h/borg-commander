@@ -214,7 +214,7 @@ pub(super) fn confirm_delete(state: &mut AppState) -> Vec<Effect> {
         title: tr!(delete),
         message,
         purpose: ConfirmPurpose::Delete { sources, check },
-        accept: !state.active_panel().is_results(),
+        accept: false,
     }));
     effects
 }

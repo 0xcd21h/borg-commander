@@ -900,12 +900,17 @@ fn failed_operations_leave_a_notice() {
 }
 
 #[test]
-fn delete_confirms_and_can_be_cancelled() {
+fn delete_asks_first_starting_on_no_so_enter_alone_keeps_the_files() {
     let (mut state, now) = setup_with(vec![file("a")]);
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, key(KeyCode::F(8)));
     let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("expected confirm") };
     assert_eq!(confirm.message, "Delete \"a\" permanently?");
+    assert!(!confirm.accept, "the question starts on No");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Enter took No");
+
+    press(&mut state, now, key(KeyCode::F(8)));
     assert!(press(&mut state, now, key(KeyCode::Char('n'))).is_empty());
 
     press(&mut state, now, key(KeyCode::F(8)));
@@ -3006,7 +3011,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert_eq!(effects, [Effect::View { path: "/run/motd".into(), at: None }]);
 
     crate::actions::perform(&mut state, Action::Delete, now);
-    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
     assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Delete { paths: vec!["/motd".into()] }));
     crate::actions::perform(&mut state, Action::Mkdir, now);
     type_text(&mut state, now, "cache");
