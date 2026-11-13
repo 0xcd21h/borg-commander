@@ -36,6 +36,7 @@ use crate::{
 };
 
 mod agent_calls;
+mod carry;
 mod cloud;
 mod console;
 mod effects;
@@ -47,6 +48,7 @@ mod shared_asks;
 mod startup;
 mod viewers;
 
+pub use carry::{Resumed, Shell, pack, unpack};
 use input::WheelBurst;
 use render::{Plain, appearance, palette};
 pub(crate) use render::{picture, span};
@@ -143,6 +145,14 @@ pub struct App {
     cloud_suppressed: bool,
     /// This Borg's registration with the background service, which then holds borg cloud.
     membership: Option<crate::service::Membership>,
+    /// The session moves to the newer Borg an update installed, so the loop ends for that.
+    relaunching: bool,
+}
+
+/// How the app ended: the user quit, or the session moves to a newer Borg with its shell.
+pub enum Exit {
+    Quit,
+    Relaunch(Shell),
 }
 
 enum Flow {
@@ -157,13 +167,27 @@ impl Drop for App {
 }
 
 impl App {
-    pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+    pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<Exit> {
         let result = self.event_loop(terminal).await;
         self.save_session();
         let backend = terminal.backend_mut();
         backend.write_all(&self.graphics.reset())?;
         backend.flush()?;
-        result
+        result?;
+        if self.relaunching { Ok(Exit::Relaunch(self.carry_shell()?)) } else { Ok(Exit::Quit) }
+    }
+
+    /// The shell, no longer read here, with its screen and what Borg knew of it.
+    fn carry_shell(&mut self) -> Result<Shell> {
+        let host = self.state.host_shell();
+        let (integrated, silent_cd) = (host.integrated, host.silent_cd);
+        Ok(Shell {
+            screen: self.emulator.carry_ansi(self.state.settings.scrollback),
+            cd_request: self.cd_request.clone(),
+            integrated,
+            silent_cd,
+            detached: self.pty.detach()?,
+        })
     }
 
     async fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
@@ -172,8 +196,8 @@ impl App {
         let mut last_draw = Instant::now() - self.state.settings.motion.frame;
         let mut animating = false;
 
-        if let Some(dir) = self.state_dir.clone().filter(|_| self.config.update_check()) {
-            crate::update::check_in_background(dir, self.messages.clone());
+        if let Some(dir) = self.state_dir.clone() {
+            crate::update::check_daily(dir, self.config_dir.clone(), self.messages.clone());
         }
         let initial = std::mem::take(&mut self.pending);
         if let Flow::Quit = self.apply(initial)? {
@@ -308,6 +332,9 @@ impl App {
         }
         if self.state.docker.disk.loading.is_none() {
             self.docker.cancel_disk();
+        }
+        if self.state.docker.disk.reading.is_none() {
+            self.docker.cancel_volumes();
         }
         if self.state.network.pending.is_none() {
             self.network.cancel();

@@ -5,7 +5,11 @@ use super::{
     SnapshotRow, ZERO_ROWS,
 };
 use crate::Effect;
+use borg_view::HexLayout;
 use std::{path::PathBuf, time::Instant};
+
+/// The most bytes a row of the capture shows as text.
+const TEXT_COLUMNS: usize = 64;
 
 impl Activity {
     pub(super) fn request(&mut self, request: ActivityRequest) -> Vec<Effect> {
@@ -229,8 +233,33 @@ impl Activity {
     }
 
     pub fn snapshot_columns(&self, width: usize) -> usize {
-        let room = width.saturating_sub(18).max(1);
-        if self.text { room.min(64) } else { [16, 8, 4, 2, 1].into_iter().find(|n| n * 4 <= room).unwrap_or(1) }
+        let layout = self.snapshot_layout(width);
+        if self.text { width.saturating_sub(layout.offset_width()).clamp(1, TEXT_COLUMNS) } else { layout.columns }
+    }
+
+    /// How the capture's rows lay out in `width` cells, their offsets long enough for the
+    /// region the capture lies in.
+    pub fn snapshot_layout(&self, width: usize) -> HexLayout {
+        let span = self
+            .snapshot_home()
+            .map_or(self.snapshot.as_ref().map_or(0, |s| s.bytes.len() as u64), MemoryRegion::mapped);
+        HexLayout::fitting(width, span)
+    }
+
+    /// The address the offsets of the capture's rows count from: the start of the shown region
+    /// when the capture lies in it, or else the capture's own.
+    pub fn snapshot_origin(&self) -> u64 {
+        self.snapshot_home()
+            .map(|region| region.start)
+            .or(self.snapshot.as_ref().map(|s| s.address))
+            .unwrap_or_default()
+    }
+
+    /// The shown region, when the whole capture lies in it.
+    fn snapshot_home(&self) -> Option<&MemoryRegion> {
+        let snapshot = self.snapshot.as_ref()?;
+        let end = snapshot.address.checked_add(snapshot.bytes.len() as u64)?;
+        self.shown_region().filter(|region| region.start <= snapshot.address && end <= region.end)
     }
 
     pub fn move_by(&mut self, delta: isize, page_rows: usize, width: usize) {

@@ -127,6 +127,21 @@ fn looking_around(ancestors: &[Ancestor]) -> Vec<StartedProcess> {
         .collect()
 }
 
+/// Once a program has run four discovery commands, the run has been reported. Running one of
+/// them again, or starting anything else, adds nothing to it and says nothing more.
+#[test]
+fn a_run_already_reported_stays_quiet_for_what_its_program_starts_next() {
+    let server = [ancestor(13, "/usr/bin/python3", false)];
+    let mut processes = looking_around(&server);
+    for (step, program) in ["/usr/bin/whoami", "/usr/bin/true", "/usr/bin/id"].into_iter().enumerate() {
+        let mut process = started(60 + step as u32, program, None);
+        process.ancestors = server.to_vec();
+        processes.push(process);
+    }
+    let fired = runs(&learned(), processes, Duration::from_secs(1));
+    assert_eq!(fired, [false, false, false, true, false, false, false]);
+}
+
 /// Starts the processes one after another, `apart` apart, and says after which of them a run
 /// of discovery commands fired.
 fn runs(baseline: &Baseline, processes: Vec<StartedProcess>, apart: Duration) -> Vec<bool> {
@@ -720,9 +735,22 @@ fn an_alert_from_earlier_lands_below_the_ones_that_came_after_it() {
     assert_eq!(log.alerts.first().map(|alert| alert.id), Some(id));
 }
 
+fn resumed(mut log: AlertLog) -> AlertLog {
+    for alert in log.alerts.iter_mut().skip(1) {
+        alert.state = AlertState::Resumed;
+    }
+    log
+}
+
 #[test]
 fn the_log_keeps_the_newest_alerts_under_their_own_ids() {
-    let log = log_with(ALERTS_KEPT + 5);
+    let mut log = resumed(log_with(ALERTS_KEPT));
+    for index in 0..5 {
+        let finding = Finding::ShellOnSocket { shell: "sh".into() };
+        let at = moment(Duration::from_secs((ALERTS_KEPT + index) as u64));
+        log.add(at, finding, Response::Frozen, remote_shell(2000 + index as u32));
+        log = resumed(log);
+    }
     assert_eq!(log.alerts.len(), ALERTS_KEPT);
     assert_eq!(log.alerts[0].id, (ALERTS_KEPT + 5) as u64, "the newest alert comes first");
     assert_eq!(log.unread(), ALERTS_KEPT);
@@ -730,6 +758,37 @@ fn the_log_keeps_the_newest_alerts_under_their_own_ids() {
     read.mark_seen();
     assert_eq!(read.unread(), 0);
     assert!(read.alerts[0].frozen() && read.alerts[0].resumable());
+}
+
+/// A frozen process waits for the user, and its alert is the only place to let it go on, so
+/// the log drops alerts about anything else first however old the frozen one is.
+#[test]
+fn an_alert_about_a_process_still_frozen_outlives_newer_alerts() {
+    let mut log = log_with(1);
+    let frozen = log.alerts[0].id;
+    for index in 0..ALERTS_KEPT + 5 {
+        let finding = Finding::ShellOnSocket { shell: "sh".into() };
+        let at = moment(Duration::from_secs(60 + index as u64));
+        log.add(at, finding, Response::Alerted, remote_shell(3000 + index as u32));
+    }
+    assert_eq!(log.alerts.len(), ALERTS_KEPT);
+    assert_eq!(log.alerts.last().map(|alert| alert.id), Some(frozen), "the oldest alert is the frozen one");
+    assert!(log.alerts.iter().filter(|alert| alert.id != frozen).all(|alert| !alert.frozen()));
+
+    assert_eq!(log.drop_oldest().map(|alert| alert.id), Some(frozen + 7), "others go before it");
+    let mut only_frozen = log_with(2);
+    assert_eq!(only_frozen.drop_oldest_unfrozen(), None);
+    assert_eq!(only_frozen.drop_oldest().map(|alert| alert.id), Some(1), "it goes when nothing else is left");
+}
+
+#[test]
+fn a_learning_period_longer_than_the_limit_is_the_limit() {
+    let longest = learning_period(LEARNING_DAYS_LIMIT);
+    assert_eq!(learning_period(u64::MAX), longest);
+    assert_eq!(learning_period(LEARNING_DAYS), Duration::from_secs(LEARNING_DAYS * 24 * 60 * 60));
+    let baseline = Baseline::started(SystemTime::now(), learning_period(u64::MAX));
+    assert!(baseline.learning(SystemTime::now()));
+    assert!(baseline.review_ends() > baseline.learned_at());
 }
 
 /// A build's Java daemon runs with every library on its command line, and a script it starts
@@ -930,4 +989,99 @@ fn the_page_says_what_went_wrong_instead_of_a_list() {
     update(&mut state, Msg::Alerts { id, result: Err("no state folder".into()) }, now);
     assert_eq!(state.alerts.error.as_deref(), Some("no state folder"));
     assert!(state.alerts.is_empty());
+}
+
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// A log of a watcher that freezes, started `ago` before now and done learning a week later.
+fn watching_since(ago: Duration, delivery: AlertDelivery) -> AlertLog {
+    let since = moment(Duration::ZERO) - ago;
+    AlertLog::watching(WatchStatus {
+        source: WatchSource::Kernel,
+        since,
+        learned_at: since + WEEK,
+        freeze: true,
+        delivery,
+        ..WatchStatus::default()
+    })
+}
+
+#[test]
+fn a_watcher_with_nowhere_to_send_alerts_says_they_stay_on_this_machine() {
+    let now = moment(Duration::ZERO);
+    let unsent = watching_since(DAY, AlertDelivery::Local).unsent(None, now);
+    assert_eq!(unsent, Some(Unsent { heartbeat: false, freezing: Freezing::NotYet }));
+    assert_eq!(unsent.unwrap().line(), "Alerts stay on this machine. Set up [watch.notify] in config.toml.");
+}
+
+#[test]
+fn a_place_that_takes_alerts_ends_the_warning() {
+    let now = moment(Duration::ZERO);
+    assert_eq!(watching_since(DAY, AlertDelivery::Sent).unsent(None, now), None);
+    assert_eq!(watching_since(WEEK + 4 * DAY, AlertDelivery::Sent).unsent(None, now), None);
+    assert_eq!(Unsent::configured(AlertDelivery::Sent), None);
+}
+
+#[test]
+fn a_heartbeat_alone_does_not_count_as_a_place_for_alerts() {
+    let now = moment(Duration::ZERO);
+    let unsent = watching_since(DAY, AlertDelivery::HeartbeatOnly).unsent(None, now).unwrap();
+    assert_eq!(unsent, Unsent { heartbeat: true, freezing: Freezing::NotYet });
+    assert!(unsent.line().contains("The heartbeat only says the watcher runs."), "{}", unsent.line());
+    assert_eq!(Unsent::configured(AlertDelivery::HeartbeatOnly), Some(unsent));
+}
+
+#[test]
+fn the_warning_grows_stronger_as_freezing_comes_near_and_once_it_starts() {
+    let now = moment(Duration::ZERO);
+    let freezing = |log: &AlertLog| log.unsent(None, now).map(|unsent| unsent.freezing);
+    assert_eq!(freezing(&watching_since(WEEK - 2 * DAY, AlertDelivery::Local)), Some(Freezing::NotYet));
+    assert_eq!(freezing(&watching_since(WEEK - DAY, AlertDelivery::Local)), Some(Freezing::Soon));
+    assert_eq!(freezing(&watching_since(WEEK + DAY, AlertDelivery::Local)), Some(Freezing::Started));
+
+    let mut waiting = watching_since(WEEK + DAY, AlertDelivery::Local);
+    waiting.add(
+        now - DAY,
+        Finding::ShellOnSocket { shell: "sh".into() },
+        Response::Learning { would_freeze: true },
+        remote_shell(900),
+    );
+    assert_eq!(freezing(&waiting), Some(Freezing::Soon), "the review of the learning week still holds freezing back");
+    waiting.mark_seen();
+    assert_eq!(freezing(&waiting), Some(Freezing::Started));
+
+    let started = Unsent { heartbeat: false, freezing: Freezing::Started }.line();
+    assert!(started.starts_with("Borg freezes processes here and nobody is told."), "{started}");
+    let soon = Unsent { heartbeat: false, freezing: Freezing::Soon }.line();
+    assert!(soon.starts_with("Borg is about to freeze processes here"), "{soon}");
+}
+
+#[test]
+fn a_watcher_that_never_freezes_or_does_not_run_keeps_the_mild_warning_or_none() {
+    let now = moment(Duration::ZERO);
+    let mut log = watching_since(WEEK + DAY, AlertDelivery::Local);
+    log.watch.freeze = false;
+    assert_eq!(log.unsent(None, now).map(|unsent| unsent.freezing), Some(Freezing::NotYet));
+    log.watch.source = WatchSource::Off;
+    assert_eq!(log.unsent(None, now), None, "turned off, the watcher has nothing to warn about");
+    let turned_on = log.unsent(Some(AlertDelivery::Local), now);
+    assert_eq!(turned_on, Some(Unsent { heartbeat: false, freezing: Freezing::NotYet }), "the configuration speaks");
+    assert_eq!(log.unsent(Some(AlertDelivery::Sent), now), None);
+}
+
+#[test]
+fn turning_the_watcher_on_with_nowhere_to_send_alerts_says_so() {
+    let (mut state, now) = state();
+    update(&mut state, Msg::Pointer(crate::Pointer::Action(crate::Action::ToggleProcessWatch)), now);
+    assert!(state.settings.preferences.process_watch);
+    assert_eq!(state.notice.as_deref(), Some("Alerts stay on this machine. Set up [watch.notify] in config.toml."));
+
+    state.notice = None;
+    update(&mut state, Msg::Pointer(crate::Pointer::Action(crate::Action::ToggleProcessWatch)), now);
+    assert_eq!(state.notice, None, "turning it off needs no warning");
+
+    state.settings.alert_delivery = AlertDelivery::Sent;
+    update(&mut state, Msg::Pointer(crate::Pointer::Action(crate::Action::ToggleProcessWatch)), now);
+    assert!(state.settings.preferences.process_watch);
+    assert_eq!(state.notice, None);
 }

@@ -4,7 +4,6 @@
 use crate::{
     Theme,
     activity_view::{emphasis, row, text},
-    format,
     look::Look,
     spinner::Spinner,
 };
@@ -18,7 +17,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
     text::{Line, Span},
-    widgets::{Block, Clear, Widget},
+    widgets::Widget,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -26,6 +25,7 @@ mod controls;
 mod details;
 mod disk;
 mod list;
+mod volumes;
 
 pub(crate) use controls::{file_work_label, keybar, panel_mouse, status};
 use details::draw_details;
@@ -81,7 +81,7 @@ pub(crate) fn draw(
     let details = panels[side.other().index()];
     if docker.disk.open {
         if !list.is_empty() {
-            disk::draw_list(state, look, list, spinner, buf);
+            disk::draw_list(state, look, list, spinner, clock, buf);
         }
         if !details.is_empty() {
             disk::draw_details(docker, look, details, clock, buf);
@@ -123,28 +123,6 @@ fn header(container: &Container, docker: &Docker, theme: &Theme, inner: Rect, bu
         buf.set_style(rect, style);
         text(buf, Rect { x: rect.x + 1, width: rect.width.saturating_sub(1), ..rect }, label, style);
     }
-}
-
-fn frame(docker: &Docker, look: &Look<'_>, rect: Rect, title: &str, focused: bool, buf: &mut Buffer) -> Rect {
-    let theme = look.theme;
-    let styles = &theme.styles;
-    Clear.render(rect, buf);
-    let controls = crate::results_view::controls(rect, docker.expanded);
-    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(if focused { styles.border_active } else { styles.border })
-        .title(Line::styled(
-            format::truncate_end(&format!(" {title} "), usize::from(room)),
-            if focused { styles.title_active } else { styles.title },
-        ));
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    for (r, label, _) in controls {
-        text(buf, r, label, styles.menu);
-    }
-    inner
 }
 
 #[cfg(test)]

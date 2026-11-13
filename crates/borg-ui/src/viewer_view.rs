@@ -163,7 +163,6 @@ fn draw_image(
 fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &mut Buffer) {
     let styles = &theme.styles;
     let name = name(viewer);
-    // After a step with the bar closed, where the match stands takes the keys' place.
     let found = borg_core::find_bar_summary(&viewer.find);
     let hints = match &found {
         Some(found) => format!("{found} · {} ", tr!(viewer_find_keys)),

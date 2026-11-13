@@ -2,6 +2,7 @@
 //! focus, the preview, Esc and Enter, and the lists' own keys. The keys of the page with the
 //! focus are in `pages`, and the memory search form's in `form`.
 
+use crate::screens::FILTER_LIMIT;
 use std::time::Instant;
 
 use borg_i18n::tr;
@@ -87,7 +88,6 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         if code == KeyCode::F(3) {
             return crate::viewer::open(state, path);
         }
-        // The focused preview scrolls; the keys that act on the process keep working.
         if state.activity.preview_focused && scrolls_preview(code) {
             scroll_preview(&mut state.activity, code);
             return Vec::new();
@@ -108,7 +108,8 @@ pub(crate) fn paste(activity: &mut Activity, text: &str) {
     if let Some(form) = activity.search_form.as_mut() {
         form::paste(form, text);
     } else if activity.filtering {
-        activity.filter.extend(text.chars().take(128));
+        let room = FILTER_LIMIT.saturating_sub(activity.filter.chars().count());
+        activity.filter.extend(text.chars().filter(|c| !c.is_control()).take(room));
         activity.rebuild();
     }
 }
@@ -194,8 +195,8 @@ fn scroll_preview(activity: &mut Activity, code: KeyCode) {
 }
 
 /// Esc takes the focus back from the preview, or else steps back a page. On the processes it
-/// stops and clears a filter before it closes the monitor, or goes back to the network screen
-/// the monitor was opened from.
+/// clears the filter being typed, or else closes the monitor, which keeps its filter for the
+/// next time it opens, or goes back to the network screen the monitor was opened from.
 fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let activity = &mut state.activity;
     activity.error = None;
@@ -204,7 +205,7 @@ fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
         activity.preview_focused = false;
     } else if activity.list != ActivityPage::Processes {
         step_back(activity, now);
-    } else if activity.filtering || !activity.filter.is_empty() {
+    } else if activity.filtering {
         activity.filtering = false;
         activity.filter.clear();
         activity.rebuild();

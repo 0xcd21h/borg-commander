@@ -65,7 +65,7 @@ pub fn chrome_rows(page: ActivityPage) -> u16 {
         ActivityPage::Snapshot => 8,
         ActivityPage::Search => 8,
         ActivityPage::Findings => 7 + FINDING_NOTE,
-        _ => 6,
+        _ => crate::screens::CHROME_ROWS,
     }
 }
 
@@ -132,6 +132,8 @@ pub struct Activity {
     pub results_origin: ActivityPage,
     preview_due: Option<Instant>,
     pub search_form: Option<MemorySearchForm>,
+    /// What the memory search form held when it closed, for the next time it opens.
+    pub(crate) search_draft: Option<MemorySearchForm>,
     pub search_report: Option<MemorySearchReport>,
     pub search_cursor: usize,
     pub search_progress: Option<(u64, u64, usize)>,
@@ -217,6 +219,7 @@ impl Default for Activity {
             results_origin: ActivityPage::Processes,
             preview_due: None,
             search_form: None,
+            search_draft: None,
             search_report: None,
             search_cursor: 0,
             search_progress: None,

@@ -91,6 +91,7 @@ impl Served {
                 Ok(mut listener) => {
                     retry = RETRY_FIRST;
                     told = false;
+                    self.registered(true);
                     note(&self.messages, &borg_i18n::tr!(agent_cloud_registered, relay = self.relay.to_string()));
                     loop {
                         tokio::select! {
@@ -103,6 +104,7 @@ impl Served {
                                         Err(error) => format!("{error:#}"),
                                         _ => borg_i18n::tr!(agent_cloud_connection_closed).into(),
                                     };
+                                    self.registered(false);
                                     self.reconnecting(&error);
                                     break;
                                 },
@@ -120,6 +122,10 @@ impl Served {
             tokio::time::sleep(retry).await;
             retry = (retry * 2).min(RETRY_LAST);
         }
+    }
+
+    fn registered(&self, registered: bool) {
+        self.shared.lock().expect("link lock").registered = registered;
     }
 
     pub(super) fn reconnecting(&self, error: &str) {
@@ -149,7 +155,6 @@ impl Served {
             match shared.pairing.as_mut() {
                 Some(pairing) if !pairing.claimed && pairing.until > Instant::now() => {
                     if offered.is_some_and(|offered| same(&offered, &pairing.secret)) {
-                        // A link works once.
                         pairing.claimed = true;
                         true
                     } else {

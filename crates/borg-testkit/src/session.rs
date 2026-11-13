@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use borg_term::{Emulator, GridSize};
 use borg_ui::Palette;
-use portable_pty::{Child, CommandBuilder, ExitStatus, MasterPty, native_pty_system};
+use portable_pty::{Child, CommandBuilder, ExitStatus, MasterPty, PtySize, native_pty_system};
 use rustix::fs::{Mode, OFlags};
 
 use crate::{Fixture, Shell, Snapshot};
@@ -117,7 +117,7 @@ impl<'a> SessionBuilder<'a> {
     pub fn spawn(self) -> Result<Session> {
         let shell = self.shell.locate().with_context(|| format!("{} is not installed", self.shell.program()))?;
         let grid = GridSize { cols: self.cols, rows: self.rows };
-        let pair = native_pty_system().openpty(grid.into()).context("opening pty")?;
+        let pair = native_pty_system().openpty(pty_size(grid)).context("opening pty")?;
 
         let mut cmd = CommandBuilder::new(&self.binary);
         cmd.args(&self.args);
@@ -298,7 +298,7 @@ impl Session {
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
         let grid = GridSize { cols, rows };
         self.emulator.resize(grid);
-        self.master.resize(grid.into())
+        self.master.resize(pty_size(grid))
     }
 
     pub fn wait_exit(&mut self) -> Result<ExitStatus> {
@@ -362,4 +362,8 @@ fn configured_timeout() -> Duration {
 fn frame(snapshot: &Snapshot) -> String {
     let rule = "─".repeat(usize::from(snapshot.cols()));
     format!("┌{rule}┐\n{}\n└{rule}┘", snapshot.lines().iter().map(|l| format!("│{l}")).collect::<Vec<_>>().join("\n"))
+}
+
+fn pty_size(grid: GridSize) -> PtySize {
+    PtySize { rows: grid.rows, cols: grid.cols, pixel_width: 0, pixel_height: 0 }
 }

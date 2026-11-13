@@ -44,6 +44,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
         Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
+        Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
         Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
         None => Vec::new(),
     }
@@ -327,6 +328,17 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
                 vec![Effect::OpenRemotes]
             }
         }
+        (answer, ConfirmPurpose::RemoteHostUpdate { machine, mut browser }) => {
+            browser.error = None;
+            if answer == Some(true) {
+                browser.updating = Some(machine.clone());
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::UpdateRemoteHost { machine }]
+            } else {
+                state.overlay = Some(Overlay::Remotes(*browser));
+                Vec::new()
+            }
+        }
         (answer, ConfirmPurpose::RemoteSessionDelete { machine, session, mut browser }) => {
             browser.error = None;
             if answer == Some(true) {
@@ -351,6 +363,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
+        (Some(true), ConfirmPurpose::VolumeHelper { volume }) => crate::docker::open_volume(state, volume, true),
         (Some(true), ConfirmPurpose::AlertKill { alert, process }) => crate::watch::kill(state, alert, process),
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
@@ -360,7 +373,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
             effects.push(Effect::Quit);
             effects
         }
-        (Some(false), ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
+        (Some(false) | None, ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
         (answer, ConfirmPurpose::RemoteShellExit { token }) => {
             let close = answer == Some(true);
             if let (true, crate::Console::Remote { machine, session }) = (close, &state.console) {

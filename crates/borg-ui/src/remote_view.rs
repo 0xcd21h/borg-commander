@@ -19,7 +19,9 @@ pub(crate) fn rect(screen: Rect) -> Rect {
 pub(crate) fn keys(browser: &RemoteBrowser, rect: Rect) -> &'static str {
     if browser.connecting {
         tr!(remote_connecting_keys)
-    } else if browser.deleting.is_some() || browser.forgetting.is_some() {
+    } else if browser.updating.is_some() {
+        tr!(remote_host_updating_keys)
+    } else if browser.busy() {
         tr!(remote_session_removing_keys)
     } else if browser.show_clients {
         tr!(remote_clients_keys)
@@ -167,12 +169,12 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
             Line::styled(details, styles.overlay).render(Rect { y, height: 1, ..body }, buf);
             Line::styled(tr!(remote_relay, relay = info.relay), styles.overlay)
                 .render(Rect { y: y + 1, height: 1, ..body }, buf);
-            if !browser.loading && !browser.connecting && browser.deleting.is_none() && browser.forgetting.is_none() {
+            if !browser.loading && !browser.connecting && !browser.busy() {
                 Line::styled(
                     if choice.session.is_none() {
                         tr!(remote_host_forget_unavailable)
                     } else {
-                        tr!(remote_host_forget_shortcut)
+                        tr!(remote_host_shortcuts)
                     },
                     styles.overlay,
                 )
@@ -180,9 +182,19 @@ pub fn draw(browser: &RemoteBrowser, theme: &Theme, screen: Rect, buf: &mut Buff
             }
         }
     }
-    if browser.loading || browser.connecting || browser.deleting.is_some() || browser.forgetting.is_some() {
+    if browser.loading || browser.connecting || browser.busy() {
         let glyph = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][(t * 12.0) as usize % 10];
-        let label = if browser.forgetting.is_some() {
+        let updating = browser.updating.as_ref().map(|machine| {
+            let name = browser
+                .choices
+                .iter()
+                .find(|choice| &choice.machine == machine)
+                .map_or(machine.as_str(), |choice| choice.host_name());
+            tr!(remote_host_updating, machine = name)
+        });
+        let label = if let Some(updating) = updating {
+            updating
+        } else if browser.forgetting.is_some() {
             tr!(remote_host_forgetting).into()
         } else if browser.deleting.is_some() {
             tr!(remote_session_removing).into()
@@ -288,6 +300,7 @@ mod tests {
             client_selected: 0,
             deleting: None,
             forgetting: None,
+            updating: None,
         };
         draw(&browser, themes.find(None), screen, &mut buf, 0.0);
         let rendered: String = (0..screen.height)

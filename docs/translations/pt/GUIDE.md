@@ -23,6 +23,21 @@ arranque da sua shell. No fim, inicia o borg; defina `BORG_NO_RUN=1` para o impe
 `BORG_INSTALL_DIR` para escolher a pasta. Se a mesma versão já estiver instalada, voltar a
 executar o instalador dispensa a transferência.
 
+O instalador também pode configurar o borg como um
+[serviço que arranca com o sistema](#named-sessions-and-the-background-service). O serviço é
+opcional. Com ele, as sessões que mantém com `borg service keep NAME` continuam em execução sem
+terminal aberto, e uma máquina emparelhada chega a este computador depois de um reinício. Num
+terminal, o instalador pergunta uma vez antes de iniciar o borg, e a resposta predefinida é n.
+Defina `BORG_SERVICE=1` para configurar o serviço sem a pergunta, como numa instalação autónoma,
+ou `BORG_SERVICE=0` para dispensar a pergunta. A configuração executa `borg service install`,
+`enable` e `start`, que usam sudo, a menos que seja root. Sem terminal e sem a variável, o
+instalador deixa o serviço como está. Pode configurá-lo mais tarde dentro do borg, em F9 → Remoto →
+**Serviço em segundo plano…**. Onde não há systemd nem launchd, como na maioria dos contentores, o
+instalador salta este passo e diz porquê. Se a configuração falhar, o borg continua instalado e o
+instalador mostra os comandos para a concluir à mão. Em Linux, a
+[parte do observador que corre como root](#the-watcher-as-root) continua a ser um passo à parte:
+instale-a com `borg service watch install` quando a quiser.
+
 Para compilar a partir do código-fonte, precisa do Rust 1.97 ou mais recente:
 
 ```sh
@@ -46,7 +61,19 @@ brew install 0xcd21h/tap/borg-commander
 
 Execute `borg` na pasta que pretende explorar. F10 sai e Ctrl-O passa da consola para os painéis.
 Para atualizar, execute `borg update` numa cópia transferida, ou use o Homebrew ou o cargo se
-tiver instalado dessa forma. `borg --version` mostra a versão instalada.
+tiver instalado dessa forma. O Borg só instala uma atualização quando a versão publicada traz a
+assinatura do projeto. Se a assinatura faltar ou estiver errada, a cópia instalada fica como está.
+`borg --version` mostra a versão instalada. As sessões abertas
+passam para a nova versão e mantêm as suas shells (consulte
+[Atualizar com sessões abertas](#updating-with-sessions-open)).
+
+Uma vez por dia, o Borg procura uma nova versão. Quando sai uma, o Borg propõe-na assim que os
+painéis estiverem visíveis e não tiver tocado no teclado nem no rato durante 2 segundos. **Enter**
+executa `borg update` na shell do Borg, ou o comando do Homebrew ou do cargo quando foi um deles a
+instalar o Borg. **S** salta essa versão, e o Borg propõe a seguinte quando sair. **Esc** fecha a
+proposta, e o Borg volta a perguntar um dia depois. **N** desliga a verificação diária ao definir
+`update-check = false` na configuração, e `update-check = true` volta a ligá-la. O Borg guarda a hora da última verificação e a versão que saltou no
+ficheiro `update-check`, na sua pasta de estado.
 
 ## Temas e ícones
 
@@ -85,7 +112,8 @@ funcionam com o visualizador e com a pré-visualização.
   `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d`
   (alterado na última semana), `mod:>1y` e `in:src` (uma pasta em qualquer ponto do caminho). As
   pesquisas recentes aparecem por baixo do formulário, com as feitas na mesma pasta em primeiro
-  lugar; clique numa delas, ou prima Ctrl-P e Ctrl-N no campo de pesquisa, para a reutilizar. Os
+  lugar; clique numa delas, ou prima Ctrl-P e Ctrl-N no campo de pesquisa, para a reutilizar. A
+  janela abre com a pesquisa e as opções que lá deixou da última vez, na pasta onde está. Os
   nomes correspondem em qualquer alfabeto, seja qual for a capitalização de um glob, e as letras
   acentuadas correspondem independentemente da forma como o sistema de ficheiros as guarda. As
   correspondências próximas da pasta de pesquisa aparecem primeiro, enquanto o resto da árvore
@@ -255,7 +283,8 @@ precisa de uma pasta real como destino. Numa coleção, F8 remove referências e
 ficheiros; nos resultados de pesquisa, F8 pede confirmação para eliminar os ficheiros originais.
 Shift-F8 também elimina os ficheiros originais a partir de uma coleção, depois de confirmar. Quando
 estão marcados uma pasta e ficheiros dentro dela, a tarefa trata a pasta uma única vez. **Revelar
-original** abre a pasta do ficheiro no outro painel. Left ou Esc ocultam os resultados, e
+original** ou Alt-O abre a pasta do ficheiro no outro painel, com o cursor no ficheiro. Left
+ou Esc ocultam os resultados, e
 Alt-Shift-R repõe-nos onde os deixou. Tab alterna entre os painéis mesmo quando a shell tem um
 comando por terminar. A shell fica sempre numa pasta real. F10 pede sempre confirmação antes de
 sair.
@@ -404,7 +433,7 @@ instantes.
 | Alt-H | Hosts remotos: máquinas emparelhadas e as respetivas sessões |
 | Alt-Shift-Left/Right | Redimensionar os painéis |
 | Ctrl-U | Trocar os painéis |
-| Alt-O | Abrir a pasta deste painel no outro painel |
+| Alt-O | Abrir a pasta deste painel no outro painel; nos resultados de pesquisa ou numa coleção, a pasta do ficheiro sob o cursor |
 | Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
@@ -534,10 +563,11 @@ segundo Esc fecha a janela. As favoritas guardam até 256 pastas.
 Alt-O ou **Comando → Mesma pasta no outro painel** abre a pasta do painel ativo no outro painel,
 para que ambos mostrem o mesmo sítio. A pasta ocupa o lugar da pré-visualização, das Informações ou
 dos ficheiros de um contentor ou de uma máquina remota nesse painel. Se o outro painel mostrava
-resultados de pesquisa ou uma coleção, Alt-Shift-R nesse painel volta a mostrá-los. A partir de
-resultados de pesquisa, Alt-O abre a pasta onde a pesquisa começou. Uma coleção não tem pasta
-própria, e as pastas de contentores e as remotas só abrem num painel, por isso nesses casos Alt-O
-mostra uma notificação, tal como acontece quando o outro painel tem um editor. Enquanto escreve um
+resultados de pesquisa ou uma coleção, Alt-Shift-R nesse painel volta a mostrá-los. Nos resultados
+de pesquisa e nas coleções, Alt-O abre a pasta do ficheiro sob o cursor, com o cursor no ficheiro,
+tal como **Revelar original**. Enquanto uma pesquisa não encontra nada, Alt-O abre a pasta onde ela
+começou. As pastas de contentores e as remotas só abrem num painel, por isso nesses casos Alt-O
+mostra uma notificação, tal como acontece numa coleção vazia e quando o outro painel tem um editor. Enquanto escreve um
 comando, Alt-O passa para a shell.
 
 As favoritas ficam guardadas em `config.toml`, na secção `[folders]`. O Borg lembra-se das últimas
@@ -571,7 +601,7 @@ projeto Compose, com os contentores que não pertencem a nenhum projeto no fim. 
 mostra o contentor selecionado: estado, portas, redes, montagens, comando e política de
 reinício, além da utilização de CPU, memória, rede e disco em tempo real, com um gráfico do
 último minuto. Num projeto, mostra a pasta do projeto, os seus contentores e a utilização
-conjunta. Esc fecha a vista.
+conjunta. Esc fecha a vista e guarda o filtro para a próxima vez.
 
 A CPU aparece duas vezes. **Agora %** é a leitura mais recente, e **Média %** é a média dos
 últimos segundos, como no monitor de atividade, por isso mantém-se estável quando um contentor
@@ -590,11 +620,18 @@ seus contentores em execução.
 | Alt-1 | Voltar a mostrar a visão geral do contentor, também a partir da shell |
 | D | Mostrar o espaço em disco, ou voltar aos contentores |
 | `/` | Filtrar por nome, serviço, imagem ou projeto |
+| Alt-O | Abrir a pasta do ficheiro Compose ao lado da lista |
 | Tab | Alternar entre a lista e os detalhes |
 | Alt-W | Maximizar o painel com o foco |
 
 Parar e reiniciar pedem confirmação primeiro. Num projeto, uma ação só afeta os contentores que
 alteraria, pelo que Começar só inicia os contentores parados.
+
+**Alt-O** abre no outro painel a pasta do ficheiro Compose que iniciou o contentor ou o projeto,
+com o cursor no ficheiro, ou a pasta do projeto quando o Compose não indica nenhum ficheiro. A
+lista fica como estava, tal como no monitor de atividade (consulte
+[Atividade e memória](#activity-and-memory)). Um contentor que o Compose não iniciou não tem pasta
+neste computador, por isso Alt-O indica-o, e **F** explora os seus ficheiros.
 
 ### Ficheiros do contentor
 
@@ -652,11 +689,61 @@ liberta as camadas que nenhuma outra imagem partilha, e por isso o tamanho recup
 muito abaixo do seu tamanho.
 
 → ou Enter expande um tipo nos seus itens, do maior para o menor, e ← volta a recolhê-lo. O outro
-painel mostra o item selecionado: as etiquetas de uma imagem, o ID, o tamanho partilhado, a data
-de criação e o número de contentores; o tipo de um registo da cache de compilação, se está
-partilhado ou em uso e quando uma compilação o usou pela última vez; a imagem e o estado de um
-contentor; o tamanho de um volume e os contentores que o montam. Os tamanhos que o Docker não
-conseguiu medir aparecem como `?`, e `/` filtra todos os tipos de uma vez.
+painel mostra o item selecionado: as etiquetas de uma imagem, o ID, o tamanho partilhado, a data de
+criação e o número de contentores; o tipo de um registo da cache de compilação, se está partilhado
+ou em uso e quando uma compilação o usou pela última vez; a imagem e o estado de um contentor; os
+dados de um volume, descritos nos parágrafos seguintes. Os tamanhos que o Docker não conseguiu
+medir aparecem como `?`, e `/` filtra todos os tipos de uma vez. Também encontra volumes pelo
+projeto Compose e pelos contentores e imagens que os usam.
+
+As linhas dos volumes ocupam o espaço que sobra na coluna Nome com **Último uso**, **Criado**,
+**Projeto** e **Usado por**, tantos quantos couberem, e Alt-W maximiza o painel para os mostrar
+todos. Projeto é o projeto Compose que criou o volume. Usado por lista os contentores que o montam,
+em execução ou parados. Os volumes anónimos aparecem com os primeiros 12 caracteres do ID.
+
+**Último uso** mostra **em uso** enquanto estiver em execução um contentor que monte o volume. Caso
+contrário, indica o dia em que o último desses contentores parou, que o Docker regista com
+exatidão. Depois de os contentores serem removidos, o Docker deixa de ter qualquer registo do uso
+do volume. Quando o Borg lê diretamente os ficheiros de um volume, vê também quando foram alterados
+pela última vez, e uma alteração mais recente aparece como esse dia precedido de `~`. Esse dia é
+uma estimativa: ler um ficheiro não deixa rasto, por isso o volume pode ter sido usado depois. Uma
+célula vazia significa que o Borg não sabe nenhum dos dois.
+
+O outro painel mostra a hora completa do último uso e da criação, o projeto **Compose** com o nome
+que o volume tem nele e o **Controlador** quando o volume usa um controlador diferente de `local`
+ou tem opções. Cada contentor que monta o volume ocupa uma linha com o seu estado e o caminho onde
+monta o volume. Num volume anónimo, esses contentores aparecem em **Criado para**, com as
+respetivas imagens. O Docker esquece esse contentor quando é removido. **Pasta** e **Contém**
+mostram onde estão os ficheiros nesta máquina e o que está no topo do volume.
+
+Enter num volume mostra os seus ficheiros no painel, só para leitura. O título marca o painel com ▥
+e **só leitura**, e os caminhos começam no topo do volume. **F3** mostra ficheiros e **F5** copia
+ficheiros para o outro painel. O Borg recusa tudo o que alteraria o volume: editar, mover,
+eliminar, criar pastas, compactar e copiar para dentro dele. `..` no topo do volume devolve o
+painel à pasta que mostrava antes, e a linha de comandos fica nessa pasta o tempo todo. Uma sessão
+guardada enquanto um painel mostra um volume abre essa pasta da próxima vez.
+
+O Borg lê diretamente os ficheiros de um volume quando estão nesta máquina. Com o OrbStack no
+macOS, estão na partilha do OrbStack em `~/OrbStack/docker/volumes`, que o macOS trata como um
+volume de rede: autorize a aplicação de terminal em Volumes de rede, em Definições do Sistema ›
+Privacidade e segurança › Ficheiros e pastas. No Linux, o Borg lê a pasta do volume quando o motor
+corre na mesma máquina e o Borg a pode abrir, como acontece com o Docker em modo rootless ou quando
+o Borg corre como root. A pesquisa e os tamanhos funcionam então como em qualquer pasta.
+
+Nos outros casos, como com o Docker Desktop, um contexto remoto ou o Docker no Linux quando só o
+root lê as suas pastas, o Borg mostra os ficheiros através de um contentor auxiliar. O auxiliar
+executa a imagem `busybox`, fixada numa só compilação, sem rede, com o sistema de ficheiros só de
+leitura e sem outro privilégio além de ler ficheiros, e monta o volume só para leitura. Da primeira
+vez, o Borg pergunta antes de o Docker transferir a imagem, com cerca de 2 MB, que depois fica no
+motor como `borg-commander/volume-helper`. O rodapé mostra **A transferir busybox…** ou **A iniciar
+o contentor auxiliar…** até o painel abrir. O Borg remove o auxiliar quando o painel sai do volume
+ou quando o Borg termina, e um auxiliar que fique para trás para sozinho ao fim de um dia. Aí, a
+pesquisa e os tamanhos só funcionam no host, como nos ficheiros de um contentor, e o espaço em
+disco não conta o auxiliar entre os contentores que usam o volume.
+
+Quando uma medição termina, o Borg lê em segundo plano os volumes a que chega diretamente, do maior
+para o menor, e o rodapé mostra **A ler os ficheiros dos volumes…** até acabar. **R** volta a
+lê-los ao medir de novo.
 
 **F8** escreve o comando de limpeza da linha selecionada no prompt da shell do host e mostra a
 consola. Nada é executado até premir Enter, por isso pode ler o comando, alterá-lo ou limpá-lo
@@ -1025,6 +1112,31 @@ comandos usam o sudo, que pede a sua palavra-passe, a menos que seja root. `borg
 executa-o na shell do Borg. Num contentor sem systemd, configure o supervisor de processos do
 contentor para executar `borg service run`.
 
+### Atualizar com sessões abertas
+
+`borg update` instala a nova versão, passa o serviço em segundo plano para ela e avisa quando o
+serviço já a corre. O serviço arranca de novo no seu próprio processo, por isso as sessões que
+mantém conservam as suas shells e os programas que nelas correm. Cada Borg aberto acompanha-o
+quando está inativo: espera que as tarefas em curso terminem, que os ficheiros editados sejam
+guardados ou fechados e que o pedido do agente esteja concluído. Depois arranca de novo no mesmo
+terminal, mantém a sua shell e indica a versão que corre agora.
+
+A atualização guarda a versão que substituiu junto do ficheiro do programa, como `.borg.previous`.
+Se a nova versão não assumir o lugar da anterior em 60 segundos, o Borg repõe a anterior e o
+serviço volta a arrancar com ela. As sessões que mantinha arrancam então com shells novas.
+
+Um serviço iniciado por um Borg mais antigo não consegue mudar sozinho de versão. O `borg update`
+indica-o, e o serviço usa a nova versão da próxima vez que arrancar.
+
+Para atualizar uma máquina emparelhada, selecione-a em [Hosts remotos](#remote-hosts) e prima
+**U**. Depois de confirmar, o host obtém a versão mais recente tal como o `borg update` faz, e o
+seu serviço passa para ela. **Esc** fecha o seletor enquanto a atualização continua. Em seguida, o
+Borg indica a versão que o host corre, ou que a nova versão não arrancou e o host voltou à que
+corria. Um espelho de uma das suas sessões espera por ele e volta a mostrar o host quando este
+regressa (consulte [Espelhar uma sessão](#mirroring-a-session)). Execute antes `borg update` no
+host quando o seu Borg for mais antigo ou correr sem o serviço em segundo plano. Um Borg instalado
+aí com o Homebrew ou o cargo atualiza-se com essa ferramenta no host, e o Borg indica o comando.
+
 ### Painéis remotos
 
 Depois do emparelhamento, `borg --remote MACHINE:SESSION` abre os ficheiros dessa sessão no painel
@@ -1068,8 +1180,9 @@ no seu ecrã, e pode responder-lhes aqui (consulte [O que o agente pode fazer](#
 No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos ou escolha
 **F9 → Remoto → Explorar hosts e sessões…** para ver as máquinas emparelhadas e as respetivas
 sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a partir do qual abriu o
-seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão e
-**R** para atualizar a lista.
+seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão,
+**U** para atualizar o host (consulte [Atualizar com sessões abertas](#updating-with-sessions-open))
+e **R** para atualizar a lista.
 
 **Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
 que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
@@ -1141,6 +1254,12 @@ assume sempre o controlo retirando-o a outro visualizador. Depois de ter o contr
 tecla acorda um ecrã remoto em repouso, e as teclas e a entrada de rato seguintes chegam-lhe. Um
 visualizador que fique para trás salta os fotogramas de animação antigos e passa diretamente
 para o ecrã atual.
+
+Quando o host deixa de responder, por exemplo durante uma atualização, o espelho mantém o último
+ecrã, indica-o na linha de estado e tenta de novo a cada 2 segundos, durante 100 segundos no
+máximo. Entretanto, **Ctrl-G** sai do espelho. Quando o host regressa, o espelho volta a mostrar o
+seu ecrã, com a versão que corre agora no canto inferior direito. Se o host continuar ausente
+depois disso, o espelho termina com uma mensagem.
 
 Um pedido do agente aparece no espelho tal como o servidor o mostra, e responde-lhe aí quando
 tiver o controlo. Se abriu o espelho a partir de um painel remoto e o pedido ainda esperar quando
@@ -1295,11 +1414,12 @@ hexadecimais e prima-o de novo para voltar ao texto. Um ficheiro binário, que o
 um byte a zero nos primeiros 4 KiB, abre em linhas hexadecimais em ambos, e `h` mostra o seu texto.
 Cada linha começa com a sua posição no ficheiro e mostra depois os seus bytes em hexadecimal e os
 mesmos bytes como texto, com um ponto em cada byte que não é imprimível. As posições e os bytes a
-zero aparecem esbatidos. Uma linha tem 16 bytes, ou 8, 4, 2 ou 1 quando não há espaço para 16. O
-Borg lê apenas as linhas que estão no ecrã, pelo que as setas, PgUp/PgDn, Space, Home e End
-percorrem de imediato um ficheiro de vários gigabytes. A barra de pesquisa também funciona nas
-linhas hexadecimais e marca cada correspondência nas duas colunas. Em hexadecimal, os ficheiros
-Markdown e JSON mostram os bytes tal como estão escritos.
+zero aparecem esbatidos. Uma linha tem tantos bytes quantos couberem na largura: 64, 32, 16, 8, 4, 2
+ou 1, com um espaço maior a seguir a cada oitavo byte. O Borg lê apenas as linhas que estão no ecrã,
+pelo que as setas, PgUp/PgDn, Space, Home e End percorrem de imediato um ficheiro de vários
+gigabytes. A barra de pesquisa também funciona nas linhas hexadecimais e marca cada correspondência
+nas duas colunas. Em hexadecimal, os ficheiros Markdown e JSON mostram os bytes tal como estão
+escritos.
 
 No visualizador, uma faixa de entropia acompanha o lado direito das linhas hexadecimais. A entropia
 indica quão variados são os bytes, de 0 bits por byte para um único byte repetido a 8 para bytes tão
@@ -1482,6 +1602,13 @@ muda o idioma do guia de forma independente.
 As definições ficam guardadas em `~/.config/borg-commander/config.toml`, ou na pasta indicada por
 `$XDG_CONFIG_HOME` ou `$BORG_CONFIG_DIR`. F9 → Opções → Definições mostra-as como caixas de
 verificação; Space ou um clique alterna uma definição e guarda-a de imediato. Esc fecha a janela.
+O Borg lê o ficheiro definição a definição. Uma definição que não tem, ou um valor que não consegue
+usar, afeta apenas essa definição: o Borg diz em que linha está ao arrancar e usa aí a predefinição.
+Quando o Borg guarda uma definição altera só essa e mantém o resto do ficheiro, com os seus
+comentários, tal como o escreveu. Uma definição de uma versão anterior é lida como aquilo que a
+substituiu e sai do ficheiro na gravação seguinte. Um ficheiro que não é TOML de todo faz o Borg
+arrancar com as predefinições, e a primeira definição que guardar depois mantém esse ficheiro ao
+lado do novo como `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -1494,7 +1621,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
-update-check = true         # look for a new release once a day
+update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud
@@ -1529,7 +1656,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 [watch]
 on = false                  # watch what starts, in the background service
 freeze = true               # stop a process a rule is sure about
-learning-days = 7           # learn what is normal here before freezing anything
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
 keep-running = ["backup-agent"]  # programs Borg never freezes
@@ -1675,9 +1802,25 @@ para voltar a mostrar todos.
 | K | Enviar um sinal ou alterar a prioridade |
 | E | Procurar entropia alta em todos os processos |
 | Alt-N | Mostrar o tráfego do processo selecionado no ecrã de rede |
+| Alt-O | Abrir a pasta do programa selecionado ao lado da lista |
 | Space | Pausar ou retomar a amostragem |
 | R | Atualizar a vista atual |
 | Esc | Voltar; na lista de processos, fechar o monitor ou regressar ao ecrã de rede |
+
+**Alt-O** abre a pasta do programa do processo selecionado no outro painel, com o cursor no
+programa, e os ficheiros passam a receber as teclas. A lista mantém o filtro, a ordem e o processo
+que selecionou. **Tab** passa as teclas entre a lista e os ficheiros, e Alt-O noutra linha leva os
+ficheiros para lá. Nesses ficheiros pode ver, editar, apagar, comprimir e extrair, e criar pastas.
+Copiar e mover precisam do outro painel, por isso esperam que o monitor feche. **Esc** na lista, ou
+**Alt-M**, traz de volta o resumo, e Alt-M outra vez fecha o monitor. Nos ficheiros abertos e no
+mapa de memória, Alt-O mostra o ficheiro aberto selecionado ou o ficheiro que a região mapeia.
+Quando o programa foi eliminado enquanto corre, a sua pasta abre com um aviso. Um aviso indica
+também quando o ficheiro não está na sua pasta neste computador, como acontece com um programa que
+corre dentro de um contentor. Os alertas, os itens de arranque e a vista Docker funcionam da mesma
+forma.
+
+Cada ecrã guarda o filtro quando o fecha e volta a mostrá-lo quando o abre. Para limpar um filtro,
+prima **/** e depois **Esc**.
 
 Clique no cabeçalho de uma coluna para ordenar, e faça duplo clique num processo para abrir o seu
 mapa de memória. O resumo mostra a memória residente atual, o valor mais alto observado, a
@@ -1763,11 +1906,12 @@ suas próprias permissões, e deixa o descritor do processo em paz.
 
 ### Pré-visualização de regiões
 
-Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início
-da região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por
-cima dos bytes indica em que ponto da região está a janela. Quando se move depressa, o Borg espera
-um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela a
-leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
+Quando seleciona uma região legível, o Borg captura até 64 KiB dela no outro painel. Se o início da
+região contiver apenas zeros, a captura avança até à primeira página com dados, e a linha por cima
+dos bytes indica em que ponto da região está a janela. Cada linha começa pela sua posição a contar
+do início da região, e um painel largo mostra mais bytes por linha. Quando se move depressa, o Borg
+espera um momento antes de ler; selecionar outra região limpa a pré-visualização anterior e cancela
+a leitura pendente. As regiões que não podem ser lidas mostram uma mensagem. Prima **Tab** ou
 **Enter** para percorrer a pré-visualização. **Esc** aí volta à lista, e **Esc** no mapa volta à
 lista de processos com o cursor e o filtro como estavam.
 
@@ -1806,8 +1950,8 @@ região contém antes de suspeitar dela.
 
 Prima **/** no painel de memória, ou **Ctrl-F** em qualquer dos painéis, para pesquisar a
 memória. Escolha um modo, se as maiúsculas e minúsculas têm de coincidir, e se quer pesquisar a
-memória legível do processo ou a captura atual. **Texto** pesquisa UTF-8, UTF-16 (nas duas ordens
-de bytes) e UTF-32 (nas duas ordens de bytes). **Unicode** normaliza também os caracteres de
+memória legível do processo ou a captura atual. O formulário abre com o que tinha quando o fechou
+da última vez. **Texto** pesquisa UTF-8, UTF-16 (nas duas ordens de bytes) e UTF-32 (nas duas ordens de bytes). **Unicode** normaliza também os caracteres de
 compatibilidade e as sequências combinadas: por exemplo,
 `𝐁𝐨𝐫𝐠` corresponde a `Borg`. Não trata como iguais letras diferentes só por serem parecidas.
 **Bytes hexadecimais** aceita pares de bytes como `42 6F 72 67`.
@@ -2000,6 +2144,9 @@ os mesmos alertas. Esse serviço corre enquanto houver um Borg aberto. Para cont
 sem nenhum terminal aberto, inicie o serviço no arranque do sistema como descreve
 [Sessões com nome e serviço em segundo plano](#named-sessions-and-the-background-service).
 
+Os alertas ficam nessa máquina até indicar um destino para eles, e a página avisa enquanto assim
+for (consulte [Alertas fora da máquina](#alerts-off-the-machine)).
+
 **Alt-L** ou **Comando → Alertas** abre a página. A lista ocupa o painel ativo, com o alerta mais
 recente primeiro, e o outro painel mostra o alerta selecionado por inteiro. Cada linha mostra a
 hora, a regra que disparou, o programa, o processo-pai que o iniciou, o utilizador com que correu
@@ -2025,11 +2172,12 @@ registo o guarda.
 | C | Deixar um processo congelado continuar a correr |
 | K | Terminar o processo, depois de uma pergunta |
 | A | Permitir arranques como este a partir de agora |
+| Alt-O | Abrir a pasta do programa do alerta ao lado da lista |
 | `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
 | R | Ler o registo de novo |
 | Ctrl-C | Copiar o comando que o processo correu |
 | Alt-W | Maximizar a lista |
-| Esc | Limpar o filtro e depois fechar a página |
+| Esc | Fechar a página, que guarda o filtro |
 
 O filtro mantém os alertas que contêm todas as palavras que escrever, na regra, no seu nome curto,
 no motivo, no programa, no processo-pai, no utilizador, no comando e no que o Borg fez. Ponha `!`
@@ -2037,7 +2185,8 @@ antes de uma palavra para deixar de fora o que ela apanha: `shell-on-socket !roo
 shells remotas de todos os outros utilizadores.
 
 Os alertas vivem em `alerts.json` na pasta de estado, acessível só ao dono, os 200 mais recentes.
-O Borg mantém o ficheiro dentro de 8 MiB, o máximo que lê de volta, e deixa de fora os alertas mais
+Um alerta sobre um processo que continua congelado fica para além desse limite, para que possa
+sempre deixá-lo continuar ou terminá-lo. O Borg mantém o ficheiro dentro de 8 MiB, o máximo que lê de volta, e deixa de fora os alertas mais
 antigos quando não cabem. A janela **Ficheiros do Borg** conta-os em **Estado** (veja
 [Ficheiros do Borg](#borgs-files)). Abrir a página marca como lidos os alertas que ela mostra, e a
 contagem de alertas não lidos acompanha o registo enquanto o Borg estiver aberto, esteja a página
@@ -2162,7 +2311,8 @@ precisa, e a interface do Borg continua a correr como você. Os dois lados falam
 pasta de estado a que só o dono chega, o Borg aceita uma ligação apenas de um processo que corre
 como root, e a parte root liga-se apenas a um socket que pertence ao utilizador para quem foi
 instalada. `borg service watch uninstall` remove-a, e `borg service watch status` imprime de onde
-vêm os eventos e o que foi encontrado.
+vêm os eventos e o que foi encontrado. A instalação e o estado avisam enquanto os alertas não
+tiverem destino (consulte [Alertas fora da máquina](#alerts-off-the-machine)).
 
 Os programas precisam do Linux 5.8 ou posterior. Num kernel mais antigo, ou onde a parte root não os
 pode carregar, ela ouve os eventos de processo do kernel e lê tudo de `/proc`, e a página indica-o
@@ -2225,6 +2375,20 @@ que cada um respondeu.
   sua caixa de saída. Um serviço como o healthchecks.io avisa-o quando as chamadas param, que é o
   que acontece quando alguém mata o observador.
 
+Enquanto nenhum destino receber alertas, eles ficam no registo da máquina, e o Borg avisa onde quer
+que encontre o observador. A página Alertas mostra **Os alertas ficam nesta máquina.** por cima dos
+detalhes do alerta selecionado, ou na última linha da lista quando esta está maximizada. A mesma
+linha aparece quando ativa o observador em Opções → Plugins, em `borg service watch install` e
+`borg service watch status`, e na saída do serviço quando o observador arranca. Um sinal de vida
+sozinho não acaba com o aviso. Diz-lhe que o observador está a correr e não leva alertas, por isso
+adicione também Telegram, ntfy ou um webhook.
+
+O aviso fica mais forte quando o Borg está perto de agir. A partir de um dia antes do fim do período
+de aprendizagem diz **O Borg está prestes a congelar processos aqui e ninguém será avisado.**, e
+depois de o congelamento começar, **O Borg congela processos aqui e ninguém é avisado.** O Borg
+continua a observar, a aprender e a congelar sem um destino para os alertas, por isso configure um
+antes de o período de aprendizagem acabar numa máquina que não consulta todos os dias.
+
 O serviço envia cada alerta poucos segundos depois de o registar e diz também quando o observador
 arranca e quando o congelamento começa. Os alertas de nível nota ficam só na página, a menos que
 `level` seja `notice`. Uma mensagem que um destino recusa espera em `watch-outbox.json`, na pasta
@@ -2266,7 +2430,9 @@ Conheça-as antes de confiar nele.
   corre durante a semana de aprendizagem conta como normal.
 - Sem o observador como root, o Borg vê apenas os seus próprios processos, e um comando que termina
   em menos de um quarto de segundo pode desaparecer antes de o Borg olhar. Os serviços que correm
-  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root.
+  como outro utilizador, como `www-data` ou `postgres`, precisam do observador como root. Quando o
+  observador como root deixa de correr, o Borg volta a observar os seus próprios processos até que ele corra de
+  novo.
 - Antes do Linux 5.8, ou onde a parte root não consegue carregar os seus programas, o Borg lê cada
   processo novo em `/proc` depois de o kernel o comunicar. Um comando que termina de imediato pode
   já ter desaparecido, e um processo pode mudar antes a sua linha de comandos.
@@ -2344,11 +2510,13 @@ endereço assim que o conhece.
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
 | Alt-W | Maximizar o painel com o foco |
-| Esc | Voltar à lista, depois limpar o filtro e depois fechar o ecrã ou regressar ao monitor de atividade |
+| Esc | Voltar à lista e depois fechar o ecrã ou regressar ao monitor de atividade |
 
 P ordena as páginas que têm porta, e C as que contam ligações. Clique no cabeçalho de uma coluna
 para ordenar por ela, e faça duplo clique numa linha para mostrar o processo. Enter numa linha sem
-processo passa para os detalhes. O monitor de atividade que Enter e K abrem tem o processo
+processo passa para os detalhes. Uma linha indica um processo e nenhum ficheiro de programa, por
+isso Alt-O aqui diz-lhe para premir Enter e depois Alt-O no monitor de atividade. O monitor de
+atividade que Enter e K abrem tem o processo
 selecionado, por isso a memória, os sinais e a prioridade ficam à distância de uma tecla (consulte
 [Sinais e prioridade](#signals-and-priority)). Esc aí leva-o de volta ao ecrã de rede, à linha
 onde estava e com os gráficos.
@@ -2369,7 +2537,7 @@ funcionam. Uma palavra com nome de campo procura apenas nesse campo:
 | `port:443`, `port:ssh` | Linhas com esse número de porta ou serviço |
 | `proc:node`, `process:node` | Linhas cujo nome de processo contém o texto |
 | `pid:4100` | Linhas desse PID |
-| `host:example` | Linhas cujo endereço ou nome do host contém o texto |
+| `host:example` | Linhas cujo endereço ou nome do host contém o texto; um endereço completo mantém apenas esse endereço |
 | `state:listen`, `state:time` | Linhas TCP num estado que contém o texto |
 | `proto:udp`, `proto:tcp` | Linhas desse protocolo |
 | `if:en0`, `interface:en0` | Interfaces cujo nome contém o texto |
@@ -2455,8 +2623,8 @@ para cada forma de a ver:
 - **4 Pacotes** mostra todos os pacotes por ordem com o tempo desde o início, o protocolo, o tamanho
   e um resumo como `ClientHello example.com` ou `A example.com → 203.0.113.10`. Os detalhes mostram
   as camadas (Ethernet, IP, TCP ou UDP, e DNS, TLS ou HTTP quando o Borg as lê) e os bytes num dump
-  hexadecimal. Um dump põe 16 bytes em cada linha, e menos num painel estreito, para que o texto
-  continue a caber ao lado. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
+  hexadecimal. Um dump dispõe os bytes como as linhas hexadecimais do visualizador, com tantos
+  em cada linha quantos couberem no painel. F3 mostra os bytes do pacote em linhas hexadecimais no visualizador.
 
 | Tecla | Ação |
 | --- | --- |
@@ -2705,15 +2873,17 @@ próprio ficheiro desativa aparece esbatido, e os detalhes dizem
 
 | Tecla | Ação |
 | --- | --- |
-| Enter | Fechar o ecrã e mostrar o ficheiro do item no painel |
+| Enter, Alt-O | Abrir a pasta do ficheiro do item ao lado da lista |
 | F3 / F4 | Ver / editar o ficheiro do item |
 | `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
 | R | Ler de novo todos os locais |
 | Ctrl-C | Copiar o que o item executa |
 | Alt-W | Maximizar a lista |
-| Esc | Limpar o filtro e depois fechar o ecrã |
+| Esc | Fechar o ecrã, que guarda o filtro |
 
-Faça duplo clique numa linha para mostrar o ficheiro no painel. O filtro mantém os itens que contêm
+Enter ou um duplo clique abre a pasta do ficheiro do item no outro painel, com o cursor no
+ficheiro, e a lista fica como estava. Tab alterna entre a lista e os ficheiros, e Esc na lista ou
+Alt-U traz de volta os detalhes. O filtro mantém os itens que contêm
 todas as palavras que escrever, no local, no nome, no que executa, no caminho do ficheiro, no
 proprietário, no utilizador com que corre, em quando corre, em **existe** ou **em falta** e nos
 nomes das regras a que correspondeu. Ponha `!` antes de uma palavra para excluir o que ela encontra:

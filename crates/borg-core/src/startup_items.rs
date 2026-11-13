@@ -2,10 +2,11 @@
 //! change first, in one panel, and the selected item's details in the other. Core reads what
 //! the files say; the app reads the files, their owners and times, and runs the rules.
 
+use crate::screens::{CHROME_ROWS, FILTER_LIMIT, PAGE};
 use borg_i18n::tr;
 use borg_rules::{Level, Problem, RuleMatch};
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{Instant, SystemTime},
 };
 
@@ -20,10 +21,6 @@ pub(crate) use keys::{click, paste, route_key};
 pub use parse::{COMMAND_SEPARATOR, StartupEntry, parse, program_of, shell_words};
 pub use places::{StartupFormat, StartupPlace, StartupSpot, StartupSystem, UNIT_LINK_FOLDERS, spots};
 
-const FILTER_LIMIT: usize = 128;
-const PAGE: usize = 10;
-/// Rows the list pane's frame, summary, filter, column titles and footer take.
-pub const STARTUP_CHROME_ROWS: u16 = 6;
 const EXCLUDE: char = '!';
 
 /// Whether an item's program is on disk.
@@ -261,10 +258,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
-    state.activity.side = None;
-    crate::docker::close(state);
-    crate::network::close(state);
-    crate::watch::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Startup);
     let startup = &mut state.startup_items;
     startup.side = Some(state.active);
     startup.error = None;
@@ -299,7 +293,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
     let side = state.startup_items.side.unwrap_or(state.active);
     let list = state.layout(now).panels[side.index()];
     if !list.is_empty() {
-        state.startup_items.keep_visible(usize::from(list.height.saturating_sub(STARTUP_CHROME_ROWS)));
+        state.startup_items.keep_visible(usize::from(list.height.saturating_sub(CHROME_ROWS)));
     }
 }
 
@@ -318,11 +312,6 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<StartupRepor
         }
         Err(error) => startup.error = Some(error),
     }
-}
-
-/// The folder and name of an item's file, to show it in a panel.
-fn place_in_folder(file: &Path) -> Option<(PathBuf, String)> {
-    Some((file.parent()?.to_path_buf(), file.file_name()?.to_string_lossy().into_owned()))
 }
 
 #[cfg(test)]

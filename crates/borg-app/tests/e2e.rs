@@ -2009,9 +2009,18 @@ fn activity_monitor_drills_into_process_memory_pauses_and_respects_plugin_toggle
     app.send(keys::esc())?;
     app.wait_text("Activity monitor")?;
     app.send(keys::esc())?;
+    app.wait_until("file panels after closing activity monitor", |s| {
+        panels_ready(s) && !s.contains("Activity monitor")
+    })?;
+    app.send(keys::alt(KeyCode::Char('m')))?;
+    app.wait_until("the monitor reopened with its PID filter", |s| {
+        s.contains("Activity monitor")
+            && s.lines().iter().any(|line| line.contains("Filter") && line.contains(&format!(" {pid} ")))
+    })?;
+    app.send("/")?.send(keys::esc())?;
     app.wait_text("/ Filter processes")?;
     app.send(keys::esc())?;
-    app.wait_until("file panels after closing activity monitor", |s| {
+    app.wait_until("file panels after closing activity monitor again", |s| {
         panels_ready(s) && !s.contains("Activity monitor")
     })?;
     choose(&mut app, OPTIONS_MENU, "Plugins…")?;
@@ -5129,8 +5138,9 @@ fn mirror_handoffs_and_disconnects_work_without_terminal_cursor_replies() -> Res
     local.wait_text("REMOTE MIRROR - CONTROL")?;
     remote.send(keys::f(10))?.send("y")?;
     ensure!(remote.wait_exit()?.success());
-    local.wait_text("Remote mirror:")?;
-    local.wait_until("local panels after remote disconnect", |screen| {
+    local.wait_text("RECONNECTING")?;
+    local.send(keys::ctrl('g'))?;
+    local.wait_until("local panels after leaving a mirror that waits for its host", |screen| {
         panels_ready(screen) && !screen.contains("REMOTE MIRROR")
     })?;
     let shown = local.wait_text("notes.txt")?;

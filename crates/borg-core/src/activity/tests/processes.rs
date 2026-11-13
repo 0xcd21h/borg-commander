@@ -160,12 +160,14 @@ fn the_process_filter_types_moves_keeps_and_clears() {
     key(&mut state, KeyCode::Enter);
     assert!(!state.activity.filtering && state.activity.filter == "2");
     key(&mut state, KeyCode::Esc);
-    assert!(state.activity.filter.is_empty() && state.activity.side.is_some(), "Esc clears before closing");
-    assert_eq!(state.activity.rows.len(), 3);
+    assert!(state.activity.side.is_none(), "Esc closes the monitor");
+    open(&mut state);
+    assert_eq!((state.activity.filter.as_str(), state.activity.rows.len()), ("2", 2), "the filter comes back");
     for code in [KeyCode::Char('/'), KeyCode::Char('3'), KeyCode::Esc] {
         key(&mut state, code);
     }
-    assert!(!state.activity.filtering && state.activity.filter.is_empty());
+    assert!(!state.activity.filtering && state.activity.filter.is_empty(), "Esc while typing clears");
+    assert_eq!(state.activity.rows.len(), 3);
     key(&mut state, KeyCode::Esc);
     assert!(state.activity.side.is_none());
 }

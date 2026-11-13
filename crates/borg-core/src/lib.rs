@@ -40,8 +40,10 @@ mod pattern;
 mod plugins;
 mod pointer;
 mod query;
+mod relaunch;
 mod remote;
 mod results;
+mod screens;
 mod service;
 mod session_picker;
 mod settings;
@@ -49,6 +51,7 @@ mod startup_items;
 mod state;
 mod storage;
 mod update;
+mod update_offer;
 mod viewer;
 mod watch;
 
@@ -81,8 +84,8 @@ pub use discovery::{
 };
 pub use docker::{
     ContainerShell, CpuUse, Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, Docker, DockerData,
-    DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, Mount, NoCleanup, ShellRequest, Usage, Working,
-    container_shell_busy, shell_rect,
+    DockerGroup, DockerRequest, DockerRow, FileOp, FileWork, LastUsed, Mount, NoCleanup, Opening, ShellRequest, Usage,
+    VolumeContents, VolumeMount, Working, container_shell_busy, shell_rect,
 };
 pub use editor::{
     EDITOR_CHROME, Editor, EditorDialog, EditorFile, EditorPrompt, EditorSlot, FileStamp, OpenError, SaveError,
@@ -120,10 +123,9 @@ pub use settings::{
     AMBIENT_FRAME, AfterCommand, DEFAULT_SCREENSAVER_AFTER, ICON_SPACING, Motion, Preferences, SearchSettings, Settings,
 };
 pub use startup_items::{
-    COMMAND_SEPARATOR, ProgramPresence, RuleHit, STARTUP_CHROME_ROWS, StartupEntry, StartupFormat, StartupItem,
-    StartupItems, StartupPlace, StartupReport, StartupSpot, StartupSystem, UNIT_LINK_FOLDERS,
-    filtered as startup_filtered, newest_first, parse as parse_startup, program_of, shell_words,
-    spots as startup_spots,
+    COMMAND_SEPARATOR, ProgramPresence, RuleHit, StartupEntry, StartupFormat, StartupItem, StartupItems, StartupPlace,
+    StartupReport, StartupSpot, StartupSystem, UNIT_LINK_FOLDERS, filtered as startup_filtered, newest_first,
+    parse as parse_startup, program_of, shell_words, spots as startup_spots,
 };
 pub use state::{
     AppState, Confirm, ConfirmPurpose, Console, INTRO, Leaving, MenuCursor, Operation, Overlay, PanelSetup, Prompt,
@@ -138,17 +140,20 @@ pub use storage::{
     socket_leftovers,
 };
 pub use update::update;
+pub use update_offer::UpdateOffer;
 pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
 pub use watch::{
-    ALERTS_CHROME_ROWS, ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertLog, AlertState, Alerts, AlertsReply,
-    AlertsRequest, Allowance, Ancestor, Baseline, COMMAND_CUT, COMMAND_KEPT, Evidence, FIRST_PERSON,
-    FREEZES_PER_MINUTE, Finding as WatchFinding, Guard, History, LEARNING_DAYS, Limits, NEVER_FROZEN, Outcome,
-    PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess, StreamKind, WatchRule,
-    WatchSource, WatchStatus, Watcher, alerts_filtered, decide as decide_response, examine as examine_start,
-    kept_within,
+    ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertDelivery, AlertLog, AlertState, Alerts, AlertsReply, AlertsRequest,
+    Allowance, Ancestor, Baseline, COMMAND_CUT, COMMAND_KEPT, Evidence, FIRST_PERSON, FREEZES_PER_MINUTE,
+    FREEZING_SOON, Finding as WatchFinding, Freezing, Guard, History, LEARNING_DAYS, LEARNING_DAYS_LIMIT, Limits,
+    NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess,
+    StreamKind, Unsent, WatchRule, WatchSource, WatchStatus, Watcher, alerts_filtered, decide as decide_response,
+    examine as examine_start, kept_within, learning_period,
 };
 
-pub use remote::{KeyChange, RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames};
+pub use remote::{
+    HostUpdate, KeyChange, RemoteBrowser, RemoteChoice, RemoteClient, RemoteHostInfo, RemoteHostNames, RemoteNames,
+};
 pub use remote::{mount as mount_remote, unmount as unmount_remote};
 pub use results::{
     COLLECTION_LIMIT, Collection, FirstMatch, PACKED_SHARE, RESULT_LIMIT, ResultGroup, ResultRow, ResultSource,
@@ -190,10 +195,9 @@ pub use network::{
     capture_interfaces, capture_no_room, is_capture,
 };
 pub use network::{
-    CHROME_ROWS as NETWORK_CHROME_ROWS, ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter,
-    Network, NetworkFilter, NetworkPage, NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow,
-    RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey, TcpState, Traffic, Transport, exposure_label, kind_label,
-    service,
+    ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter, Network, NetworkFilter, NetworkPage,
+    NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow, RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey,
+    TcpState, Traffic, Transport, exposure_label, kind_label, service,
 };
 
 pub use capture::{

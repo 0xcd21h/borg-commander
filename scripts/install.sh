@@ -8,8 +8,10 @@
 # ~/.local/bin, which it adds to the shell's startup file. Then it starts borg.
 #
 # BORG_INSTALL_DIR and BORG_DATA_DIR choose where the binary and fonts go. BORG_NO_RUN
-# installs without starting borg. NO_COLOR turns colours off, FORCE_COLOR turns them on,
-# and BORG_NO_ANIMATION skips the animated logo.
+# installs without starting borg. BORG_SERVICE=1 also starts borg at boot as a service,
+# which uses sudo; in a terminal the installer asks, and BORG_SERVICE=0 skips the question.
+# NO_COLOR turns colours off, FORCE_COLOR turns them on, and BORG_NO_ANIMATION skips the
+# animated logo.
 set -eu
 
 repo="0xcd21h/borg-commander"
@@ -67,8 +69,10 @@ else
 fi
 if $unicode; then
     done_mark="✓" fail_mark="✗" wait_mark="◌" arrow="›" rule="·"
+    service_menu="F9 → Remote → Background service…"
 else
     done_mark="ok" fail_mark="x" wait_mark=".." arrow=">" rule="-"
+    service_menu="F9, Remote, Background service"
 fi
 
 cleanup() {
@@ -268,9 +272,86 @@ else
     printf 'New terminals find it. In this one, first run\n\n      %sexport PATH="%s:$PATH"%s\n\n' "${accent}" "${dest}" "${reset}"
 fi
 
+terminal=false
+if [ -z "${CI:-}" ] && $tty && [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then terminal=true; fi
+
+# The service starts borg at boot, so kept sessions and borg cloud run with no terminal
+# open. It needs systemd or launchd, and sudo unless root, so it is set up only when asked
+# for. The process watcher's root part stays a separate choice: borg service watch install.
+note() { printf '  %s%s%s %-10s %s\n' "${dim}" "${arrow}" "${reset}" "$1" "$2"; }
+service_blocked() {
+    if [ "$(uname -s)" = Linux ] && [ ! -d /run/systemd/system ]; then
+        if [ -e /.dockerenv ] || [ -e /run/.containerenv ] || [ -n "${container:-}" ]; then
+            printf 'this container has no systemd; have its supervisor run %sborg service run%s' "${accent}" "${reset}"
+        else
+            printf 'systemd is not running here'
+        fi
+    elif [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+        printf 'it needs sudo, which is not installed'
+    fi
+}
+service_installed() {
+    account="$(id -un 2>/dev/null || true)"
+    [ -e "/etc/systemd/system/borg-commander-${account}.service" ] ||
+        [ -e "/Library/LaunchDaemons/com.borg-commander.service.${account}.plist" ]
+}
+service_setup() {
+    input=/dev/null
+    if $terminal; then input=/dev/tty; fi
+    if [ "$(id -u)" -ne 0 ]; then note "Service" "sudo may ask for your password"; fi
+    left="install enable start"
+    for step in ${left}; do
+        if ! output="$("${dest}/borg" service "${step}" 2>&1 <"${input}")"; then
+            printf '  %s%s %-10s could not be set up: borg service %s failed%s\n' "${bad}" "${fail_mark}" "Service" "${step}" "${reset}" >&2
+            printf '%s\n' "${output}" | tail -n 3 | sed 's/^/    /' >&2
+            by_hand=""
+            for todo in ${left}; do by_hand="${by_hand:+${by_hand} && }borg service ${todo}"; done
+            printf '    borg itself is installed. To finish, run %s%s%s\n\n' "${accent}" "${by_hand}" "${reset}" >&2
+            return 1
+        fi
+        left="${left#"${step}"}"
+    done
+    finished "Service" "borg starts at boot ${dim}${rule} undo with borg service uninstall${reset}"
+    printf '\n'
+}
+
+service="${BORG_SERVICE:-}"
+service_failed=false
+case "${service}" in
+    '' | 1 | [Yy] | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee] | [Oo][Nn])
+        blocked="$(service_blocked)"
+        if [ -n "${blocked}" ]; then
+            note "Service" "skipped: ${blocked}."
+            printf '\n'
+        elif service_installed; then
+            if [ -n "${service}" ]; then
+                note "Service" "already installed"
+                printf '\n'
+            fi
+        else
+            if [ -z "${service}" ] && $terminal; then
+                note "Service" "optional. It starts borg at boot, so sessions you keep with"
+                printf '               %sborg service keep NAME%s stay running with no terminal open,\n' "${accent}" "${reset}"
+                printf '               and a paired computer reaches this machine after a restart.\n'
+                printf '               You can set it up later in borg: %s%s%s\n\n' "${accent}" "${service_menu}" "${reset}"
+                printf '  %s%s%s Start borg at boot as a background service? It uses sudo. %s[y/N, default n]%s ' "${accent}" "${arrow}" "${reset}" "${dim}" "${reset}"
+                read -r service </dev/tty || service=""
+                printf '\n'
+            elif [ -z "${service}" ]; then
+                note "Service" "optional, not set up. To start borg at boot later, choose ${accent}${service_menu}${reset} in borg, or run ${accent}borg service install${reset}, ${accent}enable${reset} and ${accent}start${reset}."
+                printf '\n'
+            fi
+            case "${service}" in
+                1 | [Yy] | [Yy][Ee][Ss] | [Tt][Rr][Uu][Ee] | [Oo][Nn]) service_setup || service_failed=true ;;
+            esac
+        fi
+        ;;
+esac
+
 # Start borg in this terminal, with its folder on PATH for the console inside it. The
-# script came through a pipe, so borg reads the terminal itself.
-if [ -z "${BORG_NO_RUN:-}${CI:-}" ] && $tty && [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
+# script came through a pipe, so borg reads the terminal itself. A failed service setup
+# leaves its message on screen instead.
+if [ -z "${BORG_NO_RUN:-}" ] && $terminal && ! $service_failed; then
     cleanup
     trap - EXIT INT TERM
     PATH="${dest}:${PATH}"

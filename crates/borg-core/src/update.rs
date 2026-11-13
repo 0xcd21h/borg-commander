@@ -125,6 +125,11 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::ParkedSignal { container, signal } => shell::parked_signal(state, container.as_deref(), &signal),
         Msg::ShellExited => vec![Effect::Quit],
+        Msg::Relaunch { version } => crate::relaunch::requested(state, version),
+        Msg::UpdateAvailable(offer) => {
+            crate::update_offer::available(state, offer);
+            Vec::new()
+        }
 
         Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
         Msg::KeptAnswers(kept) => {
@@ -231,6 +236,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::remote::deleted(state, machine, session, result)
         }
         Msg::RemoteHostForgotten { machine, result } => crate::remote::forgotten(state, machine, result),
+        Msg::RemoteHostUpdated { machine, result } => crate::remote::updated(state, machine, result),
         Msg::RemoteCatalog { choices, complete } => {
             crate::remote::catalog(state, choices, complete);
             Vec::new()
@@ -242,6 +248,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 /// monitors, the sizes and the busy marker, and the jobs' and the agent's questions show.
 fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
+    crate::screens::sync_lent(state);
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::backup::sync(state));
@@ -252,11 +259,14 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     crate::watch::sync(state, now);
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
+    effects.extend(crate::docker::release_helpers(state));
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
     crate::jobs::surface_questions(state);
     crate::agent::surface(state, now);
+    crate::update_offer::surface(state, now);
+    effects.extend(crate::relaunch::sync(state));
     effects
 }
 
@@ -319,6 +329,7 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
         state.notice = notice.or(state.notice.take());
     }
     crate::archive::settle(state, side);
+    crate::screens::listed(state, side, generation);
     if unreadable {
         return crate::archive::unmount(state, side).into_iter().collect();
     }

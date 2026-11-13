@@ -70,6 +70,12 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if let Some(handled) = menu_mouse(state, &mouse, &layout) {
         return handled;
     }
+    if let Some(side) = state.lent.filter(|side| state.monitor_open() && layout.panels[side.index()].contains(point)) {
+        return panel_mouse(state, side, &mouse, layout.panels[side.index()], (layout.screen, now));
+    }
+    if state.files_beside_focused() && layout.keybar.contains(point) {
+        return chrome_mouse(state, &mouse, &layout).flatten();
+    }
     if state.monitor_open() {
         return monitor_mouse(state, &mouse, &layout);
     }
@@ -200,7 +206,6 @@ fn search_form_mouse(state: &AppState, form: &borg_core::SearchForm, mouse: &Mou
 fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Option<Option<Msg>> {
     let open = match state.overlay {
         Some(Overlay::Menu(cursor)) => Some(cursor),
-        // Finding in a panel ends at a click, which then acts on the panels.
         Some(Overlay::Find(_)) | None => None,
         Some(_) => return Some(None),
     };
@@ -328,7 +333,6 @@ fn panel_mouse(state: &AppState, side: Side, mouse: &Mouse, rect: Rect, (screen,
     if !click && !mark {
         return None;
     }
-    // The footer shows a running size scan; clicking it stops the scan, like Alt-I.
     if click && point.y + 1 == rect.bottom() && state.sizing.as_ref().is_some_and(|scan| scan.side == side) {
         return Some(Msg::Pointer(Pointer::Action(borg_core::Action::MeasureSizes)));
     }

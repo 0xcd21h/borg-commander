@@ -17,7 +17,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Widget},
+    widgets::Widget,
 };
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
@@ -72,28 +72,6 @@ pub(crate) fn draw(
     if !details.is_empty() {
         draw_details(startup, look, details, clock, buf);
     }
-}
-
-fn frame(startup: &StartupItems, look: &Look<'_>, rect: Rect, title: &str, focused: bool, buf: &mut Buffer) -> Rect {
-    let theme = look.theme;
-    let styles = &theme.styles;
-    Clear.render(rect, buf);
-    let controls = crate::results_view::controls(rect, startup.expanded);
-    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(if focused { styles.border_active } else { styles.border })
-        .title(Line::styled(
-            format::truncate_end(&format!(" {title} "), usize::from(room)),
-            if focused { styles.title_active } else { styles.title },
-        ));
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    for (r, label, _) in controls {
-        text(buf, r, label, styles.menu);
-    }
-    inner
 }
 
 /// What a list column shows.
@@ -169,7 +147,7 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
     let startup = &state.startup_items;
     let theme = look.theme;
     let styles = &theme.styles;
-    let inner = frame(startup, look, rect, tr!(startup_title), true, buf);
+    let inner = crate::results_view::pane_frame(startup.expanded, look, rect, tr!(startup_title), true, buf);
     if inner.is_empty() {
         return;
     }
@@ -187,6 +165,7 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
         shown: startup.len(),
         total: startup.report.items.len(),
         placeholder: tr!(startup_filter_placeholder),
+        esc_clears: false,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);
@@ -340,10 +319,10 @@ impl Facts<'_, '_> {
 fn draw_details(startup: &StartupItems, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
     let theme = look.theme;
     let Some(item) = startup.selected() else {
-        frame(startup, look, rect, tr!(startup_title), false, buf);
+        crate::results_view::pane_frame(startup.expanded, look, rect, tr!(startup_title), false, buf);
         return;
     };
-    let inner = frame(startup, look, rect, &item.found.name, false, buf);
+    let inner = crate::results_view::pane_frame(startup.expanded, look, rect, &item.found.name, false, buf);
     if inner.is_empty() {
         return;
     }

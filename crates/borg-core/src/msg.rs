@@ -137,6 +137,10 @@ pub enum Msg {
         machine: String,
         result: Result<(), String>,
     },
+    RemoteHostUpdated {
+        machine: String,
+        result: Result<crate::HostUpdate, String>,
+    },
     RemoteCatalog {
         choices: Vec<crate::RemoteChoice>,
         complete: bool,
@@ -291,6 +295,13 @@ pub enum Msg {
     Storage(crate::StorageReport),
     /// How the background service stands, after the Remote menu asked.
     Service(crate::ServiceCheck),
+    /// The service runs Borg `version`, which the program file holds now: the session moves
+    /// to it once nothing here would be lost.
+    Relaunch {
+        version: String,
+    },
+    /// A release newer than the running Borg, which the daily check found.
+    UpdateAvailable(crate::UpdateOffer),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,6 +377,10 @@ pub enum Effect {
     OpenRemotes,
     CancelRemoteConnection,
     ForgetRemoteHost {
+        machine: String,
+    },
+    /// Updates a paired host to the latest Borg and waits for it to come back.
+    UpdateRemoteHost {
         machine: String,
     },
     DeleteRemoteSession {
@@ -565,5 +580,11 @@ pub enum Effect {
     CleanStorage(Vec<PathBuf>),
     /// Looks at how the background service stands on this machine.
     CheckService,
+    /// Starts the newer Borg in place of this one, handing it the shell and the session.
+    Relaunch,
+    /// Remembers that you skipped this release, so the daily check offers the next one only.
+    SkipUpdate(String),
+    /// Turns the daily look for a new release off in the config.
+    StopUpdateChecks,
     Quit,
 }

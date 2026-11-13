@@ -46,6 +46,8 @@ const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const CONTAINER_MARK: char = '▣';
 const ARCHIVE_MARK: char = '▤';
+const VOLUME_MARK: char = '▥';
+const REMOTE_MARK: char = '◈';
 const PARENT_NAME: &str = "..";
 const COLUMN_SEPARATOR: &str = "│";
 const LEFT_CAP: char = '▐';
@@ -191,23 +193,27 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
 /// source, so they never pass for a local folder.
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
     let mount = scene.panel.mount.as_ref();
-    let label = mount
-        .map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name))
+    let volume = scene.panel.volume.as_ref();
+    let label = volume
+        .map(|volume| format!(" {VOLUME_MARK} {} ", tr!(docker_volume_label, name = volume.name.as_str())))
+        .or_else(|| mount.map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name)))
         .or_else(|| {
             scene.panel.remote_mount.as_ref().map(|remote| {
-                format!(
-                    " ◈ Host {}:{} ",
-                    scene.state.remote_host_name(&remote.machine),
-                    scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name)
-                )
+                let machine = scene.state.remote_host_name(&remote.machine);
+                let session = scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name);
+                format!(" {REMOTE_MARK} {} ", tr!(panel_remote_host, machine = machine, session = session))
             })
         })
         .or_else(|| scene.panel.archive.as_ref().map(|archive| format!(" {ARCHIVE_MARK} {} ", archive.label())))
-        .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
+        .or_else(|| scene.client_of_remote.then(|| format!(" {REMOTE_MARK} {} ", tr!(panel_remote_client))));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
     let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };
-    let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), home), width, CRUMB_SEPARATOR);
+    let crumbs = match volume {
+        Some(volume) => format::crumbs(&volume.inside(scene.panel.dir()), None),
+        None => format::crumbs(scene.panel.dir(), home),
+    };
+    let crumbs = format::fit_crumbs(crumbs, width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);
     let separator = Style { fg: separator.fg, ..style.remove_modifier(Modifier::BOLD) };
     let spans = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {

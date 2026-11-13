@@ -48,6 +48,8 @@ pub struct Server {
     hosts: Hosts,
     retired: Arc<Mutex<HashSet<String>>>,
     shell: PathBuf,
+    /// The Borg that gives each shell its terminal before the shell runs.
+    launcher: PathBuf,
     runtime: PathBuf,
 }
 
@@ -60,7 +62,7 @@ impl Server {
             .retain(|_, host| host.lock().expect("remote console").session.as_deref() != Some(session));
     }
 
-    pub fn new(shell: PathBuf, runtime: PathBuf) -> Self {
+    pub fn new(shell: PathBuf, launcher: PathBuf, runtime: PathBuf) -> Self {
         let hosts: Hosts = Default::default();
         let weak = Arc::downgrade(&hosts);
         tokio::spawn(async move {
@@ -74,7 +76,7 @@ impl Server {
                     .retain(|_, host| host.lock().expect("remote console").touched.elapsed() < IDLE_TIMEOUT);
             }
         });
-        Self { hosts, retired: Default::default(), shell, runtime }
+        Self { hosts, retired: Default::default(), shell, launcher, runtime }
     }
 
     fn open(&self, owner: String, args: &Value) -> Result<Value> {
@@ -106,7 +108,7 @@ impl Server {
             command.env("BORG_CONFIRM_EXIT", "1");
         }
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let pty = Pty::spawn(command, size, tx)?;
+        let pty = Pty::spawn(&self.launcher, &command, size, tx)?;
         let (output, _) = broadcast::channel(1);
         let host = Arc::new(Mutex::new(Host {
             owner,
@@ -129,7 +131,7 @@ impl Server {
                         if host.bytes.len() + bytes.len() > BUFFER_LIMIT {
                             host.overflow = true;
                         } else {
-                            host.bytes.extend(bytes);
+                            host.bytes.extend(bytes.iter());
                         }
                     }
                     PtyEvent::Closed => host.closed = true,
@@ -445,7 +447,24 @@ async fn connect(
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
+
+    const EXECUTABLE: u32 = 0o755;
+
+    /// A launcher that runs the shell without leading its terminal, which the shell here
+    /// does not need.
+    fn launcher(dir: &Path) -> Result<PathBuf> {
+        let path = dir.join("launcher");
+        std::fs::write(&path, "#!/bin/sh\nshift\nexec \"$@\"\n")?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(EXECUTABLE))?;
+        Ok(path)
+    }
+
+    fn server(runtime: &tempfile::TempDir) -> Result<Server> {
+        Ok(Server::new(PathBuf::from("/bin/bash"), launcher(runtime.path())?, runtime.path().into()))
+    }
 
     async fn call(server: &Server, owner: Option<&str>, tool: &str, args: Value) -> Reply {
         let mut call = Call::new(tool, args);
@@ -458,7 +477,7 @@ mod tests {
     #[tokio::test]
     async fn removed_sessions_close_their_consoles_and_cannot_reopen_them() -> Result<()> {
         let runtime = tempfile::tempdir()?;
-        let server = Server::new(PathBuf::from("/bin/bash"), runtime.path().into());
+        let server = server(&runtime)?;
         let open = json!({"path":runtime.path(),"cols":100,"rows":24,"session":"removed"});
         let opened = call(&server, Some("owner"), "console_open", open.clone()).await;
         assert!(opened.ok, "{}", opened.text);
@@ -481,7 +500,7 @@ mod tests {
     #[tokio::test]
     async fn console_uses_its_own_pty_and_only_its_paired_owner_can_access_it() -> Result<()> {
         let runtime = tempfile::tempdir()?;
-        let server = Server::new(PathBuf::from("/bin/bash"), runtime.path().into());
+        let server = server(&runtime)?;
         let open = json!({"path":runtime.path(),"cols":100,"rows":24});
         assert!(!call(&server, None, "console_open", open.clone()).await.ok);
         let opened = call(&server, Some("owner"), "console_open", open).await;

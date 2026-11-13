@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 borg-drives = { workspace = true }
+borg-i18n = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

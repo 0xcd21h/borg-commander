@@ -2,7 +2,7 @@ use super::*;
 use crate::{Appearance, Msg, Settings, Startup, ThemeChoice, update};
 use borg_rules::Level;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 const UPDATER: &[u8] = include_bytes!("fixtures/updater.plist");
 const UPDATER_BINARY: &[u8] = include_bytes!("fixtures/updater.binary.plist");
@@ -455,7 +455,7 @@ fn reading_again_keeps_the_cursor_on_its_item() {
 }
 
 #[test]
-fn typing_a_filter_narrows_the_list_and_esc_clears_it_then_closes() {
+fn a_filter_narrows_the_list_and_stays_when_the_screen_closes() {
     let (mut state, _) = opened();
     press(&mut state, KeyCode::Char('/'), KeyModifiers::NONE);
     for c in "ssh".chars() {
@@ -465,13 +465,16 @@ fn typing_a_filter_narrows_the_list_and_esc_clears_it_then_closes() {
     press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
     assert!(!state.startup_items.filtering);
     press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
-    assert_eq!((state.startup_items.len(), state.startup_items.is_open()), (3, true));
-    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
     assert!(!state.startup_items.is_open());
+    press(&mut state, KeyCode::Char('u'), KeyModifiers::ALT);
+    assert_eq!((state.startup_items.len(), state.startup_items.filter.as_str()), (1, "ssh"), "the filter comes back");
+    press(&mut state, KeyCode::Char('/'), KeyModifiers::NONE);
+    press(&mut state, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!((state.startup_items.len(), state.startup_items.is_open()), (3, true));
 }
 
 #[test]
-fn enter_shows_the_item_file_in_its_panel_and_f3_views_it() {
+fn enter_shows_the_item_file_beside_the_list_and_f3_views_it() {
     let (mut state, _) = opened();
     press(&mut state, KeyCode::Down, KeyModifiers::NONE);
     let viewed = press(&mut state, KeyCode::F(3), KeyModifiers::NONE);
@@ -483,9 +486,10 @@ fn enter_shows_the_item_file_in_its_panel_and_f3_views_it() {
     );
     state.viewer = None;
     state.opening = None;
-    let side = state.startup_items.side.unwrap();
+    let side = state.startup_items.side.unwrap().other();
     let shown = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
-    assert!(!state.startup_items.is_open());
+    assert!(state.startup_items.is_open(), "the list stays");
+    assert_eq!((state.lent, state.active), (Some(side), side));
     assert!(
         shown.iter().any(|effect| matches!(
             effect,
@@ -510,4 +514,38 @@ fn a_failed_read_is_shown_and_the_list_stays() {
     update(&mut state, Msg::StartupItems { id, result: Err("no home folder".into()) }, now);
     assert_eq!(state.startup_items.error.as_deref(), Some("no home folder"));
     assert_eq!(state.startup_items.len(), 3);
+}
+
+/// A binary property list of lists that each name the next one many times: a few hundred bytes
+/// that stand for more objects than could ever be read.
+fn nested_lists(levels: usize) -> Vec<u8> {
+    const ITEMS: u8 = 14;
+    const ARRAY: u8 = 0xA0;
+    const TRUE: u8 = 0x09;
+    const OFFSET_SIZE: u8 = 2;
+    const REFERENCE_SIZE: u8 = 2;
+    let mut bytes = b"bplist00".to_vec();
+    let mut offsets = Vec::new();
+    for level in 0..levels {
+        offsets.push(bytes.len() as u16);
+        bytes.push(ARRAY | ITEMS);
+        for _ in 0..ITEMS {
+            bytes.extend((level as u16 + 1).to_be_bytes());
+        }
+    }
+    offsets.push(bytes.len() as u16);
+    bytes.push(TRUE);
+    let table = bytes.len() as u64;
+    bytes.extend(offsets.iter().flat_map(|offset| offset.to_be_bytes()));
+    bytes.extend([0, 0, 0, 0, 0, 0, OFFSET_SIZE, REFERENCE_SIZE]);
+    bytes.extend((offsets.len() as u64).to_be_bytes());
+    bytes.extend(0u64.to_be_bytes());
+    bytes.extend(table.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn a_small_plist_that_stands_for_countless_objects_reads_as_nothing_at_once() {
+    assert!(matches!(plist::parse(&nested_lists(1)), Some(plist::Value::Array(items)) if items.len() == 14));
+    assert_eq!(plist::parse(&nested_lists(40)), None);
 }

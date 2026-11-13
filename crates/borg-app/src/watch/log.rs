@@ -1,6 +1,7 @@
 //! Where the watcher keeps what it has found and what it has learned: a bounded log of alerts
 //! and the baseline, both owner-only files in the state folder, which every Borg on the machine
-//! reads and the watcher alone writes.
+//! reads. The watcher and the Alerts page both change the log and the allowances, each change
+//! under a lock, so neither writes over what the other wrote meanwhile.
 
 use anyhow::{Context, Result};
 use borg_core::{ALERT_LOG, ALERT_LOG_ASIDE, AlertLog, Allowance, Baseline, WATCH_ALLOWED, WATCH_BASELINE};
@@ -18,6 +19,8 @@ use crate::session::StateDir;
 const LOG_BYTES: usize = 8 * 1024 * 1024;
 /// Bytes of the baseline Borg reads; [`borg_core::PAIRS_LIMIT`] pairs fit inside this.
 const BASELINE_BYTES: u64 = 16 * 1024 * 1024;
+/// The file in the state folder that whoever changes the log or the allowances locks first.
+const LOCK: &str = "watch.lock";
 
 /// The state folder the watcher writes in.
 pub fn folder() -> Result<PathBuf> {
@@ -57,11 +60,45 @@ pub fn read_log(state: &Path) -> AlertLog {
     parsed_log(&log_path(state)).unwrap_or_default()
 }
 
+/// Holds the watcher's files for one change, until dropped.
+struct Held {
+    _lock: fs::File,
+}
+
+/// Waits for whoever is changing the watcher's files to finish, and holds them.
+fn hold(state: &Path) -> Result<Held> {
+    fs::create_dir_all(state)?;
+    let path = state.join(LOCK);
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    lock.lock().with_context(|| format!("locking {}", path.display()))?;
+    Ok(Held { _lock: lock })
+}
+
+/// Changes the log as the state folder holds it at this moment and writes it back when the
+/// change made a difference, with nobody else changing it meanwhile. Gives the log as it stands,
+/// and where a log Borg could not read went when it moved just now.
+pub fn change_log(state: &Path, change: impl FnOnce(&mut AlertLog)) -> Result<(AlertLog, Option<PathBuf>)> {
+    let _held = hold(state)?;
+    let (mut log, aside) = load_log(state)?;
+    let before = log.clone();
+    change(&mut log);
+    if log != before {
+        write_log(state, &mut log)?;
+    }
+    Ok((log, aside))
+}
+
 /// The log as the state folder holds it, to change and write back. A log that is there but
 /// that Borg cannot read is renamed aside first, so writing a new one never overwrites alerts
 /// Borg could not show. The new log, written at once, names the file it went to, and so does
 /// the second half, only when it moved just now.
-pub fn load_log(state: &Path) -> Result<(AlertLog, Option<PathBuf>)> {
+pub(super) fn load_log(state: &Path) -> Result<(AlertLog, Option<PathBuf>)> {
     let path = log_path(state);
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok((AlertLog::default(), None)),
@@ -85,13 +122,13 @@ pub fn load_log(state: &Path) -> Result<(AlertLog, Option<PathBuf>)> {
 }
 
 /// Writes the log, without the oldest alerts it takes for the file to fit [`LOG_BYTES`], so a
-/// log Borg wrote always reads back whole.
-pub fn write_log(state: &Path, log: &mut AlertLog) -> Result<()> {
+/// log Borg wrote always reads back whole. Alerts about processes that are still frozen go last.
+pub(super) fn write_log(state: &Path, log: &mut AlertLog) -> Result<()> {
     let mut bytes = serde_json::to_vec(log)?;
     while bytes.len() > LOG_BYTES && !log.alerts.is_empty() {
         let mut over = bytes.len() - LOG_BYTES;
         while over > 0
-            && let Some(oldest) = log.alerts.pop()
+            && let Some(oldest) = log.drop_oldest()
         {
             over = over.saturating_sub(serde_json::to_vec(&oldest)?.len());
         }
@@ -118,14 +155,26 @@ pub fn read_allowances(state: &Path) -> Vec<Allowance> {
         .unwrap_or_default()
 }
 
-/// Adds an allowance to the file, once.
+/// The allowances the file holds, to add to and write back: none when the file is not there
+/// yet, and an error when it is there but Borg cannot read it, so it is never written over.
+fn load_allowances(path: &Path) -> Result<Vec<Allowance>> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        _ => {}
+    }
+    let bytes = read_bounded(path, BASELINE_BYTES).with_context(|| format!("reading {}", path.display()))?;
+    serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display()))
+}
+
+/// Adds an allowance to the file, once, with nobody else changing the file meanwhile.
 pub fn allow(state: &Path, allowance: Allowance) -> Result<()> {
-    let mut allowed = read_allowances(state);
+    let _held = hold(state)?;
+    let path = allowed_path(state);
+    let mut allowed = load_allowances(&path)?;
     if !allowed.contains(&allowance) {
         allowed.push(allowance);
     }
-    fs::create_dir_all(state)?;
-    crate::store::write_privately(&allowed_path(state), &serde_json::to_vec(&allowed)?)
+    crate::store::write_privately(&path, &serde_json::to_vec(&allowed)?)
 }
 
 /// When the log last changed, so a Borg that is only watching the page can tell.

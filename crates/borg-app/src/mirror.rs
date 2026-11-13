@@ -18,7 +18,11 @@ use crossterm::{
 };
 use futures::StreamExt;
 use serde_json::{Value, json};
-use tokio::{io::AsyncWriteExt, sync::mpsc, time::Duration};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 use crate::{agent::Call, link, session::StateDir};
 
@@ -27,6 +31,10 @@ mod host_output;
 const KEEPALIVE: Duration = Duration::from_secs(20);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a mirror that lost its host keeps reaching for it: long enough for the host to
+/// update, or to go back to the Borg it ran when the new one does not start.
+const RECONNECT_WAIT: Duration = Duration::from_secs(100);
+const RECONNECT_POLL: Duration = Duration::from_secs(2);
 /// The base64 of the host's largest copy that goes to the terminal's clipboard, with room to spare.
 const CLIPBOARD_LIMIT: usize = 512 * 1024;
 /// The most of an unfinished sequence held back for the next frame.
@@ -88,16 +96,26 @@ fn take_requested(key: &KeyEvent) -> bool {
     control_key(key, 't', '\u{14}')
 }
 
-fn banner(output: &mut Vec<u8>, (cols, rows): (u16, u16), controlling: bool) {
+/// Whether `event` leaves the mirror: Ctrl-G, or a click on its bottom line.
+fn leaves(event: &Event, (_, rows): (u16, u16)) -> bool {
+    match event {
+        Event::Key(key) => key.kind != KeyEventKind::Release && exit_requested(key),
+        Event::Mouse(mouse) => {
+            matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) && mouse.row == rows.saturating_sub(1)
+        }
+        _ => false,
+    }
+}
+
+fn status(controlling: bool) -> &'static str {
+    if controlling { borg_i18n::tr!(mirror_banner_control) } else { borg_i18n::tr!(mirror_banner_view_only) }
+}
+
+fn banner(output: &mut Vec<u8>, (cols, rows): (u16, u16), status: &str) {
     if cols == 0 || rows == 0 {
         return;
     }
-    let status = if controlling {
-        "REMOTE MIRROR - CONTROL: keys/mouse go to host; a key wakes its screensaver."
-    } else {
-        "REMOTE MIRROR - VIEW ONLY: keys/mouse ignored. Ctrl-T or click here: take control."
-    };
-    let exit = "EXIT MIRROR: hold Control and press G (Ctrl-G), or click this line.";
+    let exit = borg_i18n::tr!(mirror_banner_exit);
     let write_line = |row: u16, message: &str| {
         let clipped: String = message.chars().take(cols as usize).collect();
         format!("\x1b[{row};1H\x1b[0m\x1b[7m\x1b[2K{clipped}")
@@ -204,7 +222,7 @@ impl Paint {
         }
         output.extend_from_slice(bytes);
         if reset || !native || self.banner != Some((size, controlling)) {
-            banner(&mut output, size, controlling);
+            banner(&mut output, size, status(controlling));
             self.banner = Some((size, controlling));
         }
         if reset {
@@ -414,6 +432,7 @@ pub async fn command_with_input(target: &str, force: bool, input: &mut EventStre
 }
 
 pub struct Connection {
+    target: String,
     control: link::Remote,
     stream: link::Remote,
     input_remote: link::Remote,
@@ -457,7 +476,7 @@ async fn connect_inner(target: &str, force: bool, step: &mut &'static str) -> Re
             let (id, label) = line.split_once(char::is_whitespace)?;
             (id == name || label.trim() == name).then(|| id.to_owned())
         })
-        .with_context(|| format!("no session named {name} on {machine}"))?;
+        .ok_or_else(|| NoSession { name: name.to_owned(), machine: machine.to_owned() })?;
     let (cols, rows) = crossterm::terminal::size()?;
     let (view, initial) = connect_step(step, borg_i18n::tr!(remote_mirror_screen), async {
         let view = Call::new("mirror_view", json!({"session":session}));
@@ -489,11 +508,109 @@ async fn connect_inner(target: &str, force: bool, step: &mut &'static str) -> Re
         bail!("{}", take.text);
     }
     frame.insert("controller".into(), Value::Bool(take.ok));
-    Ok(Connection { control, stream, input_remote, session, native, controlling, initial: initial.to_string() })
+    Ok(Connection {
+        target: target.to_owned(),
+        control,
+        stream,
+        input_remote,
+        session,
+        native,
+        controlling,
+        initial: initial.to_string(),
+    })
 }
 
-pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> {
-    let Connection { mut control, stream, input_remote, session, native, controlling, initial } = connection;
+/// The host answered and has no session by the name the mirror asked for.
+#[derive(Debug)]
+struct NoSession {
+    name: String,
+    machine: String,
+}
+
+impl std::fmt::Display for NoSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "no session named {} on {}", self.name, self.machine)
+    }
+}
+
+impl std::error::Error for NoSession {}
+
+/// Shows the host's session until the user leaves. When the host stops answering, as it does
+/// while it updates, the mirror reaches for it again.
+pub async fn run(mut connection: Connection, input: &mut EventStream) -> Result<()> {
+    let mut deadline = None;
+    loop {
+        let target = connection.target.clone();
+        if show(connection, input).await.is_ok() {
+            return Ok(());
+        }
+        let until = *deadline.insert(reconnect_deadline(deadline, Instant::now()));
+        match reconnect(&target, until, input).await? {
+            Some(again) => connection = again,
+            None => return Ok(()),
+        }
+    }
+}
+
+/// The time a mirror that lost its host has to reach it again. A loss soon after the last
+/// reconnection keeps the time it had, so a host that keeps failing is let go.
+fn reconnect_deadline(previous: Option<Instant>, now: Instant) -> Instant {
+    previous.filter(|deadline| *deadline > now).unwrap_or(now + RECONNECT_WAIT)
+}
+
+/// Connects to the session again until `deadline`, and the user can leave meanwhile. `None`
+/// when they do.
+async fn reconnect(target: &str, deadline: Instant, input: &mut EventStream) -> Result<Option<Connection>> {
+    let machine = target.split_once(':').map_or(target, |(machine, _)| machine);
+    let waiting = borg_i18n::tr!(remote_mirror_reconnecting, machine = machine, seconds = RECONNECT_WAIT.as_secs());
+    paint_status(&waiting).await?;
+    loop {
+        let attempt = async {
+            tokio::time::sleep(RECONNECT_POLL).await;
+            connect(target, false).await
+        };
+        tokio::pin!(attempt);
+        let connected = loop {
+            tokio::select! {
+                connected = &mut attempt => break connected,
+                event = input.next() => {
+                    let Some(event) = event.transpose()? else { return Ok(None) };
+                    if leaves(&event, crossterm::terminal::size()?) {
+                        return Ok(None);
+                    }
+                    if let Event::Resize(..) = event {
+                        paint_status(&waiting).await?;
+                    }
+                }
+            }
+        };
+        match connected {
+            Ok(connection) => return Ok(Some(connection)),
+            Err(error) if error.downcast_ref::<NoSession>().is_some() => return Err(error),
+            Err(error) if Instant::now() >= deadline => {
+                let seconds = RECONNECT_WAIT.as_secs();
+                return Err(error.context(borg_i18n::tr!(
+                    remote_mirror_not_back,
+                    machine = machine,
+                    seconds = seconds
+                )));
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+async fn paint_status(status: &str) -> Result<()> {
+    let mut output = Vec::new();
+    banner(&mut output, crossterm::terminal::size()?, status);
+    let mut stdout = tokio::io::stdout();
+    stdout.write_all(&output).await?;
+    stdout.flush().await?;
+    Ok(())
+}
+
+async fn show(connection: Connection, input: &mut EventStream) -> Result<()> {
+    let Connection { mut control, stream, input_remote, session, native, controlling, initial, .. } = connection;
     let mut current_size = None;
     let mut resize = tokio::time::interval(Duration::from_millis(250));
     let mut keepalive = keepalive_timer();
@@ -537,10 +654,12 @@ pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> 
             event = input.next() => {
                 let Some(event) = event else { break Ok(()); };
                 let event = event?;
+                if leaves(&event, crossterm::terminal::size()?) {
+                    break Ok(());
+                }
                 let remote_mode = TermMode::from_bits_truncate(mode.load(Ordering::Relaxed));
                 match event {
                     Event::Key(key) if key.kind != KeyEventKind::Release => {
-                        if exit_requested(&key) { break Ok(()); }
                         if take_requested(&key) {
                             take_control(&mut control, &session, &controlling).await?;
                             current_size = None;
@@ -561,7 +680,6 @@ pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> 
                     Event::Mouse(mouse) => {
                         let (_, rows) = crossterm::terminal::size()?;
                         let clicked = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left));
-                        if clicked && mouse.row == rows.saturating_sub(1) { break Ok(()); }
                         if clicked && mouse.row == rows.saturating_sub(2) && !controlling.load(Ordering::Relaxed) {
                             take_control(&mut control, &session, &controlling).await?;
                             current_size = None;
@@ -591,9 +709,15 @@ pub async fn run(connection: Connection, input: &mut EventStream) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    use tokio::time::Instant;
 
-    use super::{CLIPBOARD_LIMIT, Paint, clipboard_text, exit_requested, take_requested, whole};
+    use super::{
+        CLIPBOARD_LIMIT, Paint, RECONNECT_WAIT, clipboard_text, exit_requested, leaves, reconnect_deadline,
+        take_requested, whole,
+    };
 
     #[test]
     fn only_bounded_base64_from_the_host_reaches_the_terminal_clipboard() {
@@ -664,6 +788,36 @@ mod tests {
         paint.frame(b"host", true, (120, 40), true, false);
         let update = paint.frame(b"\x1b[2Jhost", false, (120, 40), true, false);
         assert!(String::from_utf8_lossy(&update).contains("EXIT MIRROR"));
+    }
+
+    #[test]
+    fn the_mirror_is_left_with_ctrl_g_or_a_click_on_its_bottom_line() {
+        let size = (120, 40);
+        let click = |row| {
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 3,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        let ctrl_g = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL);
+        assert!(leaves(&Event::Key(ctrl_g), size));
+        assert!(!leaves(&Event::Key(KeyEvent { kind: KeyEventKind::Release, ..ctrl_g }), size));
+        assert!(leaves(&click(39), size));
+        assert!(!leaves(&click(38), size), "the line above takes control");
+        assert!(!leaves(&Event::Key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)), size));
+    }
+
+    #[test]
+    fn a_mirror_that_loses_its_host_again_soon_keeps_the_time_it_had() {
+        let start = Instant::now();
+        let first = reconnect_deadline(None, start);
+        assert_eq!(first, start + RECONNECT_WAIT);
+        let soon = start + RECONNECT_WAIT / 4;
+        assert_eq!(reconnect_deadline(Some(first), soon), first, "a host that keeps failing is let go");
+        let later = start + RECONNECT_WAIT * 3;
+        assert_eq!(reconnect_deadline(Some(first), later), later + RECONNECT_WAIT);
     }
 
     #[test]

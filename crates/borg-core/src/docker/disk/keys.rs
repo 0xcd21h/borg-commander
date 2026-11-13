@@ -74,6 +74,8 @@ fn clean(state: &mut AppState) -> Vec<Effect> {
     vec![Effect::Write(borg_term::encode_paste(&text, state.shell.observed.mode))]
 }
 
+/// Enter on a volume: its files in the panel, read only, where Borg can read them on this
+/// machine; otherwise why it cannot.
 fn fold(disk: &mut Disk, open: bool) {
     match disk.row() {
         Some(DiskRow::Kind(group)) => {
@@ -139,6 +141,8 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             if let Some(group) = disk.group().filter(|_| matches!(disk.row(), Some(DiskRow::Kind(_)))) {
                 let open = !disk.unfolded(group.kind);
                 fold(disk, open);
+            } else if disk.volume().is_some() {
+                return crate::docker::volume::browse(state);
             }
         }
         KeyCode::Char('/') => disk.filtering = true,
@@ -148,16 +152,12 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         }
         KeyCode::Char('*') => disk.invert_marks(),
         KeyCode::F(8) | KeyCode::Delete => return clean(state),
-        KeyCode::Char('r' | 'R') if disk.loading.is_none() => return measure(&mut state.docker),
-        KeyCode::Char('d' | 'D') => disk.open = false,
-        KeyCode::Esc => {
-            if disk.filter.is_empty() {
-                disk.open = false;
-            } else {
-                disk.filter.clear();
-                disk.rebuild();
-            }
+        KeyCode::Char('r' | 'R') if disk.loading.is_none() => {
+            disk.contents.clear();
+            return measure(&mut state.docker);
         }
+        KeyCode::Char('d' | 'D') => disk.open = false,
+        KeyCode::Esc => disk.open = false,
         _ => {}
     }
     Vec::new()

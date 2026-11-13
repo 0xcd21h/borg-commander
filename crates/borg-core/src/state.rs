@@ -157,6 +157,12 @@ pub struct AppState {
     pub jobs: Vec<Job>,
     pub aside: Option<Aside>,
     pub preview_focused: bool,
+    /// The side where a screen lends a file panel beside its list, while it does.
+    pub lent: Option<Side>,
+    /// The file the lent panel was opened to show, and the listing of its folder, until it ends.
+    pub(crate) awaited: Option<(u64, PathBuf)>,
+    /// What the Find in folder dialog held when it closed, for the next time it opens.
+    pub(crate) search_draft: Option<crate::SearchForm>,
     pub(crate) last_menu: Option<MenuCursor>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
@@ -189,6 +195,12 @@ pub struct AppState {
     pub indexing: Option<PathBuf>,
     /// When the next flash over an empty folder starts, while one is shown.
     pub(crate) glitch_wake: Option<Instant>,
+    /// The newer Borg the session moves to once nothing here would be lost.
+    pub(crate) relaunch: Option<String>,
+    /// A newer release, offered once the panels show and you pause.
+    pub(crate) update_offer: Option<crate::UpdateOffer>,
+    /// The shell runs the command that updates Borg, whose end gives a notice.
+    pub(crate) updating: bool,
     generation: u64,
 }
 
@@ -259,6 +271,9 @@ impl AppState {
             last_find: None,
             jobs: Vec::new(),
             aside: None,
+            lent: None,
+            awaited: None,
+            search_draft: None,
             preview_focused: false,
             last_menu: None,
             escaped: None,
@@ -281,6 +296,9 @@ impl AppState {
             next_profile: 0,
             indexing: None,
             glitch_wake: None,
+            relaunch: None,
+            update_offer: None,
+            updating: false,
             generation: 0,
         };
         state.refit();
@@ -295,6 +313,11 @@ impl AppState {
 
     pub fn panel(&self, side: Side) -> &Panel {
         &self.panels[side.index()]
+    }
+
+    /// The host's shell, which a container's shell may stand in for as the console.
+    pub fn host_shell(&self) -> &ShellStatus {
+        self.parked_host.as_ref().unwrap_or(&self.shell)
     }
 
     pub fn active_panel(&self) -> &Panel {
@@ -383,7 +406,11 @@ impl AppState {
             self.last_results[side.index()] = Some(self.panel(side).clone());
         }
         let generation = self.next_generation();
-        self.panel_mut(side).navigate(dir.clone(), generation, focus);
+        let panel = self.panel_mut(side);
+        if panel.volume.as_ref().is_some_and(|volume| !volume.holds(&dir) || !volume.shown_by(panel.mount.as_ref())) {
+            panel.volume = None;
+        }
+        panel.navigate(dir.clone(), generation, focus);
         Effect::List { side, generation, dir }
     }
 

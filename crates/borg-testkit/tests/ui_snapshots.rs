@@ -23,6 +23,7 @@ const RECENT: u64 = 1_768_037_400;
 const OLD: u64 = 1_717_200_000;
 const SIZE: GridSize = GridSize { cols: 90, rows: 22 };
 const NARROW: GridSize = GridSize { cols: 44, rows: 12 };
+const WIDE: GridSize = GridSize { cols: 150, rows: 12 };
 const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
@@ -306,7 +307,7 @@ fn binary_sample() -> Vec<u8> {
 fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
     use std::sync::Arc;
 
-    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow")] {
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow"), (WIDE, "viewer_hex_wide")] {
         let mut stage = stage(size, Motion::STILL)?;
         let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
         let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
@@ -2153,6 +2154,36 @@ fn remote_session_removal_confirmation_and_progress() -> Result<()> {
 }
 
 #[test]
+fn remote_host_update_confirmation_and_progress() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "production".into(),
+            session: Some("default".into()),
+            name: "Default".into(),
+            info: borg_core::RemoteHostInfo {
+                version: Some("0.10.0".into()),
+                platform: Some("linux / x86_64".into()),
+                service: Some(true),
+                latency_ms: Some(38),
+                relay: "wss://relay.example".into(),
+            },
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_shortcuts", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('u')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_update_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_updating", &stage, buffer)
+}
+
+#[test]
 fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
@@ -2803,7 +2834,7 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "/ edit")?;
     check("activity_filter_applied", &stage, buffer)?;
-    stage.send(key(KeyCode::Esc));
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Esc));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
     check("activity_memory", &stage, buffer)?;
@@ -3850,7 +3881,7 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
 /// What the made-up shop engine keeps on disk: two builds of the web image, the worker's old
 /// image, a dangling build, a digest pull, containers that stopped, and volumes of every kind.
 fn disk_use() -> borg_docker::DiskUse {
-    use borg_docker::{CacheRecord, DiskUse, Image, Layer, State, Volume};
+    use borg_docker::{CacheRecord, Compose, DiskUse, Engine, Image, Layer, State, Volume, VolumeUser};
     const MB: u64 = 1_000_000;
     let time = |stamp: &str| stamp.parse::<jiff::Timestamp>().ok();
     let image = |id: &str, tags: &[&str], repository: Option<&str>, size: u64, unique: u64, containers: u32| Image {
@@ -3871,12 +3902,29 @@ fn disk_use() -> borg_docker::DiskUse {
         status: status.into(),
         size: Some(size),
     };
-    let volume = |name: &str, size: u64, users: &[&str], anonymous: bool| Volume {
+    let user = |container: &str, state: State, path: &str, finished: Option<&str>| VolumeUser {
+        container: container.into(),
+        image: "shop-web:1.4".into(),
+        state,
+        path: path.into(),
+        read_only: false,
+        started: time("2026-01-15T09:00:00Z"),
+        finished: finished.and_then(time),
+    };
+    let volume = |name: &str, size: u64, users: Vec<VolumeUser>, project: Option<&str>, created: &str| Volume {
         name: name.into(),
         size: Some(size),
         links: Some(users.len() as u32),
-        anonymous,
-        users: users.iter().map(|user| (*user).to_owned()).collect(),
+        anonymous: project.is_none(),
+        created: time(created),
+        compose: project.map(|project| Compose {
+            project: project.into(),
+            volume: name.split_once('_').map(|(_, key)| key.to_owned()),
+        }),
+        driver: "local".into(),
+        options: Vec::new(),
+        mountpoint: Some(format!("/var/lib/docker/volumes/{name}/_data").into()),
+        users,
     };
     let record = |id: &str, kind: &str, size: u64, shared: bool, in_use: bool, description: &str| CacheRecord {
         id: format!("{id}{}", "x".repeat(20)),
@@ -3902,9 +3950,28 @@ fn disk_use() -> borg_docker::DiskUse {
             layer("shop-migrate-1", State::Created, "Created", 0),
         ],
         volumes: vec![
-            volume("shop_data", 312 * MB, &["shop-db-1"], false),
-            volume("blog_uploads", 860 * MB, &[], false),
-            volume("3b9d5e7f1a2c4b6d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d", 512 * MB, &[], true),
+            volume(
+                "shop_data",
+                312 * MB,
+                vec![user("shop-db-1", State::Running, "/var/lib/postgresql/data", None)],
+                Some("shop"),
+                "2025-11-02T08:00:00Z",
+            ),
+            volume("blog_uploads", 860 * MB, Vec::new(), Some("blog"), "2025-06-13T10:09:31Z"),
+            volume(
+                "3b9d5e7f1a2c4b6d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+                512 * MB,
+                Vec::new(),
+                None,
+                "2025-12-30T21:14:00Z",
+            ),
+            volume(
+                "7c2f8e1d0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d",
+                41 * MB,
+                vec![user("shop-worker-1", State::Exited, "/app/data", Some("2026-01-15T11:48:03Z"))],
+                None,
+                "2026-01-08T16:21:00Z",
+            ),
         ],
         cache: vec![
             record("r1", "regular", 412 * MB, false, false, "[build 3/5] RUN npm ci"),
@@ -3913,6 +3980,7 @@ fn disk_use() -> borg_docker::DiskUse {
             record("r4", "source.local", MB, false, true, "local source for context"),
         ],
         networks: vec!["blog_default".into()],
+        engine: Engine { system: "OrbStack".into(), host: "orbstack".into(), helper: false },
     }
 }
 
@@ -3942,6 +4010,7 @@ fn docker_disk_use_lists_kinds_and_types_cleanup_at_the_prompt() -> Result<()> {
         usage: Box::new(disk_use()),
         context: Some("desktop-linux".into()),
         contexts: Some(vec!["default".into(), "desktop-linux".into()]),
+        folders: Default::default(),
     };
     stage.send(Msg::Docker { id, result: Ok(measured) });
     let buffer = stage.render(stage.started)?;
@@ -3969,6 +4038,146 @@ fn docker_disk_use_lists_kinds_and_types_cleanup_at_the_prompt() -> Result<()> {
     stage.shell(&typed);
     let buffer = stage.render(stage.started)?;
     check("docker_disk_typed", &stage, buffer)
+}
+
+/// Volumes with what tells them apart in the Name column: when they were last used (a day with
+/// ~ is the newest change to their files), made, their Compose project and their containers;
+/// then one volume's details, and its files in the panel, read only.
+#[test]
+fn docker_volumes_show_their_last_use_and_open_read_only() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect, VolumeContents};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: Vec::new() }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let share = PathBuf::from(HOME).join("OrbStack/docker/volumes/blog_uploads");
+    let measured = DockerData::DiskUse {
+        usage: Box::new(disk_use()),
+        context: None,
+        contexts: None,
+        folders: [("blog_uploads".to_owned(), share.clone())].into(),
+    };
+    let effects = borg_core::update(&mut stage.state, Msg::Docker { id, result: Ok(measured) }, stage.started);
+    let read = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::ReadVolumes(volumes) } => Some((*id, volumes.clone())),
+            _ => None,
+        })
+        .context("measuring reads the volumes Borg reaches")?;
+    assert_eq!(read.1, [("blog_uploads".to_owned(), share.clone())]);
+    let contents = VolumeContents {
+        newest: "2026-01-10T14:02:00Z".parse().ok(),
+        top: vec!["2025".into(), "2026".into(), "index.json".into()],
+    };
+    stage
+        .send(Msg::Docker { id: read.0, result: Ok(DockerData::VolumeRead { name: "blog_uploads".into(), contents }) });
+    stage.send(Msg::Docker { id: read.0, result: Ok(DockerData::Done) });
+
+    for _ in 0..5 {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right));
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right)).send(key(KeyCode::Up));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "~2026-01-10")?;
+    check("docker_disk_volumes", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Enter Files")?;
+    check("docker_disk_volume_details", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    for effect in effects {
+        let Effect::List { side, generation, dir } = effect else { continue };
+        assert_eq!(dir, share, "Enter shows the volume's files where OrbStack shares them");
+        let entries = vec![
+            entry("2025", EntryKind::Dir, 4096, OLD, false),
+            entry("2026", EntryKind::Dir, 4096, RECENT, false),
+            entry("index.json", EntryKind::File, 18_412, RECENT, false),
+        ];
+        stage.send(Msg::Batch { side, generation, entries });
+        stage.send(Msg::Listed { side, generation, error: None });
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "blog_uploads · read only")?;
+    check("docker_volume_panel", &stage, buffer)
+}
+
+/// Disk use on an engine whose volume files Borg cannot read here: the details say a helper
+/// container shows them, Enter asks before downloading its image, and the panel then shows the
+/// volume from the helper, read only.
+#[test]
+fn docker_volumes_borg_cannot_read_open_through_a_helper_after_asking() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: Vec::new() }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let measured =
+        DockerData::DiskUse { usage: Box::new(disk_use()), context: None, contexts: None, folders: Default::default() };
+    stage.send(Msg::Docker { id, result: Ok(measured) });
+    for _ in 0..6 {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "To open it without a helper")?;
+    check("docker_disk_volume_helper", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Download the busybox image")?;
+    check("docker_volume_helper_confirm", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::OpenVolume { pull: true, .. } } => Some(*id),
+            _ => None,
+        })
+        .context("Yes downloads the image and starts the helper")?;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Docker { id, result: Ok(DockerData::Helper("e1a9c0ffee".into())) },
+        stage.started,
+    );
+    for effect in effects {
+        let Effect::List { side, generation, dir } = effect else { continue };
+        assert_eq!(dir, PathBuf::from(borg_docker::helper::ROOT), "the panel starts at the volume's top");
+        let entries = vec![
+            entry("2025", EntryKind::Dir, 4096, OLD, false),
+            entry("index.json", EntryKind::File, 18_412, RECENT, false),
+        ];
+        stage.send(Msg::Batch { side, generation, entries });
+        stage.send(Msg::Listed { side, generation, error: None });
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "blog_uploads · read only")?;
+    check("docker_volume_helper_panel", &stage, buffer)
 }
 
 /// The network screen over a made-up machine after half a minute of samples: the ports and
@@ -4312,6 +4521,40 @@ fn remote_menu_offers_to_install_the_background_service() -> Result<()> {
 /usr/local/bin/borg service start\r";
     assert!(effects.contains(&Effect::Write(typed.to_vec())), "Enter types the command: {effects:?}");
     assert_eq!(stage.state.view, View::Shell, "and shows the shell");
+    Ok(())
+}
+
+/// A newer release found by the daily check waits until the keyboard rests, then the dialog
+/// offers `borg update`, and a click on S in its bottom line skips the version.
+#[test]
+fn a_newer_release_is_offered_once_the_keyboard_rests() -> Result<()> {
+    use borg_core::{Effect, Overlay, UpdateOffer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let start = stage.started;
+    let offer = UpdateOffer {
+        version: "0.11.0".into(),
+        current: "0.10.0".into(),
+        program: "/usr/local/bin/borg".into(),
+        manager: None,
+    };
+    stage.send(Msg::UpdateAvailable(offer.clone()));
+    assert_eq!(stage.state.overlay, None, "it waits for a pause");
+    let later = stage.state.wake_at().unwrap();
+    borg_core::update(&mut stage.state, Msg::Tick, later);
+    assert_eq!(stage.state.overlay, Some(Overlay::Update(offer)));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "/usr/local/bin/borg update")?;
+    check("update_offer", &stage, buffer.clone())?;
+
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (column, row) = screen.find("S Skip version").unwrap();
+    let click =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, click, false, start).unwrap();
+    let effects = borg_core::update(&mut stage.state, msg, later);
+    assert_eq!(effects, [Effect::SkipUpdate("0.11.0".into())]);
+    assert_eq!(stage.state.overlay, None);
     Ok(())
 }
 
@@ -5396,8 +5639,37 @@ fn startup_items_list_what_starts_on_its_own_newest_first() -> Result<()> {
     assert!(stage.state.startup_items.expanded, "Alt-W gives the list the whole width");
     check("startup_items_expanded", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
-    assert!(!stage.state.startup_items.is_open(), "Esc clears the filter, then closes the screen");
+    stage.send(key(KeyCode::Esc));
+    assert!(!stage.state.startup_items.is_open(), "Esc closes the screen");
+    assert_eq!(stage.state.startup_items.filter, "root !timer", "the filter stays for the next time");
+    Ok(())
+}
+
+/// Enter on a startup item opens its file's folder in a panel beside the list, with the cursor
+/// on the file, and the list keeps its place. Tab gives the list the keys, which dims the files
+/// and shows how to bring the details back.
+#[test]
+fn startup_items_show_an_item_s_file_beside_the_list() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let crontabs = ["alex", "me", "root"].map(|name| entry(name, EntryKind::File, 512, RECENT, false));
+    list_after(&mut stage, key(KeyCode::Enter), crontabs.to_vec())?;
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.files_beside_focused(), "the files take the keys");
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
+    ensure_text(&buffer, "reboot_job_fetch")?;
+    ensure_text(&buffer, "crontabs")?;
+    check("startup_items_file_beside", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alt-O Show file")?;
+    check("startup_items_file_beside_list_keys", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.lent.is_none() && stage.state.startup_items.is_open(), "the details come back");
     Ok(())
 }
 
@@ -5452,6 +5724,7 @@ fn alert_log() -> borg_core::AlertLog {
         freeze: true,
         seen: 48_120,
         suppressed: 0,
+        delivery: borg_core::AlertDelivery::Sent,
     });
 
     let nginx = parent(812, "/usr/sbin/nginx", false);
@@ -5610,6 +5883,45 @@ fn alerts_say_where_a_log_borg_could_not_read_went() -> Result<()> {
     ensure_text(&buffer, "could not read the alert log")?;
     ensure_text(&buffer, "/home/me/.local/state/borg/alerts-unread")?;
     check("alerts_log_kept_aside", &stage, buffer)?;
+    Ok(())
+}
+
+/// A watcher that freezes with nowhere to send its alerts says so above the details, and in the
+/// list's last row once the list takes the whole width.
+#[test]
+fn alerts_say_when_they_reach_nobody() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let mut log = alert_log();
+    log.watch.delivery = borg_core::AlertDelivery::Local;
+    stage.send(Msg::Alerts { id, result: Ok(borg_core::AlertsReply { log, notice: None }) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told.")?;
+    ensure_text(&buffer, "[watch.notify] in config.toml.")?;
+    check("alerts_unsent", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told. Set up [watch.notify] in config.toml.")?;
+    check("alerts_unsent_expanded", &stage, buffer)?;
+    Ok(())
+}
+
+/// Turned on and not running yet, with only a heartbeat set up, the watcher says that a heartbeat
+/// carries no alerts.
+#[test]
+fn alerts_say_that_a_heartbeat_alone_sends_none() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.settings.alert_delivery = borg_core::AlertDelivery::HeartbeatOnly;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let empty = borg_core::AlertsReply { log: borg_core::AlertLog::default(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(empty) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alerts stay on this machine.")?;
+    ensure_text(&buffer, "only says the watcher runs.")?;
+    check("alerts_unsent_heartbeat", &stage, buffer)?;
     Ok(())
 }
 

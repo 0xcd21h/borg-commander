@@ -8,7 +8,7 @@ use crate::{
     network_view::{FilterLine, filter_line},
     spinner::Spinner,
 };
-use borg_core::{Alert, Alerts, AppState, Response, Severity, WatchSource, rule_source};
+use borg_core::{Alert, Alerts, AppState, Freezing, Response, Severity, Unsent, WatchSource, rule_source};
 use borg_i18n::{Count, count, tr};
 use borg_rules::RuleMatch;
 use jiff::Zoned;
@@ -17,7 +17,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Clear, Widget},
+    widgets::Widget,
 };
 use std::time::Instant;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -34,6 +34,8 @@ const UNKNOWN: &str = "—";
 const SEPARATOR: &str = " · ";
 /// Blank rows between the list and the note about a log Borg kept aside.
 const KEPT_ASIDE_GAP: usize = 1;
+/// Blank rows between the warning that alerts reach nobody and the details under it.
+const UNSENT_GAP: usize = 1;
 /// Panes at least this wide show who the process ran as.
 const USER_FROM: u16 = 100;
 /// Panes at least this wide show the parent that started it.
@@ -72,34 +74,33 @@ pub(crate) fn draw(
     let spinner = Spinner::of(&state.busy, borg_core::Task::Alerts, now);
     let list = panels[side.index()];
     let details = panels[side.other().index()];
+    let unsent = unsent(state);
     if !list.is_empty() {
-        draw_list(state, look, list, clock, spinner, buf);
+        draw_list(state, look, list, clock, spinner, unsent.filter(|_| details.is_empty()), buf);
     }
     if !details.is_empty() {
-        draw_details(alerts, look, details, clock, buf);
+        draw_details(alerts, look, details, clock, unsent, buf);
     }
 }
 
-fn frame(alerts: &Alerts, look: &Look<'_>, rect: Rect, title: &str, focused: bool, buf: &mut Buffer) -> Rect {
-    let theme = look.theme;
-    let styles = &theme.styles;
-    Clear.render(rect, buf);
-    let controls = crate::results_view::controls(rect, alerts.expanded);
-    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(if focused { styles.border_active } else { styles.border })
-        .title(Line::styled(
-            format::truncate_end(&format!(" {title} "), usize::from(room)),
-            if focused { styles.title_active } else { styles.title },
-        ));
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    for (r, label, _) in controls {
-        text(buf, r, label, styles.menu);
+/// The warning that alerts reach nobody, once the page has read how the watcher stands.
+fn unsent(state: &AppState) -> Option<Unsent> {
+    let alerts = &state.alerts;
+    if !alerts.loaded || alerts.error.is_some() {
+        return None;
     }
-    inner
+    let preferences = &state.settings.preferences;
+    let turned_on = preferences.process_watch.then_some(state.settings.alert_delivery);
+    alerts.log.unsent(turned_on, std::time::SystemTime::now())
+}
+
+/// The warning stands out more once Borg is about to act, or acts, with nobody told.
+fn unsent_style(unsent: Unsent, look: &Look<'_>) -> Style {
+    let severity = match unsent.freezing {
+        Freezing::NotYet => Severity::Warning,
+        Freezing::Soon | Freezing::Started => Severity::Alert,
+    };
+    severity_style(severity, look.theme)
 }
 
 /// What a list column shows.
@@ -164,11 +165,19 @@ fn cells(columns: &[(Field, Option<u16>)], area: Rect) -> Vec<Rect> {
         .collect()
 }
 
-fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinner: Option<Spinner>, buf: &mut Buffer) {
+fn draw_list(
+    state: &AppState,
+    look: &Look<'_>,
+    rect: Rect,
+    clock: &Zoned,
+    spinner: Option<Spinner>,
+    unsent: Option<Unsent>,
+    buf: &mut Buffer,
+) {
     let alerts = &state.alerts;
     let theme = look.theme;
     let styles = &theme.styles;
-    let inner = frame(alerts, look, rect, tr!(watch_title), true, buf);
+    let inner = crate::results_view::pane_frame(alerts.expanded, look, rect, tr!(watch_title), true, buf);
     if inner.is_empty() {
         return;
     }
@@ -181,6 +190,7 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
         shown: alerts.len(),
         total: alerts.log.alerts.len(),
         placeholder: tr!(watch_filter_placeholder),
+        esc_clears: false,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);
@@ -239,8 +249,13 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
         height: FOOTER_ROWS.min(inner.height),
         ..inner
     };
-    if let Some(note) = footer_note(state, clock) {
-        text(buf, row(footer, 0), note, dim(theme));
+    match unsent.filter(|_| state.notice.is_none()) {
+        Some(unsent) => text(buf, row(footer, 0), unsent.line(), unsent_style(unsent, look)),
+        None => {
+            if let Some(note) = footer_note(state, clock) {
+                text(buf, row(footer, 0), note, dim(theme));
+            }
+        }
     }
 }
 
@@ -396,13 +411,26 @@ impl Facts<'_, '_> {
     }
 }
 
-fn draw_details(alerts: &Alerts, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
+/// Draws the warning at the top of `area`, and returns what is left under it and a blank row.
+fn draw_unsent(unsent: Unsent, look: &Look<'_>, area: Rect, buf: &mut Buffer) -> Rect {
+    let lines = wrap(&unsent.line(), usize::from(area.width));
+    let style = unsent_style(unsent, look);
+    let taken = (lines.len() + UNSENT_GAP).min(usize::from(area.height)) as u16;
+    for (offset, line) in lines.into_iter().enumerate() {
+        text(buf, row(area, offset as u16), line, style);
+    }
+    Rect { y: area.y + taken, height: area.height - taken, ..area }
+}
+
+fn draw_details(alerts: &Alerts, look: &Look<'_>, rect: Rect, clock: &Zoned, unsent: Option<Unsent>, buf: &mut Buffer) {
     let theme = look.theme;
-    let Some(alert) = alerts.selected() else {
-        frame(alerts, look, rect, tr!(watch_title), false, buf);
-        return;
+    let title = alerts.selected().map_or(tr!(watch_title), |alert| alert.rule().label());
+    let inner = crate::results_view::pane_frame(alerts.expanded, look, rect, title, false, buf);
+    let inner = match unsent {
+        Some(unsent) => draw_unsent(unsent, look, inner, buf),
+        None => inner,
     };
-    let inner = frame(alerts, look, rect, alert.rule().label(), false, buf);
+    let Some(alert) = alerts.selected() else { return };
     if inner.is_empty() {
         return;
     }

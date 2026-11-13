@@ -13,7 +13,7 @@ mod key;
 mod link;
 pub mod relay;
 
-pub use channel::{Channel, MESSAGE_LIMIT, PROOF_LEN, Socket, initiate, respond};
+pub use channel::{Channel, MESSAGE_LIMIT, NOISE_LIMIT, PROOF_LEN, Socket, initiate, respond};
 pub use code::PairingCode;
 pub use key::{Identity, KEY_LEN, PublicKey, fingerprint, hex, unhex};
 pub use link::{PairingLink, Relay, SECRET_LEN, secret};

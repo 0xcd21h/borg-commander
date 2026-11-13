@@ -91,7 +91,6 @@ impl<'a> Caller<'a> {
                     None => break,
                 },
             };
-            // A computer forgotten while connected is cut off.
             if !self.served.shared.lock().expect("link lock").computers.iter().any(|c| c.key == self.key) {
                 break;
             }
@@ -164,7 +163,7 @@ impl<'a> Caller<'a> {
     async fn dispatch(&mut self, call: Call) -> Result<Reply> {
         let tool = call.tool.clone();
         match tool.as_str() {
-            "session_delete" => self.served.ask(call).await,
+            "session_delete" | super::HOST_UPDATE_CALL => self.served.ask(call).await,
             "file_transfer" => Ok(self.file_transfer(call).await),
             "host_info" => Ok(self.served.host_info()),
             "list_sessions" => Ok(self.served.list_sessions()),
@@ -317,6 +316,7 @@ impl<'a> Caller<'a> {
         {
             self.sessions.insert(entry.id.clone(), open);
         }
+        call.forwarded_from = call.origin.clone();
         let reply = match self.sessions.get_mut(&entry.id) {
             Some(open) => open.call(&call).await,
             None => None,

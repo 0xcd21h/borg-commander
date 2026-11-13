@@ -1,14 +1,13 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
 use borg_core::{AppState, ListingMode, PanelSetup, Side, Sort, SortKey, Startup};
 use serde::{Deserialize, Serialize};
 
-use crate::store::{write_atomically, write_privately};
+use crate::{store::write_privately, update::UpdateCheck};
 
 mod agent_log;
 
@@ -87,8 +86,8 @@ impl Session {
     pub fn capture(state: &AppState) -> Self {
         let panel = |side: Side| {
             let panel = state.panel(side);
-            // A remote or container panel comes back as the host folder it replaced, and an
-            // archive as the folder that holds it, on the archive.
+            // A remote, container or volume panel comes back as the host folder it replaced, and
+            // an archive as the folder that holds it, on the archive.
             PanelState {
                 dir: panel
                     .remote_mount
@@ -96,13 +95,19 @@ impl Session {
                     .map(|mount| mount.host.clone())
                     .or_else(|| panel.mount.as_ref().map(|mount| mount.host.clone()))
                     .or_else(|| panel.archive.as_ref().map(|archive| archive.host.clone()))
+                    .or_else(|| panel.volume.as_ref().map(|volume| volume.host.clone()))
                     .unwrap_or_else(|| panel.dir().to_path_buf()),
                 focus: panel
                     .archive
                     .as_ref()
                     .and_then(|archive| archive.archive.file_name())
                     .map(|name| name.to_string_lossy().into_owned())
-                    .or_else(|| panel.hovered_entry().filter(|_| !panel.foreign()).map(|entry| entry.name.clone())),
+                    .or_else(|| {
+                        panel
+                            .hovered_entry()
+                            .filter(|_| !panel.foreign() && panel.volume.is_none())
+                            .map(|entry| entry.name.clone())
+                    }),
                 mode: panel.mode().into(),
                 sort: panel.sort().key.into(),
                 reverse: panel.sort().reverse,
@@ -179,7 +184,7 @@ impl StateDir {
 
     pub fn save_session(&self, session: &Session) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
+        write_privately(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
     }
 
     pub fn load_game2048(&self) -> Result<Option<borg_core::Game2048>> {
@@ -198,7 +203,7 @@ impl StateDir {
 
     pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+        write_privately(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
     }
 
     pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {
@@ -249,7 +254,7 @@ impl StateDir {
         let bytes = serde_json::to_vec(&saved)?;
         anyhow::ensure!(bytes.len() as u64 <= MAX_COLLECTION_BYTES, "collections exceed storage limit");
         self.ensure()?;
-        write_atomically(&self.root.join(COLLECTIONS_FILE), &bytes)
+        write_privately(&self.root.join(COLLECTIONS_FILE), &bytes)
     }
 
     pub fn load_search_history(&self) -> Result<borg_core::SearchHistory> {
@@ -340,7 +345,7 @@ impl StateDir {
 
     pub fn save_terminal(&self, bytes: &[u8]) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.session_path(TERMINAL_FILE), bytes)
+        write_privately(&self.session_path(TERMINAL_FILE), bytes)
     }
 
     pub fn forget_terminal(&self) -> Result<()> {
@@ -398,18 +403,13 @@ impl StateDir {
         }
     }
 
-    pub fn update_check_due(&self, now: SystemTime, every: Duration) -> bool {
-        let last = fs::read_to_string(self.root.join(UPDATE_CHECK_FILE))
-            .ok()
-            .and_then(|text| text.trim().parse::<u64>().ok())
-            .map(|secs| UNIX_EPOCH + Duration::from_secs(secs));
-        last.is_none_or(|last| now.duration_since(last).is_ok_and(|age| age >= every))
+    pub fn update_check(&self) -> UpdateCheck {
+        fs::read_to_string(self.root.join(UPDATE_CHECK_FILE)).map(|text| UpdateCheck::parse(&text)).unwrap_or_default()
     }
 
-    pub fn record_update_check(&self, now: SystemTime) -> Result<()> {
+    pub fn save_update_check(&self, check: &UpdateCheck) -> Result<()> {
         self.ensure()?;
-        let secs = now.duration_since(UNIX_EPOCH).map(|age| age.as_secs()).unwrap_or_default();
-        write_atomically(&self.root.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
+        write_privately(&self.root.join(UPDATE_CHECK_FILE), check.text().as_bytes())
     }
 
     fn ensure(&self) -> Result<()> {

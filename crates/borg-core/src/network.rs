@@ -2,6 +2,7 @@
 //! connection and the interfaces, a page each in one panel, and the selected row's details and
 //! traffic in the other.
 
+use crate::screens::{CHROME_ROWS, FILTER_LIMIT, PAGE};
 use borg_i18n::tr;
 use std::{
     cmp::Ordering,
@@ -42,10 +43,6 @@ pub use viewer::{Ends, HostRow, Talker, TrafficPage, TrafficView};
 const REFRESH: Duration = Duration::from_secs(1);
 /// After an error, ask again less often.
 const RETRY: Duration = Duration::from_secs(5);
-const FILTER_LIMIT: usize = 128;
-const PAGE: usize = 10;
-/// Rows the list pane's frame, header and footer take.
-pub const CHROME_ROWS: u16 = 6;
 /// Addresses asked for their names at once.
 pub const RESOLVE_BATCH: usize = 32;
 /// Names kept for addresses; past this many they are forgotten and asked for again.
@@ -533,10 +530,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
-    state.activity.side = None;
-    crate::docker::close(state);
-    crate::startup_items::close(state);
-    crate::watch::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Network);
     let network = &mut state.network;
     network.side = Some(state.active);
     network.details_focused = false;
@@ -558,10 +552,7 @@ pub(crate) fn resume(state: &mut AppState) -> Vec<Effect> {
         return open(state);
     }
     state.overlay = None;
-    state.activity.side = None;
-    crate::docker::close(state);
-    crate::startup_items::close(state);
-    crate::watch::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Network);
     let network = &mut state.network;
     network.side = Some(state.active);
     network.details_focused = false;

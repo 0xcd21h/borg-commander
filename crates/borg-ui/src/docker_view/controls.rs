@@ -15,7 +15,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-pub(super) fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
+pub(super) fn buttons(docker: &Docker, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let specs: Vec<(&'static str, KeyCode)> = if docker.disk.open {
         disk::buttons(&docker.disk)
     } else if docker.filtering {
@@ -39,6 +39,7 @@ pub(super) fn buttons(docker: &Docker, area: Rect) -> Vec<(Rect, &'static str, K
             (if docker.details_focused { tr!(activity_back_button) } else { tr!(activity_close_button) }, KeyCode::Esc),
         ]
     };
+    let specs = crate::keybar::lent_esc(specs, gives_back);
     let mut x = area.x;
     specs
         .into_iter()
@@ -91,7 +92,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
         text(buf, crate::branding::content(row(area, 1)), hint, theme.styles.key_label);
         return;
     }
-    for (rect, label, _) in buttons(docker, row(area, 0)) {
+    for (rect, label, _) in buttons(docker, state.esc_gives_back(), row(area, 0)) {
         text(buf, rect, label, theme.styles.key);
     }
     let hint = if docker.disk.open {
@@ -138,7 +139,7 @@ pub(crate) fn panel_mouse(
                 .find(|(rect, _, _)| rect.contains(point))
                 .map(|(_, _, pointer)| Msg::Pointer(pointer));
         }
-        return buttons(docker, row(layout.keybar, 0))
+        return buttons(docker, state.esc_gives_back(), row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
             .map(|(_, _, code)| Msg::Pointer(Pointer::DockerControl { details: docker.details_focused, code }));
