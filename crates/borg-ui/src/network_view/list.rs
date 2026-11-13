@@ -68,6 +68,7 @@ pub(super) fn draw_list(
         shown: network.len(network.page),
         total: network.totals[network.page.index()],
         placeholder: tr!(network_filter_placeholder),
+        esc_clears: false,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);
@@ -260,6 +261,7 @@ pub(crate) struct FilterLine<'a> {
     pub(crate) shown: usize,
     pub(crate) total: usize,
     pub(crate) placeholder: &'a str,
+    pub(crate) esc_clears: bool,
 }
 
 /// The filter: an input with a cursor while typing, a badge while a filter applies, and a
@@ -282,7 +284,11 @@ pub(crate) fn filter_line(line: &FilterLine<'_>, look: &Look<'_>, area: Rect, bu
         let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
         text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
     } else if !line.filter.is_empty() {
-        let hint = tr!(activity_filter_applied, shown = shown, total = total);
+        let hint = if line.esc_clears {
+            tr!(traffic_filter_applied, shown = shown, total = total)
+        } else {
+            tr!(activity_filter_applied, shown = shown, total = total)
+        };
         Line::from(vec![
             Span::styled(label, styles.cursor),
             Span::styled(format!(" {} ", line.filter), heading(theme)),

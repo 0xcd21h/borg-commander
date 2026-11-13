@@ -157,14 +157,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
             return measure(&mut state.docker);
         }
         KeyCode::Char('d' | 'D') => disk.open = false,
-        KeyCode::Esc => {
-            if disk.filter.is_empty() {
-                disk.open = false;
-            } else {
-                disk.filter.clear();
-                disk.rebuild();
-            }
-        }
+        KeyCode::Esc => disk.open = false,
         _ => {}
     }
     Vec::new()

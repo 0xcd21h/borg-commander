@@ -14,7 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
+fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
     let specs: Vec<(&'static str, KeyCode)> = if filtering {
         vec![(tr!(activity_filter_keep_button), KeyCode::Enter), (tr!(activity_filter_clear_button), KeyCode::Esc)]
@@ -55,6 +55,7 @@ fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> 
         .flatten()
         .collect()
     };
+    let specs = crate::keybar::lent_esc(specs, gives_back);
     let mut x = area.x;
     specs
         .into_iter()
@@ -118,7 +119,7 @@ fn hint(network: &Network) -> &'static str {
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
     let network = &state.network;
     buf.set_style(area, theme.styles.key_label);
-    for (rect, label, _) in buttons(network, row(area, 0)) {
+    for (rect, label, _) in buttons(network, state.esc_gives_back(), row(area, 0)) {
         text(buf, rect, label, theme.styles.key);
     }
     text(buf, crate::branding::content(row(area, 1)), hint(network), theme.styles.key_label);
@@ -161,7 +162,7 @@ pub(crate) fn panel_mouse(
         if !left_click {
             return None;
         }
-        return buttons(network, row(layout.keybar, 0))
+        return buttons(network, state.esc_gives_back(), row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
             .map(|(_, _, code)| Msg::Pointer(Pointer::NetworkControl { details: network.details_focused, code }));
