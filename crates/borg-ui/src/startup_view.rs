@@ -165,6 +165,7 @@ fn draw_list(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, spinn
         shown: startup.len(),
         total: startup.report.items.len(),
         placeholder: tr!(startup_filter_placeholder),
+        esc_clears: false,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);

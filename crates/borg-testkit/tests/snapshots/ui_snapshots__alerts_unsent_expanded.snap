@@ -35,7 +35,7 @@ expression: describe(&buffer)
 Shell on a network socket · sh · Frozen
 $
 Enter Activity  C Resume  K Kill  A Allow  R Read again  / Filter  Esc Close
-Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity monitor                                              ◈ Borg Commander v0.10.0
+Alt-O Program · Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity monitor                              ◈ Borg Commander v0.10.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 9-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE

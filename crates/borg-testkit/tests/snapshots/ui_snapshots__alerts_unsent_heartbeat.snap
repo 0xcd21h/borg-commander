@@ -23,7 +23,7 @@ expression: describe(&buffer)
 
 $
 R Read again  / Filter  Esc Close
-Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity monitor    ◈ Borg Commander v0.10.0
+Alt-O Program · Ctrl-C Copy command · Alt-W Maximize · Alt-M Act ◈ Borg Commander v0.10.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 9-36 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 37-39 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 40-40 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 41-43 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 44-44 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 45-45 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 46-53 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 54-81 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 82-84 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 85-85 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 86-88 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 89-89 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
   1: 0-44 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 45-45 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 46-88 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 89-89 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE

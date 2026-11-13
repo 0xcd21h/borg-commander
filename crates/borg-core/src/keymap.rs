@@ -45,6 +45,8 @@ pub enum Action {
     RevealOriginal,
     RemoveReferences,
     DeleteOriginals,
+    /// Replaces the text a contents search found in the files it found.
+    ReplaceInFiles,
     CancelSearch,
     Quit,
     ToggleShell,

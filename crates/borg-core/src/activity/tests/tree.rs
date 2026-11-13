@@ -90,7 +90,9 @@ fn the_flat_list_and_a_filter_do_not_fold() {
         key(&mut state, code);
     }
     assert!(shown(&state).iter().all(|&(_, _, branch)| branch == Branch::Leaf));
-    key(&mut state, KeyCode::Esc);
+    for code in [KeyCode::Char('/'), KeyCode::Esc] {
+        key(&mut state, code);
+    }
     assert_eq!(shown(&state).len(), 5, "nothing was folded while filtered");
 }
 

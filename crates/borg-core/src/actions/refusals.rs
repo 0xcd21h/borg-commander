@@ -1,7 +1,7 @@
-//! The actions a panel's place rules out, and what Borg says instead: files wait while the
-//! activity monitor or the container list shows, remote panels take copies and little else,
-//! archives take copies, moves, deletes, edits and new folders in the formats Borg writes, and
-//! containers and results take only what works there.
+//! The actions a panel's place rules out, and what Borg says instead: files wait while a screen
+//! covers them, apart from the actions that stay among the files it shows beside its list,
+//! remote panels take copies and little else, archives take copies, moves, deletes, edits and new
+//! folders in the formats Borg writes, and containers and results take only what works there.
 
 use borg_i18n::tr;
 
@@ -14,7 +14,8 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
     let other_mounted = state.panel(side.other()).mount.is_some();
     let remote_here = state.panel(side).remote_mount.is_some();
     let remote_there = state.panel(side.other()).remote_mount.is_some();
-    let notice = if state.monitor_open() && on_files(action) {
+    let beside = state.files_beside_focused() && beside_list(action);
+    let notice = if state.monitor_open() && on_files(action) && !beside {
         if state.docker.is_open() {
             tr!(docker_close_for_files)
         } else if state.network.is_open() {
@@ -79,6 +80,7 @@ fn on_files(action: Action) -> bool {
             | Action::Move
             | Action::Delete
             | Action::DeleteOriginals
+            | Action::ReplaceInFiles
             | Action::View
             | Action::Edit
             | Action::EditInPanel
@@ -90,6 +92,24 @@ fn on_files(action: Action) -> bool {
             | Action::Collect
             | Action::Git(_)
             | Action::SameFolder
+    )
+}
+
+/// Actions that stay among the files a screen shows beside its list. Copies, moves and Alt-O
+/// need the other panel, which the screen covers, and an editor in the pane would lose Tab to
+/// the list.
+fn beside_list(action: Action) -> bool {
+    matches!(
+        action,
+        Action::View
+            | Action::Edit
+            | Action::EditExternal
+            | Action::Delete
+            | Action::DeleteOriginals
+            | Action::Mkdir
+            | Action::Compress
+            | Action::ExtractHere
+            | Action::Git(_)
     )
 }
 
@@ -113,6 +133,7 @@ fn needs_local_files(action: Action) -> bool {
         Action::Move
             | Action::Delete
             | Action::DeleteOriginals
+            | Action::ReplaceInFiles
             | Action::Edit
             | Action::EditInPanel
             | Action::EditExternal

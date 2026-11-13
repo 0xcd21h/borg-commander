@@ -70,6 +70,12 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if let Some(handled) = menu_mouse(state, &mouse, &layout) {
         return handled;
     }
+    if let Some(side) = state.lent.filter(|side| state.monitor_open() && layout.panels[side.index()].contains(point)) {
+        return panel_mouse(state, side, &mouse, layout.panels[side.index()], (layout.screen, now));
+    }
+    if state.files_beside_focused() && layout.keybar.contains(point) {
+        return chrome_mouse(state, &mouse, &layout).flatten();
+    }
     if state.monitor_open() {
         return monitor_mouse(state, &mouse, &layout);
     }

@@ -190,6 +190,7 @@ fn draw_list(
         shown: alerts.len(),
         total: alerts.log.alerts.len(),
         placeholder: tr!(watch_filter_placeholder),
+        esc_clears: false,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
     let header = row(inner, HEADER_ROW);

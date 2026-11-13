@@ -1,4 +1,4 @@
-use borg_core::{Confirm, Prompt, PromptPurpose};
+use borg_core::{Confirm, ConfirmPurpose, DeleteCheck, DeleteSize, FileHolder, Prompt, PromptPurpose};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -24,6 +24,9 @@ const CONFIRM_HEIGHT: u16 = 6;
 const HIDDEN: char = ' ';
 const PADDING: u16 = 1;
 const BUTTON_GAP: &str = "   ";
+/// The programs a delete dialog names before it counts the rest.
+const HOLDERS_SHOWN: usize = 3;
+const HOLDER_GAP: &str = ", ";
 
 /// The prompt and the keys its border lists, as many as fit.
 pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str) {
@@ -117,7 +120,55 @@ pub(crate) fn prompt_field_at(prompt: &Prompt, screen: Rect, point: Position) ->
 }
 
 pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
-    draw_yes_no(confirm.title, &confirm.message, confirm.accept, theme, screen, buf)
+    let hint = delete_check(confirm)
+        .and_then(DeleteCheck::first_holder)
+        .map(|holder| tr!(delete_signal_hint, name = holder.name));
+    draw_question(confirm.title, &confirm_message(confirm), hint.as_deref(), confirm.accept, theme, screen, buf)
+}
+
+fn delete_check(confirm: &Confirm) -> Option<&DeleteCheck> {
+    match &confirm.purpose {
+        ConfirmPurpose::Delete { check, .. } => check.as_ref(),
+        _ => None,
+    }
+}
+
+/// The question, and for a delete of files on this computer how much it removes and which
+/// programs use them.
+fn confirm_message(confirm: &Confirm) -> String {
+    let Some(check) = delete_check(confirm) else { return confirm.message.clone() };
+    let holders = match &check.holders {
+        None => Some(tr!(delete_checking_open).to_owned()),
+        Some(Ok(holders)) if holders.is_empty() => None,
+        Some(Ok(holders)) => Some(in_use(holders)),
+        Some(Err(error)) => Some(tr!(delete_open_unknown, error = error)),
+    };
+    [Some(confirm.message.clone()), Some(delete_size(check.size)), holders]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn delete_size(size: Option<DeleteSize>) -> String {
+    let Some(size) = size else { return tr!(delete_counting).to_owned() };
+    let files = format::count(usize::try_from(size.files).unwrap_or(usize::MAX), format::Count::File);
+    let bytes = format::size(size.bytes);
+    if size.complete {
+        tr!(delete_total, files = files, size = bytes)
+    } else {
+        tr!(delete_total_at_least, files = files, size = bytes)
+    }
+}
+
+fn in_use(holders: &[FileHolder]) -> String {
+    let named: Vec<String> =
+        holders.iter().take(HOLDERS_SHOWN).map(|holder| format!("{} ({})", holder.name, holder.pid)).collect();
+    let programs = named.join(HOLDER_GAP);
+    match holders.len().saturating_sub(HOLDERS_SHOWN) {
+        0 => tr!(delete_in_use, programs = programs),
+        more => tr!(delete_in_use_more, programs = programs, more = more),
+    }
 }
 
 /// A question with Yes and No buttons, Yes chosen while `accept` is true.
@@ -129,9 +180,22 @@ pub(crate) fn draw_yes_no(
     screen: Rect,
     buf: &mut Buffer,
 ) -> Rect {
+    draw_question(title, message, None, accept, theme, screen, buf)
+}
+
+/// A question with Yes and No buttons and the keys its border lists.
+fn draw_question(
+    title: &str,
+    message: &str,
+    hint: Option<&str>,
+    accept: bool,
+    theme: &Theme,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Rect {
     let styles = &theme.styles;
     let rect = confirm_rect(message, screen);
-    let inner = frame(title, None, theme, rect, buf);
+    let inner = frame(title, hint, theme, rect, buf);
     let [lines, _, buttons] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 
@@ -185,7 +249,7 @@ fn confirm_rect(message: &str, screen: Rect) -> Rect {
 }
 
 pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Option<bool> {
-    yes_no_at(&confirm.message, screen, point)
+    yes_no_at(&confirm_message(confirm), screen, point)
 }
 
 /// The button of the question asking `message` at `point`: true for Yes, false for No.

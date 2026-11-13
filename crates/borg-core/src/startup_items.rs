@@ -6,7 +6,7 @@ use crate::screens::{CHROME_ROWS, FILTER_LIMIT, PAGE};
 use borg_i18n::tr;
 use borg_rules::{Level, Problem, RuleMatch};
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{Instant, SystemTime},
 };
 
@@ -312,11 +312,6 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<StartupRepor
         }
         Err(error) => startup.error = Some(error),
     }
-}
-
-/// The folder and name of an item's file, to show it in a panel.
-fn place_in_folder(file: &Path) -> Option<(PathBuf, String)> {
-    Some((file.parent()?.to_path_buf(), file.file_name()?.to_string_lossy().into_owned()))
 }
 
 #[cfg(test)]

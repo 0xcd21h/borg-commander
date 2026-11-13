@@ -17,6 +17,9 @@ use crate::{
 
 const PREVIOUS: isize = -1;
 const NEXT: isize = 1;
+/// The key in the delete dialog that opens the signals of a program using the files, as K does in
+/// the activity monitor.
+const SIGNAL_KEY: char = 'k';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
@@ -204,6 +207,13 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             _ => {}
         }
     }
+    if let (PromptPurpose::ReplaceInFiles { query, files }, KeyCode::Enter) = (&prompt.purpose, key.code) {
+        let with = prompt.input.text().into();
+        return crate::replace::confirm(
+            state,
+            crate::ReplaceRequest { query: *query.clone(), with, files: files.clone() },
+        );
+    }
     if let PromptPurpose::BackupAdd { fixed } = prompt.purpose {
         match key.code {
             KeyCode::Esc => {
@@ -238,7 +248,9 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         return Vec::new();
     }
     match purpose {
-        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } => Vec::new(),
+        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } | PromptPurpose::ReplaceInFiles { .. } => {
+            Vec::new()
+        }
         PromptPurpose::Search { root } => {
             let hidden = state.settings.preferences.show_hidden;
             match crate::results::name_search(state, root, text, hidden, true, Default::default()) {
@@ -306,6 +318,9 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
 }
 
 fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if let Some(pid) = holder_to_signal(&confirm, key) {
+        return crate::delete_check::signal(state, pid);
+    }
     let decided = match crate::keyboard::yes_no(confirm.accept, key) {
         YesNo::Close(decided) => decided,
         YesNo::Switch => {
@@ -353,18 +368,19 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (answer, ConfirmPurpose::CleanStorage { paths, window }) => {
             crate::storage::answer(state, answer == Some(true), paths, *window)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) if state.active_panel().mount.is_some() => {
             crate::docker::delete(state, sources)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().archive.is_some() => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) if state.active_panel().archive.is_some() => {
             crate::archive::remove(state, &sources, now)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) => {
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
         (Some(true), ConfirmPurpose::VolumeHelper { volume }) => crate::docker::open_volume(state, volume, true),
         (Some(true), ConfirmPurpose::AlertKill { alert, process }) => crate::watch::kill(state, alert, process),
+        (Some(true), ConfirmPurpose::ReplaceInFiles(request)) => crate::replace::start(state, *request, now),
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
         }
@@ -384,6 +400,13 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         }
         _ => Vec::new(),
     }
+}
+
+/// The program K signals from a delete dialog that found programs using the files.
+fn holder_to_signal(confirm: &Confirm, key: &KeyEvent) -> Option<u32> {
+    let ConfirmPurpose::Delete { check: Some(check), .. } = &confirm.purpose else { return None };
+    let signal = crate::keyboard::latin(key).code == KeyCode::Char(SIGNAL_KEY);
+    signal.then(|| check.first_holder().map(|holder| holder.pid)).flatten()
 }
 
 fn resolve(state: &AppState, text: &str) -> PathBuf {
