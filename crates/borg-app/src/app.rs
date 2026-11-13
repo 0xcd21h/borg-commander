@@ -95,8 +95,10 @@ pub struct App {
     last_click: Option<(u16, u16, Instant)>,
     wheel: WheelBurst,
     preview: preview::Loader,
-    /// Stops the viewer's search running in the background.
+    /// Stop the searches running in the background through the viewer's text and the quick
+    /// view's.
     viewer_search: Option<Arc<AtomicBool>>,
+    preview_search: Option<Arc<AtomicBool>>,
     /// Stops the read of the viewer's entropy under way.
     viewer_profile: Option<Arc<AtomicBool>>,
     plugins: crate::plugins::Plugins,

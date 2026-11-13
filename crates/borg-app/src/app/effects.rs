@@ -106,10 +106,10 @@ impl App {
             Effect::ForgetComputers => self.forget_computers(),
             Effect::AgentAnswer { id, approved } => return self.agent_answer(id, approved),
             Effect::View { path, at } => self.open_viewer(path, at),
-            Effect::FindInViewer { id, query, from, direction, count } => {
-                self.find_in_viewer(id, query, from, direction, count)
+            Effect::FindInPager { id, slot, query, from, direction, count } => {
+                self.find_in_pager(id, slot, query, from, direction, count)
             }
-            Effect::StopFindInViewer => self.stop_viewer_search(),
+            Effect::StopFindInPager(slot) => self.stop_pager_search(slot),
             Effect::ProfileViewer { id } => self.profile_viewer(id),
             Effect::StopProfileViewer => self.stop_viewer_profile(),
             Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),

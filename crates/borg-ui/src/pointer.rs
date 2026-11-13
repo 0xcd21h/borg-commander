@@ -364,7 +364,7 @@ fn panel_mouse(state: &AppState, side: Side, mouse: &Mouse, rect: Rect, (screen,
     if state.aside.is_some() && side != state.active {
         return match mouse.wheel() {
             Some(delta) => Some(Msg::Pointer(Pointer::ScrollDocument(delta))),
-            None => mouse.click.then_some(Msg::Pointer(Pointer::FocusPreview)),
+            None => mouse.click.then(|| crate::aside_view::click(state, rect, mouse.point)),
         };
     }
     if let Some(delta) = mouse.wheel() {

@@ -302,15 +302,13 @@ fn viewer_wraps_and_unwraps() -> Result<()> {
     check("viewer_unwrapped", &stage, unwrapped)
 }
 
-/// Sends `msg`, running a search the viewer asks for as the app does.
+/// Sends `msg`, running a search the viewer or the quick view asks for as the app does.
 fn send_and_search(stage: &mut Stage, msg: Msg) {
     for effect in borg_core::update(&mut stage.state, msg, stage.started) {
-        let borg_core::Effect::FindInViewer { id, query, from, direction, count } = effect else { continue };
-        let Some(borg_core::Content::Text(pager)) = stage.state.viewer.as_ref().map(|viewer| &viewer.content) else {
-            continue;
-        };
+        let borg_core::Effect::FindInPager { id, slot, query, from, direction, count } = effect else { continue };
+        let Some(pager) = stage.state.pager(slot) else { continue };
         let found = borg_core::find_in(&*pager.source(), &query, from, direction, count, &|_| true);
-        stage.send(Msg::FoundInViewer { id, found: found.map_err(|error| error.to_string()) });
+        stage.send(Msg::FoundInPager { id, slot, found: found.map_err(|error| error.to_string()) });
     }
 }
 
@@ -1324,12 +1322,61 @@ fn quick_view_shows_a_binary_as_hex_rows_and_h_shows_its_text() -> Result<()> {
     peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "0000  42 4f 52 47 49 4d 47 00  BORGIMG.")?;
-    ensure_text(&buffer, "Tab focus · h text")?;
+    ensure_text(&buffer, "Tab focus · h text · F7 find")?;
     check("quick_view_hex", &stage, buffer)?;
 
     stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('h'))).send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Tab focus · w wrap · h hex")?;
+    Ok(())
+}
+
+#[test]
+fn quick_view_marks_its_matches_and_says_when_there_are_none() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 110, rows: 22 }, Motion::STILL)?;
+    hover(&mut stage, "build.sh");
+    stage.send(ctrl('q'));
+    let script = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "echo \"building borg\"",
+        "cargo fmt --all --check",
+        "cargo clippy --workspace -- -D warnings",
+        "cargo test --workspace",
+        "cargo build --release",
+        "",
+        "mkdir -p dist",
+        "cp target/release/borg dist/",
+        "tar -czf dist/borg.tar.gz -C dist borg",
+        "echo \"done\"",
+    ];
+    let path = std::path::Path::new("build.sh");
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(script.join("\n").into_bytes()), path, 43, 15)?;
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::F(7)));
+    for msg in chars("cargo") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 of 4")?;
+    check("quick_view_find", &stage, buffer)?;
+
+    for msg in chars(" bench") {
+        send_and_search(&mut stage, msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "No matches")?;
+    check("quick_view_find_no_match", &stage, buffer)?;
+
+    for _ in " bench".chars() {
+        send_and_search(&mut stage, key(KeyCode::Backspace));
+    }
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Tab focus · 1 of 4 · n next · N previous")?;
     Ok(())
 }
 

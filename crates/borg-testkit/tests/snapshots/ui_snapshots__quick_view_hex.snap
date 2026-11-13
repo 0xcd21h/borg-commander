@@ -19,7 +19,7 @@ expression: describe(&buffer)
 │                                           ││ 0068  bc 8c 00 00 e1 8d 00 00  ........   │
 │                                           ││ 0070  06 8e 00 00 2b 8f 00 00  ....+...   │
 │                                           ││ 0078  50 90 00 00 75 91 00 00  P...u...   │
-╰ 3 items ──────────────────────────────────╯╰ 0% · Tab focus · h text ──────────────────╯
+╰ 3 items ──────────────────────────────────╯╰ 0% · Tab focus · h text · F7 find ────────╯
  -rw-r--r--     466  2026-01-10 09:30  image.bin
 $
 F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell

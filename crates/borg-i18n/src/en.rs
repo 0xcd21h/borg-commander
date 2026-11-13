@@ -699,6 +699,7 @@ catalog! {
     w_wrap => " · w wrap",
     h_hex => " · h hex",
     h_text => " · h text",
+    f7_find => " · F7 find",
     yes => "[ Yes ]",
     no => "[ No ]",
     enter_ok_esc_cancel => " Enter ok · Esc cancel ",

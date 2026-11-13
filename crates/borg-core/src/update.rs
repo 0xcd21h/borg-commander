@@ -153,12 +153,20 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::viewer::failed(state, path, notice);
             Vec::new()
         }
-        Msg::FoundInViewer { id, found } => {
+        Msg::FoundInPager { id, slot: crate::PagerSlot::Viewer, found } => {
             crate::viewer::found(state, id, found);
             Vec::new()
         }
-        Msg::SearchingViewer { id, percent } => {
+        Msg::FoundInPager { id, slot: crate::PagerSlot::QuickView, found } => {
+            crate::aside::found(state, id, found);
+            Vec::new()
+        }
+        Msg::SearchingPager { id, slot: crate::PagerSlot::Viewer, percent } => {
             crate::viewer::searching(state, id, percent);
+            Vec::new()
+        }
+        Msg::SearchingPager { id, slot: crate::PagerSlot::QuickView, percent } => {
+            crate::aside::searching(state, id, percent);
             Vec::new()
         }
         Msg::ViewerProfiled { id, profile } => {

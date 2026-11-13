@@ -3,7 +3,7 @@
 
 use super::App;
 use anyhow::{Context, Result};
-use borg_core::{Msg, Viewer, viewer_size};
+use borg_core::{Msg, PagerSlot, Viewer, viewer_size};
 use std::{
     path::PathBuf,
     sync::{
@@ -14,11 +14,12 @@ use std::{
 };
 
 impl App {
-    /// Looks for `query` in the viewer's file on a thread of its own, saying how far it got
-    /// when it takes a while.
-    pub(super) fn find_in_viewer(
+    /// Looks for `query` in the text the viewer or the quick view shows on a thread of its own,
+    /// saying how far it got when it takes a while.
+    pub(super) fn find_in_pager(
         &mut self,
         id: u64,
+        slot: PagerSlot,
         query: borg_view::Query,
         from: u64,
         direction: borg_core::Direction,
@@ -26,13 +27,11 @@ impl App {
     ) {
         const QUIET: Duration = Duration::from_millis(300);
         const PROGRESS_EVERY: Duration = Duration::from_millis(150);
-        self.stop_viewer_search();
-        let Some(borg_core::Content::Text(pager)) = self.state.viewer.as_ref().map(|viewer| &viewer.content) else {
-            return;
-        };
+        self.stop_pager_search(slot);
+        let Some(pager) = self.state.pager(slot) else { return };
         let source = pager.source();
         let stop = Arc::new(AtomicBool::new(false));
-        self.viewer_search = Some(stop.clone());
+        *self.pager_search(slot) = Some(stop.clone());
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
             let started = Instant::now();
@@ -49,20 +48,27 @@ impl App {
                         borg_core::Direction::Backward => from.wrapping_sub(at).wrapping_add(len) % len,
                     };
                     let percent = (done.saturating_mul(100) / len).min(99) as u8;
-                    let _ = messages.send(Msg::SearchingViewer { id, percent });
+                    let _ = messages.send(Msg::SearchingPager { id, slot, percent });
                 }
                 true
             };
             let found = borg_core::find_in(&*source, &query, from, direction, count, &go_on);
             if !stop.load(Ordering::Relaxed) {
-                let _ = messages.send(Msg::FoundInViewer { id, found: found.map_err(|error| error.to_string()) });
+                let _ = messages.send(Msg::FoundInPager { id, slot, found: found.map_err(|error| error.to_string()) });
             }
         });
     }
 
-    pub(super) fn stop_viewer_search(&mut self) {
-        if let Some(stop) = self.viewer_search.take() {
+    pub(super) fn stop_pager_search(&mut self, slot: PagerSlot) {
+        if let Some(stop) = self.pager_search(slot).take() {
             stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn pager_search(&mut self, slot: PagerSlot) -> &mut Option<Arc<AtomicBool>> {
+        match slot {
+            PagerSlot::Viewer => &mut self.viewer_search,
+            PagerSlot::QuickView => &mut self.preview_search,
         }
     }
 
