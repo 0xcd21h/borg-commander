@@ -229,6 +229,9 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     };
     match system {
         Some(layout) => system::draw(activity, look, Rect { height: layout.rows(), ..inner }, layout, buf),
+        None if processes && page == ActivityPage::Processes => {
+            system::overview(activity, summary(activity, page, processes), look, row(inner, 0), buf);
+        }
         None => text(buf, row(inner, 0), summary(activity, page, processes), emphasis(look.theme)),
     }
     let extra = system.map_or(0, |layout| layout.rows().saturating_sub(1));

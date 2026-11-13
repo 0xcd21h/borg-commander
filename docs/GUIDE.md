@@ -1707,16 +1707,21 @@ on one side and a preview of the selected region's bytes on the other. **Esc** c
 it is open and stops when you close it. Sampling pauses while a memory inspection runs and
 resumes when the result arrives.
 
-The top of the process list sums up the system. Each core has a bar and a percentage, and under the
-cores the **CPU**, **RAM** and **Swap** bars stand beside **Tasks**, **Load**, **Up** and **Disk**:
-the number of processes, the load average over 1, 5 and 15 minutes, how long the system has been
-running, and what the disks read and write per second. On Linux, **Tasks** also counts threads and
-how many of them are running, and a **Disk** bar shows how busy the busiest disk was. On macOS the
-summary leaves both out. In a narrow pane the figures go under the bars. With many cores, or in a
-short pane, the cores turn into a strip labeled **Cores** with one cell per core. The summary takes
-at most a third of the pane's height. When it does not fit even without the cores, or the pane is
-narrower than 30 columns, a single line shows CPU, RAM, swap and the number of processes instead.
-**S** hides the summary or shows it again.
+The top of the process list sums up the system. Each core has a bar and a percentage. Under the
+cores, the **CPU**, **Load**, **RAM** and **Swap** bars stand beside **Processes**, **Up** and
+**Disk**: the number of processes, how long the system has been running, and what the disks read and
+write per second. **Load** is how much work wanted a core over the last minute, as a share of all
+the cores, so at 100% every core had work. The word after it compares the last minute with the last
+15 minutes: **rising**, **falling** or **steady**. Above 100% the cores cannot keep up: the bar
+turns to the warning color and says about how many processes wait for a core, such as
+**~7 waiting**. On Linux, **Threads** counts threads and how many of them are running, a **Disk**
+bar shows how busy the busiest disk was, and processes waiting for a disk count toward the load. On
+macOS the summary leaves out the threads and the disk bar. In a narrow pane the figures go under the
+bars. With many cores, or in a short pane, the cores turn into a strip labeled **Cores** with one
+cell per core. The summary takes at most a third of the pane's height. When it does not fit even
+without the cores, when the pane is narrower than 30 columns, or when **S** hides it, a single line
+shows CPU, RAM, swap and the number of processes instead. While the cores cannot keep up, that line
+ends with the waiting count. **S** shows the summary again.
 
 The list shows CPU, resident memory, memory growth, and disk read and write rates. CPU 100% means
 one fully busy core. Resident pages shared between processes count toward each of them, so adding

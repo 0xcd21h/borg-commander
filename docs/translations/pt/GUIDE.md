@@ -1842,16 +1842,22 @@ amostras uma vez por segundo enquanto está aberto e para quando o fecha. A amos
 pausa enquanto decorre uma inspeção de memória e é retomada quando chega o resultado.
 
 No topo da lista de processos fica um resumo do sistema. Cada núcleo tem uma barra e uma
-percentagem, e por baixo dos núcleos as barras **CPU**, **RAM** e **Swap** ficam ao lado de
-**Tarefas**, **Carga**, **Ativo há** e **Disco**: o número de processos, a carga média em 1, 5 e 15
-minutos, há quanto tempo o sistema está a funcionar e o que os discos leem e escrevem por segundo.
-No Linux, **Tarefas** conta também as threads e quantas estão em execução, e uma barra **Disco**
-mostra quão ocupado esteve o disco mais ocupado. No macOS, o resumo do sistema não mostra nenhum dos
-dois. Num painel estreito, os valores ficam por baixo das barras. Com muitos núcleos, ou num painel
+percentagem. Por baixo dos núcleos, as barras **CPU**, **Carga**, **RAM** e **Swap** ficam ao lado
+de **Processos**, **Ativo há** e **Disco**: o número de processos, há quanto tempo o sistema está a
+funcionar e o que os discos leem e escrevem por segundo. **Carga** é o trabalho que precisou de um
+núcleo no último minuto, em percentagem de todos os núcleos, por isso a 100% todos os núcleos
+tiveram trabalho. A palavra seguinte compara o último minuto com os últimos 15 minutos: **a subir**,
+**a descer** ou **estável**. Acima de 100%, os núcleos não dão conta do trabalho: a barra passa à
+cor de aviso e indica aproximadamente quantos processos esperam por um núcleo, por exemplo
+**~7 à espera**. No Linux, **Threads** conta as threads e quantas estão em execução, uma barra
+**Disco** mostra quão ocupado esteve o disco mais ocupado, e os processos à espera de um disco
+também contam para a carga. No macOS, o resumo do sistema não mostra as threads nem a barra do
+disco. Num painel estreito, os valores ficam por baixo das barras. Com muitos núcleos, ou num painel
 baixo, os núcleos passam a uma faixa com o rótulo **Núcleos** e uma célula por núcleo. O resumo do
-sistema ocupa no máximo um terço da altura do painel. Quando não cabe nem sem os núcleos, ou o
-painel tem menos de 30 colunas, uma única linha mostra a CPU, a RAM, a swap e o número de processos.
-**S** oculta o resumo do sistema ou volta a mostrá-lo.
+sistema ocupa no máximo um terço da altura do painel. Quando não cabe nem sem os núcleos, quando o
+painel tem menos de 30 colunas ou quando **S** o oculta, uma única linha mostra a CPU, a RAM, a swap
+e o número de processos. Enquanto os núcleos não dão conta do trabalho, essa linha termina com o
+número de processos à espera. **S** volta a mostrar o resumo do sistema.
 
 A lista mostra CPU, memória residente, crescimento da memória e débitos de leitura e escrita em
 disco. CPU a 100% corresponde a um núcleo totalmente ocupado. As páginas residentes partilhadas

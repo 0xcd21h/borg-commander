@@ -1,5 +1,5 @@
-//! The system summary above the process list: each core's CPU use, then the system's CPU,
-//! memory, swap and disks beside its tasks, load and uptime, laid out to fit the pane.
+//! The system summary above the process list: each core's CPU use, then the system's CPU, load,
+//! memory, swap and disks beside its processes, uptime and disk rates, laid out to fit the pane.
 
 use super::{Activity, LoadAverage, Threads};
 use borg_i18n::{Count, count, tr};
@@ -21,11 +21,16 @@ pub const CORE_METER: u16 = 6;
 pub const SUMMARY_GAP: u16 = 2;
 /// Cells a core's percentage takes after its bar, with the space before it: " 100%".
 pub const CORE_PERCENT: u16 = 5;
-/// The bars under the cores: CPU, RAM and swap, and a disk bar where the system says how busy
-/// its disks are.
-const BAR_ROWS: u16 = 3;
-/// The figures beside or under the bars: tasks, load, uptime and the disks' rates.
-const FIGURE_ROWS: u16 = 4;
+/// The bars under the cores: CPU, load, RAM and swap, and a disk bar where the system says how
+/// busy its disks are.
+const BAR_ROWS: u16 = 4;
+/// The figures beside or under the bars: processes, uptime, and what the disks read and write,
+/// and a row for threads where the system counts them. Beside the bars, reading and writing
+/// take a row each.
+const FIGURE_ROWS: u16 = 3;
+/// How far the last minute's load must stand from the last 15 minutes' to count as rising or
+/// falling, in percent of what the cores can run.
+const TREND_SHARE: u32 = 10;
 /// Cells the pane's border takes across and down.
 const PANE_BORDER: u16 = 2;
 const MINUTE_SECONDS: u64 = 60;
@@ -66,14 +71,44 @@ impl SummaryLayout {
     }
 }
 
-/// The labels in front of the bars and the strip of cores, which share one column.
-pub fn bar_labels() -> [&'static str; 5] {
-    [tr!(summary_cpu), tr!(summary_ram), tr!(summary_swap), tr!(summary_disk), tr!(summary_cores)]
+/// What the system reports beyond what every system does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SummaryExtras {
+    /// How busy the disks are, for a bar of their own.
+    pub disk_busy: bool,
+    /// How many threads there are and how many run, for a row of their own.
+    pub threads: bool,
 }
 
-/// The labels in front of the tasks, the load, the uptime and the disks' rates.
+/// Whether the load over the last minute is above, below or close to the load over the last
+/// 15 minutes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadTrend {
+    Rising,
+    Falling,
+    Steady,
+}
+
+/// The load measured against what the cores can run at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoadReading {
+    /// The last minute's load as a share of the cores, in hundredths of a percent. Above 10,000
+    /// the cores cannot keep up.
+    pub share: u32,
+    pub trend: LoadTrend,
+    /// About how many processes waited for a core over the last minute, when the cores could not
+    /// keep up.
+    pub waiting: Option<u32>,
+}
+
+/// The labels in front of the bars and the strip of cores, which share one column.
+pub fn bar_labels() -> [&'static str; 6] {
+    [tr!(summary_cpu), tr!(summary_load), tr!(summary_ram), tr!(summary_swap), tr!(summary_disk), tr!(summary_cores)]
+}
+
+/// The labels in front of the processes, the threads, the uptime and the disks' rates.
 pub fn figure_labels() -> [&'static str; 4] {
-    [tr!(summary_tasks), tr!(summary_load), tr!(summary_uptime), tr!(summary_disk)]
+    [tr!(summary_processes), tr!(summary_threads), tr!(summary_uptime), tr!(summary_disk)]
 }
 
 /// Cells the widest of `labels` takes.
@@ -103,14 +138,14 @@ pub fn strip_cells(width: u16) -> u16 {
 /// The summary for `cores` cores in a pane `width` by `height` cells inside its border, or none
 /// when it does not fit and the pane keeps the one-line overview. The cores' bars give way to
 /// a strip, and the strip to nothing, before the summary takes more than its share of the pane.
-/// `disk_bar` adds a bar for how busy the disks are.
-pub fn summary_layout(cores: usize, disk_bar: bool, width: u16, height: u16) -> Option<SummaryLayout> {
+pub fn summary_layout(cores: usize, extras: SummaryExtras, width: u16, height: u16) -> Option<SummaryLayout> {
     if width < SUMMARY_MIN_WIDTH {
         return None;
     }
     let two_columns = width >= SUMMARY_TWO_COLUMNS;
-    let bars = BAR_ROWS + u16::from(disk_bar);
-    let figure_rows = if two_columns { bars.max(FIGURE_ROWS) } else { bars + FIGURE_ROWS };
+    let bars = BAR_ROWS + u16::from(extras.disk_busy);
+    let figures = FIGURE_ROWS + u16::from(extras.threads) + u16::from(two_columns);
+    let figure_rows = if two_columns { bars.max(figures) } else { bars + figures };
     let (columns, rows) = core_bars(cores, width);
     let core_bars = (cores > 0 && rows <= CORE_BAR_ROWS).then(|| CoreRows::Bars {
         columns: u16::try_from(columns).unwrap_or(u16::MAX),
@@ -127,44 +162,58 @@ pub fn summary_layout(cores: usize, disk_bar: bool, width: u16, height: u16) -> 
         .find(|layout| layout.rows() <= room)
 }
 
-/// A figure in hundredths, with two decimals.
-fn hundredths(value: u32) -> String {
-    format!("{}.{:02}", value / HUNDREDTHS, value % HUNDREDTHS)
+/// The load over the last minute against what `cores` cores run at once, or none before the
+/// first sample counts the cores.
+pub fn load_reading(load: LoadAverage, cores: usize) -> Option<LoadReading> {
+    let cores = u32::try_from(cores).ok().filter(|&cores| cores > 0)?;
+    let capacity = cores * HUNDREDTHS;
+    let margin = cores * TREND_SHARE;
+    let trend = if load.one > load.fifteen.saturating_add(margin) {
+        LoadTrend::Rising
+    } else if load.one.saturating_add(margin) < load.fifteen {
+        LoadTrend::Falling
+    } else {
+        LoadTrend::Steady
+    };
+    let waiting = (load.one > capacity).then(|| (load.one - capacity).div_ceil(HUNDREDTHS));
+    Some(LoadReading { share: load.one.saturating_mul(HUNDREDTHS) / cores, trend, waiting })
 }
 
-/// The load averages over one, five and fifteen minutes.
-pub fn load_text(load: LoadAverage) -> String {
-    [load.one, load.five, load.fifteen].map(hundredths).join(" ")
+/// The load's share of the cores and its trend: "88%, rising".
+pub fn load_text(reading: LoadReading) -> String {
+    let share = format!("{}%", (reading.share + HUNDREDTHS / 2) / HUNDREDTHS);
+    let trend = match reading.trend {
+        LoadTrend::Rising => tr!(summary_load_rising),
+        LoadTrend::Falling => tr!(summary_load_falling),
+        LoadTrend::Steady => tr!(summary_load_steady),
+    };
+    tr!(summary_load_value, share = share, trend = trend)
 }
 
-/// How long the system has been up: days, then hours, minutes and seconds.
+/// About how many processes wait for a core: "~4 waiting".
+pub fn waiting_text(waiting: u32) -> String {
+    tr!(summary_load_waiting, waiting = waiting)
+}
+
+/// How long the system has been up, in its two largest units: "3 days, 4 hours".
 pub fn uptime_text(uptime: Duration) -> String {
     let seconds = uptime.as_secs();
-    let clock = format!(
-        "{:02}:{:02}:{:02}",
-        seconds % DAY_SECONDS / HOUR_SECONDS,
-        seconds % HOUR_SECONDS / MINUTE_SECONDS,
-        seconds % MINUTE_SECONDS
-    );
-    match usize::try_from(seconds / DAY_SECONDS).unwrap_or(usize::MAX) {
-        0 => clock,
-        days => tr!(summary_uptime_days, days = count(days, Count::Day), time = clock),
+    let days = seconds / DAY_SECONDS;
+    let hours = seconds % DAY_SECONDS / HOUR_SECONDS;
+    let minutes = seconds % HOUR_SECONDS / MINUTE_SECONDS;
+    let units =
+        [(days, Count::Day), (hours, Count::Hour), (minutes, Count::Minute), (seconds % MINUTE_SECONDS, Count::Second)];
+    let first = units.iter().position(|&(amount, _)| amount > 0).unwrap_or(units.len() - 1);
+    let amount = |(amount, noun): (u64, Count)| count(usize::try_from(amount).unwrap_or(usize::MAX), noun);
+    match units.get(first + 1).filter(|&&(amount, noun)| amount > 0 && noun != Count::Second) {
+        Some(&second) => tr!(summary_uptime_pair, larger = amount(units[first]), smaller = amount(second)),
+        None => amount(units[first]),
     }
 }
 
-/// The number of processes, then the threads and how many of them run, where the system
-/// counts them.
-pub fn tasks_text(processes: usize, threads: Option<Threads>) -> String {
-    let processes = processes.to_string();
-    match threads {
-        Some(threads) => tr!(
-            summary_tasks_threads,
-            processes = processes,
-            threads = count(usize::try_from(threads.total).unwrap_or(usize::MAX), Count::Thread),
-            running = threads.running
-        ),
-        None => processes,
-    }
+/// The threads and how many of them run: "517 · 3 running".
+pub fn threads_text(threads: Threads) -> String {
+    tr!(summary_threads_running, threads = threads.total, running = threads.running)
 }
 
 impl Activity {
@@ -174,13 +223,19 @@ impl Activity {
         if self.hide_summary {
             return None;
         }
-        summary_layout(self.sample.cpu.len(), self.disk_busy().is_some(), width, height)
+        let extras = SummaryExtras { disk_busy: self.disk_busy().is_some(), threads: self.sample.threads.is_some() };
+        summary_layout(self.sample.cpu.len(), extras, width, height)
     }
 
     /// Rows the summary takes from the process list in `pane`, beyond the overview's one row.
     pub fn summary_rows(&self, pane: Rect) -> u16 {
         let (width, height) = (pane.width.saturating_sub(PANE_BORDER), pane.height.saturating_sub(PANE_BORDER));
         self.summary_layout(width, height).map_or(0, |layout| layout.rows().saturating_sub(1))
+    }
+
+    /// The load against the cores, once a sample has both.
+    pub fn load(&self) -> Option<LoadReading> {
+        self.sample.load.and_then(|load| load_reading(load, self.sample.cpu.len()))
     }
 
     /// How busy the busiest disk was, in hundredths of a percent, where the system says.

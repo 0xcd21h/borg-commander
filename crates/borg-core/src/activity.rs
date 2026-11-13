@@ -8,8 +8,9 @@ mod process;
 pub use process::{DiskActivity, LoadAverage, MemoryProtection, ProcessInfo, ProcessKey, SystemSample, Threads};
 mod summary;
 pub use summary::{
-    CORE_METER, CORE_PERCENT, CoreRows, SUMMARY_GAP, SummaryLayout, bar_labels, core_number_width, figure_labels,
-    label_width, load_text, strip_cells, summary_layout, tasks_text, uptime_text,
+    CORE_METER, CORE_PERCENT, CoreRows, LoadReading, LoadTrend, SUMMARY_GAP, SummaryExtras, SummaryLayout, bar_labels,
+    core_number_width, figure_labels, label_width, load_reading, load_text, strip_cells, summary_layout, threads_text,
+    uptime_text, waiting_text,
 };
 mod memory;
 pub use memory::{

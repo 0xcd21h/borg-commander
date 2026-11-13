@@ -3291,15 +3291,18 @@ fn activity_summary_shows_each_core_beside_memory_disks_load_and_uptime() -> Res
     })?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "16 ")?;
-    ensure_text(&buffer, "Load  2.14 1.87 1.20")?;
-    ensure_text(&buffer, "Up    3 days, 04:12:09")?;
-    ensure_text(&buffer, "Tasks 5 · 412 threads · 3 running")?;
-    ensure_text(&buffer, "read 12M/s · write 3.0M/s")?;
+    ensure_text(&buffer, "13%, steady")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Up        3 days, 4 hours")?;
+    ensure_text(&buffer, "Disk      read 12M/s")?;
+    ensure_text(&buffer, "          write 3.0M/s")?;
+    anyhow::ensure!(!describe(&buffer).contains("waiting"), "the cores keep up");
     check("activity_summary_wide", &stage, buffer)?;
     stage.send(key(KeyCode::Char('s')));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "│CPU 46.6% · RAM 17G/30G · Swap 244M/3.7G · 5 processes          ││CPU 46.6%")?;
-    anyhow::ensure!(!describe(&buffer).contains("Tasks"), "the summary is hidden");
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "the summary is hidden");
     check("activity_summary_hidden", &stage, buffer)
 }
 
@@ -3313,16 +3316,43 @@ fn activity_summary_in_a_narrow_pane_stacks_its_figures_and_shows_cores_as_a_str
     })?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Cores")?;
-    ensure_text(&buffer, "Tasks 5 ")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "a system that does not count threads");
     check("activity_summary_narrow", &stage, buffer)?;
     let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
         cpu: busy_cores(16),
         ..sample
     })?;
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Disk  ███")?;
-    ensure_text(&buffer, "Disk  read 12M/s · write 3.0M/s")?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Disk      read 12M/s · write 3.0M/s")?;
     Ok(())
+}
+
+/// More work than the cores can run fills the load bar in the notice color and says about how
+/// many processes wait for a core, in a wide pane and a narrow one.
+#[test]
+fn activity_summary_flags_load_above_what_the_cores_can_run() -> Result<()> {
+    let overloaded = |sample: borg_core::SystemSample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        load: Some(borg_core::LoadAverage { one: 2_214, five: 1_890, fifteen: 1_420 }),
+        ..sample
+    };
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load   ~7 waiting       ")?;
+    ensure_text(&buffer, "138%, rising")?;
+    check("activity_summary_overloaded", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 40 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load       ~7 waiting   ")?;
+    check("activity_summary_overloaded_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 30 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    let short = "│CPU 46.6% · RAM 17G/30G · … · ~7 waiting│";
+    ensure_text(&buffer, short)?;
+    stage.send(key(KeyCode::Char('s')));
+    ensure_text(&stage.render(stage.started)?, short)
 }
 
 #[test]

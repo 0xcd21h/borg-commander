@@ -46,7 +46,16 @@ pub(super) fn sizes(totals: &MemoryTotals) -> [String; 3] {
 }
 
 /// A horizontal bar filled to `fraction`, shaded along the theme accent.
-pub(super) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, look: &Look<'_>) {
+/// How a meter colors its filled cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Fill {
+    /// Along the theme's accent, from the empty end to the full one.
+    Accent,
+    /// In the notice color, for something that runs short.
+    Warning,
+}
+
+pub(super) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, tone: Fill, look: &Look<'_>) {
     let theme = look.theme;
     let accent = look.accent();
     let eighths = (fraction.clamp(0.0, 1.0) * f64::from(area.width) * 8.0).round() as u32;
@@ -59,7 +68,10 @@ pub(super) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, look: &Look<'_>
             }
             _ => {
                 let symbol = if fill == 8 { '█' } else { LEFT_BLOCKS[fill as usize - 1] };
-                let color = accent.at(f32::from(x) / f32::from(area.width.max(2) - 1));
+                let color = match tone {
+                    Fill::Accent => accent.at(f32::from(x) / f32::from(area.width.max(2) - 1)),
+                    Fill::Warning => look.fg(theme.styles.notice),
+                };
                 cell.set_char(symbol).set_style(theme.styles.overlay.fg(color.into()));
             }
         }
@@ -87,7 +99,7 @@ pub(super) fn metrics(page: &mut Page<'_>, totals: &MemoryTotals, whole: Option<
         let note = tr!(memory_footprint_share, percent = percent);
         let width = METER_WIDTH.min(line.right().saturating_sub(x).saturating_sub(note.width() as u16 + 1));
         if width >= 4 {
-            meter(page.buf, Rect { x, width, ..line }, fraction, look);
+            meter(page.buf, Rect { x, width, ..line }, fraction, Fill::Accent, look);
             let note_area = Rect { x: x + width + 1, width: line.right().saturating_sub(x + width + 1), ..line };
             text(page.buf, note_area, note, dim(theme));
         }

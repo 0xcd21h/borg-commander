@@ -1850,16 +1850,22 @@ El muestreo se pausa mientras se ejecuta una inspección de memoria y se reanuda
 resultado.
 
 En la parte superior de la lista de procesos hay un resumen del sistema. Cada núcleo tiene una barra
-y un porcentaje, y bajo los núcleos las barras **CPU**, **RAM** y **Swap** están junto a **Tareas**,
-**Carga**, **Activo** y **Disco**: el número de procesos, la carga media en 1, 5 y 15 minutos,
-cuánto tiempo lleva funcionando el sistema y lo que los discos leen y escriben por segundo. En
-Linux, **Tareas** también cuenta los hilos y cuántos se están ejecutando, y una barra **Disco**
-muestra lo ocupado que estuvo el disco con más trabajo. En macOS, el resumen del sistema no muestra
-ninguna de las dos cosas. En un panel estrecho, los valores van debajo de las barras. Con muchos
-núcleos, o en un panel bajo, los núcleos pasan a una franja con la etiqueta **Núcleos** y una celda
-por núcleo. El resumen del sistema ocupa como mucho un tercio de la altura del panel. Cuando no cabe
-ni siquiera sin los núcleos, o el panel tiene menos de 30 columnas, una sola línea muestra la CPU,
-la RAM, el swap y el número de procesos. **S** oculta el resumen del sistema o lo vuelve a mostrar.
+y un porcentaje. Bajo los núcleos, las barras **CPU**, **Carga**, **RAM** y **Swap** están junto a
+**Procesos**, **Activo** y **Disco**: el número de procesos, cuánto tiempo lleva funcionando el
+sistema y lo que los discos leen y escriben por segundo. **Carga** es el trabajo que necesitó un
+núcleo en el último minuto, como porcentaje de todos los núcleos, así que al 100% todos los núcleos
+tuvieron trabajo. La palabra que sigue compara el último minuto con los últimos 15 minutos:
+**subiendo**, **bajando** o **estable**. Por encima del 100%, los núcleos no dan abasto: la barra
+pasa al color de aviso e indica cuántos procesos esperan un núcleo, aproximadamente, por ejemplo
+**~7 en espera**. En Linux, **Hilos** cuenta los hilos y cuántos se están ejecutando, una barra
+**Disco** muestra lo ocupado que estuvo el disco con más trabajo, y los procesos que esperan un
+disco también cuentan para la carga. En macOS, el resumen del sistema no muestra los hilos ni la
+barra del disco. En un panel estrecho, los valores van debajo de las barras. Con muchos núcleos, o
+en un panel bajo, los núcleos pasan a una franja con la etiqueta **Núcleos** y una celda por núcleo.
+El resumen del sistema ocupa como mucho un tercio de la altura del panel. Cuando no cabe ni siquiera
+sin los núcleos, cuando el panel tiene menos de 30 columnas o cuando **S** lo oculta, una sola línea
+muestra la CPU, la RAM, el swap y el número de procesos. Mientras los núcleos no dan abasto, esa
+línea termina con el número de procesos en espera. **S** vuelve a mostrar el resumen del sistema.
 
 La lista muestra la CPU, la memoria residente, el crecimiento de la memoria y las velocidades de
 lectura y escritura en disco. Una CPU al 100 % equivale a un núcleo totalmente ocupado. Las páginas

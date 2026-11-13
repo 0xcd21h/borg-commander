@@ -1,14 +1,22 @@
-//! The system summary above the process list: each core's CPU use, then the system's CPU,
-//! memory, swap and disks beside its tasks, load and uptime.
+//! The system summary above the process list: each core's CPU use, then the system's CPU, load,
+//! memory, swap and disks beside its processes, uptime and disk rates.
 
-use super::{dim, memory::meter, percent, text};
-use crate::{format, look::Look};
+use super::{
+    dim, emphasis,
+    memory::{Fill, meter},
+    percent, text,
+};
+use crate::{Rgb, format, look::Look};
 use borg_core::{
     Activity, CORE_PERCENT, CoreRows, SUMMARY_GAP, SummaryLayout, bar_labels, core_number_width, figure_labels,
-    label_width, load_text, strip_cells, tasks_text, uptime_text,
+    label_width, load_text, strip_cells, threads_text, uptime_text, waiting_text,
 };
 use borg_i18n::tr;
-use ratatui::{buffer::Buffer, layout::Rect};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Modifier, Style},
+};
 use unicode_width::UnicodeWidthStr;
 
 /// The narrowest bar beside a label and its value; narrower, the value stands alone.
@@ -19,6 +27,8 @@ const HUNDREDTHS: u32 = 100;
 /// The strip's cells from idle to fully busy.
 const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const UNKNOWN: &str = "—";
+/// Between two figures on one row.
+const GAP: &str = " · ";
 
 /// A row of the summary with a bar: its label, how full the bar is, and the value after it.
 /// Without a fraction the value stands where the bar would.
@@ -26,6 +36,9 @@ struct Gauge {
     label: &'static str,
     fraction: Option<f64>,
     value: String,
+    /// What runs short, which turns the bar and its value to the notice color and opens the
+    /// full bar.
+    shortage: Option<String>,
 }
 
 /// A row of the summary with a label and a value.
@@ -57,7 +70,7 @@ pub(super) fn draw(activity: &Activity, look: &Look<'_>, area: Rect, layout: Sum
         let longest = figures.iter().map(|figure| figure.value.width()).max().unwrap_or(0);
         let needed = labels.saturating_add(1).saturating_add(u16::try_from(longest).unwrap_or(u16::MAX));
         let least = bars + 1 + MIN_METER + 1 + value_width(&gauges);
-        let right = needed.max(room / 2).min(room.saturating_sub(least));
+        let right = needed.min(room.saturating_sub(least));
         let left = room - right;
         draw_gauges(&gauges, bars, look, Rect { width: left, ..rest }, buf);
         draw_figures(&figures, labels, look, Rect { x: rest.x + left + SUMMARY_GAP, width: right, ..rest }, buf);
@@ -91,7 +104,7 @@ fn core_bars(cores: &[u32], (columns, rows): (u16, u16), look: &Look<'_>, area: 
             format::pad_start(&(index + 1).to_string(), usize::from(number)),
             dim(theme),
         );
-        meter(buf, Rect { x: line.x + number + 1, width: meter_width, ..line }, of_whole(cpu), look);
+        meter(buf, Rect { x: line.x + number + 1, width: meter_width, ..line }, of_whole(cpu), Fill::Accent, look);
         let percent = format!("{}%", (cpu + HUNDREDTHS / 2) / HUNDREDTHS);
         let value = Rect { x: line.x + number + 1 + meter_width, width: CORE_PERCENT, ..line };
         text(buf, value, format::pad_start(&percent, usize::from(CORE_PERCENT)), theme.styles.overlay);
@@ -126,23 +139,37 @@ fn core_strip(cores: &[u32], look: &Look<'_>, area: Rect, buf: &mut Buffer) {
 
 fn gauges(activity: &Activity) -> Vec<Gauge> {
     let sample = &activity.sample;
-    let [cpu, ram, swap, disk, _] = bar_labels();
+    let [cpu, load, ram, swap, disk, _] = bar_labels();
     let pair = |used: u64, total: u64| format!("{}/{}", format::size(used), format::size(total));
+    let reading = activity.load();
     let mut gauges = vec![
         Gauge {
             label: cpu,
             fraction: Some(activity.system_cpu().map_or(0.0, of_whole)),
             value: percent(activity.system_cpu()),
+            shortage: None,
         },
-        Gauge { label: ram, fraction: Some(share(sample.used, sample.total)), value: pair(sample.used, sample.total) },
+        Gauge {
+            label: load,
+            fraction: reading.map(|reading| of_whole(reading.share)),
+            value: reading.map_or_else(|| UNKNOWN.to_owned(), load_text),
+            shortage: reading.and_then(|reading| reading.waiting).map(waiting_text),
+        },
+        Gauge {
+            label: ram,
+            fraction: Some(share(sample.used, sample.total)),
+            value: pair(sample.used, sample.total),
+            shortage: None,
+        },
         Gauge {
             label: swap,
             fraction: Some(share(sample.swap_used, sample.swap_total)),
             value: pair(sample.swap_used, sample.swap_total),
+            shortage: None,
         },
     ];
     if let Some(busy) = activity.disk_busy() {
-        gauges.push(Gauge { label: disk, fraction: Some(of_whole(busy)), value: whole_percent(busy) });
+        gauges.push(Gauge { label: disk, fraction: Some(of_whole(busy)), value: whole_percent(busy), shortage: None });
     }
     gauges
 }
@@ -156,25 +183,43 @@ fn whole_percent(hundredths: u32) -> String {
     format!("{}%", (hundredths + HUNDREDTHS / 2) / HUNDREDTHS)
 }
 
-/// What the disks read and write per second.
-fn rates(activity: &Activity) -> String {
-    activity.sample.disk.map_or_else(
-        || UNKNOWN.to_owned(),
-        |disk| tr!(summary_disk_rates, read = format::size(disk.read), write = format::size(disk.written)),
-    )
-}
-
-/// The tasks, load, uptime and the disks' rates, which stand beside the disk bar without a label
-/// of their own when there is one `beside` them.
+/// The processes, the threads where the system counts them, the uptime, and what the disks read
+/// and write per second, on two rows under one label when the figures stand beside the bars.
 fn figures(activity: &Activity, beside: bool) -> Vec<Figure> {
     let sample = &activity.sample;
-    let [tasks, load, uptime, disk] = figure_labels();
-    vec![
-        Figure { label: tasks, value: tasks_text(sample.processes.len(), sample.threads) },
-        Figure { label: load, value: sample.load.map_or_else(|| UNKNOWN.to_owned(), load_text) },
-        Figure { label: uptime, value: sample.uptime.map_or_else(|| UNKNOWN.to_owned(), uptime_text) },
-        Figure { label: if beside && activity.disk_busy().is_some() { "" } else { disk }, value: rates(activity) },
-    ]
+    let [processes, threads, uptime, disk] = figure_labels();
+    let mut figures = vec![Figure { label: processes, value: sample.processes.len().to_string() }];
+    figures.extend(sample.threads.map(|count| Figure { label: threads, value: threads_text(count) }));
+    figures.push(Figure { label: uptime, value: sample.uptime.map_or_else(|| UNKNOWN.to_owned(), uptime_text) });
+    match sample.disk {
+        Some(rates) => {
+            let read = tr!(summary_disk_read, rate = format::size(rates.read));
+            let write = tr!(summary_disk_write, rate = format::size(rates.written));
+            if beside {
+                figures.extend([Figure { label: disk, value: read }, Figure { label: "", value: write }]);
+            } else {
+                figures.push(Figure { label: disk, value: [read, write].join(GAP) });
+            }
+        }
+        None => figures.push(Figure { label: disk, value: UNKNOWN.to_owned() }),
+    }
+    figures
+}
+
+/// The one-line overview that stands in for the summary, and after it, when the cores cannot keep
+/// up, about how many processes wait for one. The overview gives up its end to keep that in view.
+pub(super) fn overview(activity: &Activity, overview: String, look: &Look<'_>, line: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
+    let Some(waiting) = activity.load().and_then(|reading| reading.waiting) else {
+        text(buf, line, overview, emphasis(theme));
+        return;
+    };
+    let waiting = format!("{GAP}{}", waiting_text(waiting));
+    let overview = format::truncate_end(&overview, usize::from(line.width).saturating_sub(waiting.width()));
+    let used = u16::try_from(overview.width()).unwrap_or(u16::MAX);
+    text(buf, line, overview, emphasis(theme));
+    let rest = Rect { x: line.x.saturating_add(used), width: line.width.saturating_sub(used), ..line };
+    text(buf, rest, waiting, theme.styles.notice.add_modifier(Modifier::BOLD));
 }
 
 /// Cells the widest value after a bar takes.
@@ -191,15 +236,36 @@ fn draw_gauges(gauges: &[Gauge], labels: u16, look: &Look<'_>, area: Rect, buf: 
         text(buf, Rect { width: labels, ..line }, gauge.label, dim(theme));
         let rest = Rect { x: line.x + labels + 1, width: line.width.saturating_sub(labels + 1), ..line };
         let meter_width = rest.width.saturating_sub(values + 1);
+        let style = if gauge.shortage.is_some() { theme.styles.notice } else { theme.styles.overlay };
         match gauge.fraction.filter(|_| meter_width >= MIN_METER) {
             Some(fraction) => {
-                meter(buf, Rect { width: meter_width, ..rest }, fraction, look);
+                let bar = Rect { width: meter_width, ..rest };
+                match &gauge.shortage {
+                    Some(shortage) => short_bar(shortage, look, bar, buf),
+                    None => meter(buf, bar, fraction, Fill::Accent, look),
+                }
                 let value = Rect { x: rest.x + meter_width + 1, width: values, ..rest };
-                text(buf, value, format::pad_start(&gauge.value, usize::from(values)), theme.styles.overlay);
+                text(buf, value, format::pad_start(&gauge.value, usize::from(values)), style);
             }
-            None => text(buf, rest, fitted(&gauge.value, rest), theme.styles.overlay),
+            None => text(buf, rest, fitted(&gauge.value, rest), style),
         }
     }
+}
+
+/// A full bar in the notice color with what runs short written inside it, when that fits.
+fn short_bar(shortage: &str, look: &Look<'_>, bar: Rect, buf: &mut Buffer) {
+    let inside = format!(" {shortage}");
+    if inside.width() > usize::from(bar.width) {
+        meter(buf, bar, 1.0, Fill::Warning, look);
+        return;
+    }
+    let notice: Rgb = look.fg(look.theme.styles.notice);
+    let style = Style::default().fg(look.background().into()).bg(notice.into()).add_modifier(Modifier::BOLD);
+    buf.set_style(bar, style);
+    for x in bar.left()..bar.right() {
+        buf[(x, bar.y)].set_char(' ');
+    }
+    buf.set_string(bar.x, bar.y, inside, style);
 }
 
 fn draw_figures(figures: &[Figure], labels: u16, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
