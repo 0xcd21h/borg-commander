@@ -1,7 +1,9 @@
 //! Starting file jobs and the copies to remote Borgs and containers, and steering them as they run.
 
 use super::App;
-use borg_core::{JobCommand, Msg, PackedFile, RewriteRequest, UnpackRequest, UnpackTarget, Viewer, viewer_size};
+use borg_core::{
+    JobCommand, Msg, PackedFile, ReplaceRequest, RewriteRequest, UnpackRequest, UnpackTarget, Viewer, viewer_size,
+};
 use borg_jobs::{Control, Spec, run};
 use std::{
     path::PathBuf,
@@ -137,6 +139,20 @@ impl App {
             let emit = &mut |event| drop(messages.send(Msg::Job { id, event }));
             let outcome = crate::archive::rewrite(&indexes, &request, &drives, &control, emit);
             cache.invalidate(&changed);
+            drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
+        });
+    }
+
+    /// Replaces the text a contents search found in the files it found.
+    pub(super) fn start_replace(&mut self, id: u64, request: ReplaceRequest) {
+        let control = self.control_for(id);
+        let messages = self.messages.clone();
+        let cache = self.search.cache.clone();
+        cache.begin_changes();
+        tokio::task::spawn_blocking(move || {
+            let emit = &mut |event| drop(messages.send(Msg::Job { id, event }));
+            let outcome = crate::replace_files::run(&request, &control, emit);
+            cache.invalidate(&request.files);
             drop(messages.send(Msg::Job { id, event: borg_jobs::Event::Finished(outcome) }));
         });
     }

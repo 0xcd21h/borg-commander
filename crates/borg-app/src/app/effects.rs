@@ -121,6 +121,7 @@ impl App {
             }
             Effect::StartUnpack { id, request } => self.start_unpack(id, request),
             Effect::StartRewrite { id, request } => self.start_rewrite(id, request),
+            Effect::StartReplace { id, request } => self.start_replace(id, request),
             Effect::AskAgain => self.drives.ask_again(),
             Effect::StartDockerCopy { id, container, inbound, sources, target } => {
                 self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target })

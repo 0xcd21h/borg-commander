@@ -11,6 +11,11 @@ pub struct MenuCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptPurpose {
+    /// What to put in place of the text a contents search found, in `files`.
+    ReplaceInFiles {
+        query: Box<borg_view::Query>,
+        files: Vec<PathBuf>,
+    },
     Search {
         root: PathBuf,
     },
@@ -136,6 +141,8 @@ pub enum ConfirmPurpose {
         action: borg_docker::Action,
         ids: Vec<String>,
     },
+    /// Replacing text in files, which keeps no copy of the old text.
+    ReplaceInFiles(Box<crate::ReplaceRequest>),
     /// Killing the process an alert is about, which cannot be taken back.
     AlertKill {
         alert: u64,

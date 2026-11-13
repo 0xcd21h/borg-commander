@@ -438,6 +438,10 @@ fn results_menu(state: &AppState) -> Menu {
             when(keyed(tr!(remove_references), "F8", Action::RemoveReferences), collection),
             when(item(tr!(delete_originals), Action::DeleteOriginals), result && !panel.selection().is_empty()),
             when(
+                keyed(tr!(replace_in_files), "C-r", Action::ReplaceInFiles),
+                crate::replace::contents_query(panel).is_some(),
+            ),
+            when(
                 keyed(tr!(cancel_search), "C-c", Action::CancelSearch),
                 matches!(panel.results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Search { .. }))
                     && panel.listing() == &crate::Listing::Loading,

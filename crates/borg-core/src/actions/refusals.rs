@@ -80,6 +80,7 @@ fn on_files(action: Action) -> bool {
             | Action::Move
             | Action::Delete
             | Action::DeleteOriginals
+            | Action::ReplaceInFiles
             | Action::View
             | Action::Edit
             | Action::EditInPanel
@@ -132,6 +133,7 @@ fn needs_local_files(action: Action) -> bool {
         Action::Move
             | Action::Delete
             | Action::DeleteOriginals
+            | Action::ReplaceInFiles
             | Action::Edit
             | Action::EditInPanel
             | Action::EditExternal

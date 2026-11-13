@@ -207,6 +207,13 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             _ => {}
         }
     }
+    if let (PromptPurpose::ReplaceInFiles { query, files }, KeyCode::Enter) = (&prompt.purpose, key.code) {
+        let with = prompt.input.text().into();
+        return crate::replace::confirm(
+            state,
+            crate::ReplaceRequest { query: *query.clone(), with, files: files.clone() },
+        );
+    }
     if let PromptPurpose::BackupAdd { fixed } = prompt.purpose {
         match key.code {
             KeyCode::Esc => {
@@ -241,7 +248,9 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         return Vec::new();
     }
     match purpose {
-        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } => Vec::new(),
+        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } | PromptPurpose::ReplaceInFiles { .. } => {
+            Vec::new()
+        }
         PromptPurpose::Search { root } => {
             let hidden = state.settings.preferences.show_hidden;
             match crate::results::name_search(state, root, text, hidden, true, Default::default()) {
@@ -371,6 +380,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
         (Some(true), ConfirmPurpose::VolumeHelper { volume }) => crate::docker::open_volume(state, volume, true),
         (Some(true), ConfirmPurpose::AlertKill { alert, process }) => crate::watch::kill(state, alert, process),
+        (Some(true), ConfirmPurpose::ReplaceInFiles(request)) => crate::replace::start(state, *request, now),
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
         }

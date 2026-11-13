@@ -1812,6 +1812,23 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
 }
 
 #[test]
+fn ctrl_r_in_contents_results_asks_what_replaces_the_text() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    contents_results(&mut stage)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)));
+    for msg in chars("fixme") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace \"todo\" in 3 files with:")?;
+    check("search_contents_replace", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::from(KeyCode::Enter)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace every match of \"todo\"")?;
+    check("search_contents_replace_confirm", &stage, buffer)
+}
+
+#[test]
 fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Result<()> {
     use borg_core::{Action, Pointer};
     use std::sync::Arc;

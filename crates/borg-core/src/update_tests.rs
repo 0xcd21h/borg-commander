@@ -1583,6 +1583,94 @@ fn found_in(state: &mut AppState, now: Instant, query: &borg_view::Query, files:
     update(state, Msg::Listed { side, generation, error: None }, now);
 }
 
+fn port_found_in_three_files(state: &mut AppState, now: Instant) -> borg_view::Query {
+    let query = borg_view::Query { text: "port".into(), words: true, ..Default::default() };
+    let line =
+        crate::LineMatch { line: 1, offset: 0, before: String::new(), found: "port".into(), after: String::new() };
+    found_in(state, now, &query, vec![("a.conf", line.clone()), ("b.conf", line.clone()), ("c.conf", line)]);
+    query
+}
+
+fn replace_question(state: &AppState) -> (&str, bool) {
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("Enter asks once more: {:?}", state.overlay) };
+    (confirm.message.as_str(), confirm.accept)
+}
+
+#[test]
+fn ctrl_r_in_a_contents_search_replaces_in_every_file_it_found_or_in_the_marked_ones() {
+    let (mut state, now) = setup();
+    let query = port_found_in_three_files(&mut state, now);
+    assert!(press(&mut state, now, ctrl('r')).is_empty());
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("Ctrl-R asks what to put in place") };
+    assert_eq!(prompt.label, "Replace \"port\" in 3 files with:");
+    type_text(&mut state, now, " listen ");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    let asked = "Replace every match of \"port\" with \" listen \" in 3 files? Borg keeps no copy of the old text.";
+    assert_eq!(replace_question(&state), (asked, false), "the question starts on No");
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    let files: Vec<PathBuf> = ["a.conf", "b.conf", "c.conf"].map(|name| Path::new("/home").join(name)).to_vec();
+    let request = crate::ReplaceRequest { query: query.clone(), with: " listen ".into(), files };
+    assert!(effects.contains(&Effect::StartReplace { id: 0, request }), "{effects:?}");
+    assert!(state.overlay.is_none());
+    assert_eq!(state.jobs[0].kind, crate::JobKind::Replace);
+
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, ctrl('r'));
+    press(&mut state, now, key(KeyCode::Enter));
+    let (asked, _) = replace_question(&state);
+    assert!(asked.starts_with("Remove every match of \"port\" from \""), "nothing typed removes the text: {asked}");
+    assert!(asked.contains("a.conf\"?"), "one file is named: {asked}");
+    let only = crate::ReplaceRequest { query, with: String::new(), files: vec![PathBuf::from("/home/a.conf")] };
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    assert!(effects.contains(&Effect::StartReplace { id: 1, request: only }), "{effects:?}");
+}
+
+#[test]
+fn enter_or_esc_on_the_replace_question_changes_no_file() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    for answer in [KeyCode::Enter, KeyCode::Esc, KeyCode::Char('n')] {
+        press(&mut state, now, ctrl('r'));
+        press(&mut state, now, key(KeyCode::Enter));
+        replace_question(&state);
+        let effects = press(&mut state, now, key(answer));
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartReplace { .. })), "{answer:?}: {effects:?}");
+        assert!(state.overlay.is_none() && state.jobs.is_empty(), "{answer:?} replaces nothing");
+    }
+}
+
+#[test]
+fn a_finished_replace_says_how_many_files_changed_and_searches_again() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    press(&mut state, now, ctrl('r'));
+    type_text(&mut state, now, "listen");
+    press(&mut state, now, key(KeyCode::Enter));
+    press(&mut state, now, key(KeyCode::Char('y')));
+    let outcome = Outcome::Done { done: Totals { files: 2, bytes: 0 }, skipped: 1 };
+    let effects = update(&mut state, Msg::Job { id: 0, event: Event::Finished(outcome) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Replaced text in 2 files · 1 skipped"));
+    let again = effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { side: Side::Left, request, .. } if request.options.refresh));
+    assert!(again, "the results show what the files hold now: {effects:?}");
+}
+
+#[test]
+fn ctrl_r_replaces_only_where_a_search_looked_for_text() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    press(&mut state, now, ctrl('r'));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Esc replaces nothing");
+
+    let (mut state, now) = setup();
+    crate::results::collection(&mut state, "Bundle", Side::Left);
+    assert!(crate::actions::perform(&mut state, Action::ReplaceInFiles, now).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("Replacing needs the results of a search for text in files."));
+    assert!(state.overlay.is_none());
+}
+
 #[test]
 fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_the_find_bar_ready() {
     use std::sync::Arc;
