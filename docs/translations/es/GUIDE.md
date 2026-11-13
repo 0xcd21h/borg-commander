@@ -1834,7 +1834,7 @@ para mostrarlos todos.
 | T | Mostrar u ocultar el árbol de procesos |
 | H | Ocultar o mostrar los procesos que no usaron CPU en los últimos segundos |
 | Left / Right | En el árbol, plegar o desplegar la rama del proceso seleccionado |
-| K | Enviar una señal o cambiar la prioridad |
+| K | Enviar una señal o cambiar la prioridad, también desde la ventana del proceso |
 | E | Buscar entropía alta en todos los procesos |
 | Alt-N | Mostrar el tráfico del proceso seleccionado en la pantalla de red |
 | Alt-O | Abrir la carpeta del programa seleccionado junto a la lista |
@@ -1878,8 +1878,9 @@ Mientras se aplica un filtro, la lista es plana.
 
 ### Señales y prioridad
 
-K abre **Señal o prioridad** para el proceso seleccionado. Pulsa la letra de una opción, o muévete
-hasta ella y pulsa Enter. Esc cierra el diálogo sin enviar nada.
+K abre **Señal o prioridad** para el proceso seleccionado, en la lista y en la ventana del proceso con
+el mapa de memoria o los archivos abiertos. Pulsa la letra de una opción, o muévete hasta ella y pulsa
+Enter. Esc cierra el diálogo sin enviar nada.
 
 | Tecla | Opción | Qué hace |
 | --- | --- | --- |

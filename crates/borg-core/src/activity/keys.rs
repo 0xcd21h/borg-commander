@@ -44,7 +44,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if matches!(code, KeyCode::Char('k' | 'K'))
         && !modifiers.contains(KeyModifiers::CONTROL)
         && !state.activity.filtering
-        && state.activity.list == ActivityPage::Processes
+        && about_one_process(state.activity.list)
     {
         return super::open_control(state);
     }
@@ -101,6 +101,22 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             None => in_focused_page(state, key, now),
         },
     }
+}
+
+/// Lists that show the selected process or what belongs to it, where K signals that process: the
+/// processes themselves and the process window's memory map, open files, memory search and
+/// findings.
+fn about_one_process(page: ActivityPage) -> bool {
+    matches!(
+        page,
+        ActivityPage::Processes
+            | ActivityPage::Regions
+            | ActivityPage::Snapshot
+            | ActivityPage::Files
+            | ActivityPage::FileDetails
+            | ActivityPage::Search
+            | ActivityPage::Findings
+    )
 }
 
 /// Pastes into the memory search form's query, or into the processes' filter while it is typed.

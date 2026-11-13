@@ -54,6 +54,7 @@ pub(super) fn buttons(
             ActivityPage::Regions => vec![
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_capture_button), KeyCode::Enter),
+                (tr!(activity_signal_button), KeyCode::Char('k')),
                 (
                     if activity.map { tr!(activity_bytes_button) } else { tr!(activity_page_map_button) },
                     KeyCode::Char('m'),
@@ -64,8 +65,11 @@ pub(super) fn buttons(
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
             ActivityPage::Files | ActivityPage::FileDetails => {
-                let mut specs =
-                    vec![(tr!(activity_refresh_button), KeyCode::Char('r')), (tr!(activity_back_button), KeyCode::Esc)];
+                let mut specs = vec![
+                    (tr!(activity_signal_button), KeyCode::Char('k')),
+                    (tr!(activity_refresh_button), KeyCode::Char('r')),
+                    (tr!(activity_back_button), KeyCode::Esc),
+                ];
                 if activity.previewable_file().is_some() {
                     specs.insert(0, (tr!(process_file_view_button), KeyCode::F(3)));
                 }
