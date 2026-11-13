@@ -76,25 +76,26 @@ struct Drawing<'s, 'a> {
     placements: Vec<Placement>,
 }
 
-impl Drawing<'_, '_> {
-    /// The two panels, or the monitor drawn across them.
+impl<'a> Drawing<'_, 'a> {
+    /// The two panels, or a screen drawn across them, with the file panel it lends beside its
+    /// list.
     fn panels(&mut self) {
         let (state, now) = (self.scene.state, self.scene.now);
+        let lent = state.lent.filter(|_| state.monitor_open());
+        let mut screen = self.layout.panels;
+        let mut monitor = state.monitor_panels(now);
+        if let Some(side) = lent {
+            screen[side.index()] = Rect::default();
+            monitor = [Rect::default(); 2];
+        }
         if state.activity.side.is_some() {
-            crate::activity_view::draw(
-                state,
-                &self.look,
-                self.layout.panels,
-                state.monitor_panels(now),
-                now,
-                &mut self.buf,
-            );
+            crate::activity_view::draw(state, &self.look, screen, monitor, now, &mut self.buf);
         }
         if state.docker.is_open() {
             self.cursor = crate::docker_view::draw(
                 state,
                 &self.look,
-                self.layout.panels,
+                screen,
                 self.scene.docker_shell.as_ref(),
                 self.scene.clock,
                 now,
@@ -102,22 +103,23 @@ impl Drawing<'_, '_> {
             );
         }
         if state.network.is_open() {
-            crate::network_view::draw(state, &self.look, self.layout.panels, now, &mut self.buf);
+            crate::network_view::draw(state, &self.look, screen, now, &mut self.buf);
         }
         if state.alerts.is_open() {
-            crate::alerts_view::draw(state, &self.look, self.layout.panels, self.scene.clock, now, &mut self.buf);
+            crate::alerts_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
         }
         if state.startup_items.is_open() {
-            crate::startup_view::draw(state, &self.look, self.layout.panels, self.scene.clock, now, &mut self.buf);
+            crate::startup_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
+        }
+        if let Some(side) = lent {
+            self.lent(side);
+            return;
         }
         if state.monitor_open() {
             return;
         }
         let activities = Side::ALL.map(|side| activity(self.scene, side));
-        let finding = match &state.overlay {
-            Some(borg_core::Overlay::Find(find)) => Some((find, borg_core::find_summary(state, find))),
-            _ => None,
-        };
+        let finding = self.finding();
         for side in Side::ALL {
             let rect = self.layout.panels[side.index()];
             if rect.is_empty() {
@@ -128,6 +130,34 @@ impl Drawing<'_, '_> {
             } else {
                 self.panel(side, rect, activities[side.index()].clone(), finding);
             }
+        }
+    }
+
+    /// The quick find under way, with its count of matches.
+    fn finding(&self) -> Option<(&'a Find, (usize, usize))> {
+        let state = self.scene.state;
+        match &state.overlay {
+            Some(borg_core::Overlay::Find(find)) => Some((find, borg_core::find_summary(state, find))),
+            _ => None,
+        }
+    }
+
+    /// The file panel a screen lends beside its list. The list dims while the panel has the keys.
+    fn lent(&mut self, side: Side) {
+        let state = self.scene.state;
+        let rect = self.layout.panels[side.index()];
+        if state.files_beside_focused() && self.theme.effects.inactive_dim > FULLY_HIDDEN {
+            let list = self.layout.panels[side.other().index()];
+            fx::fade_to_background(&mut self.buf, list, self.theme.effects.inactive_dim, self.scene.palette);
+        }
+        if rect.is_empty() {
+            return;
+        }
+        if state.docked[side.index()].is_some() {
+            self.docked(side, rect);
+        } else {
+            let finding = self.finding();
+            self.panel(side, rect, activity(self.scene, side), finding);
         }
     }
 
@@ -171,7 +201,7 @@ impl Drawing<'_, '_> {
         let busy = activity.is_some();
         let panel = PanelScene {
             state,
-            expanded: active && state.results_expanded(),
+            expanded: active && state.results_expanded() && state.lent.is_none(),
             panel: state.panel(side),
             client_of_remote: state.panel(side).remote_mount.is_none()
                 && state.panels.iter().any(|panel| panel.remote_mount.is_some()),
@@ -204,7 +234,9 @@ impl Drawing<'_, '_> {
         let Some(status) = self.layout.status else { return };
         let state = self.scene.state;
         let styles = &self.theme.styles;
-        if state.activity.side.is_some() {
+        if state.files_beside_focused() {
+            draw_status(state.active_panel(), status, styles, self.scene.clock, &mut self.buf);
+        } else if state.activity.side.is_some() {
             let value = state.activity.process().map_or_else(String::new, |p| {
                 tr!(
                     activity_process_label,
@@ -233,7 +265,7 @@ impl Drawing<'_, '_> {
     /// The dialog of the active panel's editor may reach over the other panel, so it goes on top.
     fn editor_dialog(&mut self) {
         let state = self.scene.state;
-        let shown = !state.monitor_open();
+        let shown = !state.monitor_open() || state.files_beside_focused();
         if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| shown)
             && let Some(field) = crate::editor_view::draw_dialog(
                 editor,
@@ -271,6 +303,11 @@ impl Drawing<'_, '_> {
     /// The key bar of what has the keys: a monitor, an editor or the panels.
     fn keybar(&mut self) {
         let (state, area) = (self.scene.state, self.layout.keybar);
+        if state.files_beside_focused() {
+            let labels = file_labels(state);
+            crate::keybar::draw_keybar(state, area, &self.theme.styles, labels, self.scene.now, &mut self.buf);
+            return;
+        }
         if state.activity.side.is_some() {
             crate::activity_view::keybar(state, area, self.theme, &mut self.buf);
         } else if state.docker.is_open() {
@@ -286,6 +323,9 @@ impl Drawing<'_, '_> {
         } else {
             let labels = file_labels(state);
             crate::keybar::draw_keybar(state, area, &self.theme.styles, labels, self.scene.now, &mut self.buf);
+        }
+        if state.lent.is_some() && state.monitor_open() {
+            crate::keybar::lent_hint(state, area, &self.theme.styles, &mut self.buf);
         }
     }
 }

@@ -21,7 +21,7 @@ expression: describe(&buffer)
 Shell on a network socket · sh · Frozen
 $
 Enter Activity  C Resume  K Kill  A Allow  R Read again  / Filter  Esc Close
-Ctrl-C Copy command · Alt-W Maximize · Alt-M Activity  ◈ Borg Commander v0.10.0
+Alt-O Program · Ctrl-C Copy command · Alt-W Maximize · ◈ Borg Commander v0.10.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-8 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 9-31 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 32-34 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 35-35 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 36-38 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 39-39 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 40-40 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 41-67 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 68-71 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 72-74 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 75-75 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 76-78 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 79-79 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
   1: 0-39 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 40-40 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 41-78 Rgb(241, 76, 76) Rgb(38, 38, 38) BOLD | 79-79 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE

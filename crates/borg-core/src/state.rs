@@ -159,6 +159,12 @@ pub struct AppState {
     pub jobs: Vec<Job>,
     pub aside: Option<Aside>,
     pub preview_focused: bool,
+    /// The side where a screen lends a file panel beside its list, while it does.
+    pub lent: Option<Side>,
+    /// The file the lent panel was opened to show, and the listing of its folder, until it ends.
+    pub(crate) awaited: Option<(u64, PathBuf)>,
+    /// What the Find in folder dialog held when it closed, for the next time it opens.
+    pub(crate) search_draft: Option<crate::SearchForm>,
     pub(crate) last_menu: Option<MenuCursor>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
@@ -268,6 +274,9 @@ impl AppState {
             last_find: None,
             jobs: Vec::new(),
             aside: None,
+            lent: None,
+            awaited: None,
+            search_draft: None,
             preview_focused: false,
             last_menu: None,
             escaped: None,

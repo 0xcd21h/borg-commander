@@ -252,6 +252,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 /// monitors, the sizes and the busy marker, and the jobs' and the agent's questions show.
 fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
+    crate::screens::sync_lent(state);
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::backup::sync(state));
@@ -332,6 +333,7 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
         state.notice = notice.or(state.notice.take());
     }
     crate::archive::settle(state, side);
+    crate::screens::listed(state, side, generation);
     if unreadable {
         return crate::archive::unmount(state, side).into_iter().collect();
     }

@@ -147,9 +147,13 @@ pub(super) fn swap(state: &mut AppState) -> Vec<Effect> {
 }
 
 /// Alt-O: opens the active panel's folder in the other panel, in place of the preview, a
-/// container's or a remote machine's files there. Search results give the folder the search
-/// started from.
+/// container's or a remote machine's files there. In search results and collections it opens
+/// the folder of the file under the cursor, as Reveal original does.
 pub(super) fn same_folder(state: &mut AppState) -> Vec<Effect> {
+    let panel = state.active_panel();
+    if panel.is_results() && panel.hovered_entry().is_some() {
+        return crate::results::reveal(state);
+    }
     let other = state.active.other();
     let folder = match shown_folder(state.active_panel()) {
         Ok(folder) => folder,

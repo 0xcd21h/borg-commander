@@ -123,3 +123,28 @@ pub fn key_name(code: KeyCode, modifiers: KeyModifiers) -> String {
         base
     }
 }
+
+/// While a screen lends a file panel and its list has the keys, the keys for the panel take the
+/// place of the screen's own hints, unless a notice shows there.
+pub(crate) fn lent_hint(state: &AppState, area: Rect, styles: &Styles<Style>, buf: &mut Buffer) {
+    let (_, context) = rows(area);
+    if context.is_empty() || state.files_beside_focused() || state.notice.is_some() {
+        return;
+    }
+    Clear.render(context, buf);
+    buf.set_style(context, styles.key_label);
+    Line::styled(format::truncate_end(tr!(lent_hint), usize::from(context.width)), styles.key_label)
+        .render(context, buf);
+}
+
+/// A screen's buttons, where Esc brings the details back while the list's pane is lent.
+pub(crate) fn lent_esc(specs: Vec<(&'static str, KeyCode)>, gives_back: bool) -> Vec<(&'static str, KeyCode)> {
+    specs
+        .into_iter()
+        .map(
+            |(label, key)| {
+                if gives_back && key == KeyCode::Esc { (tr!(lent_details_button), key) } else { (label, key) }
+            },
+        )
+        .collect()
+}

@@ -2859,7 +2859,7 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "/ edit")?;
     check("activity_filter_applied", &stage, buffer)?;
-    stage.send(key(KeyCode::Esc));
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Esc));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
     check("activity_memory", &stage, buffer)?;
@@ -5664,8 +5664,37 @@ fn startup_items_list_what_starts_on_its_own_newest_first() -> Result<()> {
     assert!(stage.state.startup_items.expanded, "Alt-W gives the list the whole width");
     check("startup_items_expanded", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
-    assert!(!stage.state.startup_items.is_open(), "Esc clears the filter, then closes the screen");
+    stage.send(key(KeyCode::Esc));
+    assert!(!stage.state.startup_items.is_open(), "Esc closes the screen");
+    assert_eq!(stage.state.startup_items.filter, "root !timer", "the filter stays for the next time");
+    Ok(())
+}
+
+/// Enter on a startup item opens its file's folder in a panel beside the list, with the cursor
+/// on the file, and the list keeps its place. Tab gives the list the keys, which dims the files
+/// and shows how to bring the details back.
+#[test]
+fn startup_items_show_an_item_s_file_beside_the_list() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let crontabs = ["alex", "me", "root"].map(|name| entry(name, EntryKind::File, 512, RECENT, false));
+    list_after(&mut stage, key(KeyCode::Enter), crontabs.to_vec())?;
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.files_beside_focused(), "the files take the keys");
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
+    ensure_text(&buffer, "reboot_job_fetch")?;
+    ensure_text(&buffer, "crontabs")?;
+    check("startup_items_file_beside", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alt-O Show file")?;
+    check("startup_items_file_beside_list_keys", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.lent.is_none() && stage.state.startup_items.is_open(), "the details come back");
     Ok(())
 }
 

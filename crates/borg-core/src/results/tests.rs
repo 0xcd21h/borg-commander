@@ -569,3 +569,25 @@ fn lazy_tree_children_reject_old_generations_and_keep_fresh_scan_status() {
         matches!(&state.panels[0].results.as_ref().unwrap().source, ResultSource::Search { progress, .. } if !progress.cached)
     );
 }
+
+#[test]
+fn alt_o_in_results_opens_the_folder_of_the_file_under_the_cursor() {
+    let (mut state, now) = state();
+    state.active = Side::Left;
+    let alt_o = Msg::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('o'),
+        crossterm::event::KeyModifiers::ALT,
+    ));
+    let effects = update(&mut state, alt_o, now);
+    let generation = effects.iter().find_map(|effect| match effect {
+        Effect::List { side: Side::Right, dir, generation } if dir == Path::new("/a") => Some(*generation),
+        _ => None,
+    });
+    let Some(generation) = generation else { panic!("{effects:?}") };
+    assert_eq!(state.active, Side::Right);
+    let entries = vec![Entry { source: None, ..file("/a/config.toml", 10) }];
+    update(&mut state, Msg::Batch { side: Side::Right, generation, entries }, now);
+    update(&mut state, Msg::Listed { side: Side::Right, generation, error: None }, now);
+    assert_eq!(state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("config.toml"));
+    assert!(state.panel(Side::Left).is_results(), "the results stay");
+}
