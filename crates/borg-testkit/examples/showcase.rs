@@ -16,6 +16,7 @@ use borg_core::{
     Preferences, ProcessInfo, ProcessKey, ResultSource, Row, SearchKind, SearchOptions, SearchProgress, SearchRequest,
     Settings, Side, Sort, SortKey, SystemSample,
 };
+use borg_core::{DiskActivity, LoadAverage, Threads};
 use borg_core::{DockerData, DockerRequest};
 use borg_docker::{Container, Details, Mount, Network, State, Stats};
 use borg_term::GridSize;
@@ -37,6 +38,8 @@ const ACTIVITY_THEME: &str = "ember";
 const DOCKER_THEME: &str = "aurora";
 const NETWORK_THEME: &str = "midnight";
 const SAMPLES: usize = 60;
+/// How long the made-up system has been up.
+const UPTIME: Duration = Duration::from_secs(9 * 86_400 + 6 * 3_600 + 41 * 60 + 17);
 const KIB: u64 = 1024;
 const MIB: u64 = KIB * 1024;
 const GIB: u64 = MIB * 1024;
@@ -469,6 +472,10 @@ fn sample(tick: usize) -> SystemSample {
         cpu: vec![9_100, 7_800, 6_400, 5_200, 2_900, 2_100, 1_400, 800],
         administrator: false,
         own: None,
+        disk: Some(DiskActivity { read: 48 * MIB, written: 22 * MIB, busy: Some(3_100) }),
+        load: Some(LoadAverage { one: 412, five: 356, fifteen: 298 }),
+        uptime: Some(UPTIME),
+        threads: Some(Threads { total: 1_284, running: 5 }),
     }
 }
 

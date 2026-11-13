@@ -12,6 +12,7 @@ mod map;
 mod processes;
 mod search;
 mod snapshots;
+mod summary;
 mod tree;
 
 fn state() -> (AppState, Instant) {

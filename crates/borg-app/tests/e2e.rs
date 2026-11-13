@@ -2182,11 +2182,13 @@ fn memory_of_a_macos_program_is_marked_protected_and_explained_without_offering_
 }
 
 const BOTTOM_LEFT_CORNERS: [char; 4] = ['└', '╰', '┗', '╚'];
-const ACTIVITY_FIRST_ROW: u16 = 4;
+/// The left pane's process list headings; the list's rows start under them.
+const ACTIVITY_HEADER: &str = "│PID ";
 
 fn activity_rows(s: &Snapshot) -> std::ops::Range<u16> {
     let bottom = s.lines().iter().skip(1).position(|l| l.starts_with(BOTTOM_LEFT_CORNERS)).unwrap_or(0) as u16 + 1;
-    ACTIVITY_FIRST_ROW..bottom.saturating_sub(1)
+    let first = s.lines().iter().position(|l| l.starts_with(ACTIVITY_HEADER)).map_or(bottom, |y| y as u16 + 1);
+    first..bottom.saturating_sub(1)
 }
 
 fn activity_cursor(s: &Snapshot) -> Option<u16> {
@@ -2223,12 +2225,13 @@ fn activity_cursor_moves_up_from_the_bottom_without_dragging_the_viewport() -> R
         activity_cursor(s).is_some_and(|y| y + 1 == activity_rows(s).end)
     })?;
     let last = activity_rows(&bottom).end - 1;
-    let top = left_panel(&bottom).lines().nth(usize::from(ACTIVITY_FIRST_ROW)).unwrap_or_default().to_owned();
+    let first = usize::from(activity_rows(&bottom).start);
+    let top = left_panel(&bottom).lines().nth(first).unwrap_or_default().to_owned();
     for _ in 0..STEPS {
         app.send(keys::up())?;
     }
     let moved = app.wait_until("cursor moved up inside the viewport", |s| activity_cursor(s) == Some(last - STEPS))?;
-    let still = left_panel(&moved).lines().nth(usize::from(ACTIVITY_FIRST_ROW)).unwrap_or_default().to_owned();
+    let still = left_panel(&moved).lines().nth(first).unwrap_or_default().to_owned();
     ensure!(still == top, "viewport scrolled while the cursor moved up: {top:?} became {still:?}");
     Ok(())
 }
