@@ -1668,7 +1668,7 @@ fn the_focused_quick_view_finds_text_and_steps_through_the_matches() -> Result<(
     app.wait_text("2 of 13")?;
     app.checkpoint("quick-view-find")?;
     app.send(keys::esc())?.send("n")?;
-    app.wait_text("Tab focus · 3 of 13")?;
+    app.wait_text("% · 3 of 13")?;
     app.send(keys::esc())?;
     app.wait_gone("Focused · Tab back")?;
     Ok(())

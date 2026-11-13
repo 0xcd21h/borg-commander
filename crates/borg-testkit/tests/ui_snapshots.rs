@@ -874,6 +874,12 @@ fn ensure_text(buffer: &Buffer, needle: &str) -> Result<()> {
     Ok(())
 }
 
+fn ensure_no_text(buffer: &Buffer, needle: &str) -> Result<()> {
+    let text = describe(buffer);
+    anyhow::ensure!(!text.contains(needle), "expected no {needle:?} in\n{text}");
+    Ok(())
+}
+
 #[test]
 fn dialogs_close_immediately() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
@@ -1322,12 +1328,12 @@ fn quick_view_shows_a_binary_as_hex_rows_and_h_shows_its_text() -> Result<()> {
     peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "0000  42 4f 52 47 49 4d 47 00  BORGIMG.")?;
-    ensure_text(&buffer, "Tab focus · h text · F7 find")?;
+    ensure_text(&buffer, "Tab focus · F7 find · h text")?;
     check("quick_view_hex", &stage, buffer)?;
 
     stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('h'))).send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Tab focus · w wrap · h hex")?;
+    ensure_text(&buffer, "Tab focus · F7 find · w wrap")?;
     Ok(())
 }
 
@@ -1361,6 +1367,8 @@ fn quick_view_marks_its_matches_and_says_when_there_are_none() -> Result<()> {
     send_and_search(&mut stage, key(KeyCode::Enter));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "2 of 4")?;
+    ensure_text(&buffer, "Focused · Tab back · 100% · F7 find · w wrap")?;
+    ensure_no_text(&buffer, "Tab focus")?;
     check("quick_view_find", &stage, buffer)?;
 
     for msg in chars(" bench") {
@@ -1374,9 +1382,12 @@ fn quick_view_marks_its_matches_and_says_when_there_are_none() -> Result<()> {
         send_and_search(&mut stage, key(KeyCode::Backspace));
     }
     send_and_search(&mut stage, key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Focused · Tab back · 100% · 1 of 4 ")?;
+    ensure_no_text(&buffer, "Tab focus")?;
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "Tab focus · 1 of 4 · n next · N previous")?;
+    ensure_text(&buffer, "100% · Tab focus · 1 of 4 · n next · N previous")?;
     Ok(())
 }
 

@@ -141,9 +141,9 @@ fn name(path: &Path) -> String {
 
 fn footer(peek: &Peek, find: &FindBar, focused: bool, room: usize) -> Option<String> {
     let lead = if focused { tr!(focused_tab_back) } else { "" };
-    let line = |details: String| format!(" {lead}{details} ");
+    let line = |details: &str| format!(" {lead}{details} ");
     match peek {
-        Peek::Folder { folders, files, bytes, .. } => Some(line(format!(
+        Peek::Folder { folders, files, bytes, .. } => Some(line(&format!(
             "{} · {} · {}",
             format::count(*folders, format::Count::Folder),
             format::count(*files, format::Count::File),
@@ -151,31 +151,45 @@ fn footer(peek: &Peek, find: &FindBar, focused: bool, room: usize) -> Option<Str
         ))),
         Peek::Picture(image) => {
             let (width, height) = image.original;
-            Some(line(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes))))
+            Some(line(&format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes))))
         }
         Peek::Text(pager) => {
-            let text = |keys: String| line(tr!(tab_focus, pager.percent(), keys));
-            if let Some(found) = borg_core::find_bar_summary(find).filter(|_| !find.open) {
-                return Some(text(format!("{HINT_SEPARATOR}{found}{HINT_SEPARATOR}{}", tr!(viewer_find_keys))));
-            }
-            let hinted = text(format!("{}{}", preview_keys(pager), tr!(f7_find)));
-            Some(if hinted.width() <= room { hinted } else { text(preview_keys(pager)) })
+            let read = tr!(read_percent, pager.percent());
+            let shown = if focused { read } else { format!("{read}{}", tr!(tab_focus)) };
+            let step_keys = format!("{HINT_SEPARATOR}{}", tr!(viewer_find_keys));
+            let (shown, hints) = match borg_core::find_bar_summary(find).filter(|_| !find.open) {
+                Some(found) => (format!("{shown}{HINT_SEPARATOR}{found}"), vec![step_keys.as_str()]),
+                None => (shown, preview_keys(pager)),
+            };
+            Some(line(&with_hints(shown, hints, |details| line(details).width() <= room)))
         }
         Peek::Info(_) | Peek::Unavailable(_) => None,
     }
 }
 
-/// The keys the quick view's footer names for its text: hex rows have only `h` back to the text.
-fn preview_keys(pager: &borg_view::Pager) -> String {
+/// `shown` and as many of `hints` as fit, in their order.
+fn with_hints(shown: String, hints: Vec<&str>, fits: impl Fn(&str) -> bool) -> String {
+    let hinted = hints.into_iter().try_fold(shown, |shown, hint| {
+        let longer = format!("{shown}{hint}");
+        if fits(&longer) { Ok(longer) } else { Err(shown) }
+    });
+    match hinted {
+        Ok(shown) | Err(shown) => shown,
+    }
+}
+
+/// The keys the quick view's footer names for its text, the most useful first: hex rows have
+/// only `h` back to the text.
+fn preview_keys(pager: &borg_view::Pager) -> Vec<&'static str> {
     if pager.hex() {
-        return tr!(h_text).to_owned();
+        return vec![tr!(f7_find), tr!(h_text)];
     }
     let shown = match pager.format() {
         Some(borg_view::Format::Markdown) => tr!(s_source_render),
         Some(borg_view::Format::Json) => tr!(s_source_pretty),
         None => tr!(w_wrap),
     };
-    format!("{shown}{}", tr!(h_hex))
+    vec![tr!(f7_find), shown, tr!(h_hex)]
 }
 
 fn lines<'a>(rows: impl Iterator<Item = Line<'a>>, body: Rect, buf: &mut Buffer) {

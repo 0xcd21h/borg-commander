@@ -19,7 +19,7 @@ expression: describe(&buffer)
 │                                                     ││                                                     │
 │                                                     ││                                                     │
 │                                                     ││ Find  cargo bench       Aa  ab  .*   No matches     │
-╰ 9 items ────────────────────────────────────────────╯╰ Focused · Tab back · 100% · Tab focus · w wrap · h h╯
+╰ 9 items ────────────────────────────────────────────╯╰ Focused · Tab back · 100% · F7 find · w wrap ───────╯
  -rw-r--r--     310  2026-01-10 09:30  build.sh
 $
 F1Help    F2File    F3View    F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
@@ -42,7 +42,7 @@ Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size
  14: 0-0 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-108 Reset Rgb(30, 30, 30) NONE | 109-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
  15: 0-0 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-108 Reset Rgb(30, 30, 30) NONE | 109-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
  16: 0-0 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-61 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 62-78 Rgb(255, 255, 255) Rgb(68, 68, 68) NONE | 79-79 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 80-91 Rgb(0, 0, 0) Rgb(17, 168, 205) DIM | 92-92 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 93-108 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 109-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
- 17: 0-54 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-108 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 109-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
+ 17: 0-54 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-101 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 102-109 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
  18: 0-109 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  19: 0-109 Reset Reset NONE
  20: 0-1 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 2-9 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 10-11 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 12-19 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 20-21 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 22-29 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 30-31 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 32-39 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 40-41 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 42-49 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 50-51 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 52-59 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 60-61 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 62-69 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 70-71 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 72-79 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 80-81 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 82-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 90-92 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 93-99 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 100-101 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 102-109 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE

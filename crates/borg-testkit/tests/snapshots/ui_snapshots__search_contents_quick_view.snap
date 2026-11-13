@@ -27,7 +27,7 @@ expression: describe(&buffer)
 │                                                     ││     handle(request, 55);                            │
 │                                                     ││     handle(request, 56);                            │
 │                                                     ││     handle(request, 57);                            │
-╰ 3/3 items · 0 marked ───────────────────────────────╯╰ 54% · Tab focus · w wrap · h hex · F7 find ─────────╯
+╰ 3/3 items · 0 marked ───────────────────────────────╯╰ 54% · Tab focus · F7 find · w wrap · h hex ─────────╯
  /workspace/api/src/handlers.rs:42
 $
 F1Help    F2File    F3View    F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
