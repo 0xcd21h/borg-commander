@@ -139,6 +139,8 @@ pub enum ConfirmPurpose {
         action: borg_docker::Action,
         ids: Vec<String>,
     },
+    /// Replacing text in files, which keeps no copy of the old text.
+    ReplaceInFiles(Box<crate::ReplaceRequest>),
     /// Killing the process an alert is about, which cannot be taken back.
     AlertKill {
         alert: u64,

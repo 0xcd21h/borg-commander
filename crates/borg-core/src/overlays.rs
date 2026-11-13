@@ -205,7 +205,11 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
         }
     }
     if let (PromptPurpose::ReplaceInFiles { query, files }, KeyCode::Enter) = (&prompt.purpose, key.code) {
-        return crate::replace::start(state, *query.clone(), prompt.input.text().into(), files.clone(), now);
+        let with = prompt.input.text().into();
+        return crate::replace::confirm(
+            state,
+            crate::ReplaceRequest { query: *query.clone(), with, files: files.clone() },
+        );
     }
     if let PromptPurpose::BackupAdd { fixed } = prompt.purpose {
         match key.code {
@@ -370,6 +374,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
         (Some(true), ConfirmPurpose::VolumeHelper { volume }) => crate::docker::open_volume(state, volume, true),
         (Some(true), ConfirmPurpose::AlertKill { alert, process }) => crate::watch::kill(state, alert, process),
+        (Some(true), ConfirmPurpose::ReplaceInFiles(request)) => crate::replace::start(state, *request, now),
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
         }

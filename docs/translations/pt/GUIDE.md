@@ -165,12 +165,14 @@ pesquisa.
 
 Ctrl-R nos resultados, ou **Substituir nos ficheiros…** no menu Ficheiro, substitui o texto nos
 ficheiros marcados, ou em todos os ficheiros que os resultados mostram quando nenhum está marcado.
-Escreva o que fica no seu lugar e prima Enter; deixe o campo vazio para remover o texto. Os
-interruptores da pesquisa aplicam-se, por isso uma pesquisa de palavras inteiras substitui
-palavras inteiras, e com uma expressão regular `$1` repõe o primeiro grupo. O Borg escreve cada
-ficheiro como o seu editor guarda, por isso as permissões e as ligações mantêm-se. Ignora os
-ficheiros que não são texto, que têm mais de 32 MiB ou que mudaram enquanto a tarefa corria. A
-tarefa aparece em Alt-J, e os resultados atualizam-se quando ela termina.
+Escreva o que fica no seu lugar e prima Enter; deixe o campo vazio para remover o texto. Uma segunda
+pergunta indica o texto e os ficheiros e abre com **Não** selecionado. Prima Y para os alterar. O
+Borg não guarda uma cópia do texto antigo. Os interruptores da pesquisa aplicam-se, por isso uma
+pesquisa de palavras inteiras substitui palavras inteiras, e com uma expressão regular `$1` repõe o
+primeiro grupo. O Borg escreve cada ficheiro como o seu editor guarda, por isso as permissões e as
+ligações mantêm-se. Ignora os ficheiros que não são texto, que têm mais de 32 MiB ou que mudaram
+enquanto a tarefa corria. A tarefa aparece em Alt-J, e os resultados atualizam-se quando ela
+termina.
 
 ### Analisar ficheiros com regras
 

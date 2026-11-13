@@ -1,6 +1,6 @@
 //! Replacing the text a contents search found, in every file it found or in the marked ones.
 
-use crate::{AppState, Effect, JobKind, Overlay, Panel, Prompt, PromptPurpose, ResultSource};
+use crate::{AppState, Confirm, ConfirmPurpose, Effect, JobKind, Overlay, Panel, Prompt, PromptPurpose, ResultSource};
 use borg_i18n::tr;
 use std::{path::PathBuf, time::Instant};
 
@@ -57,16 +57,31 @@ pub(crate) fn ask(state: &mut AppState) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Enter in the prompt: the job starts, with what was typed exactly as typed, even nothing.
-pub(crate) fn start(
-    state: &mut AppState,
-    query: borg_view::Query,
-    with: String,
-    files: Vec<PathBuf>,
-    now: Instant,
-) -> Vec<Effect> {
-    state.overlay = None;
+/// Enter in the prompt: one more question, starting on No, that names the text, what replaces it
+/// and the files. What was typed counts exactly as typed, even nothing.
+pub(crate) fn confirm(state: &mut AppState, request: ReplaceRequest) -> Vec<Effect> {
+    let files = match request.files.as_slice() {
+        [one] => format!("\"{}\"", state.folders.display(one)),
+        many => borg_i18n::count(many.len(), borg_i18n::Count::File),
+    };
+    let text = request.query.text.as_str();
+    let message = if request.with.is_empty() {
+        tr!(replace_remove_confirm, text = text, files = files)
+    } else {
+        tr!(replace_confirm, text = text, with = request.with, files = files)
+    };
+    state.overlay = Some(Overlay::Confirm(Confirm {
+        title: tr!(replace_in_files_title),
+        message,
+        purpose: ConfirmPurpose::ReplaceInFiles(Box::new(request)),
+        accept: false,
+    }));
+    Vec::new()
+}
+
+/// Yes to that question: the job changes exactly the files and the text it named.
+pub(crate) fn start(state: &mut AppState, request: ReplaceRequest, now: Instant) -> Vec<Effect> {
     let (id, mut effects) = crate::jobs::begin(state, JobKind::Replace, now);
-    effects.push(Effect::StartReplace { id, request: ReplaceRequest { query, with, files } });
+    effects.push(Effect::StartReplace { id, request });
     effects
 }

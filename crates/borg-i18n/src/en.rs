@@ -615,6 +615,8 @@ catalog! {
     replace_in_files => "Replace in files…",
     replace_in_files_title => "Replace",
     replace_in_files_label => "Replace \"{text}\" in {files} with:",
+    replace_confirm => "Replace every match of \"{text}\" with \"{with}\" in {files}? Borg keeps no copy of the old text.",
+    replace_remove_confirm => "Remove every match of \"{text}\" from {files}? Borg keeps no copy of the old text.",
     replace_needs_contents => "Replacing needs the results of a search for text in files.",
     replacing_text => "Replacing",
     replaced_text => "Replaced text in",

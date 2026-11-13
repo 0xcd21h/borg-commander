@@ -1796,7 +1796,11 @@ fn ctrl_r_in_contents_results_asks_what_replaces_the_text() -> Result<()> {
     }
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Replace \"todo\" in 3 files with:")?;
-    check("search_contents_replace", &stage, buffer)
+    check("search_contents_replace", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::from(KeyCode::Enter)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace every match of \"todo\"")?;
+    check("search_contents_replace_confirm", &stage, buffer)
 }
 
 #[test]

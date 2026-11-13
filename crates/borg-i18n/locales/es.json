@@ -604,6 +604,8 @@
   "replace_in_files": "Reemplazar en archivos…",
   "replace_in_files_title": "Reemplazar",
   "replace_in_files_label": "Reemplazar \"{text}\" en {files} por:",
+  "replace_confirm": "¿Reemplazar todas las coincidencias de \"{text}\" por \"{with}\" en {files}? Borg no guarda una copia del texto anterior.",
+  "replace_remove_confirm": "¿Quitar todas las coincidencias de \"{text}\" de {files}? Borg no guarda una copia del texto anterior.",
   "replace_needs_contents": "Para reemplazar hacen falta los resultados de una búsqueda de texto en archivos.",
   "replacing_text": "Reemplazando",
   "replaced_text": "Texto reemplazado en",

@@ -604,6 +604,8 @@
   "replace_in_files": "Substituir nos ficheiros…",
   "replace_in_files_title": "Substituir",
   "replace_in_files_label": "Substituir \"{text}\" em {files} por:",
+  "replace_confirm": "Substituir todas as ocorrências de \"{text}\" por \"{with}\" em {files}? O Borg não guarda uma cópia do texto antigo.",
+  "replace_remove_confirm": "Remover todas as ocorrências de \"{text}\" de {files}? O Borg não guarda uma cópia do texto antigo.",
   "replace_needs_contents": "A substituição precisa dos resultados de uma pesquisa de texto em ficheiros.",
   "replacing_text": "A substituir",
   "replaced_text": "Texto substituído em",
