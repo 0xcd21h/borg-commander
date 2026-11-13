@@ -26,6 +26,8 @@ use tokio::{
 
 use crate::{agent::Call, link, session::StateDir};
 
+mod host_output;
+
 const KEEPALIVE: Duration = Duration::from_secs(20);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -202,11 +204,11 @@ impl Paint {
         let mut stream = std::mem::take(&mut self.partial);
         stream.extend_from_slice(bytes);
         let end = whole(&stream);
-        // A sequence that never ends is painted as it is rather than held for good.
         if stream.len() - end <= PARTIAL_LIMIT {
             self.partial = stream.split_off(end);
         }
-        let bytes = stream.as_slice();
+        let bytes = host_output::displayable(&stream, controlling);
+        let bytes = bytes.as_slice();
         let mut output = Vec::with_capacity(bytes.len());
         if reset {
             output.extend_from_slice(b"\x1b[?2026h");
