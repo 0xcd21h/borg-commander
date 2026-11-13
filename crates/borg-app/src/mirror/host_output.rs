@@ -7,7 +7,7 @@ const APC_OPENER: u8 = b'_';
 const STRING_OPENERS: &[u8] = b"]P_^X";
 const STRING_END: u8 = b'\\';
 const CSI_PRIVATE: u8 = b'?';
-const CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefghlmrsu";
+const CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgmrsu";
 const CSI_PRIVATE_FINALS: &[u8] = b"hlJK";
 const CURSOR_STYLE_INTERMEDIATES: &[u8] = b" ";
 const CURSOR_STYLE_FINAL: u8 = b'q';
@@ -24,6 +24,8 @@ const KITTY_ACTION: &str = "a";
 const KITTY_QUERY: &str = "q";
 const KITTY_MEDIUM: &str = "t";
 const KITTY_DIRECT: &str = "d";
+const KITTY_SILENT: (&str, &str) = ("q", "2");
+const KITTY_MORE: &str = "m";
 
 enum Sequence<'a> {
     Escape { intermediates: &'a [u8], last: u8 },
@@ -145,24 +147,28 @@ fn kitty_graphics(body: &[u8]) -> bool {
         return false;
     };
     let (control, data) = command.split_once(';').unwrap_or((command, ""));
-    let key_allowed = |pair: &str| {
-        pair.split_once('=').is_some_and(|(key, value)| {
-            key.bytes().all(|byte| byte.is_ascii_alphabetic())
-                && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-                && (key, value) != (KITTY_ACTION, KITTY_QUERY)
-                && (key != KITTY_MEDIUM || value == KITTY_DIRECT)
-        })
+    let Some(pairs) = control.split(',').map(|pair| pair.split_once('=')).collect::<Option<Vec<_>>>() else {
+        return false;
     };
-    control.split(',').all(key_allowed) && base64(data.as_bytes())
+    let pair_allowed = |&(key, value): &(&str, &str)| {
+        key.bytes().all(|byte| byte.is_ascii_alphabetic())
+            && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && (key, value) != (KITTY_ACTION, KITTY_QUERY)
+            && (key != KITTY_MEDIUM || value == KITTY_DIRECT)
+    };
+    let (silent_key, silent_value) = KITTY_SILENT;
+    let silent = pairs.iter().filter(|(key, _)| *key == silent_key).map(|(_, value)| *value).eq([silent_value]);
+    let continued = pairs.iter().all(|(key, _)| *key == KITTY_MORE);
+    (silent || continued) && pairs.iter().all(pair_allowed) && base64(data.as_bytes())
 }
 
-fn allowed(sequence: &Sequence<'_>) -> bool {
+fn allowed(sequence: &Sequence<'_>, copies: bool) -> bool {
     match *sequence {
         Sequence::Escape { intermediates: [], last } => ESCAPE_FINALS.contains(&last),
         Sequence::Escape { intermediates: [slot], .. } => CHARSET_SLOTS.contains(slot),
         Sequence::Escape { .. } => false,
         Sequence::Csi { parameters, intermediates, last } => csi_allowed(parameters, intermediates, last),
-        Sequence::Text { opener: OSC_OPENER, body, .. } => clipboard_copy(body) || inline_image(body),
+        Sequence::Text { opener: OSC_OPENER, body, .. } => (copies && clipboard_copy(body)) || inline_image(body),
         Sequence::Text { opener: DCS_OPENER, body, bell: false } => sixel(body),
         Sequence::Text { opener: APC_OPENER, body, bell: false } => kitty_graphics(body),
         Sequence::Text { .. } => false,
@@ -178,7 +184,9 @@ fn push_text(output: &mut Vec<u8>, bytes: &[u8]) {
     }
 }
 
-pub(super) fn displayable(bytes: &[u8]) -> Vec<u8> {
+/// What of the host's bytes may reach the terminal; `copies` lets clipboard copies through, which
+/// only the viewer in control receives.
+pub(super) fn displayable(bytes: &[u8], copies: bool) -> Vec<u8> {
     let mut output = Vec::with_capacity(bytes.len());
     let mut rest = bytes;
     while !rest.is_empty() {
@@ -189,7 +197,7 @@ pub(super) fn displayable(bytes: &[u8]) -> Vec<u8> {
             break;
         }
         let (parsed, length) = sequence(rest);
-        if parsed.as_ref().is_some_and(allowed) {
+        if parsed.as_ref().is_some_and(|sequence| allowed(sequence, copies)) {
             output.extend_from_slice(&rest[..length]);
         }
         rest = &rest[length..];
@@ -201,12 +209,14 @@ pub(super) fn displayable(bytes: &[u8]) -> Vec<u8> {
 mod tests {
     use super::displayable;
 
+    const IN_CONTROL: bool = true;
+
     fn kept(bytes: &[u8]) -> bool {
-        displayable(bytes) == bytes
+        displayable(bytes, IN_CONTROL) == bytes
     }
 
     fn shown(bytes: &[u8]) -> String {
-        String::from_utf8(displayable(bytes)).expect("displayable output is UTF-8")
+        String::from_utf8(displayable(bytes, IN_CONTROL)).expect("displayable output is UTF-8")
     }
 
     #[test]
@@ -249,6 +259,9 @@ mod tests {
             "\x1bP$qm\x1b\\",
             "\x1bP+q544e\x1b\\",
             "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
+            "\x1b_Ga=t,f=100,t=d,i=5;AAAA\x1b\\",
+            "\x1b_Ga=p,i=5,p=1,q=2,q=0\x1b\\",
+            "\x1b_Gm=0,i=5;AAAA\x1b\\",
         ] {
             assert_eq!(shown(format!("before{request}after").as_bytes()), "beforeafter", "{request:?}");
         }
@@ -276,9 +289,19 @@ mod tests {
             "\x1b[8;40;120t",
             "\x1b[!p",
             "\x1bc",
+            "\x1b[2h",
+            "\x1b[12l",
+            "\x1b[20h",
         ] {
             assert_eq!(shown(format!("before{change}after").as_bytes()), "beforeafter", "{change:?}");
         }
+    }
+
+    #[test]
+    fn a_copy_reaches_the_clipboard_only_of_the_viewer_in_control() {
+        let copy = b"before\x1b]52;c;bm90ZXMudHh0\x07after";
+        assert_eq!(displayable(copy, IN_CONTROL), copy);
+        assert_eq!(displayable(copy, !IN_CONTROL), b"beforeafter");
     }
 
     #[test]
