@@ -87,6 +87,10 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         message @ (Msg::Sized { .. } | Msg::SizeProgress { .. } | Msg::SizesFinished { .. }) => {
             crate::measure::receive(state, message)
         }
+        Msg::DeleteChecked { id, found } => {
+            crate::delete_check::receive(state, id, found);
+            Vec::new()
+        }
         Msg::SizeChildren { side, generation, parent, result } => {
             crate::results::size_children(state, side, generation, parent, result);
             Vec::new()

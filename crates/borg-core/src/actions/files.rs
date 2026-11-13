@@ -209,13 +209,14 @@ pub(super) fn confirm_delete(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     let message = tr!(delete_permanently, describe_selection(state.active_panel(), &sources));
+    let (check, effects) = crate::delete_check::start(state, &sources);
     state.overlay = Some(Overlay::Confirm(Confirm {
         title: tr!(delete),
         message,
-        purpose: ConfirmPurpose::Delete { sources },
+        purpose: ConfirmPurpose::Delete { sources, check },
         accept: !state.active_panel().is_results(),
     }));
-    Vec::new()
+    effects
 }
 
 pub(super) fn compress(state: &mut AppState) -> Vec<Effect> {

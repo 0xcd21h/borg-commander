@@ -28,7 +28,7 @@ const SCAN_REQUEST_LIMIT: usize = 8 * borg_rules::INLINE_LIMIT;
 /// The entropy scan of the processes Borg could not read.
 pub(super) const ENTROPY: &str = "entropy";
 
-pub(super) async fn bounded_output(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
+pub(crate) async fn bounded_output(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
     command
         .env("LC_ALL", "C")
         .stdin(std::process::Stdio::null())

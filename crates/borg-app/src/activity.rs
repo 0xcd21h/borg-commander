@@ -26,6 +26,8 @@ mod maps;
 mod process_files;
 mod reading;
 
+#[cfg(target_os = "macos")]
+pub(crate) use helper::bounded_output;
 pub use helper::helper;
 use maps::{quick_maps, regions};
 pub use reading::Memory;

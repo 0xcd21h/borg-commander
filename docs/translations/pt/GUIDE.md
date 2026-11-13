@@ -1313,6 +1313,16 @@ contenha maiúsculas.
 F5, F6 e F8 iniciam tarefas de cópia, movimentação e eliminação. Alt-J abre a lista de tarefas,
 onde as pode pausar ou cancelar.
 
+Enquanto a caixa de diálogo Eliminar pergunta, o Borg conta os ficheiros que está prestes a
+remover e mostra o número e o tamanho por baixo da pergunta. A contagem para ao fim de 3 segundos,
+e nesse caso a linha começa por **Pelo menos**. O Borg procura também os programas que têm esses
+ficheiros abertos, que correm a partir deles ou que trabalham numa dessas pastas, e indica os seus
+nomes. Um programa que mantém aberto um ficheiro eliminado mantém também o espaço em disco que
+ele ocupa, até o fechar. Prima K para abrir o monitor de atividade no primeiro deles com
+**Sinal ou prioridade**, e pare-o antes de eliminar. O Borg vê os programas que o seu utilizador
+pode inspecionar, o que na maioria dos sistemas significa os seus. Os ficheiros em arquivos
+comprimidos, contentores e painéis remotos são eliminados sem estas verificações.
+
 A caixa de diálogo Copiar tem uma caixa de verificação **Otimizar a cópia para discos rígidos**.
 Prima Tab para lá chegar e Space para a assinalar ou desassinalar, ou clique nela. Fica por
 assinalar em cada nova cópia. Neste modo, o Borg lê ficheiros pequenos para memória em lotes e
