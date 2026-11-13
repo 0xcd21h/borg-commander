@@ -417,6 +417,7 @@ momento.
 | `+` `-` `*` | Seleccionar, deseleccionar o invertir por patrón (`*.rs`, `build/`) |
 | Alt-Enter | Poner los nombres marcados (o el actual) en la línea de comandos; en `..`, la ruta de la carpeta superior |
 | Ctrl-Insert / Alt-Shift-Insert | Copiar los nombres marcados / sus rutas completas |
+| Shift-F10 | Menú contextual: lo que puedes copiar del elemento bajo el cursor y las teclas que actúan sobre él |
 | Shift-Enter, Ctrl-J | Insertar un salto de línea en el cursor de la línea de comandos; Enter ejecuta el comando, Ctrl-C lo borra |
 | Alt-A / Alt-Shift-A | Poner en la línea de comandos la ruta de la carpeta de este panel / del otro panel |
 | Shift-PgUp / Shift-PgDn | Desplazarse hacia atrás y hacia delante por la salida de la consola |
@@ -490,8 +491,8 @@ primera letra de cada botón en el idioma de Borg, como S para Sí en español.
 ## Ratón y consola
 
 Haz clic en una fila para llevar el cursor a ella, doble clic para abrirla y clic derecho para
-marcarla. Haz clic en la barra de menús o en la barra de atajos para usarlas. La rueda del ratón
-desplaza el panel.
+abrir su menú contextual. Haz clic en la barra de menús o en la barra de atajos para usarlas. La
+rueda del ratón desplaza el panel.
 
 Los diálogos también funcionan con el ratón. Haz clic en una fila de una lista para elegirla; en
 los selectores de tema e idioma, en Hosts remotos y en Acceso remoto, un segundo clic la confirma.
@@ -512,6 +513,43 @@ escribiendo. Shift-PgUp y Shift-PgDn desplazan una página, Shift-Home salta a l
 antigua y Shift-End vuelve al prompt activo, igual que si empiezas a escribir. Para copiar la
 salida visible, selecciónala como permita tu terminal, normalmente arrastrando con Shift pulsado,
 y usa su atajo de copiar habitual.
+
+### Menú contextual
+
+Haz clic derecho en una fila, o pulsa Shift-F10, para ver qué puedes hacer con el elemento bajo el
+cursor. El menú muestra el nombre del elemento en su borde, empieza por lo que puedes copiar de él
+y luego enumera las teclas que actúan sobre él, así que también te las recuerda. Up y Down eligen
+una entrada, Enter o un clic la ejecuta y Esc cierra el menú. Los terminales que envían la tecla
+Menu también lo abren. Un clic derecho lleva primero el cursor a la fila; para marcar filas con el
+ratón, elige **Marcar** en el menú.
+
+Lo que ofrece el menú depende de la fila:
+
+- **Archivos y carpetas**: **Copiar ruta**, **Copiar nombre** y **Copiar ruta de la carpeta**,
+  luego Ver, Editar, Copiar, Mover y Eliminar, y **Marcar**, que marca la fila como Insert. Con
+  archivos marcados, actúa sobre todos ellos y cada copia lleva una línea por archivo. En los
+  resultados ofrece también **Mostrar original**, y Eliminar pasa a ser **Quitar / acciones**. En
+  un resultado de una búsqueda en el contenido, **Copiar ruta y línea** copia `path:line` de la
+  primera coincidencia, listo para un editor que abra un archivo en una línea.
+- **Procesos** del monitor de actividad: **Copiar PID**, **Copiar nombre** y
+  **Copiar ruta del programa**, luego **Señal o prioridad…** (K), **Archivos abiertos** (2),
+  **Mapa de memoria** (1) y **Tráfico de red** (Alt-N).
+- **Archivos abiertos** de un proceso: **Copiar ruta**, y Ver para un archivo normal.
+- **Contenedores**: **Copiar ID** y **Copiar nombre**, luego Iniciar, Detener, Reiniciar, Pausar,
+  Archivos y Shell, como en el menú Docker.
+- Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo
+  que identifique la fila. Una fila con un proceso añade **Copiar PID**,
+  **Mostrar en el monitor de actividad** y **Señal o prioridad…**.
+- **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
+  **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
+- **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
+  luego **Mostrar en el panel**, Ver y Editar.
+
+Las copias llegan al portapapeles igual que las de Ctrl-Insert, y la línea de avisos muestra lo que
+se copió. Una entrada actúa solo sobre el elemento que nombra el menú. Si ese elemento deja de estar
+bajo el cursor mientras el menú está abierto, por ejemplo cuando la lista de procesos se vuelve a
+ordenar, elegir una entrada no hace nada y te pide que abras el menú de nuevo. Eliminar, Terminar y
+las señales siguen preguntando antes de actuar, igual que con sus teclas.
 
 ### Saltar a carpetas
 

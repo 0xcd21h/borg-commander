@@ -211,6 +211,27 @@ fn file_menu_open() -> Result<()> {
 }
 
 #[test]
+fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -> Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let at = |kind, column, row| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+    let right = at(MouseEventKind::Down(MouseButton::Right), 8, 6);
+    let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::ContextMenu { .. })), "{msg:?}");
+    stage.send(msg.unwrap());
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Copy folder path")?;
+    check("context_menu", &stage, buffer)?;
+    let copy_name = at(MouseEventKind::Down(MouseButton::Left), 12, 9);
+    let msg = borg_ui::mouse_input(&stage.state, copy_name, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::MenuItem(1)))), "{msg:?}");
+    let outside = at(MouseEventKind::Down(MouseButton::Right), SIZE.cols - 2, 2);
+    let msg = borg_ui::mouse_input(&stage.state, outside, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::DismissMenu))), "{msg:?}");
+    Ok(())
+}
+
+#[test]
 fn copy_and_delete_dialogs() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));

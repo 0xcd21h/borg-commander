@@ -135,3 +135,21 @@ fn k_types_into_the_filter_while_it_is_open() {
     assert!(state.overlay.is_none());
     assert_eq!(state.activity.filter, "k");
 }
+
+#[test]
+fn the_context_menu_on_a_process_copies_its_pid_and_opens_its_signals() {
+    let (mut state, now) = state();
+    open(&mut state);
+    let mut worker = process(7, 10, 100);
+    worker.executable = Some(PathBuf::from("/usr/bin/worker"));
+    sample(&mut state, vec![worker], now);
+    let shift_f10 = KeyEvent::new(KeyCode::F(10), crossterm::event::KeyModifiers::SHIFT);
+    update(&mut state, Msg::Key(shift_f10), now);
+    let Some(crate::Overlay::ContextMenu(menu)) = &state.overlay else { panic!("no menu: {:?}", state.overlay) };
+    assert_eq!(menu.menu.title, "worker-7 7");
+    let effects = press(&mut state, KeyCode::Enter);
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Copy(text) if text == "7")));
+    update(&mut state, Msg::Key(shift_f10), now);
+    crate::context_menu::choose_labelled(&mut state, "Signal or priority…", now);
+    assert_eq!(dialog(&state).map(|opened| opened.process), Some(ProcessKey { pid: 7, start: 10 }));
+}

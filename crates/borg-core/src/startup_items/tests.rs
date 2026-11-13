@@ -545,3 +545,15 @@ fn a_small_plist_that_stands_for_countless_objects_reads_as_nothing_at_once() {
     assert!(matches!(plist::parse(&nested_lists(1)), Some(plist::Value::Array(items)) if items.len() == 14));
     assert_eq!(plist::parse(&nested_lists(40)), None);
 }
+
+#[test]
+fn the_context_menu_on_a_startup_item_copies_its_file_and_views_it() {
+    let (mut state, now) = opened();
+    let file = Path::new("/home/sam/Library/LaunchAgents/com.example.updater.plist");
+    press(&mut state, KeyCode::F(10), KeyModifiers::SHIFT);
+    let copied = press(&mut state, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(copied.iter().any(|effect| matches!(effect, Effect::Copy(text) if Path::new(text) == file)));
+    press(&mut state, KeyCode::F(10), KeyModifiers::SHIFT);
+    let viewed = crate::context_menu::choose_labelled(&mut state, "View", now);
+    assert!(viewed.iter().any(|effect| matches!(effect, Effect::View { path, .. } if path == file)));
+}

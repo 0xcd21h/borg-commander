@@ -194,6 +194,8 @@ pub enum Overlay {
     TimeMachine,
     /// The signals and priority changes for a process in the monitor.
     ProcessControl(crate::ControlDialog),
+    /// What can be done with the item a right-click or Shift-F10 opened it on.
+    ContextMenu(crate::ContextMenu),
     /// What the entropy scan of every process reads, or its last hits.
     EntropyScan(crate::EntropyDialog),
     /// What to capture from the network screen, where and for how long.

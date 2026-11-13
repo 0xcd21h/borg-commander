@@ -142,7 +142,6 @@ pub enum Pointer {
         side: Side,
         index: usize,
         open: bool,
-        mark: bool,
     },
     ScrollPanel {
         side: Side,
@@ -291,9 +290,7 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         }
         Pointer::ResultSort { side, key } => sort_by(state, side, key),
         Pointer::Action(action) => actions::perform(state, action, now),
-        Pointer::Panel { side, index, open, mark } if takes_clicks(state, side) => {
-            click_row(state, side, index, open, mark, now)
-        }
+        Pointer::Panel { side, index, open } if takes_clicks(state, side) => click_row(state, side, index, open, now),
         Pointer::ScrollPanel { side, delta } if takes_clicks(state, side) => {
             focus(state, side);
             state.panel_mut(side).move_by(delta);
@@ -338,9 +335,8 @@ fn sort_by(state: &mut AppState, side: Side, key: crate::SortKey) -> Vec<Effect>
     Vec::new()
 }
 
-/// A click on a panel's row puts the cursor there; a right click also marks it and a double
-/// click opens it.
-fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, mark: bool, now: Instant) -> Vec<Effect> {
+/// A click on a panel's row puts the cursor there, and a double click opens it.
+fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, now: Instant) -> Vec<Effect> {
     focus(state, side);
     let panel = state.panel_mut(side);
     if index >= panel.len() {
@@ -348,8 +344,5 @@ fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, mark: b
     }
     let delta = index as isize - panel.cursor() as isize;
     panel.move_by(delta);
-    if mark {
-        panel.toggle_mark();
-    }
     if open { actions::perform(state, Action::Open, now) } else { Vec::new() }
 }

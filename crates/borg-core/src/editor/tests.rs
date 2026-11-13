@@ -250,11 +250,7 @@ fn clicks_place_the_cursor_drags_select_and_the_wheel_moves_the_view_only() {
     update(&mut state, Msg::Pointer(Pointer::EditorScroll(EditorSlot::Screen, 20)), now);
     let editor = state.editor.as_ref().unwrap();
     assert_eq!((editor.top, editor.buffer.position()), (20, (5, 4)), "the cursor stays behind");
-    update(
-        &mut state,
-        Msg::Pointer(Pointer::Panel { side: crate::Side::Left, index: 2, open: true, mark: false }),
-        now,
-    );
+    update(&mut state, Msg::Pointer(Pointer::Panel { side: crate::Side::Left, index: 2, open: true }), now);
     assert!(state.editor.is_some(), "clicks never reach the panels behind the editor");
     press(&mut state, now, KeyCode::Right.into());
     assert!(state.editor.as_ref().unwrap().top <= 5, "a key brings the cursor back into view");

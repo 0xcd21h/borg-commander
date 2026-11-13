@@ -1571,12 +1571,15 @@ fn rapid_resizes_and_tiny_windows_recover_with_an_open_menu() -> Result<()> {
 }
 
 #[test]
-fn mouse_marks_files_and_double_click_opens_folders() -> Result<()> {
+fn right_click_opens_a_menu_that_marks_files_and_double_click_opens_folders() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "mouse-panels")?;
     let screen = app.settle()?;
     let (x, y) = screen.find("notes.txt").unwrap();
     app.send(mouse(2, x, y))?;
+    let screen = app.wait_text("Copy folder path")?;
+    let (x, y) = screen.find("  Mark  ").unwrap();
+    app.send(mouse(0, x, y))?;
     app.wait_text("1 marked")?;
     let screen = app.settle()?;
     let (x, y) = screen.find("alpha").unwrap();

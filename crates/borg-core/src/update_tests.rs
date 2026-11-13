@@ -2428,20 +2428,153 @@ fn escape_reaches_the_shell_when_the_line_has_text() {
 }
 
 #[test]
-fn mouse_selects_marks_and_opens_panel_rows() {
+fn mouse_selects_and_opens_panel_rows() {
     use crate::Pointer;
     let (mut state, now) = setup_with(vec![dir("me"), file("log.txt")]);
-    update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 2, open: false, mark: true }), now);
+    update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 2, open: false }), now);
     assert_eq!(state.active, Side::Right);
     assert_eq!(state.active_panel().hovered_entry().unwrap().name, "log.txt");
-    assert_eq!(state.active_panel().marked_count(), 1);
-    let effects =
-        update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 1, open: true, mark: false }), now);
+    assert_eq!(state.active_panel().marked_count(), 0);
+    let effects = update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 1, open: true }), now);
     assert!(
         effects
             .iter()
             .any(|effect| matches!(effect, Effect::List { side: Side::Right, dir, .. } if dir == Path::new("/tmp/me")))
     );
+}
+
+fn context_menu(state: &AppState) -> &crate::ContextMenu {
+    match &state.overlay {
+        Some(Overlay::ContextMenu(menu)) => menu,
+        other => panic!("no context menu: {other:?}"),
+    }
+}
+
+fn context_labels(state: &AppState) -> Vec<&'static str> {
+    let entries = &context_menu(state).menu.entries;
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::MenuEntry::Item(item) => Some(item.label),
+            crate::MenuEntry::Separator => None,
+        })
+        .collect()
+}
+
+fn choose_context(state: &mut AppState, now: Instant, label: &str) -> Vec<Effect> {
+    crate::context_menu::choose_labelled(state, label, now)
+}
+
+fn copied(effects: &[Effect]) -> Option<&str> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Copy(text) => Some(text.as_str()),
+        _ => None,
+    })
+}
+
+#[test]
+fn shift_f10_opens_a_menu_on_the_file_under_the_cursor_that_copies_its_path() {
+    let (mut state, now) = setup_with(vec![dir("me"), file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert_eq!((context_menu(&state).menu.title.as_str(), context_menu(&state).at), ("notes.txt", None));
+    assert_eq!(context_labels(&state)[..3], ["Copy path", "Copy name", "Copy folder path"]);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(copied(&effects), Some("/home/notes.txt"));
+    assert_eq!(state.notice.as_deref(), Some("Copied /home/notes.txt"));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn a_right_click_puts_the_cursor_on_the_row_and_opens_the_menu_there_without_marking_it() {
+    let (mut state, now) = setup_with(vec![dir("me"), file("log.txt")]);
+    let pick = crate::Pointer::Panel { side: Side::Right, index: 2, open: false };
+    update(&mut state, Msg::ContextMenu { pick, column: 50, row: 4 }, now);
+    assert_eq!((state.active, hovered(&state)), (Side::Right, Some("log.txt")));
+    assert!(marked(&state).is_empty());
+    assert_eq!(context_menu(&state).at, Some((50, 4)));
+    choose_context(&mut state, now, "Mark");
+    assert_eq!(marked(&state), ["log.txt"]);
+}
+
+#[test]
+fn with_files_marked_the_menu_copies_every_path_and_says_how_many_it_acts_on() {
+    let (mut state, now) = setup_with(vec![file("a.txt"), file("b.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert_eq!(context_menu(&state).menu.title, "2 items");
+    let effects = choose_context(&mut state, now, "Copy path");
+    assert_eq!(copied(&effects), Some("/home/a.txt\n/home/b.txt"));
+    assert_eq!(state.notice.as_deref(), Some("Paths copied"));
+}
+
+#[test]
+fn delete_in_the_context_menu_asks_first_and_deletes_nothing() {
+    let (mut state, now) = setup_with(vec![file("keep.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let effects = choose_context(&mut state, now, "Delete");
+    assert!(effects.is_empty(), "{effects:?}");
+    assert!(matches!(
+        &state.overlay,
+        Some(Overlay::Confirm(confirm)) if matches!(&confirm.purpose, crate::ConfirmPurpose::Delete { sources } if sources == &[Path::new("/home/keep.txt")])
+    ));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn a_menu_whose_item_moved_away_while_it_was_open_does_nothing() {
+    let (mut state, now) = setup_with(vec![file("a.txt"), file("b.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert_eq!(context_menu(&state).menu.title, "a.txt");
+    state.panel_mut(Side::Left).move_by(1);
+    let effects = choose_context(&mut state, now, "Delete");
+    assert!(effects.is_empty() && state.overlay.is_none(), "nothing may act on b.txt: {:?}", state.overlay);
+    assert_eq!(
+        state.notice.as_deref(),
+        Some("The item changed while the menu was open, so nothing was done. Open the menu again.")
+    );
+}
+
+#[test]
+fn a_folder_cannot_be_viewed_from_the_menu_and_esc_closes_it() {
+    let (mut state, now) = setup_with(vec![dir("me")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let effects = choose_context(&mut state, now, "View");
+    assert!(effects.is_empty());
+    assert!(matches!(state.overlay, Some(Overlay::ContextMenu(_))), "a disabled entry keeps the menu open");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn shift_f10_on_the_parent_row_with_nothing_marked_says_nothing_is_selected() {
+    let (mut state, now) = setup_with(vec![dir("me")]);
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice.as_deref(), Some("Nothing selected"));
+}
+
+#[test]
+fn the_menu_on_a_contents_result_copies_its_path_with_the_line_the_search_found() {
+    let (mut state, now) = setup_with(vec![dir("me")]);
+    let query = borg_view::Query { text: "port".into(), ..Default::default() };
+    let line =
+        crate::LineMatch { line: 12, offset: 0, before: String::new(), found: "port".into(), after: String::new() };
+    found_in_log(&mut state, now, &query, line);
+    while hovered(&state) != Some("log") {
+        press(&mut state, now, key(KeyCode::Down));
+    }
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert!(context_labels(&state).contains(&"Reveal original"));
+    let effects = choose_context(&mut state, now, "Copy path and line");
+    assert_eq!(copied(&effects), Some("/home/log:12"));
 }
 
 #[test]

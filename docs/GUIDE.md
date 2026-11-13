@@ -383,6 +383,7 @@ click both rows. Notices replace the second row for a moment.
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line; on `..`, the parent folder's path |
 | Ctrl-Insert / Alt-Shift-Insert | Copy the marked names / their full paths |
+| Shift-F10 | Context menu: what you can copy from the item under the cursor and the keys that act on it |
 | Shift-Enter, Ctrl-J | Insert a line break at the cursor on the command line; Enter runs the command, Ctrl-C clears it |
 | Alt-A / Alt-Shift-A | Put the path of this panel's / the other panel's folder on the command line |
 | Shift-PgUp / Shift-PgDn | Scroll back and forth through console output |
@@ -452,8 +453,9 @@ language and to the first letter of each button in Borg's language, such as S fo
 
 ## Mouse and console
 
-Click a row to move the cursor to it, double-click to open it, and right-click to mark it. Click
-the menu bar or the shortcut bar to use them. The mouse wheel scrolls through the panel.
+Click a row to move the cursor to it, double-click to open it, and right-click it to open its
+context menu. Click the menu bar or the shortcut bar to use them. The mouse wheel scrolls through
+the panel.
 
 Dialogs work with the mouse too. Click a row in a list to choose it; in the theme and language
 pickers, Remote hosts and Remote access, a second click confirms it. The wheel scrolls lists such
@@ -472,6 +474,42 @@ In the console, the mouse wheel scrolls back through the output without touching
 you are typing. Shift-PgUp and Shift-PgDn scroll by a page, Shift-Home jumps to the oldest
 output, and Shift-End returns to the live prompt, as does typing. To copy visible output, select
 it the way your terminal allows, usually by Shift-dragging, then use its normal copy shortcut.
+
+### Context menu
+
+Right-click a row, or press Shift-F10, to see what you can do with the item under the cursor. The
+menu names the item in its frame, starts with what you can copy from it, and then lists the keys
+that act on it, so it also reminds you of them. Up and Down pick an entry, Enter or a click runs
+it, and Esc closes the menu. Terminals that send the Menu key open it too. A right-click puts the
+cursor on the row first; to mark rows with the mouse, choose **Mark** in the menu.
+
+What the menu offers depends on the row:
+
+- **Files and folders**: **Copy path**, **Copy name** and **Copy folder path**, then View, Edit,
+  Copy, Move and Delete, and **Mark**, which marks the row as Insert does. With files marked, it
+  acts on all of them, and each copy holds one line per file. In results it also offers
+  **Reveal original**, and Delete becomes **Remove / actions**. On a contents search result,
+  **Copy path and line** copies `path:line` for the first match, ready for an editor that opens a
+  file at a line.
+- **Processes** in the activity monitor: **Copy PID**, **Copy name** and **Copy program path**,
+  then **Signal or priority…** (K), **Open files** (2), **Memory map** (1) and
+  **Network traffic** (Alt-N).
+- **Open files** of a process: **Copy path**, and View for a regular file.
+- **Containers**: **Copy ID** and **Copy name**, then the Docker menu's Start, Stop, Restart,
+  Pause, Files and Shell.
+- **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row
+  is reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
+  **Signal or priority…**.
+- **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
+  **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
+- **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
+  **Show in panel**, View and Edit.
+
+Copies reach the clipboard the same way Ctrl-Insert's do, and the notice line shows what was
+copied. An entry acts only on the item the menu names. If that item stops being the one under the
+cursor while the menu is open, for example when the process list sorts itself again, choosing an
+entry does nothing and asks you to open the menu again. Delete, Kill and the signals still ask
+before they act, as they do from their keys.
 
 ### Jumping to folders
 

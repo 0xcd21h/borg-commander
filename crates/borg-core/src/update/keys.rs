@@ -94,6 +94,9 @@ fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Ef
         return Some(overlays::on_key(state, key, now));
     }
     let panels = state.view == View::Panels;
+    if panels && crate::context_menu::opens(key) && crate::editor::focused(state).is_none() {
+        return Some(crate::context_menu::open(state, None));
+    }
     if state.docker.is_open() && panels {
         return Some(crate::docker::route_key(state, key, now));
     }

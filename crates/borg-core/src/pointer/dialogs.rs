@@ -67,7 +67,8 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
         (Pointer::Setting(selected), Overlay::Settings { .. } | Overlay::Plugins { .. }) => {
             crate::overlays::toggle_setting(state, selected, now)
         }
-        (Pointer::DismissMenu, Overlay::Menu(_)) => {
+        (Pointer::MenuItem(index), Overlay::ContextMenu(menu)) => crate::context_menu::choose(state, menu, index, now),
+        (Pointer::DismissMenu, Overlay::Menu(_) | Overlay::ContextMenu(_)) => {
             state.overlay = None;
             Vec::new()
         }

@@ -421,6 +421,7 @@ instantes.
 | `+` `-` `*` | Selecionar, desselecionar ou inverter por padrão (`*.rs`, `build/`) |
 | Alt-Enter | Colocar os nomes marcados (ou o atual) na linha de comando; em `..`, o caminho da pasta pai |
 | Ctrl-Insert / Alt-Shift-Insert | Copiar os nomes marcados / os respetivos caminhos completos |
+| Shift-F10 | Menu de contexto: o que pode copiar do item sob o cursor e as teclas que atuam sobre ele |
 | Shift-Enter, Ctrl-J | Inserir uma quebra de linha no cursor da linha de comando; Enter executa o comando, Ctrl-C limpa-o |
 | Alt-A / Alt-Shift-A | Colocar na linha de comando o caminho da pasta deste painel / do outro painel |
 | Shift-PgUp / Shift-PgDn | Percorrer a saída da consola para trás e para a frente |
@@ -495,8 +496,8 @@ Borg, como S para Sim e N para Não em português.
 ## Rato e consola
 
 Clique numa linha para lhe mover o cursor, faça duplo clique para a abrir e clique com o botão
-direito para a marcar. Clique na barra de menus ou na barra de atalhos para as usar. A roda do
-rato percorre o painel.
+direito para abrir o respetivo menu de contexto. Clique na barra de menus ou na barra de atalhos
+para as usar. A roda do rato percorre o painel.
 
 As caixas de diálogo também funcionam com o rato. Clique numa linha de uma lista para a escolher;
 nos seletores de tema e de idioma, em Hosts remotos e em Acesso remoto, um segundo clique
@@ -517,6 +518,43 @@ Shift-PgUp e Shift-PgDn percorrem uma página de cada vez, Shift-Home salta para
 Shift-End volta ao prompt ativo, tal como começar a escrever. Para copiar a saída visível,
 selecione-a da forma que o terminal permitir, normalmente arrastando com Shift, e use o atalho de
 copiar habitual.
+
+### Menu de contexto
+
+Clique com o botão direito numa linha, ou prima Shift-F10, para ver o que pode fazer com o item
+sob o cursor. O menu mostra o nome do item no contorno, começa pelo que pode copiar dele e depois
+lista as teclas que atuam sobre ele, pelo que também lhas recorda. Up e Down escolhem uma entrada,
+Enter ou um clique executa-a e Esc fecha o menu. Os terminais que enviam a tecla Menu também o
+abrem. Um clique com o botão direito leva primeiro o cursor para a linha; para marcar linhas com o
+rato, escolha **Marcar** no menu.
+
+O que o menu oferece depende da linha:
+
+- **Ficheiros e pastas**: **Copiar caminho**, **Copiar nome** e **Copiar caminho da pasta**, depois
+  Ver, Editar, Copiar, Mover e Eliminar, e **Marcar**, que marca a linha como Insert. Com
+  ficheiros marcados, atua sobre todos eles e cada cópia tem uma linha por ficheiro. Nos resultados
+  oferece também **Revelar original**, e Eliminar passa a **Remover / ações**. Num resultado de uma
+  pesquisa no conteúdo, **Copiar caminho e linha** copia `path:line` da primeira ocorrência, pronto
+  para um editor que abra um ficheiro numa linha.
+- **Processos** no monitor de atividade: **Copiar PID**, **Copiar nome** e
+  **Copiar caminho do programa**, depois **Sinal ou prioridade…** (K), **Ficheiros abertos** (2),
+  **Mapa de memória** (1) e **Tráfego de rede** (Alt-N).
+- **Ficheiros abertos** de um processo: **Copiar caminho**, e Ver para um ficheiro normal.
+- **Contentores**: **Copiar ID** e **Copiar nome**, depois Iniciar, Parar, Reiniciar, Pausar,
+  Ficheiros e Shell, como no menu Docker.
+- Linhas da **Rede**: **Copiar endereço**, **Copiar endereço remoto** ou **Copiar PID**, conforme
+  aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
+  **Mostrar no monitor de atividade** e **Sinal ou prioridade…**.
+- **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
+  **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
+- **Itens de arranque**: **Copiar caminho**, **Copiar caminho do programa** e **Copiar comando**,
+  depois **Mostrar no painel**, Ver e Editar.
+
+As cópias chegam à área de transferência tal como as de Ctrl-Insert, e a linha de avisos mostra o
+que foi copiado. Uma entrada atua apenas sobre o item que o menu indica. Se esse item deixar de
+estar sob o cursor enquanto o menu está aberto, por exemplo quando a lista de processos volta a
+ordenar-se, escolher uma entrada não faz nada e pede que abra o menu novamente. Eliminar, Terminar
+e os sinais continuam a perguntar antes de agir, tal como pelas respetivas teclas.
 
 ### Saltar para pastas
 

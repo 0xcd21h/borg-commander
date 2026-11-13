@@ -4,29 +4,31 @@ use borg_i18n::tr;
 pub const FILE_MENU: usize = 1;
 pub const RIGHT_MENU: usize = 5;
 
+/// An entry that does `action` when chosen: an action of the menu bar, or what an entry of a
+/// context menu does.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MenuItem {
+pub struct MenuItem<A = Action> {
     pub label: &'static str,
     pub hint: String,
-    pub action: Action,
+    pub action: A,
     pub checked: Option<bool>,
     pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MenuEntry {
-    Item(MenuItem),
+pub enum MenuEntry<A = Action> {
+    Item(MenuItem<A>),
     Separator,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Menu {
-    pub title: &'static str,
-    pub entries: Vec<MenuEntry>,
+pub struct Menu<A = Action> {
+    pub title: String,
+    pub entries: Vec<MenuEntry<A>>,
 }
 
-impl Menu {
-    pub fn item(&self, index: usize) -> Option<&MenuItem> {
+impl<A> Menu<A> {
+    pub fn item(&self, index: usize) -> Option<&MenuItem<A>> {
         match self.entries.get(index)? {
             MenuEntry::Item(item) => Some(item),
             MenuEntry::Separator => None,
@@ -67,7 +69,7 @@ fn keyed(label: &'static str, hint: &'static str, action: Action) -> MenuEntry {
     MenuEntry::Item(MenuItem { label, hint: hint.to_owned(), action, checked: None, enabled: true })
 }
 
-fn when(entry: MenuEntry, enabled: bool) -> MenuEntry {
+pub(crate) fn when<A>(entry: MenuEntry<A>, enabled: bool) -> MenuEntry<A> {
     match entry {
         MenuEntry::Item(item) => MenuEntry::Item(MenuItem { enabled, ..item }),
         MenuEntry::Separator => MenuEntry::Separator,
@@ -102,7 +104,7 @@ fn docker_menu(state: &AppState) -> Menu {
     let can = |action| crate::docker::can(state, action);
     let pause = crate::docker::pause_action(state);
     Menu {
-        title: tr!(docker_title),
+        title: tr!(docker_title).into(),
         entries: vec![
             check(tr!(docker_menu_containers), Action::Docker, state.docker.is_open()),
             keyed_check(
@@ -144,7 +146,7 @@ fn git_menu(state: &AppState) -> Menu {
         !state.monitor_open() && state.active_panel().git_repository().is_some() && state.plugins.git_task.is_none();
     let selected = available && !state.active_panel().selection().is_empty();
     Menu {
-        title: tr!(git),
+        title: tr!(git).into(),
         entries: vec![
             when(item(tr!(repository_status), Action::Git(Tool::Status)), available),
             when(item(tr!(diff_selection), Action::Git(Tool::Diff)), selected),
@@ -164,7 +166,7 @@ fn panel_menu(title: &'static str, state: &AppState, side: Side) -> Menu {
     let sort = panel.sort();
     let sorted = |key: SortKey| sort.key == key;
     Menu {
-        title,
+        title: title.into(),
         entries: vec![
             check(tr!(full_listing), Action::SetListing(side, ListingMode::Full), panel.mode() == ListingMode::Full),
             check(tr!(brief_listing), Action::SetListing(side, ListingMode::Brief), panel.mode() == ListingMode::Brief),
@@ -189,7 +191,7 @@ fn file_menu(state: &AppState) -> Menu {
     let hovered_file = listed && panel.hovered_entry().is_some_and(|entry| !entry.is_dir());
     let archive = listed && !panel.foreign() && panel.hovered_entry().is_some_and(crate::archive::opens);
     Menu {
-        title: tr!(file),
+        title: tr!(file).into(),
         entries: vec![
             when(item(tr!(view), Action::View), hovered_file),
             when(item(tr!(edit), Action::Edit), hovered_file),
@@ -222,7 +224,7 @@ fn file_menu(state: &AppState) -> Menu {
 fn command_menu(state: &AppState) -> Menu {
     let time_machine = state.backup.available.then(|| item(tr!(backup_title), Action::TimeMachine));
     Menu {
-        title: tr!(command),
+        title: tr!(command).into(),
         entries: [
             when(item(tr!(activity_title), Action::Activity), state.settings.preferences.system_plugin),
             when(item(tr!(network_title), Action::Network), state.settings.preferences.system_plugin),
@@ -255,7 +257,7 @@ fn command_menu(state: &AppState) -> Menu {
 
 fn remote_menu(state: &AppState) -> Menu {
     Menu {
-        title: tr!(remote_menu_title),
+        title: tr!(remote_menu_title).into(),
         entries: vec![
             item(tr!(remote_borgs), Action::BrowseRemotes),
             when(
@@ -272,7 +274,7 @@ fn remote_menu(state: &AppState) -> Menu {
 
 fn options_menu(state: &AppState) -> Menu {
     Menu {
-        title: tr!(options),
+        title: tr!(options).into(),
         entries: vec![
             item(tr!(theme), Action::PickTheme),
             item(tr!(settings), Action::Settings),
@@ -381,7 +383,7 @@ fn results_menu(state: &AppState) -> Menu {
     let collection = matches!(panel.results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Collection(_)));
     let group = panel.results.as_ref().map(|r| r.group);
     Menu {
-        title: tr!(search),
+        title: tr!(search).into(),
         entries: vec![
             item(tr!(search_recursively), Action::Search),
             item(tr!(analyze_folder_sizes), Action::AnalyzeSpace),
