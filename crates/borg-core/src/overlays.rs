@@ -204,6 +204,9 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             _ => {}
         }
     }
+    if let (PromptPurpose::ReplaceInFiles { query, files }, KeyCode::Enter) = (&prompt.purpose, key.code) {
+        return crate::replace::start(state, *query.clone(), prompt.input.text().into(), files.clone(), now);
+    }
     if let PromptPurpose::BackupAdd { fixed } = prompt.purpose {
         match key.code {
             KeyCode::Esc => {
@@ -238,7 +241,9 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         return Vec::new();
     }
     match purpose {
-        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } => Vec::new(),
+        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } | PromptPurpose::ReplaceInFiles { .. } => {
+            Vec::new()
+        }
         PromptPurpose::Search { root } => {
             let hidden = state.settings.preferences.show_hidden;
             match crate::results::name_search(state, root, text, hidden, true, Default::default()) {

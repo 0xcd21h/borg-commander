@@ -536,6 +536,11 @@ pub enum Effect {
         id: u64,
         request: crate::UnpackRequest,
     },
+    /// A job that replaces text in files.
+    StartReplace {
+        id: u64,
+        request: crate::ReplaceRequest,
+    },
     /// A job that changes an archive.
     StartRewrite {
         id: u64,

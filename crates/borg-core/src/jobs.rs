@@ -56,6 +56,8 @@ pub enum JobKind {
     ArchiveFolder,
     /// A file edited from an archive, written back into it.
     Save,
+    /// Text replaced in the files a contents search found.
+    Replace,
 }
 
 impl JobKind {
@@ -68,6 +70,7 @@ impl JobKind {
             Self::Pack => tr!(packing),
             Self::ArchiveFolder => tr!(making_archive_folder),
             Self::Save => tr!(saving_into_archive),
+            Self::Replace => tr!(replacing_text),
         }
     }
 
@@ -79,6 +82,7 @@ impl JobKind {
             Self::Unpack | Self::View => tr!(unpacked),
             Self::Pack => tr!(packed),
             Self::ArchiveFolder | Self::Save => tr!(archive_changed),
+            Self::Replace => tr!(replaced_text),
         }
     }
 
@@ -92,7 +96,7 @@ impl JobKind {
     fn shown_on(self, origin: Side) -> Side {
         match self {
             Self::Copy | Self::Move | Self::Unpack | Self::Pack => origin.other(),
-            Self::Delete | Self::View | Self::ArchiveFolder | Self::Save => origin,
+            Self::Delete | Self::View | Self::ArchiveFolder | Self::Save | Self::Replace => origin,
         }
     }
 }

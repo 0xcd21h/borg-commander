@@ -160,6 +160,15 @@ archivos en segundo plano, y la línea de contexto cuenta los archivos leídos. 
 demasiado grandes. Ctrl-C detiene la búsqueda, que se para en 20.000 archivos como cualquier
 búsqueda.
 
+Ctrl-R en los resultados, o **Reemplazar en archivos…** en el menú Archivo, reemplaza el texto en
+los archivos marcados, o en todos los archivos que muestran los resultados si no hay ninguno
+marcado. Escribe lo que va en su lugar y pulsa Enter; deja el campo vacío para quitar el texto.
+Los interruptores de la búsqueda se aplican, así que una búsqueda de palabras completas reemplaza
+palabras completas, y con una expresión regular `$1` devuelve el primer grupo. Borg escribe cada
+archivo como guarda su editor, así que los permisos y los enlaces se mantienen. Omite los archivos
+que no son texto, que pasan de 32 MiB o que cambiaron mientras la tarea se ejecutaba. La tarea
+aparece en Alt-J, y los resultados se actualizan cuando termina.
+
 ### Analizar archivos con reglas
 
 Pon **Buscar** en **Coincidencias de reglas** en el diálogo de Ctrl-F para analizar los archivos

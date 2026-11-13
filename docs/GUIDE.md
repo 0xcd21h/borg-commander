@@ -147,6 +147,14 @@ the context line counts the files read. Binary files (a NUL byte in the first 8 
 64 MiB stay unread and are counted as binary or too large. Ctrl-C stops the search, and it stops at
 20,000 files like any search.
 
+Ctrl-R in the results, or **Replace in files…** in the File menu, replaces the text in the marked
+files, or in every file the results show when none is marked. Type what goes in its place and
+press Enter; leave the field empty to remove the text. The search's switches apply, so a
+whole-word search replaces whole words, and with a regular expression `$1` puts back the first
+group. Borg writes each file the way its editor saves, so permissions and links stay. It skips
+files that are not text, are larger than 32 MiB, or changed while the job ran. The job shows in
+Alt-J, and the results refresh when it ends.
+
 ### Scanning files with rules
 
 Set **Look for** to **Rule matches** in the Ctrl-F dialog to scan the files below the folder with

@@ -138,3 +138,26 @@ fn matches_around_a_window_are_found_in_whole_lines_and_cut_to_those_touching_it
     let long: Vec<u8> = [b"x".repeat(3000), b"needle".to_vec(), b"x".repeat(3000)].concat();
     assert_eq!(around(&needle, &long, 3002..3004, 8192), [(3000, 3006)], "a line past the first read");
 }
+
+#[test]
+fn replacing_all_keeps_line_breaks_and_fills_in_groups() {
+    let (text, count) = query("port").replace_all("port = 80\r\nexport PORT\nno match", "listen");
+    assert_eq!((text.as_str(), count), ("listen = 80\r\nexlisten listen\nno match", 3));
+
+    let groups = Query { text: r"(\w+)=(\d+)".into(), regex: true, ..Query::default() }.compile().unwrap().unwrap();
+    assert_eq!(groups.replace_all("a=1 b=2\n", "$2:$1"), ("1:a 2:b\n".into(), 2));
+
+    let words = Query { text: "log".into(), words: true, ..Query::default() }.compile().unwrap().unwrap();
+    assert_eq!(words.replace_all("log logs catalog log", "LOG"), ("LOG logs catalog LOG".into(), 2));
+    assert_eq!(query("x").replace_all("", "y"), (String::new(), 0));
+}
+
+proptest! {
+    #[test]
+    fn replacing_with_the_match_itself_changes_nothing(text in "[a-c\n\r ]{0,64}") {
+        let search = query("ab");
+        let (same, count) = search.replace_all(&text, "ab");
+        prop_assert_eq!(&same, &text);
+        prop_assert_eq!(count, by_lines(&search, &text).len());
+    }
+}

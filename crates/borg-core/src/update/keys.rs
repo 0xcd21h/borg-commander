@@ -192,6 +192,12 @@ fn results_action(state: &AppState, key: &KeyEvent) -> Option<Action> {
     if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
         return Some(Action::SwitchPanel);
     }
+    if key.code == KeyCode::Char(REPLACE_KEY)
+        && key.modifiers == KeyModifiers::CONTROL
+        && crate::replace::contents_query(panel).is_some()
+    {
+        return Some(Action::ReplaceInFiles);
+    }
     let searching = panel.listing() == &crate::Listing::Loading
         && matches!(panel.results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Search { .. }));
     (searching && key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL)
@@ -199,6 +205,8 @@ fn results_action(state: &AppState, key: &KeyEvent) -> Option<Action> {
 }
 
 const FUNCTION_DIGITS: &str = "1234567890";
+/// With Ctrl, replaces the text a contents search found, as it replaces in the editor.
+const REPLACE_KEY: char = 'r';
 pub(crate) const ESCAPE_WINDOW: Duration = Duration::from_millis(1500);
 const ESCAPE: &[u8] = b"\x1b";
 

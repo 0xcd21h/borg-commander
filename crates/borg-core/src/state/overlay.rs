@@ -11,6 +11,11 @@ pub struct MenuCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptPurpose {
+    /// What to put in place of the text a contents search found, in `files`.
+    ReplaceInFiles {
+        query: Box<borg_view::Query>,
+        files: Vec<PathBuf>,
+    },
     Search {
         root: PathBuf,
     },
