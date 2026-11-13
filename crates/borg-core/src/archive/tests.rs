@@ -284,7 +284,7 @@ fn delete_and_new_folders_change_the_archive() {
     hover(&mut state, "readme.md");
     crate::actions::perform(&mut state, Action::Delete, now);
     assert!(matches!(state.overlay, Some(Overlay::Confirm(_))));
-    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
+    let effects = press(&mut state, KeyCode::Char(crate::keyboard::YES_KEY), KeyModifiers::NONE, now);
     let removal = Change::Remove { paths: vec!["readme.md".into()] };
     assert_eq!(rewrite_in(&state, &effects), (change_of(removal), JobKind::Delete));
 
@@ -451,7 +451,7 @@ fn a_long_job_asks_and_an_always_answer_can_be_undone_from_the_menu() {
     let (mut state, now) = opened(&[file("readme.md")]);
     hover(&mut state, "readme.md");
     crate::actions::perform(&mut state, Action::Delete, now);
-    let effects = press(&mut state, KeyCode::Enter, KeyModifiers::NONE, now);
+    let effects = press(&mut state, KeyCode::Char(crate::keyboard::YES_KEY), KeyModifiers::NONE, now);
     let Some(id) = effects.iter().find_map(|effect| match effect {
         Effect::StartRewrite { id, .. } => Some(*id),
         _ => None,

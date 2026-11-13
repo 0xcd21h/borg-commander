@@ -1323,6 +1323,20 @@ contenha maiúsculas.
 F5, F6 e F8 iniciam tarefas de cópia, movimentação e eliminação. Alt-J abre a lista de tarefas,
 onde as pode pausar ou cancelar.
 
+A caixa de diálogo Eliminar abre com **Não** selecionado, por isso Enter sozinho mantém os
+ficheiros. Para os eliminar, prima Y, ou passe para **Sim** com Tab ou uma tecla de seta e prima
+Enter.
+
+Enquanto a caixa de diálogo Eliminar pergunta, o Borg conta os ficheiros que está prestes a
+remover e mostra o número e o tamanho por baixo da pergunta. A contagem para ao fim de 3 segundos,
+e nesse caso a linha começa por **Pelo menos**. O Borg procura também os programas que têm esses
+ficheiros abertos, que correm a partir deles ou que trabalham numa dessas pastas, e indica os seus
+nomes. Um programa que mantém aberto um ficheiro eliminado mantém também o espaço em disco que
+ele ocupa, até o fechar. Prima K para abrir o monitor de atividade no primeiro deles com
+**Sinal ou prioridade**, e pare-o antes de eliminar. O Borg vê os programas que o seu utilizador
+pode inspecionar, o que na maioria dos sistemas significa os seus. Os ficheiros em arquivos
+comprimidos, contentores e painéis remotos são eliminados sem estas verificações.
+
 A caixa de diálogo Copiar tem uma caixa de verificação **Otimizar a cópia para discos rígidos**.
 Prima Tab para lá chegar e Space para a assinalar ou desassinalar, ou clique nela. Fica por
 assinalar em cada nova cópia. Neste modo, o Borg lê ficheiros pequenos para memória em lotes e
@@ -1745,7 +1759,8 @@ Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
 
 As sessões, o histórico, as definições e as capturas ficam guardados até os eliminar. A linha por
 baixo da nota diz quanto resta neste momento e o que a última limpeza removeu. F8 remove os restos
-depois de perguntar, e a pergunta indica as pastas de onde vêm.
+depois de perguntar. A pergunta indica as pastas de onde vêm e abre com **Não** selecionado, por
+isso prima Y para os remover.
 
 Cada captura que o Borg guarda entra numa lista das 1000 mais recentes. A janela mostra as que ainda
 estão no disco em **Capturas guardadas pelo Borg**, com o tamanho e a data, e **com chaves** quando

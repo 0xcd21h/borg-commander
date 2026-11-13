@@ -900,12 +900,17 @@ fn failed_operations_leave_a_notice() {
 }
 
 #[test]
-fn delete_confirms_and_can_be_cancelled() {
+fn delete_asks_first_starting_on_no_so_enter_alone_keeps_the_files() {
     let (mut state, now) = setup_with(vec![file("a")]);
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, key(KeyCode::F(8)));
     let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("expected confirm") };
     assert_eq!(confirm.message, "Delete \"a\" permanently?");
+    assert!(!confirm.accept, "the question starts on No");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Enter took No");
+
+    press(&mut state, now, key(KeyCode::F(8)));
     assert!(press(&mut state, now, key(KeyCode::Char('n'))).is_empty());
 
     press(&mut state, now, key(KeyCode::F(8)));
@@ -3006,7 +3011,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert_eq!(effects, [Effect::View { path: "/run/motd".into(), at: None }]);
 
     crate::actions::perform(&mut state, Action::Delete, now);
-    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
     assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Delete { paths: vec!["/motd".into()] }));
     crate::actions::perform(&mut state, Action::Mkdir, now);
     type_text(&mut state, now, "cache");
@@ -4066,6 +4071,75 @@ fn a_question_answers_to_the_letters_its_buttons_show() {
         effects,
         vec![Effect::StartJob { id: 0, spec: Spec::Delete { sources: vec![PathBuf::from("/home/a")] } }]
     );
+}
+
+fn delete_check(state: &AppState) -> &crate::DeleteCheck {
+    match &state.overlay {
+        Some(Overlay::Confirm(crate::Confirm {
+            purpose: crate::ConfirmPurpose::Delete { check: Some(check), .. },
+            ..
+        })) => check,
+        other => panic!("a delete dialog that checks its files: {other:?}"),
+    }
+}
+
+/// Opens the delete dialog on "a" and gives back the number of its check.
+fn ask_to_delete(state: &mut AppState, now: Instant) -> u64 {
+    press(state, now, key(KeyCode::Down));
+    let effects = press(state, now, key(KeyCode::F(8)));
+    let [Effect::CheckDelete { id, sources }] = &effects[..] else { panic!("F8 checks the files: {effects:?}") };
+    assert_eq!(sources, &[PathBuf::from("/home/a")]);
+    *id
+}
+
+#[test]
+fn the_delete_dialog_takes_the_size_and_the_programs_using_the_files() {
+    use crate::{DeleteFound, DeleteSize, FileHolder};
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = ask_to_delete(&mut state, now);
+    let size = DeleteSize { bytes: 5, files: 1, complete: true };
+    update(&mut state, Msg::DeleteChecked { id: id + 1, found: DeleteFound::Size(size) }, now);
+    assert_eq!(delete_check(&state).size, None, "an answer for another dialog is dropped");
+
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Size(size) }, now);
+    let postgres = FileHolder { pid: 812, name: "postgres".into() };
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Holders(Ok(vec![postgres.clone()])) }, now);
+    let check = delete_check(&state);
+    assert_eq!((check.size, check.holders.clone()), (Some(size), Some(Ok(vec![postgres]))));
+
+    press(&mut state, now, key(KeyCode::Esc));
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Size(size) }, now);
+    assert!(state.overlay.is_none(), "an answer after the dialog closed opens nothing");
+}
+
+#[test]
+fn k_in_the_delete_dialog_signals_the_program_using_the_files_and_deletes_nothing() {
+    use crate::{DeleteFound, FileHolder};
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = ask_to_delete(&mut state, now);
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert!(effects.is_empty() && state.overlay.is_none(), "with no program found, K only closes: {effects:?}");
+
+    let id_again = ask_to_delete(&mut state, now);
+    assert_ne!(id, id_again);
+    let holders = vec![FileHolder { pid: 812, name: "postgres".into() }, FileHolder { pid: 40, name: "tail".into() }];
+    update(&mut state, Msg::DeleteChecked { id: id_again, found: DeleteFound::Holders(Ok(holders)) }, now);
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartJob { .. })));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.activity.side, Some(Side::Left));
+    assert!(state.activity.reveals(812), "the monitor opens on the first program, with its signals");
+}
+
+#[test]
+fn deleting_in_a_container_checks_nothing_on_this_computer() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let host = PathBuf::from("/home");
+    state.panel_mut(Side::Left).mount = Some(crate::Mount { id: "c0ffee".into(), name: "web".into(), host });
+    press(&mut state, now, key(KeyCode::Down));
+    assert!(press(&mut state, now, key(KeyCode::F(8))).is_empty());
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("F8 still asks") };
+    assert!(matches!(confirm.purpose, crate::ConfirmPurpose::Delete { check: None, .. }));
 }
 
 #[test]

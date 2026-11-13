@@ -1223,6 +1223,18 @@ ignores case unless the query contains uppercase letters.
 F5, F6, and F8 start copy, move, and delete jobs. Alt-J opens the list of jobs, where you can
 pause or cancel them.
 
+The Delete dialog starts on **No**, so Enter on its own keeps the files. To delete them, press Y,
+or move to **Yes** with Tab or an arrow key and press Enter.
+
+While the Delete dialog asks, Borg counts the files you are about to remove and shows their number
+and size under the question. Counting stops after 3 seconds, and then the line starts with
+**At least**. Borg also looks for programs that have those files open, run from them, or work in
+one of those folders, and names them. A program that keeps a deleted file open keeps its disk
+space too, until it closes the file. Press K to open the activity monitor on the first of them
+with **Signal or priority**, and stop it before you delete. Borg sees the programs your user may
+inspect, which on most systems means your own. Files in archives, containers, and remote panels
+are deleted without these checks.
+
 The Copy dialog has an **Optimize copying for hard drives** checkbox. Press Tab to reach it and
 Space to toggle it, or click it. It is unchecked for every new copy. In this mode, Borg reads
 small files into memory in batches and then writes each batch, which can cut down on disk seeking
@@ -1616,7 +1628,8 @@ still starting up keeps what it made. This is what goes:
 
 Sessions, history, settings and captures stay until you delete them. The line under the note says
 how much is left over right now and what the last cleanup removed. F8 removes what is left over
-after asking, and the question lists the folders it comes from.
+after asking. The question lists the folders it comes from and starts on **No**, so press Y to
+remove them.
 
 Each capture Borg saves goes on a list of the 1,000 newest. The window shows the ones still on
 disk under **Captures Borg saved**, with their size and date, and **with keys** when a `.keylog`

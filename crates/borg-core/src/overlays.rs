@@ -17,6 +17,9 @@ use crate::{
 
 const PREVIOUS: isize = -1;
 const NEXT: isize = 1;
+/// The key in the delete dialog that opens the signals of a program using the files, as K does in
+/// the activity monitor.
+const SIGNAL_KEY: char = 'k';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
@@ -306,6 +309,9 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
 }
 
 fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if let Some(pid) = holder_to_signal(&confirm, key) {
+        return crate::delete_check::signal(state, pid);
+    }
     let decided = match crate::keyboard::yes_no(confirm.accept, key) {
         YesNo::Close(decided) => decided,
         YesNo::Switch => {
@@ -353,13 +359,13 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (answer, ConfirmPurpose::CleanStorage { paths, window }) => {
             crate::storage::answer(state, answer == Some(true), paths, *window)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) if state.active_panel().mount.is_some() => {
             crate::docker::delete(state, sources)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().archive.is_some() => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) if state.active_panel().archive.is_some() => {
             crate::archive::remove(state, &sources, now)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) => {
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
@@ -384,6 +390,13 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         }
         _ => Vec::new(),
     }
+}
+
+/// The program K signals from a delete dialog that found programs using the files.
+fn holder_to_signal(confirm: &Confirm, key: &KeyEvent) -> Option<u32> {
+    let ConfirmPurpose::Delete { check: Some(check), .. } = &confirm.purpose else { return None };
+    let signal = crate::keyboard::latin(key).code == KeyCode::Char(SIGNAL_KEY);
+    signal.then(|| check.first_holder().map(|holder| holder.pid)).flatten()
 }
 
 fn resolve(state: &AppState, text: &str) -> PathBuf {

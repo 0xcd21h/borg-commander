@@ -1327,6 +1327,19 @@ mayúsculas.
 F5, F6 y F8 inician tareas de copia, movimiento y eliminación. Alt-J abre la lista de tareas,
 donde puedes pausarlas o cancelarlas.
 
+El diálogo Eliminar empieza en **No**, así que Enter por sí solo conserva los archivos. Para
+eliminarlos, pulsa Y, o pasa a **Sí** con Tab o una tecla de flecha y pulsa Enter.
+
+Mientras el diálogo Eliminar pregunta, Borg cuenta los archivos que vas a quitar y muestra su
+número y su tamaño debajo de la pregunta. El recuento se detiene a los 3 segundos, y entonces la
+línea empieza por **Al menos**. Borg también busca los programas que tienen esos archivos
+abiertos, se ejecutan desde ellos o trabajan en una de esas carpetas, y muestra sus nombres. Un
+programa que mantiene abierto un archivo eliminado conserva también su espacio en disco hasta que
+lo cierra. Pulsa K para abrir el monitor de actividad en el primero de ellos con
+**Señal o prioridad**, y detenlo antes de eliminar. Borg ve los programas que tu usuario puede
+inspeccionar, que en la mayoría de los sistemas son los tuyos. Los archivos de archivos
+comprimidos, contenedores y paneles remotos se eliminan sin estas comprobaciones.
+
 El diálogo Copiar tiene una casilla **Optimizar la copia para discos duros**. Pulsa Tab para
 llegar a ella y Space para marcarla o desmarcarla, o haz clic en ella. Está desmarcada en cada
 copia nueva. En este modo, Borg lee los archivos pequeños en memoria por lotes y luego escribe cada
@@ -1753,7 +1766,8 @@ está arrancando conserva lo que acaba de crear. Esto es lo que se elimina:
 
 Las sesiones, el historial, la configuración y las capturas se conservan hasta que los elimines. La
 línea bajo la nota dice cuánto sobra ahora mismo y qué eliminó la última limpieza. F8 elimina los
-restos tras preguntar, y la pregunta indica las carpetas de las que vienen.
+restos tras preguntar. La pregunta indica las carpetas de las que vienen y empieza en **No**, así
+que pulsa Y para eliminarlos.
 
 Cada captura que guarda Borg entra en una lista de las 1000 más recientes. La ventana muestra las
 que siguen en el disco bajo **Capturas guardadas por Borg**, con su tamaño y fecha, y **con claves**

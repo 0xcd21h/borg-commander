@@ -138,6 +138,8 @@ pub struct AppState {
     pub sizing: Option<crate::SizeScan>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
+    /// How many delete dialogs counted their files, which numbers the answers.
+    pub(crate) delete_checks: u64,
     pub viewer: Option<Viewer>,
     /// The file the viewer is opening. A load that arrives for another file, or after Esc
     /// gave it up, is dropped.
@@ -258,6 +260,7 @@ impl AppState {
             sizing: None,
             measured: Default::default(),
             next_size: 0,
+            delete_checks: 0,
             viewer: None,
             opening: None,
             landing: None,

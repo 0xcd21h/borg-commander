@@ -228,6 +228,31 @@ fn copy_and_delete_dialogs() -> Result<()> {
 }
 
 #[test]
+fn delete_dialog_with_its_size_and_the_programs_using_the_files() -> Result<()> {
+    use borg_core::{DeleteFound, DeleteSize, FileHolder};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
+    let Some(borg_core::Overlay::Confirm(borg_core::Confirm {
+        purpose: borg_core::ConfirmPurpose::Delete { check: Some(asked), .. },
+        ..
+    })) = &stage.state.overlay
+    else {
+        panic!("F8 on a folder here checks its files");
+    };
+    let id = asked.id;
+    let size = DeleteSize { bytes: 3_435_973_837, files: 41_200, complete: false };
+    let holders = ["postgres", "tail", "vim", "less", "rsync"]
+        .into_iter()
+        .zip(1..)
+        .map(|(name, pid)| FileHolder { pid: 800 + pid, name: name.into() })
+        .collect();
+    stage.send(Msg::DeleteChecked { id, found: DeleteFound::Size(size) });
+    stage.send(Msg::DeleteChecked { id, found: DeleteFound::Holders(Ok(holders)) });
+    let buffer = stage.render(stage.started)?;
+    check("delete_dialog_in_use", &stage, buffer)
+}
+
+#[test]
 fn copy_dialog_keeps_shortcuts_visible_in_a_narrow_terminal() -> Result<()> {
     let mut stage = stage(NARROW, Motion::STILL)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::F(5)));
