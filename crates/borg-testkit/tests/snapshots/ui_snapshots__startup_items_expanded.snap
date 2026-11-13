@@ -35,7 +35,7 @@ expression: describe(&buffer)
 ssh.service · /lib/systemd/system/ssh.service
 $
 Enter Show in panel  F3 View  R Read again  / Filter  Esc Close
-F3 View · F4 Edit · R Read again · Ctrl-C Copy command · Alt-W Maximize                                    ◈ Borg Commander v0.10.0
+F3 View · F4 Edit · R Read again · Ctrl-C Copy command · Alt-W Maximize                                    ◈ Borg Commander v0.11.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-15 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 16-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
