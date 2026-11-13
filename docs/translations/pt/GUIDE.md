@@ -428,7 +428,7 @@ instantes.
 | Alt-I | Contar tamanhos de pastas em segundo plano / parar a contagem |
 | Ctrl-S | Localização rápida na pasta |
 | Ctrl-\ | Pastas favoritas: saltar para uma pasta fixada ou recente |
-| Ctrl-Q | Pré-visualização: mostra o ficheiro sob o cursor (texto, imagem ou pasta) no outro painel |
+| Ctrl-Q | Pré-visualização: mostra o ficheiro sob o cursor (texto, imagem ou pasta) no outro painel; depois de Tab, `/` ou F7 procuram texto nela |
 | Ctrl-L | Informações: mostra tamanho, permissões, proprietário, datas, espaço livre e o disco no outro painel |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar ficheiros |
 | `+` `-` `*` | Selecionar, desselecionar ou inverter por padrão (`*.rs`, `build/`) |
@@ -1449,14 +1449,20 @@ ou `p`/`n` mostram a imagem anterior ou a seguinte. O Borg usa o protocolo de im
 quando existe; nos outros terminais, a imagem aparece como blocos coloridos.
 
 Ctrl-Q mostra uma pré-visualização no outro painel. Tab entra nela, onde as setas, PgUp/PgDn,
-Home/End e a roda do rato percorrem o conteúdo; Tab ou Esc voltam à lista de ficheiros. Ctrl-L
-mostra informações sobre o ficheiro. F3 abre uma pré-visualização de texto no visualizador completo,
-e fechar o visualizador regressa à pré-visualização com a posição, a moldagem, o modo de
-código-fonte e as linhas hexadecimais preservados. Ambos leem os ficheiros da mesma forma limitada,
+Home/End e a roda do rato percorrem o conteúdo; Tab ou Esc voltam à lista de ficheiros. Numa
+pré-visualização de texto, `/`, F7 ou Ctrl-F abrem a barra de pesquisa do visualizador na última
+linha da pré-visualização, e `n` e `N` percorrem as correspondências depois de a fechar (veja a
+barra de pesquisa em [Editor](#editor)). A pesquisa pertence ao ficheiro que a pré-visualização
+mostra, por isso termina quando o cursor passa para outro ficheiro; Ctrl-P na barra de pesquisa
+traz a pesquisa de volta. Ctrl-L mostra informações sobre o ficheiro. F3 abre uma pré-visualização
+de texto no visualizador completo, que continua a pesquisa da pré-visualização, e fechar o
+visualizador regressa à pré-visualização com a posição, a moldagem, o modo de código-fonte e as
+linhas hexadecimais preservados. Ambos leem os ficheiros da mesma forma limitada,
 pelo que abrir um ficheiro de texto grande lê apenas mais ou menos a primeira página e continua
 rápido, seja qual for o tamanho do ficheiro. Num resultado de uma pesquisa de texto, a
 pré-visualização abre em vez disso na primeira correspondência do ficheiro, com a pesquisa marcada
-como a barra de pesquisa a marca, e lê apenas à volta dessa correspondência.
+como a barra de pesquisa a marca, e lê apenas à volta dessa correspondência. Aí, `n` e `N`
+percorrem as restantes correspondências do ficheiro.
 
 Os dois visualizadores de texto realçam a sintaxe de linguagens de programação, formatos de
 marcação e ficheiros de configuração comuns, incluindo Rust, Python, JavaScript, TypeScript/TSX,
@@ -1638,18 +1644,19 @@ precisam do outro painel, por isso esperam até que o editor dele seja fechado. 
 lado dos resultados devolve-lhes o foco quando fecha e traz de volta a pré-visualização ou as
 informações do ficheiro que mostravam.
 
-O visualizador e o editor procuram texto da mesma forma. No visualizador, `/`, F7 ou Ctrl-F abrem
-uma barra de pesquisa na linha de estado; no editor, é Ctrl-F ou F7. O Borg procura à medida que
+O visualizador, a pré-visualização e o editor procuram texto da mesma forma. No visualizador, `/`,
+F7 ou Ctrl-F abrem uma barra de pesquisa na linha de estado, e na pré-visualização, depois de entrar
+nela com Tab, as mesmas teclas abrem-na na última linha; no editor, é Ctrl-F ou F7. O Borg procura à medida que
 escreve, a partir do ponto onde a barra abriu: todas as correspondências no ecrã ficam marcadas, a
 atual destaca-se, e a barra conta-as (3 de 17). Enter, Down ou F3 vão para a correspondência
 seguinte, e Shift-Enter, Up ou Shift-F3 para a anterior; depois da última correspondência, a
 pesquisa continua a partir da outra ponta e avisa disso. Alt-C distingue maiúsculas de minúsculas
 (caso contrário, uma pesquisa em minúsculas encontra qualquer caixa), Alt-W procura palavras
 inteiras, e Alt-R lê a pesquisa como expressão regular; também pode clicar nas opções. Ctrl-P e
-Ctrl-N trazem de volta pesquisas recentes. Esc fecha a barra; a seguir, `n` e `N` no visualizador,
-ou F3 e Shift-F3 no editor, percorrem as correspondências. Num ficheiro grande, o visualizador
-procura em segundo plano, mostra até onde chegou e para quando prime Esc. Conta as
-correspondências em ficheiros até 64 MiB, até 10 000 delas.
+Ctrl-N trazem de volta pesquisas recentes. Esc fecha a barra; a seguir, `n` e `N` no visualizador
+e na pré-visualização, ou F3 e Shift-F3 no editor, percorrem as correspondências. Num ficheiro
+grande, o visualizador e a pré-visualização procuram em segundo plano, mostram até onde chegaram e
+param quando prime Esc. O Borg conta as correspondências em ficheiros até 64 MiB, até 10 000 delas.
 
 ## Configuração
 

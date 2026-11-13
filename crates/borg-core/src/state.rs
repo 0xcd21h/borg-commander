@@ -168,6 +168,7 @@ pub struct AppState {
     pub(crate) last_menu: Option<MenuCursor>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
+    pub preview_find: crate::PagerFind,
     pub(crate) peeking: Option<(Aside, PathBuf, Option<crate::FirstMatch>)>,
     pub next_job: u64,
     /// How many answers keep Borg from asking before long jobs.
@@ -281,6 +282,7 @@ impl AppState {
             last_menu: None,
             escaped: None,
             peeked: None,
+            preview_find: crate::PagerFind::default(),
             peeking: None,
             next_job: 0,
             kept_answers: 0,

@@ -1,13 +1,13 @@
 use borg_i18n::tr;
 use std::{path::Path, time::SystemTime};
 
-use borg_core::{Aside, Facts, Image, Nature, Peek, Peeked};
+use borg_core::{AppState, Aside, FIND_ROWS, Facts, FindBar, Image, Msg, Nature, Peek, Peeked, Pointer};
 use borg_gfx::{Placement, draw_halfblocks};
 use borg_vfs::Entry;
 use jiff::{Timestamp, Zoned};
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Widget},
@@ -23,6 +23,8 @@ use crate::{
 
 const PICTURE_Z: i32 = -1;
 const TITLE_SEPARATOR: &str = " · ";
+const HINT_SEPARATOR: &str = " · ";
+const CORNER_CELLS: u16 = 2;
 const PADDING: u16 = 1;
 const LABEL_GAP: usize = 2;
 const STAMP: &str = "%Y-%m-%d %H:%M:%S";
@@ -33,6 +35,7 @@ pub struct AsideScene<'a> {
     pub aside: Aside,
     pub focused: bool,
     pub peeked: Option<&'a Peeked>,
+    pub find: &'a FindBar,
     pub area: Rect,
     pub icons: bool,
     pub icon_spacing: u8,
@@ -42,7 +45,7 @@ pub struct AsideScene<'a> {
     pub spinner: Option<crate::spinner::Spinner>,
 }
 
-pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> Vec<Placement> {
+pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> (Vec<Placement>, Option<Position>) {
     let styles = look.styles();
     let shown = scene.peeked.filter(|peeked| peeked.aside == scene.aside);
     let heading = match scene.aside {
@@ -62,17 +65,22 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
         .style(styles.panel)
         .border_style(if scene.focused { styles.border_active } else { styles.border })
         .title(Line::styled(title, styles.title));
-    let block = match shown.and_then(|peeked| footer(&peeked.peek)) {
-        Some(footer) => block.title_bottom(Line::styled(
-            format!(" {}{footer} ", if scene.focused { tr!(focused_tab_back) } else { "" }),
-            styles.footer,
-        )),
+    let room = usize::from(scene.area.width.saturating_sub(CORNER_CELLS));
+    let block = match shown.and_then(|peeked| footer(&peeked.peek, scene.find, scene.focused, room)) {
+        Some(footer) => block.title_bottom(Line::styled(footer, styles.footer)),
         None => block,
     };
-    let inner = block.inner(scene.area);
+    let mut inner = block.inner(scene.area);
     block.render(scene.area, buf);
+    let mut cursor = None;
+    if shown.is_some_and(|peeked| finds_in(peeked, scene.find)) {
+        let bar = find_area(scene.area);
+        inner.height = inner.height.saturating_sub(bar.height);
+        let at = crate::find_view::draw_bar(scene.find, look.theme, bar, buf);
+        cursor = Some(at).filter(|at| scene.focused && bar.contains(*at));
+    }
     let body = Rect { x: inner.x + PADDING, width: inner.width.saturating_sub(PADDING * 2), ..inner };
-    match shown {
+    let placements = match shown {
         Some(peeked) => content(peeked, scene, look, body, buf),
         None => {
             if let Some(spinner) = scene.spinner {
@@ -80,7 +88,27 @@ pub fn draw_aside(scene: &AsideScene<'_>, look: &Look<'_>, buf: &mut Buffer) -> 
             }
             Vec::new()
         }
-    }
+    };
+    (placements, cursor)
+}
+
+fn finds_in(peeked: &Peeked, find: &FindBar) -> bool {
+    find.open && peeked.aside == Aside::QuickView && matches!(peeked.peek, Peek::Text(_))
+}
+
+fn find_area(area: Rect) -> Rect {
+    let inner = Block::bordered().inner(area);
+    let height = FIND_ROWS.min(inner.height);
+    Rect { y: inner.bottom() - height, height, ..inner }
+}
+
+pub(crate) fn click(state: &AppState, area: Rect, point: Position) -> Msg {
+    let find = &state.preview_find.bar;
+    let shown = state.peeked.as_ref().filter(|peeked| state.aside == Some(peeked.aside));
+    let bar = find_area(area);
+    let on_bar = state.preview_focused && shown.is_some_and(|peeked| finds_in(peeked, find)) && bar.contains(point);
+    let key = on_bar.then(|| crate::find_view::click(find, bar, point)).flatten();
+    key.map_or(Msg::Pointer(Pointer::FocusPreview), Msg::Key)
 }
 
 fn content(peeked: &Peeked, scene: &AsideScene<'_>, look: &Look<'_>, body: Rect, buf: &mut Buffer) -> Vec<Placement> {
@@ -111,34 +139,57 @@ fn name(path: &Path) -> String {
     path.file_name().map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
 
-fn footer(peek: &Peek) -> Option<String> {
+fn footer(peek: &Peek, find: &FindBar, focused: bool, room: usize) -> Option<String> {
+    let lead = if focused { tr!(focused_tab_back) } else { "" };
+    let line = |details: &str| format!(" {lead}{details} ");
     match peek {
-        Peek::Folder { folders, files, bytes, .. } => Some(format!(
+        Peek::Folder { folders, files, bytes, .. } => Some(line(&format!(
             "{} · {} · {}",
             format::count(*folders, format::Count::Folder),
             format::count(*files, format::Count::File),
             format::size(*bytes)
-        )),
+        ))),
         Peek::Picture(image) => {
             let (width, height) = image.original;
-            Some(format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes)))
+            Some(line(&format!("{width}×{height} · {} · {}", image.format.to_uppercase(), format::size(image.bytes))))
         }
-        Peek::Text(pager) => Some(tr!(tab_focus, pager.percent(), preview_keys(pager))),
+        Peek::Text(pager) => {
+            let read = tr!(read_percent, pager.percent());
+            let shown = if focused { read } else { format!("{read}{}", tr!(tab_focus)) };
+            let step_keys = format!("{HINT_SEPARATOR}{}", tr!(viewer_find_keys));
+            let (shown, hints) = match borg_core::find_bar_summary(find).filter(|_| !find.open) {
+                Some(found) => (format!("{shown}{HINT_SEPARATOR}{found}"), vec![step_keys.as_str()]),
+                None => (shown, preview_keys(pager)),
+            };
+            Some(line(&with_hints(shown, hints, |details| line(details).width() <= room)))
+        }
         Peek::Info(_) | Peek::Unavailable(_) => None,
     }
 }
 
-/// The keys the quick view's footer names for its text: hex rows have only `h` back to the text.
-fn preview_keys(pager: &borg_view::Pager) -> String {
+/// `shown` and as many of `hints` as fit, in their order.
+fn with_hints(shown: String, hints: Vec<&str>, fits: impl Fn(&str) -> bool) -> String {
+    let hinted = hints.into_iter().try_fold(shown, |shown, hint| {
+        let longer = format!("{shown}{hint}");
+        if fits(&longer) { Ok(longer) } else { Err(shown) }
+    });
+    match hinted {
+        Ok(shown) | Err(shown) => shown,
+    }
+}
+
+/// The keys the quick view's footer names for its text, the most useful first: hex rows have
+/// only `h` back to the text.
+fn preview_keys(pager: &borg_view::Pager) -> Vec<&'static str> {
     if pager.hex() {
-        return tr!(h_text).to_owned();
+        return vec![tr!(f7_find), tr!(h_text)];
     }
     let shown = match pager.format() {
         Some(borg_view::Format::Markdown) => tr!(s_source_render),
         Some(borg_view::Format::Json) => tr!(s_source_pretty),
         None => tr!(w_wrap),
     };
-    format!("{shown}{}", tr!(h_hex))
+    vec![tr!(f7_find), shown, tr!(h_hex)]
 }
 
 fn lines<'a>(rows: impl Iterator<Item = Line<'a>>, body: Rect, buf: &mut Buffer) {

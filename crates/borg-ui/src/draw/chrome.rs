@@ -184,6 +184,7 @@ impl<'a> Drawing<'_, 'a> {
                 aside,
                 focused: state.preview_focused,
                 peeked: state.peeked.as_ref(),
+                find: &state.preview_find.bar,
                 area: rect,
                 icons: state.settings.preferences.nerd_font,
                 icon_spacing: state.settings.preferences.icon_spacing,
@@ -191,9 +192,10 @@ impl<'a> Drawing<'_, 'a> {
                 clock: self.scene.clock,
                 spinner: crate::spinner::Spinner::of(&state.busy, borg_core::Task::Preview, self.scene.now),
             };
-            let pictures = draw_aside(&shown, &self.look, &mut self.buf);
+            let (pictures, cursor) = draw_aside(&shown, &self.look, &mut self.buf);
             if state.overlay.is_none() {
                 self.placements.extend(pictures);
+                self.cursor = cursor.or(self.cursor);
             }
             return;
         }
