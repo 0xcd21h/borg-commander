@@ -7,6 +7,8 @@ use crate::Mac;
 
 pub const PORT_SCANS_FORMAT: u8 = 1;
 const MAX_SCANS: usize = 256;
+/// How many scans of one host Borg keeps.
+pub const HOST_HISTORY: usize = 10;
 /// The longest name a host can have.
 pub const MAX_TARGET: usize = 253;
 const UNKNOWN_FORMAT: &str = "unsupported port scans format";
@@ -19,7 +21,7 @@ pub struct SavedPortScans {
     pub scans: Vec<PortScanRecord>,
 }
 
-/// The last port scan of each host, newest first. A private address behind another gateway is
+/// The last port scans of each host, newest first. A private address behind another gateway is
 /// another host, so a scan is known by its address and the gateway it was found behind.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PortScanMemory {
@@ -28,13 +30,25 @@ pub struct PortScanMemory {
 
 impl PortScanMemory {
     pub fn note(&mut self, record: PortScanRecord) {
-        self.scans.retain(|scan| (scan.address, scan.gateway) != (record.address, record.gateway));
         self.scans.insert(0, record);
+        let mut seen: Vec<(IpAddr, Option<Mac>)> = Vec::new();
+        self.scans.retain(|scan| {
+            let host = (scan.address, scan.gateway);
+            let earlier = seen.iter().filter(|known| **known == host).count();
+            seen.push(host);
+            earlier < HOST_HISTORY
+        });
         self.scans.truncate(MAX_SCANS);
     }
 
+    /// The newest scan of a host.
     pub fn find(&self, address: IpAddr, gateway: Option<Mac>) -> Option<&PortScanRecord> {
-        self.scans.iter().find(|scan| scan.address == address && scan.gateway == gateway)
+        self.history(address, gateway).next()
+    }
+
+    /// The scans of a host, newest first.
+    pub fn history(&self, address: IpAddr, gateway: Option<Mac>) -> impl Iterator<Item = &PortScanRecord> {
+        self.scans.iter().filter(move |scan| scan.address == address && scan.gateway == gateway)
     }
 
     /// The newest scan of a target as typed, by its name or its address.

@@ -553,8 +553,10 @@ Lo que ofrece el menú depende de la fila:
 - Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo que
   identifique la fila. Una fila con un proceso añade **Copiar PID**,
   **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
-  **Copiar dirección IP**, **Copiar dirección MAC**, **Escanear puertos…** (P) y **Escanear subred**
-  (S), y un host apagado añade **Olvidar host** (F8).
+  **Copiar dirección IP**, **Copiar dirección MAC**, **Escanear puertos…** (P),
+  **Escaneos de puertos…** (O), **Escanear subred** (S) y **Guardar informe…** (Ctrl-S), y un host
+  apagado añade **Olvidar host** (F8). **Escaneos de puertos…** aparece atenuado hasta que el host
+  tiene un escaneo.
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -1796,8 +1798,8 @@ cada uno y dónde está:
   [Análisis de tamaño guardados](#saved-size-scans)).
 - **Sesiones e historial**: sesiones, salida del shell, registro remoto, historial de búsquedas y
   carpetas, colecciones, equipos emparejados con sus claves, lo que Borg aprendió sobre tus discos
-  (`drives.json`), los vecinos de red que recuerda (`neighbors.json`) y el último escaneo de puertos
-  de cada host (`port-scans.json`), en la carpeta de estado.
+  (`drives.json`), los vecinos de red que recuerda (`neighbors.json`) y los últimos 10 escaneos de
+  puertos de cada host (`port-scans.json`), en la carpeta de estado.
 - **Configuración**: `config.toml` y tus temas.
 - **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.
 
@@ -2616,7 +2618,9 @@ en lugar de la dirección en cuanto lo conoce.
 | K | Mostrar el proceso con **Señal o prioridad** abierto |
 | R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
 | P | Escanear los puertos del vecino seleccionado (**5 Vecinos**) |
+| O | Mostrar los escaneos de puertos del vecino seleccionado (**5 Vecinos**) |
 | S | Escanear la subred del vecino seleccionado (**5 Vecinos**) |
+| Ctrl-S | Guardar un informe de todos los vecinos (**5 Vecinos**) |
 | F8 / Delete | Olvidar el host seleccionado que está apagado (**5 Vecinos**) |
 | Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, o la dirección de la interfaz o del vecino |
 | Tab | Alternar entre la lista y los detalles |
@@ -2746,8 +2750,9 @@ Cuando el escaneo termina, **Escaneo de puertos terminado** se abre en cuanto se
 monitor de actividad o la pantalla de red sin ningún diálogo abierto y llevas 2 segundos sin pulsar
 ninguna tecla, así que nunca se queda con teclas destinadas a la consola o al editor. Indica el host
 y cuenta los puertos abiertos, cerrados y filtrados. Enter lista los puertos abiertos con el nombre
-de servicio que la IANA da a cada uno, y ↑ y ↓ desplazan una lista larga. Si cancelas un escaneo, un
-aviso te dice cuántos puertos abiertos encontró.
+de servicio que la IANA da a cada uno, ↑ y ↓ desplazan una lista larga, y Ctrl-S guarda el escaneo
+como informe (consulta [Guardar informes](#saving-reports)). Si cancelas un escaneo, un aviso te
+dice cuántos puertos abiertos encontró.
 
 Algunos hosts y cortafuegos dejan de responder a un escaneo demasiado rápido. Para notarlo, Borg
 vigila el primer puerto que respondió, uno abierto si lo hay, y le vuelve a preguntar cada 5
@@ -2756,12 +2761,49 @@ de 40 en los que respondió al menos la mitad. Cuando ese puerto calla dos veces
 detiene el escaneo y conserva lo que encontró. El diálogo dice entonces que el host o un cortafuegos
 parece limitar el escaneo, cuenta los puertos a los que no llegó y sugiere el modo Lento.
 
-Borg recuerda el último escaneo de cada host en `port-scans.json` dentro de su carpeta de estado,
-legible solo por ti, con la hora, el modo, los puertos abiertos y los recuentos. Igual que con los
-vecinos, los hosts de la red conectada se separan por la dirección MAC de la puerta de enlace. Borg
-conserva los 256 escaneos más recientes. Los detalles de un vecino muestran su último escaneo en
-**Escaneo de puertos**: **Escaneado** con la hora, el modo y el número de puertos, y después los
-puertos **Abiertos** con sus nombres.
+Borg recuerda los últimos 10 escaneos de cada host en `port-scans.json` dentro de su carpeta de
+estado, legible solo por ti, con la hora, el modo, los puertos abiertos y los recuentos. Igual que
+con los vecinos, los hosts de la red conectada se separan por la dirección MAC de la puerta de
+enlace. En total, Borg conserva los 256 escaneos más recientes. Los detalles de un vecino muestran
+su último escaneo en **Escaneo de puertos**: **Escaneado** con la hora, el modo y el número de
+puertos, y después los puertos **Abiertos** con sus nombres.
+
+Pulsa **O** en un vecino, o elige **Escaneos de puertos…** en su menú contextual, para abrir su
+último escaneo con los puertos abiertos. Cuando Borg tiene escaneos anteriores del host, el diálogo
+indica cuál estás viendo, por ejemplo **Escaneo 2 de 3, del más reciente al más antiguo.**, y ← y →
+pasan a uno más antiguo o más reciente. Ctrl-S guarda el escaneo que ves.
+
+### Guardar informes
+
+Ctrl-S guarda lo que Borg encontró en un archivo para más adelante. Púlsalo en la lista de puertos
+abiertos de un escaneo para guardar ese escaneo, o en la página **5 Vecinos**, o elige
+**Guardar informe…** en el menú contextual de un vecino, para guardar todos los hosts que conoce la
+página, también los que oculta el filtro.
+
+**Guardar informe** pide la **Ruta** y el **Formato**. La ruta empieza en la carpeta de un panel de
+esta máquina, preferentemente el que cubre la pantalla de red, o si no en tu carpeta personal, con
+un nombre como `port-scan-192.0.2.60-2026-11-14.md` o `neighbors-2026-11-14.md`. Una ruta relativa
+empieza en esa carpeta, y una que empieza por `~/` empieza en tu carpeta personal. Tab pasa de un
+campo a otro, y ← y → cambian el formato:
+
+- **Markdown**: texto con tablas, fácil de leer y de pegar en notas.
+- **JSON**: todo lo que contiene el informe, para scripts y otras herramientas.
+- **CSV**: una fila por puerto abierto en un escaneo, o una fila por host en la página.
+
+Al cambiar el formato cambia la extensión al final de la ruta, salvo que hayas escrito otra. Enter
+escribe el archivo, legible solo por ti, y un aviso indica su nombre. Si ya hay un archivo con ese
+nombre, Borg pregunta antes de reemplazarlo. La pregunta empieza en **No**, que te devuelve al
+diálogo. Esc vuelve a donde estabas.
+
+El informe de un escaneo tiene la hora, el modo, los puertos pedidos y cuántos eran, los puertos
+abiertos con sus nombres de servicio, el número de puertos cerrados y filtrados, y la subred, la
+interfaz y la puerta de enlace desde las que se hizo el escaneo. Si el host limitó el escaneo o lo
+cancelaste, el informe lo dice y lista los puertos a los que no llegó. El informe de la página tiene
+las subredes, las puertas de enlace y los servidores DNS, luego cada host con su dirección MAC,
+fabricante, nombre, estado, los puertos y el tiempo de ping que encontró un escaneo de la subred y
+sus notas, un host apagado con la última vez que se vio, y el último escaneo de puertos de cada
+host. Las horas están en UTC, igual que la fecha del nombre del archivo. Lo que Borg no averiguó
+queda fuera del informe.
 
 ### Filtrar
 

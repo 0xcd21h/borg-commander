@@ -38,6 +38,7 @@ mod remote_copy;
 mod remote_fs;
 mod remote_names;
 mod replace_files;
+mod report;
 mod rule_scan;
 mod search;
 mod service;

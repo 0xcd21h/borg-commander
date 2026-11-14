@@ -497,6 +497,11 @@ impl Network {
             .fold(Rate::default(), |sum, interface| sum.plus(self.traffic.interface(&interface.name)))
     }
 
+    /// Every neighbor row, the ones the filter hides too.
+    pub(crate) fn every_neighbor(&self) -> Vec<NeighborRow> {
+        self.source(&NetworkFilter::default()).neighbors()
+    }
+
     fn source<'a>(&'a self, filter: &'a NetworkFilter) -> Source<'a> {
         Source {
             sample: &self.sample,

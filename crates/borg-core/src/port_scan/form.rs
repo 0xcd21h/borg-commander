@@ -115,7 +115,8 @@ impl PortScanForm {
     }
 }
 
-fn cycled<T: Copy + PartialEq>(all: &[T], current: T, forward: bool) -> T {
+/// The value after `current` in `all`, or before it, going round.
+pub(crate) fn cycled<T: Copy + PartialEq>(all: &[T], current: T, forward: bool) -> T {
     let at = all.iter().position(|value| *value == current).unwrap_or_default();
     let next = if forward { (at + 1) % all.len() } else { (at + all.len() - 1) % all.len() };
     all[next]

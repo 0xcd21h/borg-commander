@@ -511,7 +511,9 @@ What the menu offers depends on the row:
 - **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row is
   reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
   **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address**,
-  **Scan ports…** (P) and **Scan subnet** (S), and a host that is offline adds **Forget host** (F8).
+  **Scan ports…** (P), **Port scans…** (O), **Scan subnet** (S) and **Save report…** (Ctrl-S), and a
+  host that is offline adds **Forget host** (F8). **Port scans…** is dimmed until the host has a
+  scan.
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -1657,8 +1659,8 @@ where it is:
   [Saved size scans](#saved-size-scans)).
 - **Sessions and history**: sessions, shell output, the remote log, search and folder history,
   collections, paired computers with their keys, what Borg learned about your drives
-  (`drives.json`), the network neighbors it remembers (`neighbors.json`) and the last port scan of
-  each host (`port-scans.json`), in the state folder.
+  (`drives.json`), the network neighbors it remembers (`neighbors.json`) and the last 10 port scans
+  of each host (`port-scans.json`), in the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 
@@ -2418,7 +2420,9 @@ place of the address once it is known.
 | K | Show the process with **Signal or priority** open |
 | R | Capture the selected row's traffic, or stop the capture that runs |
 | P | Scan the selected neighbor's ports (**5 Neighbors**) |
+| O | Show the selected neighbor's port scans (**5 Neighbors**) |
 | S | Scan the selected neighbor's subnet (**5 Neighbors**) |
+| Ctrl-S | Save a report of every neighbor (**5 Neighbors**) |
 | F8 / Delete | Forget the selected host that is offline (**5 Neighbors**) |
 | Ctrl-C | Copy the port's address, the PID, the other end, or the interface's or neighbor's address |
 | Tab | Move between the list and the details |
@@ -2539,8 +2543,9 @@ connection at once and sends nothing over it.
 When the scan ends, **Port scan finished** opens once the panels, the activity monitor or the
 network screen show with no dialog open and you have not pressed a key for 2 seconds, so it never
 takes keys meant for the console or the editor. It names the host and counts the open, closed and
-filtered ports. Enter lists the open ports with the service name IANA gives each one, and ↑ and ↓
-scroll a long list. Cancel a scan and a notice tells you how many open ports it found.
+filtered ports. Enter lists the open ports with the service name IANA gives each one, ↑ and ↓ scroll
+a long list, and Ctrl-S saves the scan as a report (see [Saving reports](#saving-reports)). Cancel a
+scan and a notice tells you how many open ports it found.
 
 Some hosts and firewalls stop answering a scan that goes too fast. To notice that, Borg keeps an eye
 on the first port that answered, an open one when there is one, and asks it again every 5 seconds.
@@ -2549,11 +2554,46 @@ When that port stays silent twice in a row, Borg stops the scan and keeps what i
 then says the host or a firewall seems to limit the scan, counts the ports it did not reach, and
 suggests Slow mode.
 
-Borg remembers the last scan of each host in `port-scans.json` in its state folder, readable by you
-alone, with the time, the mode, the open ports and the counts. Like the neighbors, hosts on the
-attached network are kept apart by the gateway's MAC address. Borg keeps the 256 newest scans. A
-neighbor's details show its last scan under **Port scan**: **Scanned** with the time, the mode and
-the number of ports, then the **Open** ports with their names.
+Borg remembers the last 10 scans of each host in `port-scans.json` in its state folder, readable by
+you alone, with the time, the mode, the open ports and the counts. Like the neighbors, hosts on the
+attached network are kept apart by the gateway's MAC address. Borg keeps the 256 newest scans in
+all. A neighbor's details show its last scan under **Port scan**: **Scanned** with the time, the
+mode and the number of ports, then the **Open** ports with their names.
+
+Press **O** on a neighbor, or choose **Port scans…** in its context menu, to open its last scan with
+the open ports. When Borg has earlier scans of the host, the dialog says which one you see, such as
+**Scan 2 of 3, newest first.**, and ← and → step to an older or a newer one. Ctrl-S saves the scan
+you see.
+
+### Saving reports
+
+Ctrl-S saves what Borg found to a file for later. Press it in a scan's open ports to save that scan,
+or on the **5 Neighbors** page, or choose **Save report…** in a neighbor's context menu, to save
+every host the page knows, the ones the filter hides too.
+
+**Save report** asks for **Path** and **Format**. The path starts in the folder of a panel on this
+machine, the one the network screen covers when it can, or else in your home folder, with a name
+such as `port-scan-192.0.2.60-2026-11-14.md` or `neighbors-2026-11-14.md`. A relative path starts in
+that folder, and one that starts with `~/` starts in your home folder. Tab moves between the fields,
+and ← and → change the format:
+
+- **Markdown**: text with tables, easy to read and to paste into notes.
+- **JSON**: everything the report holds, for scripts and other tools.
+- **CSV**: one row per open port for a scan, or one row per host for the page.
+
+Changing the format changes the extension at the end of the path, unless you typed another one.
+Enter writes the file, readable by you alone, and a notice names it. When a file of that name is
+there already, Borg asks before it replaces it. The question starts on **No**, which takes you back
+to the dialog. Esc goes back to where you were.
+
+A scan's report has the time, the mode, the ports asked for and how many there were, the open ports
+with their service names, the number of closed and filtered ports, and the subnet, interface and
+gateway the scan ran from. When the host limited the scan or you cancelled it, the report says so
+and lists the ports it did not reach. The page's report has the subnets, the gateways and the DNS
+servers, then each host with its MAC address, vendor, name, state, the ports and ping time a subnet
+scan found and its notes, an offline host with when it was last seen, and the last port scan of each
+host. Times are in UTC, and so is the date in the file name. What Borg did not learn stays out of
+the report.
 
 ### Filtering
 

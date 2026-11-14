@@ -47,6 +47,7 @@ mod query;
 mod relaunch;
 mod remote;
 mod replace;
+mod report;
 mod results;
 mod screens;
 mod service;
@@ -218,10 +219,14 @@ pub use network::{
     ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
 };
 pub use port_scan::{
-    Canary, Ending, FIRST_PORT, FormField, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer, PortChoice,
-    PortProgress, PortRange, PortScanEvent, PortScanForm, PortScanMemory, PortScanRecord, PortScanRequest,
-    PortScanResult, PortScanView, PortScans, PortsKind, SILENT_RUN, SavedPortScans, ScanPace, ScanSpeed, Tally, Watch,
-    common_ports, describe as describe_ports, is_private, parse_ports, port_name, scan_of,
+    Canary, Ending, FIRST_PORT, FormField, HOST_HISTORY, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer,
+    PortChoice, PortProgress, PortRange, PortScanEvent, PortScanForm, PortScanMemory, PortScanRecord, PortScanRequest,
+    PortScanResult, PortScanView, PortScans, PortsKind, SILENT_RUN, SavedPortScans, ScanNetwork, ScanPace, ScanSpeed,
+    Tally, Watch, common_ports, describe as describe_ports, is_private, parse_ports, port_name, scan_of,
+};
+pub use report::{
+    HostFlag, NeighborsReport, ReportError, ReportField, ReportForm, ReportFormat, ReportHost, ReportPresence,
+    ReportSource,
 };
 
 pub use capture::{

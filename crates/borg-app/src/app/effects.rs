@@ -55,6 +55,7 @@ impl App {
             Effect::ResolveScanTarget(name) => self.resolve_scan_target(name),
             Effect::ScanPorts { id, request } => self.scan_ports(id, *request),
             Effect::SavePortScans => self.save_port_scans(),
+            Effect::SaveReport { path, text, replace } => self.save_report(path, text, replace),
             Effect::Capture { id, request } => self.network.capture(id, request),
             Effect::StopCapture { id } => self.network.stop_capture(id),
             Effect::OpenCapture(path) => self.network.open_capture(path),
@@ -186,6 +187,15 @@ impl App {
         {
             self.state.notice = Some(tr!(port_scan_memory_save_error, error = error));
         }
+    }
+
+    /// Writes a report off the main loop, and says where it went.
+    fn save_report(&self, path: PathBuf, text: String, replace: bool) {
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = crate::report::save(&path, &text, replace, crate::report::home().as_deref());
+            drop(messages.send(Msg::ReportSaved { path, result }));
+        });
     }
 
     /// Looks up the address of a host the port scan form names.
