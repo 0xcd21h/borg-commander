@@ -102,6 +102,18 @@ other dialog is open; answers, pause and cancel travel back as `Effect::JobContr
 `Control`. The engine is synchronous and fully tested on temporary folders
 (`crates/borg-jobs/tests/engine.rs`).
 
+Every long piece of work is a `borg_core::Job` in `state.jobs`: a `JobKind`, a `Phase` (preparing,
+running, asking, ended), a `Gauge`, `Detail` rows, and a `Reveal` that says what opening the
+finished job shows. A new kind only fills its gauge and details; the jobs sheet
+(`borg_ui::jobs_sheet`), the toasts (`borg_ui::toast_view`), the panel footers and the shortcut bar
+draw every kind the same way. File jobs (`jobs/files.rs`) follow `Msg::Job` events. Watched jobs
+(`jobs/watched.rs`) stand for work other state runs, such as a search filling a results panel,
+background sizes, the entropy scan and the first index build: `jobs::sync`, called from
+`update::follow` after every update, starts, advances and ends them. `jobs/toasts.rs` queues a toast
+per start, end or question with its own timing and closes them for Alt-X and `Pointer::CloseToast`,
+which the app asks `borg_ui::toast_mouse` for before any other mouse handling. A closed question
+sets `Job::put_off`, so it waits for Alt-J. `jobs/sheet.rs` handles the sheet's keys.
+
 Before the shell receives input, `sync_cwd` moves it to the active panel's folder. Shells
 whose integration announces `OSC 6633;silent-cd` at each prompt (zsh) get
 `Effect::ChangeShellDir`: the app writes the folder to a private per-process request file

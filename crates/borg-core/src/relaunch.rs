@@ -15,7 +15,7 @@ pub(crate) enum Hold {
 
 pub(crate) fn hold(state: &AppState) -> Option<Hold> {
     let unsaved = state.editor.iter().chain(state.docked.iter().flatten()).any(|editor| editor.buffer.modified());
-    if !state.jobs.is_empty() {
+    if state.jobs.iter().any(crate::Job::running) {
         Some(Hold::Jobs)
     } else if unsaved {
         Some(Hold::Unsaved)

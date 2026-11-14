@@ -41,7 +41,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
     }
     let side = state.active;
     match action {
-        Action::MeasureSizes => crate::measure::toggle(state),
+        Action::MeasureSizes => crate::measure::toggle(state, now),
         Action::Activity => crate::activity::open(state),
         Action::Network => crate::network::toggle(state),
         Action::StartupItems => crate::startup_items::toggle(state),
@@ -64,7 +64,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ToggleAgentCloud => settings::flip(state, |prefs| &mut prefs.agent_cloud),
         Action::ToggleAgentAskReads => settings::flip(state, |prefs| &mut prefs.agent_ask_reads),
         Action::ToggleAgentLog => settings::toggle_agent_log(state),
-        Action::ToggleIndex => settings::toggle_index(state),
+        Action::ToggleIndex => settings::toggle_index(state, now),
         Action::Search
         | Action::FolderTree
         | Action::CalculateSizes
@@ -84,7 +84,13 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::DeleteOriginals => files::confirm_delete(state),
         Action::ReplaceInFiles => crate::replace::ask(state),
         Action::Quit => dialogs::confirm_quit(state),
-        Action::Jobs => crate::jobs::open_list(state),
+        Action::Jobs => crate::jobs::open_list(state, now),
+        Action::JobResult => crate::jobs::open_newest_result(state),
+        Action::CloseToasts => {
+            crate::jobs::close_toasts(state, now);
+            Vec::new()
+        }
+        Action::ToggleJobNotifications => settings::flip(state, |prefs| &mut prefs.job_notifications),
         Action::ToggleShell => shell::toggle_shell(state),
         Action::MirrorRemote => crate::remote::mirror_mounted(state),
         Action::BrowseRemotes => crate::remote::browse(state),

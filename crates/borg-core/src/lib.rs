@@ -110,7 +110,10 @@ pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
-pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
+pub use jobs::{
+    Detail, Gauge, How, Job, JobCommand, JobEnding, JobKind, JobList, MOST_TOASTS, Phase, Question, Reveal, Toast,
+    ToastEvent, Unit, Value, running as running_jobs, shown as shown_jobs, toast_keys_work, visible_toasts,
+};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};
 pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items};
@@ -220,7 +223,7 @@ pub use network::{
 };
 pub use port_scan::{
     Canary, Ending, FIRST_PORT, FormField, HOST_HISTORY, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer,
-    PortChoice, PortProgress, PortRange, PortScanEvent, PortScanForm, PortScanMemory, PortScanRecord, PortScanRequest,
+    PortChoice, PortRange, PortScanEvent, PortScanForm, PortScanMemory, PortScanRecord, PortScanRequest,
     PortScanResult, PortScanView, PortScans, PortsKind, SILENT_RUN, SavedPortScans, ScanNetwork, ScanPace, ScanSpeed,
     Tally, Watch, common_ports, describe as describe_ports, is_private, parse_ports, port_name, scan_of,
 };

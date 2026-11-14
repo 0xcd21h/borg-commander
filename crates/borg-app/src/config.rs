@@ -58,6 +58,8 @@ pub struct Config {
     pub restore_terminal: Option<bool>,
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
+    /// Toasts that say when a job starts, ends or waits for an answer.
+    pub job_notifications: Option<bool>,
     pub icon_spacing: Option<u8>,
     pub icon_style: Option<IconStyle>,
     pub unlocked: Option<Vec<String>>,
@@ -345,6 +347,7 @@ impl Config {
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
+            job_notifications: self.job_notifications.unwrap_or(base.job_notifications),
             nerd_font: self.icon_style.unwrap_or_default().nerd_font(program, term),
             icon_spacing: self
                 .icon_spacing
@@ -478,6 +481,7 @@ impl Config {
             restore_terminal: Some(prefs.restore_terminal),
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
+            job_notifications: Some(prefs.job_notifications),
             icon_spacing: self.icon_spacing,
             icon_style: Some(self.icon_style.unwrap_or_default()),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),

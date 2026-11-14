@@ -374,13 +374,14 @@ junto a los análisis de tamaño, e `[index]` en la configuración enumera las c
 
 Para medir tamaños sin dejar de usar los paneles de archivos normales, pulsa **Alt-I** o elige
 **Buscar → Contar tamaños en segundo plano**. Borg analiza todas las carpetas que hay bajo la
-actual, incluidos los archivos ocultos, y completa el total de cada carpeta cuando termina con
-ella. Mientras tanto, puedes seguir navegando o usar la consola. Las carpetas que aún se están
-midiendo muestran un total creciente marcado con `≥`, y los totales se conservan si sales de una
-carpeta y vuelves. El pie del panel muestra el progreso; pulsa **Alt-I** de nuevo, o haz clic en
-el pie, para detener el análisis y conservar los totales medidos hasta ese momento. Al iniciar una
-tarea de copia, movimiento o eliminación se detiene el análisis de tamaños en curso. Los análisis
-terminados comparten su caché con el árbol de tamaños y con Totales de carpeta.
+actual, incluidos los archivos ocultos, y completa el total de cada carpeta cuando termina con ella.
+Mientras tanto, puedes seguir navegando o usar la consola. Las carpetas que aún se están midiendo
+muestran un total creciente marcado con `≥`, y los totales se conservan si sales de una carpeta y
+vuelves. El pie del panel muestra el progreso, y el recuento se ejecuta como una tarea en Alt-J.
+Pulsa **Alt-I** de nuevo, o haz clic en el pie, para detener el análisis y conservar los totales
+medidos hasta ese momento. Al iniciar una tarea de copia, movimiento o eliminación se detiene el
+análisis de tamaños en curso. Los análisis terminados comparten su caché con el árbol de tamaños y
+con Totales de carpeta.
 
 ### Análisis de tamaño guardados
 
@@ -442,7 +443,9 @@ momento.
 | Alt-Shift-Left/Right | Cambiar el tamaño de los paneles |
 | Ctrl-U | Intercambiar los paneles |
 | Alt-O | Abrir la carpeta de este panel en el otro panel; en resultados de búsqueda o en una colección, la carpeta del archivo bajo el cursor |
-| Alt-J | Tareas: pausar o cancelar copias, movimientos y eliminaciones en curso |
+| Alt-J | Tareas: las copias, movimientos, búsquedas y análisis en curso o terminados, para plegar, pausar, cancelar o abrir |
+| Alt-G | Abrir lo que produjo la última tarea terminada: su carpeta, sus resultados, sus hallazgos o sus puertos abiertos |
+| Alt-X | Cerrar las notas de tareas en pantalla, y las tareas siguen en Alt-J |
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
 | Alt-N | Red: puertos, conexiones y tráfico |
@@ -1377,8 +1380,8 @@ mayúsculas.
 
 ### Copiar, mover y eliminar
 
-F5, F6 y F8 inician tareas de copia, movimiento y eliminación. Alt-J abre la lista de tareas,
-donde puedes pausarlas o cancelarlas.
+F5, F6 y F8 inician tareas de copia, movimiento y eliminación. Se ejecutan en segundo plano, y Alt-J
+las muestra junto con las demás [tareas](#jobs-and-notifications).
 
 El diálogo Eliminar empieza en **No**, así que Enter por sí solo conserva los archivos. Para
 eliminarlos, pulsa Y, o pasa a **Sí** con Tab o una tecla de flecha y pulsa Enter.
@@ -1403,6 +1406,70 @@ sistema operativo, y puede ser más lento al copiar entre discos distintos.
 Cuando ya existe un archivo con el mismo nombre: `o` sobrescribe, `s` omite, `k` conserva ambos,
 `a` sobrescribe todos, `n` omite todos y Esc cancela. Las copias se escriben en archivos temporales
 y se renombran cuando están completas.
+
+### Tareas y notificaciones
+
+El trabajo que lleva tiempo se ejecuta como una tarea: copias, movimientos y eliminaciones, la
+descompresión y la compresión de archivos comprimidos, **Reemplazar en archivos…**, cada búsqueda
+que llena un panel de resultados (Ctrl-F, Alt-D, Alt-Shift-D y Alt-S), los tamaños de carpeta
+contados con Alt-I, el análisis de entropía en Alt-M, la primera creación del índice de búsqueda de
+una carpeta y los escaneos de puertos. Alt-J abre el panel de tareas sobre el panel derecho. Muestra
+primero las tareas en curso, la más antigua arriba, y luego las terminadas, la más reciente primero.
+En un terminal de menos de 100 columnas ocupa los dos paneles.
+
+Cada tarea ocupa una línea: qué es, sobre qué trabaja, una barra y cuánto ha avanzado. Una tarea que
+conoce su tamaño muestra un porcentaje, y una copia o un movimiento también el tiempo restante. Una
+búsqueda o un recuento de tamaños muestra lo que lleva contado. Space o Enter despliega la tarea
+seleccionada con sus detalles: el archivo en el que trabaja, los archivos y bytes hechos y la
+velocidad, o lo que busca una búsqueda y lo que encontró. Una tarea que falla o te pregunta algo se
+despliega sola.
+
+| Tecla | Acción |
+| --- | --- |
+| Up, Down, PgUp, PgDn, Home, End | Moverse entre tareas |
+| Space, Enter | Plegar o desplegar la tarea |
+| Right / Left | Desplegar / plegar |
+| `*` | Desplegar todas las tareas, o plegarlas todas cuando ya están todas desplegadas |
+| P | Pausar o reanudar una tarea que trabaja con archivos |
+| C | Cancelar una tarea en curso |
+| A | Responder a la pregunta de una tarea |
+| O | Abrir lo que produjo una tarea terminada |
+| X | Quitar una tarea terminada |
+| Delete | Cancelar una tarea en curso, o quitar una terminada |
+| Shift-X | Quitar todas las tareas terminadas |
+| Esc, Alt-J | Cerrar el panel |
+
+La tarea seleccionada muestra sus teclas como botones, que también admiten clics. Una tarea
+terminada se queda en el panel, con cómo terminó y cuánto tardó, hasta que la quitas, y Borg
+conserva las 20 más recientes. **O Abrir** muestra lo que produjo la tarea: la carpeta en la que
+escribió una copia, un movimiento o una descompresión, con el cursor en lo que llegó allí, los
+resultados de una búsqueda o de un reemplazo, devueltos a su panel si este pasó a otra cosa, la
+carpeta cuyos tamaños se contaron, los hallazgos del análisis de entropía en Alt-M, o los puertos
+abiertos que encontró un escaneo de puertos. En los paneles, Alt-G abre lo que produjo la última
+tarea terminada.
+
+Pequeñas notas en la esquina inferior derecha de los paneles indican cuándo una tarea empieza,
+termina o te espera. El inicio aparece cuando la tarea lleva un segundo en marcha, así que de una
+tarea rápida solo ves cómo terminó. Una nota dura 3 segundos para un inicio, 6 para una tarea
+terminada, 4 para una que cancelaste y 10 para una que falló, y se ven hasta tres a la vez. Las
+notas nunca se quedan con tus teclas. Las teclas del borde de una nota funcionan en los paneles:
+Alt-J abre el panel de tareas, o la pregunta con la que espera una tarea, Alt-G abre lo que produjo
+una tarea terminada, y Alt-X cierra todas las notas en pantalla. Sobre la consola a pantalla
+completa, el editor y el visor, las notas no indican ninguna tecla, porque allí esas teclas son
+suyas. Haz clic en **[×]**, en el extremo derecho de una nota, para cerrar solo esa nota,
+dondequiera que aparezca. Cerrar una nota deja su tarea en Alt-J. En un terminal de menos de 60
+columnas cada nota ocupa una línea, con **[×]** al final, y por debajo de 40 columnas o 14 filas no
+hay notas.
+
+La pregunta de una tarea se abre enseguida como diálogo, salvo que hayas escrito en la consola, en
+la línea de comandos o en un editor durante los últimos 2 segundos. En ese caso la pregunta espera
+detrás de su nota hasta que pasen 2 segundos sin que pulses ninguna tecla, para que una tecla
+pensada para tu texto nunca la responda. Alt-J la abre de inmediato. Si cierras su nota, la pregunta
+espera hasta que pulses Alt-J, o A en el panel de tareas.
+
+Desactiva las notas en **F9 → Opciones → Configuración → Notificaciones de tareas**, o con
+`job-notifications = false` en la configuración. Entonces, una tarea terminada que cambió archivos,
+contó tamaños o creó un índice dice cómo terminó en un aviso.
 
 ### Tareas largas y discos
 
@@ -1698,6 +1765,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -2741,10 +2809,11 @@ advertencia, y la pregunta empieza en **No**. Los rangos privados son 10.0.0.0/8
 locales únicas. Escanea solo hosts que sean tuyos o que tengas permiso para probar.
 
 El escaneo se ejecuta como una tarea, así que puedes cerrar la pantalla de red y seguir trabajando.
-Alt-J muestra cuánto ha avanzado y cuántos puertos abiertos ha encontrado, p lo pausa y c lo
-cancela, y salir de Borg pide confirmación antes. Cada puerto recibe una conexión TCP. Un puerto que
-la acepta está **abierto**, uno que la rechaza está **cerrado**, y uno que guarda silencio hasta que
-se acaba el tiempo está **filtrado**. Borg cierra cada conexión enseguida y no envía nada por ella.
+Alt-J muestra cuánto ha avanzado, y al desplegar la tarea se ven el host, el modo y cuántos puertos
+abiertos ha encontrado. P lo pausa, C lo cancela, y salir de Borg pide confirmación antes. Cada
+puerto recibe una conexión TCP. Un puerto que la acepta está **abierto**, uno que la rechaza está
+**cerrado**, y uno que guarda silencio hasta que se acaba el tiempo está **filtrado**. Borg cierra
+cada conexión enseguida y no envía nada por ella.
 
 Cuando el escaneo termina, **Escaneo de puertos terminado** se abre en cuanto se ven los paneles, el
 monitor de actividad o la pantalla de red sin ningún diálogo abierto y llevas 2 segundos sin pulsar
@@ -2752,7 +2821,8 @@ ninguna tecla, así que nunca se queda con teclas destinadas a la consola o al e
 y cuenta los puertos abiertos, cerrados y filtrados. Enter lista los puertos abiertos con el nombre
 de servicio que la IANA da a cada uno, ↑ y ↓ desplazan una lista larga, y Ctrl-S guarda el escaneo
 como informe (consulta [Guardar informes](#saving-reports)). Si cancelas un escaneo, un aviso te
-dice cuántos puertos abiertos encontró.
+dice cuántos puertos abiertos encontró. El escaneo terminado se queda en Alt-J, donde **O Abrir**
+vuelve a listar sus puertos abiertos, igual que Alt-G en los paneles.
 
 Algunos hosts y cortafuegos dejan de responder a un escaneo demasiado rápido. Para notarlo, Borg
 vigila el primer puerto que respondió, uno abierto si lo hay, y le vuelve a preguntar cada 5

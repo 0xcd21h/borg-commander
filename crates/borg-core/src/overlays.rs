@@ -31,7 +31,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
-        Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
+        Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key, now),
         Some(Overlay::Settings { selected } | Overlay::Plugins { selected }) => on_settings(state, selected, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Languages(picker)) => on_languages(state, picker, key),
@@ -299,7 +299,8 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         }
         PromptPurpose::RemoteCopy { sources, from, to } => {
             let target = state.panel(state.active.other()).dir().join(text);
-            let (id, mut effects) = jobs::begin(state, JobKind::Copy, now);
+            let subject = jobs::subject(&sources, Some(&target));
+            let (id, mut effects) = jobs::begin(state, JobKind::Copy, subject, now);
             effects.push(Effect::StartRemoteCopy { id, from, to, sources, target });
             effects
         }
@@ -402,7 +403,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::ScanPorts(request)) => crate::port_scan::start(state, *request, now),
         (answer, ConfirmPurpose::ReplaceReport(form)) => crate::report::replace(state, *form, answer == Some(true)),
         (Some(true), ConfirmPurpose::Quit | ConfirmPurpose::ShellExit { .. }) => {
-            let mut effects = jobs::cancel_all(state);
+            let mut effects = jobs::cancel_all(state, now);
             effects.push(Effect::Quit);
             effects
         }

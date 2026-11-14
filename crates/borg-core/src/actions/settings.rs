@@ -67,7 +67,7 @@ pub(super) fn toggle_after_command(state: &mut AppState) -> Vec<Effect> {
 }
 
 /// Adds the active folder to the folders indexed for instant search, or removes it.
-pub(super) fn toggle_index(state: &mut AppState) -> Vec<Effect> {
+pub(super) fn toggle_index(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let panel = state.active_panel();
     if panel.is_results() || panel.foreign() {
         return Vec::new();
@@ -78,11 +78,17 @@ pub(super) fn toggle_index(state: &mut AppState) -> Vec<Effect> {
     if let Some(at) = roots.iter().position(|root| *root == dir) {
         roots.remove(at);
         state.indexing = None;
-        state.notice = Some(tr!(index_removed, folder = folder));
+        let removed = tr!(index_removed, folder = folder);
+        if !crate::jobs::end_index(state, &dir, crate::How::Cancelled, removed.clone(), now) {
+            state.notice = Some(removed);
+        }
     } else {
         roots.push(dir.clone());
-        state.indexing = Some(dir);
-        state.notice = Some(tr!(index_started, folder = folder));
+        state.indexing = Some(dir.clone());
+        crate::jobs::begin_index(state, dir, now);
+        if !state.settings.preferences.job_notifications {
+            state.notice = Some(tr!(index_started, folder = folder));
+        }
     }
     vec![Effect::SetIndexRoots(state.settings.index_roots.clone())]
 }

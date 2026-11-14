@@ -81,7 +81,9 @@ pub(crate) fn confirm(state: &mut AppState, request: ReplaceRequest) -> Vec<Effe
 
 /// Yes to that question: the job changes exactly the files and the text it named.
 pub(crate) fn start(state: &mut AppState, request: ReplaceRequest, now: Instant) -> Vec<Effect> {
-    let (id, mut effects) = crate::jobs::begin(state, JobKind::Replace, now);
+    let subject = crate::jobs::subject(&request.files, None);
+    let (id, mut effects) = crate::jobs::begin(state, JobKind::Replace, subject, now);
+    crate::jobs::reveal_results(state, id, state.active);
     effects.push(Effect::StartReplace { id, request });
     effects
 }

@@ -214,16 +214,6 @@ impl PortScanRecord {
     }
 }
 
-/// The running scan's state, for the job list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortProgress {
-    pub target: String,
-    pub speed: ScanSpeed,
-    pub done: usize,
-    pub total: usize,
-    pub open: usize,
-}
-
 /// Port scans: what Borg remembers, and finished ones whose dialog waits for its moment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PortScans {
@@ -254,11 +244,14 @@ pub struct PortScanView {
 }
 
 impl PortScanView {
-    /// The dialog over `record`, with the host's earlier scans Borg remembers behind it.
+    /// The dialog over `record`, in its place among the host's scans Borg remembers, or in front
+    /// of them when Borg no longer keeps it.
     pub fn of(record: PortScanRecord, memory: &PortScanMemory) -> Self {
-        let earlier: Vec<PortScanRecord> =
-            memory.history(record.address, record.gateway).filter(|scan| **scan != record).cloned().collect();
-        Self { scans: std::iter::once(record).chain(earlier).collect(), shown: 0, top: 0 }
+        let scans: Vec<PortScanRecord> = memory.history(record.address, record.gateway).cloned().collect();
+        match scans.iter().position(|scan| *scan == record) {
+            Some(shown) => Self { scans, shown, top: 0 },
+            None => Self { scans: std::iter::once(record).chain(scans).collect(), shown: 0, top: 0 },
+        }
     }
 
     pub fn record(&self) -> &PortScanRecord {
@@ -415,26 +408,26 @@ fn confirm(state: &mut AppState, form: &PortScanForm, target: String, address: I
 
 /// The confirmation said yes: the scan starts as a job.
 pub(crate) fn start(state: &mut AppState, request: PortScanRequest, now: Instant) -> Vec<Effect> {
-    let progress =
-        PortProgress { target: request.label(), speed: request.speed, done: 0, total: request.ports.len(), open: 0 };
-    let id = crate::jobs::begin_port_scan(state, progress, now);
+    let id = crate::jobs::begin_port_scan(state, &request, now);
     state.notice = Some(tr!(port_scan_started, target = request.label()));
     state.port_scans.running.push((id, request.clone()));
     vec![Effect::ScanPorts { id, request: Box::new(request) }]
 }
 
-pub(crate) fn on_event(state: &mut AppState, id: u64, event: PortScanEvent) -> Vec<Effect> {
+pub(crate) fn on_event(state: &mut AppState, id: u64, event: PortScanEvent, now: Instant) -> Vec<Effect> {
     match event {
         PortScanEvent::Progress { done, open } => {
-            crate::jobs::port_scan_progress(state, id, done, open.len());
+            let running = state.port_scans.running.iter().find(|(running, _)| *running == id);
+            if let Some(scanning) = running.map(|(_, request)| crate::jobs::Scanning::of(request)) {
+                crate::jobs::port_scan_progress(state, id, &scanning, done, open.len());
+            }
             Vec::new()
         }
-        PortScanEvent::Finished { result, at } => finished(state, id, result, at),
+        PortScanEvent::Finished { result, at } => finished(state, id, result, at, now),
     }
 }
 
-fn finished(state: &mut AppState, id: u64, result: PortScanResult, at: u64) -> Vec<Effect> {
-    crate::jobs::end_port_scan(state, id);
+fn finished(state: &mut AppState, id: u64, result: PortScanResult, at: u64, now: Instant) -> Vec<Effect> {
     let scans = &mut state.port_scans;
     let Some(index) = scans.running.iter().position(|(running, _)| *running == id) else { return Vec::new() };
     let (_, request) = scans.running.remove(index);
@@ -453,6 +446,8 @@ fn finished(state: &mut AppState, id: u64, result: PortScanResult, at: u64) -> V
         ending: result.ending,
         network: request.network,
     };
+    crate::jobs::end_port_scan(state, id, &record, now);
+    let scans = &mut state.port_scans;
     match &record.ending {
         Ending::Done | Ending::RateLimited { .. } => scans.finished.push(record.clone()),
         Ending::Cancelled => {

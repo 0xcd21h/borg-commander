@@ -378,13 +378,13 @@ e `[index]` na configuração enumera as pastas indexadas.
 
 Para medir tamanhos sem fechar os painéis de ficheiros normais, prima **Alt-I** ou escolha
 **Pesquisar → Contar tamanhos em segundo plano**. O Borg analisa todas as pastas abaixo da atual,
-incluindo ficheiros ocultos, e preenche o total de cada pasta à medida que termina. Pode continuar
-a navegar ou usar a consola enquanto a análise decorre. As pastas que ainda estão a ser medidas
-mostram um total crescente assinalado com `≥`, e os totais mantêm-se quando sai de uma pasta e
-volta a ela. O rodapé do painel mostra o progresso; prima **Alt-I** de novo, ou clique no rodapé,
-para parar a análise e manter os totais medidos até esse momento. Iniciar uma tarefa de cópia,
-movimentação ou eliminação para uma análise de tamanhos em curso. As análises concluídas partilham
-a cache com a árvore de tamanhos e com Totais de pastas.
+incluindo ficheiros ocultos, e preenche o total de cada pasta à medida que termina. Pode continuar a
+navegar ou usar a consola enquanto a análise decorre. As pastas que ainda estão a ser medidas
+mostram um total crescente assinalado com `≥`, e os totais mantêm-se quando sai de uma pasta e volta
+a ela. O rodapé do painel mostra o progresso, e a contagem corre como uma tarefa em Alt-J. Prima
+**Alt-I** de novo, ou clique no rodapé, para parar a análise e manter os totais medidos até esse
+momento. Iniciar uma tarefa de cópia, movimentação ou eliminação para uma análise de tamanhos em
+curso. As análises concluídas partilham a cache com a árvore de tamanhos e com Totais de pastas.
 
 ### Análises de tamanho guardadas
 
@@ -446,7 +446,9 @@ instantes.
 | Alt-Shift-Left/Right | Redimensionar os painéis |
 | Ctrl-U | Trocar os painéis |
 | Alt-O | Abrir a pasta deste painel no outro painel; nos resultados de pesquisa ou numa coleção, a pasta do ficheiro sob o cursor |
-| Alt-J | Tarefas: pausar ou cancelar cópias, movimentações e eliminações em curso |
+| Alt-J | Tarefas: as cópias, movimentações, pesquisas e análises em curso ou terminadas, para recolher, pausar, cancelar ou abrir |
+| Alt-G | Abrir o que a tarefa terminada mais recente produziu: a sua pasta, os seus resultados, as deteções da análise ou as portas abertas |
+| Alt-X | Fechar as notas de tarefas no ecrã, deixando as tarefas em Alt-J |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
 | Alt-N | Rede: portas, ligações e tráfego |
@@ -1372,8 +1374,8 @@ contenha maiúsculas.
 
 ### Copiar, mover e eliminar
 
-F5, F6 e F8 iniciam tarefas de cópia, movimentação e eliminação. Alt-J abre a lista de tarefas,
-onde as pode pausar ou cancelar.
+F5, F6 e F8 iniciam tarefas de cópia, movimentação e eliminação. Correm em segundo plano, e Alt-J
+mostra-as com as outras [tarefas](#jobs-and-notifications).
 
 A caixa de diálogo Eliminar abre com **Não** selecionado, por isso Enter sozinho mantém os
 ficheiros. Para os eliminar, prima Y, ou passe para **Sim** com Tab ou uma tecla de seta e prima
@@ -1400,6 +1402,69 @@ Quando já existe um ficheiro com o mesmo nome: `o` substitui, `s` ignora, `k` m
 substitui todos,
 `n` ignora todos e Esc cancela. As cópias são escritas em ficheiros temporários e mudam de nome
 quando estão completas.
+
+### Tarefas e notificações
+
+O trabalho que demora corre como uma tarefa: cópias, movimentações e eliminações, descompactar e
+compactar arquivos, **Substituir nos ficheiros…**, cada pesquisa que preenche um painel de
+resultados (Ctrl-F, Alt-D, Alt-Shift-D e Alt-S), os tamanhos de pastas contados com Alt-I, a análise
+de entropia em Alt-M, a primeira construção do índice de pesquisa de uma pasta e as análises de
+portas. Alt-J abre o painel de tarefas por cima do painel direito. Lista primeiro as tarefas em
+curso, a mais antiga no topo, e depois as terminadas, a mais recente primeiro. Num terminal com
+menos de 100 colunas, ocupa os dois painéis.
+
+Cada tarefa ocupa uma linha: o que é, em que trabalha, uma barra e até onde chegou. Uma tarefa que
+conhece o seu tamanho mostra uma percentagem, e uma cópia ou movimentação mostra também o tempo
+restante. Uma pesquisa ou uma contagem de tamanhos mostra o que contou até ao momento. Space ou
+Enter expande a tarefa selecionada para mostrar os detalhes: o ficheiro em que trabalha, os
+ficheiros e bytes já feitos e a velocidade, ou o que uma pesquisa procura e o que encontrou. Uma
+tarefa que falha ou lhe faz uma pergunta expande-se sozinha.
+
+| Tecla | Ação |
+| --- | --- |
+| Up, Down, PgUp, PgDn, Home, End | Mover entre tarefas |
+| Space, Enter | Recolher ou expandir a tarefa |
+| Right / Left | Expandir / recolher |
+| `*` | Expandir todas as tarefas, ou recolhê-las todas quando já estão todas expandidas |
+| P | Pausar ou retomar uma tarefa que trabalha com ficheiros |
+| C | Cancelar uma tarefa em curso |
+| A | Responder à pergunta de uma tarefa |
+| O | Abrir o que uma tarefa terminada produziu |
+| X | Remover uma tarefa terminada |
+| Delete | Cancelar uma tarefa em curso, ou remover uma terminada |
+| Shift-X | Remover todas as tarefas terminadas |
+| Esc, Alt-J | Fechar o painel |
+
+A tarefa selecionada mostra as suas teclas como botões, que também aceitam cliques. Uma tarefa
+terminada fica no painel, com a forma como terminou e quanto tempo demorou, até a remover, e o Borg
+guarda as 20 mais recentes. **O Abrir** mostra o que a tarefa produziu: a pasta onde uma cópia,
+movimentação ou descompactação escreveu, com o cursor no que lá chegou, os resultados de uma
+pesquisa ou de uma substituição, trazidos de volta ao seu painel se este passou a mostrar outra
+coisa, a pasta cujos tamanhos foram contados, as deteções da análise de entropia em Alt-M, ou as
+portas abertas que uma análise de portas encontrou. Nos painéis, Alt-G abre o que a tarefa terminada
+mais recente produziu.
+
+Pequenas notas no canto inferior direito dos painéis indicam quando uma tarefa começa, termina ou
+fica à sua espera. O início só aparece quando a tarefa já corre há um segundo, por isso uma tarefa
+rápida só diz como terminou. Uma nota fica 3 segundos para um início, 6 para uma tarefa concluída, 4
+para uma que cancelou e 10 para uma que falhou, e aparecem até três de cada vez. As notas nunca
+ficam com as suas teclas. As teclas no rebordo de uma nota funcionam nos painéis: Alt-J abre o
+painel de tarefas, ou a pergunta com que uma tarefa espera, Alt-G abre o que uma tarefa terminada
+produziu, e Alt-X fecha todas as notas no ecrã. Por cima da consola em ecrã inteiro, do editor e do
+visualizador, as notas não indicam tecla, porque aí essas teclas lhes pertencem. Clique em **[×]**
+na ponta direita de uma nota para fechar só essa nota, onde quer que apareça. Fechar uma nota deixa
+a sua tarefa em Alt-J. Num terminal com menos de 60 colunas, cada nota ocupa uma linha, com **[×]**
+no fim, e abaixo de 40 colunas ou 14 linhas não há notas.
+
+A pergunta de uma tarefa abre logo como caixa de diálogo, a não ser que tenha escrito na consola, na
+linha de comandos ou num editor nos últimos 2 segundos. Nesse caso a pergunta espera atrás da sua
+nota até não premir nenhuma tecla durante 2 segundos, para que uma tecla destinada ao seu texto
+nunca lhe responda. Alt-J abre-a de imediato. Se fechar a sua nota, a pergunta espera até premir
+Alt-J, ou A no painel de tarefas.
+
+Desligue as notas em **F9 → Opções → Definições → Notificações de tarefas**, ou com
+`job-notifications = false` na configuração. Uma tarefa terminada que alterou ficheiros, contou
+tamanhos ou construiu um índice diz então como terminou numa notificação.
 
 ### Tarefas longas e discos
 
@@ -1694,6 +1759,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -2724,10 +2790,11 @@ pergunta abre com **Não** selecionado. Os intervalos privados são 10.0.0.0/8, 
 locais únicos. Analise apenas hosts que são seus ou que tem autorização para testar.
 
 A análise corre como uma tarefa, por isso pode fechar o ecrã de rede e continuar a trabalhar. Alt-J
-mostra quanto já avançou e quantas portas abertas encontrou, p põe-na em pausa e c cancela-a, e sair
-do Borg pede confirmação primeiro. Cada porta recebe uma ligação TCP. Uma porta que a aceita está
-**aberta**, uma que a recusa está **fechada**, e uma que fica calada até o tempo acabar está
-**filtrada**. O Borg fecha cada ligação logo a seguir e não envia nada por ela.
+mostra quanto já avançou, e expandir a tarefa mostra o host, o modo e quantas portas abertas
+encontrou. P põe-na em pausa, C cancela-a, e sair do Borg pede confirmação primeiro. Cada porta
+recebe uma ligação TCP. Uma porta que a aceita está **aberta**, uma que a recusa está **fechada**, e
+uma que fica calada até o tempo acabar está **filtrada**. O Borg fecha cada ligação logo a seguir e
+não envia nada por ela.
 
 Quando a análise termina, **Análise de portas concluída** abre assim que os painéis, o monitor de
 atividade ou o ecrã de rede estiverem à vista sem nenhum diálogo aberto e não tiver premido nenhuma
@@ -2735,7 +2802,8 @@ tecla durante 2 segundos, por isso nunca apanha teclas destinadas à consola ou 
 host e conta as portas abertas, fechadas e filtradas. Enter lista as portas abertas com o nome de
 serviço que a IANA dá a cada uma, ↑ e ↓ percorrem uma lista longa, e Ctrl-S guarda a análise como
 relatório (consulte [Guardar relatórios](#saving-reports)). Se cancelar uma análise, um aviso indica
-quantas portas abertas encontrou.
+quantas portas abertas encontrou. A análise terminada fica em Alt-J, onde **O Abrir** volta a listar
+as portas abertas, tal como Alt-G nos painéis.
 
 Alguns hosts e firewalls deixam de responder a uma análise demasiado rápida. Para dar por isso, o
 Borg vigia a primeira porta que respondeu, de preferência uma aberta, e volta a perguntar-lhe a cada

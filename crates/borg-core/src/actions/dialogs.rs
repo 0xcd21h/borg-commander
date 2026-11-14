@@ -69,17 +69,18 @@ pub(super) fn confirm_quit(state: &mut AppState) -> Vec<Effect> {
     if crate::editor::ask_unsaved(state) {
         return Vec::new();
     }
-    let message = if state.jobs.is_empty() && !state.docker.shells.is_empty() {
+    let running = state.jobs.iter().filter(|job| job.running()).count();
+    let message = if running == 0 && !state.docker.shells.is_empty() {
         match state.docker.shells.len() {
             1 => tr!(quit_shells_one).into(),
             count => tr!(quit_shells_many, count = count),
         }
-    } else if state.jobs.is_empty() {
+    } else if running == 0 {
         tr!(quit_borg_commander).into()
-    } else if state.jobs.len() == 1 {
+    } else if running == 1 {
         tr!(quit_jobs_one).into()
     } else {
-        tr!(quit_jobs_many, count = state.jobs.len())
+        tr!(quit_jobs_many, count = running)
     };
     show(state, Overlay::Confirm(Confirm { title: tr!(quit), message, purpose: ConfirmPurpose::Quit, accept: false }))
 }

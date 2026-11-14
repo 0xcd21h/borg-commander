@@ -54,7 +54,9 @@ mod tree;
 pub use entropy::{
     EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
 };
-pub(crate) use entropy::{on_dialog_key as on_entropy_key, open as open_entropy, receive as receive_entropy};
+pub(crate) use entropy::{
+    on_dialog_key as on_entropy_key, open as open_entropy, receive as receive_entropy, show_hits as show_entropy_hits,
+};
 
 pub const HISTORY: usize = 60;
 pub const SNAPSHOT_LIMIT: usize = 64 * 1024;

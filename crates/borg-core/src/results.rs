@@ -611,24 +611,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::BackResults => back(state),
         Action::RevealOriginal => reveal(state),
-        Action::CancelSearch => {
-            let side = state.active;
-            if !matches!(state.panel(side).results.as_ref().map(|r| &r.source), Some(ResultSource::Search { .. })) {
-                return Vec::new();
-            }
-            if let Some(crate::Results { source: ResultSource::Search { progress, .. }, .. }) =
-                &mut state.panel_mut(side).results
-            {
-                progress.cancelled = true;
-            }
-            let old = state.panel(side).generation();
-            state.panel_mut(side).cancel_refresh();
-            state.panel_mut(side).finish(old, None);
-            state.panel_mut(side).settle();
-            let generation = state.next_generation();
-            state.panel_mut(side).finish_results_edit(generation);
-            vec![Effect::CancelSearch(side)]
-        }
+        Action::CancelSearch => cancel_search(state, state.active),
         Action::RemoveReferences => {
             let side = state.active;
             let generation = state.next_generation();
@@ -642,6 +625,25 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         _ => Vec::new(),
     }
+}
+
+/// Stops the search the panel on `side` runs, keeping what it found.
+pub(crate) fn cancel_search(state: &mut AppState, side: Side) -> Vec<Effect> {
+    if !matches!(state.panel(side).results.as_ref().map(|r| &r.source), Some(ResultSource::Search { .. })) {
+        return Vec::new();
+    }
+    if let Some(crate::Results { source: ResultSource::Search { progress, .. }, .. }) =
+        &mut state.panel_mut(side).results
+    {
+        progress.cancelled = true;
+    }
+    let old = state.panel(side).generation();
+    state.panel_mut(side).cancel_refresh();
+    state.panel_mut(side).finish(old, None);
+    state.panel_mut(side).settle();
+    let generation = state.next_generation();
+    state.panel_mut(side).finish_results_edit(generation);
+    vec![Effect::CancelSearch(side)]
 }
 
 /// Files a contents search found, each with its first match.

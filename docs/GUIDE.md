@@ -345,10 +345,10 @@ To measure sizes while keeping ordinary file panels open, press **Alt-I** or cho
 **Search → Count sizes in background**. Borg scans every folder below the current one, including
 hidden files, and fills in each folder's total as it finishes. You can keep browsing or use the
 console while it runs. Folders still being measured show a growing total marked `≥`, and totals
-stay when you leave a folder and come back. The panel footer shows progress; press **Alt-I**
-again, or click the footer, to stop the scan and keep the totals measured so far. Starting a
-copy, move, or delete job stops a size scan in progress. Finished scans share their cache with
-the size tree and Folder totals.
+stay when you leave a folder and come back. The panel footer shows progress, and the count runs as
+a job in Alt-J. Press **Alt-I** again, or click the footer, to stop the scan and keep the totals
+measured so far. Starting a copy, move, or delete job stops a size scan in progress. Finished scans
+share their cache with the size tree and Folder totals.
 
 ### Saved size scans
 
@@ -406,7 +406,9 @@ click both rows. Notices replace the second row for a moment.
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
 | Alt-O | Open this panel's folder in the other panel; in search results or a collection, the folder of the file under the cursor |
-| Alt-J | Jobs: pause or cancel running copies, moves and deletes |
+| Alt-J | Jobs: the copies, moves, searches and scans that run or ended, to fold, pause, cancel or open |
+| Alt-G | Open what the newest finished job made: its folder, its results, its hits or its open ports |
+| Alt-X | Close the job notes on screen, leaving their jobs in Alt-J |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-N | Network: ports, connections and traffic |
@@ -1270,8 +1272,8 @@ ignores case unless the query contains uppercase letters.
 
 ### Copying, moving, and deleting
 
-F5, F6, and F8 start copy, move, and delete jobs. Alt-J opens the list of jobs, where you can
-pause or cancel them.
+F5, F6, and F8 start copy, move, and delete jobs. They run in the background, and Alt-J shows them
+with the other [jobs](#jobs-and-notifications).
 
 The Delete dialog starts on **No**, so Enter on its own keeps the files. To delete them, press Y,
 or move to **Yes** with Tab or an arrow key and press Enter.
@@ -1294,6 +1296,63 @@ system, and OS caching, and it may be slower when copying between separate drive
 When a file name already exists: `o` overwrites, `s` skips, `k` keeps both, `a` overwrites all,
 `n` skips all, and Esc cancels. Copies are written to temporary files and renamed once they are
 complete.
+
+### Jobs and notifications
+
+Work that takes a while runs as a job: copies, moves and deletes, unpacking and packing archives,
+**Replace in files…**, every search that fills a results panel (Ctrl-F, Alt-D, Alt-Shift-D and
+Alt-S), folder sizes counted with Alt-I, the entropy scan in Alt-M, the first build of a folder's
+search index, and port scans. Alt-J opens the jobs panel over the right panel. It lists the running
+jobs first, oldest at the top, then the finished ones, newest first. On a terminal narrower than 100
+columns it spans both panels.
+
+Each job takes one line: what it is, what it works on, a bar, and how far it got. A job that knows
+its size shows a percentage, and a copy or a move also the time left. A search or a size count
+shows what it counted so far. Space or Enter unfolds the selected job to its details: the file it
+works on, the files and bytes done and the speed, or what a search looks for and found. A job
+that fails or asks you something unfolds on its own.
+
+| Key | Action |
+| --- | --- |
+| Up, Down, PgUp, PgDn, Home, End | Move between jobs |
+| Space, Enter | Fold or unfold the job |
+| Right / Left | Unfold / fold |
+| `*` | Unfold every job, or fold them all once all are unfolded |
+| P | Pause or resume a job that works on files |
+| C | Cancel a running job |
+| A | Answer the question a job asks |
+| O | Open what a finished job made |
+| X | Dismiss a finished job |
+| Delete | Cancel a running job, or dismiss a finished one |
+| Shift-X | Dismiss every finished job |
+| Esc, Alt-J | Close the panel |
+
+The selected job shows its keys as buttons, which take clicks too. A finished job stays in the panel
+with how it ended and how long it took until you dismiss it, and Borg keeps the 20 newest. **O
+Open** shows what the job made: the folder a copy, move or unpack wrote to, with the cursor on what
+arrived there, the results of a search or a replace, brought back to their panel if it moved on, the
+folder whose sizes were counted, the entropy scan's hits in Alt-M, or the open ports a port scan
+found. In the panels, Alt-G opens what the newest finished job made.
+
+Small notes in the bottom-right corner of the panels say when a job starts, ends, or waits for you.
+A start shows once the job has run for a second, so a quick job only says how it ended. A note stays
+3 seconds for a start, 6 for a job that finished, 4 for one you cancelled and 10 for one that
+failed, and up to three show at once. Notes never take your keys. The keys in a note's border work
+in the panels: Alt-J opens the jobs panel, or the question a job waits with, Alt-G opens what a
+finished job made, and Alt-X closes every note on screen. Over the full-screen console, the editor
+and the viewer, the notes name no key, because those keys belong to them there. Click **[×]** at the
+right end of a note to close that note alone, wherever it shows. Closing a note leaves its job in
+Alt-J. On a terminal narrower than 60 columns each note takes one line with **[×]** at its end, and
+below 40 columns or 14 rows there are none.
+
+A job's question opens as a dialog at once, unless you typed in the console, on the command line or
+in an editor during the last 2 seconds. Then the question waits behind its note until your keys rest
+for 2 seconds, so a key meant for your text never answers it. Alt-J opens it right away. Close its
+note and the question waits until you press Alt-J, or A in the jobs panel.
+
+Turn the notes off in **F9 → Options → Settings → Job notifications**, or with
+`job-notifications = false` in the config. A finished job that changed files, counted sizes or
+built an index then says how it ended in a notice.
 
 ### Long jobs and drives
 
@@ -1563,6 +1622,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
@@ -2535,17 +2595,18 @@ private ranges are 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, the
 loopback addresses, and IPv6 unique local addresses. Scan only hosts you own or are allowed to test.
 
 The scan runs as a job, so you can close the network screen and keep working. Alt-J shows how far it
-got and how many open ports it found, p pauses it and c cancels it, and quitting Borg asks first.
-Each port gets one TCP connection. A port that accepts it is **open**, one that refuses it is
-**closed**, and one that stays silent until the time runs out is **filtered**. Borg closes each
-connection at once and sends nothing over it.
+got, and unfolding the job shows the host, the mode and how many open ports it found. P pauses it, C
+cancels it, and quitting Borg asks first. Each port gets one TCP connection. A port that accepts it
+is **open**, one that refuses it is **closed**, and one that stays silent until the time runs out is
+**filtered**. Borg closes each connection at once and sends nothing over it.
 
 When the scan ends, **Port scan finished** opens once the panels, the activity monitor or the
 network screen show with no dialog open and you have not pressed a key for 2 seconds, so it never
 takes keys meant for the console or the editor. It names the host and counts the open, closed and
 filtered ports. Enter lists the open ports with the service name IANA gives each one, ↑ and ↓ scroll
 a long list, and Ctrl-S saves the scan as a report (see [Saving reports](#saving-reports)). Cancel a
-scan and a notice tells you how many open ports it found.
+scan and a notice tells you how many open ports it found. The finished scan stays in Alt-J, where
+**O Open** lists its open ports again, and so does Alt-G in the panels.
 
 Some hosts and firewalls stop answering a scan that goes too fast. To notice that, Borg keeps an eye
 on the first port that answered, an open one when there is one, and asks it again every 5 seconds.

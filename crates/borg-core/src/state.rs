@@ -159,6 +159,10 @@ pub struct AppState {
     pub leaving: Option<Leaving>,
     pub last_find: Option<String>,
     pub jobs: Vec<Job>,
+    /// Notes in a corner that jobs started, ended or wait for an answer.
+    pub toasts: Vec<crate::Toast>,
+    /// When a toast next moves or goes, or a question waiting for the keys to rest opens.
+    pub(crate) jobs_wake: Option<Instant>,
     pub aside: Option<Aside>,
     pub preview_focused: bool,
     /// The side where a screen lends a file panel beside its list, while it does.
@@ -276,6 +280,8 @@ impl AppState {
             leaving: None,
             last_find: None,
             jobs: Vec::new(),
+            toasts: Vec::new(),
+            jobs_wake: None,
             aside: None,
             lent: None,
             awaited: None,

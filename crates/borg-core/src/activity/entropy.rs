@@ -209,6 +209,15 @@ pub(super) struct Landing {
     pub address: Option<u64>,
 }
 
+/// Opens the activity monitor on the hits of the last scan, as opening its job does.
+pub(crate) fn show_hits(state: &mut AppState) -> Vec<Effect> {
+    let effects = crate::activity::open(state);
+    if state.activity.side.is_some() && state.activity.entropy.is_some() {
+        show(&mut state.activity);
+    }
+    effects
+}
+
 /// E opens the dialog that picks what to scan.
 pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
     let results = state.activity.entropy.is_some();

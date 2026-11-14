@@ -1,45 +1,34 @@
-use borg_i18n::tr;
+//! Background jobs: what each one works on, how far it got, how it ended, and what opening its
+//! result shows. Every kind fills the same gauge and detail rows, so the jobs panel, the toasts,
+//! the panel footers and the shortcut bar draw any job the same way.
+
 use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
 
-use borg_drives::Remember;
-use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
-use crossterm::event::{KeyCode, KeyEvent};
+use borg_i18n::{Message, tr};
+use borg_jobs::Ask;
 
 use crate::{AppState, Effect, Overlay, Side};
 
-const CONFLICT_CHOICES: [(Decision, char, borg_i18n::Message); 6] = [
-    (Decision::Overwrite, 'o', tr!(@ overwrite)),
-    (Decision::Skip, 's', tr!(@ skip)),
-    (Decision::KeepBoth, 'k', tr!(@ keep_both)),
-    (Decision::OverwriteAll, 'a', tr!(@ overwrite_all)),
-    (Decision::SkipAll, 'n', tr!(@ skip_all)),
-    (Decision::Cancel, 'c', tr!(@ cancel)),
-];
-const FAILURE_CHOICES: [(Decision, char, borg_i18n::Message); 4] = [
-    (Decision::Retry, 'r', tr!(@ retry)),
-    (Decision::Skip, 's', tr!(@ skip)),
-    (Decision::SkipAll, 'a', tr!(@ skip_all)),
-    (Decision::Cancel, 'c', tr!(@ cancel)),
-];
-const PROCEED_CHOICES: [(Decision, char, borg_i18n::Message); 2] =
-    [(Decision::Proceed, 'u', tr!(@ unpack_anyway)), (Decision::Cancel, 'c', tr!(@ cancel))];
-/// For long work on one file, such as an archive: an answer may stop Borg asking about it.
-const SLOW_FILE_CHOICES: [(Decision, char, borg_i18n::Message); 4] = [
-    (Decision::Proceed, 's', tr!(@ slow_start)),
-    (Decision::Always(Remember::File), 'f', tr!(@ slow_always_file)),
-    (Decision::Always(Remember::Kind), 'd', tr!(@ slow_always_kind)),
-    (Decision::Cancel, 'c', tr!(@ cancel)),
-];
-const SLOW_CHOICES: [(Decision, char, borg_i18n::Message); 3] = [
-    (Decision::Proceed, 's', tr!(@ slow_start)),
-    (Decision::Always(Remember::Kind), 'd', tr!(@ slow_always_kind)),
-    (Decision::Cancel, 'c', tr!(@ cancel)),
-];
-const PAUSE_KEY: char = 'p';
-const CANCEL_KEY: char = 'c';
+mod files;
+mod ports;
+mod sheet;
+mod toasts;
+mod watched;
+
+pub(crate) use files::{
+    begin, begin_on, begin_view, cancel_opening, on_event, on_question_key, reveal_folder, rewrite_subject, start,
+    subject,
+};
+pub(crate) use ports::{Scanning, begin_port_scan, end_port_scan, port_scan_progress};
+pub(crate) use sheet::{on_list_key, on_row, open_list, open_newest_result};
+pub use toasts::{MOST as MOST_TOASTS, Toast, ToastEvent};
+pub(crate) use watched::{begin_index, begin_sizes, end_index, end_sizes, reveal_results, sizes_progress};
+
+/// Finished jobs the panel keeps before the oldest of them go.
+const KEPT: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
@@ -58,6 +47,14 @@ pub enum JobKind {
     Save,
     /// Text replaced in the files a contents search found.
     Replace,
+    /// Folder sizes counted in the background.
+    Sizes,
+    /// A search that fills a results panel.
+    Search,
+    /// The entropy scan of every process.
+    Entropy,
+    /// The first build of a folder's search index.
+    Index,
     /// A host's TCP ports tried one by one.
     PortScan,
 }
@@ -73,20 +70,30 @@ impl JobKind {
             Self::ArchiveFolder => tr!(making_archive_folder),
             Self::Save => tr!(saving_into_archive),
             Self::Replace => tr!(replacing_text),
+            Self::Sizes => tr!(counting_sizes),
+            Self::Search => tr!(searching),
+            Self::Entropy => tr!(scanning_processes),
+            Self::Index => tr!(indexing),
             Self::PortScan => tr!(scanning_ports),
         }
     }
 
-    pub fn done(self) -> &'static str {
+    /// The job's name in the jobs panel, before what it works on.
+    pub fn title(self) -> &'static str {
         match self {
-            Self::Copy => tr!(copied),
-            Self::Move => tr!(moved),
-            Self::Delete => tr!(deleted),
-            Self::Unpack | Self::View => tr!(unpacked),
-            Self::Pack => tr!(packed),
-            Self::ArchiveFolder | Self::Save => tr!(archive_changed),
-            Self::Replace => tr!(replaced_text),
-            Self::PortScan => tr!(scanned_ports),
+            Self::Copy => tr!(job_copy),
+            Self::Move => tr!(job_move),
+            Self::Delete => tr!(job_delete),
+            Self::Unpack | Self::View => tr!(job_unpack),
+            Self::Pack => tr!(job_pack),
+            Self::ArchiveFolder => tr!(job_archive_folder),
+            Self::Save => tr!(job_save),
+            Self::Replace => tr!(job_replace),
+            Self::Sizes => tr!(job_sizes),
+            Self::Search => tr!(job_search),
+            Self::Entropy => tr!(job_entropy),
+            Self::Index => tr!(job_index),
+            Self::PortScan => tr!(job_port_scan),
         }
     }
 
@@ -96,64 +103,199 @@ impl JobKind {
         matches!(self, Self::ArchiveFolder | Self::Save)
     }
 
+    /// Whether the job's end leaves a notice while toasts are off. A search and the entropy scan
+    /// show how they ended where their results are, and a port scan in its own dialog or notice.
+    fn notices(self) -> bool {
+        !matches!(self, Self::Search | Self::Entropy | Self::PortScan)
+    }
+
+    /// Whether the job is part of opening a file, which neither toasts nor stays once done.
+    fn hidden(self) -> bool {
+        self == Self::View
+    }
+
+    /// Whether the panel the job works in shows its progress in the footer. The other kinds
+    /// show theirs where they run: the results, the folder sizes, the monitor.
+    pub fn in_footer(self) -> bool {
+        !matches!(self, Self::Sizes | Self::Search | Self::Entropy | Self::Index)
+    }
+
+    /// Whether the job can wait and go on again.
+    pub fn pauses(self) -> bool {
+        self.in_footer()
+    }
+
+    /// Whether the job can be stopped before it ends.
+    pub fn cancels(self) -> bool {
+        self != Self::Index
+    }
+
     /// The panel that shows the job's progress: the one it writes into.
     fn shown_on(self, origin: Side) -> Side {
         match self {
             Self::Copy | Self::Move | Self::Unpack | Self::Pack => origin.other(),
-            Self::Delete | Self::View | Self::ArchiveFolder | Self::Save | Self::Replace | Self::PortScan => origin,
+            _ => origin,
         }
     }
 }
 
+/// What a gauge counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unit {
+    Bytes,
+    Files,
+    Folders,
+    Processes,
+    Ports,
+}
+
+/// How far a job got: what it did, and of how much when that is known.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Gauge {
+    pub done: u64,
+    pub total: Option<u64>,
+    pub unit: Option<Unit>,
+}
+
+impl Gauge {
+    pub fn of(done: u64, total: u64, unit: Unit) -> Self {
+        Self { done, total: Some(total), unit: Some(unit) }
+    }
+
+    pub fn counting(done: u64, unit: Unit) -> Self {
+        Self { done, total: None, unit: Some(unit) }
+    }
+
+    pub fn fraction(&self) -> Option<f32> {
+        let total = self.total?;
+        Some((self.done as f64 / total.max(1) as f64).clamp(0.0, 1.0) as f32)
+    }
+}
+
+/// What a row of a job's details says, which the screen formats.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JobState {
-    Scanning(Totals),
-    Running(Progress),
+pub enum Value {
+    Text(String),
+    Path(PathBuf),
+    Number(u64),
+    /// How much of a total, in `unit`.
+    Of {
+        done: u64,
+        total: u64,
+        unit: Unit,
+    },
+}
+
+/// One row of a job's details: a name and what it says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Detail {
+    pub label: Message,
+    pub value: Value,
+}
+
+impl Detail {
+    pub fn new(label: Message, value: Value) -> Self {
+        Self { label, value }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum How {
+    Done,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobEnding {
+    pub how: How,
+    pub at: Instant,
+    /// What the job did or why it stopped, in a line.
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Phase {
+    /// Finding out how much there is to do.
+    Preparing,
+    Running,
     Asking(Ask),
-    /// A port scan, which counts ports where file jobs count files and bytes.
-    Probing(crate::PortProgress),
+    Ended(JobEnding),
+}
+
+/// What opening a finished job shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reveal {
+    /// A folder in the panel on `side`, with the cursor on `focus`.
+    Folder { side: Side, dir: PathBuf, focus: Option<String> },
+    /// A search's results, in the panel on `side` or brought back to it.
+    Results { side: Side, request: Box<crate::SearchRequest> },
+    /// The hits of the entropy scan in the activity monitor.
+    EntropyHits,
+    /// The open ports a port scan found.
+    PortScan(Box<crate::PortScanRecord>),
+}
+
+/// How a job is steered: what its pause and cancel turn into.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Link {
+    /// The app's runner, through `Effect::JobControl`.
+    Runner,
+    /// A search filling the results panel on `side` as listing `generation`.
+    Search { side: Side, generation: u64 },
+    /// The folder sizes being counted.
+    Sizes,
+    /// The entropy scan of every process.
+    Entropy,
+    /// The index of a folder being built.
+    Index(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: u64,
     pub kind: JobKind,
+    /// What the job works on: the files and where they go, a folder, a search.
+    pub subject: String,
     pub origin: Side,
     pub shown_on: Side,
-    pub state: JobState,
-    pub progress: Option<Progress>,
-    pub paused: bool,
     pub started: Instant,
+    pub paused: bool,
+    pub folded: bool,
+    pub phase: Phase,
+    pub gauge: Gauge,
+    pub details: Vec<Detail>,
     /// The file the viewer waits for, which the job unpacks.
     pub opens: Option<PathBuf>,
+    pub reveal: Option<Reveal>,
+    /// Its question waits for Alt-J or A in the panel, because you closed the note that asked.
+    pub put_off: bool,
+    pub(crate) link: Link,
 }
 
 impl Job {
     pub fn fraction(&self) -> Option<f32> {
-        if let JobState::Probing(probing) = &self.state {
-            return Some((probing.done as f64 / probing.total.max(1) as f64).clamp(0.0, 1.0) as f32);
-        }
-        let progress = self.progress.as_ref()?;
-        let total = progress.total;
-        let (done, all) = if total.bytes > 0 {
-            (progress.done.bytes as f64, total.bytes as f64)
-        } else {
-            (progress.done.files as f64, total.files.max(1) as f64)
-        };
-        Some((done / all).clamp(0.0, 1.0) as f32)
+        self.gauge.fraction()
     }
 
-    pub fn choices(&self) -> &'static [(Decision, char, borg_i18n::Message)] {
-        match self.state {
-            JobState::Asking(Ask::Failure { .. }) => &FAILURE_CHOICES,
-            JobState::Asking(Ask::Expand { .. } | Ask::Room { .. }) => &PROCEED_CHOICES,
-            JobState::Asking(Ask::Slow { file: true, .. }) => &SLOW_FILE_CHOICES,
-            JobState::Asking(Ask::Slow { file: false, .. }) => &SLOW_CHOICES,
-            JobState::Asking(Ask::Conflict { .. })
-            | JobState::Scanning(_)
-            | JobState::Running(_)
-            | JobState::Probing(_) => &CONFLICT_CHOICES,
+    pub fn running(&self) -> bool {
+        !matches!(self.phase, Phase::Ended(_))
+    }
+
+    pub fn asking(&self) -> bool {
+        matches!(self.phase, Phase::Asking(_))
+    }
+
+    pub fn ending(&self) -> Option<&JobEnding> {
+        match &self.phase {
+            Phase::Ended(ending) => Some(ending),
+            _ => None,
         }
+    }
+
+    /// When the job stopped working, or `now` while it still works.
+    pub fn until(&self, now: Instant) -> Instant {
+        self.ending().map_or(now, |ending| ending.at)
     }
 }
 
@@ -161,7 +303,7 @@ impl Job {
 pub enum JobCommand {
     Pause(bool),
     Cancel,
-    Answer(Decision),
+    Answer(borg_jobs::Decision),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,226 +312,182 @@ pub struct Question {
     pub choice: usize,
 }
 
+/// The jobs panel and the job its cursor is on, counted in the order `shown` gives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JobList {
     pub selected: usize,
 }
 
-pub(crate) fn start(state: &mut AppState, kind: JobKind, spec: Spec, now: Instant) -> Vec<Effect> {
-    let (id, mut effects) = begin(state, kind, now);
-    effects.push(Effect::StartJob { id, spec });
-    effects
+/// The jobs in the order the panel lists them: those still working, oldest first, then the
+/// finished ones, newest first.
+pub fn shown(jobs: &[Job]) -> Vec<&Job> {
+    let mut ended: Vec<&Job> = jobs.iter().filter(|job| !job.running()).collect();
+    ended.sort_by_key(|job| std::cmp::Reverse(job.ending().map(|ending| ending.at)));
+    jobs.iter().filter(|job| job.running()).chain(ended).collect()
 }
 
-/// Adds a job to the list and returns its id, for a job that some effect then runs.
-pub(crate) fn begin(state: &mut AppState, kind: JobKind, now: Instant) -> (u64, Vec<Effect>) {
-    let shown_on = kind.shown_on(state.active);
-    begin_on(state, kind, shown_on, now)
-}
-
-/// Adds a job whose progress shows in the panel on `shown_on`.
-pub(crate) fn begin_on(state: &mut AppState, kind: JobKind, shown_on: Side, now: Instant) -> (u64, Vec<Effect>) {
+/// Adds a job whose progress shows in the panel on `shown_on`, and returns its id. A started
+/// toast follows unless it ends first.
+pub(crate) fn add(
+    state: &mut AppState,
+    kind: JobKind,
+    subject: String,
+    shown_on: Side,
+    link: Link,
+    now: Instant,
+) -> u64 {
     let id = state.next_job;
     state.next_job += 1;
-    let origin = state.active;
     state.jobs.push(Job {
         id,
         kind,
-        origin,
+        subject,
+        origin: state.active,
         shown_on,
-        state: JobState::Scanning(Totals::default()),
-        progress: None,
-        paused: false,
         started: now,
-        opens: None,
-    });
-    if kind == JobKind::View {
-        return (id, Vec::new());
-    }
-    let effects = crate::measure::cancel(state);
-    crate::measure::forget(state);
-    (id, effects)
-}
-
-/// Adds a port scan, shown in the active panel, and returns its id.
-pub(crate) fn begin_port_scan(state: &mut AppState, progress: crate::PortProgress, now: Instant) -> u64 {
-    let id = state.next_job;
-    state.next_job += 1;
-    let side = state.active;
-    state.jobs.push(Job {
-        id,
-        kind: JobKind::PortScan,
-        origin: side,
-        shown_on: side,
-        state: JobState::Probing(progress),
-        progress: None,
         paused: false,
-        started: now,
+        folded: true,
+        phase: Phase::Preparing,
+        gauge: Gauge::default(),
+        details: Vec::new(),
         opens: None,
+        reveal: None,
+        put_off: false,
+        link,
     });
-    id
-}
-
-/// How many ports of the scan answered, and how many are open.
-pub(crate) fn port_scan_progress(state: &mut AppState, id: u64, done: usize, open: usize) {
-    let job = state.jobs.iter_mut().find(|job| job.id == id);
-    if let Some(Job { state: JobState::Probing(probing), .. }) = job {
-        probing.done = done;
-        probing.open = open;
-    }
-}
-
-/// The port scan ended: its job leaves the list.
-pub(crate) fn end_port_scan(state: &mut AppState, id: u64) {
-    state.jobs.retain(|job| job.id != id);
-    if state.jobs.is_empty() && matches!(state.overlay, Some(Overlay::Jobs(_))) {
-        state.overlay = None;
-    }
-}
-
-/// Adds a job that unpacks the file the viewer waits for as `opens`.
-pub(crate) fn begin_view(state: &mut AppState, opens: PathBuf, now: Instant) -> u64 {
-    let (id, _) = begin(state, JobKind::View, now);
-    if let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) {
-        job.opens = Some(opens);
+    if !kind.hidden() && !kind.quiet() {
+        toasts::started(state, id, now);
     }
     id
 }
 
-pub(crate) fn on_event(state: &mut AppState, id: u64, event: Event) -> Vec<Effect> {
-    let Some(index) = state.jobs.iter().position(|job| job.id == id) else { return Vec::new() };
-    match event {
-        Event::Scanning(found) => state.jobs[index].state = JobState::Scanning(found),
-        Event::Progress(progress) => {
-            let job = &mut state.jobs[index];
-            job.progress = Some(progress.clone());
-            job.state = JobState::Running(progress);
-        }
-        Event::Asking(ask) => state.jobs[index].state = JobState::Asking(ask),
-        Event::Finished(outcome) => return finish(state, index, outcome),
-    }
-    Vec::new()
+pub(crate) fn find_mut(state: &mut AppState, id: u64) -> Option<&mut Job> {
+    state.jobs.iter_mut().find(|job| job.id == id)
 }
 
-fn finish(state: &mut AppState, index: usize, outcome: Outcome) -> Vec<Effect> {
-    let job = state.jobs.remove(index);
-    if matches!(state.overlay, Some(Overlay::Question(question)) if question.id == job.id) {
+/// Takes in how far job `id` got.
+pub(crate) fn advance(state: &mut AppState, id: u64, gauge: Gauge, details: Vec<Detail>) {
+    let Some(job) = find_mut(state, id).filter(|job| job.running()) else { return };
+    job.gauge = gauge;
+    job.details = details;
+    if job.phase == Phase::Preparing {
+        job.phase = Phase::Running;
+    }
+}
+
+/// Ends job `id`. A finished job stays in the panel with what it did and a toast says so; with
+/// the toasts off, a notice does. A job that is part of opening a file just goes.
+pub(crate) fn end(state: &mut AppState, id: u64, how: How, summary: String, now: Instant) {
+    let Some(index) = state.jobs.iter().position(|job| job.id == id && job.running()) else { return };
+    if matches!(state.overlay, Some(Overlay::Question(question)) if question.id == id) {
         state.overlay = None;
     }
-    if let Some(path) = job.opens {
-        let notice = match outcome {
-            Outcome::Done { .. } => return Vec::new(),
-            Outcome::Cancelled { done } => tr!(cancelled_after, job.kind.doing(), summary(done)),
-            Outcome::Failed(message) => tr!(job_failed, job.kind.doing(), message = message),
-        };
-        crate::viewer::failed(state, path, notice);
-        return Vec::new();
-    }
-    state.notice = Some(match outcome {
-        Outcome::Done { skipped: 0, .. } if job.kind.quiet() => return state.reload_all(),
-        Outcome::Done { done, skipped } => {
-            if skipped == 0 {
-                state.panel_mut(job.origin).clear_marks();
-            }
-            let skipped = if skipped > 0 { tr!(skipped, skipped = skipped) } else { String::new() };
-            format!("{} {}{skipped}", job.kind.done(), summary(done))
-        }
-        Outcome::Cancelled { done } => tr!(cancelled_after, job.kind.doing(), summary(done)),
-        Outcome::Failed(message) => tr!(job_failed, job.kind.doing(), message = message),
-    });
-    state.reload_all()
-}
-
-fn summary(totals: Totals) -> String {
-    if totals.files == 1 { tr!(jobs_1_file).to_owned() } else { tr!(files, totals.files) }
-}
-
-pub(crate) fn surface_questions(state: &mut AppState) {
-    if state.overlay.is_some() {
+    let job = &mut state.jobs[index];
+    if job.kind.hidden() {
+        state.jobs.remove(index);
+        toasts::forget(state, id);
         return;
     }
-    let asking = state.jobs.iter().find(|job| matches!(job.state, JobState::Asking(_)));
-    if let Some(job) = asking {
-        state.overlay = Some(Overlay::Question(Question { id: job.id, choice: 0 }));
+    job.paused = false;
+    job.folded = how != How::Failed;
+    job.phase = Phase::Ended(JobEnding { how, at: now, summary: summary.clone() });
+    let notices = job.kind.notices();
+    toasts::ended(state, id, how, now);
+    if !state.settings.preferences.job_notifications && notices {
+        state.notice = Some(summary);
+    }
+    keep_newest(state);
+    close_empty_list(state);
+}
+
+/// Drops a job that ended with nothing to say, such as a quiet archive change.
+pub(crate) fn drop_job(state: &mut AppState, id: u64) {
+    state.jobs.retain(|job| job.id != id);
+    toasts::forget(state, id);
+    close_empty_list(state);
+}
+
+fn keep_newest(state: &mut AppState) {
+    let mut ended: Vec<(Instant, u64)> =
+        state.jobs.iter().filter_map(|job| job.ending().map(|ending| (ending.at, job.id))).collect();
+    if ended.len() <= KEPT {
+        return;
+    }
+    ended.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+    let gone: Vec<u64> = ended.split_off(KEPT).into_iter().map(|(_, id)| id).collect();
+    state.jobs.retain(|job| !gone.contains(&job.id));
+    state.toasts.retain(|toast| !gone.contains(&toast.job));
+}
+
+fn close_empty_list(state: &mut AppState) {
+    if let Some(Overlay::Jobs(list)) = state.overlay {
+        let last = shown(&state.jobs).len().saturating_sub(1);
+        state.overlay = Some(Overlay::Jobs(JobList { selected: list.selected.min(last) }));
     }
 }
 
-pub(crate) fn on_question_key(state: &mut AppState, question: Question, key: &KeyEvent) -> Vec<Effect> {
-    let Some(job) = state.jobs.iter().find(|job| job.id == question.id) else {
-        state.overlay = None;
-        return Vec::new();
-    };
-    let choices = job.choices();
-    let last = choices.len().saturating_sub(1);
-    let decision = match crate::keyboard::latin(key).code {
-        KeyCode::Esc => Some(Decision::Cancel),
-        KeyCode::Enter => choices.get(question.choice).map(|(decision, _, _)| *decision),
-        KeyCode::Char(c) => choices.iter().find(|(_, hotkey, _)| *hotkey == c).map(|(decision, _, _)| *decision),
-        KeyCode::Left | KeyCode::Up | KeyCode::BackTab => {
-            let choice = question.choice.checked_sub(1).unwrap_or(last);
-            state.overlay = Some(Overlay::Question(Question { choice, ..question }));
-            None
-        }
-        KeyCode::Right | KeyCode::Down | KeyCode::Tab => {
-            let choice = if question.choice >= last { 0 } else { question.choice + 1 };
-            state.overlay = Some(Overlay::Question(Question { choice, ..question }));
-            None
-        }
-        _ => None,
-    };
-    let Some(decision) = decision else { return Vec::new() };
-    state.overlay = None;
-    if let Some(job) = state.jobs.iter_mut().find(|job| job.id == question.id) {
-        job.state = job.progress.clone().map_or(JobState::Scanning(Totals::default()), JobState::Running);
+/// Stops job `id` the way its kind stops: the runner's control, or the search, size count or
+/// scan it stands for.
+pub(crate) fn cancel(state: &mut AppState, id: u64, now: Instant) -> Vec<Effect> {
+    let Some(job) = state.jobs.iter().find(|job| job.id == id && job.running()) else { return Vec::new() };
+    match job.link.clone() {
+        Link::Runner => vec![Effect::JobControl { id, command: JobCommand::Cancel }],
+        Link::Search { side, generation } => watched::cancel_search(state, side, generation),
+        Link::Sizes => crate::measure::cancel(state, now),
+        Link::Entropy => vec![Effect::StopEntropyScan],
+        Link::Index(_) => Vec::new(),
     }
-    vec![Effect::JobControl { id: question.id, command: JobCommand::Answer(decision) }]
 }
 
-pub(crate) fn open_list(state: &mut AppState) -> Vec<Effect> {
-    if state.jobs.is_empty() {
-        state.notice = Some(tr!(no_jobs_running).to_owned());
-        return Vec::new();
-    }
-    state.overlay = Some(Overlay::Jobs(JobList { selected: 0 }));
-    Vec::new()
+pub(crate) fn cancel_all(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    let running: Vec<u64> = state.jobs.iter().filter(|job| job.running()).map(|job| job.id).collect();
+    running.into_iter().flat_map(|id| cancel(state, id, now)).collect()
 }
 
-pub(crate) fn on_list_key(state: &mut AppState, list: JobList, key: &KeyEvent) -> Vec<Effect> {
-    let last = state.jobs.len().saturating_sub(1);
-    let selected = list.selected.min(last);
-    let mut effects = Vec::new();
-    match crate::keyboard::latin(key).code {
-        KeyCode::Esc | KeyCode::Enter => {
-            state.overlay = None;
-            return effects;
-        }
-        KeyCode::Up => state.overlay = Some(Overlay::Jobs(JobList { selected: selected.saturating_sub(1) })),
-        KeyCode::Down => state.overlay = Some(Overlay::Jobs(JobList { selected: (selected + 1).min(last) })),
-        KeyCode::Char(PAUSE_KEY) | KeyCode::Char(' ') => {
-            if let Some(job) = state.jobs.get_mut(selected) {
-                job.paused = !job.paused;
-                effects.push(Effect::JobControl { id: job.id, command: JobCommand::Pause(job.paused) });
-            }
-        }
-        KeyCode::Char(CANCEL_KEY) | KeyCode::Delete => {
-            if let Some(job) = state.jobs.get(selected) {
-                effects.push(Effect::JobControl { id: job.id, command: JobCommand::Cancel });
-            }
-        }
-        _ => {}
-    }
-    if state.jobs.is_empty() {
-        state.overlay = None;
-    }
-    effects
+/// Keeps the jobs that follow other state up with it, opens a waiting question when it may
+/// show, and lets toasts go once their time is up.
+pub(crate) fn sync(state: &mut AppState, now: Instant) {
+    watched::sync(state, now);
+    files::surface_questions(state, now);
+    toasts::sync(state, now);
+    state.jobs_wake = wake_at(state, now);
 }
 
-/// Cancels the job that unpacks `path` for the viewer, which no longer waits for it.
-pub(crate) fn cancel_opening(state: &AppState, path: &Path) -> Vec<Effect> {
-    let opening = state.jobs.iter().filter(|job| job.opens.as_deref() == Some(path));
-    opening.map(|job| Effect::JobControl { id: job.id, command: JobCommand::Cancel }).collect()
+fn wake_at(state: &AppState, now: Instant) -> Option<Instant> {
+    [files::question_wakes_at(state), toasts::wake_at(state, now)].into_iter().flatten().min()
 }
 
-pub(crate) fn cancel_all(state: &AppState) -> Vec<Effect> {
-    state.jobs.iter().map(|job| Effect::JobControl { id: job.id, command: JobCommand::Cancel }).collect()
+pub(crate) fn animating(state: &AppState, now: Instant) -> bool {
+    toasts::animating(state, now)
+}
+
+/// The name a path shows in a job: its last part.
+fn name(path: &Path) -> String {
+    path.file_name().map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned())
+}
+
+/// The jobs still working.
+pub fn running(jobs: &[Job]) -> impl Iterator<Item = &Job> {
+    jobs.iter().filter(|job| job.running())
+}
+
+/// Whether the keys a toast names reach the panels: the full-screen console, the viewer and
+/// the editors keep Alt-J and Alt-G for themselves.
+pub fn toast_keys_work(state: &AppState) -> bool {
+    state.effective_view() == crate::View::Panels && state.viewer.is_none() && crate::editor::focused(state).is_none()
+}
+
+/// Toasts that show now, oldest first.
+pub fn visible_toasts(state: &AppState, now: Instant) -> Vec<&Toast> {
+    toasts::visible(state, now)
+}
+
+/// Closes the toast of job `id`. The job stays in the panel, and a question it asks waits there.
+pub(crate) fn close_toast(state: &mut AppState, id: u64) {
+    toasts::close(state, id);
+}
+
+/// Alt-X: closes every toast that shows.
+pub(crate) fn close_toasts(state: &mut AppState, now: Instant) {
+    toasts::close_all(state, now);
 }

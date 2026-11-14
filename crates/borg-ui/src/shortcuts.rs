@@ -1,5 +1,5 @@
 use crate::theme::Styles;
-use borg_core::{Action, AppState, JobState};
+use borg_core::{Action, AppState};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -10,17 +10,25 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// The Jobs button while jobs exist: one job's progress, or how many are running. It is
-/// highlighted while a job waits for an answer.
+/// The Jobs button while jobs exist: one job's progress, how many are running, or how many
+/// finished. It is highlighted while a job waits for an answer.
 fn jobs(state: &AppState) -> Option<(String, bool)> {
-    let waiting = state.jobs.iter().any(|job| matches!(job.state, JobState::Asking(_)));
-    let status = match state.jobs.as_slice() {
-        [] => return None,
+    let waiting = state.jobs.iter().any(|job| job.asking());
+    let running: Vec<&borg_core::Job> = borg_core::running_jobs(&state.jobs).collect();
+    let status = match running.as_slice() {
+        [] if state.jobs.is_empty() => return None,
+        [] => tr!(jobs_done, count = state.jobs.len()),
         [job] => crate::job_view::status(job),
         _ if waiting => tr!(jobs_waiting).to_owned(),
         jobs => tr!(jobs_running, count = jobs.len()),
     };
     Some((tr!(alt_j_jobs, status = status), waiting))
+}
+
+/// Whether the Jobs button leads the bar: a job waits for an answer or works on files. Otherwise
+/// it comes last, so the keys of what you look at keep their room.
+fn jobs_lead(state: &AppState) -> bool {
+    state.jobs.iter().any(|job| job.asking() || (job.running() && job.kind.in_footer()))
 }
 
 /// The Alerts shortcut while alerts nobody has read are waiting, counting them.
@@ -98,7 +106,8 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         })
         .collect();
     if let Some((label, waiting)) = jobs(state) {
-        items.insert(0, (label, Action::Jobs, waiting));
+        let at = if jobs_lead(state) { 0 } else { items.len() };
+        items.insert(at, (label, Action::Jobs, waiting));
     }
     if state.agent.connected() {
         items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));

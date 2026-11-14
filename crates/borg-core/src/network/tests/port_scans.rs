@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
-    Ending, JobKind, JobState, PortScanEvent, PortScanForm, PortScanRequest, PortScanResult, PortScanView, View,
+    Ending, Gauge, How, JobKind, PortScanEvent, PortScanForm, PortScanRequest, PortScanResult, PortScanView, Unit,
+    Value, View,
 };
 
 const QUIET: Duration = Duration::from_secs(2);
@@ -133,8 +134,8 @@ fn yes_starts_a_job_that_outlives_the_screen_shows_progress_and_counts_at_quit()
     let job = state.jobs.iter().find(|job| job.id == id).expect("the job runs on");
     assert_eq!(job.kind, JobKind::PortScan);
     update(&mut state, Msg::PortScan { id, event: PortScanEvent::Progress { done: 180, open: vec![22, 80] } }, now);
-    let JobState::Probing(probing) = &state.jobs[0].state else { panic!("a port scan probes") };
-    assert_eq!((probing.done, probing.total, probing.open), (180, 720, 2));
+    assert_eq!(state.jobs[0].gauge, Gauge::of(180, 720, Unit::Ports));
+    assert_eq!(state.jobs[0].details.last().map(|detail| &detail.value), Some(&Value::Number(2)));
     assert_eq!(state.jobs[0].fraction(), Some(0.25));
     tap(&mut state, KeyCode::F(10));
     let Some(Overlay::Confirm(quit)) = &state.overlay else { panic!("F10 asks") };
@@ -154,7 +155,8 @@ fn a_finished_scan_opens_its_dialog_once_the_panels_show_and_the_keys_rest() {
     let open: Vec<u16> = vec![22, 80, 443, 5000, 5001, 8080, 9000, 9090, 9200, 11211, 27017, 30000, 40000];
     let effects = finish(&mut state, id, found(&open, 720 - open.len(), Ending::Done), now);
     assert!(effects.contains(&Effect::SavePortScans));
-    assert!(state.jobs.is_empty());
+    let ending = state.jobs[0].ending().map(|ending| (ending.how, ending.summary.as_str()));
+    assert_eq!(ending, Some((How::Done, "Port scan done · 13 open")));
     assert_eq!(state.overlay, None, "the keys were just pressed");
     let rested = state.idle_since + QUIET;
     state.view = View::Shell;
@@ -173,6 +175,14 @@ fn a_finished_scan_opens_its_dialog_once_the_panels_show_and_the_keys_rest() {
     assert_eq!(state.overlay, None);
     let scan = crate::scan_of(&state, "192.0.2.60".parse().unwrap()).expect("the host's details keep it");
     assert_eq!((scan.at, scan.count, scan.open.len()), (HOME_READ_AT, 720, open.len()));
+    press(&mut state, KeyCode::Char('g'), KeyModifiers::ALT);
+    let Some(Overlay::PortScanResult(view)) = &state.overlay else { panic!("Alt-G lists the ports again") };
+    assert_eq!((view.record().open.len(), view.top), (open.len(), 0));
+    tap(&mut state, KeyCode::Esc);
+    press(&mut state, KeyCode::Char('j'), KeyModifiers::ALT);
+    tap(&mut state, KeyCode::Char('o'));
+    let Some(Overlay::PortScanResult(view)) = &state.overlay else { panic!("O in the jobs panel lists them") };
+    assert_eq!((view.shown, view.scans.len(), &view.record().open), (0, 1, &open));
 }
 
 #[test]
@@ -185,6 +195,8 @@ fn a_cancelled_scan_says_what_it_found_and_a_limited_one_still_reports() {
     let effects = finish(&mut state, id, cut, now);
     assert!(effects.contains(&Effect::SavePortScans), "what it found is kept");
     assert_eq!(state.notice.as_deref(), Some("Port scan of 192.0.2.60 cancelled. Open ports found: 1."));
+    let ending = state.jobs[0].ending().map(|ending| (ending.how, ending.summary.as_str()));
+    assert_eq!(ending, Some((How::Cancelled, "Port scan stopped · 1 open")));
     assert_eq!(state.port_scans.waiting(), 0, "no dialog for a scan you stopped");
     tap(&mut state, KeyCode::Char('p'));
     tap(&mut state, KeyCode::Enter);
@@ -193,6 +205,11 @@ fn a_cancelled_scan_says_what_it_found_and_a_limited_one_still_reports() {
     limited.not_scanned = vec![crate::PortRange { first: 1_000, last: 1_619 }];
     finish(&mut state, id, limited, now);
     assert_eq!(state.port_scans.waiting(), 1);
+    let limited = state.jobs.iter().find(|job| job.id == id).and_then(|job| job.ending());
+    assert_eq!(
+        limited.map(|ending| (ending.how, ending.summary.as_str())),
+        Some((How::Failed, "Port scan limited by the host · 2 open"))
+    );
     state.port_scans.writable = false;
     tap(&mut state, KeyCode::Char('p'));
     tap(&mut state, KeyCode::Enter);
@@ -286,6 +303,26 @@ fn o_shows_a_host_s_scans_newest_first_and_the_arrows_go_through_them() {
     assert_eq!(result_view(&state).shown, 1, "there is nothing older");
     tap(&mut state, KeyCode::Right);
     assert_eq!(result_view(&state).shown, 0);
+}
+
+#[test]
+fn an_earlier_scan_s_job_opens_it_in_its_place_among_the_host_s_scans() {
+    let (mut state, now) = on_the_storage_box();
+    tap(&mut state, KeyCode::Enter);
+    let (id, _) = started(tap(&mut state, KeyCode::Enter));
+    finish(&mut state, id, found(&[22], 719, Ending::Done), now);
+    tap(&mut state, KeyCode::Char('p'));
+    tap(&mut state, KeyCode::Enter);
+    let (id, _) = started(tap(&mut state, KeyCode::Enter));
+    finish(&mut state, id, found(&[22, 80], 718, Ending::Done), now + Duration::from_secs(1));
+    tap(&mut state, KeyCode::Esc);
+    press(&mut state, KeyCode::Char('j'), KeyModifiers::ALT);
+    tap(&mut state, KeyCode::End);
+    tap(&mut state, KeyCode::Char('o'));
+    assert_eq!((result_view(&state).shown, result_view(&state).scans.len()), (1, 2));
+    assert_eq!(result_view(&state).record().open, vec![22]);
+    tap(&mut state, KeyCode::Right);
+    assert_eq!(result_view(&state).record().open, vec![22, 80], "the later scan is to the right");
 }
 
 #[test]

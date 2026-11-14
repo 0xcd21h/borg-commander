@@ -398,7 +398,7 @@ fn f4_edits_a_file_of_the_archive_and_each_save_writes_it_back() {
 }
 
 #[test]
-fn a_long_job_question_for_a_save_shows_over_the_editor_and_takes_its_keys() {
+fn a_long_job_question_for_a_save_waits_for_the_keys_to_rest_then_takes_the_editors_keys() {
     let (mut state, now) = opened(&[file("readme.md")]);
     hover(&mut state, "readme.md");
     let shown = PathBuf::from("/home/site.zip/readme.md");
@@ -429,8 +429,11 @@ fn a_long_job_question_for_a_save_shows_over_the_editor_and_takes_its_keys() {
         kind: DriveKind::HardDrive,
     };
     update(&mut state, Msg::Job { id, event: Event::Asking(ask) }, now);
+    assert!(!state.question_shows(), "the question waits while keys come in");
+    assert!(state.toasts.iter().any(|toast| toast.job == id && toast.event == crate::ToastEvent::Asking));
+    update(&mut state, Msg::Tick, now + crate::update_offer::QUIET);
     assert!(state.editor.is_some(), "the editor stays open under the question");
-    assert!(state.question_shows());
+    assert!(state.question_shows(), "it opens once the keys rest");
 
     let text_before = state.editor.as_ref().map(|editor| editor.buffer.text());
     let effects = press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE, now);

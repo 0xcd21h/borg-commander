@@ -337,7 +337,8 @@ fn start_rewrite(
     request: RewriteRequest,
     now: Instant,
 ) -> Vec<Effect> {
-    let (id, mut effects) = crate::jobs::begin_on(state, kind, shown_on, now);
+    let subject = crate::jobs::rewrite_subject(&request.archive);
+    let (id, mut effects) = crate::jobs::begin_on(state, kind, subject, shown_on, now);
     effects.push(Effect::StartRewrite { id, request });
     effects
 }
@@ -379,7 +380,8 @@ pub(crate) fn move_out(state: &mut AppState, sources: &[PathBuf], text: &str, no
         state.notice = Some(tr!(archive_copy_destination).into());
         return Vec::new();
     }
-    let (id, mut effects) = crate::jobs::begin(state, JobKind::Move, now);
+    let (id, mut effects) = crate::jobs::begin(state, JobKind::Move, crate::jobs::subject(sources, Some(&target)), now);
+    crate::jobs::reveal_folder(state, id, side.other(), target.clone(), None);
     effects.push(Effect::StartUnpack {
         id,
         request: UnpackRequest {
@@ -422,7 +424,9 @@ pub(crate) fn unpack(state: &mut AppState, sources: &[PathBuf], target: PathBuf,
     let side = state.active;
     let Some((mount, base)) = shown_folder(state, side) else { return Vec::new() };
     let paths = sources.iter().filter_map(|source| mount.inside(source)).collect();
-    let (id, mut effects) = crate::jobs::begin(state, JobKind::Unpack, now);
+    let subject = crate::jobs::subject(sources, Some(&target));
+    let (id, mut effects) = crate::jobs::begin(state, JobKind::Unpack, subject, now);
+    crate::jobs::reveal_folder(state, id, side.other(), target.clone(), None);
     effects.push(Effect::StartUnpack {
         id,
         request: UnpackRequest {
@@ -449,7 +453,9 @@ pub(crate) fn extract(state: &mut AppState, to: Side, now: Instant) -> Vec<Effec
         return Vec::new();
     }
     let target = state.panel(to).dir().to_path_buf();
-    let (id, mut effects) = crate::jobs::begin_on(state, JobKind::Unpack, to, now);
+    let subject = crate::jobs::subject(std::slice::from_ref(&archive), Some(&target));
+    let (id, mut effects) = crate::jobs::begin_on(state, JobKind::Unpack, subject, to, now);
+    crate::jobs::reveal_folder(state, id, to, target.clone(), None);
     effects.push(Effect::StartUnpack {
         id,
         request: UnpackRequest {

@@ -10,9 +10,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
 
 use crate::{
-    Action, AppState, Effect, JobCommand, ListingMode, Msg, Overlay, PanelSetup, Settings, ShellView, Side, SortKey,
-    Startup, ThemeChoice, View, menus, state::REVEAL_DELAY, update,
+    Action, AppState, Effect, How, JobCommand, JobKind, ListingMode, Msg, Overlay, PanelSetup, Settings, ShellView,
+    Side, SortKey, Startup, ThemeChoice, ToastEvent, View, menus, state::REVEAL_DELAY, update,
 };
+
+mod jobs;
 
 const COLS: u16 = 80;
 const ROWS: u16 = 24;
@@ -503,6 +505,16 @@ fn setup() -> (AppState, Instant) {
     setup_with(vec![dir("me")])
 }
 
+/// What the finished job of `kind` says it did.
+fn ended_with(state: &AppState, kind: JobKind) -> Option<&str> {
+    let ended = state.jobs.iter().filter(|job| job.kind == kind).find_map(|job| job.ending());
+    ended.map(|ending| ending.summary.as_str())
+}
+
+fn runs(state: &AppState, kind: JobKind) -> bool {
+    state.jobs.iter().any(|job| job.kind == kind && job.running())
+}
+
 fn press(state: &mut AppState, now: Instant, event: KeyEvent) -> Vec<Effect> {
     update(state, Msg::Key(event), now)
 }
@@ -830,8 +842,10 @@ fn job_progress_conflicts_and_completion() {
 
     let done = Outcome::Done { done: Totals { files: 1, bytes: 200 }, skipped: 0 };
     let effects = update(&mut state, Msg::Job { id, event: Event::Finished(done) }, now);
-    assert!(state.jobs.is_empty());
-    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
+    assert!(!runs(&state, JobKind::Copy));
+    assert_eq!(ended_with(&state, JobKind::Copy), Some("Copied 1 file"), "the finished job stays in the jobs panel");
+    assert!(state.toasts.iter().any(|toast| toast.job == id && toast.event == ToastEvent::Ended(How::Done)));
+    assert!(state.notice.is_none(), "the toast says it, so no notice does");
     assert_eq!(effects.iter().filter(|e| matches!(e, Effect::List { .. })).count(), 2);
 }
 
@@ -908,7 +922,7 @@ fn delete_asks_first_starting_on_no_so_enter_alone_keeps_the_files() {
     assert_eq!(confirm.message, "Delete \"a\" permanently?");
     assert!(!confirm.accept, "the question starts on No");
     assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
-    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Enter took No");
+    assert!(state.overlay.is_none() && !runs(&state, JobKind::Delete), "Enter took No");
 
     press(&mut state, now, key(KeyCode::F(8)));
     assert!(press(&mut state, now, key(KeyCode::Char('n'))).is_empty());
@@ -1606,12 +1620,13 @@ fn ctrl_r_in_a_contents_search_replaces_in_every_file_it_found_or_in_the_marked_
     assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
     let asked = "Replace every match of \"port\" with \" listen \" in 3 files? Borg keeps no copy of the old text.";
     assert_eq!(replace_question(&state), (asked, false), "the question starts on No");
+    let id = state.next_job;
     let effects = press(&mut state, now, key(KeyCode::Char('y')));
     let files: Vec<PathBuf> = ["a.conf", "b.conf", "c.conf"].map(|name| Path::new("/home").join(name)).to_vec();
     let request = crate::ReplaceRequest { query: query.clone(), with: " listen ".into(), files };
-    assert!(effects.contains(&Effect::StartReplace { id: 0, request }), "{effects:?}");
+    assert!(effects.contains(&Effect::StartReplace { id, request }), "{effects:?}");
     assert!(state.overlay.is_none());
-    assert_eq!(state.jobs[0].kind, crate::JobKind::Replace);
+    assert!(runs(&state, JobKind::Replace));
 
     press(&mut state, now, key(KeyCode::Insert));
     press(&mut state, now, ctrl('r'));
@@ -1620,8 +1635,9 @@ fn ctrl_r_in_a_contents_search_replaces_in_every_file_it_found_or_in_the_marked_
     assert!(asked.starts_with("Remove every match of \"port\" from \""), "nothing typed removes the text: {asked}");
     assert!(asked.contains("a.conf\"?"), "one file is named: {asked}");
     let only = crate::ReplaceRequest { query, with: String::new(), files: vec![PathBuf::from("/home/a.conf")] };
+    let id = state.next_job;
     let effects = press(&mut state, now, key(KeyCode::Char('y')));
-    assert!(effects.contains(&Effect::StartReplace { id: 1, request: only }), "{effects:?}");
+    assert!(effects.contains(&Effect::StartReplace { id, request: only }), "{effects:?}");
 }
 
 #[test]
@@ -1634,7 +1650,7 @@ fn enter_or_esc_on_the_replace_question_changes_no_file() {
         replace_question(&state);
         let effects = press(&mut state, now, key(answer));
         assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartReplace { .. })), "{answer:?}: {effects:?}");
-        assert!(state.overlay.is_none() && state.jobs.is_empty(), "{answer:?} replaces nothing");
+        assert!(state.overlay.is_none() && !runs(&state, JobKind::Replace), "{answer:?} replaces nothing");
     }
 }
 
@@ -1645,10 +1661,13 @@ fn a_finished_replace_says_how_many_files_changed_and_searches_again() {
     press(&mut state, now, ctrl('r'));
     type_text(&mut state, now, "listen");
     press(&mut state, now, key(KeyCode::Enter));
+    let id = state.next_job;
     press(&mut state, now, key(KeyCode::Char('y')));
     let outcome = Outcome::Done { done: Totals { files: 2, bytes: 0 }, skipped: 1 };
-    let effects = update(&mut state, Msg::Job { id: 0, event: Event::Finished(outcome) }, now);
-    assert_eq!(state.notice.as_deref(), Some("Replaced text in 2 files · 1 skipped"));
+    let effects = update(&mut state, Msg::Job { id, event: Event::Finished(outcome) }, now);
+    assert_eq!(ended_with(&state, JobKind::Replace), Some("Replaced text in 2 files · 1 skipped"));
+    let reveal = state.jobs.iter().find(|job| job.id == id).and_then(|job| job.reveal.as_ref());
+    assert!(matches!(reveal, Some(crate::Reveal::Results { side: Side::Left, .. })), "Open brings back the results");
     let again = effects
         .iter()
         .any(|effect| matches!(effect, Effect::Search { side: Side::Left, request, .. } if request.options.refresh));
@@ -1661,7 +1680,7 @@ fn ctrl_r_replaces_only_where_a_search_looked_for_text() {
     port_found_in_three_files(&mut state, now);
     press(&mut state, now, ctrl('r'));
     assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
-    assert!(state.overlay.is_none() && state.jobs.is_empty(), "Esc replaces nothing");
+    assert!(state.overlay.is_none() && !runs(&state, JobKind::Replace), "Esc replaces nothing");
 
     let (mut state, now) = setup();
     crate::results::collection(&mut state, "Bundle", Side::Left);
@@ -3191,7 +3210,7 @@ fn background_sizes_update_real_paths_without_changing_panels_cursor_or_marks() 
     assert!(state.sizing.is_none());
     assert_eq!(state.active, Side::Right);
     assert!(effects.iter().all(|e| matches!(e, Effect::List { .. })));
-    assert!(state.notice.as_ref().unwrap().contains("80 scanned"));
+    assert!(ended_with(&state, JobKind::Sizes).is_some_and(|summary| summary.contains("80 scanned")));
 }
 
 #[test]
@@ -3391,7 +3410,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert!(state.jobs.iter().any(|job| job.id == id && job.shown_on == Side::Right), "a copy job, shown on the host");
     let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 0 }, skipped: 0 };
     let effects = update(&mut state, Msg::Job { id, event: borg_jobs::Event::Finished(done) }, now);
-    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
+    assert_eq!(ended_with(&state, JobKind::Copy), Some("Copied 1 file"));
     assert!(effects.iter().any(|e| matches!(e, Effect::List { side: Side::Right, .. })), "both panels refresh");
 
     let effects = crate::actions::perform(&mut state, Action::View, now);

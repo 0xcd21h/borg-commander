@@ -24,9 +24,9 @@ expression: describe(&buffer)
 │                                                     ││                                                     │
 │                                                     ││                                                     │
 │                                                     ││                                                     │
-│                                                     ││                                                     │
-│                                                     ││                                                     │
-│                                                     ││                                                     │
+│                                                     ││             ╭ ✓ Found 3 items ──────────────────[×]╮│
+│                                                     ││             │ “todo” in /workspace · 0:00          ││
+│                                                     ││             ╰──────────── Alt-G Open · Alt-X Close ╯│
 ╰ 3/3 items · 0 marked ───────────────────────────────╯╰ 5 items ────────────────────────────────────────────╯
  /workspace/web/app.js:7
 $
@@ -55,9 +55,9 @@ Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hid
  19: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  20: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  21: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
- 22: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
- 23: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
- 24: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+ 22: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-69 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 70-86 Rgb(95, 175, 215) Rgb(38, 38, 38) BOLD | 87-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+ 23: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-69 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 70-107 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 108-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+ 24: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-81 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 82-107 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 108-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  25: 0-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  26: 0-109 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  27: 0-109 Reset Reset NONE

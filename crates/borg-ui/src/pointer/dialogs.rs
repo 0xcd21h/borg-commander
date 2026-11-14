@@ -1,7 +1,9 @@
 //! The mouse in the dialogs: choosing their rows, the wheel moving through their lists, their
 //! buttons, and the keys their borders list.
 
-use borg_core::{AppState, Connect, Msg, Overlay, Pointer, RemoteBrowser};
+use std::time::Instant;
+
+use borg_core::{AppState, Connect, Layout, Msg, Overlay, Pointer, RemoteBrowser};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
@@ -12,8 +14,8 @@ use crate::discovery_view;
 /// The mouse in dialogs: the keys their borders list take clicks, the wheel moves through lists,
 /// rows and buttons take clicks, and a click beside a list or a notice closes it. Dialogs that
 /// hold typing or ask a question stay open. `None` leaves the event to the other handlers.
-pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<Option<Msg>> {
-    let (point, click) = (mouse.point, mouse.click);
+pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, layout: &Layout, now: Instant) -> Option<Option<Msg>> {
+    let (point, click, screen) = (mouse.point, mouse.click, layout.screen);
     let overlay = state.overlay.as_ref()?;
     if let Some(delta) = step(mouse)
         && scrolls(overlay)
@@ -60,14 +62,15 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Opt
             (click && crate::settings_view::item_at(state, point, screen).is_none())
                 .then(|| hinted(rect, tr!(space_toggle_esc_close_saved_immediately), false, point))
         }
-        Overlay::Jobs(_) => {
-            let (rect, at) = crate::job_view::job_at(state.jobs.len(), screen, point);
-            Some(match (click, at) {
-                (true, Some(at)) => Some(Msg::Pointer(Pointer::DialogRow(at))),
-                (true, None) => hinted(rect, tr!(p_pause_c_cancel_esc_close), true, point),
-                _ => None,
-            })
-        }
+        Overlay::Jobs(list) => Some(
+            click
+                .then(|| match crate::jobs_sheet::at(*list, &state.jobs, layout, now, point) {
+                    crate::jobs_sheet::At::Row(row) => Some(Msg::Pointer(Pointer::DialogRow(row))),
+                    crate::jobs_sheet::At::Button(key) => Some(Msg::Key(key)),
+                    crate::jobs_sheet::At::Frame(rect) => hinted(rect, crate::jobs_sheet::hint(rect), true, point),
+                })
+                .flatten(),
+        ),
         Overlay::Question(question) => {
             let job = state.jobs.iter().find(|job| job.id == question.id)?;
             let (_, buttons) = crate::job_view::question_buttons(job, screen);

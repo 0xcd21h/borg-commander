@@ -65,7 +65,8 @@ pub(crate) fn copy(state: &mut AppState, sources: Vec<PathBuf>, target: &str, no
             return Vec::new();
         }
     };
-    let (id, mut effects) = crate::jobs::begin(state, crate::JobKind::Copy, now);
+    let subject = crate::jobs::subject(&sources, Some(&target));
+    let (id, mut effects) = crate::jobs::begin(state, crate::JobKind::Copy, subject, now);
     effects.push(Effect::StartDockerCopy { id, container, inbound, sources, target });
     effects
 }
