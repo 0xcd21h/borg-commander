@@ -64,9 +64,11 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Char('r' | 'R') => return super::capture::capture_key(state),
         KeyCode::Char('l' | 'L') => return super::capture::copy_key_log_prefix(state),
         KeyCode::Char('k' | 'K') => return show_process(state, true),
-        KeyCode::Char(digit @ '1'..='4') => show_page(network, NetworkPage::ALL[usize::from(digit as u8 - b'1')]),
+        KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::sweep(state),
         KeyCode::Char(c) => {
-            if let Some(sort) = NetworkSort::from_key(c) {
+            if let Some(page) = NetworkPage::from_key(c) {
+                show_page(network, page);
+            } else if let Some(sort) = NetworkSort::from_key(c) {
                 sort_by(state, sort);
             }
         }
@@ -239,5 +241,6 @@ pub(crate) fn copied_text(network: &Network) -> Option<String> {
                 .map(|(address, _)| address.to_string());
             Some(address.unwrap_or_else(|| interface.name.clone()))
         }
+        NetworkPage::Neighbors => network.neighbor().map(|(neighbor, _)| neighbor.address.to_string()),
     }
 }

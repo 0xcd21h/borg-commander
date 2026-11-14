@@ -206,6 +206,10 @@ pub use network::{
     NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow, RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey,
     TcpState, Traffic, Transport, exposure_label, kind_label, service,
 };
+pub use network::{
+    Gateway, GatewayWatch, Mac, MacChange, Neighbor, NeighborRow, NeighborState, Neighborhood, Subnet, Sweep,
+    neighbor_notes, subnet, vendor,
+};
 
 pub use capture::{
     ACK, App, CONNECTION_BUDGET, CWR, Capture, CaptureError, ConnectionBudget, Datagram, Dns, DnsAnswer, DnsData, ECE,

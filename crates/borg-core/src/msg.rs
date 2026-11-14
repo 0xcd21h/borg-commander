@@ -64,6 +64,7 @@ pub enum Msg {
     AlertsChanged(Box<crate::AlertLog>),
     /// Names for addresses the network screen asked about; `None` where there is none.
     HostNames(Vec<(std::net::IpAddr, Option<String>)>),
+    Swept(Result<usize, String>),
     /// How far the running capture got.
     CaptureProgress {
         id: u64,
@@ -362,6 +363,7 @@ pub enum Effect {
     /// Samples the machine's sockets and interfaces for the network screen.
     Network {
         id: u64,
+        neighbors: bool,
     },
     /// Reads the places programs start from for the startup items screen.
     StartupItems {
@@ -374,6 +376,9 @@ pub enum Effect {
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),
+    Sweep {
+        addresses: Vec<std::net::Ipv4Addr>,
+    },
     /// Runs `tcpdump` for the network screen's capture.
     Capture {
         id: u64,

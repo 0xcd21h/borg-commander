@@ -1,14 +1,20 @@
 //! The details pane: the selected port, process, connection or interface, its traffic over the
 //! last minute, and the connections it has.
 
-use super::{DOWN, Field, UP, cells, column, endpoint, list::reach, open, page_label, rate, socket_rate};
+use super::{
+    DOWN, Field, UP, cells, column, endpoint, list::reach, neighbor_label, neighbor_vendor, open, page_label, rate,
+    socket_rate,
+};
 use crate::{
-    activity_view::{Unit, body, dim, emphasis, heading, row, text},
+    activity_view::{Unit, body, dim, emphasis, heading, row, text, wrap},
     docker_view::{Facts, Series, charts, tiles},
     format,
     look::Look,
 };
-use borg_core::{Interface, Meter, Network, NetworkPage, PortRow, ProcessRow, Rate, Socket, kind_label, service};
+use borg_core::{
+    Interface, Meter, Neighbor, NeighborRow, Network, NetworkPage, PortRow, ProcessRow, Rate, Socket, kind_label,
+    service,
+};
 use borg_i18n::tr;
 use ratatui::{buffer::Buffer, layout::Rect};
 use unicode_width::UnicodeWidthStr;
@@ -19,6 +25,8 @@ const CHART_HEIGHT: u16 = 10;
 const LABEL_GAP: u16 = 2;
 const TABLE_RATE_WIDTH: u16 = 9;
 const TABLE_STATE_WIDTH: u16 = 12;
+const SEPARATOR: &str = " · ";
+const LIST_SEPARATOR: &str = ", ";
 
 pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, buf: &mut Buffer) {
     let focused = network.details_focused;
@@ -64,6 +72,19 @@ pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, buf: 
         },
         NetworkPage::Interfaces => match network.interface() {
             Some((interface, rate)) => interface_details(network, interface, rate, look, rect, buf),
+            None => {
+                _ = crate::results_view::pane_frame(
+                    network.expanded,
+                    look,
+                    rect,
+                    page_label(network.page),
+                    focused,
+                    buf,
+                )
+            }
+        },
+        NetworkPage::Neighbors => match network.neighbor() {
+            Some((neighbor, entry)) => neighbor_details(network, neighbor, entry, look, rect, buf),
             None => {
                 _ = crate::results_view::pane_frame(
                     network.expanded,
@@ -312,4 +333,79 @@ fn interface_details(
     );
     let (downloads, uploads) = traffic(network.traffic.interfaces.get(&interface.name));
     draw_charts(&downloads, &uploads, below(rest, facts.y + 1), look, buf);
+}
+
+fn neighbor_details(
+    network: &Network,
+    neighbor: &Neighbor,
+    entry: NeighborRow,
+    look: &Look<'_>,
+    rect: Rect,
+    buf: &mut Buffer,
+) {
+    let theme = look.theme;
+    let title = neighbor.address.to_string();
+    let inner = crate::results_view::pane_frame(network.expanded, look, rect, &title, network.details_focused, buf);
+    if inner.is_empty() {
+        return;
+    }
+    text(buf, row(inner, 0), neighbor_label(network, neighbor), emphasis(theme));
+    let summary: Vec<&str> =
+        [entry.gateway.then(|| tr!(network_gateway_note)), neighbor_vendor(neighbor)].into_iter().flatten().collect();
+    text(buf, row(inner, 1), summary.join(SEPARATOR), theme.styles.overlay);
+    let body = body(rect);
+    let labels = [
+        tr!(network_mac_label),
+        tr!(network_vendor_label),
+        tr!(network_neighbor_state_label),
+        tr!(network_interface_label),
+        tr!(network_subnet_label),
+        tr!(network_same_mac_label),
+        tr!(network_gateway_label),
+        tr!(network_dns_label),
+    ];
+    let mut facts = facts(body, 0, &labels, look);
+    facts.add(buf, labels[0], neighbor.mac.map_or_else(String::new, |mac| mac.to_string()));
+    facts.add(buf, labels[1], neighbor_vendor(neighbor).unwrap_or_default());
+    facts.add(buf, labels[2], neighbor.state.map_or("", |state| state.name()));
+    let kind = network.sample.interfaces.iter().find(|known| known.name == neighbor.interface);
+    let interface = match kind {
+        Some(known) => format!("{}{SEPARATOR}{}", neighbor.interface, kind_label(known.kind)),
+        None => neighbor.interface.clone(),
+    };
+    facts.add(buf, labels[3], interface);
+    let subnet = borg_core::subnet(&network.sample.interfaces, neighbor).map(|subnet| {
+        tr!(network_subnet_value, subnet = format!("{}/{}", subnet.network, subnet.prefix), address = subnet.own)
+    });
+    facts.add(buf, labels[4], subnet.unwrap_or_default());
+    let same: Vec<String> = network.same_mac(neighbor).iter().map(ToString::to_string).collect();
+    facts.add(buf, labels[5], same.join(LIST_SEPARATOR));
+    let mut y = facts.y + 1;
+    for sentence in warnings(neighbor, entry) {
+        for line in wrap(&sentence, usize::from(body.width)) {
+            if y < body.height {
+                text(buf, row(body, y), line, theme.styles.notice);
+            }
+            y += 1;
+        }
+        y += 1;
+    }
+    if y >= body.height {
+        return;
+    }
+    text(buf, row(body, y), tr!(network_this_network), heading(theme));
+    let neighborhood = &network.neighborhood;
+    let mut facts = self::facts(body, y + 1, &labels, look);
+    let gateways: Vec<String> =
+        neighborhood.gateways_on(&neighbor.interface).map(|gateway| gateway.address.to_string()).collect();
+    facts.add(buf, labels[6], gateways.join(LIST_SEPARATOR));
+    let servers: Vec<String> = neighborhood.dns.iter().map(ToString::to_string).collect();
+    facts.add(buf, labels[7], servers.join(LIST_SEPARATOR));
+}
+
+fn warnings(neighbor: &Neighbor, entry: NeighborRow) -> Vec<String> {
+    let changed = entry.changed.map(|change| tr!(network_gateway_changed_detail, from = change.from, to = change.to));
+    let shared = entry.shared.then(|| tr!(network_mac_shared_detail, interface = neighbor.interface));
+    let randomized = entry.randomized(neighbor).then(|| tr!(network_randomized_detail).to_owned());
+    [changed, shared, randomized].into_iter().flatten().collect()
 }

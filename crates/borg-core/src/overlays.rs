@@ -385,6 +385,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
         }
+        (Some(true), ConfirmPurpose::Sweep(sweep)) => crate::network::start_sweep(state, *sweep),
         (Some(true), ConfirmPurpose::Quit | ConfirmPurpose::ShellExit { .. }) => {
             let mut effects = jobs::cancel_all(state);
             effects.push(Effect::Quit);

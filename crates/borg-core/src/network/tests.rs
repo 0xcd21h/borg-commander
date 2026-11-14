@@ -90,7 +90,7 @@ fn sample(step: u64) -> NetworkSample {
         interface("lo0", InterfaceKind::Loopback, 50_000 * step, 50_000 * step),
         interface("en0", InterfaceKind::WiFi, 100_000 * step, 20_000 * step),
     ];
-    NetworkSample { sockets, interfaces, names }
+    NetworkSample { sockets, interfaces, names, neighborhood: None }
 }
 
 fn measured(filter: &str) -> Network {
@@ -241,7 +241,7 @@ fn press(state: &mut AppState, code: KeyCode, modifiers: KeyModifiers) -> Vec<Ef
 
 fn requested(effects: &[Effect]) -> Option<u64> {
     effects.iter().find_map(|effect| match effect {
-        Effect::Network { id } => Some(*id),
+        Effect::Network { id, .. } => Some(*id),
         _ => None,
     })
 }
@@ -1086,4 +1086,176 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
     assert_eq!(ask.body[3].text, "Keep: Whole packets");
     let ask = capture_ask(port, None, &CaptureRequest { keep: Keep::ConnectionStart, ..request }, None);
     assert_eq!(ask.body[3].text, "Keep: First 1 MiB of each connection");
+}
+
+const ROUTER_MAC: &str = "00:27:22:4c:01:01";
+const NAS_MAC: &str = "00:11:32:aa:00:60";
+
+fn home_neighbor(address: &str, mac: Option<&str>, state: NeighborState) -> Neighbor {
+    Neighbor {
+        address: address.parse().unwrap(),
+        mac: mac.and_then(Mac::parse),
+        interface: "en0".into(),
+        state: Some(state),
+        router: false,
+    }
+}
+
+/// The machine of `sample` on a home network: a router, a storage box answering on two
+/// addresses, a phone with a private address and a device that does not answer.
+fn home_sample(step: u64, router: &str) -> NetworkSample {
+    let mut sample = sample(step);
+    sample.interfaces[1].addresses = vec![(IpAddr::from([192, 0, 2, 10]), 24)];
+    sample.neighborhood = Some(Neighborhood {
+        neighbors: vec![
+            home_neighbor("192.0.2.77", None, NeighborState::Incomplete),
+            home_neighbor("192.0.2.61", Some(NAS_MAC), NeighborState::Stale),
+            home_neighbor("192.0.2.44", Some("da:a1:19:12:34:56"), NeighborState::Reachable),
+            home_neighbor("192.0.2.1", Some(router), NeighborState::Reachable),
+            home_neighbor("192.0.2.60", Some(NAS_MAC), NeighborState::Delay),
+        ],
+        gateways: vec![Gateway { address: "192.0.2.1".parse().unwrap(), interface: "en0".into() }],
+        dns: vec!["192.0.2.1".parse().unwrap()],
+        error: None,
+    });
+    sample
+}
+
+fn asked(effects: &[Effect]) -> Option<(u64, bool)> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Network { id, neighbors } => Some((*id, *neighbors)),
+        _ => None,
+    })
+}
+
+fn home_opened() -> (AppState, Instant) {
+    let (mut state, now) = state();
+    let (id, neighbors) = asked(&press(&mut state, KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+    assert!(neighbors, "opening reads the neighbor tables");
+    update(&mut state, Msg::Network { id, result: Ok(home_sample(1, ROUTER_MAC)) }, now);
+    press(&mut state, KeyCode::Char('5'), KeyModifiers::NONE);
+    (state, now)
+}
+
+fn shown_neighbors(network: &Network) -> Vec<String> {
+    network.neighbors.iter().map(|row| network.neighborhood.neighbors[row.neighbor].address.to_string()).collect()
+}
+
+#[test]
+fn five_lists_the_neighbors_by_address_with_the_silent_ones_last() {
+    let (mut state, _) = home_opened();
+    assert_eq!(state.network.page, NetworkPage::Neighbors);
+    assert_eq!(shown_neighbors(&state.network), ["192.0.2.1", "192.0.2.44", "192.0.2.60", "192.0.2.61", "192.0.2.77"]);
+    press(&mut state, KeyCode::Char('m'), KeyModifiers::NONE);
+    assert_eq!(shown_neighbors(&state.network), ["192.0.2.60", "192.0.2.61", "192.0.2.1", "192.0.2.44", "192.0.2.77"]);
+    press(&mut state, KeyCode::Char('t'), KeyModifiers::NONE);
+    assert_eq!(state.network.order().sort, NetworkSort::Mac, "the page has no traffic to sort by");
+    hosts_resolved(&mut state, vec![("192.0.2.60".parse().unwrap(), Some("nas.home.arpa".into()))]);
+    press(&mut state, KeyCode::Char('n'), KeyModifiers::NONE);
+    assert_eq!(
+        shown_neighbors(&state.network),
+        ["192.0.2.60", "192.0.2.61", "192.0.2.1", "192.0.2.44", "192.0.2.77"],
+        "names first: the resolved one, then the vendors, then the rest by address"
+    );
+    let names: Vec<Option<String>> = state
+        .network
+        .neighbors
+        .iter()
+        .map(|row| state.network.neighbor_name(&state.network.neighborhood.neighbors[row.neighbor]))
+        .collect();
+    assert_eq!(names, [Some("nas.home.arpa".into()), Some("Synology".into()), Some("Ubiquiti".into()), None, None]);
+}
+
+#[test]
+fn the_neighbor_tables_are_read_every_sample_on_their_page_and_every_fifth_elsewhere() {
+    let (mut state, _) = state();
+    press(&mut state, KeyCode::Char('n'), KeyModifiers::ALT);
+    let elsewhere: Vec<bool> = (0..10).map(|_| asked(&state.network.request()).unwrap().1).collect();
+    assert_eq!(elsewhere, [false, false, false, false, true, false, false, false, false, true]);
+    show_page(&mut state.network, NetworkPage::Neighbors);
+    assert!((0..3).all(|_| asked(&state.network.request()).unwrap().1));
+}
+
+#[test]
+fn s_asks_before_sweeping_the_selected_neighbor_s_subnet() {
+    let (mut state, now) = home_opened();
+    press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("S asks first: {:?}", state.overlay) };
+    assert_eq!(
+        confirm.message,
+        "Sweep 192.0.2.0/24 on en0? Borg sends one empty UDP datagram to each of its 253 addresses."
+    );
+    let effects = update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), now);
+    let Some(Effect::Sweep { addresses }) = effects.first() else { panic!("Yes sweeps: {effects:?}") };
+    assert_eq!(addresses.len(), 253);
+    assert!(!addresses.contains(&"192.0.2.10".parse().unwrap()), "not this machine");
+    update(&mut state, Msg::Swept(Ok(253)), now);
+    assert_eq!(
+        state.notice.as_deref(),
+        Some("Swept 192.0.2.0/24 with 253 datagrams. Devices that answered join the list.")
+    );
+    let id = asked(&state.network.request()).unwrap().0;
+    update(&mut state, Msg::Network { id, result: Ok(home_sample(2, ROUTER_MAC)) }, now);
+    assert!(
+        !shown_neighbors(&state.network).contains(&"192.0.2.77".to_owned()),
+        "a swept address that did not answer is left out"
+    );
+}
+
+#[test]
+fn s_elsewhere_or_without_a_subnet_does_not_sweep() {
+    let (mut state, _) = home_opened();
+    show_page(&mut state.network, NetworkPage::Ports);
+    press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
+    assert!(state.overlay.is_none(), "S belongs to the Neighbors page");
+    show_page(&mut state.network, NetworkPage::Neighbors);
+    state.network.sample.interfaces[1].kind = InterfaceKind::Tunnel;
+    press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
+    assert!(state.overlay.is_none());
+    assert!(state.notice.as_deref().is_some_and(|notice| notice.starts_with("No subnet to sweep here.")));
+}
+
+#[test]
+fn a_gateway_answering_with_another_mac_shows_a_notice_and_keeps_the_row_flagged() {
+    let (mut state, now) = home_opened();
+    assert!(state.network.neighbors.iter().all(|row| row.changed.is_none()));
+    let id = asked(&state.network.request()).unwrap().0;
+    update(&mut state, Msg::Network { id, result: Ok(home_sample(2, "00:16:3e:44:55:66")) }, now);
+    assert_eq!(
+        state.notice.as_deref(),
+        Some("Gateway 192.0.2.1 changed its MAC address from 00:27:22:4c:01:01 to 00:16:3e:44:55:66.")
+    );
+    close(&mut state);
+    open(&mut state);
+    let id = asked(&state.network.request()).unwrap().0;
+    update(&mut state, Msg::Network { id, result: Ok(home_sample(3, ROUTER_MAC)) }, now);
+    show_page(&mut state.network, NetworkPage::Neighbors);
+    let (gateway, row) = state.network.neighbor().unwrap();
+    assert_eq!(gateway.address.to_string(), "192.0.2.1");
+    assert!(row.gateway && row.changed.is_some(), "the flag outlives closing the screen");
+}
+
+#[test]
+fn the_neighbor_filter_finds_macs_with_either_separator_and_vendors() {
+    let (mut state, _) = home_opened();
+    state.network.filter = "mac:00-11-32".into();
+    state.network.rebuild();
+    assert_eq!(shown_neighbors(&state.network), ["192.0.2.60", "192.0.2.61"]);
+    state.network.filter = "vendor:ubiquiti".into();
+    state.network.rebuild();
+    assert_eq!(shown_neighbors(&state.network), ["192.0.2.1"]);
+    state.network.filter = "state:incomplete".into();
+    state.network.rebuild();
+    assert_eq!(shown_neighbors(&state.network), ["192.0.2.77"]);
+    state.network.filter = "randomized".into();
+    state.network.rebuild();
+    assert_eq!(shown_neighbors(&state.network), ["192.0.2.44"]);
+}
+
+#[test]
+fn ctrl_c_on_a_neighbor_copies_its_address() {
+    let (mut state, _) = home_opened();
+    assert_eq!(copied_text(&state.network).as_deref(), Some("192.0.2.1"));
+    press(&mut state, KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert_eq!(state.notice.as_deref(), Some("Copied 192.0.2.1"));
 }

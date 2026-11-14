@@ -510,7 +510,8 @@ What the menu offers depends on the row:
   Pause, Files and Shell.
 - **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row
   is reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
-  **Signal or priority…**.
+  **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address** and
+  **Sweep subnet** (S).
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -2359,13 +2360,13 @@ before you rely on it.
 
 **Alt-N** or **Command → Network** shows what this machine does on the network: the ports that
 are open and who can reach them, the processes that are talking and how fast, every connection,
-and the network interfaces. It comes from the bundled System plugin, like the activity monitor.
+the network interfaces, and the devices next to this machine on the local network. It comes from the bundled System plugin, like the activity monitor.
 The list takes the active pane, and the other pane shows the selected row in detail with charts
 of the last 60 seconds. Borg samples once a second while the screen is open and stops when you
 close it. Rates appear from the second sample on, and each one is the mean of the last 3 seconds,
 so a list sorted by traffic holds still long enough to read.
 
-Press **1** to **4**, or click a tab, to switch pages:
+Press **1** to **5**, or click a tab, to switch pages:
 
 - **1 Ports** lists every port a process listens on, sorted by port. **Reach** says who can
   connect: **All networks** for a port open on every address, the address for a port bound to
@@ -2382,6 +2383,9 @@ Press **1** to **4**, or click a tab, to switch pages:
   **Loopback**, **Tunnel**, **Bridge** or **Virtual**), first address, and rates. ● marks an
   interface that is up. The details add every address, the MTU, the bytes and packets the
   interface received and sent so far, and its errors.
+- **5 Neighbors** lists the devices on the local network that this machine knows the MAC address
+  of, with their vendor, name and state, and marks the gateway and anything suspicious. See
+  [Neighbors](#neighbors).
 
 The footer shows the machine's total download and upload rate over every interface except
 loopback. Borg looks up the names of remote addresses in the background and shows a name in
@@ -2389,19 +2393,21 @@ place of the address once it is known.
 
 | Key | Action |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Show Ports / Processes / Connections / Interfaces |
+| 1 / 2 / 3 / 4 / 5 | Show Ports / Processes / Connections / Interfaces / Neighbors |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
-| T / N / P / C | Sort by traffic / name / port / connections; press again to reverse |
+| T / N / P / C / A / M | Sort by traffic / name / port / connections / address / MAC address; press again to reverse |
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
 | R | Capture the selected row's traffic, or stop the capture that runs |
-| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's address |
+| S | Sweep the selected neighbor's subnet (**5 Neighbors**) |
+| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's or neighbor's address |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
 | Esc | Go back to the list, then close the screen or return to the activity monitor |
 
-P sorts the pages that have a port, and C the pages that count connections. Click a column
+P sorts the pages that have a port, C the pages that count connections, and A and M sort
+**5 Neighbors**, which has no traffic to sort by. Click a column
 heading to sort by it, and double-click a row to show its process. Enter on a row without a
 process moves into the details. A row names a process and no program file, so Alt-O here tells you
 to press Enter and then Alt-O in the activity monitor. The activity monitor that Enter and K open has the process
@@ -2413,10 +2419,56 @@ It works the other way too. Alt-N in the activity monitor opens this screen on t
 process's row of **2 Processes**, with its traffic and connections in the details, and Esc goes
 back to the monitor. A process without connections or open ports gets a notice that says so.
 
+### Neighbors
+
+**5 Neighbors** shows the system's ARP table (IPv4) and NDP table (IPv6): every device on the local
+network that this machine talked to lately, with its address, MAC address, name and state. The
+state is the system's own word for the entry: **REACHABLE** answered recently, **STALE** has not
+been checked for a while, **DELAY** and **PROBE** are being checked, **INCOMPLETE** asked and got
+no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Entries without a MAC
+address sort last. This machine's own addresses, broadcast and multicast entries stay out of the
+list. A wide pane adds the vendor, the interface and a note.
+
+The vendor comes from the first half of the MAC address, looked up in the IEEE registry that ships
+with Borg, so `3c:2a:f4` reads as Brother Industries. Names come from the same background
+lookups as the other pages. Until a name arrives, or when an address has none, a narrow pane
+shows the vendor in the **Name** column. The footer names the default gateway and the DNS
+servers. Borg reads the tables every second while this page shows and every 5 seconds on the
+other pages.
+
+The **Note** column and the details flag what deserves a look:
+
+- **Gateway** marks the default gateway and every router the IPv6 table names.
+- **MAC shared** marks IPv4 addresses on one interface that answer with the same MAC address. A
+  router or a host with several addresses does that. So does a device that answers for others,
+  which is what ARP spoofing looks like.
+- **Gateway MAC changed** marks a gateway whose MAC address differs from the one Borg saw first.
+  A notice says so once, and the note stays until Borg quits. Another device
+  may be answering for the gateway. You also see it after joining another network whose gateway
+  has the same address, such as two routers that both use 192.168.1.1.
+- **Randomized** marks a locally administered MAC address, which names no vendor. Phones use such
+  private addresses, and so do virtual machines and containers.
+
+The details add the subnet with this machine's address in it, the other addresses that share the
+MAC address, and a sentence for each note. Under **This network** they list the gateways on the
+neighbor's interface and the DNS servers.
+
+The tables only hold devices this machine talked to. Press **S**, or choose **Sweep subnet** in the
+context menu, to find the quiet ones: Borg sends one empty UDP datagram to port 9 of every address
+in the selected neighbor's subnet, spread over one second, and the system asks each address for
+its MAC address on the way. Devices that answer join the list within a few seconds. Addresses
+that never answer stay hidden. Borg asks first and names the subnet, the interface and the
+number of addresses. It sweeps IPv4 subnets on Ethernet, Wi-Fi and bridge interfaces that are
+up, and covers at most 254 addresses: a larger subnet gets the /24 around this machine's address.
+It skips this machine, the network address and the broadcast address. With no row selected, S
+sweeps the subnet of the default gateway's interface. Sweep only networks you are allowed to
+scan, since some networks treat a sweep as an attack. Apart from the sweep and the name lookups,
+the page only reads tables the system keeps.
+
 ### Filtering
 
 The filter keeps the rows that match every word you type. A plain word matches the process, PID,
-port, service, address, host name, state, protocol, or a label the row shows, so `postgres`,
+port, service, address, host name, state, protocol, MAC address, vendor, or a label the row shows, so `postgres`,
 `5432`, `https` and `example.com` all work. A word with a field name looks in that field only:
 
 | Word | Keeps |
@@ -2427,7 +2479,9 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 | `host:example` | Rows whose address or host name contains the text; a whole address keeps that address alone |
 | `state:listen`, `state:time` | TCP rows in a state that contains the text |
 | `proto:udp`, `proto:tcp` | Rows of that protocol |
-| `if:en0`, `interface:en0` | Interfaces whose name contains the text |
+| `if:en0`, `interface:en0` | Interfaces and neighbors whose interface name contains the text |
+| `mac:3c:22`, `mac:3c-22` | Neighbors and interfaces whose MAC address contains the text |
+| `vendor:synology` | Neighbors whose vendor contains the text |
 
 Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
 and `!proc:browser` hides one program. The filter applies to every page, and while you type it
@@ -2713,6 +2767,13 @@ processes' open files. Without administrator rights it can only look into your o
 other users' sockets show **Unknown process**. TCP byte counts come from `ss` when it is
 installed; UDP sockets and machines without `ss` show **—** for rates, and the details say
 **The system reports no byte counts here**. Interface totals and rates always work.
+
+On macOS, the neighbors come from `arp -anl` and `ndp -an`, the gateways from `netstat -rn`, and
+the DNS servers from `/etc/resolv.conf`. `arp` reports no state, so an IPv4 entry whose timer runs
+shows **REACHABLE** and an expired one **STALE**. On Linux, Borg reads the kernel's neighbor table
+over netlink, or `/proc/net/arp` when netlink is closed to it, and the gateways from
+`/proc/net/route` and `/proc/net/ipv6_route`. The DNS servers come from `/etc/resolv.conf`, or
+from `/run/systemd/resolve/resolv.conf` when the first lists only the systemd-resolved stub.
 
 ## Startup items
 

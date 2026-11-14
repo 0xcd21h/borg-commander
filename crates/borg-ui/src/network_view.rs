@@ -2,7 +2,7 @@
 //! the selected row's details and traffic in the other. It shares the activity monitor's look.
 
 use crate::{format, look::Look, spinner::Spinner};
-use borg_core::{AppState, Network, NetworkPage, NetworkSort, Socket};
+use borg_core::{AppState, Neighbor, Network, NetworkPage, NetworkSort, Socket};
 use borg_i18n::tr;
 use ratatui::{buffer::Buffer, layout::Rect};
 use std::net::{IpAddr, SocketAddr};
@@ -40,6 +40,13 @@ const STATE_WIDTH: u16 = 12;
 const PROCESS_WIDTH: u16 = 16;
 const INTERFACE_WIDTH: u16 = 11;
 const KIND_WIDTH: u16 = 10;
+const MAC_FROM: u16 = 56;
+const NEIGHBOR_DETAILS_FROM: u16 = 110;
+const MAC_WIDTH: u16 = 17;
+const VENDOR_WIDTH: u16 = 16;
+const NEIGHBOR_STATE_WIDTH: u16 = 10;
+const NEIGHBOR_INTERFACE_WIDTH: u16 = 10;
+const NOTE_WIDTH: u16 = 20;
 
 pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: std::time::Instant, buf: &mut Buffer) {
     let network = &state.network;
@@ -65,6 +72,7 @@ fn page_label(page: NetworkPage) -> &'static str {
         NetworkPage::Processes => tr!(network_processes_tab),
         NetworkPage::Connections => tr!(network_connections_tab),
         NetworkPage::Interfaces => tr!(network_interfaces_tab),
+        NetworkPage::Neighbors => tr!(network_neighbors_tab),
     }
 }
 
@@ -104,6 +112,11 @@ enum Field {
     Interface,
     Kind,
     Address,
+    Mac,
+    Vendor,
+    Name,
+    Host,
+    Note,
 }
 
 impl Field {
@@ -122,6 +135,10 @@ impl Field {
             Self::Interface => tr!(network_interface_column),
             Self::Kind => tr!(network_kind_column),
             Self::Address => tr!(network_address_column),
+            Self::Mac => tr!(network_mac_column),
+            Self::Vendor => tr!(network_vendor_column),
+            Self::Name | Self::Host => tr!(network_name_column),
+            Self::Note => tr!(network_note_column),
         }
     }
 }
@@ -176,6 +193,18 @@ fn columns(page: NetworkPage, width: u16) -> Vec<Column> {
             Some(column(Field::Down, RATE_WIDTH, Some(NetworkSort::Traffic))),
             Some(column(Field::Up, RATE_WIDTH, Some(NetworkSort::Traffic))),
         ],
+        NetworkPage::Neighbors => {
+            let full = width >= NEIGHBOR_DETAILS_FROM;
+            vec![
+                Some(open(Field::Address, Some(NetworkSort::Address))),
+                (width >= MAC_FROM).then_some(column(Field::Mac, MAC_WIDTH, Some(NetworkSort::Mac))),
+                full.then_some(column(Field::Vendor, VENDOR_WIDTH, None)),
+                Some(open(if full { Field::Host } else { Field::Name }, Some(NetworkSort::Name))),
+                Some(column(Field::State, NEIGHBOR_STATE_WIDTH, None)),
+                full.then_some(column(Field::Interface, NEIGHBOR_INTERFACE_WIDTH, None)),
+                full.then_some(column(Field::Note, NOTE_WIDTH, None)),
+            ]
+        }
     };
     all.into_iter().flatten().collect()
 }
@@ -218,6 +247,18 @@ fn rate(value: Option<u64>) -> String {
 
 fn socket_rate(socket: &Socket, value: u64) -> String {
     rate(socket.received.map(|_| value))
+}
+
+fn neighbor_vendor(neighbor: &Neighbor) -> Option<&'static str> {
+    let mac = neighbor.mac?;
+    if mac.locally_administered() { Some(tr!(network_randomized_note)) } else { borg_core::vendor(mac) }
+}
+
+fn neighbor_label(network: &Network, neighbor: &Neighbor) -> String {
+    network
+        .host(neighbor.address)
+        .or_else(|| neighbor_vendor(neighbor))
+        .map_or_else(|| UNKNOWN.to_owned(), str::to_owned)
 }
 
 /// An interface's address to show first: IPv4 if it has one.

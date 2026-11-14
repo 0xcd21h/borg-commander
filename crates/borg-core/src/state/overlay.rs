@@ -157,6 +157,7 @@ pub enum ConfirmPurpose {
         request: Box<crate::CaptureRequest>,
         view_filter: String,
     },
+    Sweep(Box<crate::Sweep>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

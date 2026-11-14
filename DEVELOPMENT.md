@@ -276,6 +276,21 @@ on Linux; interfaces come from sysinfo, with kinds from `networksetup` or `/sys/
 Reverse lookups run in batches of 32 with a 2 second timeout each, and only for addresses the
 screen has not asked about before. Closing the screen cancels the sampler.
 
+Neighbors: `borg-core::network::neighbors` holds the pure parts. It parses MAC addresses and reads
+their flags, finds vendors, builds the rows with their notes, keeps the `GatewayWatch` that
+remembers each gateway's first MAC address for the session, and picks a `Sweep`'s addresses. The
+vendor table `neighbors/vendors.tsv` is the IEEE MA-L registry, one `OUI<TAB>name` line per
+prefix sorted by prefix, compiled in with `include_str!` and searched by binary search.
+`scripts/update-mac-vendors.py` regenerates it from the IEEE's `oui.csv`, either a file you pass or
+a fresh download; run it with `python3 -I`. `borg-app::network::neighbors` reads the tables. On
+macOS it parses `/usr/sbin/arp -anl`, `/usr/sbin/ndp -an` and `/usr/sbin/netstat -rn`. On Linux it
+dumps the neighbor table over netlink (`RTM_GETNEIGH`) through rustix, falls back to
+`/proc/net/arp`, and reads the gateways from `/proc/net/route` and `/proc/net/ipv6_route`. The
+sampler reads the tables on every sample while Neighbors shows and on every fifth otherwise. A
+failed read lands in `Neighborhood::error` and shows on the page without failing the sample. The
+sweep sends its empty UDP datagrams to the discard port from a blocking task and answers with
+`Msg::Swept`.
+
 Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
 Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes
 DNS, TLS client and server hellos, HTTP/1 and QUIC. `flows` groups packets into conversations by

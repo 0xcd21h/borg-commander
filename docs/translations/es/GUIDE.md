@@ -550,9 +550,10 @@ Lo que ofrece el menú depende de la fila:
 - **Archivos abiertos** de un proceso: **Copiar ruta**, y Ver para un archivo normal.
 - **Contenedores**: **Copiar ID** y **Copiar nombre**, luego Iniciar, Detener, Reiniciar, Pausar,
   Archivos y Shell, como en el menú Docker.
-- Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo
-  que identifique la fila. Una fila con un proceso añade **Copiar PID**,
-  **Mostrar en el monitor de actividad** y **Señal o prioridad…**.
+- Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo que
+  identifique la fila. Una fila con un proceso añade **Copiar PID**,
+  **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
+  **Copiar dirección IP**, **Copiar dirección MAC** y **Barrer subred** (S).
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -2551,15 +2552,15 @@ Conócelas antes de confiar en él.
 ## Red
 
 **Alt-N** o **Comando → Red** muestra lo que hace este equipo en la red: los puertos abiertos y
-quién puede llegar a ellos, los procesos que se comunican y a qué velocidad, cada conexión y las
-interfaces de red. Lo proporciona el complemento Sistema incluido, igual que el monitor de
-actividad. La lista ocupa el panel activo, y el otro panel muestra en detalle la fila seleccionada,
-con gráficos de los últimos 60 segundos. Borg toma una muestra por segundo mientras la pantalla está
-abierta y se detiene al cerrarla. Las velocidades aparecen a partir de la segunda muestra, y cada
-una es la media de los últimos 3 segundos, así que una lista ordenada por tráfico se queda quieta el
-tiempo suficiente para leerla.
+quién puede llegar a ellos, los procesos que se comunican y a qué velocidad, cada conexión, las
+interfaces de red y los dispositivos que rodean a este equipo en la red local. Lo proporciona el
+complemento Sistema incluido, igual que el monitor de actividad. La lista ocupa el panel activo, y
+el otro panel muestra en detalle la fila seleccionada, con gráficos de los últimos 60 segundos. Borg
+toma una muestra por segundo mientras la pantalla está abierta y se detiene al cerrarla. Las
+velocidades aparecen a partir de la segunda muestra, y cada una es la media de los últimos 3
+segundos, así que una lista ordenada por tráfico se queda quieta el tiempo suficiente para leerla.
 
-Pulsa de **1** a **4**, o haz clic en una pestaña, para cambiar de página:
+Pulsa de **1** a **5**, o haz clic en una pestaña, para cambiar de página:
 
 - **1 Puertos** lista cada puerto en el que escucha un proceso, ordenados por número. **Alcance**
   indica quién puede conectarse: **Todas las redes** para un puerto abierto en todas las
@@ -2577,6 +2578,9 @@ Pulsa de **1** a **4**, o haz clic en una pestaña, para cambiar de página:
   **Túnel**, **Puente** o **Virtual**), su primera dirección y sus velocidades. ● marca una interfaz
   activa. Los detalles añaden todas sus direcciones, la MTU, los bytes y paquetes que la interfaz ha
   recibido y enviado hasta ahora, y sus errores.
+- **5 Vecinos** lista los dispositivos de la red local cuya dirección MAC conoce este equipo, con su
+  fabricante, nombre y estado, y marca la puerta de enlace y todo lo que parezca sospechoso.
+  Consulta [Vecinos](#neighbors).
 
 El pie muestra la velocidad total de descarga y subida del equipo en todas las interfaces salvo la
 de loopback. Borg busca en segundo plano los nombres de las direcciones remotas y muestra el nombre
@@ -2584,37 +2588,88 @@ en lugar de la dirección en cuanto lo conoce.
 
 | Tecla | Acción |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Mostrar Puertos / Procesos / Conexiones / Interfaces |
+| 1 / 2 / 3 / 4 / 5 | Mostrar Puertos / Procesos / Conexiones / Interfaces / Vecinos |
 | `/` | Filtrar las filas; ↑↓ siguen moviendo, Enter conserva el filtro, Esc lo borra |
-| T / N / P / C | Ordenar por tráfico / nombre / puerto / conexiones; pulsa de nuevo para invertir |
+| T / N / P / C / A / M | Ordenar por tráfico / nombre / puerto / conexiones / dirección / dirección MAC; pulsa de nuevo para invertir |
 | Enter | Mostrar el proceso de la fila seleccionada en el monitor de actividad |
 | K | Mostrar el proceso con **Señal o prioridad** abierto |
 | R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
-| Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo o la dirección de la interfaz |
+| S | Barrer la subred del vecino seleccionado (**5 Vecinos**) |
+| Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, o la dirección de la interfaz o del vecino |
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
 | Alt-W | Maximizar el panel con el foco |
 | Esc | Volver a la lista y después cerrar la pantalla o regresar al monitor de actividad |
 
-P ordena las páginas que tienen puerto, y C las que cuentan conexiones. Haz clic en el encabezado de
-una columna para ordenar por ella, y doble clic en una fila para mostrar su proceso. Enter en una
-fila sin proceso pasa a los detalles. Una fila indica un proceso y ningún archivo de programa, así
-que Alt-O aquí te dice que pulses Enter y después Alt-O en el monitor de actividad. El monitor de
-actividad que abren Enter y K tiene el proceso
-seleccionado, así que su memoria, sus señales y su prioridad quedan a una tecla (consulta [Señales y
-prioridad](#signals-and-priority)). Esc allí te devuelve a la pantalla de red, a la fila donde
-estabas y con sus gráficos.
+P ordena las páginas que tienen puerto y C las que cuentan conexiones, mientras que A y M ordenan
+**5 Vecinos**, que no tiene tráfico por el que ordenar. Haz clic en el encabezado de una columna
+para ordenar por ella, y doble clic en una fila para mostrar su proceso. Enter en una fila sin
+proceso pasa a los detalles. Una fila indica un proceso y ningún archivo de programa, así que Alt-O
+aquí te dice que pulses Enter y después Alt-O en el monitor de actividad. El monitor de actividad
+que abren Enter y K tiene el proceso seleccionado, así que su memoria, sus señales y su prioridad
+quedan a una tecla (consulta [Señales y prioridad](#signals-and-priority)). Esc allí te devuelve a
+la pantalla de red, a la fila donde estabas y con sus gráficos.
 
 También funciona al revés. Alt-N en el monitor de actividad abre esta pantalla en la fila del
 proceso seleccionado de **2 Procesos**, con su tráfico y sus conexiones en los detalles, y Esc
 vuelve al monitor. Si el proceso no tiene conexiones ni puertos abiertos, un aviso te lo dice.
 
+### Vecinos
+
+**5 Vecinos** muestra la tabla ARP (IPv4) y la tabla NDP (IPv6) del sistema: cada dispositivo de la
+red local con el que este equipo habló hace poco, con su dirección, dirección MAC, nombre y estado.
+El estado es la palabra que usa el propio sistema para la entrada: **REACHABLE** respondió hace
+poco, **STALE** lleva un tiempo sin comprobarse, **DELAY** y **PROBE** se están comprobando,
+**INCOMPLETE** preguntó y aún no tiene respuesta, **FAILED** nunca respondió y **PERMANENT** no
+caduca nunca. Las entradas sin dirección MAC van al final. Las direcciones de este equipo y las
+entradas de broadcast y multicast quedan fuera de la lista. Un panel ancho añade el fabricante, la
+interfaz y una nota.
+
+El fabricante sale de la primera mitad de la dirección MAC, buscada en el registro del IEEE que
+viene con Borg, así que `3c:2a:f4` se lee como Brother Industries. Los nombres salen de las mismas
+búsquedas en segundo plano que usan las otras páginas. Hasta que llega un nombre, o cuando una
+dirección no tiene ninguno, un panel estrecho muestra el fabricante en la columna **Nombre**. El pie
+indica la puerta de enlace predeterminada y los servidores DNS. Borg lee las tablas cada segundo
+mientras esta página está a la vista y cada 5 segundos en las demás.
+
+La columna **Nota** y los detalles señalan lo que merece un vistazo:
+
+- **Puerta de enlace** marca la puerta de enlace predeterminada y cada router que nombra la tabla
+  IPv6.
+- **MAC compartida** marca direcciones IPv4 de una misma interfaz que responden con la misma
+  dirección MAC. Un router o un host con varias direcciones lo hace. También lo hace un dispositivo
+  que responde por otros, y ese es el aspecto de un ARP spoofing.
+- **Cambió su MAC** marca una puerta de enlace cuya dirección MAC difiere de la que Borg vio
+  primero. Un aviso lo dice una vez, y la nota se queda hasta que sales de Borg. Puede que otro
+  dispositivo esté respondiendo por la puerta de enlace. También la ves al unirte a otra red cuya
+  puerta de enlace tiene la misma dirección, como dos routers que usan 192.168.1.1.
+- **Aleatoria** marca una dirección MAC administrada localmente, que no indica fabricante. Los
+  teléfonos usan estas direcciones privadas, y también las máquinas virtuales y los contenedores.
+
+Los detalles añaden la subred con la dirección de este equipo, las otras direcciones que comparten
+la dirección MAC y una frase por cada nota. En **Esta red** listan las puertas de enlace de la
+interfaz del vecino y los servidores DNS.
+
+Las tablas solo guardan los dispositivos con los que este equipo habló. Pulsa **S**, o elige
+**Barrer subred** en el menú contextual, para encontrar los silenciosos: Borg envía un datagrama UDP
+vacío al puerto 9 de cada dirección de la subred del vecino seleccionado, repartidos a lo largo de
+un segundo, y por el camino el sistema pregunta a cada dirección cuál es su dirección MAC. Los
+dispositivos que responden entran en la lista en pocos segundos. Las direcciones que nunca responden
+siguen ocultas. Borg pregunta antes e indica la subred, la interfaz y el número de direcciones.
+Barre subredes IPv4 en interfaces Ethernet, Wi-Fi y puente que estén activas, y cubre como mucho 254
+direcciones: una subred mayor se reduce al /24 que rodea la dirección de este equipo. Se salta este
+equipo, la dirección de red y la dirección de broadcast. Sin ninguna fila seleccionada, S barre la
+subred de la interfaz de la puerta de enlace predeterminada. Barre solo redes que tengas permiso
+para analizar, porque algunas redes tratan un barrido como un ataque. Aparte del barrido y de las
+búsquedas de nombres, la página solo lee tablas que mantiene el sistema.
+
 ### Filtrar
 
 El filtro conserva las filas que coinciden con todas las palabras que escribes. Una palabra suelta
 coincide con el proceso, el PID, el puerto, el servicio, la dirección, el nombre del host, el
-estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5432`, `https` y
-`example.com` funcionan. Una palabra con nombre de campo busca solo en ese campo:
+estado, el protocolo, la dirección MAC, el fabricante o una etiqueta que muestra la fila, así que
+`postgres`, `5432`, `https` y `example.com` funcionan. Una palabra con nombre de campo busca solo en
+ese campo:
 
 | Palabra | Conserva |
 | --- | --- |
@@ -2624,7 +2679,9 @@ estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5
 | `host:example` | Filas cuya dirección o nombre de host contiene el texto; una dirección completa conserva solo esa dirección |
 | `state:listen`, `state:time` | Filas TCP en un estado que contiene el texto |
 | `proto:udp`, `proto:tcp` | Filas de ese protocolo |
-| `if:en0`, `interface:en0` | Interfaces cuyo nombre contiene el texto |
+| `if:en0`, `interface:en0` | Interfaces y vecinos cuyo nombre de interfaz contiene el texto |
+| `mac:3c:22`, `mac:3c-22` | Vecinos e interfaces cuya dirección MAC contiene el texto |
+| `vendor:synology` | Vecinos cuyo fabricante contiene el texto |
 
 Pon `!` delante de una palabra para descartar las filas que coinciden con ella: `!state:time_wait`
 oculta las conexiones que se están cerrando, y `!proc:browser` oculta un programa. El filtro se
@@ -2933,6 +2990,14 @@ propios procesos, así que los sockets de otros usuarios muestran **Proceso desc
 recuentos de bytes de TCP vienen de `ss` cuando está instalado; los sockets UDP y los equipos sin
 `ss` muestran **—** en las velocidades, y los detalles dicen **El sistema no informa recuentos de
 bytes aquí**. Los totales y las velocidades de las interfaces funcionan siempre.
+
+En macOS, los vecinos salen de `arp -anl` y `ndp -an`, las puertas de enlace de `netstat -rn` y los
+servidores DNS de `/etc/resolv.conf`. `arp` no informa del estado, así que una entrada IPv4 cuyo
+temporizador sigue en marcha muestra **REACHABLE** y una caducada muestra **STALE**. En Linux, Borg
+lee la tabla de vecinos del kernel por netlink, o `/proc/net/arp` cuando netlink no le está
+permitido, y las puertas de enlace de `/proc/net/route` y `/proc/net/ipv6_route`. Los servidores DNS
+salen de `/etc/resolv.conf`, o de `/run/systemd/resolve/resolv.conf` cuando el primero solo lista el
+stub de systemd-resolved.
 
 ## Elementos de inicio
 

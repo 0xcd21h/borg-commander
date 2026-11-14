@@ -221,6 +221,9 @@ Ctrl-O switches between the panels and the console.
   says who can connect to each one: all networks, one address, or only this machine.
 - **Traffic by process.** Download and upload rates for each process, connection and interface,
   with charts of the last minute and the names of the hosts on the other end.
+- **Who else is on the network.** The Neighbors page lists the devices next to this machine with
+  their MAC addresses, vendors and names, marks the gateway, and flags a gateway whose MAC address
+  changes or one MAC address answering for several addresses. S sweeps the subnet after asking.
 - **Straight to the culprit.** Filter with words such as `port:443`, `proc:node` or
   `!state:time_wait`. Enter shows the row's process in the activity monitor, and K signals it.
 - **Look inside the packets.** R records the selected port, connection or process with tcpdump,

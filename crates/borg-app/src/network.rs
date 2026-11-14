@@ -16,6 +16,7 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod capture;
 mod kinds;
+mod neighbors;
 mod proxy;
 
 pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
@@ -32,10 +33,10 @@ const RESOLVE_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) fn measure() -> Result<(NetworkSample, NetworkSample, f64)> {
     const SETTLE: Duration = Duration::from_secs(1);
     let mut sampler = Sampler::default();
-    let before = sampler.sample()?;
+    let before = sampler.sample(false)?;
     let started = Instant::now();
     std::thread::sleep(SETTLE);
-    let after = sampler.sample()?;
+    let after = sampler.sample(false)?;
     Ok((before, after, started.elapsed().as_secs_f64()))
 }
 
@@ -71,12 +72,15 @@ impl Network {
         capture::open(path, self.messages.clone());
     }
 
-    pub fn request(&mut self, id: u64) {
+    pub fn request(&mut self, id: u64, neighbors: bool) {
         self.cancel();
         let (sampler, messages) = (self.sampler.clone(), self.messages.clone());
         self.task = Some(tokio::spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
-                sampler.lock().map_err(|error| anyhow!(error.to_string())).and_then(|mut sampler| sampler.sample())
+                sampler
+                    .lock()
+                    .map_err(|error| anyhow!(error.to_string()))
+                    .and_then(|mut sampler| sampler.sample(neighbors))
             })
             .await
             .map_err(anyhow::Error::from)
@@ -97,6 +101,14 @@ impl Network {
                 (address, name)
             });
             let _ = messages.send(Msg::HostNames(futures::future::join_all(lookups).await));
+        });
+    }
+
+    pub fn sweep(&self, addresses: Vec<std::net::Ipv4Addr>) {
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = neighbors::sweep(&addresses).map_err(|error| format!("{error:#}"));
+            let _ = messages.send(Msg::Swept(result));
         });
     }
 
@@ -131,9 +143,10 @@ struct Sampler {
 }
 
 impl Sampler {
-    fn sample(&mut self) -> Result<NetworkSample> {
+    fn sample(&mut self, neighbors: bool) -> Result<NetworkSample> {
         let (sockets, names) = self.sockets()?;
-        Ok(NetworkSample { sockets, interfaces: self.interfaces(), names })
+        let neighborhood = neighbors.then(neighbors::read);
+        Ok(NetworkSample { sockets, interfaces: self.interfaces(), names, neighborhood })
     }
 
     /// Every socket, with the names of the processes that hold them.
