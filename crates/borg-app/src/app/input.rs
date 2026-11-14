@@ -92,6 +92,10 @@ impl App {
         if self.state.screensaver {
             return self.dispatch(Msg::Pointer(borg_core::Pointer::DismissMenu));
         }
+        if let Some(close) = borg_ui::toast_mouse(&self.state, event, now) {
+            self.last_click = None;
+            return self.dispatch(close);
+        }
         if matches!(
             event.kind,
             MouseEventKind::ScrollUp

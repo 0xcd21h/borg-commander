@@ -16,7 +16,7 @@ expression: describe(&buffer)
 │                       ││                       │
 │                       ││                       │
 │                       ││                       │
-│                   ✓ Copied 1 file · Alt-G Open │
+│  ✓ Copied 1 file · Alt-G Open · Alt-X Close [×]│
 ╰ ⠦ loading… 9 ────────⣿╯╰ ⠦ loading… 5 ────────⣿╯
  -rw-r--r--     310  2026-01-10 09:30  build.sh
 $
@@ -37,7 +37,7 @@ Alt-H Remote hosts       ◈ Borg Commander v0.11.1
  11: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-23 Reset Rgb(30, 30, 30) NONE | 24-24 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 25-25 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 26-48 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  12: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-23 Reset Rgb(30, 30, 30) NONE | 24-24 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 25-25 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 26-48 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  13: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-23 Reset Rgb(30, 30, 30) NONE | 24-24 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 25-25 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 26-48 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
- 14: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-18 Reset Rgb(30, 30, 30) NONE | 19-48 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+ 14: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-48 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  15: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 2-2 Rgb(110, 145, 215) Rgb(30, 30, 30) NONE | 3-3 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 4-5 Rgb(97, 150, 176) Rgb(30, 30, 30) NONE | 6-6 Rgb(99, 136, 155) Rgb(30, 30, 30) NONE | 7-7 Rgb(100, 123, 134) Rgb(30, 30, 30) NONE | 8-8 Rgb(101, 109, 113) Rgb(30, 30, 30) NONE | 9-14 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 15-22 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 23-23 Rgb(128, 99, 214) Rgb(30, 30, 30) NONE | 24-24 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 25-26 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 27-27 Rgb(86, 111, 160) Rgb(30, 30, 30) NONE | 28-28 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 29-30 Rgb(77, 114, 132) Rgb(30, 30, 30) NONE | 31-31 Rgb(78, 104, 118) Rgb(30, 30, 30) NONE | 32-32 Rgb(79, 95, 103) Rgb(30, 30, 30) NONE | 33-33 Rgb(80, 85, 88) Rgb(30, 30, 30) NONE | 34-47 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 48-48 Rgb(102, 76, 155) Rgb(30, 30, 30) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  16: 0-49 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  17: 0-49 Reset Reset NONE

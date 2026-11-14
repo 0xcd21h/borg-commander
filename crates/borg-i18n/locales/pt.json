@@ -2167,6 +2167,8 @@
   "job_toast_jobs": "Alt-J Tarefas",
   "job_toast_answer": "Alt-J Responder",
   "job_toast_open": "Alt-G Abrir",
+  "job_toast_close": "Alt-X Fechar",
+  "job_toast_close_mark": "[×]",
   "job_results_gone": "Esses resultados já não estão abertos",
   "no_job_result": "Não há nenhuma tarefa concluída para abrir",
   "job_notifications": "Notificações de tarefas",

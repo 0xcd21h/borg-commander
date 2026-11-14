@@ -159,6 +159,7 @@ pub(crate) fn on_event(state: &mut AppState, id: u64, event: Event, now: Instant
         }
         Event::Asking(ask) => {
             job.folded = false;
+            job.put_off = false;
             job.phase = Phase::Asking(ask);
         }
         Event::Finished(outcome) => return finish(state, id, outcome, now),
@@ -254,11 +255,12 @@ fn typing(state: &AppState) -> bool {
 }
 
 /// The asking job whose question opens next, unless keys are coming in where it would cut in.
+/// A question whose note you closed waits for Alt-J.
 fn waiting_question(state: &AppState) -> Option<&Job> {
     if state.overlay.is_some() {
         return None;
     }
-    state.jobs.iter().find(|job| job.asking())
+    state.jobs.iter().find(|job| job.asking() && !job.put_off)
 }
 
 pub(crate) fn surface_questions(state: &mut AppState, now: Instant) {

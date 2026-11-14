@@ -851,6 +851,8 @@ catalog! {
     job_toast_jobs => "Alt-J Jobs",
     job_toast_answer => "Alt-J Answer",
     job_toast_open => "Alt-G Open",
+    job_toast_close => "Alt-X Close",
+    job_toast_close_mark => "[×]",
     job_results_gone => "Those results are no longer open",
     no_job_result => "No finished job to open",
     job_notifications => "Job notifications",

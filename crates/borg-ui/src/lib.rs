@@ -59,3 +59,4 @@ pub use pointer::mouse_input;
 pub use session_picker_view::{StartLook, draw_session_picker, session_picker_mouse};
 pub use term_view::draw_screen;
 pub use theme::{Border, CursorShape, Effects, Styles, Theme, ThemeError, ThemeSet};
+pub use toast_view::toast_mouse;

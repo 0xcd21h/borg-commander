@@ -19,7 +19,7 @@ expression: describe(&buffer)
 
 
 
-                                                  ╭ ! Save waits for you ────────────────╮
+                                                  ╭ ! Save waits for you ─────────────[×]╮
                                                   │ site.zip                             │
                                                   ╰──────────────────────────────────────╯
 

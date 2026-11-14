@@ -407,7 +407,8 @@ click both rows. Notices replace the second row for a moment.
 | Ctrl-U | Swap panels |
 | Alt-O | Open this panel's folder in the other panel; in search results or a collection, the folder of the file under the cursor |
 | Alt-J | Jobs: the copies, moves, searches and scans that run or ended, to fold, pause, cancel or open |
-| Alt-G | Open what the newest finished job made: its folder, its results or its hits |
+| Alt-G | Open what the newest finished job made: its folder, its results, its hits or its open ports |
+| Alt-X | Close the job notes on screen, leaving their jobs in Alt-J |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-N | Network: ports, connections and traffic |
@@ -1333,18 +1334,21 @@ arrived there, the results of a search or a replace, brought back to their panel
 folder whose sizes were counted, the entropy scan's hits in Alt-M, or the open ports a port scan
 found. In the panels, Alt-G opens what the newest finished job made.
 
-Small notes in the bottom-right corner of the panels say when a job starts, ends, or waits for
-you. A start shows once the job has run for a second, so a quick job only says how it ended. A
-note stays 3 seconds for a start, 6 for a job that finished, 4 for one you cancelled and 10 for one
-that failed, and up to three show at once. Notes never take your keys. The key in a note's border
-works in the panels: Alt-J opens the jobs panel, or the question a job waits with, and Alt-G opens
-what a finished job made. Over the full-screen console, the editor and the viewer, the notes name
-no key, because those keys belong to them there. On a terminal narrower than 60 columns each note
-takes one line, and below 40 columns or 14 rows there are none.
+Small notes in the bottom-right corner of the panels say when a job starts, ends, or waits for you.
+A start shows once the job has run for a second, so a quick job only says how it ended. A note stays
+3 seconds for a start, 6 for a job that finished, 4 for one you cancelled and 10 for one that
+failed, and up to three show at once. Notes never take your keys. The keys in a note's border work
+in the panels: Alt-J opens the jobs panel, or the question a job waits with, Alt-G opens what a
+finished job made, and Alt-X closes every note on screen. Over the full-screen console, the editor
+and the viewer, the notes name no key, because those keys belong to them there. Click **[×]** at the
+right end of a note to close that note alone, wherever it shows. Closing a note leaves its job in
+Alt-J. On a terminal narrower than 60 columns each note takes one line with **[×]** at its end, and
+below 40 columns or 14 rows there are none.
 
-A job's question opens as a dialog at once, unless you typed in the console, on the command line
-or in an editor during the last 2 seconds. Then the question waits behind its note until your
-keys rest for 2 seconds, so a key meant for your text never answers it. Alt-J opens it right away.
+A job's question opens as a dialog at once, unless you typed in the console, on the command line or
+in an editor during the last 2 seconds. Then the question waits behind its note until your keys rest
+for 2 seconds, so a key meant for your text never answers it. Alt-J opens it right away. Close its
+note and the question waits until you press Alt-J, or A in the jobs panel.
 
 Turn the notes off in **F9 → Options → Settings → Job notifications**, or with
 `job-notifications = false` in the config. A finished job that changed files, counted sizes or

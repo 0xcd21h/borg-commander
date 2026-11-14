@@ -86,6 +86,10 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Quit => dialogs::confirm_quit(state),
         Action::Jobs => crate::jobs::open_list(state, now),
         Action::JobResult => crate::jobs::open_newest_result(state),
+        Action::CloseToasts => {
+            crate::jobs::close_toasts(state, now);
+            Vec::new()
+        }
         Action::ToggleJobNotifications => settings::flip(state, |prefs| &mut prefs.job_notifications),
         Action::ToggleShell => shell::toggle_shell(state),
         Action::MirrorRemote => crate::remote::mirror_mounted(state),

@@ -1,5 +1,6 @@
 //! Toasts: small notes in a corner that a job started, ended or waits for an answer. They
-//! stack, slide in and fade out, and never take keys.
+//! stack, slide in and fade out, and never take keys. Alt-X or a click on a toast's close mark
+//! closes it early.
 
 use std::time::{Duration, Instant};
 
@@ -91,6 +92,20 @@ pub(super) fn forget(state: &mut AppState, job: u64) {
     state.toasts.retain(|toast| toast.job != job);
 }
 
+/// Closes the toast of `job`. A question it asked waits in the jobs panel.
+pub(super) fn close(state: &mut AppState, job: u64) {
+    forget(state, job);
+    if let Some(asking) = super::find_mut(state, job).filter(|found| found.asking()) {
+        asking.put_off = true;
+    }
+}
+
+/// Closes every toast that shows now. One still to come shows when its time comes.
+pub(super) fn close_all(state: &mut AppState, now: Instant) {
+    let shown: Vec<u64> = visible(state, now).iter().map(|toast| toast.job).collect();
+    shown.into_iter().for_each(|job| close(state, job));
+}
+
 /// Whether job `id`'s question shows or may open at once, so no toast needs to ask.
 fn question_open(state: &AppState, id: u64) -> bool {
     matches!(state.overlay, Some(Overlay::Question(question)) if question.id == id)
@@ -101,8 +116,12 @@ pub(super) fn sync(state: &mut AppState, now: Instant) {
         state.toasts.clear();
         return;
     }
-    let asking: Vec<u64> =
-        state.jobs.iter().filter(|job| job.asking() && !question_open(state, job.id)).map(|job| job.id).collect();
+    let asking: Vec<u64> = state
+        .jobs
+        .iter()
+        .filter(|job| job.asking() && !job.put_off && !question_open(state, job.id))
+        .map(|job| job.id)
+        .collect();
     let jobs: Vec<u64> = state.jobs.iter().map(|job| job.id).collect();
     state.toasts.retain(|toast| {
         let alive = jobs.contains(&toast.job) && toast.ends().is_none_or(|ends| now < ends);

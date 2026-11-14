@@ -268,6 +268,8 @@ pub struct Job {
     /// The file the viewer waits for, which the job unpacks.
     pub opens: Option<PathBuf>,
     pub reveal: Option<Reveal>,
+    /// Its question waits for Alt-J or A in the panel, because you closed the note that asked.
+    pub put_off: bool,
     pub(crate) link: Link,
 }
 
@@ -350,6 +352,7 @@ pub(crate) fn add(
         details: Vec::new(),
         opens: None,
         reveal: None,
+        put_off: false,
         link,
     });
     if !kind.hidden() && !kind.quiet() {
@@ -477,4 +480,14 @@ pub fn toast_keys_work(state: &AppState) -> bool {
 /// Toasts that show now, oldest first.
 pub fn visible_toasts(state: &AppState, now: Instant) -> Vec<&Toast> {
     toasts::visible(state, now)
+}
+
+/// Closes the toast of job `id`. The job stays in the panel, and a question it asks waits there.
+pub(crate) fn close_toast(state: &mut AppState, id: u64) {
+    toasts::close(state, id);
+}
+
+/// Alt-X: closes every toast that shows.
+pub(crate) fn close_toasts(state: &mut AppState, now: Instant) {
+    toasts::close_all(state, now);
 }

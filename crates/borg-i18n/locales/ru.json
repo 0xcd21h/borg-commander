@@ -2167,6 +2167,8 @@
   "job_toast_jobs": "Alt-J Задания",
   "job_toast_answer": "Alt-J Ответить",
   "job_toast_open": "Alt-G Открыть",
+  "job_toast_close": "Alt-X Закрыть",
+  "job_toast_close_mark": "[×]",
   "job_results_gone": "Эти результаты уже закрыты",
   "no_job_result": "Нет завершённых заданий, которые можно открыть",
   "job_notifications": "Уведомления о заданиях",

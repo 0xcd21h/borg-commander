@@ -258,3 +258,53 @@ fn a_question_that_comes_while_a_command_is_typed_waits_until_alt_j() {
     assert!(matches!(state.overlay, Some(Overlay::Question(question)) if question.id == id));
     assert!(state.toasts.is_empty(), "the toast goes once the question shows");
 }
+
+#[test]
+fn alt_x_closes_the_toasts_on_screen_and_leaves_their_jobs_in_the_panel() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let running = crate::jobs::begin(&mut state, JobKind::Delete, "a".into(), now).0;
+    let done = crate::jobs::begin(&mut state, JobKind::Delete, "b".into(), now).0;
+    crate::jobs::end(&mut state, done, How::Done, "Deleted 1 file".into(), now + 2 * SECOND);
+    let later = crate::jobs::begin(&mut state, JobKind::Delete, "c".into(), now + 2 * SECOND).0;
+    assert_eq!(toasts(&state, now + 2 * SECOND).len(), 2);
+
+    let effects = press(&mut state, now + 2 * SECOND, alt('x'));
+    assert!(effects.is_empty());
+    assert!(toasts(&state, now + 2 * SECOND).is_empty());
+    assert_eq!(state.overlay, None, "nothing opens");
+    assert!(job(&state, running).running() && job(&state, done).ending().is_some(), "the jobs stay");
+    assert_eq!(toasts(&state, now + 3 * SECOND), vec![(later, ToastEvent::Started)], "a toast still to come shows");
+}
+
+#[test]
+fn a_closed_question_toast_leaves_the_question_waiting_until_alt_j() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = start_copy(&mut state, now);
+    update(&mut state, Msg::Observe(ShellView { prompt: PromptState::Typed, ..idle_prompt() }), now);
+    let ask = Ask::Conflict { source: "/home/a".into(), target: "/tmp/a".into(), sizes: (200, 10), newer: true };
+    update(&mut state, Msg::Job { id, event: Event::Asking(ask) }, now);
+    assert_eq!(toasts(&state, now), vec![(id, ToastEvent::Asking)]);
+
+    press(&mut state, now, alt('x'));
+    let rested = now + crate::update_offer::QUIET + SECOND;
+    update(&mut state, Msg::Tick, rested);
+    assert!(!state.question_shows(), "the question no longer opens on its own");
+    assert!(toasts(&state, rested).is_empty(), "and its toast stays closed");
+    assert!(job(&state, id).asking(), "the job still waits");
+
+    press(&mut state, rested, alt('j'));
+    assert!(matches!(state.overlay, Some(Overlay::Question(question)) if question.id == id));
+}
+
+#[test]
+fn a_click_on_a_close_mark_closes_that_toast_over_the_console_too() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let ids: Vec<u64> = (0..2).map(|_| crate::jobs::begin(&mut state, JobKind::Delete, "a".into(), now).0).collect();
+    for id in &ids {
+        crate::jobs::end(&mut state, *id, How::Done, "Deleted 1 file".into(), now);
+    }
+    state.view = crate::View::Shell;
+    update(&mut state, Msg::Pointer(crate::Pointer::CloseToast(ids[0])), now);
+    assert_eq!(toasts(&state, now), vec![(ids[1], ToastEvent::Ended(How::Done))]);
+    assert_eq!(state.jobs.len(), 2);
+}

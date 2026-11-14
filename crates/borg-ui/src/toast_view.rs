@@ -1,15 +1,17 @@
 //! Toasts: small notes in the bottom-right corner that a job started, ended or waits for an
-//! answer. They slide in from the right, stack with the newest at the bottom, and fade out.
+//! answer. They slide in from the right, stack with the newest at the bottom, and fade out. A
+//! click on a toast's close mark closes it.
 
 use std::time::Instant;
 
-use borg_core::{AppState, How, Job, Toast, ToastEvent, View};
+use borg_core::{AppState, How, Job, Msg, Pointer, Toast, ToastEvent, View};
 use borg_i18n::tr;
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Position, Rect},
     style::{Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Widget},
 };
 use unicode_width::UnicodeWidthStr;
@@ -27,6 +29,10 @@ const LEAST_ROWS: u16 = 14;
 /// Rows the full-screen console, editor or viewer keeps at its bottom.
 const FULL_SCREEN_FOOTER: u16 = 2;
 const PADDING: u16 = 1;
+/// The borders and spaces around a box's title.
+const TITLE_FRAME: u16 = 4;
+/// The border between a box's title and its close mark.
+const MARK_GAP: u16 = 1;
 const STARTED: &str = "▶";
 const ASKING: &str = "!";
 const DONE: &str = "✓";
@@ -45,8 +51,31 @@ enum Tone {
 struct Content {
     title: String,
     body: String,
-    key: Option<&'static str>,
+    keys: Vec<&'static str>,
     tone: Tone,
+}
+
+enum Shape {
+    Boxed,
+    /// One line, with the text before its close mark.
+    Line(String),
+}
+
+/// A toast that shows, and where.
+struct Placed<'a> {
+    toast: &'a Toast,
+    content: Content,
+    shape: Shape,
+    rect: Rect,
+}
+
+impl Placed<'_> {
+    /// Where its close mark is: at the right end of a box's top border, or of its line.
+    fn mark(&self) -> Rect {
+        let width = tr!(job_toast_close_mark).width() as u16;
+        let corner = u16::from(matches!(self.shape, Shape::Boxed));
+        Rect { x: self.rect.right().saturating_sub(width + corner), y: self.rect.y, width, height: 1 }
+    }
 }
 
 /// The finished job Alt-G opens, whose toast offers it.
@@ -76,7 +105,8 @@ fn content(toast: &Toast, job: &Job, keys: bool, opens: Option<u64>, now: Instan
         ToastEvent::Ended(_) if opens == Some(job.id) => tr!(job_toast_open),
         ToastEvent::Started | ToastEvent::Ended(_) => tr!(job_toast_jobs),
     };
-    Some(Content { title: format!("{icon} {title}"), body, key: keys.then_some(key), tone })
+    let keys = if keys { vec![key, tr!(job_toast_close)] } else { Vec::new() };
+    Some(Content { title: format!("{icon} {title}"), body, keys, tone })
 }
 
 fn tone_style(tone: Tone, look: &Look<'_>) -> Style {
@@ -93,16 +123,20 @@ fn boxed(content: &Content, width: u16, look: &Look<'_>) -> Buffer {
     let rect = Rect::new(0, 0, width, BOX_ROWS);
     let mut buf = Buffer::empty(rect);
     let tone = tone_style(content.tone, look);
-    let room = usize::from(width.saturating_sub(4));
-    let mut block =
-        Block::bordered().border_type(look.theme.border.into()).style(styles.overlay).border_style(tone).title(
-            Line::styled(
-                format!(" {} ", format::truncate_end(&content.title, room)),
-                tone.add_modifier(Modifier::BOLD),
-            ),
-        );
-    if let Some(key) = content.key {
-        block = block.title_bottom(Line::styled(format!(" {key} "), styles.overlay).right_aligned());
+    let mark = tr!(job_toast_close_mark);
+    let room = usize::from(width.saturating_sub(TITLE_FRAME + MARK_GAP + mark.width() as u16));
+    let mut block = Block::bordered()
+        .border_type(look.theme.border.into())
+        .style(styles.overlay)
+        .border_style(tone)
+        .title(Line::styled(
+            format!(" {} ", format::truncate_end(&content.title, room)),
+            tone.add_modifier(Modifier::BOLD),
+        ))
+        .title_top(Line::styled(mark, tone).right_aligned());
+    if !content.keys.is_empty() {
+        let keys = content.keys.join(SEPARATOR);
+        block = block.title_bottom(Line::styled(format!(" {keys} "), styles.overlay).right_aligned());
     }
     let inner = block.inner(rect);
     block.render(rect, &mut buf);
@@ -111,13 +145,27 @@ fn boxed(content: &Content, width: u16, look: &Look<'_>) -> Buffer {
     buf
 }
 
-fn one_line(content: &Content, room: u16, look: &Look<'_>) -> Buffer {
-    let key = content.key.map(|key| format!("{SEPARATOR}{key}")).unwrap_or_default();
-    let text = format!(" {}{key} ", content.title);
-    let width = (text.width() as u16).min(room);
+/// A one-line toast's text before its close mark, within `room` cells: the title, then the keys
+/// that fit whole.
+fn line_text(content: &Content, room: usize) -> String {
+    let room = room.saturating_sub(tr!(job_toast_close_mark).width());
+    let mut text = format!(" {}", content.title);
+    for key in &content.keys {
+        let more = format!("{SEPARATOR}{key}");
+        if text.width() + more.width() + usize::from(PADDING) > room {
+            break;
+        }
+        text.push_str(&more);
+    }
+    text.push(' ');
+    format::truncate_end(&text, room)
+}
+
+fn one_line(content: &Content, text: &str, width: u16, look: &Look<'_>) -> Buffer {
     let mut buf = Buffer::empty(Rect::new(0, 0, width, 1));
     let style = tone_style(content.tone, look);
-    Line::styled(format::truncate_end(&text, usize::from(width)), style).render(buf.area, &mut buf);
+    Line::from(vec![Span::styled(text, style), Span::styled(tr!(job_toast_close_mark), style)])
+        .render(buf.area, &mut buf);
     buf
 }
 
@@ -155,15 +203,14 @@ fn place(toast: &Buffer, x: u16, y: u16, area: Rect, buf: &mut Buffer) {
     }
 }
 
-pub(crate) fn draw(state: &AppState, look: &Look<'_>, now: Instant, buf: &mut Buffer) {
-    if state.overlay.is_some() || state.screensaver || state.intro.is_some() {
-        return;
-    }
+/// The toasts that show and where, newest at the bottom, each slid in as far as it arrived, with
+/// the area they stack in.
+fn placed(state: &AppState, now: Instant) -> (Rect, Vec<Placed<'_>>) {
+    let hidden = state.overlay.is_some() || state.approval.is_some() || state.screensaver || state.intro.is_some();
     let screen = state.layout(now).screen;
-    if screen.width < LINE_SCREEN || screen.height < LEAST_ROWS {
-        return;
+    if hidden || screen.width < LINE_SCREEN || screen.height < LEAST_ROWS {
+        return (Rect::default(), Vec::new());
     }
-    let toasts = borg_core::visible_toasts(state, now);
     let area = area(state, now);
     let keys = borg_core::toast_keys_work(state);
     let opens = opened_by_key(state);
@@ -171,7 +218,8 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, now: Instant, buf: &mut Bu
     let (most, rows) = if boxes { (borg_core::MOST_TOASTS, BOX_ROWS) } else { (LINES_MOST, 1) };
     let motion = state.motion();
     let mut bottom = area.bottom();
-    for toast in toasts.iter().rev().take(most) {
+    let mut placed = Vec::new();
+    for toast in borg_core::visible_toasts(state, now).into_iter().rev().take(most) {
         let Some(content) =
             state.jobs.iter().find(|job| job.id == toast.job).and_then(|job| content(toast, job, keys, opens, now))
         else {
@@ -181,20 +229,49 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, now: Instant, buf: &mut Bu
             break;
         }
         bottom -= rows;
-        let painted =
-            if boxes { boxed(&content, BOX_WIDTH.min(area.width), look) } else { one_line(&content, area.width, look) };
-        let arrival = toast.arrival(now, motion);
-        let width = painted.area.width;
-        let slide = ((FULLY_SHOWN - arrival) * f32::from(width)).round() as u16;
+        let (shape, width) = if boxes {
+            (Shape::Boxed, BOX_WIDTH.min(area.width))
+        } else {
+            let text = line_text(&content, usize::from(area.width));
+            let width = (text.width() + tr!(job_toast_close_mark).width()) as u16;
+            (Shape::Line(text), width.min(area.width))
+        };
+        let slide = ((FULLY_SHOWN - toast.arrival(now, motion)) * f32::from(width)).round() as u16;
         let x = area.right().saturating_sub(width) + slide;
-        let opacity = arrival * toast.presence(now, motion);
+        placed.push(Placed { toast, content, shape, rect: Rect::new(x, bottom, width, rows) });
+    }
+    (area, placed)
+}
+
+pub(crate) fn draw(state: &AppState, look: &Look<'_>, now: Instant, buf: &mut Buffer) {
+    let (area, placed) = placed(state, now);
+    let motion = state.motion();
+    for one in placed {
+        let painted = match &one.shape {
+            Shape::Boxed => boxed(&one.content, one.rect.width, look),
+            Shape::Line(text) => one_line(&one.content, text, one.rect.width, look),
+        };
+        let opacity = one.toast.arrival(now, motion) * one.toast.presence(now, motion);
         if opacity >= FULLY_SHOWN {
-            place(&painted, x, bottom, area, buf);
+            place(&painted, one.rect.x, one.rect.y, area, buf);
         } else {
             let under = buf.clone();
             let mut over = buf.clone();
-            place(&painted, x, bottom, area, &mut over);
+            place(&painted, one.rect.x, one.rect.y, area, &mut over);
             crossfade(&over, &under, opacity, look.palette, buf);
         }
     }
+}
+
+/// A left click on a toast's close mark closes that toast, wherever toasts show.
+pub fn toast_mouse(state: &AppState, event: MouseEvent, now: Instant) -> Option<Msg> {
+    if event.kind != MouseEventKind::Down(MouseButton::Left) {
+        return None;
+    }
+    let point = Position::new(event.column, event.row);
+    borg_i18n::with_locale(state.settings.preferences.language, || {
+        let (area, placed) = placed(state, now);
+        let hit = placed.iter().find(|one| area.contains(point) && one.mark().contains(point))?;
+        Some(Msg::Pointer(Pointer::CloseToast(hit.toast.job)))
+    })
 }

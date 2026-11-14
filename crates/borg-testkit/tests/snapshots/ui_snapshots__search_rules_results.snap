@@ -24,9 +24,9 @@ expression: describe(&buffer)
 │                                                     ││                                                     │
 │                                                     ││                                                     │
 │                                                     ││                                                     │
-│                                                     ││             ╭ ✓ Found 3 items ─────────────────────╮│
+│                                                     ││             ╭ ✓ Found 3 items ──────────────────[×]╮│
 │                                                     ││             │ * in /home/me/Downloads · 0:00       ││
-│                                                     ││             ╰────────────────────────── Alt-G Open ╯│
+│                                                     ││             ╰──────────── Alt-G Open · Alt-X Close ╯│
 ╰ 3/3 items · 0 marked ───────────────────────────────╯╰ 5 items ────────────────────────────────────────────╯
  /home/me/Downloads/Invoice.app.zip
 $
@@ -57,7 +57,7 @@ Left out /home/me/.config/borg-commander/rules/old.yar: syntax error            
  21: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-108 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  22: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-69 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 70-86 Rgb(95, 175, 215) Rgb(38, 38, 38) BOLD | 87-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  23: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-69 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 70-107 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 108-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
- 24: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-95 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 96-107 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 108-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+ 24: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-53 Reset Rgb(30, 30, 30) NONE | 54-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-55 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 56-68 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 69-81 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 82-107 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 108-108 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 109-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  25: 0-54 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 55-109 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  26: 0-109 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  27: 0-109 Reset Reset NONE

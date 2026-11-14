@@ -2167,6 +2167,8 @@
   "job_toast_jobs": "Alt-J 任务",
   "job_toast_answer": "Alt-J 回答",
   "job_toast_open": "Alt-G 打开",
+  "job_toast_close": "Alt-X 关闭",
+  "job_toast_close_mark": "[×]",
   "job_results_gone": "这些结果已关闭",
   "no_job_result": "没有可打开的已完成任务",
   "job_notifications": "任务通知",

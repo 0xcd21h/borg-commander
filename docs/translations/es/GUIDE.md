@@ -444,7 +444,8 @@ momento.
 | Ctrl-U | Intercambiar los paneles |
 | Alt-O | Abrir la carpeta de este panel en el otro panel; en resultados de búsqueda o en una colección, la carpeta del archivo bajo el cursor |
 | Alt-J | Tareas: las copias, movimientos, búsquedas y análisis en curso o terminados, para plegar, pausar, cancelar o abrir |
-| Alt-G | Abrir lo que produjo la última tarea terminada: su carpeta, sus resultados o sus hallazgos |
+| Alt-G | Abrir lo que produjo la última tarea terminada: su carpeta, sus resultados, sus hallazgos o sus puertos abiertos |
+| Alt-X | Cerrar las notas de tareas en pantalla, y las tareas siguen en Alt-J |
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
 | Alt-N | Red: puertos, conexiones y tráfico |
@@ -1451,16 +1452,20 @@ Pequeñas notas en la esquina inferior derecha de los paneles indican cuándo un
 termina o te espera. El inicio aparece cuando la tarea lleva un segundo en marcha, así que de una
 tarea rápida solo ves cómo terminó. Una nota dura 3 segundos para un inicio, 6 para una tarea
 terminada, 4 para una que cancelaste y 10 para una que falló, y se ven hasta tres a la vez. Las
-notas nunca se quedan con tus teclas. La tecla del borde de una nota funciona en los paneles: Alt-J
-abre el panel de tareas, o la pregunta con la que espera una tarea, y Alt-G abre lo que produjo una
-tarea terminada. Sobre la consola a pantalla completa, el editor y el visor, las notas no indican
-ninguna tecla, porque allí esas teclas son suyas. En un terminal de menos de 60 columnas cada nota
-ocupa una línea, y por debajo de 40 columnas o 14 filas no hay notas.
+notas nunca se quedan con tus teclas. Las teclas del borde de una nota funcionan en los paneles:
+Alt-J abre el panel de tareas, o la pregunta con la que espera una tarea, Alt-G abre lo que produjo
+una tarea terminada, y Alt-X cierra todas las notas en pantalla. Sobre la consola a pantalla
+completa, el editor y el visor, las notas no indican ninguna tecla, porque allí esas teclas son
+suyas. Haz clic en **[×]**, en el extremo derecho de una nota, para cerrar solo esa nota,
+dondequiera que aparezca. Cerrar una nota deja su tarea en Alt-J. En un terminal de menos de 60
+columnas cada nota ocupa una línea, con **[×]** al final, y por debajo de 40 columnas o 14 filas no
+hay notas.
 
 La pregunta de una tarea se abre enseguida como diálogo, salvo que hayas escrito en la consola, en
 la línea de comandos o en un editor durante los últimos 2 segundos. En ese caso la pregunta espera
 detrás de su nota hasta que pasen 2 segundos sin que pulses ninguna tecla, para que una tecla
-pensada para tu texto nunca la responda. Alt-J la abre de inmediato.
+pensada para tu texto nunca la responda. Alt-J la abre de inmediato. Si cierras su nota, la pregunta
+espera hasta que pulses Alt-J, o A en el panel de tareas.
 
 Desactiva las notas en **F9 → Opciones → Configuración → Notificaciones de tareas**, o con
 `job-notifications = false` en la configuración. Entonces, una tarea terminada que cambió archivos,

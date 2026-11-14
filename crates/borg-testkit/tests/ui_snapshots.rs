@@ -1,7 +1,7 @@
 use std::{
     env,
     path::PathBuf,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -1338,19 +1338,49 @@ fn toasts_stack_in_the_corner_and_a_finished_one_offers_its_result() -> Result<(
     ensure_no_text(&buffer, "Moving failed")?;
     check("job_toasts", &stage, buffer)?;
     let buffer = stage.render(stage.started + Duration::from_secs(7))?;
-    ensure_text(&buffer, "✗ Moving failed: No space left on")?;
+    ensure_text(&buffer, "✗ Moving failed: No space left")?;
     ensure_no_text(&buffer, "Found 3 items")?;
 
     let mut stage = stage_with_one_copy()?;
-    let buffer = stage.render(stage.started + Duration::from_secs(1))?;
+    let shown = stage.started + Duration::from_secs(1);
+    let buffer = stage.render(shown)?;
     ensure_text(&buffer, "Copied 1 file")?;
-    ensure_text(&buffer, "Alt-G Open")?;
+    ensure_text(&buffer, "Alt-G Open · Alt-X Close")?;
+    ensure_closes_by_its_mark(&mut stage, &buffer, shown)?;
     check("job_toast_finished", &stage, buffer)?;
 
     let mut narrow = stage_with_one_copy_at(GridSize { cols: 50, rows: 20 })?;
-    let buffer = narrow.render(narrow.started + Duration::from_secs(1))?;
-    ensure_text(&buffer, "✓ Copied 1 file · Alt-G Open")?;
+    let shown = narrow.started + Duration::from_secs(1);
+    let buffer = narrow.render(shown)?;
+    ensure_text(&buffer, "✓ Copied 1 file · Alt-G Open · Alt-X Close [×]")?;
+    ensure_closes_by_its_mark(&mut narrow, &buffer, shown)?;
     check("job_toast_line", &narrow, buffer)
+}
+
+fn left_click(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    crossterm::event::MouseEvent {
+        column,
+        row,
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+/// A click on the toast's close mark closes it, and a click beside the mark leaves it.
+fn ensure_closes_by_its_mark(stage: &mut Stage, buffer: &Buffer, now: Instant) -> Result<()> {
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (column, row) = shot.find("[×]").context("the toast's close mark")?;
+    let beside = borg_ui::toast_mouse(&stage.state, left_click(column - 1, row), now);
+    anyhow::ensure!(beside.is_none(), "a click beside the mark is left to what lies under it: {beside:?}");
+    let job = stage.state.toasts.first().context("the toast")?.job;
+    let closed = borg_ui::toast_mouse(&stage.state, left_click(column + 1, row), now);
+    let Some(close @ Msg::Pointer(borg_core::Pointer::CloseToast(closes))) = closed else {
+        anyhow::bail!("the mark closes its toast: {closed:?}")
+    };
+    anyhow::ensure!(closes == job, "the mark closes its own toast");
+    borg_core::update(&mut stage.state, close, now);
+    anyhow::ensure!(stage.state.toasts.is_empty(), "the toast is gone");
+    Ok(())
 }
 
 fn stage_with_one_copy() -> Result<Stage> {
