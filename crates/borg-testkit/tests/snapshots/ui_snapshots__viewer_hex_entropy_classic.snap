@@ -23,7 +23,7 @@ expression: describe(&buffer)
 7120  d2 87 da 13 e9 2c 9e 67  a5 88 8b 88 57 15 65 0b  .....,.g....W.e.                 ▌
 7130  0b eb ae 17 11 91 30 fe  e7 34 36 d4 07 65 bb 22  ......0..46..e."                 ▌
 7140  4c 2c d4 fd 72 b2 c3 78  06 3e 0e d2 a9 f2 df 96  L,..r..x.>......                 ▌
- …ol/tool.pak 28K/64K · 43% · hex · entropy 7.95, high  F7 find  ◈ Borg Commander v0.11.0
+ …ol/tool.pak 28K/64K · 43% · hex · entropy 7.95, high  F7 find  ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-3 Rgb(85, 255, 255) Rgb(0, 0, 128) DIM | 4-88 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 89-89 Rgb(85, 255, 255) Rgb(0, 0, 128) DIM
   1: 0-3 Rgb(85, 255, 255) Rgb(0, 0, 128) DIM | 4-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE

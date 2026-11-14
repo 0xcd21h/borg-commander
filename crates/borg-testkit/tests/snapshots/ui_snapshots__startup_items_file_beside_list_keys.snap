@@ -35,7 +35,7 @@ expression: describe(&buffer)
 me · /var/spool/cron/crontabs/me:3
 $
 Enter Show in panel  F3 View  R Read again  / Filter  Esc Details
-Alt-O Show file · Tab Files · Esc Details                                                                  ◈ Borg Commander v0.11.0
+Alt-O Show file · Tab Files · Esc Details                                                                  ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-15 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 16-57 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 58-60 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 61-61 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 62-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 67-68 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 69-71 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 72-74 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 75-77 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 78-82 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 83-85 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 86-89 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 90-92 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 93-101 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 102-131 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   1: 0-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 67-67 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 68-71 Rgb(50, 108, 173) Rgb(30, 30, 30) BOLD | 72-110 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 111-116 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 117-130 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 131-131 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE

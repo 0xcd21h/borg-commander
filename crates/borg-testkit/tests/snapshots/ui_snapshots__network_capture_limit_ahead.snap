@@ -35,7 +35,7 @@ expression: describe(&buffer)
 sshd · PID 301 · TCP 22
 $
 Enter Show process  K Signal  R Stop capture  / Filter  Space Pause  Tab Details  Esc Close
-P Port · N Name · C Connections · Ctrl-C Copy address · Alt-W Maximize                                     ◈ Borg Commander v0.11.0
+P Port · N Name · C Connections · Ctrl-C Copy address · Alt-W Maximize                                     ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-21 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 22-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-9 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 10-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
