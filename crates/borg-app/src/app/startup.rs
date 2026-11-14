@@ -189,6 +189,13 @@ fn load_remote_names(state: &mut AppState, dir: &Path) {
 /// collections would not load.
 fn load_saved(state: &mut AppState, dir: &StateDir) -> bool {
     state.game2048 = dir.load_game2048().ok().flatten();
+    match dir.load_neighbors() {
+        Ok(memory) => state.network.memory = memory,
+        Err(error) => {
+            state.network.memory_writable = false;
+            state.notice = Some(tr!(network_memory_load_error, error = error));
+        }
+    }
     if state.settings.preferences.agent_log {
         state.agent.restore_log(dir.load_agent_log().unwrap_or_default());
     } else {

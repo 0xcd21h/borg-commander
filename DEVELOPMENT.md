@@ -278,7 +278,7 @@ screen has not asked about before. Closing the screen cancels the sampler.
 
 Neighbors: `borg-core::network::neighbors` holds the pure parts. It parses MAC addresses and reads
 their flags, finds vendors, builds the rows with their notes, keeps the `GatewayWatch` that
-remembers each gateway's first MAC address for the session, and picks a `Sweep`'s addresses. The
+remembers each gateway's first MAC address for the session, and picks a `SubnetScan`'s addresses. The
 vendor table `neighbors/vendors.tsv` is the IEEE MA-L registry, one `OUI<TAB>name` line per
 prefix sorted by prefix, compiled in with `include_str!` and searched by binary search.
 `scripts/update-mac-vendors.py` regenerates it from the IEEE's `oui.csv`, either a file you pass or
@@ -287,9 +287,20 @@ macOS it parses `/usr/sbin/arp -anl`, `/usr/sbin/ndp -an` and `/usr/sbin/netstat
 dumps the neighbor table over netlink (`RTM_GETNEIGH`) through rustix, falls back to
 `/proc/net/arp`, and reads the gateways from `/proc/net/route` and `/proc/net/ipv6_route`. The
 sampler reads the tables on every sample while Neighbors shows and on every fifth otherwise. A
-failed read lands in `Neighborhood::error` and shows on the page without failing the sample. The
-sweep sends its empty UDP datagrams to the discard port from a blocking task and answers with
-`Msg::Swept`.
+failed read lands in `Neighborhood::error` and shows on the page without failing the sample.
+
+Subnet scans: `borg-app::network::scan` runs on tokio with a semaphore of 16 probes in flight. Each
+probe sends an empty UDP datagram to the discard port, an ICMP echo through an unprivileged
+`SOCK_DGRAM` socket made with rustix, and TCP connects to `SCAN_PORTS`, each with a 1 second
+timeout. The echo parser skips the IPv4 header macOS hands over and matches replies by source
+and sequence, since Linux rewrites the identifier. Ping is left out when the socket cannot be
+made. A stop flag ends the loop, each probe answers with `Msg::Probed`, and `Msg::ScanFinished`
+follows the last one. In core, `neighbors::merge` lays the probes and `NeighborMemory` over the
+table read from the system, marking each entry `Listed`, `Answered` or `Offline`. The memory is
+keyed by `LocalNetwork`, the subnet plus the gateway's MAC address, and saved owner-only as
+`neighbors.json` through `Effect::SaveNeighbors`: at once when a host, MAC address or port is new,
+and at most once a minute when only the times change. A file that fails to load is left alone and
+nothing is saved over it for the session.
 
 Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
 Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes

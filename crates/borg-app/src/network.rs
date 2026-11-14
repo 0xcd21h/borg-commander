@@ -18,6 +18,7 @@ mod capture;
 mod kinds;
 mod neighbors;
 mod proxy;
+mod scan;
 
 pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
 #[cfg(any(target_os = "macos", test))]
@@ -45,13 +46,14 @@ pub struct Network {
     sampler: Arc<Mutex<Sampler>>,
     task: Option<JoinHandle<()>>,
     recorder: Option<capture::Recorder>,
+    scan: Option<scan::Scan>,
     /// Borg's runtime folder, where a capture's proxy keeps the certificates programs trust.
     runtime: PathBuf,
 }
 
 impl Network {
     pub fn new(messages: UnboundedSender<Msg>, runtime: PathBuf) -> Self {
-        Self { messages, sampler: Arc::default(), task: None, recorder: None, runtime }
+        Self { messages, sampler: Arc::default(), task: None, recorder: None, scan: None, runtime }
     }
 
     /// Captures packets as `request` asks, in place of a capture still running.
@@ -104,12 +106,18 @@ impl Network {
         });
     }
 
-    pub fn sweep(&self, addresses: Vec<std::net::Ipv4Addr>) {
-        let messages = self.messages.clone();
-        tokio::task::spawn_blocking(move || {
-            let result = neighbors::sweep(&addresses).map_err(|error| format!("{error:#}"));
-            let _ = messages.send(Msg::Swept(result));
-        });
+    /// Scans `addresses`, in place of a scan still running.
+    pub fn scan(&mut self, id: u64, addresses: Vec<std::net::Ipv4Addr>) {
+        if let Some(scan) = self.scan.take() {
+            scan.abort();
+        }
+        self.scan = Some(scan::Scan::start(id, addresses, self.messages.clone()));
+    }
+
+    pub fn stop_scan(&self, id: u64) {
+        if let Some(scan) = &self.scan {
+            scan.stop(id);
+        }
     }
 
     /// Stops the running sample once the screen no longer waits for it.
@@ -125,6 +133,9 @@ impl Drop for Network {
         self.cancel();
         if let Some(recorder) = &self.recorder {
             recorder.abort();
+        }
+        if let Some(scan) = &self.scan {
+            scan.abort();
         }
     }
 }

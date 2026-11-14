@@ -221,10 +221,8 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::network::hosts_resolved(state, names);
             Vec::new()
         }
-        Msg::Swept(result) => {
-            crate::network::swept(state, result);
-            Vec::new()
-        }
+        Msg::Probed { id, probe, at } => crate::network::probed(state, id, probe, at, now),
+        Msg::ScanFinished { id, result } => crate::network::scan_finished(state, id, result, now),
         Msg::DockerStats(frame) => {
             crate::docker::stats(state, frame, now);
             Vec::new()

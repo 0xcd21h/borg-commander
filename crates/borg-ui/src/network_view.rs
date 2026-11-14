@@ -2,10 +2,14 @@
 //! the selected row's details and traffic in the other. It shares the activity monitor's look.
 
 use crate::{format, look::Look, spinner::Spinner};
-use borg_core::{AppState, Neighbor, Network, NetworkPage, NetworkSort, Socket};
+use borg_core::{AppState, Neighbor, NeighborRow, Network, NetworkPage, NetworkSort, Presence, Socket};
 use borg_i18n::tr;
+use jiff::Zoned;
 use ratatui::{buffer::Buffer, layout::Rect};
-use std::net::{IpAddr, SocketAddr};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::{Duration, UNIX_EPOCH},
+};
 use unicode_width::UnicodeWidthStr;
 
 mod capture;
@@ -45,10 +49,20 @@ const NEIGHBOR_DETAILS_FROM: u16 = 110;
 const MAC_WIDTH: u16 = 17;
 const VENDOR_WIDTH: u16 = 16;
 const NEIGHBOR_STATE_WIDTH: u16 = 10;
-const NEIGHBOR_INTERFACE_WIDTH: u16 = 10;
-const NOTE_WIDTH: u16 = 20;
+const PORTS_WIDTH: u16 = 11;
+const PING_WIDTH: u16 = 6;
+const NOTE_WIDTH: u16 = 18;
+const MICROS_PER_MILLI: u128 = 1000;
+const PORT_SEPARATOR: &str = ", ";
 
-pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: std::time::Instant, buf: &mut Buffer) {
+pub(crate) fn draw(
+    state: &AppState,
+    look: &Look<'_>,
+    panels: [Rect; 2],
+    clock: &Zoned,
+    now: std::time::Instant,
+    buf: &mut Buffer,
+) {
     let network = &state.network;
     let Some(side) = network.side else { return };
     let spinner = Spinner::of(&state.busy, borg_core::Task::Network, now);
@@ -59,10 +73,10 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: st
         return;
     }
     if !list.is_empty() {
-        list::draw_list(state, look, list, spinner, now, buf);
+        list::draw_list(state, look, list, clock, spinner, now, buf);
     }
     if !details.is_empty() {
-        details::draw_details(network, look, details, buf);
+        details::draw_details(network, look, details, clock, buf);
     }
 }
 
@@ -116,6 +130,8 @@ enum Field {
     Vendor,
     Name,
     Host,
+    Ports,
+    Ping,
     Note,
 }
 
@@ -138,6 +154,8 @@ impl Field {
             Self::Mac => tr!(network_mac_column),
             Self::Vendor => tr!(network_vendor_column),
             Self::Name | Self::Host => tr!(network_name_column),
+            Self::Ports => tr!(network_ports_column),
+            Self::Ping => tr!(network_ping_column),
             Self::Note => tr!(network_note_column),
         }
     }
@@ -201,7 +219,8 @@ fn columns(page: NetworkPage, width: u16) -> Vec<Column> {
                 full.then_some(column(Field::Vendor, VENDOR_WIDTH, None)),
                 Some(open(if full { Field::Host } else { Field::Name }, Some(NetworkSort::Name))),
                 Some(column(Field::State, NEIGHBOR_STATE_WIDTH, None)),
-                full.then_some(column(Field::Interface, NEIGHBOR_INTERFACE_WIDTH, None)),
+                full.then_some(column(Field::Ports, PORTS_WIDTH, None)),
+                full.then_some(column(Field::Ping, PING_WIDTH, None)),
                 full.then_some(column(Field::Note, NOTE_WIDTH, None)),
             ]
         }
@@ -259,6 +278,30 @@ fn neighbor_label(network: &Network, neighbor: &Neighbor) -> String {
         .host(neighbor.address)
         .or_else(|| neighbor_vendor(neighbor))
         .map_or_else(|| UNKNOWN.to_owned(), str::to_owned)
+}
+
+/// A neighbor's state in the tables, or that it is gone.
+fn neighbor_state(neighbor: &Neighbor, row: NeighborRow) -> &'static str {
+    match row.presence {
+        Presence::Offline(_) => tr!(network_offline_state),
+        _ => neighbor.state.map_or("", |state| state.name()),
+    }
+}
+
+/// The scanned ports a neighbor took connections on, when it was scanned.
+fn open_ports(network: &Network, neighbor: &Neighbor) -> Option<String> {
+    let ports = network.open_ports(neighbor.address)?;
+    Some(ports.iter().map(ToString::to_string).collect::<Vec<_>>().join(PORT_SEPARATOR))
+}
+
+/// How fast a neighbor answered ping in this session's scan, rounded up to the millisecond.
+fn ping_time(rtt: Duration) -> String {
+    tr!(network_ping_time, ms = rtt.as_micros().div_ceil(MICROS_PER_MILLI))
+}
+
+/// When a host that is gone was last seen, `at` seconds since the epoch.
+fn seen(at: u64, clock: &Zoned) -> String {
+    format::modified(Some(UNIX_EPOCH + Duration::from_secs(at)), clock)
 }
 
 /// An interface's address to show first: IPv4 if it has one.

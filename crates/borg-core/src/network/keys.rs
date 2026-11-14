@@ -64,7 +64,8 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Char('r' | 'R') => return super::capture::capture_key(state),
         KeyCode::Char('l' | 'L') => return super::capture::copy_key_log_prefix(state),
         KeyCode::Char('k' | 'K') => return show_process(state, true),
-        KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::sweep(state),
+        KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::scan(state),
+        KeyCode::F(8) | KeyCode::Delete if network.page == NetworkPage::Neighbors => return super::forget(state),
         KeyCode::Char(c) => {
             if let Some(page) = NetworkPage::from_key(c) {
                 show_page(network, page);
@@ -153,6 +154,9 @@ fn escape(state: &mut AppState) -> Vec<Effect> {
     if state.network.details_focused {
         state.network.details_focused = false;
         return Vec::new();
+    }
+    if state.network.scan.as_ref().is_some_and(|scan| !scan.stopping) {
+        return super::stop_scan(state);
     }
     leave(state)
 }

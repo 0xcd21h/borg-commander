@@ -511,7 +511,7 @@ What the menu offers depends on the row:
 - **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row
   is reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
   **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address** and
-  **Sweep subnet** (S).
+  **Scan subnet** (S), and a host that is offline adds **Forget host** (F8).
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -1656,8 +1656,8 @@ where it is:
 - **Caches**: folder sizes and name indexes, in the cache folder (see
   [Saved size scans](#saved-size-scans)).
 - **Sessions and history**: sessions, shell output, the remote log, search and folder history,
-  collections, paired computers with their keys, and what Borg learned about your drives
-  (`drives.json`), in the state folder.
+  collections, paired computers with their keys, what Borg learned about your drives
+  (`drives.json`), and the network neighbors it remembers (`neighbors.json`), in the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 
@@ -2399,12 +2399,13 @@ place of the address once it is known.
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
 | R | Capture the selected row's traffic, or stop the capture that runs |
-| S | Sweep the selected neighbor's subnet (**5 Neighbors**) |
+| S | Scan the selected neighbor's subnet (**5 Neighbors**) |
+| F8 / Delete | Forget the selected host that is offline (**5 Neighbors**) |
 | Ctrl-C | Copy the port's address, the PID, the other end, or the interface's or neighbor's address |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
-| Esc | Go back to the list, then close the screen or return to the activity monitor |
+| Esc | Go back to the list, stop a running scan, then close the screen or return to the activity monitor |
 
 P sorts the pages that have a port, C the pages that count connections, and A and M sort
 **5 Neighbors**, which has no traffic to sort by. Click a column
@@ -2425,9 +2426,11 @@ back to the monitor. A process without connections or open ports gets a notice t
 network that this machine talked to lately, with its address, MAC address, name and state. The
 state is the system's own word for the entry: **REACHABLE** answered recently, **STALE** has not
 been checked for a while, **DELAY** and **PROBE** are being checked, **INCOMPLETE** asked and got
-no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Entries without a MAC
-address sort last. This machine's own addresses, broadcast and multicast entries stay out of the
-list. A wide pane adds the vendor, the interface and a note.
+no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Hosts that only answered
+a scan come after the entries with a MAC address, then the remembered hosts that are offline, and
+entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
+entries stay out of the list. A wide pane adds the vendor, the open ports and ping time a scan
+found, and a note.
 
 The vendor comes from the first half of the MAC address, looked up in the IEEE registry that ships
 with Borg, so `3c:2a:f4` reads as Brother Industries. Names come from the same background
@@ -2450,20 +2453,37 @@ The **Note** column and the details flag what deserves a look:
   private addresses, and so do virtual machines and containers.
 
 The details add the subnet with this machine's address in it, the other addresses that share the
-MAC address, and a sentence for each note. Under **This network** they list the gateways on the
-neighbor's interface and the DNS servers.
+MAC address, the **Open ports** and **Ping** a scan found, and a sentence for each note. Under
+**This network** they list the gateways on the neighbor's interface and the DNS servers.
 
-The tables only hold devices this machine talked to. Press **S**, or choose **Sweep subnet** in the
-context menu, to find the quiet ones: Borg sends one empty UDP datagram to port 9 of every address
-in the selected neighbor's subnet, spread over one second, and the system asks each address for
-its MAC address on the way. Devices that answer join the list within a few seconds. Addresses
-that never answer stay hidden. Borg asks first and names the subnet, the interface and the
-number of addresses. It sweeps IPv4 subnets on Ethernet, Wi-Fi and bridge interfaces that are
-up, and covers at most 254 addresses: a larger subnet gets the /24 around this machine's address.
-It skips this machine, the network address and the broadcast address. With no row selected, S
-sweeps the subnet of the default gateway's interface. Sweep only networks you are allowed to
-scan, since some networks treat a sweep as an attack. Apart from the sweep and the name lookups,
-the page only reads tables the system keeps.
+The tables only hold devices this machine talked to, and some devices stay quiet until something
+knocks. Press **S**, or choose **Scan subnet** in the context menu, to find them. Borg asks first
+and names the subnet, the interface and the number of addresses. Then it probes 16 addresses at a
+time. Each one gets a ping, TCP connections to ports 22, 80 and 443, and an empty UDP datagram to
+port 9 that makes the system ask for the address's MAC address, and Borg waits up to 1 second for
+the answers. A host that answers ping, takes a connection or refuses one joins the list right
+away, and a wide pane shows its open ports in **Ports** and its ping time in **Ping**. Addresses
+that stay silent stay hidden. The footer counts the addresses probed and the hosts that answered,
+and Esc stops the scan. Closing the screen leaves the scan running, and a notice tells you when it
+is done.
+
+Ping goes through an ICMP socket that needs no administrator rights. Linux grants that socket only
+to the groups in `net.ipv4.ping_group_range`, and where the system refuses it, Borg skips ping and
+goes by the ports. A scan covers IPv4 subnets on Ethernet, Wi-Fi and bridge interfaces that are
+up, and at most 254 addresses: a larger subnet gets the /24 around this machine's address. It skips
+this machine, the network address and the broadcast address. With no row selected, S scans the
+subnet of the default gateway's interface. Scan only networks you are allowed to scan, since some
+networks treat a scan as an attack. Apart from scans and the name lookups, the page only reads
+tables the system keeps.
+
+Borg remembers the hosts it finds, from the tables and from scans, in `neighbors.json` in its state
+folder, readable by you alone. It keeps them per network, which it knows by the subnet and the
+gateway's MAC address, so two networks that both use 192.168.1.0/24 stay apart. A remembered host
+that is gone shows as **Offline**, dimmed, with **Seen** and the time it was last seen in the
+**Note** column and the ports an earlier scan found. Its details add **Last seen**. Type **Offline**
+in the filter to keep only those hosts. Press F8 or Delete on one, or choose **Forget host** in the
+context menu, and Borg asks before it drops the host from the file. Borg keeps up to 1,024 hosts
+for each network and 32 networks, and lets the ones seen longest ago go first.
 
 ### Filtering
 

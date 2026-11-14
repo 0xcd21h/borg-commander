@@ -207,8 +207,9 @@ pub use network::{
     TcpState, Traffic, Transport, exposure_label, kind_label, service,
 };
 pub use network::{
-    Gateway, GatewayWatch, Mac, MacChange, Neighbor, NeighborRow, NeighborState, Neighborhood, Subnet, Sweep,
-    neighbor_notes, subnet, vendor,
+    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
+    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Presence, Probe, Probed, SCAN_PORTS, SavedNeighbors,
+    ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
 };
 
 pub use capture::{

@@ -64,7 +64,17 @@ pub enum Msg {
     AlertsChanged(Box<crate::AlertLog>),
     /// Names for addresses the network screen asked about; `None` where there is none.
     HostNames(Vec<(std::net::IpAddr, Option<String>)>),
-    Swept(Result<usize, String>),
+    /// One address a subnet scan probed, at a time in seconds since the epoch.
+    Probed {
+        id: u64,
+        probe: crate::Probe,
+        at: u64,
+    },
+    /// The subnet scan sent its last probe, or stopped.
+    ScanFinished {
+        id: u64,
+        result: Result<(), String>,
+    },
     /// How far the running capture got.
     CaptureProgress {
         id: u64,
@@ -376,9 +386,17 @@ pub enum Effect {
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),
-    Sweep {
+    /// Probes each address with ping and connections to the scanned ports, a few at a time.
+    ScanSubnet {
+        id: u64,
         addresses: Vec<std::net::Ipv4Addr>,
     },
+    /// Sends no more probes for the scan.
+    StopScan {
+        id: u64,
+    },
+    /// Saves the remembered neighbors.
+    SaveNeighbors,
     /// Runs `tcpdump` for the network screen's capture.
     Capture {
         id: u64,

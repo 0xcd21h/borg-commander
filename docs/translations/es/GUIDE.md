@@ -553,7 +553,8 @@ Lo que ofrece el menú depende de la fila:
 - Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo que
   identifique la fila. Una fila con un proceso añade **Copiar PID**,
   **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
-  **Copiar dirección IP**, **Copiar dirección MAC** y **Barrer subred** (S).
+  **Copiar dirección IP**, **Copiar dirección MAC** y **Escanear subred** (S), y un host apagado
+  añade **Olvidar host** (F8).
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -1794,8 +1795,8 @@ cada uno y dónde está:
 - **Cachés**: tamaños de carpeta e índices de nombres, en la carpeta de caché (consulta
   [Análisis de tamaño guardados](#saved-size-scans)).
 - **Sesiones e historial**: sesiones, salida del shell, registro remoto, historial de búsquedas y
-  carpetas, colecciones, equipos emparejados con sus claves y lo que Borg aprendió sobre tus discos
-  (`drives.json`), en la carpeta de estado.
+  carpetas, colecciones, equipos emparejados con sus claves, lo que Borg aprendió sobre tus discos
+  (`drives.json`) y los vecinos de red que recuerda (`neighbors.json`), en la carpeta de estado.
 - **Configuración**: `config.toml` y tus temas.
 - **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.
 
@@ -2594,12 +2595,13 @@ en lugar de la dirección en cuanto lo conoce.
 | Enter | Mostrar el proceso de la fila seleccionada en el monitor de actividad |
 | K | Mostrar el proceso con **Señal o prioridad** abierto |
 | R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
-| S | Barrer la subred del vecino seleccionado (**5 Vecinos**) |
+| S | Escanear la subred del vecino seleccionado (**5 Vecinos**) |
+| F8 / Delete | Olvidar el host seleccionado que está apagado (**5 Vecinos**) |
 | Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, o la dirección de la interfaz o del vecino |
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
 | Alt-W | Maximizar el panel con el foco |
-| Esc | Volver a la lista y después cerrar la pantalla o regresar al monitor de actividad |
+| Esc | Volver a la lista, detener un escaneo en curso y después cerrar la pantalla o regresar al monitor de actividad |
 
 P ordena las páginas que tienen puerto y C las que cuentan conexiones, mientras que A y M ordenan
 **5 Vecinos**, que no tiene tráfico por el que ordenar. Haz clic en el encabezado de una columna
@@ -2621,9 +2623,11 @@ red local con el que este equipo habló hace poco, con su dirección, dirección
 El estado es la palabra que usa el propio sistema para la entrada: **REACHABLE** respondió hace
 poco, **STALE** lleva un tiempo sin comprobarse, **DELAY** y **PROBE** se están comprobando,
 **INCOMPLETE** preguntó y aún no tiene respuesta, **FAILED** nunca respondió y **PERMANENT** no
-caduca nunca. Las entradas sin dirección MAC van al final. Las direcciones de este equipo y las
-entradas de broadcast y multicast quedan fuera de la lista. Un panel ancho añade el fabricante, la
-interfaz y una nota.
+caduca nunca. Los hosts que solo respondieron a un escaneo van después de las entradas con dirección
+MAC, luego los hosts recordados que están apagados, y las entradas sin dirección MAC van al final.
+Las direcciones de este equipo y las entradas de broadcast y multicast quedan fuera de la lista. Un
+panel ancho añade el fabricante, los puertos abiertos y el tiempo de ping que encontró un escaneo, y
+una nota.
 
 El fabricante sale de la primera mitad de la dirección MAC, buscada en el registro del IEEE que
 viene con Borg, así que `3c:2a:f4` se lee como Brother Industries. Los nombres salen de las mismas
@@ -2647,21 +2651,40 @@ La columna **Nota** y los detalles señalan lo que merece un vistazo:
   teléfonos usan estas direcciones privadas, y también las máquinas virtuales y los contenedores.
 
 Los detalles añaden la subred con la dirección de este equipo, las otras direcciones que comparten
-la dirección MAC y una frase por cada nota. En **Esta red** listan las puertas de enlace de la
-interfaz del vecino y los servidores DNS.
+la dirección MAC, los **Puertos abiertos** y el **Ping** que encontró un escaneo, y una frase por
+cada nota. En **Esta red** listan las puertas de enlace de la interfaz del vecino y los servidores
+DNS.
 
-Las tablas solo guardan los dispositivos con los que este equipo habló. Pulsa **S**, o elige
-**Barrer subred** en el menú contextual, para encontrar los silenciosos: Borg envía un datagrama UDP
-vacío al puerto 9 de cada dirección de la subred del vecino seleccionado, repartidos a lo largo de
-un segundo, y por el camino el sistema pregunta a cada dirección cuál es su dirección MAC. Los
-dispositivos que responden entran en la lista en pocos segundos. Las direcciones que nunca responden
-siguen ocultas. Borg pregunta antes e indica la subred, la interfaz y el número de direcciones.
-Barre subredes IPv4 en interfaces Ethernet, Wi-Fi y puente que estén activas, y cubre como mucho 254
-direcciones: una subred mayor se reduce al /24 que rodea la dirección de este equipo. Se salta este
-equipo, la dirección de red y la dirección de broadcast. Sin ninguna fila seleccionada, S barre la
-subred de la interfaz de la puerta de enlace predeterminada. Barre solo redes que tengas permiso
-para analizar, porque algunas redes tratan un barrido como un ataque. Aparte del barrido y de las
-búsquedas de nombres, la página solo lee tablas que mantiene el sistema.
+Las tablas solo guardan los dispositivos con los que este equipo habló, y algunos dispositivos no
+dicen nada hasta que alguien llama a la puerta. Pulsa **S**, o elige **Escanear subred** en el menú
+contextual, para encontrarlos. Borg pregunta antes e indica la subred, la interfaz y el número de
+direcciones. Después sondea 16 direcciones a la vez. Cada una recibe un ping, conexiones TCP a los
+puertos 22, 80 y 443 y un datagrama UDP vacío al puerto 9 que hace que el sistema pregunte por su
+dirección MAC, y Borg espera hasta 1 segundo las respuestas. Un host que responde al ping, acepta
+una conexión o la rechaza entra en la lista al momento, y un panel ancho muestra sus puertos
+abiertos en **Puertos** y su tiempo de ping en **Ping**. Las direcciones que siguen calladas quedan
+ocultas. El pie cuenta las direcciones sondeadas y los hosts que respondieron, y Esc detiene el
+escaneo. Cerrar la pantalla deja el escaneo en marcha, y un aviso te dice cuándo termina.
+
+El ping usa un socket ICMP que no necesita permisos de administrador. Linux solo concede ese socket
+a los grupos de `net.ipv4.ping_group_range`, y donde el sistema lo niega, Borg se salta el ping y se
+guía por los puertos. Un escaneo cubre subredes IPv4 en interfaces Ethernet, Wi-Fi y puente que
+estén activas, y como mucho 254 direcciones: una subred mayor se reduce al /24 que rodea la
+dirección de este equipo. Se salta este equipo, la dirección de red y la dirección de broadcast. Sin
+ninguna fila seleccionada, S escanea la subred de la interfaz de la puerta de enlace predeterminada.
+Escanea solo redes que tengas permiso para escanear, porque algunas redes tratan un escaneo como un
+ataque. Aparte de los escaneos y de las búsquedas de nombres, la página solo lee tablas que mantiene
+el sistema.
+
+Borg recuerda los hosts que encuentra, en las tablas y en los escaneos, en `neighbors.json` dentro
+de su carpeta de estado, en un archivo que solo tú puedes leer. Los guarda por red, que reconoce por
+la subred y la dirección MAC de la puerta de enlace, así que dos redes que usan 192.168.1.0/24
+quedan separadas. Un host recordado que ya no está aparece como **Apagado**, atenuado, con **Visto**
+y la hora en que se vio por última vez en la columna **Nota**, y con los puertos que encontró un
+escaneo anterior. Sus detalles añaden **Visto por última vez**. Escribe **Apagado** en el filtro
+para quedarte solo con esos hosts. Pulsa F8 o Delete sobre uno, o elige **Olvidar host** en el menú
+contextual, y Borg pregunta antes de quitar el host del archivo. Borg guarda hasta 1024 hosts por
+red y 32 redes, y deja ir primero los que lleva más tiempo sin ver.
 
 ### Filtrar
 

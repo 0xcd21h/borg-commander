@@ -2,8 +2,8 @@
 //! last minute, and the connections it has.
 
 use super::{
-    DOWN, Field, UP, cells, column, endpoint, list::reach, neighbor_label, neighbor_vendor, open, page_label, rate,
-    socket_rate,
+    DOWN, Field, UP, cells, column, endpoint, list::reach, neighbor_label, neighbor_state, neighbor_vendor, open,
+    open_ports, page_label, ping_time, rate, seen, socket_rate,
 };
 use crate::{
     activity_view::{Unit, body, dim, emphasis, heading, row, text, wrap},
@@ -12,10 +12,11 @@ use crate::{
     look::Look,
 };
 use borg_core::{
-    Interface, Meter, Neighbor, NeighborRow, Network, NetworkPage, PortRow, ProcessRow, Rate, Socket, kind_label,
-    service,
+    Interface, Meter, Neighbor, NeighborRow, Network, NetworkPage, PortRow, Presence, ProcessRow, Rate, Socket,
+    kind_label, scanned_ports, service,
 };
 use borg_i18n::tr;
+use jiff::Zoned;
 use ratatui::{buffer::Buffer, layout::Rect};
 use unicode_width::UnicodeWidthStr;
 
@@ -28,7 +29,7 @@ const TABLE_STATE_WIDTH: u16 = 12;
 const SEPARATOR: &str = " · ";
 const LIST_SEPARATOR: &str = ", ";
 
-pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, buf: &mut Buffer) {
+pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
     let focused = network.details_focused;
     match network.page {
         NetworkPage::Ports => match network.port() {
@@ -84,7 +85,7 @@ pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, buf: 
             }
         },
         NetworkPage::Neighbors => match network.neighbor() {
-            Some((neighbor, entry)) => neighbor_details(network, neighbor, entry, look, rect, buf),
+            Some((neighbor, entry)) => neighbor_details(network, neighbor, entry, look, rect, clock, buf),
             None => {
                 _ = crate::results_view::pane_frame(
                     network.expanded,
@@ -341,6 +342,7 @@ fn neighbor_details(
     entry: NeighborRow,
     look: &Look<'_>,
     rect: Rect,
+    clock: &Zoned,
     buf: &mut Buffer,
 ) {
     let theme = look.theme;
@@ -350,8 +352,8 @@ fn neighbor_details(
         return;
     }
     text(buf, row(inner, 0), neighbor_label(network, neighbor), emphasis(theme));
-    let summary: Vec<&str> =
-        [entry.gateway.then(|| tr!(network_gateway_note)), neighbor_vendor(neighbor)].into_iter().flatten().collect();
+    let vendor = neighbor_vendor(neighbor).filter(|_| network.host(neighbor.address).is_some());
+    let summary: Vec<&str> = [entry.gateway.then(|| tr!(network_gateway_note)), vendor].into_iter().flatten().collect();
     text(buf, row(inner, 1), summary.join(SEPARATOR), theme.styles.overlay);
     let body = body(rect);
     let labels = [
@@ -361,13 +363,16 @@ fn neighbor_details(
         tr!(network_interface_label),
         tr!(network_subnet_label),
         tr!(network_same_mac_label),
+        tr!(network_ports_label),
+        tr!(network_ping_label),
+        tr!(network_last_seen_label),
         tr!(network_gateway_label),
         tr!(network_dns_label),
     ];
     let mut facts = facts(body, 0, &labels, look);
     facts.add(buf, labels[0], neighbor.mac.map_or_else(String::new, |mac| mac.to_string()));
     facts.add(buf, labels[1], neighbor_vendor(neighbor).unwrap_or_default());
-    facts.add(buf, labels[2], neighbor.state.map_or("", |state| state.name()));
+    facts.add(buf, labels[2], neighbor_state(neighbor, entry));
     let kind = network.sample.interfaces.iter().find(|known| known.name == neighbor.interface);
     let interface = match kind {
         Some(known) => format!("{}{SEPARATOR}{}", neighbor.interface, kind_label(known.kind)),
@@ -380,6 +385,17 @@ fn neighbor_details(
     facts.add(buf, labels[4], subnet.unwrap_or_default());
     let same: Vec<String> = network.same_mac(neighbor).iter().map(ToString::to_string).collect();
     facts.add(buf, labels[5], same.join(LIST_SEPARATOR));
+    let ports = open_ports(network, neighbor)
+        .map(|ports| if ports.is_empty() { tr!(network_no_open_ports, ports = scanned_ports()) } else { ports });
+    facts.add(buf, labels[6], ports.unwrap_or_default());
+    let ping = network.probes.get(&neighbor.address).map(|probed| match probed.probe.ping {
+        Some(rtt) => ping_time(rtt),
+        None => tr!(network_no_ping).to_owned(),
+    });
+    facts.add(buf, labels[7], ping.unwrap_or_default());
+    if let Presence::Offline(at) = entry.presence {
+        facts.add(buf, labels[8], seen(at, clock));
+    }
     let mut y = facts.y + 1;
     for sentence in warnings(neighbor, entry) {
         for line in wrap(&sentence, usize::from(body.width)) {
@@ -398,9 +414,9 @@ fn neighbor_details(
     let mut facts = self::facts(body, y + 1, &labels, look);
     let gateways: Vec<String> =
         neighborhood.gateways_on(&neighbor.interface).map(|gateway| gateway.address.to_string()).collect();
-    facts.add(buf, labels[6], gateways.join(LIST_SEPARATOR));
+    facts.add(buf, labels[9], gateways.join(LIST_SEPARATOR));
     let servers: Vec<String> = neighborhood.dns.iter().map(ToString::to_string).collect();
-    facts.add(buf, labels[7], servers.join(LIST_SEPARATOR));
+    facts.add(buf, labels[10], servers.join(LIST_SEPARATOR));
 }
 
 fn warnings(neighbor: &Neighbor, entry: NeighborRow) -> Vec<String> {

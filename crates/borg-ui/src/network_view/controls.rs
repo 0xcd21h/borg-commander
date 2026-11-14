@@ -14,7 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-const SWEEP_KEY: char = 's';
+const SCAN_KEY: char = 's';
 
 fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
@@ -43,9 +43,15 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
         let copy = network.recording.as_ref().filter(|recording| recording.key_log.is_some()).map(|recording| {
             if recording.proxy.is_some() { tr!(network_copy_proxy_button) } else { tr!(network_copy_key_log_button) }
         });
-        let sweep = network.loaded && network.page == NetworkPage::Neighbors;
+        let scanning = network.scan.as_ref().is_some_and(|scan| !scan.stopping);
+        let scan = network.loaded && network.page == NetworkPage::Neighbors && network.scan.is_none();
+        let esc = if scanning && !network.details_focused {
+            (tr!(network_stop_scan_button), KeyCode::Esc)
+        } else {
+            back_button(network.details_focused || network.goes_back())
+        };
         [
-            sweep.then_some((tr!(network_sweep_button), KeyCode::Char(SWEEP_KEY))),
+            scan.then_some((tr!(network_scan_button), KeyCode::Char(SCAN_KEY))),
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
             network.loaded.then_some((capture, KeyCode::Char('r'))),
@@ -53,7 +59,7 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
             Some((tr!(activity_filter_button), KeyCode::Char('/'))),
             Some((tr!(activity_pause_button), KeyCode::Char(' '))),
             Some(details_button(network)),
-            Some(back_button(network.details_focused || network.goes_back())),
+            Some(esc),
         ]
         .into_iter()
         .flatten()

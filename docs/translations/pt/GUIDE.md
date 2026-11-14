@@ -558,7 +558,8 @@ O que o menu oferece depende da linha:
 - Linhas da **Rede**: **Copiar endereço**, **Copiar endereço remoto** ou **Copiar PID**, conforme
   aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
   **Mostrar no monitor de atividade** e **Sinal ou prioridade…**. Um vizinho oferece
-  **Copiar endereço IP**, **Copiar endereço MAC** e **Varrer sub-rede** (S).
+  **Copiar endereço IP**, **Copiar endereço MAC** e **Analisar sub-rede** (S), e um host desligado
+  acrescenta **Esquecer host** (F8).
 - **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
   **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
 - **Itens de arranque**: **Copiar caminho**, **Copiar caminho do programa** e **Copiar comando**,
@@ -1790,8 +1791,9 @@ cada um e onde fica:
 - **Caches**: tamanhos das pastas e índices de nomes, na pasta de cache (consulte
   [Análises de tamanho guardadas](#saved-size-scans)).
 - **Sessões e histórico**: sessões, saída da shell, registo remoto, histórico de pesquisas e de
-  pastas, coleções, computadores emparelhados com as suas chaves e o que o Borg aprendeu sobre os
-  seus discos (`drives.json`), na pasta de estado.
+  pastas, coleções, computadores emparelhados com as suas chaves, o que o Borg aprendeu sobre os
+  seus discos (`drives.json`) e os vizinhos de rede que guarda (`neighbors.json`), na pasta de
+  estado.
 - **Definições**: `config.toml` e os seus temas.
 - **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
 
@@ -2583,12 +2585,13 @@ endereço assim que o conhece.
 | Enter | Mostrar o processo da linha selecionada no monitor de atividade |
 | K | Mostrar o processo com **Sinal ou prioridade** aberto |
 | R | Capturar o tráfego da linha selecionada ou parar a captura em curso |
-| S | Varrer a sub-rede do vizinho selecionado (**5 Vizinhos**) |
+| S | Analisar a sub-rede do vizinho selecionado (**5 Vizinhos**) |
+| F8 / Delete | Esquecer o host selecionado que está desligado (**5 Vizinhos**) |
 | Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, ou o endereço da interface ou do vizinho |
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
 | Alt-W | Maximizar o painel com o foco |
-| Esc | Voltar à lista e depois fechar o ecrã ou regressar ao monitor de atividade |
+| Esc | Voltar à lista, parar uma análise em curso e depois fechar o ecrã ou regressar ao monitor de atividade |
 
 P ordena as páginas que têm porta, C as que contam ligações, e A e M ordenam **5 Vizinhos**, que não
 tem tráfego para ordenar. Clique no cabeçalho de uma coluna para ordenar por ela, e faça duplo
@@ -2610,9 +2613,10 @@ local com que esta máquina falou recentemente, com o endereço, o endereço MAC
 estado é a palavra que o próprio sistema usa para a entrada: **REACHABLE** respondeu há pouco,
 **STALE** não é verificado há algum tempo, **DELAY** e **PROBE** estão a ser verificados,
 **INCOMPLETE** perguntou e ainda não teve resposta, **FAILED** nunca respondeu e **PERMANENT** nunca
-expira. As entradas sem endereço MAC ficam no fim. Os endereços desta máquina e as entradas de
-broadcast e multicast ficam fora da lista. Um painel largo acrescenta o fabricante, a interface e
-uma nota.
+expira. Os hosts que só responderam a uma análise vêm depois das entradas com endereço MAC, a seguir
+os hosts guardados que estão desligados, e as entradas sem endereço MAC ficam no fim. Os endereços
+desta máquina e as entradas de broadcast e multicast ficam fora da lista. Um painel largo acrescenta
+o fabricante, as portas abertas e o tempo de ping que uma análise encontrou, e uma nota.
 
 O fabricante vem da primeira metade do endereço MAC, procurada no registo do IEEE que acompanha o
 Borg, por isso `3c:2a:f4` aparece como Brother Industries. Os nomes vêm das mesmas pesquisas em
@@ -2635,21 +2639,38 @@ A coluna **Nota** e os detalhes assinalam o que merece atenção:
   telemóveis usam estes endereços privados, tal como as máquinas virtuais e os contentores.
 
 Os detalhes acrescentam a sub-rede com o endereço desta máquina, os outros endereços que partilham o
-endereço MAC e uma frase para cada nota. Em **Esta rede** listam os gateways na interface do vizinho
-e os servidores DNS.
+endereço MAC, as **Portas abertas** e o **Ping** que uma análise encontrou, e uma frase para cada
+nota. Em **Esta rede** listam os gateways na interface do vizinho e os servidores DNS.
 
-As tabelas só guardam os dispositivos com que esta máquina falou. Prima **S**, ou escolha
-**Varrer sub-rede** no menu de contexto, para encontrar os silenciosos: o Borg envia um datagrama
-UDP vazio para a porta 9 de cada endereço da sub-rede do vizinho selecionado, distribuídos ao longo
-de um segundo, e, pelo caminho, o sistema pergunta a cada endereço qual é o seu endereço MAC. Os
-dispositivos que respondem entram na lista em poucos segundos. Os endereços que nunca respondem
-continuam ocultos. O Borg pergunta primeiro e indica a sub-rede, a interface e o número de
-endereços. Varre sub-redes IPv4 em interfaces Ethernet, Wi-Fi e ponte que estejam ativas, e cobre no
-máximo 254 endereços: uma sub-rede maior fica reduzida ao /24 à volta do endereço desta máquina.
-Salta esta máquina, o endereço de rede e o endereço de broadcast. Sem nenhuma linha selecionada, S
-varre a sub-rede da interface do gateway predefinido. Varra apenas redes que tem autorização para
-analisar, porque algumas redes tratam uma varredura como um ataque. Além da varredura e das
-pesquisas de nomes, a página só lê tabelas que o sistema mantém.
+As tabelas só guardam os dispositivos com que esta máquina falou, e alguns dispositivos ficam
+calados até alguém bater à porta. Prima **S**, ou escolha **Analisar sub-rede** no menu de contexto,
+para os encontrar. O Borg pergunta primeiro e indica a sub-rede, a interface e o número de
+endereços. Depois sonda 16 endereços de cada vez. Cada um recebe um ping, ligações TCP às portas 22,
+80 e 443 e um datagrama UDP vazio para a porta 9 que leva o sistema a perguntar pelo endereço MAC
+desse endereço, e o Borg espera até 1 segundo pelas respostas. Um host que responde ao ping, aceita
+uma ligação ou a recusa entra logo na lista, e um painel largo mostra as portas abertas em
+**Portas** e o tempo de ping em **Ping**. Os endereços que ficam calados continuam ocultos. O rodapé
+conta os endereços sondados e os hosts que responderam, e Esc para a análise. Fechar o ecrã deixa a
+análise a correr, e um aviso indica quando termina.
+
+O ping passa por um socket ICMP que não precisa de direitos de administrador. O Linux só concede
+esse socket aos grupos em `net.ipv4.ping_group_range`, e onde o sistema o recusa, o Borg salta o
+ping e guia-se pelas portas. Uma análise abrange sub-redes IPv4 em interfaces Ethernet, Wi-Fi e
+ponte que estejam ativas, e no máximo 254 endereços: uma sub-rede maior fica reduzida ao /24 à volta
+do endereço desta máquina. Salta esta máquina, o endereço de rede e o endereço de broadcast. Sem
+nenhuma linha selecionada, S analisa a sub-rede da interface do gateway predefinido. Analise apenas
+redes que tem autorização para analisar, porque algumas redes tratam uma análise como um ataque.
+Além das análises e das pesquisas de nomes, a página só lê tabelas que o sistema mantém.
+
+O Borg guarda os hosts que encontra, nas tabelas e nas análises, em `neighbors.json` na sua pasta de
+estado, num ficheiro que só o utilizador pode ler. Guarda-os por rede, que reconhece pela sub-rede e
+pelo endereço MAC do gateway, por isso duas redes que usam ambas 192.168.1.0/24 ficam separadas. Um
+host guardado que desapareceu aparece como **Desligado**, esbatido, com **Visto** e a hora em que
+foi visto pela última vez na coluna **Nota**, e com as portas que uma análise anterior encontrou. Os
+detalhes acrescentam **Visto pela última vez**. Escreva **Desligado** no filtro para manter só esses
+hosts. Prima F8 ou Delete num deles, ou escolha **Esquecer host** no menu de contexto, e o Borg
+pergunta antes de retirar o host do ficheiro. O Borg guarda até 1024 hosts por rede e 32 redes, e
+deixa sair primeiro os que viu há mais tempo.
 
 ### Filtrar
 

@@ -7,7 +7,7 @@ use borg_i18n::tr;
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr},
     time::{Duration, Instant},
 };
 
@@ -34,8 +34,9 @@ pub use filter::NetworkFilter;
 pub(crate) use keys::{click, copied_text, paste, route_key, show_page, sort_by};
 pub use model::{Interface, InterfaceKind, NetworkSample, PortKey, Socket, SocketKey, TcpState, Transport, service};
 pub use neighbors::{
-    Gateway, GatewayWatch, Mac, MacChange, Neighbor, NeighborRow, NeighborState, Neighborhood, Subnet, Sweep, subnet,
-    vendor,
+    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
+    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Noted, Presence, Probe, Probed, SCAN_PORTS,
+    SavedNeighbors, Subnet, SubnetScan, places, subnet, vendor,
 };
 use rows::Source;
 pub use rows::{ConnectionRow, Exposure, InterfaceRow, PortRow, ProcessRow, neighbor_notes};
@@ -54,6 +55,9 @@ pub const RESOLVE_BATCH: usize = 32;
 const HOSTS_KEPT: usize = 4096;
 const NEIGHBOR_SAMPLES: u8 = 5;
 const PAGES: usize = 5;
+/// How often the remembered neighbors are saved when only the times they were seen changed.
+const MEMORY_SAVE_EVERY: Duration = Duration::from_secs(60);
+const PORT_SEPARATOR: &str = ", ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkPage {
@@ -170,10 +174,22 @@ pub struct Network {
     pub connections: Vec<ConnectionRow>,
     pub interfaces: Vec<InterfaceRow>,
     pub neighbors: Vec<NeighborRow>,
+    /// The neighbor tables with what scans found and the remembered hosts that are gone.
     pub neighborhood: Neighborhood,
+    table: Neighborhood,
+    presence: Vec<Presence>,
+    pub places: Vec<LocalNetwork>,
     pub gateway_watch: GatewayWatch,
-    swept: HashSet<IpAddr>,
-    sweeping: Option<String>,
+    /// What scans found this session, by address.
+    pub probes: HashMap<IpAddr, Probed>,
+    /// Every address a scan asked this session.
+    scanned: HashSet<IpAddr>,
+    pub scan: Option<ScanRun>,
+    pub memory: NeighborMemory,
+    /// False when the saved neighbors could not be read, so they are left as they are.
+    pub memory_writable: bool,
+    memory_changed: bool,
+    memory_saved: Option<Instant>,
     neighbors_due: u8,
     /// How many rows each page has before the filter.
     pub totals: [usize; PAGES],
@@ -228,9 +244,17 @@ impl Default for Network {
             interfaces: Vec::new(),
             neighbors: Vec::new(),
             neighborhood: Neighborhood::default(),
+            table: Neighborhood::default(),
+            presence: Vec::new(),
+            places: Vec::new(),
             gateway_watch: GatewayWatch::default(),
-            swept: HashSet::new(),
-            sweeping: None,
+            probes: HashMap::new(),
+            scanned: HashSet::new(),
+            scan: None,
+            memory: NeighborMemory::default(),
+            memory_writable: true,
+            memory_changed: false,
+            memory_saved: None,
             neighbors_due: 0,
             totals: [0; PAGES],
             cursors: [0; PAGES],
@@ -387,12 +411,42 @@ impl Network {
             .collect()
     }
 
-    pub fn sweep_target(&self) -> Option<Sweep> {
+    pub fn scan_target(&self) -> Option<SubnetScan> {
         let interface = match self.neighbor() {
             Some((neighbor, _)) => neighbor.interface.clone(),
             None => self.neighborhood.first_gateway()?.interface.clone(),
         };
-        self.sample.interfaces.iter().find(|known| known.name == interface).and_then(Sweep::of)
+        self.sample.interfaces.iter().find(|known| known.name == interface).and_then(SubnetScan::of)
+    }
+
+    /// The scanned ports `address` took connections on, from this session's scan or else an
+    /// earlier one.
+    pub fn open_ports(&self, address: IpAddr) -> Option<&[u16]> {
+        neighbors::open_ports(&self.probes, &self.memory, &self.places, address)
+    }
+
+    /// Puts the scanned and remembered hosts beside the neighbor tables and builds the rows again.
+    fn merge(&mut self) {
+        self.places = neighbors::places(&self.sample.interfaces, &self.table);
+        (self.neighborhood, self.presence) = neighbors::merge(&self.table, &self.probes, &self.memory, &self.places);
+        self.rebuild();
+    }
+
+    /// Whether to save the remembered neighbors now: at once for a new host, port or MAC
+    /// address, and at most every minute for times alone.
+    fn save_due(&mut self, noted: Noted, now: Instant) -> bool {
+        self.memory_changed |= noted.learned || noted.refreshed;
+        let due = noted.learned || self.memory_saved.is_none_or(|saved| now.duration_since(saved) >= MEMORY_SAVE_EVERY);
+        self.flush(due, now)
+    }
+
+    fn flush(&mut self, due: bool, now: Instant) -> bool {
+        if !(due && self.memory_changed && self.memory_writable) {
+            return false;
+        }
+        self.memory_changed = false;
+        self.memory_saved = Some(now);
+        true
     }
 
     /// The process the selected row belongs to, when Borg can see it.
@@ -449,8 +503,12 @@ impl Network {
             traffic: &self.traffic,
             hosts: &self.hosts,
             neighborhood: &self.neighborhood,
+            presence: &self.presence,
             watch: &self.gateway_watch,
-            swept: &self.swept,
+            scanned: &self.scanned,
+            probes: &self.probes,
+            memory: &self.memory,
+            places: &self.places,
             filter,
         }
     }
@@ -564,7 +622,13 @@ impl Network {
         neighbors.sort_by(|a, b| {
             let (x, y) = (&known[a.neighbor], &known[b.neighbor]);
             let (p, q) = (&labels[&a.neighbor], &labels[&b.neighbor]);
-            x.mac.is_none().cmp(&y.mac.is_none()).then_with(|| {
+            let rank = |row: &NeighborRow, neighbor: &Neighbor| match row.presence {
+                Presence::Listed if neighbor.mac.is_some() => 0,
+                Presence::Answered => 1,
+                Presence::Offline(_) => 2,
+                Presence::Listed => 3,
+            };
+            rank(a, x).cmp(&rank(b, y)).then_with(|| {
                 by_neighbor
                     .apply(match by_neighbor.sort {
                         NetworkSort::Mac => x.mac.cmp(&y.mac),
@@ -769,18 +833,23 @@ pub(crate) fn receive(
         Ok(mut sample) => {
             let seconds = network.sampled.map_or(0.0, |before| now.duration_since(before).as_secs_f64());
             network.traffic.take(&sample, seconds);
-            let changes = sample.neighborhood.take().map(|neighborhood| {
-                let changes = network.gateway_watch.watch(&neighborhood);
-                network.neighborhood = neighborhood;
-                changes
-            });
+            let table = sample.neighborhood.take();
+            let changes = table.as_ref().map(|table| network.gateway_watch.watch(table));
             network.sample = sample;
             capture::sampled(network);
             network.sampled = Some(now);
             network.loaded = true;
             network.error = None;
             network.next = Some(now + REFRESH);
-            network.rebuild();
+            let mut save = false;
+            if let Some(table) = table {
+                network.table = table;
+                network.places = neighbors::places(&network.sample.interfaces, &network.table);
+                let noted =
+                    network.memory.note_listed(&network.places, &network.table.neighbors, network.table.read_at);
+                save = network.save_due(noted, now);
+            }
+            network.merge();
             if let Some(pid) = network.revealing.take()
                 && !network.reveal(pid)
             {
@@ -789,11 +858,11 @@ pub(crate) fn receive(
                 state.notice =
                     Some(tr!(network_process_idle, process = tr!(process_control_subject, name = name, pid = pid)));
             }
-            if let Some((address, change)) = changes.into_iter().flatten().next() {
-                state.notice =
-                    Some(tr!(network_gateway_changed_notice, address = address, from = change.from, to = change.to));
+            if let Some((_, change)) = changes.into_iter().flatten().next() {
+                state.notice = Some(tr!(network_gateway_changed_notice, from = change.from, to = change.to));
             }
-            state.network.resolve().into_iter().collect()
+            let resolve = state.network.resolve();
+            save.then_some(Effect::SaveNeighbors).into_iter().chain(resolve).collect()
         }
         Err(error) => {
             network.error = Some(error);
@@ -815,40 +884,131 @@ pub(crate) fn hosts_resolved(state: &mut AppState, names: Vec<(IpAddr, Option<St
     }
 }
 
-pub(crate) fn sweep(state: &mut AppState) -> Vec<Effect> {
-    let Some(sweep) = state.network.sweep_target() else {
-        state.notice = Some(tr!(network_sweep_nothing).into());
+/// A subnet scan under way: how many of its addresses were probed and answered so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanRun {
+    pub id: u64,
+    pub subnet: String,
+    pub interface: String,
+    pub total: usize,
+    pub done: usize,
+    pub answered: usize,
+    pub stopping: bool,
+}
+
+/// The ports a subnet scan tries, as the scan question and the details list them.
+pub fn scanned_ports() -> String {
+    SCAN_PORTS.map(|port| port.to_string()).join(PORT_SEPARATOR)
+}
+
+/// S asks before scanning the selected neighbor's subnet.
+pub(crate) fn scan(state: &mut AppState) -> Vec<Effect> {
+    if state.network.scan.is_some() {
+        return Vec::new();
+    }
+    let Some(scan) = state.network.scan_target() else {
+        state.notice = Some(tr!(network_scan_nothing).into());
         return Vec::new();
     };
     state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
-        title: tr!(network_sweep_title),
+        title: tr!(network_scan_title),
         message: tr!(
-            network_sweep_question,
-            subnet = sweep.subnet(),
-            interface = sweep.interface,
-            count = sweep.addresses.len()
+            network_scan_question,
+            subnet = scan.subnet(),
+            interface = scan.interface,
+            count = scan.addresses.len(),
+            ports = scanned_ports()
         ),
-        purpose: crate::ConfirmPurpose::Sweep(Box::new(sweep)),
+        purpose: crate::ConfirmPurpose::Scan(Box::new(scan)),
         accept: true,
     }));
     Vec::new()
 }
 
-pub(crate) fn start_sweep(state: &mut AppState, sweep: Sweep) -> Vec<Effect> {
+pub(crate) fn start_scan(state: &mut AppState, scan: SubnetScan) -> Vec<Effect> {
+    state.notice = None;
     let network = &mut state.network;
-    network.swept.extend(sweep.addresses.iter().copied().map(IpAddr::V4));
-    network.sweeping = Some(sweep.subnet());
-    state.notice = Some(tr!(network_sweeping, subnet = sweep.subnet(), interface = sweep.interface));
-    vec![Effect::Sweep { addresses: sweep.addresses }]
+    network.next_id += 1;
+    let id = network.next_id;
+    for address in &scan.addresses {
+        network.probes.remove(&IpAddr::V4(*address));
+        network.scanned.insert(IpAddr::V4(*address));
+    }
+    network.scan = Some(ScanRun {
+        id,
+        subnet: scan.subnet(),
+        interface: scan.interface.clone(),
+        total: scan.addresses.len(),
+        done: 0,
+        answered: 0,
+        stopping: false,
+    });
+    network.merge();
+    vec![Effect::ScanSubnet { id, addresses: scan.addresses }]
 }
 
-pub(crate) fn swept(state: &mut AppState, result: Result<usize, String>) {
-    let subnet = state.network.sweeping.take().unwrap_or_default();
+/// Esc stops a scan under way; the probes already out still report.
+pub(crate) fn stop_scan(state: &mut AppState) -> Vec<Effect> {
+    let Some(scan) = state.network.scan.as_mut().filter(|scan| !scan.stopping) else { return Vec::new() };
+    scan.stopping = true;
+    vec![Effect::StopScan { id: scan.id }]
+}
+
+/// One scanned address's answers, at `at` in seconds since the epoch.
+pub(crate) fn probed(state: &mut AppState, id: u64, probe: Probe, at: u64, now: Instant) -> Vec<Effect> {
+    let network = &mut state.network;
+    let Some(scan) = network.scan.as_mut().filter(|scan| scan.id == id) else { return Vec::new() };
+    scan.done += 1;
+    scan.answered += usize::from(probe.answered());
+    let interface = scan.interface.clone();
+    let noted = network.memory.note_probe(&network.places, &probe, at);
+    network.probes.insert(IpAddr::V4(probe.address), Probed { interface, probe });
+    let save = network.save_due(noted, now);
+    network.merge();
+    let resolve = network.resolve();
+    save.then_some(Effect::SaveNeighbors).into_iter().chain(resolve).collect()
+}
+
+pub(crate) fn scan_finished(state: &mut AppState, id: u64, result: Result<(), String>, now: Instant) -> Vec<Effect> {
+    let network = &mut state.network;
+    let Some(scan) = network.scan.take_if(|scan| scan.id == id) else { return Vec::new() };
     state.notice = Some(match result {
-        Ok(count) => tr!(network_swept, subnet = subnet, count = count),
-        Err(error) => tr!(network_sweep_failed, subnet = subnet, error = error),
+        Ok(()) if scan.stopping => {
+            tr!(network_scan_stopped, subnet = scan.subnet, answered = scan.answered, done = scan.done)
+        }
+        Ok(()) => tr!(network_scanned, subnet = scan.subnet, answered = scan.answered, total = scan.total),
+        Err(error) => tr!(network_scan_failed, subnet = scan.subnet, error = error),
     });
-    state.network.rebuild();
+    network.merge();
+    network.flush(true, now).then_some(Effect::SaveNeighbors).into_iter().collect()
+}
+
+/// F8 on a host that is gone asks before Borg forgets it.
+pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
+    let Some((neighbor, row)) = state.network.neighbor() else { return Vec::new() };
+    let (IpAddr::V4(address), Presence::Offline(_)) = (neighbor.address, row.presence) else {
+        state.notice = Some(tr!(network_forget_present).into());
+        return Vec::new();
+    };
+    state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
+        title: tr!(network_forget_title),
+        message: tr!(network_forget_question, address = address),
+        purpose: crate::ConfirmPurpose::ForgetNeighbor(address),
+        accept: false,
+    }));
+    Vec::new()
+}
+
+pub(crate) fn forget_host(state: &mut AppState, address: Ipv4Addr, now: Instant) -> Vec<Effect> {
+    let network = &mut state.network;
+    let Some(place) = network.places.iter().find(|place| place.contains(address)).cloned() else { return Vec::new() };
+    if !network.memory.forget(&place, address) {
+        return Vec::new();
+    }
+    network.memory_changed = true;
+    network.merge();
+    state.notice = Some(tr!(network_forgot, address = address));
+    network.flush(true, now).then_some(Effect::SaveNeighbors).into_iter().collect()
 }
 
 /// The file names the traffic viewer opens.

@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 const SSHD: u32 = 301;
@@ -1090,6 +1091,7 @@ fn an_agent_capture_asks_with_what_the_dialog_shows() {
 
 const ROUTER_MAC: &str = "00:27:22:4c:01:01";
 const NAS_MAC: &str = "00:11:32:aa:00:60";
+const HOME_READ_AT: u64 = 1_800_000_000;
 
 fn home_neighbor(address: &str, mac: Option<&str>, state: NeighborState) -> Neighbor {
     Neighbor {
@@ -1117,6 +1119,7 @@ fn home_sample(step: u64, router: &str) -> NetworkSample {
         gateways: vec![Gateway { address: "192.0.2.1".parse().unwrap(), interface: "en0".into() }],
         dns: vec!["192.0.2.1".parse().unwrap()],
         error: None,
+        read_at: HOME_READ_AT + step,
     });
     sample
 }
@@ -1176,34 +1179,94 @@ fn the_neighbor_tables_are_read_every_sample_on_their_page_and_every_fifth_elsew
     assert!((0..3).all(|_| asked(&state.network.request()).unwrap().1));
 }
 
+fn key(state: &mut AppState, code: KeyCode, now: Instant) -> Vec<Effect> {
+    update(state, Msg::Key(KeyEvent::new(code, KeyModifiers::NONE)), now)
+}
+
+fn probe(address: &str, ping: Option<u64>, open: &[u16], refused: bool) -> Probe {
+    Probe { address: address.parse().unwrap(), ping: ping.map(Duration::from_millis), open: open.to_vec(), refused }
+}
+
+fn started_scan(state: &mut AppState, now: Instant) -> u64 {
+    press(state, KeyCode::Char('s'), KeyModifiers::NONE);
+    let effects = key(state, KeyCode::Enter, now);
+    let Some(Effect::ScanSubnet { id, addresses }) = effects.first() else { panic!("Yes scans: {effects:?}") };
+    assert_eq!(addresses.len(), 253);
+    assert!(!addresses.contains(&"192.0.2.10".parse().unwrap()), "not this machine");
+    *id
+}
+
+fn saves(effects: &[Effect]) -> bool {
+    effects.iter().any(|effect| matches!(effect, Effect::SaveNeighbors))
+}
+
+fn presence_of(network: &Network, address: &str) -> Option<Presence> {
+    network
+        .neighbors
+        .iter()
+        .find(|row| network.neighborhood.neighbors[row.neighbor].address.to_string() == address)
+        .map(|row| row.presence)
+}
+
 #[test]
-fn s_asks_before_sweeping_the_selected_neighbor_s_subnet() {
+fn s_asks_before_scanning_the_selected_neighbor_s_subnet_and_hosts_that_answer_fill_in() {
     let (mut state, now) = home_opened();
     press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
     let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("S asks first: {:?}", state.overlay) };
     assert_eq!(
         confirm.message,
-        "Sweep 192.0.2.0/24 on en0? Borg sends one empty UDP datagram to each of its 253 addresses."
+        "Scan 192.0.2.0/24 on en0? Borg pings each of its 253 addresses and tries TCP ports 22, 80, 443."
     );
-    let effects = update(&mut state, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), now);
-    let Some(Effect::Sweep { addresses }) = effects.first() else { panic!("Yes sweeps: {effects:?}") };
-    assert_eq!(addresses.len(), 253);
-    assert!(!addresses.contains(&"192.0.2.10".parse().unwrap()), "not this machine");
-    update(&mut state, Msg::Swept(Ok(253)), now);
-    assert_eq!(
-        state.notice.as_deref(),
-        Some("Swept 192.0.2.0/24 with 253 datagrams. Devices that answered join the list.")
+    key(&mut state, KeyCode::Esc, now);
+    let id = started_scan(&mut state, now);
+    assert_eq!(state.network.scan.as_ref().map(|scan| (scan.total, scan.done)), Some((253, 0)));
+    assert!(press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE).is_empty() && state.overlay.is_none());
+    let found = update(
+        &mut state,
+        Msg::Probed { id, probe: probe("192.0.2.77", Some(2), &[22], false), at: HOME_READ_AT },
+        now,
     );
-    let id = asked(&state.network.request()).unwrap().0;
-    update(&mut state, Msg::Network { id, result: Ok(home_sample(2, ROUTER_MAC)) }, now);
-    assert!(
-        !shown_neighbors(&state.network).contains(&"192.0.2.77".to_owned()),
-        "a swept address that did not answer is left out"
+    assert!(saves(&found), "a new host is saved at once");
+    update(&mut state, Msg::Probed { id, probe: probe("192.0.2.200", None, &[], false), at: HOME_READ_AT }, now);
+    update(&mut state, Msg::Probed { id, probe: probe("192.0.2.201", None, &[], true), at: HOME_READ_AT }, now);
+    update(
+        &mut state,
+        Msg::Probed { id: id + 1, probe: probe("192.0.2.202", Some(1), &[], false), at: HOME_READ_AT },
+        now,
     );
+    assert_eq!(state.network.scan.as_ref().map(|scan| (scan.done, scan.answered)), Some((3, 2)));
+    assert_eq!(presence_of(&state.network, "192.0.2.77"), Some(Presence::Answered));
+    assert_eq!(presence_of(&state.network, "192.0.2.201"), Some(Presence::Answered));
+    assert_eq!(presence_of(&state.network, "192.0.2.200"), None, "silence adds no row");
+    assert_eq!(presence_of(&state.network, "192.0.2.202"), None, "another scan's answer is dropped");
+    assert_eq!(state.network.open_ports("192.0.2.77".parse().unwrap()), Some([22].as_slice()));
+    update(&mut state, Msg::ScanFinished { id, result: Ok(()) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Scanned 192.0.2.0/24: 2 of 253 addresses answered."));
+    assert_eq!(state.network.scan, None);
+    let next = asked(&state.network.request()).unwrap().0;
+    update(&mut state, Msg::Network { id: next, result: Ok(home_sample(2, ROUTER_MAC)) }, now);
+    assert_eq!(presence_of(&state.network, "192.0.2.77"), Some(Presence::Answered), "the answer outlives the scan");
 }
 
 #[test]
-fn s_elsewhere_or_without_a_subnet_does_not_sweep() {
+fn esc_stops_a_scan_before_it_closes_the_screen_and_the_scan_goes_on_when_it_does() {
+    let (mut state, now) = home_opened();
+    let id = started_scan(&mut state, now);
+    assert_eq!(key(&mut state, KeyCode::Esc, now), [Effect::StopScan { id }]);
+    assert!(state.network.is_open() && state.network.scan.as_ref().is_some_and(|scan| scan.stopping));
+    update(&mut state, Msg::Probed { id, probe: probe("192.0.2.77", Some(2), &[], false), at: HOME_READ_AT }, now);
+    update(&mut state, Msg::ScanFinished { id, result: Ok(()) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Stopped scanning 192.0.2.0/24: 1 of 1 probed addresses answered."));
+    let id = started_scan(&mut state, now);
+    key(&mut state, KeyCode::Esc, now);
+    key(&mut state, KeyCode::Esc, now);
+    assert!(!state.network.is_open(), "the second Esc closes the screen");
+    update(&mut state, Msg::ScanFinished { id, result: Err("Network is unreachable".into()) }, now);
+    assert_eq!(state.notice.as_deref(), Some("Cannot scan 192.0.2.0/24: Network is unreachable"));
+}
+
+#[test]
+fn s_elsewhere_or_without_a_subnet_does_not_scan() {
     let (mut state, _) = home_opened();
     show_page(&mut state.network, NetworkPage::Ports);
     press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
@@ -1212,7 +1275,49 @@ fn s_elsewhere_or_without_a_subnet_does_not_sweep() {
     state.network.sample.interfaces[1].kind = InterfaceKind::Tunnel;
     press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
     assert!(state.overlay.is_none());
-    assert!(state.notice.as_deref().is_some_and(|notice| notice.starts_with("No subnet to sweep here.")));
+    assert!(state.notice.as_deref().is_some_and(|notice| notice.starts_with("No subnet to scan here.")));
+}
+
+#[test]
+fn a_remembered_host_that_is_gone_shows_offline_until_it_is_forgotten() {
+    let (mut state, now) = home_opened();
+    let id = asked(&state.network.request()).unwrap().0;
+    let mut gone = home_sample(2, ROUTER_MAC);
+    gone.neighborhood.as_mut().unwrap().neighbors.retain(|neighbor| neighbor.address.to_string() != "192.0.2.61");
+    update(&mut state, Msg::Network { id, result: Ok(gone) }, now);
+    assert_eq!(presence_of(&state.network, "192.0.2.61"), Some(Presence::Offline(HOME_READ_AT + 1)));
+    assert!(state.network.neighbors.iter().all(|row| !row.shared), "a host that is gone shares no MAC");
+    press(&mut state, KeyCode::F(8), KeyModifiers::NONE);
+    assert_eq!(state.notice.as_deref(), Some("Borg forgets only hosts that are offline."));
+    let row = state.network.neighbors.iter().position(|row| row.presence != Presence::Listed).unwrap();
+    state.network.cursors[NetworkPage::Neighbors.index()] = row;
+    press(&mut state, KeyCode::Delete, KeyModifiers::NONE);
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("F8 asks first: {:?}", state.overlay) };
+    assert_eq!(confirm.message, "Forget 192.0.2.61? Borg drops it from the hosts it remembers for this network.");
+    assert!(!confirm.accept, "No is the default");
+    key(&mut state, KeyCode::Enter, now);
+    assert_eq!(presence_of(&state.network, "192.0.2.61"), Some(Presence::Offline(HOME_READ_AT + 1)), "Enter keeps it");
+    press(&mut state, KeyCode::F(8), KeyModifiers::NONE);
+    let effects = key(&mut state, KeyCode::Char('y'), now);
+    assert!(saves(&effects));
+    assert_eq!(presence_of(&state.network, "192.0.2.61"), None);
+    assert_eq!(state.notice.as_deref(), Some("Forgot 192.0.2.61."));
+}
+
+#[test]
+fn the_remembered_neighbors_are_saved_when_something_is_new_and_once_a_minute_otherwise() {
+    let (mut state, now) = state();
+    let (id, _) = asked(&press(&mut state, KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+    let first = update(&mut state, Msg::Network { id, result: Ok(home_sample(1, ROUTER_MAC)) }, now);
+    assert!(saves(&first), "new hosts are saved at once");
+    let later = |state: &mut AppState, step: u64, after: Duration| {
+        let id = asked(&state.network.request()).unwrap().0;
+        update(state, Msg::Network { id, result: Ok(home_sample(step, ROUTER_MAC)) }, now + after)
+    };
+    assert!(!saves(&later(&mut state, 2, Duration::from_secs(1))), "only the times changed");
+    assert!(saves(&later(&mut state, 3, MEMORY_SAVE_EVERY)));
+    state.network.memory_writable = false;
+    assert!(!saves(&later(&mut state, 4, MEMORY_SAVE_EVERY * 3)), "a file Borg could not read is left alone");
 }
 
 #[test]
@@ -1221,10 +1326,7 @@ fn a_gateway_answering_with_another_mac_shows_a_notice_and_keeps_the_row_flagged
     assert!(state.network.neighbors.iter().all(|row| row.changed.is_none()));
     let id = asked(&state.network.request()).unwrap().0;
     update(&mut state, Msg::Network { id, result: Ok(home_sample(2, "00:16:3e:44:55:66")) }, now);
-    assert_eq!(
-        state.notice.as_deref(),
-        Some("Gateway 192.0.2.1 changed its MAC address from 00:27:22:4c:01:01 to 00:16:3e:44:55:66.")
-    );
+    assert_eq!(state.notice.as_deref(), Some("Gateway MAC changed: 00:27:22:4c:01:01 → 00:16:3e:44:55:66"));
     close(&mut state);
     open(&mut state);
     let id = asked(&state.network.request()).unwrap().0;

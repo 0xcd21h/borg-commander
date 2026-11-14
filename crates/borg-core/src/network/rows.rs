@@ -8,8 +8,9 @@ use std::{
 use borg_i18n::tr;
 
 use super::{
-    GatewayWatch, Haystack, Interface, Neighbor, NeighborRow, NeighborState, Neighborhood, NetworkSample, PAGES,
-    PortKey, Rate, Socket, TcpState, Traffic, Transport, filter::NetworkFilter, model::service, vendor,
+    GatewayWatch, Haystack, Interface, LocalNetwork, Neighbor, NeighborMemory, NeighborRow, NeighborState,
+    Neighborhood, NetworkSample, PAGES, PortKey, Presence, Probed, Rate, Socket, TcpState, Traffic, Transport,
+    filter::NetworkFilter, model::service, vendor,
 };
 
 /// Who can reach a listening port.
@@ -89,8 +90,12 @@ pub(crate) struct Source<'a> {
     pub(crate) traffic: &'a Traffic,
     pub(crate) hosts: &'a HashMap<IpAddr, Option<String>>,
     pub(crate) neighborhood: &'a Neighborhood,
+    pub(crate) presence: &'a [Presence],
     pub(crate) watch: &'a GatewayWatch,
-    pub(crate) swept: &'a HashSet<IpAddr>,
+    pub(crate) scanned: &'a HashSet<IpAddr>,
+    pub(crate) probes: &'a HashMap<IpAddr, Probed>,
+    pub(crate) memory: &'a NeighborMemory,
+    pub(crate) places: &'a [LocalNetwork],
     pub(crate) filter: &'a NetworkFilter,
 }
 
@@ -241,7 +246,7 @@ impl Source<'_> {
     }
 
     pub(crate) fn neighbors(&self) -> Vec<NeighborRow> {
-        super::neighbors::rows(self.neighborhood, &self.sample.interfaces, self.watch, self.swept)
+        super::neighbors::rows(self.neighborhood, self.presence, &self.sample.interfaces, self.watch, self.scanned)
     }
 
     pub(crate) fn neighbor_haystack(&self, row: &NeighborRow) -> Haystack {
@@ -250,7 +255,14 @@ impl Source<'_> {
             hosts: self.host_words(neighbor.address).collect(),
             state: neighbor.state.map(NeighborState::name),
             interface: Some(neighbor.interface.clone()),
-            labels: neighbor_notes(row, neighbor).into_iter().map(str::to_owned).collect(),
+            ports: super::neighbors::open_ports(self.probes, self.memory, self.places, neighbor.address)
+                .map(<[u16]>::to_vec)
+                .unwrap_or_default(),
+            labels: neighbor_notes(row, neighbor)
+                .into_iter()
+                .chain(matches!(row.presence, Presence::Offline(_)).then(|| tr!(network_offline_state)))
+                .map(str::to_owned)
+                .collect(),
             mac: neighbor.mac.map(|mac| mac.to_string()),
             vendor: neighbor.mac.and_then(vendor),
             ..Haystack::default()

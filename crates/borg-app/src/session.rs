@@ -27,6 +27,8 @@ const RECENT_FOLDERS_FORMAT: u8 = 1;
 const MAX_RECENT_FOLDERS_BYTES: u64 = 1024 * 1024;
 const GAME2048_FILE: &str = "2048.json";
 const MAX_GAME_BYTES: u64 = 4096;
+const NEIGHBORS_FILE: &str = "neighbors.json";
+const MAX_NEIGHBORS_BYTES: u64 = 4 * 1024 * 1024;
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
 const UPDATE_CHECK_FILE: &str = "update-check";
@@ -204,6 +206,26 @@ impl StateDir {
     pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
         self.ensure()?;
         write_privately(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+    }
+
+    /// The hosts Borg remembers on the networks this machine joined; none when the file is new.
+    pub fn load_neighbors(&self) -> Result<borg_core::NeighborMemory> {
+        use std::io::Read;
+        let file = match fs::File::open(self.root.join(NEIGHBORS_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(borg_core::NeighborMemory::default()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_NEIGHBORS_BYTES + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= MAX_NEIGHBORS_BYTES, "neighbors file exceeds size limit");
+        let saved = serde_json::from_slice(&bytes)?;
+        borg_core::NeighborMemory::restore(saved).map_err(anyhow::Error::msg)
+    }
+
+    pub fn save_neighbors(&self, saved: &borg_core::SavedNeighbors) -> Result<()> {
+        self.ensure()?;
+        write_privately(&self.root.join(NEIGHBORS_FILE), &serde_json::to_vec(saved)?)
     }
 
     pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {

@@ -1,7 +1,4 @@
-use std::{
-    net::{Ipv4Addr, SocketAddrV4, UdpSocket},
-    time::Duration,
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use borg_core::Neighborhood;
@@ -13,11 +10,12 @@ mod linux;
 mod resolv;
 
 const RESOLV_CONF: &str = "/etc/resolv.conf";
-const DISCARD_PORT: u16 = 9;
-const SWEEP_TIME: Duration = Duration::from_secs(1);
 
 pub(super) fn read() -> Neighborhood {
-    collect().unwrap_or_else(|error| Neighborhood { error: Some(format!("{error:#}")), ..Neighborhood::default() })
+    let read_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let neighborhood =
+        collect().unwrap_or_else(|error| Neighborhood { error: Some(format!("{error:#}")), ..Neighborhood::default() });
+    Neighborhood { read_at, ..neighborhood }
 }
 
 #[cfg(target_os = "macos")]
@@ -33,7 +31,7 @@ fn collect() -> Result<Neighborhood> {
     neighbors.extend(darwin::ndp(&run(darwin::NDP, &darwin::NDP_ARGUMENTS)?));
     let gateways = darwin::gateways(&run(darwin::NETSTAT, &darwin::NETSTAT_ARGUMENTS)?);
     let dns = resolv::nameservers(&std::fs::read_to_string(RESOLV_CONF).unwrap_or_default());
-    Ok(Neighborhood { neighbors, gateways, dns, error: None })
+    Ok(Neighborhood { neighbors, gateways, dns, ..Neighborhood::default() })
 }
 
 #[cfg(target_os = "linux")]
@@ -50,23 +48,5 @@ fn collect() -> Result<Neighborhood> {
     if resolv::only_stub(&dns) {
         dns = resolv::nameservers(&read_to_string(resolv::RESOLVED_CONF).unwrap_or_default());
     }
-    Ok(Neighborhood { neighbors, gateways, dns, error: None })
-}
-
-pub(super) fn sweep(addresses: &[Ipv4Addr]) -> Result<usize> {
-    let socket = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))?;
-    let pause = SWEEP_TIME / u32::try_from(addresses.len().max(1)).unwrap_or(u32::MAX);
-    let mut sent = 0;
-    let mut failure = None;
-    for address in addresses {
-        match socket.send_to(&[], SocketAddrV4::new(*address, DISCARD_PORT)) {
-            Ok(_) => sent += 1,
-            Err(error) => failure = Some(error),
-        }
-        std::thread::sleep(pause);
-    }
-    match failure {
-        Some(error) if sent == 0 => Err(error.into()),
-        _ => Ok(sent),
-    }
+    Ok(Neighborhood { neighbors, gateways, dns, ..Neighborhood::default() })
 }
