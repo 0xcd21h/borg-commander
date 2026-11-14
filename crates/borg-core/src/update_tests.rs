@@ -1277,12 +1277,11 @@ fn ctrl_v_pastes_borg_copies_into_its_fields_but_stays_the_shells_at_the_prompt(
     assert_eq!(prompt.input.text(), "notes.txt");
 }
 
-/// Runs the viewer's search as the app does, and hands back what it found.
-fn run_viewer_search(state: &mut AppState, now: Instant, effects: &[Effect]) {
-    let [Effect::FindInViewer { id, query, from, direction, count }] = effects else { panic!("{effects:?}") };
-    let crate::Content::Text(pager) = &state.viewer.as_ref().unwrap().content else { panic!() };
+fn run_search(state: &mut AppState, now: Instant, effects: &[Effect]) {
+    let [Effect::FindInPager { id, slot, query, from, direction, count }] = effects else { panic!("{effects:?}") };
+    let pager = state.pager(*slot).unwrap();
     let found = crate::find_in(&*pager.source(), query, *from, *direction, *count, &|_| true);
-    update(state, Msg::FoundInViewer { id: *id, found: found.map_err(|error| error.to_string()) }, now);
+    update(state, Msg::FoundInPager { id: *id, slot: *slot, found: found.map_err(|error| error.to_string()) }, now);
 }
 
 #[test]
@@ -1296,7 +1295,7 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
     state.opening = Some(PathBuf::from("/home/log"));
     update(&mut state, Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))), now);
     let current = |state: &AppState| text(state.viewer.as_ref().unwrap()).current_match();
-    let summary = |state: &AppState| crate::find_bar_summary(&state.viewer.as_ref().unwrap().find);
+    let summary = |state: &AppState| crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar);
 
     press(&mut state, now, key(KeyCode::Char('/')));
     let mut effects = Vec::new();
@@ -1307,37 +1306,37 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
         text(state.viewer.as_ref().unwrap()).rich_rows()[4].iter().any(|run| run.mark == borg_view::Mark::Match),
         "the page marks row 5 while the search runs"
     );
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(current(&state), Some(24..29));
     assert_eq!(summary(&state).as_deref(), Some("1 of 11"), "row 5 and rows 50 to 59");
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     let top = format!("row {}", 50 - height / 3);
     assert_eq!(text(state.viewer.as_ref().unwrap()).rows()[0], top, "row 50 shows a third of the page down");
     assert_eq!(summary(&state).as_deref(), Some("2 of 11"));
     let effects = press(&mut state, now, key(KeyCode::Up));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(current(&state), Some(24..29), "Up steps back");
     let effects = press(&mut state, now, key(KeyCode::Up));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(summary(&state).as_deref(), Some("11 of 11 · from the other end"));
 
     assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
     let viewer = state.viewer.as_ref().unwrap();
-    assert!(!viewer.find.open && !text(viewer).shows_matches(), "Esc closes the bar and takes the marks away");
+    assert!(!viewer.find.bar.open && !text(viewer).shows_matches(), "Esc closes the bar and takes the marks away");
     assert_eq!(state.find_recent, ["row 5"]);
     assert_eq!(current(&state), Some(397..402), "the match stepped to, row 59, stays marked");
     let effects = press(&mut state, now, key(KeyCode::Char('n')));
     assert!(text(state.viewer.as_ref().unwrap()).shows_matches(), "n marks the matches again");
     let stale = effects.clone();
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(summary(&state).as_deref(), Some("1 of 11 · from the other end"), "n goes on from row 59");
-    run_viewer_search(&mut state, now, &stale);
+    run_search(&mut state, now, &stale);
     assert_eq!(current(&state), Some(24..29), "an answer the viewer no longer waits for changes nothing");
 
     let effects = press(&mut state, now, shift(KeyCode::Char('N')));
-    assert!(matches!(effects[..], [Effect::FindInViewer { direction: crate::Direction::Backward, .. }]));
-    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInViewer]);
+    assert!(matches!(effects[..], [Effect::FindInPager { direction: crate::Direction::Backward, .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInPager(crate::PagerSlot::Viewer)]);
     assert!(state.viewer.is_some(), "Esc stops a running search before it closes the viewer");
     press(&mut state, now, key(KeyCode::Down));
     assert_eq!(summary(&state), None, "a key that moves the page clears what the last step said");
@@ -1380,7 +1379,7 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
     for c in "row 150".chars() {
         effects = press(&mut state, now, key(KeyCode::Char(c)));
     }
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     let found = shown(&state);
     assert_eq!(found.current_match(), Some(1084..1091));
     assert_eq!(found.offset(), 1072 - 16 * (height as u64 / 3), "a third of the page shows above the match's row");
@@ -1392,7 +1391,7 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
         .map(|run| run.text.as_str())
         .collect();
     assert_eq!(current, "72 6f 77 20row 31 35 30150", "the match is marked in hex and in text, over two rows");
-    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find).as_deref(), Some("1 of 1"));
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar).as_deref(), Some("1 of 1"));
     press(&mut state, now, key(KeyCode::Esc));
 
     press(&mut state, now, shift(KeyCode::Char('H')));
@@ -1695,14 +1694,14 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
         Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))),
         now,
     );
-    assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 24, .. }] if *asked == query));
+    assert!(matches!(&effects[..], [Effect::FindInPager { query: asked, from: 24, .. }] if *asked == query));
     let viewer = state.viewer.as_ref().unwrap();
-    assert!(viewer.find.open && viewer.find.input.text() == "row 5", "the find bar is ready on the query");
-    run_viewer_search(&mut state, now, &effects);
+    assert!(viewer.find.bar.open && viewer.find.bar.input.text() == "row 5", "the find bar is ready on the query");
+    run_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(24..29));
-    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find).as_deref(), Some("1 of 11"));
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar).as_deref(), Some("1 of 11"));
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(334..339), "Enter steps on to row 50");
 }
 
@@ -1861,8 +1860,8 @@ fn a_contents_match_the_editor_leaves_to_the_viewer_opens_there_on_the_match() {
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(b"haystack\nneedle\n".to_vec()), width, height).unwrap();
     let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
-    assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 9, .. }] if *asked == query));
-    run_viewer_search(&mut state, now, &effects);
+    assert!(matches!(&effects[..], [Effect::FindInPager { query: asked, from: 9, .. }] if *asked == query));
+    run_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(9..15));
 }
 
@@ -1926,7 +1925,7 @@ fn ctrl_q_on_contents_results_previews_each_file_on_its_match_with_the_query_mar
     assert!(peeked_at(&update(&mut state, Msg::Tick, now)).is_none() && state.peeked.is_some());
 
     press(&mut state, now, key(KeyCode::F(3)));
-    assert!(state.viewer.as_ref().is_some_and(|viewer| viewer.find.open), "F3 takes the preview to the viewer");
+    assert!(state.viewer.as_ref().is_some_and(|viewer| viewer.find.bar.open), "F3 takes the preview to the viewer");
     press(&mut state, now, key(KeyCode::Esc));
     press(&mut state, now, key(KeyCode::Esc));
     let Some(crate::Peeked { at: back, peek: crate::Peek::Text(pager), .. }) = &state.peeked else { panic!("preview") };
@@ -2052,11 +2051,11 @@ fn landing_on_a_contents_match_in_markdown_shows_the_source_where_the_offset_was
     let pager = borg_view::Pager::for_path(std::sync::Arc::new(source), &path, width, height).unwrap();
     assert!(pager.formatted());
     let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     let viewer = state.viewer.as_ref().unwrap();
     assert!(!text(viewer).formatted());
     assert_eq!(text(viewer).current_match(), Some(17..24));
-    assert_eq!(crate::find_bar_summary(&viewer.find).as_deref(), Some("1 of 2"));
+    assert_eq!(crate::find_bar_summary(&viewer.find.bar).as_deref(), Some("1 of 2"));
 }
 
 #[test]
@@ -2776,6 +2775,178 @@ fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
         assert!(!pager.formatted());
         assert!(!pager.wrapped());
     }
+}
+
+fn preview(state: &mut AppState, now: Instant, content: Vec<u8>) -> (usize, usize) {
+    let effects = press(state, now, ctrl('q'));
+    let Some(Effect::Peek { aside, path, at, size }) =
+        effects.into_iter().find(|effect| matches!(effect, Effect::Peek { .. }))
+    else {
+        panic!("the quick view asks for the file")
+    };
+    let mut pager = borg_view::Pager::new(std::sync::Arc::new(content), size.0, size.1).unwrap();
+    if let Some(at) = &at {
+        crate::land_on_match(&mut pager, at, &|_| true).unwrap();
+    }
+    update(state, Msg::Peeked(crate::Peeked { aside, path, at, peek: crate::Peek::Text(pager) }), now);
+    size
+}
+
+fn previewed(state: &AppState) -> &borg_view::Pager {
+    state.pager(crate::PagerSlot::QuickView).expect("the quick view shows text")
+}
+
+fn numbered_rows() -> Vec<u8> {
+    (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect()
+}
+
+#[test]
+fn the_focused_quick_view_finds_with_the_viewers_keys_and_steps_both_ways() {
+    let (mut state, now) = setup_with(vec![file("log"), file("notes")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let (_, height) = preview(&mut state, now, numbered_rows());
+    let summary = |state: &AppState| crate::find_bar_summary(&state.preview_find.bar);
+
+    press(&mut state, now, key(KeyCode::F(7)));
+    assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "F7 in the file panel still makes a folder");
+    assert!(!state.preview_find.bar.open);
+    press(&mut state, now, key(KeyCode::Esc));
+
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(state.preview_focused);
+    press(&mut state, now, key(KeyCode::Char('/')));
+    assert!(state.preview_find.bar.open);
+    assert_eq!(previewed(&state).rows().len(), height - usize::from(crate::FIND_ROWS), "the bar takes a row");
+    let mut effects = Vec::new();
+    for c in "row 5".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    assert!(matches!(effects[..], [Effect::FindInPager { slot: crate::PagerSlot::QuickView, from: 0, .. }]));
+    assert!(
+        previewed(&state).rich_rows()[4].iter().any(|run| run.mark == borg_view::Mark::Match),
+        "the preview marks row 5 while the search runs"
+    );
+    run_search(&mut state, now, &effects);
+    assert_eq!(previewed(&state).current_match(), Some(24..29));
+    assert_eq!(summary(&state).as_deref(), Some("1 of 11"), "row 5 and rows 50 to 59");
+
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    run_search(&mut state, now, &effects);
+    assert_eq!(summary(&state).as_deref(), Some("2 of 11"));
+    let shown = height - usize::from(crate::FIND_ROWS);
+    assert_eq!(previewed(&state).rows()[0], format!("row {}", 50 - shown / 3), "row 50 shows a third down");
+    let effects = press(&mut state, now, key(KeyCode::Up));
+    run_search(&mut state, now, &effects);
+    assert_eq!(previewed(&state).current_match(), Some(24..29), "Up steps back");
+
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.preview_focused && !state.preview_find.bar.open, "Esc closes the bar and keeps the focus");
+    assert!(!previewed(&state).shows_matches() && previewed(&state).current_match() == Some(24..29));
+    assert_eq!(previewed(&state).rows().len(), height, "the preview takes its row back");
+    assert_eq!(state.find_recent, ["row 5"]);
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(previewed(&state).shows_matches(), "n marks the matches again");
+    run_search(&mut state, now, &effects);
+    assert_eq!(summary(&state).as_deref(), Some("2 of 11"), "n goes on from row 5");
+    let effects = press(&mut state, now, shift(KeyCode::Char('N')));
+    assert!(matches!(effects[..], [Effect::FindInPager { direction: crate::Direction::Backward, .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInPager(crate::PagerSlot::QuickView)]);
+    assert!(state.preview_focused, "Esc stops a running search before it gives the focus back");
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(summary(&state), None, "a key that moves the page clears what the last step said");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(!state.preview_focused);
+}
+
+#[test]
+fn the_quick_views_search_ends_when_the_cursor_leaves_its_file() {
+    let (mut state, now) = setup_with(vec![file("log"), file("notes")]);
+    press(&mut state, now, key(KeyCode::Down));
+    preview(&mut state, now, numbered_rows());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('/')));
+    type_text(&mut state, now, "row 7");
+    assert!(state.preview_find.searching.is_some());
+
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(!state.preview_focused && state.preview_find.bar.open, "the bar stays while the panel has the keys");
+    let effects = press(&mut state, now, key(KeyCode::Down));
+    assert!(effects.contains(&Effect::StopFindInPager(crate::PagerSlot::QuickView)), "{effects:?}");
+    assert_eq!(peeked_at(&effects).map(|(path, _)| path), Some(PathBuf::from("/home/notes")));
+    assert!(!state.preview_find.bar.open && state.preview_find.bar.input.text().is_empty());
+    assert!(state.preview_find.searching.is_none());
+    assert_eq!(state.find_recent, Vec::<String>::new(), "a query never stepped to is not kept");
+}
+
+#[test]
+fn a_key_that_shows_the_preview_another_source_stops_its_search() {
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    preview(&mut state, now, numbered_rows());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('/')));
+    type_text(&mut state, now, "row");
+    assert!(state.preview_find.searching.is_some());
+    let effects = press(&mut state, now, key(KeyCode::F(4)));
+    assert_eq!(effects, [Effect::StopFindInPager(crate::PagerSlot::QuickView)], "F4 in the bar switches the source");
+    assert!(state.preview_find.bar.open);
+}
+
+#[test]
+fn f3_takes_the_quick_views_search_to_the_viewer() {
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    preview(&mut state, now, numbered_rows());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('/')));
+    let mut effects = Vec::new();
+    for c in "row 5".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    run_search(&mut state, now, &effects);
+    press(&mut state, now, key(KeyCode::Esc));
+
+    let effects = press(&mut state, now, key(KeyCode::F(3)));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::View { .. })), "F3 reuses the loaded file");
+    let viewer = state.viewer.as_ref().unwrap();
+    assert_eq!(viewer.find.bar.input.text(), "row 5");
+    assert_eq!(crate::find_bar_summary(&viewer.find.bar).as_deref(), Some("1 of 11"));
+    assert_eq!(text(viewer).current_match(), Some(24..29));
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(matches!(effects[..], [Effect::FindInPager { slot: crate::PagerSlot::Viewer, from: 29, .. }]));
+    run_search(&mut state, now, &effects);
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar).as_deref(), Some("2 of 11"));
+
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    assert!(state.preview_find.bar.input.text().is_empty(), "the viewer's search stays with the viewer");
+    assert!(previewed(&state).current_match().is_none());
+}
+
+#[test]
+fn the_quick_view_of_a_contents_result_steps_on_through_the_searchs_matches() {
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "needle".into(), ..Default::default() };
+    let hay = "hay\nneedle one\nhay\nneedle two\n";
+    let [first, second] = [0, 1].map(|n| hay.match_indices("needle").nth(n).unwrap().0 as u64);
+    let line = crate::LineMatch {
+        line: 2,
+        offset: first,
+        before: String::new(),
+        found: "needle".into(),
+        after: " one".into(),
+    };
+    found_in(&mut state, now, &query, vec![("log", line)]);
+    preview(&mut state, now, hay.as_bytes().to_vec());
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(state.preview_find.bar.input.text() == "needle" && !state.preview_find.bar.open, "n is ready to step");
+
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(
+        matches!(&effects[..], [Effect::FindInPager { query: asked, from, .. }] if *asked == query && *from == first + 6)
+    );
+    run_search(&mut state, now, &effects);
+    assert_eq!(previewed(&state).current_match(), Some(second..second + 6));
 }
 
 #[test]

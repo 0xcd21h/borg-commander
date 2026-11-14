@@ -1650,6 +1650,31 @@ fn markdown_preview_scrolls_with_focus_and_toggles_source() -> Result<()> {
 }
 
 #[test]
+fn the_focused_quick_view_finds_text_and_steps_through_the_matches() -> Result<()> {
+    let fixture = fixture()?;
+    let log: String =
+        (1..=60).map(|n| format!("{n:>3} GET /api/items/{} took {} ms\n", n * 37 % 100, n * 7 % 50)).collect();
+    fixture.file("api.log", &log)?;
+    let mut app = Session::builder(BORG, &fixture).size(110, 30).label("quick-view-find").spawn()?;
+    app.wait_text("5 items")?;
+    app.wait_until("shell prompt", |s| prompt(s).starts_with('$'))?;
+    app.send(keys::ctrl('s'))?.send("api")?.send(keys::enter())?.send(keys::ctrl('q'))?;
+    app.wait_text("Quick view · api.log")?;
+    app.send(keys::tab())?;
+    app.wait_text("Focused · Tab back")?;
+    app.send("/")?.send("took 4")?;
+    app.wait_text("1 of 13")?;
+    app.send(keys::enter())?;
+    app.wait_text("2 of 13")?;
+    app.checkpoint("quick-view-find")?;
+    app.send(keys::esc())?.send("n")?;
+    app.wait_text("% · 3 of 13")?;
+    app.send(keys::esc())?;
+    app.wait_gone("Focused · Tab back")?;
+    Ok(())
+}
+
+#[test]
 fn recalling_a_wrapped_command_expands_the_prompt_above_the_keybar() -> Result<()> {
     let fixture = fixture()?;
     fixture.configure("")?;

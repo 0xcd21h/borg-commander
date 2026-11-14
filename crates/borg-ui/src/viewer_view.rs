@@ -56,8 +56,8 @@ pub fn draw_viewer(
             if pager.hex() {
                 draw_strip(viewer, pager, theme, strip_area(body), buf);
             }
-            if viewer.find.open {
-                let cursor = crate::find_view::draw_bar(&viewer.find, theme, status, buf);
+            if viewer.find.bar.open {
+                let cursor = crate::find_view::draw_bar(&viewer.find.bar, theme, status, buf);
                 return (Vec::new(), Some(cursor).filter(|cursor| status.contains(*cursor)));
             }
             draw_text(viewer, pager, theme, status, buf);
@@ -72,8 +72,8 @@ pub fn draw_viewer(
 pub(crate) fn click(viewer: &Viewer, area: Rect, point: Position) -> Option<Msg> {
     let [body, status] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let status = crate::branding::content(status);
-    if viewer.find.open && status.contains(point) {
-        return crate::find_view::click(&viewer.find, status, point).map(Msg::Key);
+    if viewer.find.bar.open && status.contains(point) {
+        return crate::find_view::click(&viewer.find.bar, status, point).map(Msg::Key);
     }
     let strip = strip_area(body);
     let hex = matches!(&viewer.content, Content::Text(pager) if pager.hex());
@@ -163,7 +163,7 @@ fn draw_image(
 fn draw_text(viewer: &Viewer, pager: &Pager, theme: &Theme, status: Rect, buf: &mut Buffer) {
     let styles = &theme.styles;
     let name = name(viewer);
-    let found = borg_core::find_bar_summary(&viewer.find);
+    let found = borg_core::find_bar_summary(&viewer.find.bar);
     let hints = match &found {
         Some(found) => format!("{found} · {} ", tr!(viewer_find_keys)),
         None if pager.hex() => tr!(viewer_hex_keys).to_owned(),

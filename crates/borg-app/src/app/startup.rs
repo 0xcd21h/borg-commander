@@ -106,6 +106,7 @@ impl App {
             wheel: WheelBurst::default(),
             preview,
             viewer_search: None,
+            preview_search: None,
             viewer_profile: None,
             plugins,
             monitor,

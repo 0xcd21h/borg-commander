@@ -424,7 +424,7 @@ momento.
 | Alt-I | Contar tamaños de carpetas en segundo plano / dejar de contar |
 | Ctrl-S | Búsqueda rápida en la carpeta |
 | Ctrl-\ | Carpetas favoritas: saltar a una carpeta fijada o reciente |
-| Ctrl-Q | Vista rápida: previsualiza en el otro panel el archivo bajo el cursor (texto, imagen o carpeta) |
+| Ctrl-Q | Vista rápida: previsualiza en el otro panel el archivo bajo el cursor (texto, imagen o carpeta); tras Tab, `/` o F7 buscan texto en ella |
 | Ctrl-L | Información: muestra en el otro panel el tamaño, los permisos, el propietario, las fechas, el espacio libre y el disco |
 | Insert, Ctrl-T, Shift-Up/Down | Marcar archivos |
 | `+` `-` `*` | Seleccionar, deseleccionar o invertir por patrón (`*.rs`, `build/`) |
@@ -1449,14 +1449,18 @@ Left/Right o `p`/`n` muestran la imagen anterior o la siguiente. Borg usa el pro
 del terminal cuando lo hay; los demás terminales muestran la imagen como bloques de colores.
 
 Ctrl-Q muestra una vista previa rápida en el otro panel. Tab entra en ella, donde las flechas,
-PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos. Ctrl-L
-muestra la información del archivo. F3 abre una vista previa de texto en el visor completo, y al
-cerrar el visor se vuelve a la vista previa conservando la posición, el ajuste de línea, el modo de
-código fuente y las filas hexadecimales. Ambos leen los archivos de la misma forma limitada, así que
+PgUp/PgDn, Home/End y la rueda del ratón desplazan; Tab o Esc vuelven a la lista de archivos. En una
+vista previa de texto, `/`, F7 o Ctrl-F abren la barra de búsqueda del visor en la última fila de la
+vista previa, y `n` y `N` recorren las coincidencias una vez cerrada (consulta la barra de búsqueda
+en [Editor](#editor)). La búsqueda pertenece al archivo que muestra la vista previa, así que termina
+cuando el cursor pasa a otro archivo; Ctrl-P en la barra de búsqueda la recupera. Ctrl-L muestra la
+información del archivo. F3 abre una vista previa de texto en el visor completo, que continúa con la
+búsqueda de la vista previa, y al cerrar el visor se vuelve a la vista previa conservando la
+posición, el ajuste de línea, el modo de código fuente y las filas hexadecimales. Ambos leen los archivos de la misma forma limitada, así que
 abrir un archivo de texto grande solo lee aproximadamente la primera página y es rápido sea cual sea
 su tamaño. En un resultado de una búsqueda de texto, la vista previa se abre en cambio en la primera
 coincidencia del archivo, con la consulta marcada como la marca la barra de búsqueda, y solo lee
-alrededor de esa coincidencia.
+alrededor de esa coincidencia. Ahí, `n` y `N` recorren las demás coincidencias del archivo.
 
 Los dos visores de texto resaltan los lenguajes de programación, de marcado y los archivos de
 configuración más comunes, entre ellos Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java,
@@ -1644,18 +1648,19 @@ necesitan el otro panel, así que esperan hasta que se cierre su editor. Un edit
 los resultados les devuelve el foco al cerrarse y trae de vuelta la vista rápida o la información
 del archivo que mostraban.
 
-El visor y el editor buscan texto de la misma manera. En el visor, `/`, F7 o Ctrl-F abren una
-barra de búsqueda en la línea de estado; en el editor, Ctrl-F o F7. Borg busca mientras escribes,
+El visor, la vista rápida y el editor buscan texto de la misma manera. En el visor, `/`, F7 o
+Ctrl-F abren una barra de búsqueda en la línea de estado, y en la vista rápida, después de entrar con
+Tab, las mismas teclas la abren en la última fila; en el editor, Ctrl-F o F7. Borg busca mientras escribes,
 a partir del punto donde se abrió la barra: todas las coincidencias en pantalla quedan marcadas,
 la actual destaca, y la barra las cuenta (3 de 17). Enter, Down o F3 van a la siguiente
 coincidencia, y Shift-Enter, Up o Shift-F3 a la anterior; después de la última, la búsqueda sigue
 desde el otro extremo y lo indica. Alt-C distingue mayúsculas y minúsculas (si no, una búsqueda en
 minúsculas encuentra cualquier combinación), Alt-W busca palabras completas y Alt-R interpreta la
 búsqueda como una expresión regular; también puedes hacer clic en las opciones. Ctrl-P y Ctrl-N
-recuperan las búsquedas recientes. Esc cierra la barra; después, `n` y `N` en el visor, o F3 y
-Shift-F3 en el editor, recorren las coincidencias. En un archivo grande, el visor busca en segundo
-plano, muestra hasta dónde ha llegado y se detiene al pulsar Esc. Cuenta las coincidencias en
-archivos de hasta 64 MiB, hasta 10.000 de ellas.
+recuperan las búsquedas recientes. Esc cierra la barra; después, `n` y `N` en el visor y en la
+vista rápida, o F3 y Shift-F3 en el editor, recorren las coincidencias. En un archivo grande, el
+visor y la vista rápida buscan en segundo plano, muestran hasta dónde han llegado y se detienen al
+pulsar Esc. Borg cuenta las coincidencias en archivos de hasta 64 MiB, hasta 10.000 de ellas.
 
 ## Configuración
 

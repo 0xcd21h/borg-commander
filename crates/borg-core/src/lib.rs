@@ -37,6 +37,7 @@ mod msg;
 mod network;
 mod ops;
 mod overlays;
+mod pager_find;
 mod panel;
 mod pattern;
 mod plugins;
@@ -71,7 +72,7 @@ pub use agent::{
 pub use anim::{Easing, Fade};
 pub use appearance::{Appearance, Picker, ThemeChoice};
 pub use archive::{ArchiveMount, PackedFile, Password, RewriteRequest, UnpackRequest, UnpackTarget};
-pub use aside::{Aside, Facts, Nature, Peek, Peeked, land_on_match};
+pub use aside::{Aside, FIND_ROWS, Facts, Nature, Peek, Peeked, land_on_match};
 pub use backup::{
     Backup, BackupChange, BackupEvent, BackupItem, BackupList, BackupListing, BackupPanel, BackupRequest, BackupTab,
     BackupWindow, Exclusion, list_rows as backup_list_rows, name_of as backup_name, rank as backup_rank,
@@ -113,6 +114,7 @@ pub use layout::{Chrome, EVEN_SPLIT, Layout};
 pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items};
 pub use motion::{Pace, PanelMotion, empty_glitch};
 pub use msg::{Effect, Msg};
+pub use pager_find::{FoundInPager, PagerFind, PagerSlot, find_in};
 pub use panel::{Listing, ListingMode, Panel, RemoteMount, Row, Seek, Sort, SortKey, order};
 pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
@@ -145,7 +147,7 @@ pub use storage::{
 };
 pub use update::update;
 pub use update_offer::UpdateOffer;
-pub use viewer::{Content, ENTROPY_STRIP, FoundInViewer, Image, Profiling, Shown, Viewer, find_in, viewer_size};
+pub use viewer::{Content, ENTROPY_STRIP, Image, Profiling, Shown, Viewer, viewer_size};
 pub use watch::{
     ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertDelivery, AlertLog, AlertState, Alerts, AlertsReply, AlertsRequest,
     Allowance, Ancestor, Baseline, COMMAND_CUT, COMMAND_KEPT, Evidence, FIRST_PERSON, FREEZES_PER_MINUTE,

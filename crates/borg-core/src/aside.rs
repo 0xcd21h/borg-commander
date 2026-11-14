@@ -7,11 +7,16 @@ use std::{
 
 use borg_vfs::Entry;
 use borg_view::Pager;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{AppState, Direction, Effect, FirstMatch, Image, Row};
+use crate::{
+    AppState, Direction, Effect, FirstMatch, Image, Row,
+    pager_find::{Finding, FoundInPager, PagerFind, PagerSlot},
+};
 
 const BORDER_CELLS: u16 = 2;
 const PADDING_CELLS: u16 = 2;
+pub const FIND_ROWS: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Aside {
@@ -87,9 +92,19 @@ pub(crate) fn toggle(state: &mut AppState, aside: Aside) -> Vec<Effect> {
     }
     state.aside = (state.aside != Some(aside)).then_some(aside);
     state.preview_focused = false;
-    state.peeked = None;
     state.peeking = None;
-    Vec::new()
+    forget(state)
+}
+
+pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
+    state.peeked = None;
+    let effects = state.preview_find.stop(PagerSlot::QuickView);
+    state.preview_find = PagerFind::default();
+    effects
+}
+
+pub(crate) fn landing_find(at: Option<&FirstMatch>) -> PagerFind {
+    at.map_or_else(PagerFind::default, |at| PagerFind::on(&at.query))
 }
 
 pub(crate) fn hovered_path(state: &AppState) -> Option<PathBuf> {
@@ -107,23 +122,22 @@ pub(crate) fn opens_on(state: &AppState, aside: Aside, path: &Path) -> Option<Fi
     results.first_match(path)
 }
 
-pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
+pub(crate) fn sync(state: &mut AppState) -> Vec<Effect> {
     // A preview has no room while a panel holds an editor.
     let docked = state.docked.iter().any(Option::is_some);
     if docked || state.active_panel().foreign() {
         state.aside = None;
     }
-    let aside = state.aside?;
+    let Some(aside) = state.aside else { return forget(state) };
     // The activity monitor covers the panels and previews with the same loader; the quick view
     // asks again once the panels show.
     if state.activity.side.is_some() {
         state.peeking = None;
-        return None;
+        return Vec::new();
     }
     let Some(path) = hovered_path(state) else {
-        state.peeked = None;
         state.peeking = None;
-        return None;
+        return forget(state);
     };
     let at = opens_on(state, aside, &path);
     let wanted = Some((aside, path.clone(), at.clone()));
@@ -135,19 +149,21 @@ pub(crate) fn sync(state: &mut AppState) -> Option<Effect> {
         usize::from(area.height.saturating_sub(BORDER_CELLS)),
     );
     if shown == wanted {
+        let bar = if state.preview_find.bar.open { FIND_ROWS } else { 0 };
         if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
-            && let Err(error) = pager.resize(size.0, size.1)
+            && let Err(error) = pager.resize(size.0, size.1.saturating_sub(usize::from(bar)))
         {
             state.notice = Some(tr!(preview_error, error = error));
         }
-        return None;
+        return Vec::new();
     }
-    state.peeked = None;
+    let mut effects = forget(state);
     if state.peeking == wanted {
-        return None;
+        return effects;
     }
     state.peeking = wanted;
-    Some(Effect::Peek { aside, path, at, size })
+    effects.push(Effect::Peek { aside, path, at, size });
+    effects
 }
 
 pub(crate) fn receive(state: &mut AppState, mut peeked: Peeked) {
@@ -164,14 +180,21 @@ pub(crate) fn receive(state: &mut AppState, mut peeked: Peeked) {
             state.notice = Some(tr!(preview_error, error = error));
         }
         state.peeking = None;
+        state.preview_find = landing_find(peeked.at.as_ref());
         state.peeked = Some(peeked);
     }
 }
 
-pub(crate) fn on_key(state: &mut AppState, key: &crossterm::event::KeyEvent, now: Instant) -> Vec<Effect> {
-    use crossterm::event::{KeyCode, KeyModifiers};
+pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
+    if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+        state.preview_focused = false;
+        return Vec::new();
+    }
+    if let Some(effects) = find_key(state, key) {
+        return effects;
+    }
     match key.code {
-        KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc => state.preview_focused = false,
+        KeyCode::Esc => state.preview_focused = false,
         KeyCode::Char('o') if key.modifiers == KeyModifiers::CONTROL => {
             state.preview_focused = false;
             return crate::actions::perform(state, crate::Action::ToggleShell, now);
@@ -188,18 +211,46 @@ pub(crate) fn on_key(state: &mut AppState, key: &crossterm::event::KeyEvent, now
                 .unwrap_or_default();
         }
         _ => {
-            if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut()
-                && let Err(error) = preview_key(pager, crate::keyboard::latin(key).code)
-            {
-                state.notice = Some(tr!(preview_error, error = error));
+            if let Some(Peeked { peek: Peek::Text(pager), .. }) = state.peeked.as_mut() {
+                let code = crate::keyboard::latin(key).code;
+                let effects = state.preview_find.page_key(pager, code, PagerSlot::QuickView);
+                if let Err(error) = preview_key(pager, code) {
+                    state.notice = Some(tr!(preview_error, error = error));
+                }
+                return effects;
             }
         }
     }
     Vec::new()
 }
 
+fn find_key(state: &mut AppState, key: &KeyEvent) -> Option<Vec<Effect>> {
+    let Some(Peeked { aside: Aside::QuickView, peek: Peek::Text(pager), .. }) = state.peeked.as_mut() else {
+        return None;
+    };
+    let finding = Finding { slot: PagerSlot::QuickView, next_id: &mut state.next_find, recent: &mut state.find_recent };
+    let result = state.preview_find.on_key(pager, key, finding)?;
+    Some(result.unwrap_or_else(|error| {
+        state.notice = Some(tr!(preview_error, error = error));
+        Vec::new()
+    }))
+}
+
+pub(crate) fn found(state: &mut AppState, id: u64, result: Result<FoundInPager, String>) {
+    let Some(Peeked { aside: Aside::QuickView, peek: Peek::Text(pager), .. }) = state.peeked.as_mut() else {
+        return;
+    };
+    if let Err(error) = state.preview_find.found(pager, id, result) {
+        state.notice = Some(tr!(preview_error, error = error));
+    }
+}
+
+pub(crate) fn searching(state: &mut AppState, id: u64, percent: u8) {
+    state.preview_find.progress(id, percent);
+}
+
 /// What a key does to the text the quick view shows: `h` turns hex rows on or off, and the other
 /// keys scroll it as in the viewer.
-fn preview_key(pager: &mut Pager, code: crossterm::event::KeyCode) -> io::Result<()> {
+fn preview_key(pager: &mut Pager, code: KeyCode) -> io::Result<()> {
     if crate::viewer::is_hex_key(code) { pager.toggle_hex() } else { crate::viewer::scroll(pager, code) }
 }

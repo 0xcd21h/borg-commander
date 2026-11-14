@@ -259,14 +259,17 @@ pub enum Msg {
     },
     /// The save of the editor in a slot landed, with the file's new stamp, or did not.
     EditorSaved(crate::EditorSlot, Result<crate::FileStamp, crate::SaveError>),
-    /// What the viewer's search `id` found, or why it could not look.
-    FoundInViewer {
+    /// What the search `id` through the viewer's or the quick view's text found, or why it
+    /// could not look.
+    FoundInPager {
         id: u64,
-        found: Result<crate::FoundInViewer, String>,
+        slot: crate::PagerSlot,
+        found: Result<crate::FoundInPager, String>,
     },
-    /// How far the viewer's search `id` got through a large file.
-    SearchingViewer {
+    /// How far the search `id` got through a large file.
+    SearchingPager {
         id: u64,
+        slot: crate::PagerSlot,
         percent: u8,
     },
     /// The entropy of the viewer's source that `id` asked for, or why it could not be read.
@@ -500,16 +503,18 @@ pub enum Effect {
         path: PathBuf,
         at: Option<crate::FirstMatch>,
     },
-    /// Looks for `query` in the viewer's file in the background, stopping any search before.
-    FindInViewer {
+    /// Looks for `query` in the file the viewer or the quick view shows, in the background,
+    /// stopping any search before through the same one.
+    FindInPager {
         id: u64,
+        slot: crate::PagerSlot,
         query: borg_view::Query,
         from: u64,
         direction: crate::Direction,
         /// Count the matches too, which reads all of the file.
         count: bool,
     },
-    StopFindInViewer,
+    StopFindInPager(crate::PagerSlot),
     /// Reads the entropy of the viewer's source in the background, for the strip beside its
     /// hex rows, stopping any read before.
     ProfileViewer {

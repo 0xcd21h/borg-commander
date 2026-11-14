@@ -388,7 +388,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-I | Count folder sizes in the background / stop counting |
 | Ctrl-S | Quick find in the folder |
 | Ctrl-\ | Folder hotlist: jump to a pinned or recent folder |
-| Ctrl-Q | Quick view: preview the file under the cursor (text, picture or folder) in the other panel |
+| Ctrl-Q | Quick view: preview the file under the cursor (text, picture or folder) in the other panel; after Tab, `/` or F7 finds text in it |
 | Ctrl-L | Info: show size, permissions, owner, dates, free space and the drive in the other panel |
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
@@ -1338,12 +1338,17 @@ text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping on or o
 terminal's image protocol when there is one; other terminals show the image as colored blocks.
 
 Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys, PgUp/PgDn,
-Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L shows file
-information. F3 opens a text preview in the full viewer, and closing the viewer returns to the
-preview with your position, wrapping, source mode, and hex rows kept. Both read files the same
-limited way, so opening a large text file reads only around the first page and stays fast however
-big the file is. On a result of a search for text, the preview opens at the file's first match
-instead, with the query marked as the find bar marks it, and reads only around that match.
+Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. In a text preview,
+`/`, F7, or Ctrl-F opens the viewer's find bar on the preview's bottom row, and `n` and `N` step
+through the matches once you close it (see the find bar under [Editor](#editor)). The search
+belongs to the file the preview shows, so it ends when the cursor moves to another file; Ctrl-P in
+the find bar brings the query back. Ctrl-L shows file information. F3 opens a text preview in the
+full viewer, which goes on with the preview's search, and closing the viewer returns to the preview
+with your position, wrapping, source mode, and hex rows kept. Both read files the same limited way,
+so opening a large text file reads only around the first page and stays fast however big the file
+is. On a result of a search for text, the preview opens at the file's first match instead, with
+the query marked as the find bar marks it, and reads only around that match. There `n` and `N`
+step through the file's other matches.
 
 Both text viewers highlight common programming languages, markup, and configuration files,
 including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL,
@@ -1511,17 +1516,18 @@ each panel editor with unsaved changes. Quick view and file information need the
 they wait until its editor is closed. An editor opened beside results gives the focus back to them
 when it closes, and brings back the quick view or file information they showed.
 
-The viewer and the editor find text the same way. In the viewer, `/`, F7, or Ctrl-F opens a find
-bar in the status line; in the editor, Ctrl-F or F7 does. Borg searches as you type, starting from
-where the bar opened: every match on the screen is marked, the current one stands out, and the bar
-counts them (3 of 17). Enter, Down, or F3 goes to the next match, and Shift-Enter, Up, or Shift-F3
-to the previous one; after the last match, the search continues from the other end and says so.
-Alt-C matches case exactly (otherwise a lowercase query matches any case), Alt-W matches whole
-words, and Alt-R reads the query as a regular expression; you can click the switches too. Ctrl-P
-and Ctrl-N bring back recent queries. Esc closes the bar; after that, `n` and `N` in the viewer,
-or F3 and Shift-F3 in the editor, step through the matches. In a large file, the viewer searches
-in the background, shows how far it has got, and stops when you press Esc. It counts matches in
-files up to 64 MiB, up to 10,000 of them.
+The viewer, the quick view, and the editor find text the same way. In the viewer, `/`, F7, or Ctrl-F
+opens a find bar in the status line, and in the quick view, once Tab moved into it, the same keys
+open it on the bottom row; in the editor, Ctrl-F or F7 does. Borg searches as you type, starting
+from where the bar opened: every match on the screen is marked, the current one stands out, and the
+bar counts them (3 of 17). Enter, Down, or F3 goes to the next match, and Shift-Enter, Up, or
+Shift-F3 to the previous one; after the last match, the search continues from the other end and says
+so. Alt-C matches case exactly (otherwise a lowercase query matches any case), Alt-W matches whole
+words, and Alt-R reads the query as a regular expression; you can click the switches too. Ctrl-P and
+Ctrl-N bring back recent queries. Esc closes the bar; after that, `n` and `N` in the viewer and the
+quick view, or F3 and Shift-F3 in the editor, step through the matches. In a large file, the viewer
+and the quick view search in the background, show how far they have got, and stop when you press
+Esc. Borg counts matches in files up to 64 MiB, up to 10,000 of them.
 
 ## Configuration
 

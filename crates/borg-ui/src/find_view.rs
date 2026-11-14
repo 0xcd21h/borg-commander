@@ -15,9 +15,11 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{Theme, format, theme::Styles};
 
-/// The narrowest and widest the query's field gets.
+/// The narrowest and widest the query's field gets while where the match stands fits beside it.
 const FIELD_MIN: u16 = 12;
 const FIELD_MAX: u16 = 40;
+const FIELD_SQUEEZED: u16 = 8;
+const SUMMARY_GAP: u16 = 1;
 /// The switches as VS Code labels them, and the letter that with Alt flips each.
 const SWITCHES: [(&str, char); 3] = [("Aa", 'c'), ("ab", 'w'), (".*", 'r')];
 const SWITCH_WIDTH: u16 = 4;
@@ -32,9 +34,12 @@ struct BarLayout {
     rest: Rect,
 }
 
-fn layout(area: Rect) -> BarLayout {
+fn layout(area: Rect, summary: &str) -> BarLayout {
     let label = Rect { width: (tr!(editor_find).width() as u16 + 2).min(area.width), ..area };
-    let field_width = (area.width / 3).clamp(FIELD_MIN, FIELD_MAX).min(area.width.saturating_sub(label.width));
+    let fixed = label.width + 1 + SWITCHES_WIDTH + SUMMARY_GAP + summary.width() as u16;
+    let spare = area.width.saturating_sub(fixed).max(FIELD_SQUEEZED);
+    let wide = (area.width / 3).clamp(FIELD_MIN, FIELD_MAX).min(spare);
+    let field_width = wide.min(area.width.saturating_sub(label.width));
     let field = Rect { x: label.right(), width: field_width, ..area };
     let switches = switch_areas(field, area);
     let start = (field.right() + 1 + SWITCHES_WIDTH).min(area.right());
@@ -73,7 +78,8 @@ pub(crate) fn match_styles(styles: &Styles<Style>) -> (Style, Style) {
 pub(crate) fn draw_bar(find: &FindBar, theme: &Theme, area: Rect, buf: &mut Buffer) -> Position {
     let styles = &theme.styles;
     let base = styles.viewer_status;
-    let BarLayout { label, field, switches, rest } = layout(area);
+    let summary = find_bar_summary(find).unwrap_or_default();
+    let BarLayout { label, field, switches, rest } = layout(area, &summary);
     buf.set_style(area, base);
     Line::styled(format!(" {} ", tr!(editor_find)), base.add_modifier(Modifier::BOLD)).render(label, buf);
 
@@ -88,7 +94,6 @@ pub(crate) fn draw_bar(find: &FindBar, theme: &Theme, area: Rect, buf: &mut Buff
 
     draw_switches(find, switches, styles.cursor, base.add_modifier(Modifier::DIM), buf);
 
-    let summary = find_bar_summary(find).unwrap_or_default();
     let failed = matches!(find.note, Some(FindNote::NoMatch | FindNote::Invalid(_)));
     let style = if failed { base.add_modifier(Modifier::BOLD) } else { base };
     let width = usize::from(rest.width);
@@ -102,12 +107,12 @@ pub(crate) fn draw_bar(find: &FindBar, theme: &Theme, area: Rect, buf: &mut Buff
 
 /// The key a click at `point` on the bar presses: a switch, or a key named at its end.
 pub(crate) fn click(find: &FindBar, area: Rect, point: Position) -> Option<KeyEvent> {
-    let BarLayout { switches, rest, .. } = layout(area);
+    let summary = find_bar_summary(find).unwrap_or_default();
+    let BarLayout { switches, rest, .. } = layout(area, &summary);
     if let Some(key) = switch_key(switches, point) {
         return Some(key);
     }
     let keys = tr!(find_keys);
-    let summary = find_bar_summary(find).unwrap_or_default();
     if !rest.contains(point) || summary.width() + keys.width() + 3 > usize::from(rest.width) {
         return None;
     }
