@@ -430,7 +430,7 @@ fn neighbor_details(
 }
 
 /// The host's last port scan under its own heading: when and how, each open port with its name,
-/// and why it stopped early. Returns the row after it.
+/// why it stopped early, and the keys to its earlier scans. Returns the row after it.
 fn port_scan(
     scan: &PortScanRecord,
     body: Rect,
@@ -455,10 +455,14 @@ fn port_scan(
         facts.add(buf, label, port_row(*port));
     }
     let mut y = facts.y + 1;
-    if let Some(note) = limited(scan) {
+    let notes = [
+        limited(scan).map(|note| (note, theme.styles.notice)),
+        Some((tr!(network_port_scans_note).to_owned(), dim(theme))),
+    ];
+    for (note, style) in notes.into_iter().flatten() {
         for line in wrap(&note, usize::from(body.width)) {
             if y < body.height {
-                text(buf, row(body, y), line, theme.styles.notice);
+                text(buf, row(body, y), line, style);
             }
             y += 1;
         }

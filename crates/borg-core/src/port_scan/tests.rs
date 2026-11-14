@@ -27,6 +27,7 @@ fn record(target: &str, gateway: Option<&str>, at: u64, open: &[u16]) -> PortSca
         filtered: 0,
         not_scanned: Vec::new(),
         ending: Ending::Done,
+        network: None,
     }
 }
 
@@ -148,19 +149,24 @@ fn private_loopback_link_local_and_shared_addresses_are_local() {
 }
 
 #[test]
-fn a_new_scan_of_a_host_replaces_its_last_and_another_gateway_is_another_host() {
+fn a_host_keeps_its_last_ten_scans_newest_first_and_another_gateway_is_another_host() {
     let mut memory = PortScanMemory::default();
-    memory.note(record("192.0.2.60", Some(ROUTER), EARLIER, &[22]));
     memory.note(record("192.0.2.60", Some(OTHER_ROUTER), EARLIER, &[80]));
-    memory.note(record("192.0.2.60", Some(ROUTER), LATER, &[22, 443]));
-    assert_eq!(
-        memory.find(address("192.0.2.60"), Some(mac(ROUTER))).map(|scan| scan.open.clone()),
-        Some(vec![22, 443])
-    );
+    let scans = u64::try_from(HOST_HISTORY).unwrap() + 1;
+    for hour in 0..scans {
+        memory.note(record("192.0.2.60", Some(ROUTER), EARLIER + hour * 3_600, &[22]));
+    }
+    memory.note(record("192.0.2.60", Some(ROUTER), LATER * 2, &[22, 443]));
+    let router = Some(mac(ROUTER));
+    assert_eq!(memory.find(address("192.0.2.60"), router).map(|scan| scan.open.clone()), Some(vec![22, 443]));
+    let kept: Vec<u64> = memory.history(address("192.0.2.60"), router).map(|scan| scan.at).collect();
+    assert_eq!(kept.len(), HOST_HISTORY);
+    assert!(kept.windows(2).all(|pair| pair[0] > pair[1]), "newest first");
+    assert_eq!(kept.last(), Some(&(EARLIER + 2 * 3_600)), "the oldest ones go");
     assert_eq!(memory.find(address("192.0.2.60"), Some(mac(OTHER_ROUTER))).map(|scan| scan.at), Some(EARLIER));
     assert_eq!(memory.find(address("192.0.2.60"), None), None);
-    assert_eq!(memory.saved().scans.len(), 2);
-    assert_eq!(memory.last(" 192.0.2.60 ").map(|scan| scan.at), Some(LATER), "the newest first");
+    assert_eq!(memory.saved().scans.len(), HOST_HISTORY + 1);
+    assert_eq!(memory.last(" 192.0.2.60 ").map(|scan| scan.at), Some(LATER * 2), "the newest first");
 }
 
 #[test]
@@ -182,6 +188,14 @@ fn the_stored_format_names_every_field_and_reads_back() {
         closed: 1,
         not_scanned: vec![PortRange { first: 8000, last: 8001 }],
         ending: Ending::RateLimited { port: 80 },
+        network: Some(ScanNetwork {
+            interface: "en0".into(),
+            subnet: "192.0.2.0".parse().unwrap(),
+            prefix: 24,
+            own: "192.0.2.10".parse().unwrap(),
+            gateway: Some(address("192.0.2.1")),
+            gateway_mac: Some(mac(ROUTER)),
+        }),
         ..record("192.0.2.60", Some(ROUTER), EARLIER, &[22, 80])
     };
     memory.note(limited);
@@ -203,6 +217,14 @@ fn the_stored_format_names_every_field_and_reads_back() {
                 "filtered": 0,
                 "not_scanned": [{"first": 8000, "last": 8001}],
                 "ending": {"rate_limited": {"port": 80}},
+                "network": {
+                    "interface": "en0",
+                    "subnet": "192.0.2.0",
+                    "prefix": 24,
+                    "own": "192.0.2.10",
+                    "gateway": "192.0.2.1",
+                    "gateway_mac": ROUTER,
+                },
             }],
         })
     );

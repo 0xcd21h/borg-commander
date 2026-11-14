@@ -20,6 +20,7 @@ const ALLOW_KEY: char = 'a';
 const SCAN_KEY: char = 's';
 const FORGET_KEY: u8 = 8;
 const PORTS_KEY: char = 'p';
+const SCANS_KEY: char = 'o';
 
 fn alt(letter: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(letter), KeyModifiers::ALT)
@@ -103,13 +104,14 @@ fn docker_key(label: &'static str, hint: &'static str, action: Action) -> MenuEn
     super::entry(label, hint.into(), ContextCommand::Perform(action))
 }
 
-/// What the selected row of the network screen is reached by, and its process.
-pub(super) fn network(network: &Network) -> Option<Menu<ContextCommand>> {
+/// What the selected row of the network screen is reached by, and its process. `scanned` says
+/// whether the selected neighbor has port scans to show.
+pub(super) fn network(network: &Network, scanned: bool) -> Option<Menu<ContextCommand>> {
     if network.typing() || network.viewer.is_some() {
         return None;
     }
     if let Some((neighbor, row)) = network.neighbor() {
-        return Some(neighbor_menu(neighbor, row));
+        return Some(neighbor_menu(neighbor, row, scanned));
     }
     let text = crate::network::copied_text(network)?;
     let label = match network.page {
@@ -131,11 +133,12 @@ pub(super) fn network(network: &Network) -> Option<Menu<ContextCommand>> {
     Some(Menu { title: text, entries })
 }
 
-fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow) -> Menu<ContextCommand> {
+fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow, scanned: bool) -> Menu<ContextCommand> {
     let address = neighbor.address.to_string();
     let mac = neighbor.mac.map(|mac| mac.to_string());
     let offline = matches!(row.presence, Presence::Offline(_));
     let forget = offline.then(|| press(tr!(context_forget_host), "F8", KeyCode::F(FORGET_KEY)));
+    let save = KeyEvent::new(KeyCode::Char(crate::port_scan::SAVE_KEY), KeyModifiers::CONTROL);
     Menu {
         title: address.clone(),
         entries: [
@@ -143,7 +146,9 @@ fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow) -> Menu<ContextCommand> 
             when(copy(tr!(context_copy_mac), mac.clone().unwrap_or_default()), mac.is_some()),
             MenuEntry::Separator,
             press(tr!(context_scan_ports), "P", KeyCode::Char(PORTS_KEY)),
+            when(press(tr!(context_port_scans), "O", KeyCode::Char(SCANS_KEY)), scanned),
             press(tr!(context_scan_subnet), "S", KeyCode::Char(SCAN_KEY)),
+            press(tr!(context_save_report), "C-s", save),
         ]
         .into_iter()
         .chain(forget)

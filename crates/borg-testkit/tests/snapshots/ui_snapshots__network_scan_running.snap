@@ -35,7 +35,7 @@ expression: describe(&buffer)
 192.0.2.1 · 00:27:22:4c:01:01 · en0
 $
 P Scan ports  R Capture  / Filter  Space Pause  Tab Details  Esc Stop scan
-A Address · M MAC · N Name · Ctrl-C Copy address · Alt-W Maximize                                          ◈ Borg Commander v0.11.0
+A Address · M MAC · N Name · O Port scans · Ctrl-S Save report · Ctrl-C Copy address · Alt-W Maximize      ◈ Borg Commander v0.11.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-21 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 22-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-51 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 52-64 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 65-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
