@@ -35,7 +35,7 @@ expression: describe(&buffer)
 mirror.example/tools/jq · e5f6a7b8c9d0
 $
 F8 Clean up  Ins Mark  R Refresh  / Filter  D Containers  Esc Back
-↑↓ Move · ←→ Fold · Space Mark · * Invert · F8 types the command at the prompt, where Enter runs it        ◈ Borg Commander v0.11.0
+↑↓ Move · ←→ Fold · Space Mark · * Invert · F8 types the command at the prompt, where Enter runs it        ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-26 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 27-57 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 58-60 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 61-61 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 62-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-91 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 92-123 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
   1: 0-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-79 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 80-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
