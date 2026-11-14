@@ -29,6 +29,8 @@ const GAME2048_FILE: &str = "2048.json";
 const MAX_GAME_BYTES: u64 = 4096;
 const NEIGHBORS_FILE: &str = "neighbors.json";
 const MAX_NEIGHBORS_BYTES: u64 = 4 * 1024 * 1024;
+const PORT_SCANS_FILE: &str = "port-scans.json";
+const MAX_PORT_SCANS_BYTES: u64 = 4 * 1024 * 1024;
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
 const UPDATE_CHECK_FILE: &str = "update-check";
@@ -210,17 +212,37 @@ impl StateDir {
 
     /// The hosts Borg remembers on the networks this machine joined; none when the file is new.
     pub fn load_neighbors(&self) -> Result<borg_core::NeighborMemory> {
+        let Some(bytes) = self.read_capped(NEIGHBORS_FILE, MAX_NEIGHBORS_BYTES)? else {
+            return Ok(borg_core::NeighborMemory::default());
+        };
+        borg_core::NeighborMemory::restore(serde_json::from_slice(&bytes)?).map_err(anyhow::Error::msg)
+    }
+
+    /// The last port scan of each host Borg scanned; none when the file is new.
+    pub fn load_port_scans(&self) -> Result<borg_core::PortScanMemory> {
+        let Some(bytes) = self.read_capped(PORT_SCANS_FILE, MAX_PORT_SCANS_BYTES)? else {
+            return Ok(borg_core::PortScanMemory::default());
+        };
+        borg_core::PortScanMemory::restore(serde_json::from_slice(&bytes)?).map_err(anyhow::Error::msg)
+    }
+
+    pub fn save_port_scans(&self, saved: &borg_core::SavedPortScans) -> Result<()> {
+        self.ensure()?;
+        write_privately(&self.root.join(PORT_SCANS_FILE), &serde_json::to_vec(saved)?)
+    }
+
+    /// A state file's bytes, refused past `limit`; none when there is no such file.
+    fn read_capped(&self, name: &str, limit: u64) -> Result<Option<Vec<u8>>> {
         use std::io::Read;
-        let file = match fs::File::open(self.root.join(NEIGHBORS_FILE)) {
+        let file = match fs::File::open(self.root.join(name)) {
             Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(borg_core::NeighborMemory::default()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
         let mut bytes = Vec::new();
-        file.take(MAX_NEIGHBORS_BYTES + 1).read_to_end(&mut bytes)?;
-        anyhow::ensure!(bytes.len() as u64 <= MAX_NEIGHBORS_BYTES, "neighbors file exceeds size limit");
-        let saved = serde_json::from_slice(&bytes)?;
-        borg_core::NeighborMemory::restore(saved).map_err(anyhow::Error::msg)
+        file.take(limit + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= limit, "{name} exceeds its size limit");
+        Ok(Some(bytes))
     }
 
     pub fn save_neighbors(&self, saved: &borg_core::SavedNeighbors) -> Result<()> {

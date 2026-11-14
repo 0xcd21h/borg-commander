@@ -553,8 +553,8 @@ Lo que ofrece el menú depende de la fila:
 - Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo que
   identifique la fila. Una fila con un proceso añade **Copiar PID**,
   **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
-  **Copiar dirección IP**, **Copiar dirección MAC** y **Escanear subred** (S), y un host apagado
-  añade **Olvidar host** (F8).
+  **Copiar dirección IP**, **Copiar dirección MAC**, **Escanear puertos…** (P) y **Escanear subred**
+  (S), y un host apagado añade **Olvidar host** (F8).
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -1796,7 +1796,8 @@ cada uno y dónde está:
   [Análisis de tamaño guardados](#saved-size-scans)).
 - **Sesiones e historial**: sesiones, salida del shell, registro remoto, historial de búsquedas y
   carpetas, colecciones, equipos emparejados con sus claves, lo que Borg aprendió sobre tus discos
-  (`drives.json`) y los vecinos de red que recuerda (`neighbors.json`), en la carpeta de estado.
+  (`drives.json`), los vecinos de red que recuerda (`neighbors.json`) y el último escaneo de puertos
+  de cada host (`port-scans.json`), en la carpeta de estado.
 - **Configuración**: `config.toml` y tus temas.
 - **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.
 
@@ -2600,7 +2601,7 @@ Pulsa de **1** a **5**, o haz clic en una pestaña, para cambiar de página:
   recibido y enviado hasta ahora, y sus errores.
 - **5 Vecinos** lista los dispositivos de la red local cuya dirección MAC conoce este equipo, con su
   fabricante, nombre y estado, y marca la puerta de enlace y todo lo que parezca sospechoso.
-  Consulta [Vecinos](#neighbors).
+  Consulta [Vecinos](#neighbors) y [Escanear puertos](#scanning-ports).
 
 El pie muestra la velocidad total de descarga y subida del equipo en todas las interfaces salvo la
 de loopback. Borg busca en segundo plano los nombres de las direcciones remotas y muestra el nombre
@@ -2614,6 +2615,7 @@ en lugar de la dirección en cuanto lo conoce.
 | Enter | Mostrar el proceso de la fila seleccionada en el monitor de actividad |
 | K | Mostrar el proceso con **Señal o prioridad** abierto |
 | R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
+| P | Escanear los puertos del vecino seleccionado (**5 Vecinos**) |
 | S | Escanear la subred del vecino seleccionado (**5 Vecinos**) |
 | F8 / Delete | Olvidar el host seleccionado que está apagado (**5 Vecinos**) |
 | Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, o la dirección de la interfaz o del vecino |
@@ -2704,6 +2706,62 @@ escaneo anterior. Sus detalles añaden **Visto por última vez**. Escribe **Apag
 para quedarte solo con esos hosts. Pulsa F8 o Delete sobre uno, o elige **Olvidar host** en el menú
 contextual, y Borg pregunta antes de quitar el host del archivo. Borg guarda hasta 1024 hosts por
 red y 32 redes, y deja ir primero los que lleva más tiempo sin ver.
+
+### Escanear puertos
+
+Pulsa **P** sobre un vecino, o elige **Escanear puertos…** en su menú contextual, para ver en qué
+puertos TCP acepta conexiones un host. El diálogo se abre con la dirección del vecino en **Host**, y
+puedes escribir ahí otra dirección o un nombre de host. **Puertos** elige qué probar:
+
+- **Comunes**: 720 puertos. Son los puertos del 1 al 1023 a los que la IANA asigna un servicio y
+  unas decenas de puertos registrados que los servidores y los dispositivos domésticos usan a
+  menudo, como 3306 para MySQL, 5432 para PostgreSQL, 6379 para Redis, 8080 y 27017 para MongoDB.
+- **Todos**: todos los puertos del 1 al 65535.
+- **Lista**: los puertos que escribas en **Lista**, como `22,80,8000-8100`.
+
+**Modo** marca el ritmo:
+
+- **Rápido** mantiene hasta 64 conexiones abiertas a la vez y da a cada una 1 segundo para
+  responder.
+- **Lento** abre una conexión nueva cada 100 a 300 ms, con una pausa elegida al azar, mantiene hasta
+  16 abiertas a la vez y da a cada una 3 segundos. Úsalo con hosts y cortafuegos que limitan la
+  rapidez con la que puedes conectarte.
+
+Tab, ↑ y ↓ pasan de un campo a otro, ← y → cambian una opción, y Enter empieza. Debajo de los
+campos, el diálogo explica el modo y muestra lo que encontró el último escaneo del host. Borg
+resuelve primero un nombre de host y usa su primera dirección IPv4, o su primera dirección cuando no
+tiene ninguna IPv4. Después pregunta, indicando el número de puertos, el host y el modo. Un host
+fuera de los rangos privados y fuera de las redes a las que está conectado este equipo recibe una
+advertencia, y la pregunta empieza en **No**. Los rangos privados son 10.0.0.0/8, 172.16.0.0/12,
+192.168.0.0/16, 100.64.0.0/10, las direcciones de enlace local y de loopback, y las direcciones IPv6
+locales únicas. Escanea solo hosts que sean tuyos o que tengas permiso para probar.
+
+El escaneo se ejecuta como una tarea, así que puedes cerrar la pantalla de red y seguir trabajando.
+Alt-J muestra cuánto ha avanzado y cuántos puertos abiertos ha encontrado, p lo pausa y c lo
+cancela, y salir de Borg pide confirmación antes. Cada puerto recibe una conexión TCP. Un puerto que
+la acepta está **abierto**, uno que la rechaza está **cerrado**, y uno que guarda silencio hasta que
+se acaba el tiempo está **filtrado**. Borg cierra cada conexión enseguida y no envía nada por ella.
+
+Cuando el escaneo termina, **Escaneo de puertos terminado** se abre en cuanto se ven los paneles, el
+monitor de actividad o la pantalla de red sin ningún diálogo abierto y llevas 2 segundos sin pulsar
+ninguna tecla, así que nunca se queda con teclas destinadas a la consola o al editor. Indica el host
+y cuenta los puertos abiertos, cerrados y filtrados. Enter lista los puertos abiertos con el nombre
+de servicio que la IANA da a cada uno, y ↑ y ↓ desplazan una lista larga. Si cancelas un escaneo, un
+aviso te dice cuántos puertos abiertos encontró.
+
+Algunos hosts y cortafuegos dejan de responder a un escaneo demasiado rápido. Para notarlo, Borg
+vigila el primer puerto que respondió, uno abierto si lo hay, y le vuelve a preguntar cada 5
+segundos. También le pregunta en el acto cuando 40 puertos seguidos guardan silencio justo después
+de 40 en los que respondió al menos la mitad. Cuando ese puerto calla dos veces seguidas, Borg
+detiene el escaneo y conserva lo que encontró. El diálogo dice entonces que el host o un cortafuegos
+parece limitar el escaneo, cuenta los puertos a los que no llegó y sugiere el modo Lento.
+
+Borg recuerda el último escaneo de cada host en `port-scans.json` dentro de su carpeta de estado,
+legible solo por ti, con la hora, el modo, los puertos abiertos y los recuentos. Igual que con los
+vecinos, los hosts de la red conectada se separan por la dirección MAC de la puerta de enlace. Borg
+conserva los 256 escaneos más recientes. Los detalles de un vecino muestran su último escaneo en
+**Escaneo de puertos**: **Escaneado** con la hora, el modo y el número de puertos, y después los
+puertos **Abiertos** con sus nombres.
 
 ### Filtrar
 

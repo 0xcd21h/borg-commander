@@ -52,6 +52,9 @@ impl App {
             Effect::ScanSubnet { id, addresses } => self.network.scan(id, addresses),
             Effect::StopScan { id } => self.network.stop_scan(id),
             Effect::SaveNeighbors => self.save_neighbors(),
+            Effect::ResolveScanTarget(name) => self.resolve_scan_target(name),
+            Effect::ScanPorts { id, request } => self.scan_ports(id, *request),
+            Effect::SavePortScans => self.save_port_scans(),
             Effect::Capture { id, request } => self.network.capture(id, request),
             Effect::StopCapture { id } => self.network.stop_capture(id),
             Effect::OpenCapture(path) => self.network.open_capture(path),
@@ -175,6 +178,23 @@ impl App {
         {
             self.state.notice = Some(tr!(network_memory_save_error, error = error));
         }
+    }
+
+    fn save_port_scans(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_port_scans(&self.state.port_scans.memory.saved())
+        {
+            self.state.notice = Some(tr!(port_scan_memory_save_error, error = error));
+        }
+    }
+
+    /// Looks up the address of a host the port scan form names.
+    fn resolve_scan_target(&self, name: String) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let result = crate::port_scan::resolve(&name).await;
+            drop(messages.send(Msg::ScanTargetResolved { name, result }));
+        });
     }
 
     /// Indexes the folders that are new among `roots`, and remembers them all in the config.

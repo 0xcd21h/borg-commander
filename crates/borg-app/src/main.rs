@@ -28,6 +28,7 @@ mod native_mirror;
 mod network;
 mod peek;
 mod plugins;
+mod port_scan;
 mod preview;
 mod program;
 mod relaunch;

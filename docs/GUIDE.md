@@ -508,10 +508,10 @@ What the menu offers depends on the row:
 - **Open files** of a process: **Copy path**, and View for a regular file.
 - **Containers**: **Copy ID** and **Copy name**, then the Docker menu's Start, Stop, Restart,
   Pause, Files and Shell.
-- **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row
-  is reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
-  **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address** and
-  **Scan subnet** (S), and a host that is offline adds **Forget host** (F8).
+- **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row is
+  reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
+  **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address**,
+  **Scan ports…** (P) and **Scan subnet** (S), and a host that is offline adds **Forget host** (F8).
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -1657,7 +1657,8 @@ where it is:
   [Saved size scans](#saved-size-scans)).
 - **Sessions and history**: sessions, shell output, the remote log, search and folder history,
   collections, paired computers with their keys, what Borg learned about your drives
-  (`drives.json`), and the network neighbors it remembers (`neighbors.json`), in the state folder.
+  (`drives.json`), the network neighbors it remembers (`neighbors.json`) and the last port scan of
+  each host (`port-scans.json`), in the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 
@@ -2400,9 +2401,9 @@ Press **1** to **5**, or click a tab, to switch pages:
   **Loopback**, **Tunnel**, **Bridge** or **Virtual**), first address, and rates. ● marks an
   interface that is up. The details add every address, the MTU, the bytes and packets the
   interface received and sent so far, and its errors.
-- **5 Neighbors** lists the devices on the local network that this machine knows the MAC address
-  of, with their vendor, name and state, and marks the gateway and anything suspicious. See
-  [Neighbors](#neighbors).
+- **5 Neighbors** lists the devices on the local network that this machine knows the MAC address of,
+  with their vendor, name and state, and marks the gateway and anything suspicious. See
+  [Neighbors](#neighbors) and [Scanning ports](#scanning-ports).
 
 The footer shows the machine's total download and upload rate over every interface except
 loopback. Borg looks up the names of remote addresses in the background and shows a name in
@@ -2416,6 +2417,7 @@ place of the address once it is known.
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
 | R | Capture the selected row's traffic, or stop the capture that runs |
+| P | Scan the selected neighbor's ports (**5 Neighbors**) |
 | S | Scan the selected neighbor's subnet (**5 Neighbors**) |
 | F8 / Delete | Forget the selected host that is offline (**5 Neighbors**) |
 | Ctrl-C | Copy the port's address, the PID, the other end, or the interface's or neighbor's address |
@@ -2501,6 +2503,57 @@ that is gone shows as **Offline**, dimmed, with **Seen** and the time it was las
 in the filter to keep only those hosts. Press F8 or Delete on one, or choose **Forget host** in the
 context menu, and Borg asks before it drops the host from the file. Borg keeps up to 1,024 hosts
 for each network and 32 networks, and lets the ones seen longest ago go first.
+
+### Scanning ports
+
+Press **P** on a neighbor, or choose **Scan ports…** in its context menu, to see which TCP ports a
+host accepts connections on. The dialog starts with the neighbor's address in **Host**, and you can
+type another address or a host name there. **Ports** chooses what to try:
+
+- **Common**: 720 ports. These are the ports from 1 to 1023 that IANA names a service for, and a few
+  dozen registered ones that servers and home devices often run, such as 3306 for MySQL, 5432 for
+  PostgreSQL, 6379 for Redis, 8080 and 27017 for MongoDB.
+- **All**: every port from 1 to 65,535.
+- **List**: the ports you type in **List**, such as `22,80,8000-8100`.
+
+**Mode** sets the pace:
+
+- **Fast** keeps up to 64 connections open at once and gives each 1 second to answer.
+- **Slow** opens a new connection every 100 to 300 ms, picked at random, keeps up to 16 open at once
+  and gives each 3 seconds. Use it on hosts and firewalls that limit how fast you may connect.
+
+Tab, ↑ and ↓ move between the fields, ← and → change a choice, and Enter starts. Under the fields
+the dialog explains the mode and shows what the last scan of the host found. Borg looks up a host
+name first and takes its first IPv4 address, or its first address when it has no IPv4 one. Then it
+asks, naming the number of ports, the host and the mode. A host outside the private ranges and
+outside the networks this machine is on gets a warning, and the question starts on **No**. The
+private ranges are 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, the link-local and
+loopback addresses, and IPv6 unique local addresses. Scan only hosts you own or are allowed to test.
+
+The scan runs as a job, so you can close the network screen and keep working. Alt-J shows how far it
+got and how many open ports it found, p pauses it and c cancels it, and quitting Borg asks first.
+Each port gets one TCP connection. A port that accepts it is **open**, one that refuses it is
+**closed**, and one that stays silent until the time runs out is **filtered**. Borg closes each
+connection at once and sends nothing over it.
+
+When the scan ends, **Port scan finished** opens once the panels, the activity monitor or the
+network screen show with no dialog open and you have not pressed a key for 2 seconds, so it never
+takes keys meant for the console or the editor. It names the host and counts the open, closed and
+filtered ports. Enter lists the open ports with the service name IANA gives each one, and ↑ and ↓
+scroll a long list. Cancel a scan and a notice tells you how many open ports it found.
+
+Some hosts and firewalls stop answering a scan that goes too fast. To notice that, Borg keeps an eye
+on the first port that answered, an open one when there is one, and asks it again every 5 seconds.
+It also asks at once when 40 ports in a row stay silent right after 40 where at least half answered.
+When that port stays silent twice in a row, Borg stops the scan and keeps what it found. The dialog
+then says the host or a firewall seems to limit the scan, counts the ports it did not reach, and
+suggests Slow mode.
+
+Borg remembers the last scan of each host in `port-scans.json` in its state folder, readable by you
+alone, with the time, the mode, the open ports and the counts. Like the neighbors, hosts on the
+attached network are kept apart by the gateway's MAC address. Borg keeps the 256 newest scans. A
+neighbor's details show its last scan under **Port scan**: **Scanned** with the time, the mode and
+the number of ports, then the **Open** ports with their names.
 
 ### Filtering
 

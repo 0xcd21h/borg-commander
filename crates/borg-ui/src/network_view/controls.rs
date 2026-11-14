@@ -15,6 +15,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 const SCAN_KEY: char = 's';
+const PORTS_KEY: char = 'p';
 
 fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
@@ -44,6 +45,7 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
             if recording.proxy.is_some() { tr!(network_copy_proxy_button) } else { tr!(network_copy_key_log_button) }
         });
         let scanning = network.scan.as_ref().is_some_and(|scan| !scan.stopping);
+        let ports = network.loaded && network.page == NetworkPage::Neighbors;
         let scan = network.loaded && network.page == NetworkPage::Neighbors && network.scan.is_none();
         let esc = if scanning && !network.details_focused {
             (tr!(network_stop_scan_button), KeyCode::Esc)
@@ -51,6 +53,7 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
             back_button(network.details_focused || network.goes_back())
         };
         [
+            ports.then_some((tr!(network_scan_ports_button), KeyCode::Char(PORTS_KEY))),
             scan.then_some((tr!(network_scan_button), KeyCode::Char(SCAN_KEY))),
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),

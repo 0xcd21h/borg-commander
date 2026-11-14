@@ -29,6 +29,7 @@ const BAR_FILL: char = '━';
 const BAR_TRACK: char = '─';
 const BORDER_ROWS: u16 = 2;
 const LABEL_GAP: &str = " ";
+const DETAIL_SEPARATOR: &str = " · ";
 
 fn percent(fraction: f32) -> u32 {
     (fraction * PERCENT).floor() as u32
@@ -65,6 +66,12 @@ pub fn activity(job: &Job, now: Instant) -> Activity {
                 None => format!("{} {share}%", job.kind.doing()),
             }
         }
+        (JobState::Probing(probing), false) => tr!(
+            port_scan_activity,
+            doing = job.kind.doing(),
+            percent = percent(fraction.unwrap_or_default()),
+            open = probing.open
+        ),
     };
     Activity { label, fraction }
 }
@@ -76,7 +83,7 @@ pub(crate) fn status(job: &Job) -> String {
         (_, true) => tr!(paused, share),
         (JobState::Asking(_), false) => tr!(waiting_for_you).to_owned(),
         (JobState::Scanning(_), false) => format!("{}…", job.kind.doing()),
-        (JobState::Running(_), false) => format!("{} {share}%", job.kind.doing()),
+        (JobState::Running(_) | JobState::Probing(_), false) => format!("{} {share}%", job.kind.doing()),
     }
 }
 
@@ -327,7 +334,10 @@ pub fn draw_jobs(list: JobList, jobs: &[Job], look: &Look<'_>, now: Instant, scr
             Span::styled(format!("{}{LABEL_GAP}", format::truncate_end(&label, room)), label_style),
         ]);
         head.render(Rect { y, height: 1, ..inner }, buf);
-        let current = job.progress.as_ref().map(|progress| progress.current.display().to_string()).unwrap_or_default();
+        let current = match &job.state {
+            JobState::Probing(probing) => format!("{}{DETAIL_SEPARATOR}{}", probing.target, probing.speed.label()),
+            _ => job.progress.as_ref().map(|progress| progress.current.display().to_string()).unwrap_or_default(),
+        };
         Line::styled(format::truncate_start(&current, text_width), styles.overlay.add_modifier(Modifier::DIM))
             .render(Rect { y: y + 1, height: 1, ..inner }, buf);
     }

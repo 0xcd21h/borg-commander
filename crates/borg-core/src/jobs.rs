@@ -58,6 +58,8 @@ pub enum JobKind {
     Save,
     /// Text replaced in the files a contents search found.
     Replace,
+    /// A host's TCP ports tried one by one.
+    PortScan,
 }
 
 impl JobKind {
@@ -71,6 +73,7 @@ impl JobKind {
             Self::ArchiveFolder => tr!(making_archive_folder),
             Self::Save => tr!(saving_into_archive),
             Self::Replace => tr!(replacing_text),
+            Self::PortScan => tr!(scanning_ports),
         }
     }
 
@@ -83,6 +86,7 @@ impl JobKind {
             Self::Pack => tr!(packed),
             Self::ArchiveFolder | Self::Save => tr!(archive_changed),
             Self::Replace => tr!(replaced_text),
+            Self::PortScan => tr!(scanned_ports),
         }
     }
 
@@ -96,7 +100,7 @@ impl JobKind {
     fn shown_on(self, origin: Side) -> Side {
         match self {
             Self::Copy | Self::Move | Self::Unpack | Self::Pack => origin.other(),
-            Self::Delete | Self::View | Self::ArchiveFolder | Self::Save | Self::Replace => origin,
+            Self::Delete | Self::View | Self::ArchiveFolder | Self::Save | Self::Replace | Self::PortScan => origin,
         }
     }
 }
@@ -106,6 +110,8 @@ pub enum JobState {
     Scanning(Totals),
     Running(Progress),
     Asking(Ask),
+    /// A port scan, which counts ports where file jobs count files and bytes.
+    Probing(crate::PortProgress),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +130,9 @@ pub struct Job {
 
 impl Job {
     pub fn fraction(&self) -> Option<f32> {
+        if let JobState::Probing(probing) = &self.state {
+            return Some((probing.done as f64 / probing.total.max(1) as f64).clamp(0.0, 1.0) as f32);
+        }
         let progress = self.progress.as_ref()?;
         let total = progress.total;
         let (done, all) = if total.bytes > 0 {
@@ -140,7 +149,10 @@ impl Job {
             JobState::Asking(Ask::Expand { .. } | Ask::Room { .. }) => &PROCEED_CHOICES,
             JobState::Asking(Ask::Slow { file: true, .. }) => &SLOW_FILE_CHOICES,
             JobState::Asking(Ask::Slow { file: false, .. }) => &SLOW_CHOICES,
-            JobState::Asking(Ask::Conflict { .. }) | JobState::Scanning(_) | JobState::Running(_) => &CONFLICT_CHOICES,
+            JobState::Asking(Ask::Conflict { .. })
+            | JobState::Scanning(_)
+            | JobState::Running(_)
+            | JobState::Probing(_) => &CONFLICT_CHOICES,
         }
     }
 }
@@ -197,6 +209,42 @@ pub(crate) fn begin_on(state: &mut AppState, kind: JobKind, shown_on: Side, now:
     let effects = crate::measure::cancel(state);
     crate::measure::forget(state);
     (id, effects)
+}
+
+/// Adds a port scan, shown in the active panel, and returns its id.
+pub(crate) fn begin_port_scan(state: &mut AppState, progress: crate::PortProgress, now: Instant) -> u64 {
+    let id = state.next_job;
+    state.next_job += 1;
+    let side = state.active;
+    state.jobs.push(Job {
+        id,
+        kind: JobKind::PortScan,
+        origin: side,
+        shown_on: side,
+        state: JobState::Probing(progress),
+        progress: None,
+        paused: false,
+        started: now,
+        opens: None,
+    });
+    id
+}
+
+/// How many ports of the scan answered, and how many are open.
+pub(crate) fn port_scan_progress(state: &mut AppState, id: u64, done: usize, open: usize) {
+    let job = state.jobs.iter_mut().find(|job| job.id == id);
+    if let Some(Job { state: JobState::Probing(probing), .. }) = job {
+        probing.done = done;
+        probing.open = open;
+    }
+}
+
+/// The port scan ended: its job leaves the list.
+pub(crate) fn end_port_scan(state: &mut AppState, id: u64) {
+    state.jobs.retain(|job| job.id != id);
+    if state.jobs.is_empty() && matches!(state.overlay, Some(Overlay::Jobs(_))) {
+        state.overlay = None;
+    }
 }
 
 /// Adds a job that unpacks the file the viewer waits for as `opens`.

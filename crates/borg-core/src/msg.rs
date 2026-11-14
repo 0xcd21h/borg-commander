@@ -70,6 +70,16 @@ pub enum Msg {
         probe: crate::Probe,
         at: u64,
     },
+    /// The name of a host to scan for open ports was looked up.
+    ScanTargetResolved {
+        name: String,
+        result: Result<std::net::IpAddr, String>,
+    },
+    /// How far a port scan got, or how it ended.
+    PortScan {
+        id: u64,
+        event: crate::PortScanEvent,
+    },
     /// The subnet scan sent its last probe, or stopped.
     ScanFinished {
         id: u64,
@@ -397,6 +407,15 @@ pub enum Effect {
     },
     /// Saves the remembered neighbors.
     SaveNeighbors,
+    /// Looks up the address of a host to scan for open ports.
+    ResolveScanTarget(String),
+    /// Runs a port scan as a job, until it ends or the job's control cancels it.
+    ScanPorts {
+        id: u64,
+        request: Box<crate::PortScanRequest>,
+    },
+    /// Saves the remembered port scans.
+    SavePortScans,
     /// Runs `tcpdump` for the network screen's capture.
     Capture {
         id: u64,

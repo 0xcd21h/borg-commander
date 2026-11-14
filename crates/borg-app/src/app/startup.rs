@@ -196,6 +196,13 @@ fn load_saved(state: &mut AppState, dir: &StateDir) -> bool {
             state.notice = Some(tr!(network_memory_load_error, error = error));
         }
     }
+    match dir.load_port_scans() {
+        Ok(memory) => state.port_scans.memory = memory,
+        Err(error) => {
+            state.port_scans.writable = false;
+            state.notice = Some(tr!(port_scan_memory_load_error, error = error));
+        }
+    }
     if state.settings.preferences.agent_log {
         state.agent.restore_log(dir.load_agent_log().unwrap_or_default());
     } else {

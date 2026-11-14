@@ -76,7 +76,7 @@ pub(crate) fn draw(
         list::draw_list(state, look, list, clock, spinner, now, buf);
     }
     if !details.is_empty() {
-        details::draw_details(network, look, details, clock, buf);
+        details::draw_details(state, look, details, clock, buf);
     }
 }
 

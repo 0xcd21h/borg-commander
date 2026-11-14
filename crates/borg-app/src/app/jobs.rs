@@ -34,6 +34,21 @@ impl App {
         });
     }
 
+    /// Runs a port scan as job `id`, which the job's control pauses and cancels.
+    pub(super) fn scan_ports(&mut self, id: u64, request: borg_core::PortScanRequest) {
+        let control = self.control_for(id);
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let pace = request.speed.pace();
+            let gap = crate::port_scan::jitter(pace.spread);
+            let progress = |event| drop(messages.send(Msg::PortScan { id, event }));
+            let prober = Arc::new(crate::port_scan::Connector);
+            let result = crate::port_scan::run(prober, &request, pace, &control, gap, progress).await;
+            let at = crate::network::epoch_seconds();
+            drop(messages.send(Msg::PortScan { id, event: borg_core::PortScanEvent::Finished { result, at } }));
+        });
+    }
+
     pub(super) fn start_docker_copy(&mut self, id: u64, job: crate::docker::CopyJob) {
         let control = self.control_for(id);
         let messages = self.messages.clone();

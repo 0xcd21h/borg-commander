@@ -30,6 +30,7 @@ mod palette;
 mod panel_view;
 mod picker_view;
 mod pointer;
+mod port_scan_view;
 mod portrait;
 mod remote_view;
 mod results_view;
