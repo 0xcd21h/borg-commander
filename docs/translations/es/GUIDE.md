@@ -1856,6 +1856,24 @@ monitor. El monitor toma una muestra por segundo mientras está abierto y se det
 El muestreo se pausa mientras se ejecuta una inspección de memoria y se reanuda cuando llega el
 resultado.
 
+En la parte superior de la lista de procesos hay un resumen del sistema. Cada núcleo tiene una barra
+y un porcentaje. Bajo los núcleos, las barras **CPU**, **Carga**, **RAM** y **Swap** están junto a
+**Procesos**, **Activo** y **Disco**: el número de procesos, cuánto tiempo lleva funcionando el
+sistema y lo que los discos leen y escriben por segundo. **Carga** es el trabajo que necesitó un
+núcleo en el último minuto, como porcentaje de todos los núcleos, así que al 100% todos los núcleos
+tuvieron trabajo. La palabra que sigue compara el último minuto con los últimos 15 minutos:
+**subiendo**, **bajando** o **estable**. Por encima del 100%, los núcleos no dan abasto: la barra
+pasa al color de aviso e indica cuántos procesos esperan un núcleo, aproximadamente, por ejemplo
+**~7 en espera**. En Linux, **Hilos** cuenta los hilos y cuántos se están ejecutando, una barra
+**Disco** muestra lo ocupado que estuvo el disco con más trabajo, y los procesos que esperan un
+disco también cuentan para la carga. En macOS, el resumen del sistema no muestra los hilos ni la
+barra del disco. En un panel estrecho, los valores van debajo de las barras. Con muchos núcleos, o
+en un panel bajo, los núcleos pasan a una franja con la etiqueta **Núcleos** y una celda por núcleo.
+El resumen del sistema ocupa como mucho un tercio de la altura del panel. Cuando no cabe ni siquiera
+sin los núcleos, cuando el panel tiene menos de 30 columnas o cuando **S** lo oculta, una sola línea
+muestra la CPU, la RAM, el swap y el número de procesos. Mientras los núcleos no dan abasto, esa
+línea termina con el número de procesos en espera. **S** vuelve a mostrar el resumen del sistema.
+
 La lista muestra la CPU, la memoria residente, el crecimiento de la memoria y las velocidades de
 lectura y escritura en disco. Una CPU al 100 % equivale a un núcleo totalmente ocupado. Las páginas
 residentes compartidas entre procesos cuentan para cada uno de ellos, así que sumar la RAM de todos
@@ -1864,11 +1882,11 @@ segunda muestra.
 
 La CPU es una media de los últimos segundos en la que el uso más antiguo va perdiendo peso, como en
 `top`, así que una lista ordenada por CPU se queda quieta mientras un proceso trabaja a ráfagas
-cortas. El resumen y la CPU de todo el sistema en la parte superior del monitor se calculan igual.
-**H** oculta los procesos que no usaron CPU en ese tiempo, y la fila del filtro indica cuántos hay
-ocultos. Un proceso que deja de trabajar sigue en la lista hasta que su media baja a 0.0. En el
-árbol, los procesos de los que desciende uno ocupado siguen en la lista con él. Pulsa H otra vez
-para mostrarlos todos.
+cortas. El resumen, la CPU de todo el sistema y la barra de cada núcleo en la parte superior del
+monitor se calculan igual. **H** oculta los procesos que no usaron CPU en ese tiempo, y la fila del
+filtro indica cuántos hay ocultos. Un proceso que deja de trabajar sigue en la lista hasta que su
+media baja a 0.0. En el árbol, los procesos de los que desciende uno ocupado siguen en la lista con
+él. Pulsa H otra vez para mostrarlos todos.
 
 | Tecla | Acción |
 | --- | --- |
@@ -1878,6 +1896,7 @@ para mostrarlos todos.
 | I / O | Ordenar por velocidad de lectura / escritura |
 | T | Mostrar u ocultar el árbol de procesos |
 | H | Ocultar o mostrar los procesos que no usaron CPU en los últimos segundos |
+| S | Ocultar o mostrar el resumen del sistema |
 | Left / Right | En el árbol, plegar o desplegar la rama del proceso seleccionado |
 | K | Enviar una señal o cambiar la prioridad, también desde la ventana del proceso |
 | E | Buscar entropía alta en todos los procesos |

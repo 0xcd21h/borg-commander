@@ -55,7 +55,10 @@ pub(crate) fn sync_file_preview(state: &mut AppState) -> Option<Effect> {
     let area = state.layout(state.epoch).panels[side.other().index()];
     let size = (
         usize::from(area.width.saturating_sub(2)),
-        usize::from(area.height.saturating_sub(chrome_rows(ActivityPage::FileDetails) + FILE_PREVIEW_TOP)),
+        usize::from(
+            area.height
+                .saturating_sub(chrome_rows(&state.activity, ActivityPage::FileDetails, area) + FILE_PREVIEW_TOP),
+        ),
     );
     let activity = &mut state.activity;
     if let Some(preview) = activity.file_preview.as_mut().filter(|preview| preview.path == path) {
@@ -101,7 +104,8 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let list_rect = layout.panels[side.index()];
     let activity = &mut state.activity;
     if !list_rect.is_empty() {
-        activity.keep_visible(activity.list, usize::from(list_rect.height.saturating_sub(chrome_rows(activity.list))));
+        let chrome = chrome_rows(activity, activity.list, list_rect);
+        activity.keep_visible(activity.list, usize::from(list_rect.height.saturating_sub(chrome)));
     }
     if activity.preview_due.is_some_and(|due| due <= now) {
         activity.preview_due = None;
