@@ -13,7 +13,7 @@ expression: describe(&buffer)
   │ The background service keeps this    │
   │ session running. Enter attaches to   │
   ╰en · F7 new · F8 remove · Esc quit ───╯
-                   ◈ Borg Commander v0.11.0
+                   ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-1 Reset Rgb(30, 30, 30) NONE | 2-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE
   1: 0-1 Reset Rgb(30, 30, 30) NONE | 2-2 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 3-40 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 41-41 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 42-43 Reset Rgb(30, 30, 30) NONE

@@ -35,7 +35,7 @@ expression: describe(&buffer)
 192.0.2.70 · ec:b5:fa:12:00:70 · en0
 $
 P Scan ports  S Scan subnet  R Capture  / Filter  Space Pause  Tab Details  Esc Close
-A Address · M MAC · N Name · Ctrl-C Copy address · Alt-W Maximize                                          ◈ Borg Commander v0.11.0
+A Address · M MAC · N Name · Ctrl-C Copy address · Alt-W Maximize                                          ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 1-21 Rgb(201, 201, 201) Rgb(38, 38, 38) BOLD | 22-57 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 58-60 Rgb(4, 42, 51) Rgb(17, 168, 205) NONE | 61-61 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 62-64 Rgb(4, 42, 51) Rgb(17, 168, 205) NONE | 65-65 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 66-66 Rgb(86, 86, 86) Rgb(38, 38, 38) NONE | 67-78 Rgb(181, 181, 181) Rgb(38, 38, 38) NONE | 79-123 Rgb(86, 86, 86) Rgb(38, 38, 38) NONE | 124-126 Rgb(4, 42, 51) Rgb(17, 168, 205) NONE | 127-127 Rgb(86, 86, 86) Rgb(38, 38, 38) NONE | 128-130 Rgb(4, 42, 51) Rgb(17, 168, 205) NONE | 131-131 Rgb(86, 86, 86) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 1-51 Rgb(4, 42, 51) Rgb(17, 168, 205) NONE | 52-64 Rgb(191, 215, 225) Rgb(0, 95, 135) NONE | 65-65 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 66-66 Rgb(86, 86, 86) Rgb(38, 38, 38) NONE | 67-130 Rgb(22, 136, 163) Rgb(38, 38, 38) NONE | 131-131 Rgb(86, 86, 86) Rgb(38, 38, 38) NONE

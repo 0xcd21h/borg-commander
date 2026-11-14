@@ -35,7 +35,7 @@ expression: describe(&buffer)
  -rw-r--r--     512  2026-01-10 09:30  me
 $
 F1Help      F2File      F3View      F4Edit      F5Copy      F6Move      F7Mkdir     F8Delete    F9Menu      F10Quit     ^OShell
-Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size  Alt-C Docker             ◈ Borg Commander v0.11.0
+Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size  Alt-C Docker             ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(23, 129, 155) Rgb(38, 38, 38) NONE | 1-15 Rgb(190, 190, 190) Rgb(38, 38, 38) BOLD | 16-57 Rgb(23, 129, 155) Rgb(38, 38, 38) NONE | 58-60 Rgb(5, 50, 62) Rgb(17, 168, 205) NONE | 61-61 Rgb(23, 129, 155) Rgb(38, 38, 38) NONE | 62-64 Rgb(5, 50, 62) Rgb(17, 168, 205) NONE | 65-65 Rgb(23, 129, 155) Rgb(38, 38, 38) NONE | 66-66 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 67-67 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 68-68 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 69-71 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 72-74 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 75-77 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 78-82 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 83-85 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 86-89 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 90-92 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 93-101 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 102-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
   1: 0-65 Rgb(23, 129, 155) Rgb(38, 38, 38) NONE | 66-66 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 67-67 Reset Rgb(30, 30, 30) NONE | 68-71 Rgb(59, 142, 234) Rgb(30, 30, 30) BOLD | 72-110 Reset Rgb(30, 30, 30) NONE | 111-116 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 117-130 Reset Rgb(30, 30, 30) NONE | 131-131 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE
