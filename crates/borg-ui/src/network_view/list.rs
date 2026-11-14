@@ -2,8 +2,8 @@
 //! machine's traffic in the footer.
 
 use super::{
-    DOWN, FILTER_ROW, Field, HEADER_ROW, TABS_ROW, UNKNOWN, UP, cells, columns, endpoint, first_address, rate,
-    socket_rate, tabs,
+    DOWN, FILTER_ROW, Field, HEADER_ROW, TABS_ROW, UNKNOWN, UP, cells, columns, endpoint, first_address,
+    neighbor_label, neighbor_state, open_ports, ping_time, rate, seen, socket_rate, tabs,
 };
 use crate::{
     activity_view::{FOOTER_ROWS, body, dim, heading, readable, row, text, wrap},
@@ -12,10 +12,11 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    AppState, CaptureLimit, CaptureRequest, Exposure, Network, NetworkPage, PortRow, Recording, exposure_label,
-    kind_label,
+    AppState, CaptureLimit, CaptureRequest, Exposure, Network, NetworkPage, PortRow, Presence, Recording, ScanRun,
+    exposure_label, kind_label, neighbor_notes,
 };
 use borg_i18n::tr;
+use jiff::Zoned;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -29,6 +30,7 @@ use unicode_width::UnicodeWidthStr;
 const SORTED_DOWN: &str = " ↓";
 const SORTED_UP: &str = " ↑";
 const SEPARATOR: &str = " · ";
+const LIST_SEPARATOR: &str = ", ";
 /// How far ahead a capture's limit is told in seconds; further ahead it is told in minutes.
 const SECONDS_SHOWN_UNTIL: u64 = 120;
 const SECONDS_PER_MINUTE: u64 = 60;
@@ -37,6 +39,7 @@ pub(super) fn draw_list(
     state: &AppState,
     look: &Look<'_>,
     rect: Rect,
+    clock: &Zoned,
     spinner: Option<Spinner>,
     now: Instant,
     buf: &mut Buffer,
@@ -67,7 +70,11 @@ pub(super) fn draw_list(
         filtering: network.filtering,
         shown: network.len(network.page),
         total: network.totals[network.page.index()],
-        placeholder: tr!(network_filter_placeholder),
+        placeholder: if network.page == NetworkPage::Neighbors {
+            tr!(network_neighbors_filter_placeholder)
+        } else {
+            tr!(network_filter_placeholder)
+        },
         esc_clears: false,
     };
     filter_line(&line, look, row(inner, FILTER_ROW), buf);
@@ -95,8 +102,16 @@ pub(super) fn draw_list(
             spinner.draw_centered(tr!(network_loading), look, dim(theme), body, buf);
         }
     } else if network.len(network.page) == 0 {
-        let note = if network.filter.is_empty() { empty_note(network.page) } else { tr!(network_no_matches) };
-        text(buf, row(body, 0), note, dim(theme));
+        match (&network.neighborhood.error, network.page) {
+            (Some(error), NetworkPage::Neighbors) => {
+                let note = tr!(network_cannot_read, error = error);
+                for (offset, line) in wrap(&note, usize::from(body.width)).into_iter().enumerate() {
+                    text(buf, row(body, offset as u16), line, styles.notice);
+                }
+            }
+            _ if network.filter.is_empty() => text(buf, row(body, 0), empty_note(network.page), dim(theme)),
+            _ => text(buf, row(body, 0), tr!(network_no_matches), dim(theme)),
+        }
     }
     let start = network.list_start(usize::from(body.height));
     let end = network.len(network.page).min(start + usize::from(body.height));
@@ -110,7 +125,7 @@ pub(super) fn draw_list(
         buf.set_style(line, base);
         let selected = index == network.cursor();
         for (column, cell) in columns.iter().zip(cells(&columns, line)) {
-            let (value, style) = value(network, index, column.field, look, base, selected);
+            let (value, style) = value(network, index, column.field, look, clock, base, selected);
             Line::from(Span::styled(format::truncate_end(&value, usize::from(cell.width)), style)).render(cell, buf);
         }
     }
@@ -120,13 +135,24 @@ pub(super) fn draw_list(
         ..inner
     };
     let total = network.total();
-    let summary = tr!(network_total, down = format::rate(total.down), up = format::rate(total.up));
+    let summary = neighborhood_summary(network)
+        .filter(|_| network.page == NetworkPage::Neighbors)
+        .unwrap_or_else(|| tr!(network_total, down = format::rate(total.down), up = format::rate(total.up)));
     let note = state.notice.clone().filter(|_| network.loaded);
-    match (note, &network.recording) {
-        (Some(note), _) => text(buf, row(footer, 0), note, dim(theme)),
-        (None, Some(recording)) => text(buf, row(footer, 0), recording_note(recording, now), styles.notice),
-        (None, None) => text(buf, row(footer, 0), summary, dim(theme)),
+    match (note, &network.scan, &network.recording) {
+        (Some(note), _, _) => text(buf, row(footer, 0), note, dim(theme)),
+        (None, Some(scan), _) => text(buf, row(footer, 0), scan_note(scan), styles.notice),
+        (None, None, Some(recording)) => text(buf, row(footer, 0), recording_note(recording, now), styles.notice),
+        (None, None, None) => text(buf, row(footer, 0), summary, dim(theme)),
     }
+}
+
+/// How far a subnet scan got, and how many hosts answered.
+fn scan_note(scan: &ScanRun) -> String {
+    if scan.stopping {
+        return tr!(network_scan_stopping, subnet = scan.subnet);
+    }
+    tr!(network_scanning, subnet = scan.subnet, done = scan.done, total = scan.total, answered = scan.answered)
 }
 
 /// How a capture is going: where it runs, what it has so far, the time it has left, and how
@@ -170,7 +196,17 @@ fn empty_note(page: NetworkPage) -> &'static str {
         NetworkPage::Processes => tr!(network_no_processes),
         NetworkPage::Connections => tr!(network_no_connections),
         NetworkPage::Interfaces => tr!(network_no_interfaces),
+        NetworkPage::Neighbors => tr!(network_no_neighbors),
     }
+}
+
+fn neighborhood_summary(network: &Network) -> Option<String> {
+    let neighborhood = &network.neighborhood;
+    let gateway = neighborhood.first_gateway().map(|gateway| tr!(network_gateway_footer, gateway = gateway.address));
+    let servers: Vec<String> = neighborhood.dns.iter().map(ToString::to_string).collect();
+    let dns = (!servers.is_empty()).then(|| tr!(network_dns_footer, servers = servers.join(LIST_SEPARATOR)));
+    let parts: Vec<String> = [gateway, dns].into_iter().flatten().collect();
+    (!parts.is_empty()).then(|| parts.join(SEPARATOR))
 }
 
 /// Who can reach a port, as the list shows it: in words, or the address it is bound to.
@@ -188,6 +224,7 @@ fn value(
     index: usize,
     field: Field,
     look: &Look<'_>,
+    clock: &Zoned,
     base: Style,
     selected: bool,
 ) -> (String, Style) {
@@ -249,6 +286,38 @@ fn value(
                 }
                 Field::Down => (format::rate(row.rate.down), base),
                 _ => (format::rate(row.rate.up), base),
+            }
+        }
+        NetworkPage::Neighbors => {
+            let row = network.neighbors[index];
+            let neighbor = &network.neighborhood.neighbors[row.neighbor];
+            let warned = row.shared || row.changed.is_some();
+            let gone = match row.presence {
+                Presence::Offline(at) => Some(at),
+                _ => None,
+            };
+            let present = neighbor.mac.is_some() || matches!(row.presence, Presence::Answered);
+            let style = match (warned, present && gone.is_none(), row.gateway) {
+                (true, _, _) => tone(styles.notice.fg),
+                (false, false, _) => quiet,
+                (false, true, true) if !selected => heading(theme),
+                _ => base,
+            };
+            let probe = network.probes.get(&neighbor.address).map(|probed| &probed.probe);
+            match field {
+                Field::Address => (neighbor.address.to_string(), style),
+                Field::Mac => (neighbor.mac.map_or_else(String::new, |mac| mac.to_string()), style),
+                Field::Vendor => (neighbor.mac.and_then(borg_core::vendor).unwrap_or_default().to_owned(), quiet),
+                Field::Name => (neighbor_label(network, neighbor), style),
+                Field::Host => (network.host(neighbor.address).unwrap_or(UNKNOWN).to_owned(), style),
+                Field::State => (neighbor_state(neighbor, row).to_owned(), quiet),
+                Field::Ports => (open_ports(network, neighbor).unwrap_or_default(), style),
+                Field::Ping => (probe.and_then(|probe| probe.ping).map(ping_time).unwrap_or_default(), quiet),
+                _ => {
+                    let when = gone.map(|at| tr!(network_seen_note, when = seen(at, clock)));
+                    let notes = when.into_iter().chain(neighbor_notes(&row, neighbor).into_iter().map(str::to_owned));
+                    (notes.collect::<Vec<_>>().join(LIST_SEPARATOR), if warned { style } else { quiet })
+                }
             }
         }
     }

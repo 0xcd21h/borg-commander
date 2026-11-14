@@ -384,6 +384,15 @@ fn paint_overlay(
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Service(offer) => (crate::service_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Update(offer) => (crate::update_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::PortScan(form) => {
+            (crate::port_scan_view::draw_form(state, form, theme, scene.clock, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::PortScanDone(record) => {
+            (crate::port_scan_view::draw_done(record, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::PortScanResult(view) => {
+            (crate::port_scan_view::draw_result(view, theme, scene.clock, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Storage(window) => {
             (crate::storage_view::draw(state, window, scene.clock, theme, screen, buf), None, Unfold::FromCenter)
         }

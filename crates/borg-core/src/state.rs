@@ -95,6 +95,8 @@ pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
     pub network: crate::Network,
+    /// Port scans that run, ended or are remembered.
+    pub port_scans: crate::PortScans,
     pub startup_items: crate::StartupItems,
     pub alerts: crate::Alerts,
     pub agent: crate::Agent,
@@ -309,6 +311,7 @@ impl AppState {
             glitch_wake: None,
             relaunch: None,
             update_offer: None,
+            port_scans: crate::PortScans::new(),
             updating: false,
             generation: 0,
         };

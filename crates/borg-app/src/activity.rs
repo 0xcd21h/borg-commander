@@ -25,6 +25,7 @@ mod helper;
 mod maps;
 mod process_files;
 mod reading;
+mod system;
 
 #[cfg(target_os = "macos")]
 pub(crate) use helper::bounded_output;
@@ -68,6 +69,7 @@ struct Sampler {
     seen: HashSet<ProcessKey>,
     /// What each running program's signature says about reading its memory, read once.
     protections: HashMap<PathBuf, Option<MemoryProtection>>,
+    disks: system::DiskSampler,
 }
 impl Sampler {
     /// Samples every process. The `selected` one's signature is read whatever the time left,
@@ -140,6 +142,10 @@ impl Sampler {
             cpu: self.system.cpus().iter().map(|c| (c.cpu_usage().max(0.0) * 100.0) as u32).collect(),
             administrator: rustix::process::geteuid().is_root(),
             own: Some(own),
+            disk: self.disks.sample(),
+            load: Some(system::load()),
+            uptime: Some(system::uptime()),
+            threads: system::threads(),
         }
     }
 }

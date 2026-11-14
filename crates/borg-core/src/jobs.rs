@@ -13,6 +13,7 @@ use borg_jobs::Ask;
 use crate::{AppState, Effect, Overlay, Side};
 
 mod files;
+mod ports;
 mod sheet;
 mod toasts;
 mod watched;
@@ -21,6 +22,7 @@ pub(crate) use files::{
     begin, begin_on, begin_view, cancel_opening, on_event, on_question_key, reveal_folder, rewrite_subject, start,
     subject,
 };
+pub(crate) use ports::{Scanning, begin_port_scan, end_port_scan, port_scan_progress};
 pub(crate) use sheet::{on_list_key, on_row, open_list, open_newest_result};
 pub use toasts::{MOST as MOST_TOASTS, Toast, ToastEvent};
 pub(crate) use watched::{begin_index, begin_sizes, end_index, end_sizes, reveal_results, sizes_progress};
@@ -53,6 +55,8 @@ pub enum JobKind {
     Entropy,
     /// The first build of a folder's search index.
     Index,
+    /// A host's TCP ports tried one by one.
+    PortScan,
 }
 
 impl JobKind {
@@ -70,6 +74,7 @@ impl JobKind {
             Self::Search => tr!(searching),
             Self::Entropy => tr!(scanning_processes),
             Self::Index => tr!(indexing),
+            Self::PortScan => tr!(scanning_ports),
         }
     }
 
@@ -88,6 +93,7 @@ impl JobKind {
             Self::Search => tr!(job_search),
             Self::Entropy => tr!(job_entropy),
             Self::Index => tr!(job_index),
+            Self::PortScan => tr!(job_port_scan),
         }
     }
 
@@ -98,9 +104,9 @@ impl JobKind {
     }
 
     /// Whether the job's end leaves a notice while toasts are off. A search and the entropy scan
-    /// show how they ended where their results are.
+    /// show how they ended where their results are, and a port scan in its own dialog or notice.
     fn notices(self) -> bool {
-        !matches!(self, Self::Search | Self::Entropy)
+        !matches!(self, Self::Search | Self::Entropy | Self::PortScan)
     }
 
     /// Whether the job is part of opening a file, which neither toasts nor stays once done.
@@ -140,6 +146,7 @@ pub enum Unit {
     Files,
     Folders,
     Processes,
+    Ports,
 }
 
 /// How far a job got: what it did, and of how much when that is known.
@@ -200,7 +207,7 @@ pub enum How {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ending {
+pub struct JobEnding {
     pub how: How,
     pub at: Instant,
     /// What the job did or why it stopped, in a line.
@@ -213,7 +220,7 @@ pub enum Phase {
     Preparing,
     Running,
     Asking(Ask),
-    Ended(Ending),
+    Ended(JobEnding),
 }
 
 /// What opening a finished job shows.
@@ -225,6 +232,8 @@ pub enum Reveal {
     Results { side: Side, request: Box<crate::SearchRequest> },
     /// The hits of the entropy scan in the activity monitor.
     EntropyHits,
+    /// The open ports a port scan found.
+    PortScan(Box<crate::PortScanRecord>),
 }
 
 /// How a job is steered: what its pause and cancel turn into.
@@ -275,7 +284,7 @@ impl Job {
         matches!(self.phase, Phase::Asking(_))
     }
 
-    pub fn ending(&self) -> Option<&Ending> {
+    pub fn ending(&self) -> Option<&JobEnding> {
         match &self.phase {
             Phase::Ended(ending) => Some(ending),
             _ => None,
@@ -378,7 +387,7 @@ pub(crate) fn end(state: &mut AppState, id: u64, how: How, summary: String, now:
     }
     job.paused = false;
     job.folded = how != How::Failed;
-    job.phase = Phase::Ended(Ending { how, at: now, summary: summary.clone() });
+    job.phase = Phase::Ended(JobEnding { how, at: now, summary: summary.clone() });
     let notices = job.kind.notices();
     toasts::ended(state, id, how, now);
     if !state.settings.preferences.job_notifications && notices {

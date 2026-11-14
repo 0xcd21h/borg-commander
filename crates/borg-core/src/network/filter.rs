@@ -16,9 +16,14 @@ enum Field {
     State,
     Protocol,
     Interface,
+    Mac,
+    Vendor,
 }
 
-const FIELDS: [(&str, Field); 9] = [
+const MAC_DASH: char = '-';
+const MAC_COLON: char = ':';
+
+const FIELDS: [(&str, Field); 11] = [
     ("port", Field::Port),
     ("proc", Field::Process),
     ("process", Field::Process),
@@ -28,6 +33,8 @@ const FIELDS: [(&str, Field); 9] = [
     ("proto", Field::Protocol),
     ("if", Field::Interface),
     ("interface", Field::Interface),
+    ("mac", Field::Mac),
+    ("vendor", Field::Vendor),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +75,11 @@ impl Term {
             Some(Field::State) => row.state.is_some_and(contains),
             Some(Field::Protocol) => row.protocols.iter().any(|protocol| protocol.eq_ignore_ascii_case(&self.value)),
             Some(Field::Interface) => row.interface.as_deref().is_some_and(contains),
+            Some(Field::Mac) => row
+                .mac
+                .as_deref()
+                .is_some_and(|mac| mac.contains(&self.value.replace(MAC_DASH, &MAC_COLON.to_string()))),
+            Some(Field::Vendor) => row.vendor.is_some_and(contains),
         };
         found != self.negated
     }
@@ -102,6 +114,8 @@ pub(crate) struct Haystack {
     pub(crate) interface: Option<String>,
     /// Words a plain search finds that no field holds, such as a label the row shows.
     pub(crate) labels: Vec<String>,
+    pub(crate) mac: Option<String>,
+    pub(crate) vendor: Option<&'static str>,
 }
 
 impl Haystack {
@@ -117,6 +131,8 @@ impl Haystack {
             .chain(self.protocols.iter().map(|protocol| (*protocol).to_owned()))
             .chain(self.interface.iter().cloned())
             .chain(self.labels.iter().cloned())
+            .chain(self.mac.iter().cloned())
+            .chain(self.vendor.map(str::to_owned))
     }
 }
 

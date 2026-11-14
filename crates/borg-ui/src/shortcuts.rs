@@ -25,6 +25,12 @@ fn jobs(state: &AppState) -> Option<(String, bool)> {
     Some((tr!(alt_j_jobs, status = status), waiting))
 }
 
+/// Whether the Jobs button leads the bar: a job waits for an answer or works on files. Otherwise
+/// it comes last, so the keys of what you look at keep their room.
+fn jobs_lead(state: &AppState) -> bool {
+    state.jobs.iter().any(|job| job.asking() || (job.running() && job.kind.in_footer()))
+}
+
 /// The Alerts shortcut while alerts nobody has read are waiting, counting them.
 fn alerts(state: &AppState) -> Option<String> {
     let unread = state.alerts.unread;
@@ -100,7 +106,8 @@ pub(crate) fn buttons(state: &AppState, area: Rect) -> Vec<(Rect, String, Action
         })
         .collect();
     if let Some((label, waiting)) = jobs(state) {
-        items.insert(0, (label, Action::Jobs, waiting));
+        let at = if jobs_lead(state) { 0 } else { items.len() };
+        items.insert(at, (label, Action::Jobs, waiting));
     }
     if state.agent.connected() {
         items.insert(0, (tr!(agent_chip).to_owned(), Action::AgentLog, true));

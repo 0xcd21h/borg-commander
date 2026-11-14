@@ -14,6 +14,9 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+const SCAN_KEY: char = 's';
+const PORTS_KEY: char = 'p';
+
 fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
     let specs: Vec<(&'static str, KeyCode)> = if filtering {
@@ -41,7 +44,17 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
         let copy = network.recording.as_ref().filter(|recording| recording.key_log.is_some()).map(|recording| {
             if recording.proxy.is_some() { tr!(network_copy_proxy_button) } else { tr!(network_copy_key_log_button) }
         });
+        let scanning = network.scan.as_ref().is_some_and(|scan| !scan.stopping);
+        let ports = network.loaded && network.page == NetworkPage::Neighbors;
+        let scan = network.loaded && network.page == NetworkPage::Neighbors && network.scan.is_none();
+        let esc = if scanning && !network.details_focused {
+            (tr!(network_stop_scan_button), KeyCode::Esc)
+        } else {
+            back_button(network.details_focused || network.goes_back())
+        };
         [
+            ports.then_some((tr!(network_scan_ports_button), KeyCode::Char(PORTS_KEY))),
+            scan.then_some((tr!(network_scan_button), KeyCode::Char(SCAN_KEY))),
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
             network.loaded.then_some((capture, KeyCode::Char('r'))),
@@ -49,7 +62,7 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
             Some((tr!(activity_filter_button), KeyCode::Char('/'))),
             Some((tr!(activity_pause_button), KeyCode::Char(' '))),
             Some(details_button(network)),
-            Some(back_button(network.details_focused || network.goes_back())),
+            Some(esc),
         ]
         .into_iter()
         .flatten()
@@ -102,6 +115,9 @@ fn hint(network: &Network) -> &'static str {
     if let Some(view) = network.viewer.as_deref() {
         return traffic_hint(network, view);
     }
+    if network.filtering && network.page == NetworkPage::Neighbors {
+        return tr!(network_neighbors_filter_hint);
+    }
     if network.filtering {
         return tr!(network_filter_hint);
     }
@@ -113,6 +129,7 @@ fn hint(network: &Network) -> &'static str {
         NetworkPage::Processes => tr!(network_processes_hint),
         NetworkPage::Connections => tr!(network_connections_hint),
         NetworkPage::Interfaces => tr!(network_interfaces_hint),
+        NetworkPage::Neighbors => tr!(network_neighbors_hint),
     }
 }
 
@@ -145,6 +162,10 @@ pub(crate) fn status(network: &Network) -> String {
         }),
         NetworkPage::Interfaces => network.interface().map_or_else(String::new, |(interface, _)| {
             format!("{} · {}", interface.name, borg_core::kind_label(interface.kind))
+        }),
+        NetworkPage::Neighbors => network.neighbor().map_or_else(String::new, |(neighbor, _)| {
+            let parts = [Some(neighbor.address.to_string()), neighbor.mac.map(|mac| mac.to_string())];
+            parts.into_iter().flatten().chain([neighbor.interface.clone()]).collect::<Vec<_>>().join(" · ")
         }),
     }
 }

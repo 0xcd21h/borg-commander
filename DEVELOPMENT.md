@@ -287,6 +287,45 @@ on Linux; interfaces come from sysinfo, with kinds from `networksetup` or `/sys/
 Reverse lookups run in batches of 32 with a 2 second timeout each, and only for addresses the
 screen has not asked about before. Closing the screen cancels the sampler.
 
+Neighbors: `borg-core::network::neighbors` holds the pure parts. It parses MAC addresses and reads
+their flags, finds vendors, builds the rows with their notes, keeps the `GatewayWatch` that
+remembers each gateway's first MAC address for the session, and picks a `SubnetScan`'s addresses. The
+vendor table `neighbors/vendors.tsv` is the IEEE MA-L registry, one `OUI<TAB>name` line per
+prefix sorted by prefix, compiled in with `include_str!` and searched by binary search.
+`scripts/update-mac-vendors.py` regenerates it from the IEEE's `oui.csv`, either a file you pass or
+a fresh download; run it with `python3 -I`. `borg-app::network::neighbors` reads the tables. On
+macOS it parses `/usr/sbin/arp -anl`, `/usr/sbin/ndp -an` and `/usr/sbin/netstat -rn`. On Linux it
+dumps the neighbor table over netlink (`RTM_GETNEIGH`) through rustix, falls back to
+`/proc/net/arp`, and reads the gateways from `/proc/net/route` and `/proc/net/ipv6_route`. The
+sampler reads the tables on every sample while Neighbors shows and on every fifth otherwise. A
+failed read lands in `Neighborhood::error` and shows on the page without failing the sample.
+
+Subnet scans: `borg-app::network::scan` runs on tokio with a semaphore of 16 probes in flight. Each
+probe sends an empty UDP datagram to the discard port, an ICMP echo through an unprivileged
+`SOCK_DGRAM` socket made with rustix, and TCP connects to `SCAN_PORTS`, each with a 1 second
+timeout. The echo parser skips the IPv4 header macOS hands over and matches replies by source
+and sequence, since Linux rewrites the identifier. Ping is left out when the socket cannot be
+made. A stop flag ends the loop, each probe answers with `Msg::Probed`, and `Msg::ScanFinished`
+follows the last one. In core, `neighbors::merge` lays the probes and `NeighborMemory` over the
+table read from the system, marking each entry `Listed`, `Answered` or `Offline`. The memory is
+keyed by `LocalNetwork`, the subnet plus the gateway's MAC address, and saved owner-only as
+`neighbors.json` through `Effect::SaveNeighbors`: at once when a host, MAC address or port is new,
+and at most once a minute when only the times change. A file that fails to load is left alone and
+nothing is saved over it for the session.
+
+Port scans: `borg-core::port_scan` holds the pure parts. `ports.rs` reads the port lists from
+`services.tsv`, IANA's service name registry with one `port<TAB>name<TAB>common` line per TCP port,
+which `scripts/update-port-names.py` regenerates from the CSV you pass or the one it downloads. The
+common list is every named port from 1 to 1023 plus the registered ports the script lists. The
+module also holds the form, the `Watch` that picks the canary port and spots a sudden run of
+silence, the `Tally` of answers and the `PortScanMemory` saved owner-only as `port-scans.json`.
+`borg-app::port_scan::run` drives a `Prober`, a TCP connect with a timeout in the app, through a
+`JoinSet` at the mode's `ScanPace`. It asks the canary every `canary_every`, reads the job's
+`Control` for pause and cancel, and reports progress every 250 ms. Its tests use a fake host under
+tokio's paused clock, and one connects to a listener it starts on 127.0.0.1. Each scan is a
+`JobKind::PortScan` job, and the finish dialog waits, like the update offer, for the panels and 2
+seconds without a key.
+
 Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
 Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes
 DNS, TLS client and server hellos, HTTP/1 and QUIC. `flows` groups packets into conversations by

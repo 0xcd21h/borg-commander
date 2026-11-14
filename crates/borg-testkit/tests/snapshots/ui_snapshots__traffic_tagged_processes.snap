@@ -9,7 +9,7 @@ expression: describe(&buffer)
 │browser                       8239     3       46      31K      ││2               166             1               1               │
 │backup-agent                  7001     1       12      8928     ││                                                                │
 │sshd                          301      1       8       720      ││Connections · 1                                                 │
-│node                          4013900  1       5       407      ││192.0.2.1:53  DNS  2 packets  166                               │
+│node                          4013900  1       5       407      ││router.home.arpa:53  DNS  2 packets  166                        │
 │updater                       9120     1       2       166      ││                                                                │
 │                                                                ││                                                                │
 │                                                                ││                                                                │

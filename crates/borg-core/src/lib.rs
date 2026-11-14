@@ -42,6 +42,7 @@ mod panel;
 mod pattern;
 mod plugins;
 mod pointer;
+mod port_scan;
 mod query;
 mod relaunch;
 mod remote;
@@ -109,7 +110,7 @@ pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
 pub use jobs::{
-    Detail, Ending, Gauge, How, Job, JobCommand, JobKind, JobList, MOST_TOASTS, Phase, Question, Reveal, Toast,
+    Detail, Gauge, How, Job, JobCommand, JobEnding, JobKind, JobList, MOST_TOASTS, Phase, Question, Reveal, Toast,
     ToastEvent, Unit, Value, running as running_jobs, shown as shown_jobs, toast_keys_work, visible_toasts,
 };
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
@@ -185,6 +186,11 @@ pub use activity::{
     PRIORITY_STEP, ProcessControl, ProcessSignal,
 };
 pub use activity::{
+    CORE_METER, CORE_PERCENT, CoreRows, DiskActivity, LoadAverage, LoadReading, LoadTrend, SUMMARY_GAP, SummaryExtras,
+    SummaryLayout, Threads, bar_labels, core_number_width, figure_labels, label_width, load_reading, load_text,
+    strip_cells, summary_layout, threads_text, uptime_text, waiting_text,
+};
+pub use activity::{
     EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
 };
 pub use activity::{FILE_PREVIEW_TOP, FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity, chrome_rows};
@@ -208,6 +214,17 @@ pub use network::{
     ConnectionRow, Exposure, Interface, InterfaceKind, InterfaceRow, Meter, Network, NetworkFilter, NetworkPage,
     NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow, RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey,
     TcpState, Traffic, Transport, exposure_label, kind_label, service,
+};
+pub use network::{
+    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
+    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Presence, Probe, Probed, SCAN_PORTS, SavedNeighbors,
+    ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
+};
+pub use port_scan::{
+    Canary, Ending, FIRST_PORT, FormField, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer, PortChoice, PortRange,
+    PortScanEvent, PortScanForm, PortScanMemory, PortScanRecord, PortScanRequest, PortScanResult, PortScanView,
+    PortScans, PortsKind, SILENT_RUN, SavedPortScans, ScanPace, ScanSpeed, Tally, Watch, common_ports,
+    describe as describe_ports, is_private, parse_ports, port_name, scan_of,
 };
 
 pub use capture::{

@@ -1,10 +1,17 @@
+use ratatui::layout::Rect;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     time::{Duration, Instant},
 };
 mod process;
-pub use process::{MemoryProtection, ProcessInfo, ProcessKey, SystemSample};
+pub use process::{DiskActivity, LoadAverage, MemoryProtection, ProcessInfo, ProcessKey, SystemSample, Threads};
+mod summary;
+pub use summary::{
+    CORE_METER, CORE_PERCENT, CoreRows, LoadReading, LoadTrend, SUMMARY_GAP, SummaryExtras, SummaryLayout, bar_labels,
+    core_number_width, figure_labels, label_width, load_reading, load_text, strip_cells, summary_layout, threads_text,
+    uptime_text, waiting_text,
+};
 mod memory;
 pub use memory::{
     CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, MemoryCensus, MemoryGroup, MemoryRegion, MemorySnapshot,
@@ -61,12 +68,14 @@ const ZERO_ROWS: usize = 2;
 
 /// Rows the selected open file's details take above its preview.
 pub const FILE_PREVIEW_TOP: u16 = 5;
-/// Rows a pane's frame, header and footer take from a list or preview of each page.
-pub fn chrome_rows(page: ActivityPage) -> u16 {
+/// Rows a pane's frame, header and footer take from a list or preview of each page in `pane`,
+/// with the system summary above the processes.
+pub fn chrome_rows(activity: &Activity, page: ActivityPage, pane: Rect) -> u16 {
     match page {
         ActivityPage::Snapshot => 8,
         ActivityPage::Search => 8,
         ActivityPage::Findings => 7 + FINDING_NOTE,
+        ActivityPage::Processes => crate::screens::CHROME_ROWS + activity.summary_rows(pane),
         _ => crate::screens::CHROME_ROWS,
     }
 }
@@ -150,6 +159,10 @@ pub struct Activity {
     cpu: HashMap<ProcessKey, CpuAverage>,
     /// The whole system's CPU use, averaged the same way.
     system_cpu: Option<CpuAverage>,
+    /// Each core's CPU use, averaged the same way.
+    cores: Vec<CpuAverage>,
+    /// The process list shows the one-line overview instead of the system summary.
+    pub hide_summary: bool,
     pub selected: Option<ProcessKey>,
     pub rows: Vec<ListedProcess>,
     pub cursor: usize,
@@ -233,6 +246,8 @@ impl Default for Activity {
             histories: Default::default(),
             cpu: HashMap::new(),
             system_cpu: None,
+            cores: Vec::new(),
+            hide_summary: false,
             selected: None,
             rows: Vec::new(),
             cursor: 0,
@@ -365,6 +380,10 @@ impl Activity {
     pub fn system_cpu(&self) -> Option<u32> {
         self.system_cpu.as_ref().map(CpuAverage::shown)
     }
+    /// Each core's CPU use, averaged like the system's, in hundredths of a percent of the core.
+    pub fn core_cpu(&self) -> Vec<u32> {
+        self.cores.iter().map(CpuAverage::shown).collect()
+    }
     /// Whether a process used no CPU in the last few seconds. One not measured yet is not idle.
     pub fn idle(&self, key: ProcessKey) -> bool {
         self.cpu(key) == Some(0)
@@ -373,8 +392,8 @@ impl Activity {
     pub fn idle_hidden(&self) -> usize {
         self.idle_hidden
     }
-    /// Averages each process's CPU and the system's into what the list shows, forgetting the
-    /// processes that ended.
+    /// Averages each process's CPU, each core's and the system's into what the monitor shows,
+    /// forgetting the processes that ended.
     pub(crate) fn average_cpu(&mut self, now: Instant) {
         let keys: HashSet<_> = self.sample.processes.iter().map(|p| p.key).collect();
         self.cpu.retain(|key, _| keys.contains(key));
@@ -383,6 +402,16 @@ impl Activity {
                 self.cpu.insert(process.key, CpuAverage::next(self.cpu.get(&process.key).copied(), cpu, now));
             }
         }
+        if self.cores.len() != self.sample.cpu.len() {
+            self.cores.clear();
+        }
+        self.cores = self
+            .sample
+            .cpu
+            .iter()
+            .enumerate()
+            .map(|(index, &core)| CpuAverage::next(self.cores.get(index).copied(), core, now))
+            .collect();
         let cores = self.sample.cpu.len();
         if cores > 0 {
             let total = self.sample.cpu.iter().map(|&core| u64::from(core)).sum::<u64>() / cores as u64;

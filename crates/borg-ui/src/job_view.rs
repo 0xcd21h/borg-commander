@@ -63,6 +63,7 @@ pub(crate) fn counted(done: u64, unit: Unit) -> String {
         Unit::Files => format::count(done, format::Count::File),
         Unit::Folders => format::count(done, format::Count::Folder),
         Unit::Processes => format::count(done, format::Count::Process),
+        Unit::Ports => format::count(done, format::Count::Port),
     }
 }
 

@@ -157,6 +157,11 @@ pub enum ConfirmPurpose {
         request: Box<crate::CaptureRequest>,
         view_filter: String,
     },
+    Scan(Box<crate::SubnetScan>),
+    /// Yes drops a remembered host that is gone from the saved neighbors.
+    ForgetNeighbor(std::net::Ipv4Addr),
+    /// Yes starts the port scan as a job.
+    ScanPorts(Box<crate::PortScanRequest>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,4 +222,10 @@ pub enum Overlay {
     Update(crate::UpdateOffer),
     /// Where Borg keeps its own files, how much each place holds, and the leftovers.
     Storage(crate::StorageWindow),
+    /// Which host to scan for open ports, which ports and how fast.
+    PortScan(Box<crate::PortScanForm>),
+    /// A port scan finished in the background.
+    PortScanDone(Box<crate::PortScanRecord>),
+    /// The open ports a scan found.
+    PortScanResult(Box<crate::PortScanView>),
 }

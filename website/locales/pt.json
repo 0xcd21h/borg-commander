@@ -58,7 +58,7 @@
   "activity.title": "Atividade e memória",
   "activity.description": "Inspecione processos, utilização de recursos e mapas de memória.",
   "network.title": "Rede",
-  "network.description": "Consulte as portas abertas, as ligações e o tráfego de cada processo e interface.",
+  "network.description": "Consulte as portas abertas, as ligações, o tráfego de cada processo e interface e os dispositivos da sua rede.",
   "startup-items.title": "Itens de arranque",
   "startup-items.description": "Veja o que arranca sozinho, com as alterações mais recentes primeiro, e o que executa.",
   "themes.title": "Temas e ícones",

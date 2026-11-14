@@ -16,9 +16,12 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod capture;
 mod kinds;
+mod neighbors;
 mod proxy;
+mod scan;
 
 pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
+pub(crate) use scan::epoch_seconds;
 #[cfg(any(target_os = "macos", test))]
 mod netstat;
 #[cfg(any(target_os = "linux", test))]
@@ -32,10 +35,10 @@ const RESOLVE_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) fn measure() -> Result<(NetworkSample, NetworkSample, f64)> {
     const SETTLE: Duration = Duration::from_secs(1);
     let mut sampler = Sampler::default();
-    let before = sampler.sample()?;
+    let before = sampler.sample(false)?;
     let started = Instant::now();
     std::thread::sleep(SETTLE);
-    let after = sampler.sample()?;
+    let after = sampler.sample(false)?;
     Ok((before, after, started.elapsed().as_secs_f64()))
 }
 
@@ -44,13 +47,14 @@ pub struct Network {
     sampler: Arc<Mutex<Sampler>>,
     task: Option<JoinHandle<()>>,
     recorder: Option<capture::Recorder>,
+    scan: Option<scan::Scan>,
     /// Borg's runtime folder, where a capture's proxy keeps the certificates programs trust.
     runtime: PathBuf,
 }
 
 impl Network {
     pub fn new(messages: UnboundedSender<Msg>, runtime: PathBuf) -> Self {
-        Self { messages, sampler: Arc::default(), task: None, recorder: None, runtime }
+        Self { messages, sampler: Arc::default(), task: None, recorder: None, scan: None, runtime }
     }
 
     /// Captures packets as `request` asks, in place of a capture still running.
@@ -71,12 +75,15 @@ impl Network {
         capture::open(path, self.messages.clone());
     }
 
-    pub fn request(&mut self, id: u64) {
+    pub fn request(&mut self, id: u64, neighbors: bool) {
         self.cancel();
         let (sampler, messages) = (self.sampler.clone(), self.messages.clone());
         self.task = Some(tokio::spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
-                sampler.lock().map_err(|error| anyhow!(error.to_string())).and_then(|mut sampler| sampler.sample())
+                sampler
+                    .lock()
+                    .map_err(|error| anyhow!(error.to_string()))
+                    .and_then(|mut sampler| sampler.sample(neighbors))
             })
             .await
             .map_err(anyhow::Error::from)
@@ -100,6 +107,20 @@ impl Network {
         });
     }
 
+    /// Scans `addresses`, in place of a scan still running.
+    pub fn scan(&mut self, id: u64, addresses: Vec<std::net::Ipv4Addr>) {
+        if let Some(scan) = self.scan.take() {
+            scan.abort();
+        }
+        self.scan = Some(scan::Scan::start(id, addresses, self.messages.clone()));
+    }
+
+    pub fn stop_scan(&self, id: u64) {
+        if let Some(scan) = &self.scan {
+            scan.stop(id);
+        }
+    }
+
     /// Stops the running sample once the screen no longer waits for it.
     pub fn cancel(&mut self) {
         if let Some(task) = self.task.take() {
@@ -113,6 +134,9 @@ impl Drop for Network {
         self.cancel();
         if let Some(recorder) = &self.recorder {
             recorder.abort();
+        }
+        if let Some(scan) = &self.scan {
+            scan.abort();
         }
     }
 }
@@ -131,9 +155,10 @@ struct Sampler {
 }
 
 impl Sampler {
-    fn sample(&mut self) -> Result<NetworkSample> {
+    fn sample(&mut self, neighbors: bool) -> Result<NetworkSample> {
         let (sockets, names) = self.sockets()?;
-        Ok(NetworkSample { sockets, interfaces: self.interfaces(), names })
+        let neighborhood = neighbors.then(neighbors::read);
+        Ok(NetworkSample { sockets, interfaces: self.interfaces(), names, neighborhood })
     }
 
     /// Every socket, with the names of the processes that hold them.

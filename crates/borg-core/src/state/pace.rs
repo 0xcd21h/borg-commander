@@ -58,6 +58,7 @@ impl AppState {
             crate::docker::wake_at(self),
             crate::network::wake_at(self),
             crate::update_offer::wake_at(self),
+            crate::port_scan::wake_at(self),
         ]
         .into_iter()
         .flatten()

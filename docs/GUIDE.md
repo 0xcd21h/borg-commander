@@ -509,9 +509,10 @@ What the menu offers depends on the row:
 - **Open files** of a process: **Copy path**, and View for a regular file.
 - **Containers**: **Copy ID** and **Copy name**, then the Docker menu's Start, Stop, Restart,
   Pause, Files and Shell.
-- **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row
-  is reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
-  **Signal or priority…**.
+- **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row is
+  reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
+  **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address**,
+  **Scan ports…** (P) and **Scan subnet** (S), and a host that is offline adds **Forget host** (F8).
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -1297,9 +1298,9 @@ complete.
 
 Work that takes a while runs as a job: copies, moves and deletes, unpacking and packing archives,
 **Replace in files…**, every search that fills a results panel (Ctrl-F, Alt-D, Alt-Shift-D and
-Alt-S), folder sizes counted with Alt-I, the entropy scan in Alt-M, and the first build of a
-folder's search index. Alt-J opens the jobs panel over the right panel. It lists the running jobs
-first, oldest at the top, then the finished ones, newest first. On a terminal narrower than 100
+Alt-S), folder sizes counted with Alt-I, the entropy scan in Alt-M, the first build of a folder's
+search index, and port scans. Alt-J opens the jobs panel over the right panel. It lists the running
+jobs first, oldest at the top, then the finished ones, newest first. On a terminal narrower than 100
 columns it spans both panels.
 
 Each job takes one line: what it is, what it works on, a bar, and how far it got. A job that knows
@@ -1323,12 +1324,12 @@ that fails or asks you something unfolds on its own.
 | Shift-X | Dismiss every finished job |
 | Esc, Alt-J | Close the panel |
 
-The selected job shows its keys as buttons, which take clicks too. A finished job stays in the
-panel with how it ended and how long it took until you dismiss it, and Borg keeps the 20 newest.
-**O Open** shows what the job made: the folder a copy, move or unpack wrote to, with the cursor on
-what arrived there, the results of a search or a replace, brought back to their panel if it moved
-on, the folder whose sizes were counted, or the entropy scan's hits in Alt-M. In the panels, Alt-G
-opens what the newest finished job made.
+The selected job shows its keys as buttons, which take clicks too. A finished job stays in the panel
+with how it ended and how long it took until you dismiss it, and Borg keeps the 20 newest. **O
+Open** shows what the job made: the folder a copy, move or unpack wrote to, with the cursor on what
+arrived there, the results of a search or a replace, brought back to their panel if it moved on, the
+folder whose sizes were counted, the entropy scan's hits in Alt-M, or the open ports a port scan
+found. In the panels, Alt-G opens what the newest finished job made.
 
 Small notes in the bottom-right corner of the panels say when a job starts, ends, or waits for
 you. A start shows once the job has run for a second, so a quick job only says how it ended. A
@@ -1711,8 +1712,9 @@ where it is:
 - **Caches**: folder sizes and name indexes, in the cache folder (see
   [Saved size scans](#saved-size-scans)).
 - **Sessions and history**: sessions, shell output, the remote log, search and folder history,
-  collections, paired computers with their keys, and what Borg learned about your drives
-  (`drives.json`), in the state folder.
+  collections, paired computers with their keys, what Borg learned about your drives
+  (`drives.json`), the network neighbors it remembers (`neighbors.json`) and the last port scan of
+  each host (`port-scans.json`), in the state folder.
 - **Settings**: `config.toml` and your themes.
 - **Captures**: the traffic captures Borg saved, wherever they are.
 
@@ -1769,17 +1771,33 @@ on one side and a preview of the selected region's bytes on the other. **Esc** c
 it is open and stops when you close it. Sampling pauses while a memory inspection runs and
 resumes when the result arrives.
 
+The top of the process list sums up the system. Each core has a bar and a percentage. Under the
+cores, the **CPU**, **Load**, **RAM** and **Swap** bars stand beside **Processes**, **Up** and
+**Disk**: the number of processes, how long the system has been running, and what the disks read and
+write per second. **Load** is how much work wanted a core over the last minute, as a share of all
+the cores, so at 100% every core had work. The word after it compares the last minute with the last
+15 minutes: **rising**, **falling** or **steady**. Above 100% the cores cannot keep up: the bar
+turns to the warning color and says about how many processes wait for a core, such as
+**~7 waiting**. On Linux, **Threads** counts threads and how many of them are running, a **Disk**
+bar shows how busy the busiest disk was, and processes waiting for a disk count toward the load. On
+macOS the summary leaves out the threads and the disk bar. In a narrow pane the figures go under the
+bars. With many cores, or in a short pane, the cores turn into a strip labeled **Cores** with one
+cell per core. The summary takes at most a third of the pane's height. When it does not fit even
+without the cores, when the pane is narrower than 30 columns, or when **S** hides it, a single line
+shows CPU, RAM, swap and the number of processes instead. While the cores cannot keep up, that line
+ends with the waiting count. **S** shows the summary again.
+
 The list shows CPU, resident memory, memory growth, and disk read and write rates. CPU 100% means
 one fully busy core. Resident pages shared between processes count toward each of them, so adding
 up the RAM of all processes does not give the system total. CPU and disk rates appear from the
 second sample on.
 
 CPU is an average of the last few seconds in which older use fades out, as in `top`, so a list
-sorted by CPU holds still while a process works in short bursts. The overview and the system CPU
-at the top of the monitor are averaged the same way. **H** hides the processes that used no CPU
-in that time, and the filter row says how many are hidden. A process that goes quiet stays listed
-until its average falls to 0.0. In the tree, the processes a busy one descends from stay listed
-with it. Press H again to show them all.
+sorted by CPU holds still while a process works in short bursts. The overview, the system CPU
+and each core's bar at the top of the monitor are averaged the same way. **H** hides the
+processes that used no CPU in that time, and the filter row says how many are hidden. A process
+that goes quiet stays listed until its average falls to 0.0. In the tree, the processes a busy one
+descends from stay listed with it. Press H again to show them all.
 
 | Key | Action |
 | --- | --- |
@@ -1789,6 +1807,7 @@ with it. Press H again to show them all.
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
 | H | Hide or show the processes that used no CPU in the last few seconds |
+| S | Hide or show the system summary |
 | Left / Right | In the tree, fold the selected process's branch or unfold it |
 | K | Send a signal or change the priority, also from the process window |
 | E | Scan every process for high entropy |
@@ -2415,13 +2434,13 @@ before you rely on it.
 
 **Alt-N** or **Command → Network** shows what this machine does on the network: the ports that
 are open and who can reach them, the processes that are talking and how fast, every connection,
-and the network interfaces. It comes from the bundled System plugin, like the activity monitor.
+the network interfaces, and the devices next to this machine on the local network. It comes from the bundled System plugin, like the activity monitor.
 The list takes the active pane, and the other pane shows the selected row in detail with charts
 of the last 60 seconds. Borg samples once a second while the screen is open and stops when you
 close it. Rates appear from the second sample on, and each one is the mean of the last 3 seconds,
 so a list sorted by traffic holds still long enough to read.
 
-Press **1** to **4**, or click a tab, to switch pages:
+Press **1** to **5**, or click a tab, to switch pages:
 
 - **1 Ports** lists every port a process listens on, sorted by port. **Reach** says who can
   connect: **All networks** for a port open on every address, the address for a port bound to
@@ -2438,6 +2457,9 @@ Press **1** to **4**, or click a tab, to switch pages:
   **Loopback**, **Tunnel**, **Bridge** or **Virtual**), first address, and rates. ● marks an
   interface that is up. The details add every address, the MTU, the bytes and packets the
   interface received and sent so far, and its errors.
+- **5 Neighbors** lists the devices on the local network that this machine knows the MAC address of,
+  with their vendor, name and state, and marks the gateway and anything suspicious. See
+  [Neighbors](#neighbors) and [Scanning ports](#scanning-ports).
 
 The footer shows the machine's total download and upload rate over every interface except
 loopback. Borg looks up the names of remote addresses in the background and shows a name in
@@ -2445,19 +2467,23 @@ place of the address once it is known.
 
 | Key | Action |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Show Ports / Processes / Connections / Interfaces |
+| 1 / 2 / 3 / 4 / 5 | Show Ports / Processes / Connections / Interfaces / Neighbors |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
-| T / N / P / C | Sort by traffic / name / port / connections; press again to reverse |
+| T / N / P / C / A / M | Sort by traffic / name / port / connections / address / MAC address; press again to reverse |
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
 | R | Capture the selected row's traffic, or stop the capture that runs |
-| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's address |
+| P | Scan the selected neighbor's ports (**5 Neighbors**) |
+| S | Scan the selected neighbor's subnet (**5 Neighbors**) |
+| F8 / Delete | Forget the selected host that is offline (**5 Neighbors**) |
+| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's or neighbor's address |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
-| Esc | Go back to the list, then close the screen or return to the activity monitor |
+| Esc | Go back to the list, stop a running scan, then close the screen or return to the activity monitor |
 
-P sorts the pages that have a port, and C the pages that count connections. Click a column
+P sorts the pages that have a port, C the pages that count connections, and A and M sort
+**5 Neighbors**, which has no traffic to sort by. Click a column
 heading to sort by it, and double-click a row to show its process. Enter on a row without a
 process moves into the details. A row names a process and no program file, so Alt-O here tells you
 to press Enter and then Alt-O in the activity monitor. The activity monitor that Enter and K open has the process
@@ -2469,10 +2495,127 @@ It works the other way too. Alt-N in the activity monitor opens this screen on t
 process's row of **2 Processes**, with its traffic and connections in the details, and Esc goes
 back to the monitor. A process without connections or open ports gets a notice that says so.
 
+### Neighbors
+
+**5 Neighbors** shows the system's ARP table (IPv4) and NDP table (IPv6): every device on the local
+network that this machine talked to lately, with its address, MAC address, name and state. The
+state is the system's own word for the entry: **REACHABLE** answered recently, **STALE** has not
+been checked for a while, **DELAY** and **PROBE** are being checked, **INCOMPLETE** asked and got
+no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Hosts that only answered
+a scan come after the entries with a MAC address, then the remembered hosts that are offline, and
+entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
+entries stay out of the list. A wide pane adds the vendor, the open ports and ping time a scan
+found, and a note.
+
+The vendor comes from the first half of the MAC address, looked up in the IEEE registry that ships
+with Borg, so `3c:2a:f4` reads as Brother Industries. Names come from the same background
+lookups as the other pages. Until a name arrives, or when an address has none, a narrow pane
+shows the vendor in the **Name** column. The footer names the default gateway and the DNS
+servers. Borg reads the tables every second while this page shows and every 5 seconds on the
+other pages.
+
+The **Note** column and the details flag what deserves a look:
+
+- **Gateway** marks the default gateway and every router the IPv6 table names.
+- **MAC shared** marks IPv4 addresses on one interface that answer with the same MAC address. A
+  router or a host with several addresses does that. So does a device that answers for others,
+  which is what ARP spoofing looks like.
+- **Gateway MAC changed** marks a gateway whose MAC address differs from the one Borg saw first.
+  A notice says so once, and the note stays until Borg quits. Another device
+  may be answering for the gateway. You also see it after joining another network whose gateway
+  has the same address, such as two routers that both use 192.168.1.1.
+- **Randomized** marks a locally administered MAC address, which names no vendor. Phones use such
+  private addresses, and so do virtual machines and containers.
+
+The details add the subnet with this machine's address in it, the other addresses that share the
+MAC address, the **Open ports** and **Ping** a scan found, and a sentence for each note. Under
+**This network** they list the gateways on the neighbor's interface and the DNS servers.
+
+The tables only hold devices this machine talked to, and some devices stay quiet until something
+knocks. Press **S**, or choose **Scan subnet** in the context menu, to find them. Borg asks first
+and names the subnet, the interface and the number of addresses. Then it probes 16 addresses at a
+time. Each one gets a ping, TCP connections to ports 22, 80 and 443, and an empty UDP datagram to
+port 9 that makes the system ask for the address's MAC address, and Borg waits up to 1 second for
+the answers. A host that answers ping, takes a connection or refuses one joins the list right
+away, and a wide pane shows its open ports in **Ports** and its ping time in **Ping**. Addresses
+that stay silent stay hidden. The footer counts the addresses probed and the hosts that answered,
+and Esc stops the scan. Closing the screen leaves the scan running, and a notice tells you when it
+is done.
+
+Ping goes through an ICMP socket that needs no administrator rights. Linux grants that socket only
+to the groups in `net.ipv4.ping_group_range`, and where the system refuses it, Borg skips ping and
+goes by the ports. A scan covers IPv4 subnets on Ethernet, Wi-Fi and bridge interfaces that are
+up, and at most 254 addresses: a larger subnet gets the /24 around this machine's address. It skips
+this machine, the network address and the broadcast address. With no row selected, S scans the
+subnet of the default gateway's interface. Scan only networks you are allowed to scan, since some
+networks treat a scan as an attack. Apart from scans and the name lookups, the page only reads
+tables the system keeps.
+
+Borg remembers the hosts it finds, from the tables and from scans, in `neighbors.json` in its state
+folder, readable by you alone. It keeps them per network, which it knows by the subnet and the
+gateway's MAC address, so two networks that both use 192.168.1.0/24 stay apart. A remembered host
+that is gone shows as **Offline**, dimmed, with **Seen** and the time it was last seen in the
+**Note** column and the ports an earlier scan found. Its details add **Last seen**. Type **Offline**
+in the filter to keep only those hosts. Press F8 or Delete on one, or choose **Forget host** in the
+context menu, and Borg asks before it drops the host from the file. Borg keeps up to 1,024 hosts
+for each network and 32 networks, and lets the ones seen longest ago go first.
+
+### Scanning ports
+
+Press **P** on a neighbor, or choose **Scan ports…** in its context menu, to see which TCP ports a
+host accepts connections on. The dialog starts with the neighbor's address in **Host**, and you can
+type another address or a host name there. **Ports** chooses what to try:
+
+- **Common**: 720 ports. These are the ports from 1 to 1023 that IANA names a service for, and a few
+  dozen registered ones that servers and home devices often run, such as 3306 for MySQL, 5432 for
+  PostgreSQL, 6379 for Redis, 8080 and 27017 for MongoDB.
+- **All**: every port from 1 to 65,535.
+- **List**: the ports you type in **List**, such as `22,80,8000-8100`.
+
+**Mode** sets the pace:
+
+- **Fast** keeps up to 64 connections open at once and gives each 1 second to answer.
+- **Slow** opens a new connection every 100 to 300 ms, picked at random, keeps up to 16 open at once
+  and gives each 3 seconds. Use it on hosts and firewalls that limit how fast you may connect.
+
+Tab, ↑ and ↓ move between the fields, ← and → change a choice, and Enter starts. Under the fields
+the dialog explains the mode and shows what the last scan of the host found. Borg looks up a host
+name first and takes its first IPv4 address, or its first address when it has no IPv4 one. Then it
+asks, naming the number of ports, the host and the mode. A host outside the private ranges and
+outside the networks this machine is on gets a warning, and the question starts on **No**. The
+private ranges are 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, the link-local and
+loopback addresses, and IPv6 unique local addresses. Scan only hosts you own or are allowed to test.
+
+The scan runs as a job, so you can close the network screen and keep working. Alt-J shows how far it
+got, and unfolding the job shows the host, the mode and how many open ports it found. P pauses it, C
+cancels it, and quitting Borg asks first. Each port gets one TCP connection. A port that accepts it
+is **open**, one that refuses it is **closed**, and one that stays silent until the time runs out is
+**filtered**. Borg closes each connection at once and sends nothing over it.
+
+When the scan ends, **Port scan finished** opens once the panels, the activity monitor or the
+network screen show with no dialog open and you have not pressed a key for 2 seconds, so it never
+takes keys meant for the console or the editor. It names the host and counts the open, closed and
+filtered ports. Enter lists the open ports with the service name IANA gives each one, and ↑ and ↓
+scroll a long list. Cancel a scan and a notice tells you how many open ports it found. The finished
+scan stays in Alt-J, where **O Open** lists its open ports again, and so does Alt-G in the panels.
+
+Some hosts and firewalls stop answering a scan that goes too fast. To notice that, Borg keeps an eye
+on the first port that answered, an open one when there is one, and asks it again every 5 seconds.
+It also asks at once when 40 ports in a row stay silent right after 40 where at least half answered.
+When that port stays silent twice in a row, Borg stops the scan and keeps what it found. The dialog
+then says the host or a firewall seems to limit the scan, counts the ports it did not reach, and
+suggests Slow mode.
+
+Borg remembers the last scan of each host in `port-scans.json` in its state folder, readable by you
+alone, with the time, the mode, the open ports and the counts. Like the neighbors, hosts on the
+attached network are kept apart by the gateway's MAC address. Borg keeps the 256 newest scans. A
+neighbor's details show its last scan under **Port scan**: **Scanned** with the time, the mode and
+the number of ports, then the **Open** ports with their names.
+
 ### Filtering
 
 The filter keeps the rows that match every word you type. A plain word matches the process, PID,
-port, service, address, host name, state, protocol, or a label the row shows, so `postgres`,
+port, service, address, host name, state, protocol, MAC address, vendor, or a label the row shows, so `postgres`,
 `5432`, `https` and `example.com` all work. A word with a field name looks in that field only:
 
 | Word | Keeps |
@@ -2483,7 +2626,9 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 | `host:example` | Rows whose address or host name contains the text; a whole address keeps that address alone |
 | `state:listen`, `state:time` | TCP rows in a state that contains the text |
 | `proto:udp`, `proto:tcp` | Rows of that protocol |
-| `if:en0`, `interface:en0` | Interfaces whose name contains the text |
+| `if:en0`, `interface:en0` | Interfaces and neighbors whose interface name contains the text |
+| `mac:3c:22`, `mac:3c-22` | Neighbors and interfaces whose MAC address contains the text |
+| `vendor:synology` | Neighbors whose vendor contains the text |
 
 Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
 and `!proc:browser` hides one program. The filter applies to every page, and while you type it
@@ -2769,6 +2914,13 @@ processes' open files. Without administrator rights it can only look into your o
 other users' sockets show **Unknown process**. TCP byte counts come from `ss` when it is
 installed; UDP sockets and machines without `ss` show **—** for rates, and the details say
 **The system reports no byte counts here**. Interface totals and rates always work.
+
+On macOS, the neighbors come from `arp -anl` and `ndp -an`, the gateways from `netstat -rn`, and
+the DNS servers from `/etc/resolv.conf`. `arp` reports no state, so an IPv4 entry whose timer runs
+shows **REACHABLE** and an expired one **STALE**. On Linux, Borg reads the kernel's neighbor table
+over netlink, or `/proc/net/arp` when netlink is closed to it, and the gateways from
+`/proc/net/route` and `/proc/net/ipv6_route`. The DNS servers come from `/etc/resolv.conf`, or
+from `/run/systemd/resolve/resolv.conf` when the first lists only the systemd-resolved stub.
 
 ## Startup items
 

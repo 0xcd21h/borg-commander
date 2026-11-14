@@ -552,9 +552,11 @@ Lo que ofrece el menú depende de la fila:
 - **Archivos abiertos** de un proceso: **Copiar ruta**, y Ver para un archivo normal.
 - **Contenedores**: **Copiar ID** y **Copiar nombre**, luego Iniciar, Detener, Reiniciar, Pausar,
   Archivos y Shell, como en el menú Docker.
-- Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo
-  que identifique la fila. Una fila con un proceso añade **Copiar PID**,
-  **Mostrar en el monitor de actividad** y **Señal o prioridad…**.
+- Filas de **Red**: **Copiar dirección**, **Copiar dirección remota** o **Copiar PID**, según lo que
+  identifique la fila. Una fila con un proceso añade **Copiar PID**,
+  **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
+  **Copiar dirección IP**, **Copiar dirección MAC**, **Escanear puertos…** (P) y **Escanear subred**
+  (S), y un host apagado añade **Olvidar host** (F8).
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -1407,10 +1409,10 @@ y se renombran cuando están completas.
 El trabajo que lleva tiempo se ejecuta como una tarea: copias, movimientos y eliminaciones, la
 descompresión y la compresión de archivos comprimidos, **Reemplazar en archivos…**, cada búsqueda
 que llena un panel de resultados (Ctrl-F, Alt-D, Alt-Shift-D y Alt-S), los tamaños de carpeta
-contados con Alt-I, el análisis de entropía en Alt-M y la primera creación del índice de búsqueda de
-una carpeta. Alt-J abre el panel de tareas sobre el panel derecho. Muestra primero las tareas en
-curso, la más antigua arriba, y luego las terminadas, la más reciente primero. En un terminal de
-menos de 100 columnas ocupa los dos paneles.
+contados con Alt-I, el análisis de entropía en Alt-M, la primera creación del índice de búsqueda de
+una carpeta y los escaneos de puertos. Alt-J abre el panel de tareas sobre el panel derecho. Muestra
+primero las tareas en curso, la más antigua arriba, y luego las terminadas, la más reciente primero.
+En un terminal de menos de 100 columnas ocupa los dos paneles.
 
 Cada tarea ocupa una línea: qué es, sobre qué trabaja, una barra y cuánto ha avanzado. Una tarea que
 conoce su tamaño muestra un porcentaje, y una copia o un movimiento también el tiempo restante. Una
@@ -1439,8 +1441,9 @@ terminada se queda en el panel, con cómo terminó y cuánto tardó, hasta que l
 conserva las 20 más recientes. **O Abrir** muestra lo que produjo la tarea: la carpeta en la que
 escribió una copia, un movimiento o una descompresión, con el cursor en lo que llegó allí, los
 resultados de una búsqueda o de un reemplazo, devueltos a su panel si este pasó a otra cosa, la
-carpeta cuyos tamaños se contaron, o los hallazgos del análisis de entropía en Alt-M. En los
-paneles, Alt-G abre lo que produjo la última tarea terminada.
+carpeta cuyos tamaños se contaron, los hallazgos del análisis de entropía en Alt-M, o los puertos
+abiertos que encontró un escaneo de puertos. En los paneles, Alt-G abre lo que produjo la última
+tarea terminada.
 
 Pequeñas notas en la esquina inferior derecha de los paneles indican cuándo una tarea empieza,
 termina o te espera. El inicio aparece cuando la tarea lleva un segundo en marcha, así que de una
@@ -1855,8 +1858,9 @@ cada uno y dónde está:
 - **Cachés**: tamaños de carpeta e índices de nombres, en la carpeta de caché (consulta
   [Análisis de tamaño guardados](#saved-size-scans)).
 - **Sesiones e historial**: sesiones, salida del shell, registro remoto, historial de búsquedas y
-  carpetas, colecciones, equipos emparejados con sus claves y lo que Borg aprendió sobre tus discos
-  (`drives.json`), en la carpeta de estado.
+  carpetas, colecciones, equipos emparejados con sus claves, lo que Borg aprendió sobre tus discos
+  (`drives.json`), los vecinos de red que recuerda (`neighbors.json`) y el último escaneo de puertos
+  de cada host (`port-scans.json`), en la carpeta de estado.
 - **Configuración**: `config.toml` y tus temas.
 - **Capturas**: las capturas de tráfico que guardó Borg, estén donde estén.
 
@@ -1916,6 +1920,24 @@ monitor. El monitor toma una muestra por segundo mientras está abierto y se det
 El muestreo se pausa mientras se ejecuta una inspección de memoria y se reanuda cuando llega el
 resultado.
 
+En la parte superior de la lista de procesos hay un resumen del sistema. Cada núcleo tiene una barra
+y un porcentaje. Bajo los núcleos, las barras **CPU**, **Carga**, **RAM** y **Swap** están junto a
+**Procesos**, **Activo** y **Disco**: el número de procesos, cuánto tiempo lleva funcionando el
+sistema y lo que los discos leen y escriben por segundo. **Carga** es el trabajo que necesitó un
+núcleo en el último minuto, como porcentaje de todos los núcleos, así que al 100% todos los núcleos
+tuvieron trabajo. La palabra que sigue compara el último minuto con los últimos 15 minutos:
+**subiendo**, **bajando** o **estable**. Por encima del 100%, los núcleos no dan abasto: la barra
+pasa al color de aviso e indica cuántos procesos esperan un núcleo, aproximadamente, por ejemplo
+**~7 en espera**. En Linux, **Hilos** cuenta los hilos y cuántos se están ejecutando, una barra
+**Disco** muestra lo ocupado que estuvo el disco con más trabajo, y los procesos que esperan un
+disco también cuentan para la carga. En macOS, el resumen del sistema no muestra los hilos ni la
+barra del disco. En un panel estrecho, los valores van debajo de las barras. Con muchos núcleos, o
+en un panel bajo, los núcleos pasan a una franja con la etiqueta **Núcleos** y una celda por núcleo.
+El resumen del sistema ocupa como mucho un tercio de la altura del panel. Cuando no cabe ni siquiera
+sin los núcleos, cuando el panel tiene menos de 30 columnas o cuando **S** lo oculta, una sola línea
+muestra la CPU, la RAM, el swap y el número de procesos. Mientras los núcleos no dan abasto, esa
+línea termina con el número de procesos en espera. **S** vuelve a mostrar el resumen del sistema.
+
 La lista muestra la CPU, la memoria residente, el crecimiento de la memoria y las velocidades de
 lectura y escritura en disco. Una CPU al 100 % equivale a un núcleo totalmente ocupado. Las páginas
 residentes compartidas entre procesos cuentan para cada uno de ellos, así que sumar la RAM de todos
@@ -1924,11 +1946,11 @@ segunda muestra.
 
 La CPU es una media de los últimos segundos en la que el uso más antiguo va perdiendo peso, como en
 `top`, así que una lista ordenada por CPU se queda quieta mientras un proceso trabaja a ráfagas
-cortas. El resumen y la CPU de todo el sistema en la parte superior del monitor se calculan igual.
-**H** oculta los procesos que no usaron CPU en ese tiempo, y la fila del filtro indica cuántos hay
-ocultos. Un proceso que deja de trabajar sigue en la lista hasta que su media baja a 0.0. En el
-árbol, los procesos de los que desciende uno ocupado siguen en la lista con él. Pulsa H otra vez
-para mostrarlos todos.
+cortas. El resumen, la CPU de todo el sistema y la barra de cada núcleo en la parte superior del
+monitor se calculan igual. **H** oculta los procesos que no usaron CPU en ese tiempo, y la fila del
+filtro indica cuántos hay ocultos. Un proceso que deja de trabajar sigue en la lista hasta que su
+media baja a 0.0. En el árbol, los procesos de los que desciende uno ocupado siguen en la lista con
+él. Pulsa H otra vez para mostrarlos todos.
 
 | Tecla | Acción |
 | --- | --- |
@@ -1938,6 +1960,7 @@ para mostrarlos todos.
 | I / O | Ordenar por velocidad de lectura / escritura |
 | T | Mostrar u ocultar el árbol de procesos |
 | H | Ocultar o mostrar los procesos que no usaron CPU en los últimos segundos |
+| S | Ocultar o mostrar el resumen del sistema |
 | Left / Right | En el árbol, plegar o desplegar la rama del proceso seleccionado |
 | K | Enviar una señal o cambiar la prioridad, también desde la ventana del proceso |
 | E | Buscar entropía alta en todos los procesos |
@@ -2613,15 +2636,15 @@ Conócelas antes de confiar en él.
 ## Red
 
 **Alt-N** o **Comando → Red** muestra lo que hace este equipo en la red: los puertos abiertos y
-quién puede llegar a ellos, los procesos que se comunican y a qué velocidad, cada conexión y las
-interfaces de red. Lo proporciona el complemento Sistema incluido, igual que el monitor de
-actividad. La lista ocupa el panel activo, y el otro panel muestra en detalle la fila seleccionada,
-con gráficos de los últimos 60 segundos. Borg toma una muestra por segundo mientras la pantalla está
-abierta y se detiene al cerrarla. Las velocidades aparecen a partir de la segunda muestra, y cada
-una es la media de los últimos 3 segundos, así que una lista ordenada por tráfico se queda quieta el
-tiempo suficiente para leerla.
+quién puede llegar a ellos, los procesos que se comunican y a qué velocidad, cada conexión, las
+interfaces de red y los dispositivos que rodean a este equipo en la red local. Lo proporciona el
+complemento Sistema incluido, igual que el monitor de actividad. La lista ocupa el panel activo, y
+el otro panel muestra en detalle la fila seleccionada, con gráficos de los últimos 60 segundos. Borg
+toma una muestra por segundo mientras la pantalla está abierta y se detiene al cerrarla. Las
+velocidades aparecen a partir de la segunda muestra, y cada una es la media de los últimos 3
+segundos, así que una lista ordenada por tráfico se queda quieta el tiempo suficiente para leerla.
 
-Pulsa de **1** a **4**, o haz clic en una pestaña, para cambiar de página:
+Pulsa de **1** a **5**, o haz clic en una pestaña, para cambiar de página:
 
 - **1 Puertos** lista cada puerto en el que escucha un proceso, ordenados por número. **Alcance**
   indica quién puede conectarse: **Todas las redes** para un puerto abierto en todas las
@@ -2639,6 +2662,9 @@ Pulsa de **1** a **4**, o haz clic en una pestaña, para cambiar de página:
   **Túnel**, **Puente** o **Virtual**), su primera dirección y sus velocidades. ● marca una interfaz
   activa. Los detalles añaden todas sus direcciones, la MTU, los bytes y paquetes que la interfaz ha
   recibido y enviado hasta ahora, y sus errores.
+- **5 Vecinos** lista los dispositivos de la red local cuya dirección MAC conoce este equipo, con su
+  fabricante, nombre y estado, y marca la puerta de enlace y todo lo que parezca sospechoso.
+  Consulta [Vecinos](#neighbors) y [Escanear puertos](#scanning-ports).
 
 El pie muestra la velocidad total de descarga y subida del equipo en todas las interfaces salvo la
 de loopback. Borg busca en segundo plano los nombres de las direcciones remotas y muestra el nombre
@@ -2646,37 +2672,169 @@ en lugar de la dirección en cuanto lo conoce.
 
 | Tecla | Acción |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Mostrar Puertos / Procesos / Conexiones / Interfaces |
+| 1 / 2 / 3 / 4 / 5 | Mostrar Puertos / Procesos / Conexiones / Interfaces / Vecinos |
 | `/` | Filtrar las filas; ↑↓ siguen moviendo, Enter conserva el filtro, Esc lo borra |
-| T / N / P / C | Ordenar por tráfico / nombre / puerto / conexiones; pulsa de nuevo para invertir |
+| T / N / P / C / A / M | Ordenar por tráfico / nombre / puerto / conexiones / dirección / dirección MAC; pulsa de nuevo para invertir |
 | Enter | Mostrar el proceso de la fila seleccionada en el monitor de actividad |
 | K | Mostrar el proceso con **Señal o prioridad** abierto |
 | R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
-| Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo o la dirección de la interfaz |
+| P | Escanear los puertos del vecino seleccionado (**5 Vecinos**) |
+| S | Escanear la subred del vecino seleccionado (**5 Vecinos**) |
+| F8 / Delete | Olvidar el host seleccionado que está apagado (**5 Vecinos**) |
+| Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, o la dirección de la interfaz o del vecino |
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
 | Alt-W | Maximizar el panel con el foco |
-| Esc | Volver a la lista y después cerrar la pantalla o regresar al monitor de actividad |
+| Esc | Volver a la lista, detener un escaneo en curso y después cerrar la pantalla o regresar al monitor de actividad |
 
-P ordena las páginas que tienen puerto, y C las que cuentan conexiones. Haz clic en el encabezado de
-una columna para ordenar por ella, y doble clic en una fila para mostrar su proceso. Enter en una
-fila sin proceso pasa a los detalles. Una fila indica un proceso y ningún archivo de programa, así
-que Alt-O aquí te dice que pulses Enter y después Alt-O en el monitor de actividad. El monitor de
-actividad que abren Enter y K tiene el proceso
-seleccionado, así que su memoria, sus señales y su prioridad quedan a una tecla (consulta [Señales y
-prioridad](#signals-and-priority)). Esc allí te devuelve a la pantalla de red, a la fila donde
-estabas y con sus gráficos.
+P ordena las páginas que tienen puerto y C las que cuentan conexiones, mientras que A y M ordenan
+**5 Vecinos**, que no tiene tráfico por el que ordenar. Haz clic en el encabezado de una columna
+para ordenar por ella, y doble clic en una fila para mostrar su proceso. Enter en una fila sin
+proceso pasa a los detalles. Una fila indica un proceso y ningún archivo de programa, así que Alt-O
+aquí te dice que pulses Enter y después Alt-O en el monitor de actividad. El monitor de actividad
+que abren Enter y K tiene el proceso seleccionado, así que su memoria, sus señales y su prioridad
+quedan a una tecla (consulta [Señales y prioridad](#signals-and-priority)). Esc allí te devuelve a
+la pantalla de red, a la fila donde estabas y con sus gráficos.
 
 También funciona al revés. Alt-N en el monitor de actividad abre esta pantalla en la fila del
 proceso seleccionado de **2 Procesos**, con su tráfico y sus conexiones en los detalles, y Esc
 vuelve al monitor. Si el proceso no tiene conexiones ni puertos abiertos, un aviso te lo dice.
 
+### Vecinos
+
+**5 Vecinos** muestra la tabla ARP (IPv4) y la tabla NDP (IPv6) del sistema: cada dispositivo de la
+red local con el que este equipo habló hace poco, con su dirección, dirección MAC, nombre y estado.
+El estado es la palabra que usa el propio sistema para la entrada: **REACHABLE** respondió hace
+poco, **STALE** lleva un tiempo sin comprobarse, **DELAY** y **PROBE** se están comprobando,
+**INCOMPLETE** preguntó y aún no tiene respuesta, **FAILED** nunca respondió y **PERMANENT** no
+caduca nunca. Los hosts que solo respondieron a un escaneo van después de las entradas con dirección
+MAC, luego los hosts recordados que están apagados, y las entradas sin dirección MAC van al final.
+Las direcciones de este equipo y las entradas de broadcast y multicast quedan fuera de la lista. Un
+panel ancho añade el fabricante, los puertos abiertos y el tiempo de ping que encontró un escaneo, y
+una nota.
+
+El fabricante sale de la primera mitad de la dirección MAC, buscada en el registro del IEEE que
+viene con Borg, así que `3c:2a:f4` se lee como Brother Industries. Los nombres salen de las mismas
+búsquedas en segundo plano que usan las otras páginas. Hasta que llega un nombre, o cuando una
+dirección no tiene ninguno, un panel estrecho muestra el fabricante en la columna **Nombre**. El pie
+indica la puerta de enlace predeterminada y los servidores DNS. Borg lee las tablas cada segundo
+mientras esta página está a la vista y cada 5 segundos en las demás.
+
+La columna **Nota** y los detalles señalan lo que merece un vistazo:
+
+- **Puerta de enlace** marca la puerta de enlace predeterminada y cada router que nombra la tabla
+  IPv6.
+- **MAC compartida** marca direcciones IPv4 de una misma interfaz que responden con la misma
+  dirección MAC. Un router o un host con varias direcciones lo hace. También lo hace un dispositivo
+  que responde por otros, y ese es el aspecto de un ARP spoofing.
+- **Cambió su MAC** marca una puerta de enlace cuya dirección MAC difiere de la que Borg vio
+  primero. Un aviso lo dice una vez, y la nota se queda hasta que sales de Borg. Puede que otro
+  dispositivo esté respondiendo por la puerta de enlace. También la ves al unirte a otra red cuya
+  puerta de enlace tiene la misma dirección, como dos routers que usan 192.168.1.1.
+- **Aleatoria** marca una dirección MAC administrada localmente, que no indica fabricante. Los
+  teléfonos usan estas direcciones privadas, y también las máquinas virtuales y los contenedores.
+
+Los detalles añaden la subred con la dirección de este equipo, las otras direcciones que comparten
+la dirección MAC, los **Puertos abiertos** y el **Ping** que encontró un escaneo, y una frase por
+cada nota. En **Esta red** listan las puertas de enlace de la interfaz del vecino y los servidores
+DNS.
+
+Las tablas solo guardan los dispositivos con los que este equipo habló, y algunos dispositivos no
+dicen nada hasta que alguien llama a la puerta. Pulsa **S**, o elige **Escanear subred** en el menú
+contextual, para encontrarlos. Borg pregunta antes e indica la subred, la interfaz y el número de
+direcciones. Después sondea 16 direcciones a la vez. Cada una recibe un ping, conexiones TCP a los
+puertos 22, 80 y 443 y un datagrama UDP vacío al puerto 9 que hace que el sistema pregunte por su
+dirección MAC, y Borg espera hasta 1 segundo las respuestas. Un host que responde al ping, acepta
+una conexión o la rechaza entra en la lista al momento, y un panel ancho muestra sus puertos
+abiertos en **Puertos** y su tiempo de ping en **Ping**. Las direcciones que siguen calladas quedan
+ocultas. El pie cuenta las direcciones sondeadas y los hosts que respondieron, y Esc detiene el
+escaneo. Cerrar la pantalla deja el escaneo en marcha, y un aviso te dice cuándo termina.
+
+El ping usa un socket ICMP que no necesita permisos de administrador. Linux solo concede ese socket
+a los grupos de `net.ipv4.ping_group_range`, y donde el sistema lo niega, Borg se salta el ping y se
+guía por los puertos. Un escaneo cubre subredes IPv4 en interfaces Ethernet, Wi-Fi y puente que
+estén activas, y como mucho 254 direcciones: una subred mayor se reduce al /24 que rodea la
+dirección de este equipo. Se salta este equipo, la dirección de red y la dirección de broadcast. Sin
+ninguna fila seleccionada, S escanea la subred de la interfaz de la puerta de enlace predeterminada.
+Escanea solo redes que tengas permiso para escanear, porque algunas redes tratan un escaneo como un
+ataque. Aparte de los escaneos y de las búsquedas de nombres, la página solo lee tablas que mantiene
+el sistema.
+
+Borg recuerda los hosts que encuentra, en las tablas y en los escaneos, en `neighbors.json` dentro
+de su carpeta de estado, en un archivo que solo tú puedes leer. Los guarda por red, que reconoce por
+la subred y la dirección MAC de la puerta de enlace, así que dos redes que usan 192.168.1.0/24
+quedan separadas. Un host recordado que ya no está aparece como **Apagado**, atenuado, con **Visto**
+y la hora en que se vio por última vez en la columna **Nota**, y con los puertos que encontró un
+escaneo anterior. Sus detalles añaden **Visto por última vez**. Escribe **Apagado** en el filtro
+para quedarte solo con esos hosts. Pulsa F8 o Delete sobre uno, o elige **Olvidar host** en el menú
+contextual, y Borg pregunta antes de quitar el host del archivo. Borg guarda hasta 1024 hosts por
+red y 32 redes, y deja ir primero los que lleva más tiempo sin ver.
+
+### Escanear puertos
+
+Pulsa **P** sobre un vecino, o elige **Escanear puertos…** en su menú contextual, para ver en qué
+puertos TCP acepta conexiones un host. El diálogo se abre con la dirección del vecino en **Host**, y
+puedes escribir ahí otra dirección o un nombre de host. **Puertos** elige qué probar:
+
+- **Comunes**: 720 puertos. Son los puertos del 1 al 1023 a los que la IANA asigna un servicio y
+  unas decenas de puertos registrados que los servidores y los dispositivos domésticos usan a
+  menudo, como 3306 para MySQL, 5432 para PostgreSQL, 6379 para Redis, 8080 y 27017 para MongoDB.
+- **Todos**: todos los puertos del 1 al 65535.
+- **Lista**: los puertos que escribas en **Lista**, como `22,80,8000-8100`.
+
+**Modo** marca el ritmo:
+
+- **Rápido** mantiene hasta 64 conexiones abiertas a la vez y da a cada una 1 segundo para
+  responder.
+- **Lento** abre una conexión nueva cada 100 a 300 ms, con una pausa elegida al azar, mantiene hasta
+  16 abiertas a la vez y da a cada una 3 segundos. Úsalo con hosts y cortafuegos que limitan la
+  rapidez con la que puedes conectarte.
+
+Tab, ↑ y ↓ pasan de un campo a otro, ← y → cambian una opción, y Enter empieza. Debajo de los
+campos, el diálogo explica el modo y muestra lo que encontró el último escaneo del host. Borg
+resuelve primero un nombre de host y usa su primera dirección IPv4, o su primera dirección cuando no
+tiene ninguna IPv4. Después pregunta, indicando el número de puertos, el host y el modo. Un host
+fuera de los rangos privados y fuera de las redes a las que está conectado este equipo recibe una
+advertencia, y la pregunta empieza en **No**. Los rangos privados son 10.0.0.0/8, 172.16.0.0/12,
+192.168.0.0/16, 100.64.0.0/10, las direcciones de enlace local y de loopback, y las direcciones IPv6
+locales únicas. Escanea solo hosts que sean tuyos o que tengas permiso para probar.
+
+El escaneo se ejecuta como una tarea, así que puedes cerrar la pantalla de red y seguir trabajando.
+Alt-J muestra cuánto ha avanzado, y al desplegar la tarea se ven el host, el modo y cuántos puertos
+abiertos ha encontrado. P lo pausa, C lo cancela, y salir de Borg pide confirmación antes. Cada
+puerto recibe una conexión TCP. Un puerto que la acepta está **abierto**, uno que la rechaza está
+**cerrado**, y uno que guarda silencio hasta que se acaba el tiempo está **filtrado**. Borg cierra
+cada conexión enseguida y no envía nada por ella.
+
+Cuando el escaneo termina, **Escaneo de puertos terminado** se abre en cuanto se ven los paneles, el
+monitor de actividad o la pantalla de red sin ningún diálogo abierto y llevas 2 segundos sin pulsar
+ninguna tecla, así que nunca se queda con teclas destinadas a la consola o al editor. Indica el host
+y cuenta los puertos abiertos, cerrados y filtrados. Enter lista los puertos abiertos con el nombre
+de servicio que la IANA da a cada uno, y ↑ y ↓ desplazan una lista larga. Si cancelas un escaneo, un
+aviso te dice cuántos puertos abiertos encontró. El escaneo terminado se queda en Alt-J, donde **O
+Abrir** vuelve a listar sus puertos abiertos, igual que Alt-G en los paneles.
+
+Algunos hosts y cortafuegos dejan de responder a un escaneo demasiado rápido. Para notarlo, Borg
+vigila el primer puerto que respondió, uno abierto si lo hay, y le vuelve a preguntar cada 5
+segundos. También le pregunta en el acto cuando 40 puertos seguidos guardan silencio justo después
+de 40 en los que respondió al menos la mitad. Cuando ese puerto calla dos veces seguidas, Borg
+detiene el escaneo y conserva lo que encontró. El diálogo dice entonces que el host o un cortafuegos
+parece limitar el escaneo, cuenta los puertos a los que no llegó y sugiere el modo Lento.
+
+Borg recuerda el último escaneo de cada host en `port-scans.json` dentro de su carpeta de estado,
+legible solo por ti, con la hora, el modo, los puertos abiertos y los recuentos. Igual que con los
+vecinos, los hosts de la red conectada se separan por la dirección MAC de la puerta de enlace. Borg
+conserva los 256 escaneos más recientes. Los detalles de un vecino muestran su último escaneo en
+**Escaneo de puertos**: **Escaneado** con la hora, el modo y el número de puertos, y después los
+puertos **Abiertos** con sus nombres.
+
 ### Filtrar
 
 El filtro conserva las filas que coinciden con todas las palabras que escribes. Una palabra suelta
 coincide con el proceso, el PID, el puerto, el servicio, la dirección, el nombre del host, el
-estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5432`, `https` y
-`example.com` funcionan. Una palabra con nombre de campo busca solo en ese campo:
+estado, el protocolo, la dirección MAC, el fabricante o una etiqueta que muestra la fila, así que
+`postgres`, `5432`, `https` y `example.com` funcionan. Una palabra con nombre de campo busca solo en
+ese campo:
 
 | Palabra | Conserva |
 | --- | --- |
@@ -2686,7 +2844,9 @@ estado, el protocolo o una etiqueta que muestra la fila, así que `postgres`, `5
 | `host:example` | Filas cuya dirección o nombre de host contiene el texto; una dirección completa conserva solo esa dirección |
 | `state:listen`, `state:time` | Filas TCP en un estado que contiene el texto |
 | `proto:udp`, `proto:tcp` | Filas de ese protocolo |
-| `if:en0`, `interface:en0` | Interfaces cuyo nombre contiene el texto |
+| `if:en0`, `interface:en0` | Interfaces y vecinos cuyo nombre de interfaz contiene el texto |
+| `mac:3c:22`, `mac:3c-22` | Vecinos e interfaces cuya dirección MAC contiene el texto |
+| `vendor:synology` | Vecinos cuyo fabricante contiene el texto |
 
 Pon `!` delante de una palabra para descartar las filas que coinciden con ella: `!state:time_wait`
 oculta las conexiones que se están cerrando, y `!proc:browser` oculta un programa. El filtro se
@@ -2995,6 +3155,14 @@ propios procesos, así que los sockets de otros usuarios muestran **Proceso desc
 recuentos de bytes de TCP vienen de `ss` cuando está instalado; los sockets UDP y los equipos sin
 `ss` muestran **—** en las velocidades, y los detalles dicen **El sistema no informa recuentos de
 bytes aquí**. Los totales y las velocidades de las interfaces funcionan siempre.
+
+En macOS, los vecinos salen de `arp -anl` y `ndp -an`, las puertas de enlace de `netstat -rn` y los
+servidores DNS de `/etc/resolv.conf`. `arp` no informa del estado, así que una entrada IPv4 cuyo
+temporizador sigue en marcha muestra **REACHABLE** y una caducada muestra **STALE**. En Linux, Borg
+lee la tabla de vecinos del kernel por netlink, o `/proc/net/arp` cuando netlink no le está
+permitido, y las puertas de enlace de `/proc/net/route` y `/proc/net/ipv6_route`. Los servidores DNS
+salen de `/etc/resolv.conf`, o de `/run/systemd/resolve/resolv.conf` cuando el primero solo lista el
+stub de systemd-resolved.
 
 ## Elementos de inicio
 

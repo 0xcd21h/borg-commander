@@ -64,6 +64,27 @@ pub enum Msg {
     AlertsChanged(Box<crate::AlertLog>),
     /// Names for addresses the network screen asked about; `None` where there is none.
     HostNames(Vec<(std::net::IpAddr, Option<String>)>),
+    /// One address a subnet scan probed, at a time in seconds since the epoch.
+    Probed {
+        id: u64,
+        probe: crate::Probe,
+        at: u64,
+    },
+    /// The name of a host to scan for open ports was looked up.
+    ScanTargetResolved {
+        name: String,
+        result: Result<std::net::IpAddr, String>,
+    },
+    /// How far a port scan got, or how it ended.
+    PortScan {
+        id: u64,
+        event: crate::PortScanEvent,
+    },
+    /// The subnet scan sent its last probe, or stopped.
+    ScanFinished {
+        id: u64,
+        result: Result<(), String>,
+    },
     /// How far the running capture got.
     CaptureProgress {
         id: u64,
@@ -362,6 +383,7 @@ pub enum Effect {
     /// Samples the machine's sockets and interfaces for the network screen.
     Network {
         id: u64,
+        neighbors: bool,
     },
     /// Reads the places programs start from for the startup items screen.
     StartupItems {
@@ -374,6 +396,26 @@ pub enum Effect {
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),
+    /// Probes each address with ping and connections to the scanned ports, a few at a time.
+    ScanSubnet {
+        id: u64,
+        addresses: Vec<std::net::Ipv4Addr>,
+    },
+    /// Sends no more probes for the scan.
+    StopScan {
+        id: u64,
+    },
+    /// Saves the remembered neighbors.
+    SaveNeighbors,
+    /// Looks up the address of a host to scan for open ports.
+    ResolveScanTarget(String),
+    /// Runs a port scan as a job, until it ends or the job's control cancels it.
+    ScanPorts {
+        id: u64,
+        request: Box<crate::PortScanRequest>,
+    },
+    /// Saves the remembered port scans.
+    SavePortScans,
     /// Runs `tcpdump` for the network screen's capture.
     Capture {
         id: u64,

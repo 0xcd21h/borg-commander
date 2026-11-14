@@ -23,6 +23,7 @@ mod memory;
 mod processes;
 mod regions;
 mod search;
+mod system;
 
 pub(crate) use controls::{keybar, panel_mouse};
 use files::{file_details, files};
@@ -137,6 +138,16 @@ pub(crate) fn text(buf: &mut Buffer, area: Rect, value: impl Into<String>, style
 fn displayable(value: &str) -> String {
     value.chars().map(|c| if c.is_control() { '�' } else { c }).collect()
 }
+/// `area` without its top `rows` rows.
+pub(crate) fn below(area: Rect, rows: u16) -> Rect {
+    let rows = rows.min(area.height);
+    Rect { y: area.y + rows, height: area.height - rows, ..area }
+}
+/// Rows the system summary takes from the list pane `screen` on the `page` it shows, beyond
+/// the overview's one row.
+pub(crate) fn summary_rows(activity: &Activity, page: ActivityPage, screen: Rect) -> u16 {
+    if page == ActivityPage::Processes { activity.summary_rows(screen) } else { 0 }
+}
 pub(crate) fn row(area: Rect, offset: u16) -> Rect {
     Rect { y: area.y.saturating_add(offset).min(area.bottom()), height: u16::from(offset < area.height), ..area }
 }
@@ -211,9 +222,22 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     if inner.is_empty() {
         return screen;
     }
-    text(buf, row(inner, 0), summary(activity, page, processes), emphasis(look.theme));
+    let system = if processes && page == ActivityPage::Processes {
+        activity.summary_layout(inner.width, inner.height)
+    } else {
+        None
+    };
+    match system {
+        Some(layout) => system::draw(activity, look, Rect { height: layout.rows(), ..inner }, layout, buf),
+        None if processes && page == ActivityPage::Processes => {
+            system::overview(activity, summary(activity, page, processes), look, row(inner, 0), buf);
+        }
+        None => text(buf, row(inner, 0), summary(activity, page, processes), emphasis(look.theme)),
+    }
+    let extra = system.map_or(0, |layout| layout.rows().saturating_sub(1));
+    let inner = below(inner, extra);
     subtitle(activity, look, inner, page, processes, buf);
-    let body = body(screen);
+    let body = below(body(screen), extra);
     match activity.search_form.as_ref().filter(|_| searching) {
         Some(form) => search_form(form, look.theme, body, buf),
         None => draw_page(activity, look, page, (inner, body), focused, spinner, buf),

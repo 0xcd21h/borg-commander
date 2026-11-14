@@ -238,7 +238,7 @@ impl JobKind {
             Self::Pack => Some(tr!(packed)),
             Self::ArchiveFolder | Self::Save => Some(tr!(archive_changed)),
             Self::Replace => Some(tr!(replaced_text)),
-            Self::Sizes | Self::Search | Self::Entropy | Self::Index => None,
+            Self::Sizes | Self::Search | Self::Entropy | Self::Index | Self::PortScan => None,
         }
     }
 }

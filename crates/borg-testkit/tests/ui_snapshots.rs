@@ -2884,9 +2884,22 @@ fn size_tree_loading_and_cached_folder_listing() -> Result<()> {
     check("folder_sizes_cached_listing", &stage, buffer)
 }
 
+/// How long the made-up system of the activity snapshots has been up.
+const UPTIME: Duration = Duration::from_secs(3 * 86_400 + 4 * 3_600 + 12 * 60 + 9);
+
 fn activity_stage() -> Result<Stage> {
-    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
-    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| sample)
+}
+
+/// The activity monitor at `size`, with each made-up sample passed through `system` first.
+fn activity_stage_with(
+    size: GridSize,
+    system: impl Fn(borg_core::SystemSample) -> borg_core::SystemSample,
+) -> Result<Stage> {
+    use borg_core::{
+        ActivityData, ActivityRequest, DiskActivity, LoadAverage, ProcessInfo, ProcessKey, SystemSample, Threads,
+    };
+    let mut stage = stage(size, Motion::STILL)?;
     let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
     stage.state.appearance.select(theme, stage.started, Duration::ZERO);
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)));
@@ -2918,7 +2931,7 @@ fn activity_stage() -> Result<Stage> {
             .collect();
         stage.send(Msg::Activity {
             id,
-            result: Ok(ActivityData::Sample(SystemSample {
+            result: Ok(ActivityData::Sample(system(SystemSample {
                 processes,
                 total: 32_000_000_000,
                 used: 18_000_000_000,
@@ -2927,7 +2940,11 @@ fn activity_stage() -> Result<Stage> {
                 cpu: vec![7500, 4400, 2100, 1200],
                 administrator: false,
                 own: Some(413),
-            })),
+                disk: Some(DiskActivity { read: 12_400_000, written: 3_100_000, busy: Some(1_400) }),
+                load: Some(LoadAverage { one: 214, five: 187, fifteen: 120 }),
+                uptime: Some(UPTIME),
+                threads: Some(Threads { total: 412, running: 3 }),
+            }))),
         });
         if tick < 9 {
             let next = stage.state.activity.pending.as_ref().map(|p| p.0).unwrap_or(id + 1);
@@ -3433,6 +3450,94 @@ fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<(
         stage.render(stage.started)?;
     }
     Ok(())
+}
+
+/// Made-up use for each of `count` cores, uneven so the bars differ.
+fn busy_cores(count: u32) -> Vec<u32> {
+    (0..count).map(|core| (core * 3_700 + 900) % 10_100).collect()
+}
+
+#[test]
+fn activity_summary_shows_each_core_beside_memory_disks_load_and_uptime() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "16 ")?;
+    ensure_text(&buffer, "13%, steady")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Up        3 days, 4 hours")?;
+    ensure_text(&buffer, "Disk      read 12M/s")?;
+    ensure_text(&buffer, "          write 3.0M/s")?;
+    anyhow::ensure!(!describe(&buffer).contains("waiting"), "the cores keep up");
+    check("activity_summary_wide", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "│CPU 46.6% · RAM 17G/30G · Swap 244M/3.7G · 5 processes          ││CPU 46.6%")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "the summary is hidden");
+    check("activity_summary_hidden", &stage, buffer)
+}
+
+#[test]
+fn activity_summary_in_a_narrow_pane_stacks_its_figures_and_shows_cores_as_a_strip() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        disk: sample.disk.map(|disk| borg_core::DiskActivity { busy: None, ..disk }),
+        threads: None,
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Cores")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "a system that does not count threads");
+    check("activity_summary_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Disk      read 12M/s · write 3.0M/s")?;
+    Ok(())
+}
+
+/// More work than the cores can run fills the load bar in the notice color and says about how
+/// many processes wait for a core, in a wide pane and a narrow one.
+#[test]
+fn activity_summary_flags_load_above_what_the_cores_can_run() -> Result<()> {
+    let overloaded = |sample: borg_core::SystemSample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        load: Some(borg_core::LoadAverage { one: 2_214, five: 1_890, fifteen: 1_420 }),
+        ..sample
+    };
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load   ~7 waiting       ")?;
+    ensure_text(&buffer, "138%, rising")?;
+    check("activity_summary_overloaded", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 40 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load       ~7 waiting   ")?;
+    check("activity_summary_overloaded_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 30 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    let short = "│CPU 46.6% · RAM 17G/30G · … · ~7 waiting│";
+    ensure_text(&buffer, short)?;
+    stage.send(key(KeyCode::Char('s')));
+    ensure_text(&stage.render(stage.started)?, short)
+}
+
+#[test]
+fn activity_summary_shows_many_cores_as_a_strip() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(96),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Cores")?;
+    check("activity_summary_many_cores", &stage, buffer)
 }
 
 #[test]
@@ -4454,6 +4559,242 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
     stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
     assert!(!stage.state.network.is_open(), "Esc clears the filter, then closes the screen");
     Ok(())
+}
+
+/// The Neighbors page over a made-up home network: the gateway first, vendors where no name
+/// resolves, a private address, a storage box on two addresses, a device that does not answer,
+/// every column once the pane is maximized, the gateway answering with another MAC, the menu of
+/// a row and the question before a scan.
+#[test]
+fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "5 Neighbors")?;
+    ensure_text(&buffer, "router.home.arpa")?;
+    ensure_text(&buffer, "Gateway 192.0.2.1 · DNS 192.0.2.1, 198.51.100.53")?;
+    ensure_no_text(&buffer, "192.0.2.255")?;
+    check("network_neighbors", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Other IPv4 addresses on en0 answer with this MAC address.")?;
+    check("network_neighbor_shared_mac", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Vendor")?;
+    ensure_text(&buffer, "MAC shared")?;
+    check("network_neighbors_wide", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT))).send(key(KeyCode::Home));
+
+    let id = stage.state.network.pending.context("the screen waits for a sample")?;
+    let mut sample = borg_testkit::network::sample(borg_testkit::network::SECONDS);
+    let neighborhood = sample.neighborhood.as_mut().context("the sample reads the neighbors")?;
+    for neighbor in neighborhood.neighbors.iter_mut().filter(|neighbor| neighbor.address.to_string() == "192.0.2.1") {
+        neighbor.mac = borg_core::Mac::parse("00:16:3e:44:55:66");
+    }
+    stage.send(Msg::Network { id, result: Ok(sample) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Gateway MAC changed: 00:27:22:4c:01:01 → 00:16:3e:44:55:66")?;
+    ensure_text(&buffer, "This gateway answered with 00:27:22:4c:01:01")?;
+    check("network_neighbor_gateway_changed", &stage, buffer)?;
+
+    let right =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Right), column: 8, row: 4, modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on a row")?;
+    stage.send(msg);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Copy IP address")?;
+    ensure_text(&buffer, "Copy MAC address")?;
+    check("network_neighbor_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 192.0.2.0/24 on en0?")?;
+    check("network_scan_question", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
+    Ok(())
+}
+
+/// S scans the subnet once asked: hosts that answer join the list with their open ports and
+/// ping time while the footer counts, and Esc offers to stop. Hosts Borg remembers that are
+/// gone show dimmed with the time they were last seen, their details keep the ports an earlier
+/// scan found, and their menu and F8 forget them after asking.
+#[test]
+fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result<()> {
+    use borg_core::{Effect, Probe};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use std::time::Duration;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.state.network.memory = borg_testkit::network::remembered();
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Offline")?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    for _ in 0..8 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Seen Jan 14 18:30")?;
+    ensure_text(&buffer, "Seen Jan  2 09:05")?;
+    check("network_neighbors_offline", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Last seen")?;
+    check("network_neighbor_offline_details", &stage, buffer)?;
+
+    let right = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: 8,
+        row: 12,
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on the offline row")?;
+    stage.send(msg);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forget host")?;
+    check("network_neighbor_offline_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(8)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forget 192.0.2.70?")?;
+    check("network_forget_question", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forgot 192.0.2.70.")?;
+    ensure_no_text(&buffer, "Philips Lighting")?;
+
+    stage.send(key(KeyCode::Home)).send(key(KeyCode::Char('s')));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::ScanSubnet { id, addresses }) = effects.into_iter().next() else { panic!("Enter scans") };
+    let probe = |address: &str, ping: Option<u64>, open: &[u16], refused: bool| Msg::Probed {
+        id,
+        probe: Probe {
+            address: address.parse().unwrap(),
+            ping: ping.map(Duration::from_micros),
+            open: open.to_vec(),
+            refused,
+        },
+        at: borg_testkit::network::NEIGHBORS_READ_AT,
+    };
+    stage
+        .send(probe("192.0.2.1", Some(1_400), &[80, 443], false))
+        .send(probe("192.0.2.2", None, &[], false))
+        .send(probe("192.0.2.31", Some(5_200), &[80, 443], false))
+        .send(probe("192.0.2.77", None, &[], true))
+        .send(probe("192.0.2.93", Some(2_100), &[22], false));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, &format!("Scanning 192.0.2.0/24: 5 of {}, 4 answered", addresses.len()))?;
+    ensure_text(&buffer, "Esc Stop scan")?;
+    ensure_text(&buffer, "192.0.2.93")?;
+    check("network_scan_running", &stage, buffer)?;
+    Ok(())
+}
+
+fn select_neighbor(stage: &mut Stage, address: std::net::IpAddr) -> Result<()> {
+    stage.send(key(KeyCode::Home));
+    for _ in borg_testkit::network::neighborhood().neighbors {
+        if stage.state.network.neighbor().map(|(neighbor, _)| neighbor.address) == Some(address) {
+            return Ok(());
+        }
+        stage.send(key(KeyCode::Down));
+    }
+    anyhow::bail!("{address} is in the list")
+}
+
+/// P on the storage box asks which ports to scan and names a list that does not read; an address
+/// outside the private ranges gets a warning with No as the default. Yes starts a job the job
+/// list shows once the screen is closed, the finished scan says the host seemed to limit it,
+/// Enter lists the open ports with their names, and the host's details keep them.
+#[test]
+fn network_scans_a_hosts_ports_in_the_background_and_reports_when_done() -> Result<()> {
+    use borg_core::{Effect, Ending, PortAnswer, PortScanEvent, Tally};
+    use std::time::Duration;
+    const QUIET: Duration = Duration::from_secs(2);
+    const ANSWERED: usize = 500;
+    let storage_box: std::net::IpAddr = "192.0.2.60".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+
+    stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    stage.send(key(KeyCode::Down)).send(Msg::Paste("22,80,90-80".into())).send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "90-80 ends before it starts.")?;
+    ensure_text(&buffer, "Up to 64 connections at once")?;
+    check("network_port_scan_form", &stage, buffer)?;
+
+    stage.send(ctrl('u')).send(Msg::Paste("22,80,443,8000-8100".into()));
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up)).send(ctrl('u'));
+    for msg in chars("203.0.113.9") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 104 ports on 203.0.113.9 in Fast mode?")?;
+    ensure_text(&buffer, "outside the private ranges")?;
+    check("network_port_scan_outside", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
+
+    stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Enter));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let (id, request) = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::ScanPorts { id, request } => Some((id, request)),
+            _ => None,
+        })
+        .context("Yes starts the scan")?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.network.is_open(), "the screen closes while the scan runs on");
+    let open: Vec<u16> =
+        [22, 80, 139, 443, 445, 548, 631, 873].into_iter().filter(|port| request.ports.contains(port)).collect();
+    stage.send(Msg::PortScan { id, event: PortScanEvent::Progress { done: 180, open: open[..3].to_vec() } });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT))).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scanning ports")?;
+    ensure_text(&buffer, "192.0.2.60")?;
+    ensure_text(&buffer, "180 of 720 ports")?;
+    ensure_text(&buffer, "[ P Pause ]")?;
+    check("network_port_scan_job", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+    let mut tally = Tally::new(request.ports.clone());
+    for (index, port) in request.ports.iter().enumerate().take(ANSWERED) {
+        tally.record(index, if open.contains(port) { PortAnswer::Open } else { PortAnswer::Closed });
+    }
+    let result = tally.result(Ending::RateLimited { port: 22 });
+    let at = borg_testkit::network::NEIGHBORS_READ_AT;
+    stage.send(Msg::PortScan { id, event: PortScanEvent::Finished { result, at } });
+    let rested = stage.state.idle_since + QUIET;
+    borg_core::update(&mut stage.state, Msg::Tick, rested);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Port scan finished")?;
+    ensure_text(&buffer, "Slow mode may get through.")?;
+    check("network_port_scan_done", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Open ports on 192.0.2.60")?;
+    ensure_text(&buffer, "22     ssh")?;
+    check("network_port_scan_result", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Port scan")?;
+    ensure_text(&buffer, "445    microsoft-ds")?;
+    check("network_neighbor_port_scan", &stage, buffer)
 }
 
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on

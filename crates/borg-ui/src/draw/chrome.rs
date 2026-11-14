@@ -103,7 +103,7 @@ impl<'a> Drawing<'_, 'a> {
             );
         }
         if state.network.is_open() {
-            crate::network_view::draw(state, &self.look, screen, now, &mut self.buf);
+            crate::network_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
         }
         if state.alerts.is_open() {
             crate::alerts_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);

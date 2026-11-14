@@ -164,6 +164,10 @@ pub(crate) fn open_result(state: &mut AppState, id: u64) -> Vec<Effect> {
             Vec::new()
         }
         Reveal::EntropyHits => crate::activity::show_entropy_hits(state),
+        Reveal::PortScan(record) => {
+            state.overlay = Some(Overlay::PortScanResult(Box::new(crate::PortScanView { record: *record, top: 0 })));
+            Vec::new()
+        }
     }
 }
 

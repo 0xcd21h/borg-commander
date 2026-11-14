@@ -4,7 +4,10 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
-use borg_core::{Effect, Interface, InterfaceKind, Msg, NetworkSample, Socket, TcpState, Transport};
+use borg_core::{
+    Effect, Gateway, Interface, InterfaceKind, KnownHost, KnownNetwork, Mac, Msg, NEIGHBORS_FORMAT, Neighbor,
+    NeighborMemory, NeighborState, Neighborhood, NetworkSample, SavedNeighbors, Socket, TcpState, Transport,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::Stage;
@@ -38,6 +41,9 @@ pub fn open(stage: &mut Stage) -> Result<Instant> {
         named("198.51.100.40", Some("imap.example.org")),
         named("203.0.113.200", Some("backup.example.com")),
         named("198.51.100.24", None),
+        named("192.0.2.1", Some("router.home.arpa")),
+        named("192.0.2.31", Some("printer.home.arpa")),
+        named("192.0.2.60", Some("nas.home.arpa")),
     ]));
     Ok(now)
 }
@@ -183,5 +189,75 @@ pub fn sample(second: u64) -> NetworkSample {
             20_000_000,
         ),
     ];
-    NetworkSample { sockets, interfaces, names }
+    NetworkSample { sockets, interfaces, names, neighborhood: Some(neighborhood()) }
+}
+
+pub const GATEWAY_MAC: &str = "00:27:22:4c:01:01";
+/// When the made-up neighbor tables were read: a minute before the snapshots' clock.
+pub const NEIGHBORS_READ_AT: u64 = 1_768_478_340;
+/// The evening before the snapshots' clock, and a day early in the month.
+pub const LAST_EVENING: u64 = 1_768_415_400;
+pub const EARLY_JANUARY: u64 = 1_767_344_700;
+
+/// What Borg remembers of the made-up home network from earlier visits: the storage box with
+/// the ports an earlier scan found, a light bridge that is off now, and a small computer that
+/// answered a scan and has not been seen since.
+pub fn remembered() -> NeighborMemory {
+    let host = |address: &str, mac: Option<&str>, seen, ports: &[u16]| KnownHost {
+        address: address.parse().unwrap(),
+        mac: mac.and_then(Mac::parse),
+        seen,
+        scanned: (!ports.is_empty()).then_some(seen),
+        ports: ports.to_vec(),
+        ping: !ports.is_empty(),
+    };
+    let saved = SavedNeighbors {
+        version: NEIGHBORS_FORMAT,
+        networks: vec![KnownNetwork {
+            network: "192.0.2.0".parse().unwrap(),
+            prefix: 24,
+            gateway: Mac::parse(GATEWAY_MAC),
+            hosts: vec![
+                host("192.0.2.60", Some("00:11:32:aa:00:60"), LAST_EVENING, &[80, 443]),
+                host("192.0.2.70", Some("ec:b5:fa:12:00:70"), LAST_EVENING, &[80]),
+                host("192.0.2.88", Some("b8:27:eb:3f:00:88"), EARLY_JANUARY, &[22]),
+            ],
+        }],
+    };
+    NeighborMemory::restore(saved).expect("the made-up memory keeps the rules")
+}
+
+/// A made-up home network around the machine: a router, a printer, a phone with a private
+/// address, a small computer, a storage box answering on two addresses, a device that does not
+/// answer, and the broadcast and own entries the screen leaves out.
+pub fn neighborhood() -> Neighborhood {
+    let neighbor = |address: &str, mac: Option<&str>, state, router| Neighbor {
+        address: address.parse().unwrap(),
+        mac: mac.and_then(Mac::parse),
+        interface: "en0".into(),
+        state,
+        router,
+    };
+    Neighborhood {
+        neighbors: vec![
+            neighbor("192.0.2.1", Some(GATEWAY_MAC), Some(NeighborState::Reachable), false),
+            neighbor("192.0.2.20", Some("02:00:5e:10:00:20"), Some(NeighborState::Permanent), false),
+            neighbor("192.0.2.31", Some("3c:2a:f4:5d:10:31"), Some(NeighborState::Stale), false),
+            neighbor("192.0.2.44", Some("da:a1:19:12:34:56"), Some(NeighborState::Reachable), false),
+            neighbor("192.0.2.52", Some("d8:3a:dd:7e:00:52"), Some(NeighborState::Stale), false),
+            neighbor("192.0.2.60", Some("00:11:32:aa:00:60"), Some(NeighborState::Delay), false),
+            neighbor("192.0.2.61", Some("00:11:32:aa:00:60"), Some(NeighborState::Stale), false),
+            neighbor("192.0.2.77", None, Some(NeighborState::Incomplete), false),
+            neighbor("192.0.2.255", Some("ff:ff:ff:ff:ff:ff"), None, false),
+            neighbor("fe80::1", Some(GATEWAY_MAC), Some(NeighborState::Stale), true),
+            neighbor("2001:db8::31", Some("3c:2a:f4:5d:10:31"), Some(NeighborState::Stale), false),
+        ],
+        gateways: vec![
+            Gateway { address: "192.0.2.1".parse().unwrap(), interface: "en0".into() },
+            Gateway { address: "fe80::1".parse().unwrap(), interface: "en0".into() },
+        ],
+        dns: vec!["192.0.2.1".parse().unwrap(), "198.51.100.53".parse().unwrap()],
+        error: None,
+        read_at: NEIGHBORS_READ_AT,
+    }
 }
