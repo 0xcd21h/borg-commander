@@ -12,10 +12,7 @@ use crate::{AfterCommand, AppState, Effect, ShellView, View, actions, command::C
 /// was typed.
 pub(super) fn observe(state: &mut AppState, view: ShellView, echoed: bool) -> Vec<Effect> {
     let retyped = state.shell.observed.line != view.line;
-    state.shell.observe(view);
-    if echoed {
-        state.shell.unechoed = false;
-    }
+    state.shell.observe(view, echoed);
     if retyped {
         crate::folders::line_changed(state);
     }
@@ -41,15 +38,12 @@ pub(super) fn remote_output(
             for signal in signals {
                 status.note(&signal);
             }
-            status.observe(view);
+            status.observe(view, echoed);
         }
         return Vec::new();
     }
     let effects = signals.into_iter().flat_map(|signal| on_signal(state, signal, now)).collect();
-    state.shell.observe(view);
-    if echoed {
-        state.shell.unechoed = false;
-    }
+    state.shell.observe(view, echoed);
     effects
 }
 
