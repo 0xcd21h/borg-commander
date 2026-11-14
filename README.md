@@ -229,8 +229,10 @@ Ctrl-O switches between the panels and the console.
   and flags a gateway whose MAC address changes or one MAC address answering for several
   addresses. S scans a network with ping and ports 22, 80 and 443, D looks for networks behind the
   gateway and counts the hops to each, and hosts that went offline stay listed with the time they
-  were last seen. P scans one host's TCP ports in the background, fast or slow, and stops when the
-  host or a firewall seems to limit the scan.
+  were last seen. H listens without sending anything and adds the hosts that announce themselves
+  over mDNS, SSDP, NetBIOS, LLMNR or DHCP, with the names, models and services they give, and the
+  switch port LLDP or CDP names. P scans one host's TCP ports in the background, fast or slow, and
+  stops when the host or a firewall seems to limit the scan.
 - **Straight to the culprit.** Filter with words such as `port:443`, `proc:node` or
   `!state:time_wait`. Enter shows the row's process in the activity monitor, and K signals it.
 - **Look inside the packets.** R records the selected port, connection or process with tcpdump,

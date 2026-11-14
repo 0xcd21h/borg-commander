@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     LocalNetwork, MAX_HOPS, Mac, Neighbor, Origin, Probe, Routed, Trace, WIDEST_NETWORK, holding, inside, mask,
 };
+use crate::network::{Announced, HeardHost};
 
 pub const NEIGHBORS_FORMAT: u8 = 2;
 /// The oldest format Borg still reads: the one before routes were remembered.
@@ -21,6 +22,7 @@ const TOO_MANY_ROUTES: &str = "too many remembered routes";
 const BAD_PREFIX: &str = "a remembered network has an invalid prefix";
 const BAD_ROUTE: &str = "a remembered route is invalid";
 const OUTSIDE: &str = "a remembered host lies outside its network";
+const BAD_ANNOUNCEMENT: &str = "a remembered host's announcement is invalid";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnownHost {
@@ -33,6 +35,12 @@ pub struct KnownHost {
     pub ports: Vec<u16>,
     #[serde(default)]
     pub ping: bool,
+    /// When listening last heard it, in seconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heard: Option<u64>,
+    /// What it announced of itself.
+    #[serde(default, skip_serializing_if = "Announced::is_empty")]
+    pub announced: Announced,
 }
 
 /// A network Borg reached from a remembered one through its gateway, and when it last found
@@ -114,7 +122,16 @@ impl KnownNetwork {
     fn host(&mut self, address: Ipv4Addr, now: u64) -> (&mut KnownHost, bool) {
         let found = self.hosts.iter().position(|host| host.address == address);
         let index = found.unwrap_or_else(|| {
-            self.hosts.push(KnownHost { address, mac: None, seen: now, scanned: None, ports: Vec::new(), ping: false });
+            self.hosts.push(KnownHost {
+                address,
+                mac: None,
+                seen: now,
+                scanned: None,
+                ports: Vec::new(),
+                ping: false,
+                heard: None,
+                announced: Announced::default(),
+            });
             self.hosts.len() - 1
         });
         (&mut self.hosts[index], found.is_none())
@@ -191,6 +208,9 @@ impl NeighborMemory {
             }
             if !network.hosts.iter().all(|host| network.holds(host.address)) {
                 return Err(OUTSIDE);
+            }
+            if !network.hosts.iter().all(|host| host.announced.valid()) {
+                return Err(BAD_ANNOUNCEMENT);
             }
         }
         Ok(Self { networks: saved.networks })
@@ -269,6 +289,38 @@ impl NeighborMemory {
                 noted.refreshed |= host.seen != now;
                 host.mac = Some(mac);
                 host.seen = now;
+            }
+            network.trim();
+        }
+        self.trim();
+        noted
+    }
+
+    /// Notes the hosts listening heard on a place's own network, with what they announced.
+    pub(crate) fn note_heard(&mut self, places: &[LocalNetwork], hosts: &[HeardHost]) -> Noted {
+        let mut noted = Noted::default();
+        for place in places {
+            let heard: Vec<(Ipv4Addr, &HeardHost)> = hosts
+                .iter()
+                .filter(|host| host.interface == place.interface)
+                .filter_map(|host| match host.address {
+                    IpAddr::V4(address) if place.holds(address) => Some((address, host)),
+                    _ => None,
+                })
+                .collect();
+            if heard.is_empty() {
+                continue;
+            }
+            let network = self.network(place);
+            for (address, host) in heard {
+                let (known, new) = network.host(address, host.last);
+                let mac = host.mac.filter(|mac| !mac.group()).or(known.mac);
+                let grew = known.announced.merge(&host.announced);
+                noted.learned |= new || grew || known.mac != mac;
+                noted.refreshed |= known.heard != Some(host.last);
+                known.mac = mac;
+                known.heard = known.heard.max(Some(host.last));
+                known.seen = known.seen.max(host.last);
             }
             network.trim();
         }

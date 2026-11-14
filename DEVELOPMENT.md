@@ -347,6 +347,20 @@ progress every 250 ms. Its tests use a fake host under tokio's paused clock, and
 listener it starts on 127.0.0.1. Each scan is a `JobKind::PortScan` job, and the finish dialog
 waits, like the update offer, for the panels and 2 seconds without a key.
 
+Listening: `borg-core::network::listen` holds the pure parts. `packets::hear` reads one captured
+frame into `Heard` values: ARP and NDP give an address with its MAC address, `dns.rs` reads the
+records of mDNS, LLMNR and NetBIOS, and SSDP, DHCP, LLDP and CDP have their own small readers. A
+MAC address is paired with an address only from frames sent to a group address. `Hearing` keeps
+the session's hosts and switch ports, places each host under the interface whose networks hold it,
+merges what it announced with `Announced::merge`, and caps the hosts, the device types, the
+services and the length of each text. `neighbors::merge` marks hosts only listening heard
+`Presence::Heard`, and `NeighborMemory::note_heard` keeps IPv4 ones with `heard` and `announced`,
+both left out of `neighbors.json` when empty, so the format stays 2. `borg-app::network::capture::listen`
+runs tcpdump with `LISTEN_FILTER` as you or through the administrator helper, feeds the stream to
+`LiveFrames`, and sends `Msg::Listen` with what it heard every second. Each listen is a
+`JobKind::Listen` job that cancels and cannot pause. Its tests run a stand-in tcpdump script over a
+made-up pcap.
+
 Reports: `borg-core::report` renders a `ReportSource`, one `PortScanRecord` or a `NeighborsReport`
 built from every neighbor row, as Markdown, JSON or CSV with pure functions, and its tests compare
 whole documents. The save dialog is a `ReportForm` that sends `Effect::SaveReport`.

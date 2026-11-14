@@ -202,6 +202,11 @@ pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
 pub use activity::{ScanChecks, ScanSubject, scan_ask};
 
 pub use network::{
+    Announced, Announcement, Heard, HeardHost, HeardSwitch, Hearing, LISTEN_DURATIONS, LISTEN_FILTER, LONGEST_TEXT,
+    ListenEvent, ListenField, ListenForm, ListenProtocol, ListenRequest, Listening, MOST_KINDS, Said, SwitchPort, hear,
+    heard_line, listen_interfaces, switch_line,
+};
+pub use network::{
     Authority, Dialect, KEY_LOG_VARIABLE, PROXY_VARIABLES, Proxied, ProxyEndpoint, ShellVariables, TRUST_VARIABLES,
     TlsKeys, shell_variables,
 };
@@ -236,8 +241,8 @@ pub use report::{
 
 pub use capture::{
     ACK, App, CONNECTION_BUDGET, CWR, Capture, CaptureError, ConnectionBudget, Datagram, Dns, DnsAnswer, DnsData, ECE,
-    FIN, Flow, FlowKind, Http, Ip, KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream,
-    StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
+    FIN, Flow, FlowKind, Http, Ip, KeyLog, Layers, Link, LiveFrame, LiveFrames, PACKET_LIMIT, PSH, Packet, PcapCounter,
+    RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
 };
 
 pub use delete_check::{DeleteCheck, DeleteFound, DeleteSize, FileHolder};

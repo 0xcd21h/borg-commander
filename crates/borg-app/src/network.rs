@@ -22,7 +22,7 @@ mod scan;
 
 pub use scan::Plan;
 
-pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
+pub(crate) use capture::{access as capture_access, helper as capture_helper, listen, read_capture, record_for_agent};
 pub(crate) use scan::epoch_seconds;
 #[cfg(any(target_os = "macos", test))]
 mod netstat;

@@ -47,7 +47,7 @@ fn routed(cidr: &str, interface: &str) -> Routed {
 }
 
 fn row(neighbor: usize) -> NeighborRow {
-    NeighborRow { neighbor, presence: Presence::Listed, shared: false, gateway: false, changed: None }
+    NeighborRow { neighbor, presence: Presence::Listed, shared: false, gateway: false, changed: None, heard: false }
 }
 
 struct Laptop {

@@ -46,6 +46,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::ProcessControl(dialog)) => crate::activity::on_control_key(state, dialog, key),
         Some(Overlay::EntropyScan(dialog)) => crate::activity::on_entropy_key(state, dialog, key),
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
+        Some(Overlay::Listen(form)) => crate::network::on_listen_key(state, form, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
         Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
         Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
@@ -403,6 +404,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
         }
+        (Some(true), ConfirmPurpose::Listen(request)) => crate::network::listen_as_administrator(state, *request, now),
         (Some(true), ConfirmPurpose::Scan(scan)) => crate::network::start_scan(state, *scan),
         (Some(true), ConfirmPurpose::ForgetNeighbor(address)) => crate::network::forget_host(state, address, now),
         (Some(true), ConfirmPurpose::Discover(discovery)) => crate::network::start_discovery(state, *discovery),

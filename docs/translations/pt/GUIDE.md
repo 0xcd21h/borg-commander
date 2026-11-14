@@ -561,10 +561,12 @@ O que o menu oferece depende da linha:
   aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
   **Mostrar no monitor de atividade** e **Sinal ou prioridade…**. Um vizinho oferece
   **Copiar endereço IP**, **Copiar endereço MAC**, **Analisar portas…** (P), **Análises de portas…**
-  (O), **Analisar rede…** (S), **Descobrir redes…** (D) e **Guardar relatório…** (Ctrl-S), e um host
-  desligado acrescenta **Esquecer host** (F8). **Análises de portas…** fica esbatido até o host ter
-  uma análise. Um cabeçalho da página Vizinhos oferece **Copiar endereço** ou **Copiar rede**,
-  **Analisar rede…**, **Descobrir redes…** e **Guardar relatório…**, e uma rede que o Borg guardou
+  (O), **Analisar rede…** (S), **Descobrir redes…** (D), **Escutar vizinhos…** (H) e
+  **Guardar relatório…** (Ctrl-S), e um host desligado ou que só a escuta ouviu acrescenta
+  **Esquecer host** (F8). **Análises de portas…** fica esbatido até o host ter uma análise, e
+  enquanto o Borg escuta, **Parar escuta** ocupa o lugar de **Escutar vizinhos…**. Um cabeçalho da
+  página Vizinhos oferece **Copiar endereço** ou **Copiar rede**, **Analisar rede…**,
+  **Descobrir redes…**, **Escutar vizinhos…** e **Guardar relatório…**, e uma rede que o Borg guardou
   acrescenta **Esquecer rede** (F8).
 - **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
   **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
@@ -2680,8 +2682,9 @@ endereço assim que o conhece.
 | O | Mostrar as análises de portas do vizinho selecionado (**5 Vizinhos**) |
 | S | Analisar a rede da linha selecionada, ou outra que escrever (**5 Vizinhos**) |
 | D | Procurar redes por trás do router para onde segue o tráfego da internet (**5 Vizinhos**) |
+| H | Escutar os vizinhos que se anunciam, ou parar a escuta (**5 Vizinhos**) |
 | Ctrl-S | Guardar um relatório de todos os vizinhos (**5 Vizinhos**) |
-| F8 / Delete | Esquecer o host selecionado que está desligado, ou uma rede que o Borg guardou (**5 Vizinhos**) |
+| F8 / Delete | Esquecer o host selecionado que está desligado ou que só a escuta ouviu, ou uma rede que o Borg guardou (**5 Vizinhos**) |
 | Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, o endereço da interface ou do vizinho, ou a rede |
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
@@ -2721,9 +2724,9 @@ rede local com que esta máquina falou recentemente, com o endereço, o endereç
 estado. O estado é a palavra que o próprio sistema usa para a entrada: **REACHABLE** respondeu há
 pouco, **STALE** não é verificado há algum tempo, **DELAY** e **PROBE** estão a ser verificados,
 **INCOMPLETE** perguntou e ainda não teve resposta, **FAILED** nunca respondeu e **PERMANENT** nunca
-expira. Debaixo de cada cabeçalho, os hosts que só responderam a uma análise vêm depois das entradas
-com endereço MAC, a seguir os hosts guardados que estão desligados, e as entradas sem endereço MAC
-ficam no fim. Os endereços
+expira. Debaixo de cada cabeçalho, os hosts que só responderam a uma análise ou que só a escuta
+ouviu vêm depois das entradas com endereço MAC, a seguir os hosts guardados que estão desligados, e
+as entradas sem endereço MAC ficam no fim. Os endereços
 desta máquina e as entradas de broadcast e multicast ficam fora da lista. Um painel largo acrescenta
 o fabricante, as portas abertas e o tempo de ping que uma análise encontrou, e uma nota.
 
@@ -2852,6 +2855,74 @@ hosts. As redes da tabela de rotas aparecem e desaparecem com a tabela, por isso
 que o Borg encontra por trás de um túnel dura até ao fim da sessão, porque um túnel não tem endereço
 MAC de gateway que permita distinguir as suas redes.
 
+### Escutar vizinhos
+
+Muitos dispositivos anunciam-se sem que ninguém lhes pergunte. Impressoras e colunas dizem o nome e
+os serviços por mDNS, as smart TVs por SSDP, as máquinas Windows por NetBIOS e LLMNR, e cada
+dispositivo que entra na rede pede um endereço por DHCP com o seu nome de host no pedido. A escuta
+recolhe esses anúncios. O Borg não envia nada enquanto escuta.
+
+Prima **H** em **5 Vizinhos**, ou escolha **Escutar vizinhos…** no menu de contexto.
+**Escutar vizinhos** pede três coisas:
+
+- **Interface** começa na interface da linha selecionada e, a seguir, naquela por onde sai o tráfego
+  da internet. Oferece as interfaces que estão ativas e têm endereço, deixando de fora o loopback e
+  os túneis, que não têm ligação onde escutar.
+- **Duração** é 30 s, 1 min ou 5 min, ou **Até parar**. Começa em 1 min, tempo suficiente para a
+  maioria dos dispositivos se anunciar.
+- **Executar como** aparece onde o Borg pode pedir ao sistema a palavra-passe de um administrador,
+  tal como numa captura.
+
+↑↓ escolhem um campo, ←→ ou Space alteram-no, Enter começa e Esc cancela. O Borg corre o `tcpdump`
+com um filtro que guarda só estes pacotes:
+
+- Pedidos e anúncios ARP, e a descoberta de vizinhos do IPv6, que dão um endereço com o seu endereço
+  MAC e marcam os routers.
+- mDNS e Bonjour na porta UDP 5353, com nomes de host, os serviços que um dispositivo oferece, como
+  `ipp` ou `airplay`, e o modelo que os seus registos indicam.
+- SSDP e UPnP na porta UDP 1900, com o software do servidor e os tipos de dispositivo e serviços
+  UPnP.
+- O serviço de nomes NetBIOS na porta UDP 137 e o LLMNR na porta UDP 5355, com nomes Windows e
+  Samba.
+- DHCP nas portas UDP 67 e 68, com o nome de host que um cliente pede e a classe de fabricante que
+  envia, que muitas vezes indica o sistema operativo.
+- LLDP e CDP, com o switch a que esta máquina está ligada e a porta.
+
+Numa rede comutada ou em Wi-Fi só ouve broadcasts, multicasts e o tráfego desta máquina. O switch
+ou o ponto de acesso entrega cada pacote unicast apenas ao dispositivo a que se destina, por isso o
+tráfego entre dois outros hosts nunca chega até si. Um dispositivo que fica calado fica fora do
+mapa, e **S** encontra mais desses (consulte [Vizinhos](#neighbors)).
+
+A escuta corre como uma tarefa, por isso pode fechar o ecrã de rede e continuar a trabalhar. Alt-J
+mostra quanto já avançou, e expandir a tarefa mostra a interface, a duração, o número de hosts
+ouvidos, a porta do switch e os 5 hosts ouvidos por último. C cancela-a, tal como **H** em
+**5 Vizinhos**, onde o botão diz **H Parar escuta**. A escuta não pode ser posta em pausa. Quando
+termina, um aviso como **Escuta concluída · ouviu 4 hosts** indica o que encontrou, e **O Abrir** na
+tarefa terminada abre **5 Vizinhos**.
+
+Cada host ouvido nas redes da própria interface junta-se ao mapa debaixo da interface, tal como os
+endereços de ligação local. O Borg deixa de fora os endereços e os pacotes desta máquina, e os
+endereços de outras redes. Um host que só a escuta conhece mostra **Ouvido** na coluna **Estado**, e
+escrever **Ouvido** no filtro mantém todos os hosts que a escuta ouviu. O nome que um host anunciou
+ganha ao que uma pesquisa de DNS inversa dá e, quando anunciou vários, o mDNS vem primeiro, depois o
+DHCP, o NetBIOS e o LLMNR. Os detalhes de um host acrescentam uma secção **Escuta** com cada **Nome**
+e o protocolo por onde chegou, o **Modelo**, os **Tipos de dispositivo**, os **Serviços**, o
+**Cliente DHCP**, os protocolos em **Ouvido em** e a hora em **Ouvido pela última vez**. A porta do
+switch aparece no fim do cabeçalho da interface e em **Switch** nos seus detalhes.
+
+O Borg guarda os hosts IPv4 que ouviu, com o que anunciaram, em `neighbors.json`, ao lado dos hosts
+das tabelas e das análises. Um host ouvido que já não está numa visita seguinte mostra
+**Desligado**, com **Ouvido** na coluna **Nota**. Os hosts IPv6 e as portas de switch duram até ao
+fim da sessão. F8 ou Delete esquece um host desligado ou que só a escuta ouviu, depois de perguntar.
+Uma sessão guarda até 1 024 hosts ouvidos e 16 tipos de dispositivo e 16 serviços por host, e o Borg
+corta em 80 caracteres cada nome ou outro texto que um host anuncia.
+
+O tcpdump precisa de acesso ao dispositivo de captura, tal como numa captura, e
+[Capturar tráfego](#capturing-traffic) explica como lho dar de uma vez por todas. Sem acesso, o Borg
+pergunta **Escutar como administrador** onde o sistema pode pedir a sua palavra-passe e, caso
+contrário, a tarefa termina com **Sem permissão para escutar em** e o nome da interface. Quando o
+tcpdump falta, o Borg oferece-se para o instalar.
+
 ### Analisar portas
 
 Prima **P** num vizinho, ou escolha **Analisar portas…** no seu menu de contexto, para ver em que
@@ -2941,11 +3012,13 @@ O relatório de uma análise tem a hora, o modo, as portas pedidas e quantas era
 com os nomes dos serviços, o número de portas fechadas e filtradas, e a sub-rede, a interface e o
 gateway de onde a análise partiu. Quando o host limitou a análise ou quando a cancelou, o relatório
 di-lo e indica as portas a que não chegou. O relatório da página tem as sub-redes, os gateways, os
-servidores DNS, as redes encaminhadas com o caminho e os saltos, e a saída para a internet de cada
-interface. Depois vem cada host com a sua rede, o router através do qual é alcançado, o endereço
-MAC, o fabricante, o nome, o estado, as portas e o tempo de ping que uma análise encontrou e as suas
-notas, um host desligado com a hora em que foi visto pela última vez, e a última análise de portas
-de cada host. As horas estão em UTC, tal
+servidores DNS, as redes encaminhadas com o caminho e os saltos, a saída para a internet de cada
+interface e a porta do switch a que, segundo a escuta, está ligada. Depois vem cada host com a sua
+rede, o router através do qual é alcançado, o endereço MAC, o fabricante, o nome, o estado, as
+portas e o tempo de ping que uma análise encontrou e as suas notas, um host desligado com a hora em
+que foi visto pela última vez, e a última análise de portas de cada host. Uma tabela **Escuta**
+lista o que cada host anunciou: o nome, o modelo, os tipos de dispositivo, os serviços, os
+protocolos em que foi ouvido e quando foi ouvido pela última vez. As horas estão em UTC, tal
 como a data no nome do ficheiro. O que o Borg não apurou fica fora do relatório.
 
 ### Filtrar

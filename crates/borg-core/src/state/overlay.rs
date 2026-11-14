@@ -158,8 +158,10 @@ pub enum ConfirmPurpose {
         view_filter: String,
     },
     Scan(Box<crate::SubnetScan>),
-    /// Yes drops a remembered host that is gone from the saved neighbors.
-    ForgetNeighbor(std::net::Ipv4Addr),
+    /// Yes drops a host that is gone, or that only listening heard, from what Borg keeps.
+    ForgetNeighbor(std::net::IpAddr),
+    /// A listen the system refused: Yes runs it again as administrator.
+    Listen(Box<crate::ListenRequest>),
     /// Look for networks behind the router internet traffic goes to.
     Discover(Box<crate::Discovery>),
     /// Forget a remembered routed network and the hosts behind it.
@@ -220,6 +222,8 @@ pub enum Overlay {
     EntropyScan(crate::EntropyDialog),
     /// What to capture from the network screen, where and for how long.
     Capture(crate::CaptureDialog),
+    /// Where to listen for neighbors, for how long and as whom.
+    Listen(crate::ListenForm),
     /// The command that installs a missing program, before it runs in the shell.
     Install(crate::InstallOffer),
     /// The command that installs or starts the background service, before it runs in the shell.

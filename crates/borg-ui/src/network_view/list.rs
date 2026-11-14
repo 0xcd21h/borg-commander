@@ -310,7 +310,7 @@ fn value(
                 Presence::Offline(at) => Some(at),
                 _ => None,
             };
-            let present = neighbor.mac.is_some() || matches!(row.presence, Presence::Answered);
+            let present = neighbor.mac.is_some() || matches!(row.presence, Presence::Answered | Presence::Heard);
             let style = match (warned, present && gone.is_none(), row.gateway) {
                 (true, _, _) => tone(styles.notice.fg),
                 (false, false, _) => quiet,
@@ -326,13 +326,18 @@ fn value(
                 },
                 Field::Vendor => (neighbor.mac.and_then(borg_core::vendor).unwrap_or_default().to_owned(), quiet),
                 Field::Name => (neighbor_label(network, neighbor), style),
-                Field::Host => (network.host(neighbor.address).unwrap_or(UNKNOWN).to_owned(), style),
+                Field::Host => (network.host_name(neighbor.address).unwrap_or(UNKNOWN).to_owned(), style),
                 Field::State => (neighbor_state(neighbor, row).to_owned(), quiet),
                 Field::Ports => (open_ports(network, neighbor).unwrap_or_default(), style),
                 Field::Ping => (probe.and_then(|probe| probe.ping).map(ping_time).unwrap_or_default(), quiet),
                 _ => {
                     let when = gone.map(|at| tr!(network_seen_note, when = seen(at, clock)));
-                    let notes = when.into_iter().chain(neighbor_notes(&row, neighbor).into_iter().map(str::to_owned));
+                    let heard =
+                        (row.heard && row.presence != Presence::Heard).then(|| tr!(network_heard_state).to_owned());
+                    let notes = when
+                        .into_iter()
+                        .chain(heard)
+                        .chain(neighbor_notes(&row, neighbor).into_iter().map(str::to_owned));
                     (notes.collect::<Vec<_>>().join(LIST_SEPARATOR), if warned { style } else { quiet })
                 }
             }

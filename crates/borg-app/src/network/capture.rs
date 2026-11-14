@@ -33,8 +33,10 @@ use tokio::{
 };
 
 mod elevated;
+mod listen;
 
 pub use elevated::helper;
+pub(crate) use listen::listen;
 
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 /// How often an agent's capture looks at the sockets, as the network screen samples them.
@@ -321,6 +323,16 @@ impl Tcpdump {
         }
     }
 
+    /// tcpdump keeping the whole of the broadcast and multicast packets listening reads.
+    fn listening(interface: &str) -> Self {
+        Self {
+            interface: interface.to_owned(),
+            headers_only: false,
+            processes: false,
+            filter: borg_core::LISTEN_FILTER.to_owned(),
+        }
+    }
+
     /// tcpdump writing raw packets to its output as each one arrives, without looking up names,
     /// and stopping at `PACKET_LIMIT` packets.
     fn args(&self) -> Vec<String> {
@@ -369,8 +381,8 @@ impl Tap {
 }
 
 /// tcpdump run as you, and its packets.
-fn own(program: &Path, request: &CaptureRequest) -> Result<(Box<dyn AsyncRead + Unpin + Send>, Tap), CaptureFailure> {
-    let mut child = command(program, &Tcpdump::of(request)).spawn().map_err(|error| match error.kind() {
+fn own(program: &Path, tcpdump: &Tcpdump) -> Result<(Box<dyn AsyncRead + Unpin + Send>, Tap), CaptureFailure> {
+    let mut child = command(program, tcpdump).spawn().map_err(|error| match error.kind() {
         ErrorKind::NotFound => CaptureFailure::Failed(tr!(capture_missing).to_owned()),
         _ => CaptureFailure::Failed(tr!(capture_failed, error = error)),
     })?;
@@ -396,8 +408,13 @@ async fn record(
     if room(&request.folder, request.keep_free()) == Some(0) {
         return Err(CaptureFailure::NoRoom);
     }
-    let (mut packets, mut tap) =
-        if request.administrator { elevated::start(request, &mut stopped).await? } else { own(program, request)? };
+    let tcpdump = Tcpdump::of(request);
+    let (mut packets, mut tap) = if request.administrator {
+        let prompt = tr!(capture_admin_prompt, interface = request.interface);
+        elevated::start(&tcpdump, &prompt, &mut stopped).await?
+    } else {
+        own(program, &tcpdump)?
+    };
     let path = request.folder.join(file_name(request));
     let (file, key_log) = match create_files(&path, request.tls_keys.keeps_keys()) {
         Ok(created) => {

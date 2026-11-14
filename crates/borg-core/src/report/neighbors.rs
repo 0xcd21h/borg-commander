@@ -1,6 +1,7 @@
 //! What the Neighbors page knows, as a report: the attached networks, the networks reached
-//! through routers and tunnels, each interface's way to the internet, every host with what the
-//! tables, scans and memory say about it, and the last port scan of each.
+//! through routers and tunnels, each interface's way to the internet and the switch port it is
+//! plugged into, every host with what the tables, scans, listening and memory say about it, and
+//! the last port scan of each.
 
 use std::{
     net::{IpAddr, Ipv4Addr},
@@ -15,12 +16,13 @@ use super::{
     text::{self, CSV_LIST_SEPARATOR, LINES, LIST_SEPARATOR, fact},
 };
 use crate::{
-    AppState, InternetRoute, Mac, NeighborState, Origin, PortScanRecord, Presence, Routed, ScanNetwork, vendor,
+    Announced, AppState, HeardSwitch, InternetRoute, ListenProtocol, Mac, NeighborState, Origin, PortScanRecord,
+    Presence, Routed, ScanNetwork, SwitchPort, switch_line, vendor,
 };
 
 const MICROS_PER_MILLI: u128 = 1_000;
 const VALUE_SEPARATOR: &str = " · ";
-const CSV_HEADS: [&str; 16] = [
+const CSV_HEADS: [&str; 21] = [
     "address",
     "mac",
     "vendor",
@@ -37,6 +39,11 @@ const CSV_HEADS: [&str; 16] = [
     "port_scan_at",
     "port_scan_mode",
     "port_scan_open",
+    "heard_at",
+    "heard_from",
+    "model",
+    "device_types",
+    "services",
 ];
 
 /// What the page says to look at in a host.
@@ -60,13 +67,14 @@ impl HostFlag {
     }
 }
 
-/// How Borg knows a host: from the system's tables, from a scan alone, or from memory while it
-/// is gone.
+/// How Borg knows a host: from the system's tables, from a scan alone, from listening alone, or
+/// from memory while it is gone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportPresence {
     Listed,
     Answered,
+    Heard,
     Offline,
 }
 
@@ -90,6 +98,10 @@ pub struct ReportHost {
     pub ports: Option<Vec<u16>>,
     pub ping: Option<Duration>,
     pub port_scan: Option<PortScanRecord>,
+    /// When listening last heard the host, in seconds since the epoch.
+    pub heard: Option<u64>,
+    /// What the host announced of itself.
+    pub announced: Option<Announced>,
 }
 
 /// The Neighbors page when the report was asked for.
@@ -101,7 +113,24 @@ pub struct NeighborsReport {
     pub routes: Vec<Routed>,
     pub internet: Vec<InternetRoute>,
     pub dns: Vec<IpAddr>,
+    /// The switch ports listening heard the interfaces are plugged into.
+    pub switches: Vec<HeardSwitch>,
     pub hosts: Vec<ReportHost>,
+}
+
+#[derive(Serialize)]
+struct HeardDocument<'a> {
+    last: String,
+    #[serde(flatten)]
+    announced: &'a Announced,
+}
+
+#[derive(Serialize)]
+struct SwitchDocument<'a> {
+    interface: &'a str,
+    #[serde(flatten)]
+    port: &'a SwitchPort,
+    heard: String,
 }
 
 #[derive(Serialize)]
@@ -131,6 +160,8 @@ struct HostDocument<'a> {
     ping_ms: Option<u128>,
     #[serde(skip_serializing_if = "Option::is_none")]
     port_scan: Option<ScanDocument<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heard: Option<HeardDocument<'a>>,
 }
 
 #[derive(Serialize)]
@@ -167,6 +198,8 @@ struct NeighborsDocument<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     internet: Vec<InternetDocument<'a>>,
     dns: &'a [IpAddr],
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    switches: Vec<SwitchDocument<'a>>,
     hosts: Vec<HostDocument<'a>>,
 }
 
@@ -207,6 +240,15 @@ fn internet_fact(route: &InternetRoute) -> String {
     fact(tr!(network_internet), parts.into_iter().flatten().collect::<Vec<_>>().join(VALUE_SEPARATOR))
 }
 
+/// The switch port an interface is plugged into, as the report's facts give it.
+fn switch_fact(switch: &HeardSwitch) -> String {
+    fact(tr!(listen_switch_label), format!("{}{VALUE_SEPARATOR}{}", switch.interface, switch_line(&switch.port)))
+}
+
+fn switch_document(switch: &HeardSwitch) -> SwitchDocument<'_> {
+    SwitchDocument { interface: &switch.interface, port: &switch.port, heard: text::utc(switch.at) }
+}
+
 /// A ping time in whole milliseconds, rounded up as the page shows it.
 fn milliseconds(ping: Duration) -> u128 {
     ping.as_micros().div_ceil(MICROS_PER_MILLI)
@@ -228,13 +270,14 @@ impl ReportHost {
         let (presence, last_seen) = match row.presence {
             Presence::Listed => (ReportPresence::Listed, None),
             Presence::Answered => (ReportPresence::Answered, None),
+            Presence::Heard => (ReportPresence::Heard, None),
             Presence::Offline(at) => (ReportPresence::Offline, Some(at)),
         };
         Self {
             address,
             mac: neighbor.mac,
             vendor: neighbor.mac.filter(|_| !randomized).and_then(vendor),
-            name: network.host(address).map(str::to_owned),
+            name: network.host_name(address).map(str::to_owned),
             interface: neighbor.interface.clone(),
             network: routed.map(Routed::cidr),
             via: network.router_for(neighbor),
@@ -245,6 +288,8 @@ impl ReportHost {
             ports: network.open_ports(address).map(<[u16]>::to_vec),
             ping: network.probes.get(&address).and_then(|probed| probed.probe.ping),
             port_scan: crate::port_scan::scan_of(state, address).cloned(),
+            heard: network.last_heard(address),
+            announced: network.announced(address),
         }
     }
 
@@ -264,17 +309,38 @@ impl ReportHost {
             ports: self.ports.as_deref(),
             ping_ms: self.ping.map(milliseconds),
             port_scan: self.port_scan.as_ref().map(scan::document),
+            heard: self
+                .announced
+                .as_ref()
+                .map(|announced| HeardDocument { last: self.heard.map(text::utc).unwrap_or_default(), announced }),
         }
     }
 
-    /// The state column: the system's word, or that the host is gone.
+    /// The state column: the system's word, that only listening heard the host, or that it is
+    /// gone.
     fn state_cell(&self) -> String {
         match self.presence {
             ReportPresence::Offline => tr!(network_offline_state).to_owned(),
+            ReportPresence::Heard => tr!(network_heard_state).to_owned(),
             ReportPresence::Listed | ReportPresence::Answered => {
                 self.state.map(NeighborState::name).unwrap_or_default().to_owned()
             }
         }
+    }
+
+    /// The host's line in the Heard table, when it announced something.
+    fn heard_row(&self) -> Option<Vec<String>> {
+        let announced = self.announced.as_ref()?;
+        let protocols: Vec<&str> = announced.protocols.iter().map(|protocol| protocol.name()).collect();
+        Some(vec![
+            self.address.to_string(),
+            announced.name().map(|name| name.text.clone()).unwrap_or_default(),
+            announced.model.as_ref().map(|model| model.text.clone()).unwrap_or_default(),
+            announced.kinds.join(LIST_SEPARATOR),
+            announced.services.join(LIST_SEPARATOR),
+            protocols.join(LIST_SEPARATOR),
+            self.heard.map(text::readable).unwrap_or_default(),
+        ])
     }
 
     fn note_cell(&self) -> String {
@@ -299,6 +365,7 @@ impl ReportHost {
 
     fn csv_row(&self) -> Vec<String> {
         let scan = self.port_scan.as_ref();
+        let announced = self.announced.as_ref();
         vec![
             self.address.to_string(),
             self.mac.map(|mac| mac.to_string()).unwrap_or_default(),
@@ -316,8 +383,21 @@ impl ReportHost {
             scan.map(|scan| text::utc(scan.at)).unwrap_or_default(),
             scan.map(|scan| text::plain(scan.speed)).unwrap_or_default(),
             scan.map(|scan| port_list(&scan.open, CSV_LIST_SEPARATOR)).unwrap_or_default(),
+            self.heard.map(text::utc).unwrap_or_default(),
+            announced.map(|announced| plain_list(&announced.protocols)).unwrap_or_default(),
+            announced
+                .and_then(|announced| announced.model.as_ref())
+                .map(|model| model.text.clone())
+                .unwrap_or_default(),
+            announced.map(|announced| announced.kinds.join(CSV_LIST_SEPARATOR)).unwrap_or_default(),
+            announced.map(|announced| announced.services.join(CSV_LIST_SEPARATOR)).unwrap_or_default(),
         ]
     }
+}
+
+/// Protocols as the CSV names them.
+fn plain_list(protocols: &[ListenProtocol]) -> String {
+    protocols.iter().map(text::plain).collect::<Vec<_>>().join(CSV_LIST_SEPARATOR)
 }
 
 impl NeighborsReport {
@@ -330,6 +410,7 @@ impl NeighborsReport {
             routes: network.routed.clone(),
             internet: network.internet.clone(),
             dns: network.neighborhood.dns.clone(),
+            switches: network.hearing.switches.clone(),
             hosts: network.every_neighbor().into_iter().map(|row| ReportHost::of(state, row)).collect(),
         }
     }
@@ -339,6 +420,7 @@ impl NeighborsReport {
             .chain(self.networks.iter().flat_map(scan::network_facts))
             .chain(self.routes.iter().map(route_fact))
             .chain(self.internet.iter().map(internet_fact))
+            .chain(self.switches.iter().map(switch_fact))
             .chain((!self.dns.is_empty()).then(|| {
                 let dns: Vec<String> = self.dns.iter().map(ToString::to_string).collect();
                 fact(tr!(network_dns_label), dns.join(LIST_SEPARATOR))
@@ -355,6 +437,20 @@ impl NeighborsReport {
             tr!(network_note_column),
         ];
         let rows: Vec<Vec<String>> = self.hosts.iter().map(ReportHost::row).collect();
+        let heard: Vec<Vec<String>> = self.hosts.iter().filter_map(ReportHost::heard_row).collect();
+        let heard_heads = [
+            tr!(network_address_column),
+            tr!(network_heard_name_label),
+            tr!(network_model_label),
+            tr!(network_device_types_label),
+            tr!(network_services_label),
+            tr!(network_heard_in_label),
+            tr!(network_last_heard_label),
+        ];
+        let heard_blocks = (!heard.is_empty())
+            .then(|| [format!("{SECTION}{}", tr!(network_heard_heading)), text::table(&heard_heads, &heard)])
+            .into_iter()
+            .flatten();
         let scans: Vec<&PortScanRecord> = self.hosts.iter().filter_map(|host| host.port_scan.as_ref()).collect();
         let scan_blocks = (!scans.is_empty())
             .then(|| format!("{SECTION}{}", tr!(report_port_scans_heading)))
@@ -362,6 +458,7 @@ impl NeighborsReport {
             .chain(scans.into_iter().flat_map(|record| scan::section(record, SUBSECTION, MINOR)));
         let blocks = [format!("{TITLE}{}", tr!(network_neighbors_tab)), facts.join(LINES), text::table(&heads, &rows)]
             .into_iter()
+            .chain(heard_blocks)
             .chain(scan_blocks)
             .collect();
         text::document(blocks)
@@ -374,6 +471,7 @@ impl NeighborsReport {
             routes: self.routes.iter().map(route_document).collect(),
             internet: self.internet.iter().map(internet_document).collect(),
             dns: &self.dns,
+            switches: self.switches.iter().map(switch_document).collect(),
             hosts: self.hosts.iter().map(ReportHost::document).collect(),
         })
     }

@@ -508,81 +508,47 @@ impl PcapCounter {
 /// A conversation as the budget counts it: its protocol and both ends, the lower one first.
 type Conversation = (u8, SocketAddr, SocketAddr);
 
-/// What a whole unit of a stream is to the budget.
+/// What a whole unit of a stream is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Part {
-    /// The stream's header, or bytes of a stream Borg cannot read, which pass as they are.
+    /// Bytes of a stream Borg cannot read, which pass as they are.
     Pass,
+    /// A pcap stream's header, with the link type of its packets.
+    Header(u32),
     Record(Order),
     Block(Order),
 }
 
-/// Keeps the start of every conversation in a pcap or pcapng stream as it grows: a
-/// conversation's packets stay whole until they carried `budget` bytes of payload, and the
-/// later ones keep their headers, up to where their payload starts. Each trimmed packet still
-/// says how long it was, so readers know what the capture left out.
+/// Splits a pcap or pcapng stream into its whole units: the stream's header, each pcap record
+/// and each pcapng block.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ConnectionBudget {
-    budget: u64,
+struct Units {
     stream: Option<Stream>,
-    /// What came after the last whole record or block.
-    pending: Vec<u8>,
-    /// The link type of a pcap stream, or of each interface of the pcapng section.
-    links: Vec<u32>,
-    carried: HashMap<Conversation, u64>,
 }
 
-impl ConnectionBudget {
-    pub fn new(budget: u64) -> Self {
-        Self { budget, ..Self::default() }
-    }
-
-    /// What to write for `chunk`, the next bytes the stream sent: every whole record or block
-    /// so far, trimmed where its conversation used up its budget.
-    pub fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
-        self.pending.extend_from_slice(chunk);
-        let pending = std::mem::take(&mut self.pending);
-        let mut out = Vec::with_capacity(pending.len());
-        let mut at = 0;
-        while let Some((length, part)) = self.unit(&pending[at..]) {
-            let unit = &pending[at..at + length];
-            let trimmed = match part {
-                Part::Record(order) => self.trim_record(unit, order),
-                Part::Block(order) => self.trim_block(unit, order),
-                Part::Pass => None,
-            };
-            out.extend_from_slice(trimmed.as_deref().unwrap_or(unit));
-            at += length;
-        }
-        self.pending = pending[at..].to_vec();
-        out
-    }
-
-    /// The bytes held back when the stream ends: a record it did not finish.
-    pub fn rest(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.pending)
-    }
-
-    /// How long the next unit is once all of it came, and what it is: the stream's header, a
-    /// pcap record or a pcapng block. Bytes of a stream that is neither format pass as they are.
-    fn unit(&mut self, bytes: &[u8]) -> Option<(usize, Part)> {
+impl Units {
+    /// How long the next unit is once all of it came, and what it is. Bytes of a stream that is
+    /// neither format pass as they are.
+    fn next(&mut self, bytes: &[u8]) -> Option<(usize, Part)> {
         let little = Order { big: false };
         let whole = |length: usize, part| (length > 0 && bytes.len() >= length).then_some((length, part));
         match self.stream {
             None => {
                 if little.u32(bytes, 0)? == PCAPNG_SECTION {
                     self.stream = Some(Stream::Pcapng(little));
-                    return self.unit(bytes);
+                    return self.next(bytes);
                 }
                 let header = bytes.get(..PCAP_HEADER)?;
-                self.stream = Some(match pcap_header(header) {
+                match pcap_header(header) {
                     Ok((order, _)) => {
-                        self.links = vec![order.u32(header, PCAP_LINK_AT)? & PCAP_LINK_TYPE];
-                        Stream::Pcap(order)
+                        self.stream = Some(Stream::Pcap(order));
+                        Some((PCAP_HEADER, Part::Header(order.u32(header, PCAP_LINK_AT)? & PCAP_LINK_TYPE)))
                     }
-                    Err(_) => Stream::Unknown,
-                });
-                Some((PCAP_HEADER, Part::Pass))
+                    Err(_) => {
+                        self.stream = Some(Stream::Unknown);
+                        Some((PCAP_HEADER, Part::Pass))
+                    }
+                }
             }
             Some(Stream::Pcap(order)) => match order.size(bytes, RECORD_CAPTURED_AT)? {
                 captured if captured <= LARGEST_RECORD => whole(RECORD_HEADER + captured, Part::Record(order)),
@@ -607,7 +573,129 @@ impl ConnectionBudget {
     /// Passes the rest of a stream whose record lengths make no sense as it is.
     fn damaged(&mut self, bytes: &[u8]) -> Option<(usize, Part)> {
         self.stream = Some(Stream::Unknown);
-        self.unit(bytes)
+        self.next(bytes)
+    }
+}
+
+/// A packet of a stream that is still growing: the link type it was captured on, and its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveFrame {
+    pub link: u32,
+    pub data: Vec<u8>,
+}
+
+/// Reads the packets of a pcap or pcapng stream as it grows, for a capture that is still
+/// running.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveFrames {
+    units: Units,
+    /// What came after the last whole record or block.
+    pending: Vec<u8>,
+    /// The link type of a pcap stream, or of each interface of the pcapng section.
+    links: Vec<u32>,
+}
+
+impl LiveFrames {
+    /// The packets whole so far in `chunk`, the next bytes the stream sent, and before it.
+    pub fn feed(&mut self, chunk: &[u8]) -> Vec<LiveFrame> {
+        self.pending.extend_from_slice(chunk);
+        let pending = std::mem::take(&mut self.pending);
+        let mut frames = Vec::new();
+        let mut at = 0;
+        while let Some((length, part)) = self.units.next(&pending[at..]) {
+            let unit = &pending[at..at + length];
+            frames.extend(self.frame(unit, part));
+            at += length;
+        }
+        self.pending = pending[at..].to_vec();
+        frames
+    }
+
+    fn frame(&mut self, unit: &[u8], part: Part) -> Option<LiveFrame> {
+        match part {
+            Part::Pass => None,
+            Part::Header(link) => {
+                self.links = vec![link];
+                None
+            }
+            Part::Record(_) => {
+                Some(LiveFrame { link: *self.links.first()?, data: unit.get(RECORD_HEADER..)?.to_vec() })
+            }
+            Part::Block(order) => match order.u32(unit, 0)? {
+                PCAPNG_SECTION => {
+                    self.links.clear();
+                    None
+                }
+                PCAPNG_INTERFACE => {
+                    self.links.extend(order.u16(unit, BLOCK_HEADER).map(u32::from));
+                    None
+                }
+                PCAPNG_ENHANCED => {
+                    let link = *self.links.get(order.size(unit, BLOCK_HEADER)?)?;
+                    let captured = order.size(unit, ENHANCED_CAPTURED_AT)?;
+                    Some(LiveFrame { link, data: unit.get(ENHANCED_DATA_AT..ENHANCED_DATA_AT + captured)?.to_vec() })
+                }
+                PCAPNG_SIMPLE => {
+                    const DATA_AT: usize = 12;
+                    let link = *self.links.first()?;
+                    let length = order.size(unit, BLOCK_HEADER)?;
+                    let room = unit.len().saturating_sub(DATA_AT + BLOCK_TRAILER);
+                    Some(LiveFrame { link, data: unit.get(DATA_AT..DATA_AT + room.min(length))?.to_vec() })
+                }
+                _ => None,
+            },
+        }
+    }
+}
+
+/// Keeps the start of every conversation in a pcap or pcapng stream as it grows: a
+/// conversation's packets stay whole until they carried `budget` bytes of payload, and the
+/// later ones keep their headers, up to where their payload starts. Each trimmed packet still
+/// says how long it was, so readers know what the capture left out.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectionBudget {
+    budget: u64,
+    units: Units,
+    /// What came after the last whole record or block.
+    pending: Vec<u8>,
+    /// The link type of a pcap stream, or of each interface of the pcapng section.
+    links: Vec<u32>,
+    carried: HashMap<Conversation, u64>,
+}
+
+impl ConnectionBudget {
+    pub fn new(budget: u64) -> Self {
+        Self { budget, ..Self::default() }
+    }
+
+    /// What to write for `chunk`, the next bytes the stream sent: every whole record or block
+    /// so far, trimmed where its conversation used up its budget.
+    pub fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
+        self.pending.extend_from_slice(chunk);
+        let pending = std::mem::take(&mut self.pending);
+        let mut out = Vec::with_capacity(pending.len());
+        let mut at = 0;
+        while let Some((length, part)) = self.units.next(&pending[at..]) {
+            let unit = &pending[at..at + length];
+            let trimmed = match part {
+                Part::Record(order) => self.trim_record(unit, order),
+                Part::Block(order) => self.trim_block(unit, order),
+                Part::Header(link) => {
+                    self.links = vec![link];
+                    None
+                }
+                Part::Pass => None,
+            };
+            out.extend_from_slice(trimmed.as_deref().unwrap_or(unit));
+            at += length;
+        }
+        self.pending = pending[at..].to_vec();
+        out
+    }
+
+    /// The bytes held back when the stream ends: a record it did not finish.
+    pub fn rest(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pending)
     }
 
     /// A pcap record trimmed to its headers, or `None` to keep it whole.
