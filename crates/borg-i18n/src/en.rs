@@ -1600,7 +1600,6 @@ catalog! {
     update_question => "Borg {version} is out, and this computer runs {current}. Install it now?",
     update_moves_sessions => "The command runs in Borg's shell. Open sessions move to the new version once they are idle, and they keep their shells.",
     update_by_manager => "The command runs in Borg's shell with the package manager that installed Borg. Borg runs the new version once it starts again.",
-    update_note => "S skips this version until a newer one is out. N turns the daily check off, and update-check = true in the config turns it back on. After Esc, Borg asks again a day later.",
     update_skipped => "Borg skips {version} and offers the next release once it is out.",
     update_failed => "Updating Borg failed (exit {code}). Ctrl-O shows the output.",
     update_finished => "Updating Borg finished. Ctrl-O shows the output.",
