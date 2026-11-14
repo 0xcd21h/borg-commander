@@ -3,7 +3,7 @@ source: crates/borg-testkit/tests/ui_snapshots.rs
 expression: describe(&buffer)
 ---
 ╭ Network · Live · 1s ──────────────────────────────────────────────────────────────────────────────────────────────────────[=]─[-]╮
-│ 1 Ports  2 Processes  3 Connections  4 Interfaces                                                                                │
+│ 1 Ports  2 Processes  3 Connections  4 Interfaces  5 Neighbors                                                                   │
 │/ Filter by process, host, port or state                                                                                          │
 │Process                                                                                        PID      Down ↓    Up        Conns │
 │browser                                                                                        8239     1.9M/s    29K/s     3     │
@@ -38,7 +38,7 @@ Enter Show process  K Signal  R Stop capture  L Copy proxy settings  / Filter  S
 T Traffic · N Name · C Connections · Ctrl-C Copy PID · Alt-W Maximize                                      ◈ Borg Commander v0.11.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-21 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 22-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
-  1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-9 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 10-22 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 23-51 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 52-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
+  1: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-9 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 10-22 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 23-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-130 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   2: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(153, 153, 153) Rgb(38, 38, 38) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   3: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-94 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 95-95 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 96-103 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 104-104 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 105-113 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 114-114 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 115-123 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 124-124 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 125-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   4: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-130 Rgb(255, 255, 255) Rgb(0, 95, 135) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE

@@ -45,10 +45,13 @@ impl App {
             Effect::StopUpdateChecks => self.stop_update_checks(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
-            Effect::Network { id } => self.network.request(id),
+            Effect::Network { id, neighbors } => self.network.request(id, neighbors),
             Effect::StartupItems { id } => self.startup_items.request(id),
             Effect::Alerts { id, request } => self.alerts.request(id, request),
             Effect::ResolveHosts(addresses) => self.network.resolve(addresses),
+            Effect::ScanSubnet { id, addresses } => self.network.scan(id, addresses),
+            Effect::StopScan { id } => self.network.stop_scan(id),
+            Effect::SaveNeighbors => self.save_neighbors(),
             Effect::Capture { id, request } => self.network.capture(id, request),
             Effect::StopCapture { id } => self.network.stop_capture(id),
             Effect::OpenCapture(path) => self.network.open_capture(path),
@@ -163,6 +166,14 @@ impl App {
             && let Err(error) = dir.save_game2048(game)
         {
             self.state.notice = Some(tr!(game2048_save_error, error = error));
+        }
+    }
+
+    fn save_neighbors(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_neighbors(&self.state.network.memory.saved())
+        {
+            self.state.notice = Some(tr!(network_memory_save_error, error = error));
         }
     }
 

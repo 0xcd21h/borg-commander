@@ -531,7 +531,7 @@ fn selected_scope(network: &super::Network) -> Option<CaptureScope> {
             let (socket, _) = network.connection()?;
             Some(CaptureScope::Connection { transport: socket.transport, local: socket.local, remote: socket.remote? })
         }
-        NetworkPage::Interfaces => None,
+        NetworkPage::Interfaces | NetworkPage::Neighbors => None,
     }
 }
 

@@ -11,7 +11,7 @@ expression: describe(&buffer)
 │backup.example.com              TLS            12      8928     ││Connections · 1                                                 │
 │api.example.com                 TLS            13      6347     ││browser  cdn.example.net:443  TLS  25 packets  15K              │
 │198.51.100.24                   HTTP, TCP      13      1127     ││                                                                │
-│192.0.2.1                       DNS            2       166      ││                                                                │
+│router.home.arpa                DNS            2       166      ││                                                                │
 │                                                                ││                                                                │
 │                                                                ││                                                                │
 │                                                                ││                                                                │

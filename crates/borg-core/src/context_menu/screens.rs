@@ -6,7 +6,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::{ContextCommand, copy, press};
 use crate::menu::when;
-use crate::{Action, Activity, ActivityPage, Alerts, AppState, Menu, MenuEntry, Network, NetworkPage, StartupItems};
+use crate::{
+    Action, Activity, ActivityPage, Alerts, AppState, Menu, MenuEntry, Neighbor, NeighborRow, Network, NetworkPage,
+    Presence, StartupItems,
+};
 
 const SIGNAL_KEY: char = 'k';
 const REGIONS_KEY: char = '1';
@@ -14,6 +17,8 @@ const FILES_KEY: char = '2';
 const TRAFFIC_KEY: char = 'n';
 const RESUME_KEY: char = 'c';
 const ALLOW_KEY: char = 'a';
+const SCAN_KEY: char = 's';
+const FORGET_KEY: u8 = 8;
 
 fn alt(letter: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(letter), KeyModifiers::ALT)
@@ -102,9 +107,12 @@ pub(super) fn network(network: &Network) -> Option<Menu<ContextCommand>> {
     if network.typing() || network.viewer.is_some() {
         return None;
     }
+    if let Some((neighbor, row)) = network.neighbor() {
+        return Some(neighbor_menu(neighbor, row));
+    }
     let text = crate::network::copied_text(network)?;
     let label = match network.page {
-        NetworkPage::Ports | NetworkPage::Interfaces => tr!(context_copy_address),
+        NetworkPage::Ports | NetworkPage::Interfaces | NetworkPage::Neighbors => tr!(context_copy_address),
         NetworkPage::Processes => tr!(context_copy_pid),
         NetworkPage::Connections => tr!(context_copy_remote),
     };
@@ -120,6 +128,25 @@ pub(super) fn network(network: &Network) -> Option<Menu<ContextCommand>> {
         ]);
     }
     Some(Menu { title: text, entries })
+}
+
+fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow) -> Menu<ContextCommand> {
+    let address = neighbor.address.to_string();
+    let mac = neighbor.mac.map(|mac| mac.to_string());
+    let offline = matches!(row.presence, Presence::Offline(_));
+    let forget = offline.then(|| press(tr!(context_forget_host), "F8", KeyCode::F(FORGET_KEY)));
+    Menu {
+        title: address.clone(),
+        entries: [
+            copy(tr!(context_copy_ip), address),
+            when(copy(tr!(context_copy_mac), mac.clone().unwrap_or_default()), mac.is_some()),
+            MenuEntry::Separator,
+            press(tr!(context_scan_subnet), "S", KeyCode::Char(SCAN_KEY)),
+        ]
+        .into_iter()
+        .chain(forget)
+        .collect(),
+    }
 }
 
 /// The selected alert's process and what can be done about it.

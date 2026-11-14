@@ -211,6 +211,11 @@ pub use network::{
     NetworkSample, NetworkSort, Order, PortKey, PortRow, ProcessRow, RESOLVE_BATCH, Rate, SMOOTHING, Socket, SocketKey,
     TcpState, Traffic, Transport, exposure_label, kind_label, service,
 };
+pub use network::{
+    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
+    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Presence, Probe, Probed, SCAN_PORTS, SavedNeighbors,
+    ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
+};
 
 pub use capture::{
     ACK, App, CONNECTION_BUDGET, CWR, Capture, CaptureError, ConnectionBudget, Datagram, Dns, DnsAnswer, DnsData, ECE,

@@ -157,6 +157,9 @@ pub enum ConfirmPurpose {
         request: Box<crate::CaptureRequest>,
         view_filter: String,
     },
+    Scan(Box<crate::SubnetScan>),
+    /// Yes drops a remembered host that is gone from the saved neighbors.
+    ForgetNeighbor(std::net::Ipv4Addr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

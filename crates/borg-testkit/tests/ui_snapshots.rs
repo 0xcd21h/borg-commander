@@ -4445,6 +4445,142 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
     Ok(())
 }
 
+/// The Neighbors page over a made-up home network: the gateway first, vendors where no name
+/// resolves, a private address, a storage box on two addresses, a device that does not answer,
+/// every column once the pane is maximized, the gateway answering with another MAC, the menu of
+/// a row and the question before a scan.
+#[test]
+fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "5 Neighbors")?;
+    ensure_text(&buffer, "router.home.arpa")?;
+    ensure_text(&buffer, "Gateway 192.0.2.1 · DNS 192.0.2.1, 198.51.100.53")?;
+    ensure_no_text(&buffer, "192.0.2.255")?;
+    check("network_neighbors", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Other IPv4 addresses on en0 answer with this MAC address.")?;
+    check("network_neighbor_shared_mac", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Vendor")?;
+    ensure_text(&buffer, "MAC shared")?;
+    check("network_neighbors_wide", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT))).send(key(KeyCode::Home));
+
+    let id = stage.state.network.pending.context("the screen waits for a sample")?;
+    let mut sample = borg_testkit::network::sample(borg_testkit::network::SECONDS);
+    let neighborhood = sample.neighborhood.as_mut().context("the sample reads the neighbors")?;
+    for neighbor in neighborhood.neighbors.iter_mut().filter(|neighbor| neighbor.address.to_string() == "192.0.2.1") {
+        neighbor.mac = borg_core::Mac::parse("00:16:3e:44:55:66");
+    }
+    stage.send(Msg::Network { id, result: Ok(sample) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Gateway MAC changed: 00:27:22:4c:01:01 → 00:16:3e:44:55:66")?;
+    ensure_text(&buffer, "This gateway answered with 00:27:22:4c:01:01")?;
+    check("network_neighbor_gateway_changed", &stage, buffer)?;
+
+    let right =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Right), column: 8, row: 4, modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on a row")?;
+    stage.send(msg);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Copy IP address")?;
+    ensure_text(&buffer, "Copy MAC address")?;
+    check("network_neighbor_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 192.0.2.0/24 on en0?")?;
+    check("network_scan_question", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
+    Ok(())
+}
+
+/// S scans the subnet once asked: hosts that answer join the list with their open ports and
+/// ping time while the footer counts, and Esc offers to stop. Hosts Borg remembers that are
+/// gone show dimmed with the time they were last seen, their details keep the ports an earlier
+/// scan found, and their menu and F8 forget them after asking.
+#[test]
+fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result<()> {
+    use borg_core::{Effect, Probe};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use std::time::Duration;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.state.network.memory = borg_testkit::network::remembered();
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Offline")?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    for _ in 0..8 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Seen Jan 14 18:30")?;
+    ensure_text(&buffer, "Seen Jan  2 09:05")?;
+    check("network_neighbors_offline", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Last seen")?;
+    check("network_neighbor_offline_details", &stage, buffer)?;
+
+    let right = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: 8,
+        row: 12,
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on the offline row")?;
+    stage.send(msg);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forget host")?;
+    check("network_neighbor_offline_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(8)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forget 192.0.2.70?")?;
+    check("network_forget_question", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forgot 192.0.2.70.")?;
+    ensure_no_text(&buffer, "Philips Lighting")?;
+
+    stage.send(key(KeyCode::Home)).send(key(KeyCode::Char('s')));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::ScanSubnet { id, addresses }) = effects.into_iter().next() else { panic!("Enter scans") };
+    let probe = |address: &str, ping: Option<u64>, open: &[u16], refused: bool| Msg::Probed {
+        id,
+        probe: Probe {
+            address: address.parse().unwrap(),
+            ping: ping.map(Duration::from_micros),
+            open: open.to_vec(),
+            refused,
+        },
+        at: borg_testkit::network::NEIGHBORS_READ_AT,
+    };
+    stage
+        .send(probe("192.0.2.1", Some(1_400), &[80, 443], false))
+        .send(probe("192.0.2.2", None, &[], false))
+        .send(probe("192.0.2.31", Some(5_200), &[80, 443], false))
+        .send(probe("192.0.2.77", None, &[], true))
+        .send(probe("192.0.2.93", Some(2_100), &[22], false));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, &format!("Scanning 192.0.2.0/24: 5 of {}, 4 answered", addresses.len()))?;
+    ensure_text(&buffer, "Esc Stop scan")?;
+    ensure_text(&buffer, "192.0.2.93")?;
+    check("network_scan_running", &stage, buffer)?;
+    Ok(())
+}
+
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
 /// the browser, where Enter goes from the process to its connections, whose bytes ] steps
 /// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes

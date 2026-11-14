@@ -58,7 +58,7 @@
   "activity.title": "Activity & memory",
   "activity.description": "Inspect processes, resource use, and memory maps.",
   "network.title": "Network",
-  "network.description": "See open ports, connections, and traffic by process and interface.",
+  "network.description": "See open ports, connections, traffic by process and interface, and the devices on your network.",
   "startup-items.title": "Startup items",
   "startup-items.description": "See what starts on its own, newest change first, and what it runs.",
   "themes.title": "Themes & icons",

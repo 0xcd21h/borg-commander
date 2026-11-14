@@ -12,7 +12,7 @@ expression: describe(&buffer)
 │browser          api.example.com:443    TLS    13      6347     ││Remote       203.0.113.80:443                                   │
 │sshd             198.51.100.24:51522    TCP    8       720      ││Host         cdn.example.net                                    │
 │node             198.51.100.24:50220    HTTP   5       407      ││Server name  cdn.example.net                                    │
-│Unknown process  192.0.2.1:53           DNS    2       166      ││Service      https                                              │
+│Unknown process  router.home.arpa:53    DNS    2       166      ││Service      https                                              │
 │                                                                ││Started      0.020000 s                                         │
 │                                                                ││                                                                │
 │                                                                ││Stream · 1505 · 12K left out                                    │

@@ -557,7 +557,9 @@ O que o menu oferece depende da linha:
   Ficheiros e Shell, como no menu Docker.
 - Linhas da **Rede**: **Copiar endereço**, **Copiar endereço remoto** ou **Copiar PID**, conforme
   aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
-  **Mostrar no monitor de atividade** e **Sinal ou prioridade…**.
+  **Mostrar no monitor de atividade** e **Sinal ou prioridade…**. Um vizinho oferece
+  **Copiar endereço IP**, **Copiar endereço MAC** e **Analisar sub-rede** (S), e um host desligado
+  acrescenta **Esquecer host** (F8).
 - **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
   **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
 - **Itens de arranque**: **Copiar caminho**, **Copiar caminho do programa** e **Copiar comando**,
@@ -1789,8 +1791,9 @@ cada um e onde fica:
 - **Caches**: tamanhos das pastas e índices de nomes, na pasta de cache (consulte
   [Análises de tamanho guardadas](#saved-size-scans)).
 - **Sessões e histórico**: sessões, saída da shell, registo remoto, histórico de pesquisas e de
-  pastas, coleções, computadores emparelhados com as suas chaves e o que o Borg aprendeu sobre os
-  seus discos (`drives.json`), na pasta de estado.
+  pastas, coleções, computadores emparelhados com as suas chaves, o que o Borg aprendeu sobre os
+  seus discos (`drives.json`) e os vizinhos de rede que guarda (`neighbors.json`), na pasta de
+  estado.
 - **Definições**: `config.toml` e os seus temas.
 - **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
 
@@ -2559,14 +2562,15 @@ Conheça-as antes de confiar nele.
 ## Rede
 
 **Alt-N** ou **Comando → Rede** mostra o que esta máquina faz na rede: as portas abertas e quem lhes
-consegue chegar, os processos que comunicam e a que velocidade, cada ligação e as interfaces de
-rede. Faz parte do plugin Sistema incluído, tal como o monitor de atividade. A lista ocupa o painel
-ativo, e o outro painel mostra a linha selecionada em pormenor, com gráficos dos últimos 60
-segundos. O Borg recolhe uma amostra por segundo enquanto o ecrã está aberto e para quando o fecha.
-As velocidades aparecem a partir da segunda amostra, e cada uma é a média dos últimos 3 segundos,
-para que uma lista ordenada por tráfego fique parada o tempo suficiente para a ler.
+consegue chegar, os processos que comunicam e a que velocidade, cada ligação, as interfaces de rede
+e os dispositivos à volta desta máquina na rede local. Faz parte do plugin Sistema incluído, tal
+como o monitor de atividade. A lista ocupa o painel ativo, e o outro painel mostra a linha
+selecionada em pormenor, com gráficos dos últimos 60 segundos. O Borg recolhe uma amostra por
+segundo enquanto o ecrã está aberto e para quando o fecha. As velocidades aparecem a partir da
+segunda amostra, e cada uma é a média dos últimos 3 segundos, para que uma lista ordenada por
+tráfego fique parada o tempo suficiente para a ler.
 
-Prima de **1** a **4**, ou clique num separador, para mudar de página:
+Prima de **1** a **5**, ou clique num separador, para mudar de página:
 
 - **1 Portas** lista cada porta em que um processo escuta, ordenadas por número. **Alcance** indica
   quem se pode ligar: **Todas as redes** para uma porta aberta em todos os endereços, o endereço
@@ -2584,6 +2588,9 @@ Prima de **1** a **4**, ou clique num separador, para mudar de página:
   **Túnel**, **Ponte** ou **Virtual**), o primeiro endereço e as velocidades. ● marca uma interface
   ativa. Os detalhes acrescentam todos os endereços, a MTU, os bytes e pacotes que a interface
   recebeu e enviou até agora, e os erros.
+- **5 Vizinhos** lista os dispositivos da rede local cujo endereço MAC esta máquina conhece, com o
+  fabricante, o nome e o estado, e assinala o gateway e tudo o que pareça suspeito. Consulte
+  [Vizinhos](#neighbors).
 
 O rodapé mostra a velocidade total de receção e envio da máquina em todas as interfaces exceto a de
 loopback. O Borg procura em segundo plano os nomes dos endereços remotos e mostra o nome em vez do
@@ -2591,37 +2598,105 @@ endereço assim que o conhece.
 
 | Tecla | Ação |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Mostrar Portas / Processos / Ligações / Interfaces |
+| 1 / 2 / 3 / 4 / 5 | Mostrar Portas / Processos / Ligações / Interfaces / Vizinhos |
 | `/` | Filtrar as linhas; ↑↓ continuam a mover, Enter mantém o filtro, Esc limpa-o |
-| T / N / P / C | Ordenar por tráfego / nome / porta / ligações; prima de novo para inverter |
+| T / N / P / C / A / M | Ordenar por tráfego / nome / porta / ligações / endereço / endereço MAC; prima de novo para inverter |
 | Enter | Mostrar o processo da linha selecionada no monitor de atividade |
 | K | Mostrar o processo com **Sinal ou prioridade** aberto |
 | R | Capturar o tráfego da linha selecionada ou parar a captura em curso |
-| Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade ou o endereço da interface |
+| S | Analisar a sub-rede do vizinho selecionado (**5 Vizinhos**) |
+| F8 / Delete | Esquecer o host selecionado que está desligado (**5 Vizinhos**) |
+| Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, ou o endereço da interface ou do vizinho |
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
 | Alt-W | Maximizar o painel com o foco |
-| Esc | Voltar à lista e depois fechar o ecrã ou regressar ao monitor de atividade |
+| Esc | Voltar à lista, parar uma análise em curso e depois fechar o ecrã ou regressar ao monitor de atividade |
 
-P ordena as páginas que têm porta, e C as que contam ligações. Clique no cabeçalho de uma coluna
-para ordenar por ela, e faça duplo clique numa linha para mostrar o processo. Enter numa linha sem
-processo passa para os detalhes. Uma linha indica um processo e nenhum ficheiro de programa, por
-isso Alt-O aqui diz-lhe para premir Enter e depois Alt-O no monitor de atividade. O monitor de
-atividade que Enter e K abrem tem o processo
-selecionado, por isso a memória, os sinais e a prioridade ficam à distância de uma tecla (consulte
-[Sinais e prioridade](#signals-and-priority)). Esc aí leva-o de volta ao ecrã de rede, à linha
-onde estava e com os gráficos.
+P ordena as páginas que têm porta, C as que contam ligações, e A e M ordenam **5 Vizinhos**, que não
+tem tráfego para ordenar. Clique no cabeçalho de uma coluna para ordenar por ela, e faça duplo
+clique numa linha para mostrar o processo. Enter numa linha sem processo passa para os detalhes. Uma
+linha indica um processo e nenhum ficheiro de programa, por isso Alt-O aqui diz-lhe para premir
+Enter e depois Alt-O no monitor de atividade. O monitor de atividade que Enter e K abrem tem o
+processo selecionado, por isso a memória, os sinais e a prioridade ficam à distância de uma tecla
+(consulte [Sinais e prioridade](#signals-and-priority)). Esc aí leva-o de volta ao ecrã de rede, à
+linha onde estava e com os gráficos.
 
 Também funciona no sentido inverso. Alt-N no monitor de atividade abre este ecrã na linha do
 processo selecionado em **2 Processos**, com o tráfego e as ligações nos detalhes, e Esc regressa
 ao monitor. Um processo sem ligações nem portas abertas recebe um aviso que o indica.
 
+### Vizinhos
+
+**5 Vizinhos** mostra a tabela ARP (IPv4) e a tabela NDP (IPv6) do sistema: cada dispositivo da rede
+local com que esta máquina falou recentemente, com o endereço, o endereço MAC, o nome e o estado. O
+estado é a palavra que o próprio sistema usa para a entrada: **REACHABLE** respondeu há pouco,
+**STALE** não é verificado há algum tempo, **DELAY** e **PROBE** estão a ser verificados,
+**INCOMPLETE** perguntou e ainda não teve resposta, **FAILED** nunca respondeu e **PERMANENT** nunca
+expira. Os hosts que só responderam a uma análise vêm depois das entradas com endereço MAC, a seguir
+os hosts guardados que estão desligados, e as entradas sem endereço MAC ficam no fim. Os endereços
+desta máquina e as entradas de broadcast e multicast ficam fora da lista. Um painel largo acrescenta
+o fabricante, as portas abertas e o tempo de ping que uma análise encontrou, e uma nota.
+
+O fabricante vem da primeira metade do endereço MAC, procurada no registo do IEEE que acompanha o
+Borg, por isso `3c:2a:f4` aparece como Brother Industries. Os nomes vêm das mesmas pesquisas em
+segundo plano das outras páginas. Até chegar um nome, ou quando um endereço não tem nenhum, um
+painel estreito mostra o fabricante na coluna **Nome**. O rodapé indica o gateway predefinido e os
+servidores DNS. O Borg lê as tabelas a cada segundo enquanto esta página está à vista e a cada 5
+segundos nas outras páginas.
+
+A coluna **Nota** e os detalhes assinalam o que merece atenção:
+
+- **Gateway** marca o gateway predefinido e cada router que a tabela IPv6 indica.
+- **MAC partilhado** marca endereços IPv4 numa mesma interface que respondem com o mesmo endereço
+  MAC. Um router ou um host com vários endereços faz isso. Também o faz um dispositivo que responde
+  por outros, e é esse o aspeto de um ARP spoofing.
+- **MAC do gateway mudou** marca um gateway cujo endereço MAC difere do que o Borg viu primeiro. Um
+  aviso indica-o uma vez, e a nota mantém-se até sair do Borg. Outro dispositivo pode estar a
+  responder pelo gateway. Também a vê depois de entrar noutra rede cujo gateway tem o mesmo
+  endereço, como dois routers que usam ambos 192.168.1.1.
+- **Aleatório** marca um endereço MAC administrado localmente, que não indica fabricante. Os
+  telemóveis usam estes endereços privados, tal como as máquinas virtuais e os contentores.
+
+Os detalhes acrescentam a sub-rede com o endereço desta máquina, os outros endereços que partilham o
+endereço MAC, as **Portas abertas** e o **Ping** que uma análise encontrou, e uma frase para cada
+nota. Em **Esta rede** listam os gateways na interface do vizinho e os servidores DNS.
+
+As tabelas só guardam os dispositivos com que esta máquina falou, e alguns dispositivos ficam
+calados até alguém bater à porta. Prima **S**, ou escolha **Analisar sub-rede** no menu de contexto,
+para os encontrar. O Borg pergunta primeiro e indica a sub-rede, a interface e o número de
+endereços. Depois sonda 16 endereços de cada vez. Cada um recebe um ping, ligações TCP às portas 22,
+80 e 443 e um datagrama UDP vazio para a porta 9 que leva o sistema a perguntar pelo endereço MAC
+desse endereço, e o Borg espera até 1 segundo pelas respostas. Um host que responde ao ping, aceita
+uma ligação ou a recusa entra logo na lista, e um painel largo mostra as portas abertas em
+**Portas** e o tempo de ping em **Ping**. Os endereços que ficam calados continuam ocultos. O rodapé
+conta os endereços sondados e os hosts que responderam, e Esc para a análise. Fechar o ecrã deixa a
+análise a correr, e um aviso indica quando termina.
+
+O ping passa por um socket ICMP que não precisa de direitos de administrador. O Linux só concede
+esse socket aos grupos em `net.ipv4.ping_group_range`, e onde o sistema o recusa, o Borg salta o
+ping e guia-se pelas portas. Uma análise abrange sub-redes IPv4 em interfaces Ethernet, Wi-Fi e
+ponte que estejam ativas, e no máximo 254 endereços: uma sub-rede maior fica reduzida ao /24 à volta
+do endereço desta máquina. Salta esta máquina, o endereço de rede e o endereço de broadcast. Sem
+nenhuma linha selecionada, S analisa a sub-rede da interface do gateway predefinido. Analise apenas
+redes que tem autorização para analisar, porque algumas redes tratam uma análise como um ataque.
+Além das análises e das pesquisas de nomes, a página só lê tabelas que o sistema mantém.
+
+O Borg guarda os hosts que encontra, nas tabelas e nas análises, em `neighbors.json` na sua pasta de
+estado, num ficheiro que só o utilizador pode ler. Guarda-os por rede, que reconhece pela sub-rede e
+pelo endereço MAC do gateway, por isso duas redes que usam ambas 192.168.1.0/24 ficam separadas. Um
+host guardado que desapareceu aparece como **Desligado**, esbatido, com **Visto** e a hora em que
+foi visto pela última vez na coluna **Nota**, e com as portas que uma análise anterior encontrou. Os
+detalhes acrescentam **Visto pela última vez**. Escreva **Desligado** no filtro para manter só esses
+hosts. Prima F8 ou Delete num deles, ou escolha **Esquecer host** no menu de contexto, e o Borg
+pergunta antes de retirar o host do ficheiro. O Borg guarda até 1024 hosts por rede e 32 redes, e
+deixa sair primeiro os que viu há mais tempo.
+
 ### Filtrar
 
 O filtro mantém as linhas que correspondem a todas as palavras que escreve. Uma palavra simples
 corresponde ao processo, ao PID, à porta, ao serviço, ao endereço, ao nome do host, ao estado, ao
-protocolo ou a uma etiqueta que a linha mostra, por isso `postgres`, `5432`, `https` e `example.com`
-funcionam. Uma palavra com nome de campo procura apenas nesse campo:
+protocolo, ao endereço MAC, ao fabricante ou a uma etiqueta que a linha mostra, por isso `postgres`,
+`5432`, `https` e `example.com` funcionam. Uma palavra com nome de campo procura apenas nesse campo:
 
 | Palavra | Mantém |
 | --- | --- |
@@ -2631,7 +2706,9 @@ funcionam. Uma palavra com nome de campo procura apenas nesse campo:
 | `host:example` | Linhas cujo endereço ou nome do host contém o texto; um endereço completo mantém apenas esse endereço |
 | `state:listen`, `state:time` | Linhas TCP num estado que contém o texto |
 | `proto:udp`, `proto:tcp` | Linhas desse protocolo |
-| `if:en0`, `interface:en0` | Interfaces cujo nome contém o texto |
+| `if:en0`, `interface:en0` | Interfaces e vizinhos cujo nome de interface contém o texto |
+| `mac:3c:22`, `mac:3c-22` | Vizinhos e interfaces cujo endereço MAC contém o texto |
+| `vendor:synology` | Vizinhos cujo fabricante contém o texto |
 
 Coloque `!` antes de uma palavra para excluir as linhas que lhe correspondem: `!state:time_wait`
 oculta as ligações a fechar, e `!proc:browser` oculta um programa. O filtro aplica-se a todas as
@@ -2937,6 +3014,13 @@ processos, por isso os sockets de outros utilizadores mostram **Processo desconh
 contagens de bytes de TCP vêm do `ss` quando está instalado; os sockets UDP e as máquinas sem `ss`
 mostram **—** nas velocidades, e os detalhes indicam **O sistema não indica contagens de bytes
 aqui**. Os totais e as velocidades das interfaces funcionam sempre.
+
+No macOS, os vizinhos vêm de `arp -anl` e `ndp -an`, os gateways de `netstat -rn` e os servidores
+DNS de `/etc/resolv.conf`. O `arp` não indica estado, por isso uma entrada IPv4 cujo temporizador
+corre mostra **REACHABLE** e uma expirada mostra **STALE**. No Linux, o Borg lê a tabela de vizinhos
+do kernel por netlink, ou `/proc/net/arp` quando o netlink lhe está vedado, e os gateways de
+`/proc/net/route` e `/proc/net/ipv6_route`. Os servidores DNS vêm de `/etc/resolv.conf`, ou de
+`/run/systemd/resolve/resolv.conf` quando o primeiro só indica o stub do systemd-resolved.
 
 ## Itens de arranque
 

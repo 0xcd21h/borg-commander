@@ -208,6 +208,7 @@ pub struct NetworkSample {
     pub interfaces: Vec<Interface>,
     /// The name of each process that holds a socket.
     pub names: HashMap<u32, String>,
+    pub neighborhood: Option<super::Neighborhood>,
 }
 
 /// The services best known by their port, the same in every language.
