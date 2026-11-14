@@ -1,5 +1,5 @@
 use crate::theme::Styles;
-use borg_core::{Action, AppState, JobState};
+use borg_core::{Action, AppState};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -10,12 +10,14 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// The Jobs button while jobs exist: one job's progress, or how many are running. It is
-/// highlighted while a job waits for an answer.
+/// The Jobs button while jobs exist: one job's progress, how many are running, or how many
+/// finished. It is highlighted while a job waits for an answer.
 fn jobs(state: &AppState) -> Option<(String, bool)> {
-    let waiting = state.jobs.iter().any(|job| matches!(job.state, JobState::Asking(_)));
-    let status = match state.jobs.as_slice() {
-        [] => return None,
+    let waiting = state.jobs.iter().any(|job| job.asking());
+    let running: Vec<&borg_core::Job> = borg_core::running_jobs(&state.jobs).collect();
+    let status = match running.as_slice() {
+        [] if state.jobs.is_empty() => return None,
+        [] => tr!(jobs_done, count = state.jobs.len()),
         [job] => crate::job_view::status(job),
         _ if waiting => tr!(jobs_waiting).to_owned(),
         jobs => tr!(jobs_running, count = jobs.len()),

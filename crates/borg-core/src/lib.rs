@@ -108,7 +108,10 @@ pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
-pub use jobs::{Job, JobCommand, JobKind, JobList, JobState, Question};
+pub use jobs::{
+    Detail, Ending, Gauge, How, Job, JobCommand, JobKind, JobList, MOST_TOASTS, Phase, Question, Reveal, Toast,
+    ToastEvent, Unit, Value, running as running_jobs, shown as shown_jobs, toast_keys_work, visible_toasts,
+};
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};
 pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items};

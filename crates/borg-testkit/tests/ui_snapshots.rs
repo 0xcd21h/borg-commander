@@ -1093,7 +1093,7 @@ fn an_archive_reads_opens_asks_for_its_password_and_warns_before_unpacking() -> 
 }
 
 #[test]
-fn a_long_job_question_for_a_save_shows_over_the_full_screen_editor() -> Result<()> {
+fn a_long_job_question_for_a_save_waits_behind_a_toast_then_shows_over_the_editor() -> Result<()> {
     use borg_core::{EditorFile, EditorSlot, FileStamp, PackedFile};
     let mut stage = archive_stage()?;
     let (side, generation) = open_archive(&mut stage)?;
@@ -1127,6 +1127,13 @@ fn a_long_job_question_for_a_save_shows_over_the_full_screen_editor() -> Result<
     };
     stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(slow) });
     let buffer = stage.render(stage.started)?;
+    ensure_no_text(&buffer, "Always for this file")?;
+    ensure_text(&buffer, "Save waits for you")?;
+    ensure_no_text(&buffer, "Alt-J")?;
+    check("archive_save_slow_toast_over_editor", &stage, buffer)?;
+    let rested = stage.started + Duration::from_secs(2);
+    borg_core::update(&mut stage.state, Msg::Tick, rested);
+    let buffer = stage.render(rested)?;
     ensure_text(&buffer, "Read me first.")?;
     ensure_text(&buffer, "Always for this file")?;
     check("archive_save_slow_over_editor", &stage, buffer)
@@ -1226,27 +1233,136 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     stage.send(skip.unwrap());
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)));
     let buffer = stage.render(later)?;
-    ensure_text(&buffer, "p pause · c cancel")?;
+    ensure_text(&buffer, "Space Fold · P Pause · C Cancel")?;
     let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
     let at = |text: &str| {
-        let (column, row) = shot.find(text).unwrap();
+        let (column, row) = shot.find(text).unwrap_or_else(|| panic!("{text:?} in\n{}", describe(&buffer)));
         borg_ui::mouse_input(&stage.state, crossterm::event::MouseEvent { column, row, ..click }, false, later)
     };
-    assert!(matches!(at("Copying"), Some(Msg::Pointer(borg_core::Pointer::DialogRow(0)))));
-    assert!(matches!(at("c cancel"), Some(Msg::Key(KeyEvent { code: KeyCode::Char('c'), .. }))));
+    assert!(
+        matches!(at("▾ Copy"), Some(Msg::Pointer(borg_core::Pointer::DialogRow(0)))),
+        "a job that asked stays unfolded"
+    );
+    assert!(matches!(at("C Cancel"), Some(Msg::Key(KeyEvent { code: KeyCode::Char('c'), .. }))));
+    let beside = crossterm::event::MouseEvent { column: 0, row: SIZE.rows - 1, ..click };
     assert!(
         matches!(
-            borg_ui::mouse_input(
-                &stage.state,
-                crossterm::event::MouseEvent { column: 0, row: 1, ..click },
-                false,
-                later
-            ),
+            borg_ui::mouse_input(&stage.state, beside, false, later),
             Some(Msg::Pointer(borg_core::Pointer::DismissDialog))
         ),
-        "a click beside the list closes it"
+        "a click beside the jobs panel closes it"
     );
     check("job_list", &stage, buffer)
+}
+
+/// A wide screen with a copy and a folder size count running, and a search that found three
+/// files and a move that failed.
+fn busy_jobs(stage: &mut Stage) -> Result<()> {
+    use borg_core::{ResultSource, SearchProgress, SearchRequest, Side};
+    let copy = running_copy(stage)?;
+    stage.send(key(KeyCode::Down));
+    stage.send(key(KeyCode::F(6)));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let Some(borg_core::Effect::StartJob { id: moved, .. }) = effects.first().cloned() else {
+        anyhow::bail!("a move must start a job")
+    };
+    let failed = borg_jobs::Outcome::Failed("No space left on device".into());
+    stage.send(Msg::Job { id: moved, event: borg_jobs::Event::Finished(failed) });
+    stage.send(key(KeyCode::Tab));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT)));
+    let sizes = stage.state.sizing.as_ref().map(|scan| scan.id).context("Alt-I counts sizes")?;
+    let progress = SearchProgress { visited: 41_230, ..Default::default() };
+    stage.send(Msg::SizeProgress { id: sizes, progress });
+    stage.send(key(KeyCode::Tab));
+    let request = SearchRequest {
+        skip: None,
+        root: "/home/me/projects".into(),
+        query: "*.log".into(),
+        hidden: false,
+        options: Default::default(),
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 70);
+    stage.state.panels[0].begin_search(70);
+    stage.send(Msg::Tick);
+    let found = ["build.log", "test.log", "deploy.log"].map(|name| {
+        let mut file = entry(name, EntryKind::File, 4_096, RECENT, false);
+        file.source = Some(PathBuf::from("/home/me/projects/borg").join(name));
+        file
+    });
+    stage.send(Msg::Batch { side: Side::Left, generation: 70, entries: found.to_vec() });
+    let progress = SearchProgress { visited: 9_812, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 70, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 70, error: None });
+    anyhow::ensure!(stage.state.jobs.iter().any(|job| job.id == copy && job.running()), "the copy still runs");
+    anyhow::ensure!(stage.state.jobs.len() == 4, "four jobs: {:?}", stage.state.jobs);
+    Ok(())
+}
+
+#[test]
+fn the_jobs_panel_folds_and_unfolds_every_kind_of_job() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 120, rows: 30 }, Motion::STILL)?;
+    busy_jobs(&mut stage)?;
+    let later = stage.started + Duration::from_secs(20);
+    borg_core::update(&mut stage.state, Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)), later);
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Jobs · 2 running · 2 done")?;
+    ensure_text(&buffer, "Found 3 items")?;
+    ensure_text(&buffer, "41230 folders")?;
+    check("jobs_panel_folded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('*')));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "[ P Pause ]")?;
+    ensure_text(&buffer, "No space left on device")?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (column, row) = shot.find("[ P Pause ]").context("the selected job's buttons")?;
+    let click = crossterm::event::MouseEvent {
+        column: column + 2,
+        row,
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    };
+    let pressed = borg_ui::mouse_input(&stage.state, click, false, later);
+    assert!(matches!(pressed, Some(Msg::Key(KeyEvent { code: KeyCode::Char('p'), .. }))), "{pressed:?}");
+    check("jobs_panel_unfolded", &stage, buffer)
+}
+
+#[test]
+fn toasts_stack_in_the_corner_and_a_finished_one_offers_its_result() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 120, rows: 30 }, Motion::STILL)?;
+    busy_jobs(&mut stage)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "✓ Found 3 items")?;
+    ensure_text(&buffer, "▶ Folder sizes")?;
+    ensure_no_text(&buffer, "Moving failed")?;
+    check("job_toasts", &stage, buffer)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(7))?;
+    ensure_text(&buffer, "✗ Moving failed: No space left on")?;
+    ensure_no_text(&buffer, "Found 3 items")?;
+
+    let mut stage = stage_with_one_copy()?;
+    let buffer = stage.render(stage.started + Duration::from_secs(1))?;
+    ensure_text(&buffer, "Copied 1 file")?;
+    ensure_text(&buffer, "Alt-G Open")?;
+    check("job_toast_finished", &stage, buffer)?;
+
+    let mut narrow = stage_with_one_copy_at(GridSize { cols: 50, rows: 20 })?;
+    let buffer = narrow.render(narrow.started + Duration::from_secs(1))?;
+    ensure_text(&buffer, "✓ Copied 1 file · Alt-G Open")?;
+    check("job_toast_line", &narrow, buffer)
+}
+
+fn stage_with_one_copy() -> Result<Stage> {
+    stage_with_one_copy_at(GridSize { cols: 120, rows: 30 })
+}
+
+fn stage_with_one_copy_at(size: GridSize) -> Result<Stage> {
+    let mut stage = stage(size, Motion::STILL)?;
+    let id = running_copy(&mut stage)?;
+    let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 310 }, skipped: 0 };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Finished(done) });
+    Ok(stage)
 }
 
 fn peek(stage: &mut Stage, aside: borg_core::Aside, peek: borg_core::Peek) -> Result<()> {

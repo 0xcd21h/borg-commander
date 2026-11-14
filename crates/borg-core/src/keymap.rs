@@ -110,7 +110,11 @@ pub enum Action {
     ToggleMenuBar,
     ToggleRestoreTerminal,
     ToggleScreensaver,
+    /// Toasts that say when jobs start, end or wait.
+    ToggleJobNotifications,
     Jobs,
+    /// Opens the result of the job that finished last.
+    JobResult,
     Find,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),
@@ -256,6 +260,7 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('q'), CTRL, Action::QuickView, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('l'), CTRL, Action::Info, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('j'), ALT, Action::Jobs, Scope::Panels),
+    bind(KeyCode::Char('g'), ALT, Action::JobResult, Scope::Panels),
     bind(KeyCode::Left, ALT_SHIFT, Action::NudgeSplit(-SPLIT_STEP), Scope::Panels),
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];

@@ -336,7 +336,8 @@ impl<'a> Drawing<'_, 'a> {
 /// command, a container's file work, or sizes measured in the background.
 fn activity(scene: &Scene<'_>, side: Side) -> Option<Activity> {
     let state = scene.state;
-    if let Some(job) = state.jobs.iter().rev().find(|job| job.shown_on == side) {
+    if let Some(job) = state.jobs.iter().rev().find(|job| job.running() && job.kind.in_footer() && job.shown_on == side)
+    {
         return Some(job_view::activity(job, scene.now));
     }
     if let Some(operation) = state.operation.as_ref().filter(|op| state.shell.running && op.side == side) {

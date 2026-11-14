@@ -112,7 +112,10 @@ fn draw_localized(buf: &mut Buffer, scene: &Scene<'_>) -> (Vec<Placement>, Optio
 
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
     let under = compose_under_approval(buf, scene, theme, area);
-    let Some(approval) = &scene.state.approval else { return under };
+    let Some(approval) = &scene.state.approval else {
+        crate::toast_view::draw(scene.state, &scene.look(theme), scene.now, buf);
+        return under;
+    };
     draw_approval_on_top(buf, scene, approval);
     (None, Vec::new())
 }
@@ -409,7 +412,7 @@ fn paint_overlay(
             (rect, None, Unfold::FromCenter)
         }
         Overlay::Jobs(list) => {
-            (job_view::draw_jobs(*list, &state.jobs, look, scene.now, screen, buf), None, Unfold::FromCenter)
+            (crate::jobs_sheet::draw(*list, &state.jobs, look, scene.now, layout, buf), None, Unfold::FromCenter)
         }
     };
     let reach = UNFOLD_FLOOR + (FULLY_SHOWN - UNFOLD_FLOOR) * progress;

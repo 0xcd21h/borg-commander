@@ -61,7 +61,7 @@ fn mouse_localized(state: &AppState, event: MouseEvent, double: bool, now: Insta
     if state.shell.captured() || state.effective_view() != View::Panels {
         return None;
     }
-    if let Some(handled) = dialog_mouse(state, &mouse, layout.screen) {
+    if let Some(handled) = dialog_mouse(state, &mouse, &layout, now) {
         return handled;
     }
     if let Some(handled) = overlay_mouse(state, &mouse, layout.screen) {

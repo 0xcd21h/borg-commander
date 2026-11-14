@@ -46,6 +46,8 @@ pub struct Preferences {
     pub agent_cloud: bool,
     /// Reads asked from another computer wait for the user's approval too.
     pub agent_ask_reads: bool,
+    /// Toasts say when a job starts, ends or waits for an answer.
+    pub job_notifications: bool,
 }
 
 impl Preferences {
@@ -67,6 +69,7 @@ impl Preferences {
         agent_log: true,
         agent_cloud: true,
         agent_ask_reads: false,
+        job_notifications: true,
     };
 }
 

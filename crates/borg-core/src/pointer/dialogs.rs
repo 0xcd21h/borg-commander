@@ -22,6 +22,10 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             Vec::new()
         }
         (Pointer::DialogScroll(delta), overlay) => scroll_list(state, overlay, delta, now),
+        (Pointer::DialogRow(row), Overlay::Jobs(list)) => {
+            crate::jobs::on_row(state, list, row);
+            Vec::new()
+        }
         (Pointer::DialogRow(row), overlay) => {
             select_row(state, overlay, row, now);
             Vec::new()
@@ -141,7 +145,7 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
         Overlay::Settings { selected } | Overlay::Plugins { selected } => {
             (*selected, crate::menu::checkbox_items(state).len())
         }
-        Overlay::Jobs(list) => (list.selected, state.jobs.len()),
+        Overlay::Jobs(list) => (list.selected, crate::shown_jobs(&state.jobs).len()),
         Overlay::Folders(dialog) => {
             (dialog.selected, crate::folders::dialog_choices(state, dialog.filter.text()).len())
         }

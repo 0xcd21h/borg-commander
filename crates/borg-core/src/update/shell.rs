@@ -129,7 +129,7 @@ pub(super) fn request_shell_exit(state: &mut AppState, token: String, now: Insta
     state.screensaver = false;
     let effects = actions::perform(state, crate::Action::Quit, now);
     if let Some(crate::Overlay::Confirm(confirm)) = &mut state.overlay {
-        if state.jobs.is_empty() && state.docker.shells.is_empty() {
+        if !state.jobs.iter().any(crate::Job::running) && state.docker.shells.is_empty() {
             confirm.message = tr!(quit_shell_exit).into();
         } else {
             confirm.message = format!("{}\n{}", tr!(quit_shell_exit), confirm.message);

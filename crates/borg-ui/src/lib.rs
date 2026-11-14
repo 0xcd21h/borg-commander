@@ -21,6 +21,7 @@ mod hints;
 mod icons;
 mod install_view;
 mod job_view;
+mod jobs_sheet;
 mod keybar;
 mod kinds;
 mod look;
@@ -43,6 +44,7 @@ mod status_view;
 mod storage_view;
 mod term_view;
 mod theme;
+mod toast_view;
 mod update_view;
 mod viewer_view;
 

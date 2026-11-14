@@ -10,7 +10,7 @@ expression: describe(&buffer)
 │ * build.sh         ││ · kern.log         │
 │ · Cargo.toml       ││ · syslog           │
 │ @ latest.log       ││                    │
-│ · README.md        ││                    │
+│ · README.md  ▶ Folder sizes · Alt-J Jobs │
 ╰ ⠦ Sizes · 15238 sca╯╰ 5 items ───────────╯
  Up to the parent directory
 $
@@ -25,7 +25,7 @@ Alt-I Stop sizes   ◈ Borg Commander v0.11.0
   5: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-11 Rgb(35, 209, 139) Rgb(30, 30, 30) NONE | 12-20 Reset Rgb(30, 30, 30) NONE | 21-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-23 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 24-33 Rgb(132, 160, 132) Rgb(30, 30, 30) NONE | 34-42 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 43-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   6: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-13 Rgb(215, 175, 135) Rgb(30, 30, 30) NONE | 14-20 Reset Rgb(30, 30, 30) NONE | 21-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-23 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 24-31 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 32-42 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 43-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   7: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-13 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 14-20 Reset Rgb(30, 30, 30) NONE | 21-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-42 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 43-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
-  8: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-12 Rgb(175, 215, 175) Rgb(30, 30, 30) NONE | 13-20 Reset Rgb(30, 30, 30) NONE | 21-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-42 Rgb(152, 152, 152) Rgb(30, 30, 30) NONE | 43-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
+  8: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-12 Rgb(175, 215, 175) Rgb(30, 30, 30) NONE | 13-13 Reset Rgb(30, 30, 30) NONE | 14-42 Rgb(95, 175, 215) Rgb(38, 38, 38) NONE | 43-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   9: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 2-2 Rgb(110, 145, 215) Rgb(30, 30, 30) NONE | 3-6 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 7-7 Rgb(101, 109, 113) Rgb(30, 30, 30) NONE | 8-8 Rgb(100, 123, 134) Rgb(30, 30, 30) NONE | 9-9 Rgb(99, 136, 155) Rgb(30, 30, 30) NONE | 10-11 Rgb(97, 150, 176) Rgb(30, 30, 30) NONE | 12-12 Rgb(99, 136, 155) Rgb(30, 30, 30) NONE | 13-13 Rgb(100, 123, 134) Rgb(30, 30, 30) NONE | 14-14 Rgb(101, 109, 113) Rgb(30, 30, 30) NONE | 15-20 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 21-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
  10: 0-43 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  11: 0-43 Reset Reset NONE

@@ -240,7 +240,7 @@ fn command_menu(state: &AppState) -> Menu {
             when(item(tr!(insert_new_line), Action::InsertNewline), !state.shell.busy()),
             check(tr!(quick_view), Action::QuickView, state.aside == Some(crate::Aside::QuickView)),
             check(tr!(info), Action::Info, state.aside == Some(crate::Aside::Info)),
-            when(item(tr!(jobs), Action::Jobs), !state.jobs.is_empty()),
+            item(tr!(jobs), Action::Jobs),
             item(tr!(swap_panels), Action::SwapPanels),
             item(tr!(same_folder_in_other_panel), Action::SameFolder),
             item(tr!(equal_panel_widths), Action::EqualizePanels),
@@ -300,6 +300,7 @@ pub fn settings_items(state: &AppState) -> Vec<MenuItem> {
         ),
         (tr!(restore_shell_output_on_start), Action::ToggleRestoreTerminal, prefs.restore_terminal),
         (tr!(screensaver_when_idle), Action::ToggleScreensaver, prefs.screensaver),
+        (tr!(job_notifications), Action::ToggleJobNotifications, prefs.job_notifications),
     ]
     .into_iter()
     .map(|(label, action, checked)| MenuItem {

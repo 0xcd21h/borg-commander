@@ -111,7 +111,7 @@ pub(crate) fn animate(state: &mut AppState, before: &[Before; 2], now: Instant) 
 
 pub(crate) fn ambient(state: &AppState, now: Instant) -> bool {
     let spinning = state.busy.any_shown(now);
-    let working = !state.jobs.is_empty();
+    let working = state.jobs.iter().any(crate::Job::running);
     let empty_art =
         empty_shown(state) && empty_glitch(now.saturating_duration_since(state.epoch).as_secs_f32()).is_some();
     let rain = state.rain_until.is_some_and(|until| now < until);

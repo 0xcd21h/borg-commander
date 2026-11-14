@@ -91,7 +91,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         message @ (Msg::Sized { .. } | Msg::SizeProgress { .. } | Msg::SizesFinished { .. }) => {
-            crate::measure::receive(state, message)
+            crate::measure::receive(state, message, now)
         }
         Msg::DeleteChecked { id, found } => {
             crate::delete_check::receive(state, id, found);
@@ -105,7 +105,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::results::progress(state, side, generation, progress);
             Vec::new()
         }
-        Msg::Indexed { root, entries, error } => indexed(state, root, entries, error),
+        Msg::Indexed { root, entries, error } => indexed(state, root, entries, error, now),
         Msg::Peeked(peeked) => {
             crate::aside::receive(state, peeked);
             Vec::new()
@@ -115,7 +115,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::GitFinished { id, result } => crate::plugins::finish(state, id, result),
-        Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
+        Msg::Job { id, event } => crate::jobs::on_event(state, id, event, now),
         Msg::Backup(event) => crate::backup::receive(state, event),
         Msg::Storage(report) => crate::storage::receive(state, report),
         Msg::Service(check) => {
@@ -281,7 +281,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
-    crate::jobs::surface_questions(state);
+    crate::jobs::sync(state, now);
     crate::agent::surface(state, now);
     crate::update_offer::surface(state, now);
     effects.extend(crate::relaunch::sync(state));
@@ -359,12 +359,27 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
 }
 
 /// A folder indexed for searching, which says so when Borg was asked to index it.
-fn indexed(state: &mut AppState, root: std::path::PathBuf, entries: usize, error: Option<String>) -> Vec<Effect> {
+fn indexed(
+    state: &mut AppState,
+    root: std::path::PathBuf,
+    entries: usize,
+    error: Option<String>,
+    now: Instant,
+) -> Vec<Effect> {
     let folder = root.display().to_string();
     if let Some(error) = error.filter(|_| state.settings.index_roots.contains(&root)) {
-        state.notice = Some(tr!(index_failed, folder = folder, error = error));
+        let failed = tr!(index_failed, folder = folder, error = error);
+        if !crate::jobs::end_index(state, &root, crate::How::Failed, failed.clone(), now) {
+            state.notice = Some(failed);
+        }
     } else if state.indexing.as_ref() == Some(&root) {
-        state.notice = Some(tr!(index_built, folder = folder, entries = entries));
+        crate::jobs::end_index(
+            state,
+            &root,
+            crate::How::Done,
+            tr!(index_built, folder = folder, entries = entries),
+            now,
+        );
     }
     if state.indexing.as_ref() == Some(&root) {
         state.indexing = None;
