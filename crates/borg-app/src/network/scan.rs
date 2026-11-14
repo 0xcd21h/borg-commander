@@ -88,7 +88,7 @@ async fn run(id: u64, addresses: Vec<Ipv4Addr>, stop: Arc<AtomicBool>, messages:
     let _ = messages.send(Msg::ScanFinished { id, result });
 }
 
-fn epoch_seconds() -> u64 {
+pub(crate) fn epoch_seconds() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 

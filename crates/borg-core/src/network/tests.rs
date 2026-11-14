@@ -1361,3 +1361,5 @@ fn ctrl_c_on_a_neighbor_copies_its_address() {
     press(&mut state, KeyCode::Char('c'), KeyModifiers::CONTROL);
     assert_eq!(state.notice.as_deref(), Some("Copied 192.0.2.1"));
 }
+
+mod port_scans;

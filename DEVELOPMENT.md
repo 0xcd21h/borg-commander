@@ -302,6 +302,19 @@ keyed by `LocalNetwork`, the subnet plus the gateway's MAC address, and saved ow
 and at most once a minute when only the times change. A file that fails to load is left alone and
 nothing is saved over it for the session.
 
+Port scans: `borg-core::port_scan` holds the pure parts. `ports.rs` reads the port lists from
+`services.tsv`, IANA's service name registry with one `port<TAB>name<TAB>common` line per TCP port,
+which `scripts/update-port-names.py` regenerates from the CSV you pass or the one it downloads. The
+common list is every named port from 1 to 1023 plus the registered ports the script lists. The
+module also holds the form, the `Watch` that picks the canary port and spots a sudden run of
+silence, the `Tally` of answers and the `PortScanMemory` saved owner-only as `port-scans.json`.
+`borg-app::port_scan::run` drives a `Prober`, a TCP connect with a timeout in the app, through a
+`JoinSet` at the mode's `ScanPace`. It asks the canary every `canary_every`, reads the job's
+`Control` for pause and cancel, and reports progress every 250 ms. Its tests use a fake host under
+tokio's paused clock, and one connects to a listener it starts on 127.0.0.1. Each scan is a
+`JobKind::PortScan` job, and the finish dialog waits, like the update offer, for the panels and 2
+seconds without a key.
+
 Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
 Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes
 DNS, TLS client and server hellos, HTTP/1 and QUIC. `flows` groups packets into conversations by

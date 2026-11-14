@@ -65,6 +65,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Char('l' | 'L') => return super::capture::copy_key_log_prefix(state),
         KeyCode::Char('k' | 'K') => return show_process(state, true),
         KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::scan(state),
+        KeyCode::Char('p' | 'P') if network.page == NetworkPage::Neighbors => return super::scan_ports(state),
         KeyCode::F(8) | KeyCode::Delete if network.page == NetworkPage::Neighbors => return super::forget(state),
         KeyCode::Char(c) => {
             if let Some(page) = NetworkPage::from_key(c) {

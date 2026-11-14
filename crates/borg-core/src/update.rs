@@ -223,6 +223,8 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Probed { id, probe, at } => crate::network::probed(state, id, probe, at, now),
         Msg::ScanFinished { id, result } => crate::network::scan_finished(state, id, result, now),
+        Msg::ScanTargetResolved { name, result } => crate::port_scan::resolved(state, name, result),
+        Msg::PortScan { id, event } => crate::port_scan::on_event(state, id, event),
         Msg::DockerStats(frame) => {
             crate::docker::stats(state, frame, now);
             Vec::new()
@@ -286,6 +288,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     crate::jobs::surface_questions(state);
     crate::agent::surface(state, now);
     crate::update_offer::surface(state, now);
+    crate::port_scan::surface(state, now);
     effects.extend(crate::relaunch::sync(state));
     effects
 }

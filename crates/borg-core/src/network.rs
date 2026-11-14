@@ -984,6 +984,12 @@ pub(crate) fn scan_finished(state: &mut AppState, id: u64, result: Result<(), St
 }
 
 /// F8 on a host that is gone asks before Borg forgets it.
+/// P: asks which ports of the selected neighbor to scan, or of a host typed in.
+pub(crate) fn scan_ports(state: &mut AppState) -> Vec<Effect> {
+    let target = state.network.neighbor().map(|(neighbor, _)| neighbor.address);
+    crate::port_scan::open_form(state, target)
+}
+
 pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
     let Some((neighbor, row)) = state.network.neighbor() else { return Vec::new() };
     let (IpAddr::V4(address), Presence::Offline(_)) = (neighbor.address, row.presence) else {

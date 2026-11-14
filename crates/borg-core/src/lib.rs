@@ -42,6 +42,7 @@ mod panel;
 mod pattern;
 mod plugins;
 mod pointer;
+mod port_scan;
 mod query;
 mod relaunch;
 mod remote;
@@ -210,6 +211,12 @@ pub use network::{
     Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
     NeighborMemory, NeighborRow, NeighborState, Neighborhood, Presence, Probe, Probed, SCAN_PORTS, SavedNeighbors,
     ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
+};
+pub use port_scan::{
+    Canary, Ending, FIRST_PORT, FormField, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer, PortChoice,
+    PortProgress, PortRange, PortScanEvent, PortScanForm, PortScanMemory, PortScanRecord, PortScanRequest,
+    PortScanResult, PortScanView, PortScans, PortsKind, SILENT_RUN, SavedPortScans, ScanPace, ScanSpeed, Tally, Watch,
+    common_ports, describe as describe_ports, is_private, parse_ports, port_name, scan_of,
 };
 
 pub use capture::{

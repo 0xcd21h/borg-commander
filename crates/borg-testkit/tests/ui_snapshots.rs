@@ -4476,6 +4476,104 @@ fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result
     Ok(())
 }
 
+fn select_neighbor(stage: &mut Stage, address: std::net::IpAddr) -> Result<()> {
+    stage.send(key(KeyCode::Home));
+    for _ in borg_testkit::network::neighborhood().neighbors {
+        if stage.state.network.neighbor().map(|(neighbor, _)| neighbor.address) == Some(address) {
+            return Ok(());
+        }
+        stage.send(key(KeyCode::Down));
+    }
+    anyhow::bail!("{address} is in the list")
+}
+
+/// P on the storage box asks which ports to scan and names a list that does not read; an address
+/// outside the private ranges gets a warning with No as the default. Yes starts a job the job
+/// list shows once the screen is closed, the finished scan says the host seemed to limit it,
+/// Enter lists the open ports with their names, and the host's details keep them.
+#[test]
+fn network_scans_a_hosts_ports_in_the_background_and_reports_when_done() -> Result<()> {
+    use borg_core::{Effect, Ending, PortAnswer, PortScanEvent, Tally};
+    use std::time::Duration;
+    const QUIET: Duration = Duration::from_secs(2);
+    const ANSWERED: usize = 500;
+    let storage_box: std::net::IpAddr = "192.0.2.60".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+
+    stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    stage.send(key(KeyCode::Down)).send(Msg::Paste("22,80,90-80".into())).send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "90-80 ends before it starts.")?;
+    ensure_text(&buffer, "Up to 64 connections at once")?;
+    check("network_port_scan_form", &stage, buffer)?;
+
+    stage.send(ctrl('u')).send(Msg::Paste("22,80,443,8000-8100".into()));
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up)).send(ctrl('u'));
+    for msg in chars("203.0.113.9") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 104 ports on 203.0.113.9 in Fast mode?")?;
+    ensure_text(&buffer, "outside the private ranges")?;
+    check("network_port_scan_outside", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
+
+    stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Enter));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let (id, request) = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::ScanPorts { id, request } => Some((id, request)),
+            _ => None,
+        })
+        .context("Yes starts the scan")?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.network.is_open(), "the screen closes while the scan runs on");
+    let open: Vec<u16> =
+        [22, 80, 139, 443, 445, 548, 631, 873].into_iter().filter(|port| request.ports.contains(port)).collect();
+    stage.send(Msg::PortScan { id, event: PortScanEvent::Progress { done: 180, open: open[..3].to_vec() } });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scanning ports")?;
+    ensure_text(&buffer, "192.0.2.60")?;
+    check("network_port_scan_job", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+    let mut tally = Tally::new(request.ports.clone());
+    for (index, port) in request.ports.iter().enumerate().take(ANSWERED) {
+        tally.record(index, if open.contains(port) { PortAnswer::Open } else { PortAnswer::Closed });
+    }
+    let result = tally.result(Ending::RateLimited { port: 22 });
+    let at = borg_testkit::network::NEIGHBORS_READ_AT;
+    stage.send(Msg::PortScan { id, event: PortScanEvent::Finished { result, at } });
+    let rested = stage.state.idle_since + QUIET;
+    borg_core::update(&mut stage.state, Msg::Tick, rested);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Port scan finished")?;
+    ensure_text(&buffer, "Slow mode may get through.")?;
+    check("network_port_scan_done", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Open ports on 192.0.2.60")?;
+    ensure_text(&buffer, "22     ssh")?;
+    check("network_port_scan_result", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Port scan")?;
+    ensure_text(&buffer, "445    microsoft-ds")?;
+    check("network_neighbor_port_scan", &stage, buffer)
+}
+
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
 /// the browser, where Enter goes from the process to its connections, whose bytes ] steps
 /// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes

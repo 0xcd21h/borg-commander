@@ -558,8 +558,8 @@ O que o menu oferece depende da linha:
 - Linhas da **Rede**: **Copiar endereço**, **Copiar endereço remoto** ou **Copiar PID**, conforme
   aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
   **Mostrar no monitor de atividade** e **Sinal ou prioridade…**. Um vizinho oferece
-  **Copiar endereço IP**, **Copiar endereço MAC** e **Analisar sub-rede** (S), e um host desligado
-  acrescenta **Esquecer host** (F8).
+  **Copiar endereço IP**, **Copiar endereço MAC**, **Analisar portas…** (P) e **Analisar sub-rede**
+  (S), e um host desligado acrescenta **Esquecer host** (F8).
 - **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
   **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
 - **Itens de arranque**: **Copiar caminho**, **Copiar caminho do programa** e **Copiar comando**,
@@ -1792,8 +1792,8 @@ cada um e onde fica:
   [Análises de tamanho guardadas](#saved-size-scans)).
 - **Sessões e histórico**: sessões, saída da shell, registo remoto, histórico de pesquisas e de
   pastas, coleções, computadores emparelhados com as suas chaves, o que o Borg aprendeu sobre os
-  seus discos (`drives.json`) e os vizinhos de rede que guarda (`neighbors.json`), na pasta de
-  estado.
+  seus discos (`drives.json`), os vizinhos de rede que guarda (`neighbors.json`) e a última análise
+  de portas de cada host (`port-scans.json`), na pasta de estado.
 - **Definições**: `config.toml` e os seus temas.
 - **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
 
@@ -2571,7 +2571,7 @@ Prima de **1** a **5**, ou clique num separador, para mudar de página:
   recebeu e enviou até agora, e os erros.
 - **5 Vizinhos** lista os dispositivos da rede local cujo endereço MAC esta máquina conhece, com o
   fabricante, o nome e o estado, e assinala o gateway e tudo o que pareça suspeito. Consulte
-  [Vizinhos](#neighbors).
+  [Vizinhos](#neighbors) e [Analisar portas](#scanning-ports).
 
 O rodapé mostra a velocidade total de receção e envio da máquina em todas as interfaces exceto a de
 loopback. O Borg procura em segundo plano os nomes dos endereços remotos e mostra o nome em vez do
@@ -2585,6 +2585,7 @@ endereço assim que o conhece.
 | Enter | Mostrar o processo da linha selecionada no monitor de atividade |
 | K | Mostrar o processo com **Sinal ou prioridade** aberto |
 | R | Capturar o tráfego da linha selecionada ou parar a captura em curso |
+| P | Analisar as portas do vizinho selecionado (**5 Vizinhos**) |
 | S | Analisar a sub-rede do vizinho selecionado (**5 Vizinhos**) |
 | F8 / Delete | Esquecer o host selecionado que está desligado (**5 Vizinhos**) |
 | Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, ou o endereço da interface ou do vizinho |
@@ -2671,6 +2672,61 @@ detalhes acrescentam **Visto pela última vez**. Escreva **Desligado** no filtro
 hosts. Prima F8 ou Delete num deles, ou escolha **Esquecer host** no menu de contexto, e o Borg
 pergunta antes de retirar o host do ficheiro. O Borg guarda até 1024 hosts por rede e 32 redes, e
 deixa sair primeiro os que viu há mais tempo.
+
+### Analisar portas
+
+Prima **P** num vizinho, ou escolha **Analisar portas…** no seu menu de contexto, para ver em que
+portas TCP um host aceita ligações. O diálogo abre com o endereço do vizinho em **Host**, e pode
+escrever aí outro endereço ou um nome de host. **Portas** escolhe o que tentar:
+
+- **Comuns**: 720 portas. São as portas de 1 a 1023 a que a IANA atribui um serviço e algumas
+  dezenas de portas registadas que servidores e dispositivos domésticos usam muitas vezes, como 3306
+  para MySQL, 5432 para PostgreSQL, 6379 para Redis, 8080 e 27017 para MongoDB.
+- **Todas**: todas as portas de 1 a 65535.
+- **Lista**: as portas que escrever em **Lista**, como `22,80,8000-8100`.
+
+**Modo** define o ritmo:
+
+- **Rápido** mantém até 64 ligações abertas ao mesmo tempo e dá a cada uma 1 segundo para responder.
+- **Lento** abre uma nova ligação a cada 100 a 300 ms, num intervalo escolhido ao acaso, mantém até
+  16 abertas ao mesmo tempo e dá a cada uma 3 segundos. Use-o em hosts e firewalls que limitam a
+  rapidez com que se pode ligar.
+
+Tab, ↑ e ↓ passam de um campo para outro, ← e → mudam uma escolha, e Enter inicia a análise. Por
+baixo dos campos, o diálogo explica o modo e mostra o que a última análise do host encontrou. O Borg
+resolve primeiro um nome de host e usa o seu primeiro endereço IPv4, ou o primeiro endereço quando
+não tem nenhum IPv4. Depois pergunta, indicando o número de portas, o host e o modo. Um host fora
+dos intervalos privados e fora das redes a que esta máquina está ligada recebe um aviso, e a
+pergunta abre com **Não** selecionado. Os intervalos privados são 10.0.0.0/8, 172.16.0.0/12,
+192.168.0.0/16, 100.64.0.0/10, os endereços de ligação local e de loopback, e os endereços IPv6
+locais únicos. Analise apenas hosts que são seus ou que tem autorização para testar.
+
+A análise corre como uma tarefa, por isso pode fechar o ecrã de rede e continuar a trabalhar. Alt-J
+mostra quanto já avançou e quantas portas abertas encontrou, p põe-na em pausa e c cancela-a, e sair
+do Borg pede confirmação primeiro. Cada porta recebe uma ligação TCP. Uma porta que a aceita está
+**aberta**, uma que a recusa está **fechada**, e uma que fica calada até o tempo acabar está
+**filtrada**. O Borg fecha cada ligação logo a seguir e não envia nada por ela.
+
+Quando a análise termina, **Análise de portas concluída** abre assim que os painéis, o monitor de
+atividade ou o ecrã de rede estiverem à vista sem nenhum diálogo aberto e não tiver premido nenhuma
+tecla durante 2 segundos, por isso nunca apanha teclas destinadas à consola ou ao editor. Indica o
+host e conta as portas abertas, fechadas e filtradas. Enter lista as portas abertas com o nome de
+serviço que a IANA dá a cada uma, e ↑ e ↓ percorrem uma lista longa. Se cancelar uma análise, um
+aviso indica quantas portas abertas encontrou.
+
+Alguns hosts e firewalls deixam de responder a uma análise demasiado rápida. Para dar por isso, o
+Borg vigia a primeira porta que respondeu, de preferência uma aberta, e volta a perguntar-lhe a cada
+5 segundos. Também pergunta logo quando 40 portas seguidas ficam caladas imediatamente depois de 40
+em que pelo menos metade respondeu. Quando essa porta fica calada duas vezes seguidas, o Borg para a
+análise e guarda o que encontrou. O diálogo diz então que o host ou uma firewall parece limitar a
+análise, conta as portas a que não chegou e sugere o modo Lento.
+
+O Borg guarda a última análise de cada host em `port-scans.json` na sua pasta de estado, num
+ficheiro que só o utilizador pode ler, com a hora, o modo, as portas abertas e as contagens. Tal
+como nos vizinhos, os hosts da rede ligada ficam separados pelo endereço MAC do gateway. O Borg
+guarda as 256 análises mais recentes. Os detalhes de um vizinho mostram a última análise em
+**Análise de portas**: **Analisado** com a hora, o modo e o número de portas, e depois as portas
+**Abertas** com os seus nomes.
 
 ### Filtrar
 

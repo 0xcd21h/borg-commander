@@ -19,6 +19,7 @@ const RESUME_KEY: char = 'c';
 const ALLOW_KEY: char = 'a';
 const SCAN_KEY: char = 's';
 const FORGET_KEY: u8 = 8;
+const PORTS_KEY: char = 'p';
 
 fn alt(letter: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(letter), KeyModifiers::ALT)
@@ -141,6 +142,7 @@ fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow) -> Menu<ContextCommand> 
             copy(tr!(context_copy_ip), address),
             when(copy(tr!(context_copy_mac), mac.clone().unwrap_or_default()), mac.is_some()),
             MenuEntry::Separator,
+            press(tr!(context_scan_ports), "P", KeyCode::Char(PORTS_KEY)),
             press(tr!(context_scan_subnet), "S", KeyCode::Char(SCAN_KEY)),
         ]
         .into_iter()

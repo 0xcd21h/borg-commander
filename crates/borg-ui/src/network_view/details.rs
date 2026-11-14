@@ -10,12 +10,13 @@ use crate::{
     docker_view::{Facts, Series, charts, tiles},
     format,
     look::Look,
+    port_scan_view::{limited, port_row, when},
 };
 use borg_core::{
-    Interface, Meter, Neighbor, NeighborRow, Network, NetworkPage, PortRow, Presence, ProcessRow, Rate, Socket,
-    kind_label, scanned_ports, service,
+    AppState, Interface, Meter, Neighbor, NeighborRow, Network, NetworkPage, PortRow, PortScanRecord, Presence,
+    ProcessRow, Rate, Socket, kind_label, scanned_ports, service,
 };
-use borg_i18n::tr;
+use borg_i18n::{Count, count, tr};
 use jiff::Zoned;
 use ratatui::{buffer::Buffer, layout::Rect};
 use unicode_width::UnicodeWidthStr;
@@ -29,7 +30,8 @@ const TABLE_STATE_WIDTH: u16 = 12;
 const SEPARATOR: &str = " · ";
 const LIST_SEPARATOR: &str = ", ";
 
-pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
+pub(super) fn draw_details(state: &AppState, look: &Look<'_>, rect: Rect, clock: &Zoned, buf: &mut Buffer) {
+    let network = &state.network;
     let focused = network.details_focused;
     match network.page {
         NetworkPage::Ports => match network.port() {
@@ -85,7 +87,10 @@ pub(super) fn draw_details(network: &Network, look: &Look<'_>, rect: Rect, clock
             }
         },
         NetworkPage::Neighbors => match network.neighbor() {
-            Some((neighbor, entry)) => neighbor_details(network, neighbor, entry, look, rect, clock, buf),
+            Some((neighbor, entry)) => {
+                let scan = borg_core::scan_of(state, neighbor.address);
+                neighbor_details(network, (neighbor, entry), scan, look, rect, clock, buf)
+            }
             None => {
                 _ = crate::results_view::pane_frame(
                     network.expanded,
@@ -338,8 +343,8 @@ fn interface_details(
 
 fn neighbor_details(
     network: &Network,
-    neighbor: &Neighbor,
-    entry: NeighborRow,
+    (neighbor, entry): (&Neighbor, NeighborRow),
+    scan: Option<&PortScanRecord>,
     look: &Look<'_>,
     rect: Rect,
     clock: &Zoned,
@@ -368,6 +373,8 @@ fn neighbor_details(
         tr!(network_last_seen_label),
         tr!(network_gateway_label),
         tr!(network_dns_label),
+        tr!(network_port_scan_label),
+        tr!(network_open_ports_label),
     ];
     let mut facts = facts(body, 0, &labels, look);
     facts.add(buf, labels[0], neighbor.mac.map_or_else(String::new, |mac| mac.to_string()));
@@ -406,6 +413,9 @@ fn neighbor_details(
         }
         y += 1;
     }
+    if let Some(scan) = scan {
+        y = port_scan(scan, body, y, &labels, look, clock, buf);
+    }
     if y >= body.height {
         return;
     }
@@ -417,6 +427,44 @@ fn neighbor_details(
     facts.add(buf, labels[9], gateways.join(LIST_SEPARATOR));
     let servers: Vec<String> = neighborhood.dns.iter().map(ToString::to_string).collect();
     facts.add(buf, labels[10], servers.join(LIST_SEPARATOR));
+}
+
+/// The host's last port scan under its own heading: when and how, each open port with its name,
+/// and why it stopped early. Returns the row after it.
+fn port_scan(
+    scan: &PortScanRecord,
+    body: Rect,
+    y: u16,
+    labels: &[&str],
+    look: &Look<'_>,
+    clock: &Zoned,
+    buf: &mut Buffer,
+) -> u16 {
+    let theme = look.theme;
+    if y < body.height {
+        text(buf, row(body, y), tr!(network_port_scan_heading), heading(theme));
+    }
+    let mut facts = facts(body, y + 1, labels, look);
+    let how = [when(scan.at, clock), scan.speed.label().to_owned(), count(scan.count, Count::Port)];
+    facts.add(buf, tr!(network_port_scan_label), how.join(SEPARATOR));
+    if scan.open.is_empty() {
+        facts.add(buf, tr!(network_open_ports_label), tr!(port_scan_none));
+    }
+    for (index, port) in scan.open.iter().enumerate() {
+        let label = if index == 0 { tr!(network_open_ports_label) } else { "" };
+        facts.add(buf, label, port_row(*port));
+    }
+    let mut y = facts.y + 1;
+    if let Some(note) = limited(scan) {
+        for line in wrap(&note, usize::from(body.width)) {
+            if y < body.height {
+                text(buf, row(body, y), line, theme.styles.notice);
+            }
+            y += 1;
+        }
+        y += 1;
+    }
+    y
 }
 
 fn warnings(neighbor: &Neighbor, entry: NeighborRow) -> Vec<String> {
